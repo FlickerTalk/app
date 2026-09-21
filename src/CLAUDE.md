@@ -38,8 +38,11 @@ Faltan las pantallas de llamada, añadir contacto, detalle de contacto y primera
   plugins son web components: Vue tiene que tratarlos como elementos personalizados
   (`compilerOptions.isCustomElement`), no como componentes suyos.
 - Ajustes incluye el interruptor del buzón (`§19`), **activado por defecto**: si se desactiva,
-  no se guarda nada del usuario en el servidor. También el color (Ember por defecto, Aurora o
-  Mono) y la apariencia (oscuro por defecto, claro o sistema).
+  no se guarda nada del usuario en el servidor. También el enrutado de llamadas (`§17`: solo
+  directa, relay cuando haga falta —por defecto— o siempre relay, que oculta la IP al contacto),
+  el color (Ember por defecto, Aurora o Mono) y la apariencia (oscuro por defecto, claro o
+  sistema). Todas estas preferencias viven en `preferences.ts` y `theme.ts`, solo en el
+  dispositivo.
 - En pantallas anchas el contenido se desplaza con `.ft-tabs-frame`, no sobre `ion-tabs`:
   `IonTabs` pone un `inset: 0` inline que pisaría cualquier regla CSS.
 - Las llamadas de voz y vídeo (`§66`) necesitan su propia pantalla (componente por definir).
