@@ -2,11 +2,12 @@
 import { IonIcon, IonPage, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } from "@ionic/vue";
 import { callOutline, chatbubblesOutline, settingsOutline } from "ionicons/icons";
 import NavRail from "../components/NavRail.vue";
+import { t } from "../i18n";
 
 const tabs = [
-  { tab: "chats", href: "/tabs/chats", label: "Chats", icon: chatbubblesOutline },
-  { tab: "calls", href: "/tabs/calls", label: "Calls", icon: callOutline },
-  { tab: "settings", href: "/tabs/settings", label: "Settings", icon: settingsOutline },
+  { tab: "chats", href: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline },
+  { tab: "calls", href: "/tabs/calls", label: t("tabs.calls"), icon: callOutline },
+  { tab: "settings", href: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline },
 ];
 </script>
 

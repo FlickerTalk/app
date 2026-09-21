@@ -26,3 +26,13 @@ export function storedCallRouting(): CallRouting {
 export function setCallRouting(routing: CallRouting) {
   localStorage.setItem(CALL_ROUTING_KEY, routing);
 }
+
+const ONBOARDED_KEY = "ft-onboarded";
+
+export function isOnboarded(): boolean {
+  return localStorage.getItem(ONBOARDED_KEY) === "1";
+}
+
+export function setOnboarded() {
+  localStorage.setItem(ONBOARDED_KEY, "1");
+}

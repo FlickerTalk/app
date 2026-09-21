@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { routes } from "./router";
+import { onboardingGuard, routes } from "./router";
+import { setOnboarded } from "./preferences";
 
 describe("routes", () => {
   it("redirects the root to the chats tab", () => {
@@ -11,6 +12,21 @@ describe("routes", () => {
     expect(tabs?.children?.map((child) => child.path)).toEqual(
       expect.arrayContaining(["chats", "calls", "settings"]),
     );
+  });
+
+  it("has a screen for the welcome, adding contacts, a contact and a call", () => {
+    const paths = routes.map((route) => route.path);
+    expect(paths).toEqual(
+      expect.arrayContaining(["/welcome", "/add-contact", "/contact/:id", "/call/:id"]),
+    );
+  });
+
+  it("sends a first run to the welcome screen", () => {
+    localStorage.clear();
+    expect(onboardingGuard("/tabs/chats")).toBe("/welcome");
+    expect(onboardingGuard("/welcome")).toBe(true);
+    setOnboarded();
+    expect(onboardingGuard("/tabs/chats")).toBe(true);
   });
 
   it("opens a conversation full screen, outside the tabs", () => {

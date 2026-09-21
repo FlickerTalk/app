@@ -10,12 +10,13 @@ import {
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
+import { t } from "../i18n";
 import data from "../mock/chats.json";
 
 const sections = [
-  { path: "/tabs/chats", label: "Chats", icon: chatbubblesOutline, activeIcon: chatbubbles },
-  { path: "/tabs/calls", label: "Calls", icon: callOutline, activeIcon: call },
-  { path: "/tabs/settings", label: "Settings", icon: settingsOutline, activeIcon: settings },
+  { path: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline, activeIcon: chatbubbles },
+  { path: "/tabs/calls", label: t("tabs.calls"), icon: callOutline, activeIcon: call },
+  { path: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline, activeIcon: settings },
 ];
 
 const route = useRoute();

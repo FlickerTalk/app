@@ -6,21 +6,24 @@ Test Utils y Playwright.
 
 Diseño aprobado el 2026-09-21 (`§84`). Estructura:
 
-| Ruta                 | Contenido                                                                  |
-| -------------------- | -------------------------------------------------------------------------- |
-| `router.ts`          | pestañas `/tabs/{chats,calls,settings}` y conversación `/chat/:id`         |
-| `views/`             | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage` |
-| `components/`        | `NavRail`, `ChatThread`, `MessageBubble`, `Avatar`                          |
-| `theme/`             | `variables.css` (tokens de Ember, Aurora y Mono, claro y oscuro), `base.css` |
-| `theme.ts`           | color y apariencia elegidos en Ajustes                                      |
-| `mock/chats.json`    | datos de ejemplo hasta que existan los comandos de `ft-core`                |
+| Ruta                     | Contenido                                                                |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `router.ts`              | `/welcome`, pestañas `/tabs/{chats,calls,settings}`, `/chat/:id`, `/add-contact`, `/contact/:id`, `/call/:id`; `onboardingGuard` manda la primera ejecución a `/welcome` |
+| `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage` |
+| `components/`            | `NavRail`, `ChatThread`, `MessageBubble`, `Avatar`, `QrCode`             |
+| `theme/`                 | `variables.css` (tokens de Ember, Aurora y Mono, claro y oscuro), `base.css` |
+| `theme.ts`               | color y apariencia elegidos en Ajustes                                    |
+| `preferences.ts`         | buzón, enrutado de llamadas y si ya se vio la bienvenida                  |
+| `i18n.ts`, `i18n/en.json`| catálogo de textos; inglés como fuente, sin traducciones en la fase 1     |
+| `mock/chats.json`        | datos de ejemplo hasta que existan los comandos de `ft-core`              |
 
 Cada componente tiene su test al lado (`*.test.ts`, Vitest + Vue Test Utils + happy-dom); los
-tests stubean Ionic (`src/__tests__/setup.ts`). Comandos: `npm test`, `npm run typecheck`.
+tests stubean Ionic e instalan el catálogo (`src/__tests__/setup.ts`). Comandos: `npm test`,
+`npm run typecheck`.
 
-Pendiente: los textos están escritos directamente en inglés; falta pasarlos al catálogo i18n. Las
-preferencias de tema viven en `localStorage` hasta que exista el almacén local de `ft-storage`.
-Faltan las pantallas de llamada, añadir contacto, detalle de contacto y primera ejecución.
+Pendiente: sustituir los datos de ejemplo por los comandos de `ft-core`; las preferencias viven en
+`localStorage` hasta que exista el almacén local de `ft-storage`; el escaneo de QR es todavía un
+marco de cámara falso y los estados de llamada son fijos.
 
 ## Reglas
 

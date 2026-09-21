@@ -26,7 +26,7 @@ const style = computed(() => ({
 <template>
   <span class="ft-avatar" :style="style">
     {{ initials }}
-    <span v-if="connected" class="ft-avatar__spark ft-spark" role="img" aria-label="Directly connected" />
+    <span v-if="connected" class="ft-avatar__spark ft-spark" role="img" :aria-label="$t('status.connected')" />
   </span>
 </template>
 

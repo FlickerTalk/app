@@ -15,14 +15,14 @@ const DIRECTION_ICON: Record<string, string> = {
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>Calls</ion-title>
+        <ion-title>{{ $t("tabs.calls") }}</ion-title>
       </ion-toolbar>
     </ion-header>
 
     <ion-content>
       <ion-header collapse="condense" class="ion-no-border">
         <ion-toolbar>
-          <ion-title size="large">Calls</ion-title>
+          <ion-title size="large">{{ $t("tabs.calls") }}</ion-title>
         </ion-toolbar>
       </ion-header>
 
@@ -41,18 +41,18 @@ const DIRECTION_ICON: Record<string, string> = {
               <ion-icon
                 :icon="DIRECTION_ICON[call.direction]"
                 class="ft-call__direction"
-                :aria-label="call.direction"
+                :aria-label="$t(`calls.${call.direction}`)"
                 role="img"
               />
               <ion-icon
                 :icon="call.kind === 'video' ? videocamOutline : callOutline"
-                :aria-label="call.kind === 'video' ? 'Video call' : 'Voice call'"
+                :aria-label="call.kind === 'video' ? $t('chat.videoCall') : $t('chat.voiceCall')"
                 role="img"
               />
-              <span>{{ call.time }}</span>
+              <span>{{ call.kind === "video" ? $t("calls.video") : $t("calls.voice") }} · {{ call.time }}</span>
             </span>
           </span>
-          <button type="button" class="ft-round ft-round--ghost" aria-label="Call back">
+          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('calls.callBack')">
             <ion-icon :icon="call.kind === 'video' ? videocamOutline : callOutline" aria-hidden="true" />
           </button>
         </li>

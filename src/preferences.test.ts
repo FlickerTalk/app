@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { setCallRouting, setMailbox, storedCallRouting, storedMailbox } from "./preferences";
+import {
+  isOnboarded,
+  setCallRouting,
+  setMailbox,
+  setOnboarded,
+  storedCallRouting,
+  storedMailbox,
+} from "./preferences";
 
 describe("preferences", () => {
   beforeEach(() => localStorage.clear());
@@ -19,6 +26,12 @@ describe("preferences", () => {
     expect(storedCallRouting()).toBe("always");
     setCallRouting("direct");
     expect(storedCallRouting()).toBe("direct");
+  });
+
+  it("knows whether the welcome screen was already seen", () => {
+    expect(isOnboarded()).toBe(false);
+    setOnboarded();
+    expect(isOnboarded()).toBe(true);
   });
 
   it("ignores an unknown stored value", () => {
