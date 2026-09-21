@@ -7,8 +7,9 @@ Conexiones P2P: `PeerConnection`, ICE y `DataChannel` en Rust, **sin depender de
 ## Responsabilidades
 
 - DataChannel `ordered = true`, `reliable = true` (`§22`).
-- ICE con nuestros STUN y TURN (coturn en los 3 nodos, `§16`; el STUN de Google solo durante el
-  PoC) y trickle ICE (`§15`).
+- ICE con nuestros STUN y TURN (coturn en los 3 nodos, `§16`) y trickle ICE (`§15`). El STUN de
+  Google es solo de respaldo: WebRTC consulta todos los STUN a la vez, así que se añade a la
+  configuración **únicamente si los nuestros no responden** (y durante el PoC).
 - Producir y consumir SDP y candidatos ICE. El **transporte** del signaling no es de este crate:
   va por push a través de `ft-push` (`§13`).
 - Reconexión.
