@@ -30,3 +30,7 @@ Ionic; los propios del chat se hacen en Vue encima de ellos.
 - `<ft-settings>` incluye el interruptor del buzón (`§19`), **activado por defecto**: si se
   desactiva, no se guarda nada del usuario en el servidor.
 - Las llamadas de voz y vídeo (`§66`) necesitan su propia pantalla (componente por definir).
+- **Estilo** (`§84`): bonito, minimalista y con un toque moderno. **Responsive**: aunque de
+  momento solo se usa en la app móvil, la UI es web y se adapta al ancho; la barra de pestañas
+  inferior pasa a ser un NavigationRail (barra lateral de iconos) en pantallas anchas. El diseño
+  sale de Claude Design (`architecture/design/claude-design-brief.md`).
