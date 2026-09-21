@@ -24,3 +24,6 @@ Paquete `.ftplugin`: `module.json`, `dist/index.js`, `dist/style.css`, `assets/`
   transformaciones locales y comandos sobre datos dados explícitamente — App Store 4.7).
 - Una capacidad nativa nueva = nueva versión del Core + `minCoreVersion`, nunca código en el
   plugin (`§51`).
+- **Modo desarrollador**: carga un plugin desde una carpeta local sin firmar, para que los autores
+  lo prueben en la app real. Solo con activación explícita del usuario y un aviso visible; nunca
+  en el flujo normal de instalación, que exige firma (`§50`).
