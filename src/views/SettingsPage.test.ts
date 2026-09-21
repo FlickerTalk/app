@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
-import { IonToggle } from "@ionic/vue";
+import { IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
 import SettingsPage from "./SettingsPage.vue";
 
 describe("SettingsPage", () => {
@@ -21,6 +21,14 @@ describe("SettingsPage", () => {
     expect(text).toContain("Move to a new phone");
     expect(text).toContain("Backup");
     expect(text).not.toContain("Export identity");
+  });
+
+  it("lets the user choose how calls are routed", () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findComponent(IonSelect);
+    expect(select.attributes("aria-label")).toBe("Calls");
+    expect(select.attributes("value")).toBe("auto");
+    expect(wrapper.findAllComponents(IonSelectOption)).toHaveLength(3);
   });
 
   it("lets the user pick one of the three colors", async () => {

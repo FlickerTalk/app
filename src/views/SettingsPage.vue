@@ -9,6 +9,8 @@ import {
   IonList,
   IonNote,
   IonPage,
+  IonSelect,
+  IonSelectOption,
   IonTitle,
   IonToggle,
   IonToolbar,
@@ -16,6 +18,7 @@ import {
 import {
   archiveOutline,
   banOutline,
+  callOutline,
   colorPaletteOutline,
   contrastOutline,
   copyOutline,
@@ -32,6 +35,13 @@ import {
 import Avatar from "../components/Avatar.vue";
 import data from "../mock/chats.json";
 import {
+  setCallRouting,
+  setMailbox,
+  storedCallRouting,
+  storedMailbox,
+  type CallRouting,
+} from "../preferences";
+import {
   applyAppearance,
   applyDirection,
   storedAppearance,
@@ -40,11 +50,18 @@ import {
   type Direction,
 } from "../theme";
 
-// The offline mailbox is on by default (Plan §19).
-const mailbox = ref(true);
+const mailbox = ref(storedMailbox());
 
 function onMailboxChange(event: CustomEvent<{ checked: boolean }>) {
   mailbox.value = event.detail.checked;
+  setMailbox(mailbox.value);
+}
+
+const callRouting = ref(storedCallRouting());
+
+function onCallRoutingChange(event: CustomEvent<{ value: CallRouting }>) {
+  callRouting.value = event.detail.value;
+  setCallRouting(callRouting.value);
 }
 
 const colors: { id: Direction; label: string; swatch: string }[] = [
@@ -109,6 +126,21 @@ function chooseAppearance(id: Appearance) {
               <span class="ft-item__title">Offline mailbox</span>
               <span class="ft-item__note">Encrypted · deleted on pickup</span>
             </ion-toggle>
+          </ion-item>
+          <!-- Plan §17/§67: "always" hides your IP from the contact; "direct" never uses our relay. -->
+          <ion-item lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="callOutline" aria-hidden="true" /></span>
+            <ion-select
+              :value="callRouting"
+              aria-label="Calls"
+              label="Calls"
+              interface="action-sheet"
+              @ion-change="onCallRoutingChange"
+            >
+              <ion-select-option value="direct">Only direct</ion-select-option>
+              <ion-select-option value="auto">Relay when needed</ion-select-option>
+              <ion-select-option value="always">Always relay</ion-select-option>
+            </ion-select>
           </ion-item>
           <ion-item button detail lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
