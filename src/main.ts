@@ -14,10 +14,11 @@ import "@ionic/vue/css/display.css";
 import "./theme/variables.css";
 import "./theme/base.css";
 import { initTheme } from "./theme";
+import { i18n } from "./i18n";
 
 initTheme();
 
-const app = createApp(App).use(IonicVue).use(router);
+const app = createApp(App).use(IonicVue).use(i18n).use(router);
 
 router.isReady().then(() => {
   app.mount("#app");

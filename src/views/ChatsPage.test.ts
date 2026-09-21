@@ -38,6 +38,13 @@ describe("ChatsPage", () => {
     expect(push).toHaveBeenCalledWith("/chat/c1");
   });
 
+  it("opens the screen to add a contact", async () => {
+    screen(false);
+    const wrapper = mount(ChatsPage, { shallow: true });
+    await wrapper.find("[aria-label='Add contact']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/add-contact");
+  });
+
   it("shows the conversation next to the list on wide screens", () => {
     screen(true);
     const wrapper = mount(ChatsPage, { shallow: true });

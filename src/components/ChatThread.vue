@@ -12,6 +12,7 @@ import {
   IonToolbar,
 } from "@ionic/vue";
 import { add, arrowUp, callOutline, videocamOutline } from "ionicons/icons";
+import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
 import data from "../mock/chats.json";
@@ -20,6 +21,7 @@ const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>()
 
 const chat = computed(() => data.chats.find((candidate) => candidate.id === props.chatId) ?? data.chats[0]);
 const draft = ref("");
+const router = useRouter();
 
 type Scrollable = { $el?: { scrollToBottom?: (duration: number) => Promise<void> } };
 const content = ref<Scrollable | null>(null);
@@ -38,22 +40,28 @@ watch(() => props.chatId, scrollToEnd);
     <ion-header class="ion-no-border">
       <ion-toolbar class="ft-thread__bar">
         <ion-buttons v-if="showBack" slot="start">
-          <ion-back-button default-href="/tabs/chats" text="" aria-label="Back" />
+          <ion-back-button default-href="/tabs/chats" text="" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <div class="ft-peer" :class="{ 'has-back': showBack }">
+        <button
+          type="button"
+          class="ft-peer"
+          :class="{ 'has-back': showBack }"
+          data-test="peer"
+          @click="router.push(`/contact/${chat.id}`)"
+        >
           <Avatar :name="chat.name" :hue="chat.hue" :size="38" :connected="chat.connected" />
           <span class="ft-peer__text">
             <span class="ft-peer__name">{{ chat.name }}</span>
             <span class="ft-peer__status" :class="{ 'is-direct': chat.connected }">
-              {{ chat.connected ? "Direct" : "Not connected" }}
+              {{ chat.connected ? $t("chat.direct") : $t("chat.notConnected") }}
             </span>
           </span>
-        </div>
+        </button>
         <ion-buttons slot="end">
-          <ion-button aria-label="Voice call">
+          <ion-button :aria-label="$t('chat.voiceCall')" @click="router.push(`/call/${chat.id}`)">
             <ion-icon slot="icon-only" :icon="callOutline" aria-hidden="true" />
           </ion-button>
-          <ion-button aria-label="Video call">
+          <ion-button :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
         </ion-buttons>
@@ -61,7 +69,7 @@ watch(() => props.chatId, scrollToEnd);
     </ion-header>
 
     <ion-content ref="content" class="ft-thread__content">
-      <div class="ft-thread__day"><span>Today</span></div>
+      <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
       <MessageBubble v-for="message in chat.messages" :key="message.id" :message="message" />
       <div class="ft-thread__end" />
     </ion-content>
@@ -69,7 +77,7 @@ watch(() => props.chatId, scrollToEnd);
     <ion-footer class="ion-no-border">
       <ion-toolbar class="ft-composer">
         <div class="ft-composer__row">
-          <button type="button" class="ft-round ft-round--ghost" aria-label="Attach file">
+          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.attach')">
             <ion-icon :icon="add" aria-hidden="true" />
           </button>
           <ion-textarea
@@ -77,10 +85,10 @@ watch(() => props.chatId, scrollToEnd);
             class="ft-composer__input"
             :auto-grow="true"
             :rows="1"
-            placeholder="Message"
-            aria-label="Message"
+            :placeholder="$t('chat.message')"
+            :aria-label="$t('chat.message')"
           />
-          <button type="button" class="ft-round ft-round--send" aria-label="Send" :disabled="!draft.trim()">
+          <button type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" :disabled="!draft.trim()">
             <ion-icon :icon="arrowUp" aria-hidden="true" />
           </button>
         </div>
@@ -105,6 +113,13 @@ watch(() => props.chatId, scrollToEnd);
 }
 
 .ft-peer {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 10px;

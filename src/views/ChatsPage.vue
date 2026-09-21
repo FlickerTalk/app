@@ -50,9 +50,9 @@ const STATUS_ICON: Record<string, string> = {
       <section class="ft-chats__list">
         <ion-header class="ion-no-border">
           <ion-toolbar>
-            <ion-title>Chats</ion-title>
+            <ion-title>{{ $t("tabs.chats") }}</ion-title>
             <ion-buttons slot="end">
-              <ion-button aria-label="Add contact">
+              <ion-button :aria-label="$t('addContact.title')" @click="router.push('/add-contact')">
                 <ion-icon slot="icon-only" :icon="qrCodeOutline" aria-hidden="true" />
               </ion-button>
             </ion-buttons>
@@ -62,7 +62,7 @@ const STATUS_ICON: Record<string, string> = {
         <ion-content>
           <ion-header collapse="condense" class="ion-no-border">
             <ion-toolbar>
-              <ion-title size="large">Chats</ion-title>
+              <ion-title size="large">{{ $t("tabs.chats") }}</ion-title>
             </ion-toolbar>
           </ion-header>
 

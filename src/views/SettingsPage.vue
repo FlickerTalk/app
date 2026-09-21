@@ -41,6 +41,7 @@ import {
   storedMailbox,
   type CallRouting,
 } from "../preferences";
+import { t } from "../i18n";
 import {
   applyAppearance,
   applyDirection,
@@ -65,14 +66,14 @@ function onCallRoutingChange(event: CustomEvent<{ value: CallRouting }>) {
 }
 
 const colors: { id: Direction; label: string; swatch: string }[] = [
-  { id: "ember", label: "Ember", swatch: "linear-gradient(135deg, #ffa24c, #ff6a3d)" },
-  { id: "aurora", label: "Aurora", swatch: "linear-gradient(135deg, #3ddbc4, #7b7cff)" },
-  { id: "mono", label: "Mono", swatch: "linear-gradient(135deg, #f5f5f7 50%, #c6f432 50%)" },
+  { id: "ember", label: t("colors.ember"), swatch: "linear-gradient(135deg, #ffa24c, #ff6a3d)" },
+  { id: "aurora", label: t("colors.aurora"), swatch: "linear-gradient(135deg, #3ddbc4, #7b7cff)" },
+  { id: "mono", label: t("colors.mono"), swatch: "linear-gradient(135deg, #f5f5f7 50%, #c6f432 50%)" },
 ];
 const appearances: { id: Appearance; label: string; icon: string }[] = [
-  { id: "system", label: "System", icon: phonePortraitOutline },
-  { id: "dark", label: "Dark", icon: moonOutline },
-  { id: "light", label: "Light", icon: sunnyOutline },
+  { id: "system", label: t("settings.system"), icon: phonePortraitOutline },
+  { id: "dark", label: t("settings.dark"), icon: moonOutline },
+  { id: "light", label: t("settings.light"), icon: sunnyOutline },
 ];
 
 const direction = ref(storedDirection());
@@ -93,14 +94,14 @@ function chooseAppearance(id: Appearance) {
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>Settings</ion-title>
+        <ion-title>{{ $t("settings.title") }}</ion-title>
       </ion-toolbar>
     </ion-header>
 
     <ion-content>
       <ion-header collapse="condense" class="ion-no-border">
         <ion-toolbar>
-          <ion-title size="large">Settings</ion-title>
+          <ion-title size="large">{{ $t("settings.title") }}</ion-title>
         </ion-toolbar>
       </ion-header>
 
@@ -108,13 +109,13 @@ function chooseAppearance(id: Appearance) {
         <section class="ft-me">
           <Avatar :name="data.me.name" :hue="data.me.hue" :size="60" />
           <span class="ft-me__text">
-            <span class="ft-me__label">Your FlickerTalk ID</span>
+            <span class="ft-me__label">{{ $t("settings.yourId") }}</span>
             <code class="ft-me__id">{{ data.me.id }}</code>
           </span>
-          <button type="button" class="ft-round ft-round--ghost" aria-label="Copy ID">
+          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('settings.copyId')">
             <ion-icon :icon="copyOutline" aria-hidden="true" />
           </button>
-          <button type="button" class="ft-round ft-round--accent" aria-label="Show my QR">
+          <button type="button" class="ft-round ft-round--accent" :aria-label="$t('settings.showQr')">
             <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
           </button>
         </section>
@@ -122,9 +123,9 @@ function chooseAppearance(id: Appearance) {
         <ion-list inset class="ft-group">
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="fileTrayOutline" aria-hidden="true" /></span>
-            <ion-toggle :checked="mailbox" aria-label="Offline mailbox" @ion-change="onMailboxChange">
-              <span class="ft-item__title">Offline mailbox</span>
-              <span class="ft-item__note">Encrypted · deleted on pickup</span>
+            <ion-toggle :checked="mailbox" :aria-label="$t('settings.mailbox')" @ion-change="onMailboxChange">
+              <span class="ft-item__title">{{ $t("settings.mailbox") }}</span>
+              <span class="ft-item__note">{{ $t("settings.mailboxNote") }}</span>
             </ion-toggle>
           </ion-item>
           <!-- Plan §17/§67: "always" hides your IP from the contact; "direct" never uses our relay. -->
@@ -132,27 +133,27 @@ function chooseAppearance(id: Appearance) {
             <span slot="start" class="ft-tile"><ion-icon :icon="callOutline" aria-hidden="true" /></span>
             <ion-select
               :value="callRouting"
-              aria-label="Calls"
-              label="Calls"
+              :aria-label="$t('settings.calls')"
+              :label="$t('settings.calls')"
               interface="action-sheet"
               @ion-change="onCallRoutingChange"
             >
-              <ion-select-option value="direct">Only direct</ion-select-option>
-              <ion-select-option value="auto">Relay when needed</ion-select-option>
-              <ion-select-option value="always">Always relay</ion-select-option>
+              <ion-select-option value="direct">{{ $t("settings.callsDirect") }}</ion-select-option>
+              <ion-select-option value="auto">{{ $t("settings.callsAuto") }}</ion-select-option>
+              <ion-select-option value="always">{{ $t("settings.callsAlways") }}</ion-select-option>
             </ion-select>
           </ion-item>
           <ion-item button detail lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
-            <ion-label>Blocked</ion-label>
+            <ion-label>{{ $t("settings.blocked") }}</ion-label>
           </ion-item>
         </ion-list>
 
         <ion-list inset class="ft-group">
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="colorPaletteOutline" aria-hidden="true" /></span>
-            <ion-label>Color</ion-label>
-            <span slot="end" class="ft-choices" role="group" aria-label="Color">
+            <ion-label>{{ $t("settings.color") }}</ion-label>
+            <span slot="end" class="ft-choices" role="group" :aria-label="$t('settings.color')">
               <button
                 v-for="color in colors"
                 :key="color.id"
@@ -169,8 +170,8 @@ function chooseAppearance(id: Appearance) {
           </ion-item>
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="contrastOutline" aria-hidden="true" /></span>
-            <ion-label>Appearance</ion-label>
-            <span slot="end" class="ft-choices ft-segment" role="group" aria-label="Appearance">
+            <ion-label>{{ $t("settings.appearance") }}</ion-label>
+            <span slot="end" class="ft-choices ft-segment" role="group" :aria-label="$t('settings.appearance')">
               <button
                 v-for="option in appearances"
                 :key="option.id"
@@ -192,28 +193,28 @@ function chooseAppearance(id: Appearance) {
           <!-- Plan §60: a QR pairs both phones for a direct P2P transfer; it never contains the key. -->
           <ion-item button detail lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="swapHorizontalOutline" aria-hidden="true" /></span>
-            <ion-label>Move to a new phone</ion-label>
+            <ion-label>{{ $t("settings.movePhone") }}</ion-label>
           </ion-item>
           <!-- Plan §61: encrypted .ftbackup file, for when the old phone is lost. -->
           <ion-item button detail lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="archiveOutline" aria-hidden="true" /></span>
-            <ion-label>Backup</ion-label>
+            <ion-label>{{ $t("settings.backup") }}</ion-label>
           </ion-item>
         </ion-list>
 
         <ion-list inset class="ft-group">
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="sparklesOutline" aria-hidden="true" /></span>
-            <ion-label>Plan</ion-label>
-            <ion-note slot="end">Free · first year</ion-note>
+            <ion-label>{{ $t("settings.plan") }}</ion-label>
+            <ion-note slot="end">{{ $t("settings.planFree") }}</ion-note>
           </ion-item>
           <ion-item button detail lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="eyeOffOutline" aria-hidden="true" /></span>
-            <ion-label>Privacy</ion-label>
+            <ion-label>{{ $t("settings.privacy") }}</ion-label>
           </ion-item>
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="informationCircleOutline" aria-hidden="true" /></span>
-            <ion-label>Version</ion-label>
+            <ion-label>{{ $t("settings.version") }}</ion-label>
             <ion-note slot="end">0.1.0</ion-note>
           </ion-item>
         </ion-list>

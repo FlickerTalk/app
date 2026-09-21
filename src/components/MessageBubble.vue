@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { IonIcon } from "@ionic/vue";
 import { checkmark, checkmarkDone, documentOutline, timeOutline } from "ionicons/icons";
+import { t } from "../i18n";
 
 interface TransferredFile {
   name: string;
@@ -23,10 +24,10 @@ export interface Message {
 const props = defineProps<{ message: Message }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
-  pending: { icon: timeOutline, label: "Waiting for device" },
-  sent: { icon: checkmark, label: "Sent" },
-  delivered: { icon: checkmarkDone, label: "Delivered" },
-  read: { icon: checkmarkDone, label: "Read" },
+  pending: { icon: timeOutline, label: t("status.pending") },
+  sent: { icon: checkmark, label: t("status.sent") },
+  delivered: { icon: checkmarkDone, label: t("status.delivered") },
+  read: { icon: checkmarkDone, label: t("status.read") },
 };
 
 const status = computed(() =>
@@ -36,7 +37,7 @@ const file = computed(() => (props.message.kind === "file" ? props.message.file 
 const percent = computed(() => Math.round((file.value?.progress ?? 0) * 100));
 const fileState = computed(() => {
   if (!file.value || file.value.state === "done") return "";
-  return file.value.state === "paused" ? " · Paused" : ` · ${percent.value}%`;
+  return file.value.state === "paused" ? ` · ${t("status.paused")}` : ` · ${percent.value}%`;
 });
 </script>
 
