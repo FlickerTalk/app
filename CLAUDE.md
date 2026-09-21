@@ -5,7 +5,7 @@ Todo el **cliente** de FlickerTalk. Es un proyecto Tauri 2 generado con `create-
 
 | Carpeta       | Contenido                                                                    |
 | ------------- | ---------------------------------------------------------------------------- |
-| `src/`        | frontend (TypeScript + Vite; Lit se añadirá encima, `§83`)                   |
+| `src/`        | frontend (TypeScript + Vite; pasará a Vue 3 + Ionic, `§83`)                  |
 | `src-tauri/`  | proyecto Rust de Tauri: comandos, capabilities, bridge nativo, `gen/android` |
 | `crates/ft-*` | núcleo Rust con la lógica de negocio (`§82`)                                 |
 | `packages/`   | `ui` (TypeScript)                                                            |
