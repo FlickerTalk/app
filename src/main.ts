@@ -1,22 +1,24 @@
-import { invoke } from "@tauri-apps/api/core";
+import { createApp } from "vue";
+import { IonicVue } from "@ionic/vue";
+import App from "./App.vue";
+import { router } from "./router";
 
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
+import "@ionic/vue/css/core.css";
+import "@ionic/vue/css/normalize.css";
+import "@ionic/vue/css/structure.css";
+import "@ionic/vue/css/typography.css";
+import "@ionic/vue/css/padding.css";
+import "@ionic/vue/css/flex-utils.css";
+import "@ionic/vue/css/display.css";
 
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
-    });
-  }
-}
+import "./theme/variables.css";
+import "./theme/base.css";
+import { initTheme } from "./theme";
 
-window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
+initTheme();
+
+const app = createApp(App).use(IonicVue).use(router);
+
+router.isReady().then(() => {
+  app.mount("#app");
 });
