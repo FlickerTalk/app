@@ -1,0 +1,8 @@
+# Secrets
+.env
+
+# Claude Code "remember" plugin state
+.remember/
+
+# Versioned on purpose (overrides the global git ignore)
+!CLAUDE.md
