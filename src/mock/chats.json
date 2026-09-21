@@ -1,0 +1,102 @@
+{
+  "me": { "name": "You", "id": "ft_74MxNcJ8E2kQ", "hue": 24 },
+  "chats": [
+    {
+      "id": "c1",
+      "name": "Maria López",
+      "hue": 12,
+      "connected": true,
+      "unread": 2,
+      "time": "09:41",
+      "preview": "See you at 6 then ✨",
+      "lastMine": false,
+      "status": "read",
+      "messages": [
+        { "id": "m1", "mine": false, "text": "Are you coming tonight?", "time": "09:30" },
+        { "id": "m2", "mine": true, "text": "Yes! Leaving work at 5:30", "time": "09:31", "status": "read" },
+        { "id": "m3", "mine": false, "text": "Perfect, I'll book the table 🍝", "time": "09:32" },
+        {
+          "id": "m4",
+          "mine": true,
+          "kind": "file",
+          "time": "09:38",
+          "status": "read",
+          "file": { "name": "menu.pdf", "size": "1.2 MB", "progress": 1, "state": "done" }
+        },
+        { "id": "m5", "mine": true, "text": "That's the menu, the pasta looks amazing", "time": "09:40", "status": "read" },
+        { "id": "m6", "mine": false, "text": "See you at 6 then ✨", "time": "09:41" }
+      ]
+    },
+    {
+      "id": "c2",
+      "name": "Alex Chen",
+      "hue": 205,
+      "connected": false,
+      "unread": 0,
+      "time": "08:16",
+      "preview": "Sending the rest when you're online",
+      "lastMine": true,
+      "status": "pending",
+      "messages": [
+        { "id": "m1", "mine": false, "text": "Did you get back home ok?", "time": "Yesterday" },
+        { "id": "m2", "mine": true, "text": "Yes, all good. Did you get the photos?", "time": "08:15", "status": "delivered" },
+        { "id": "m3", "mine": true, "text": "Sending the rest when you're online", "time": "08:16", "status": "pending" }
+      ]
+    },
+    {
+      "id": "c3",
+      "name": "Sam Rivera",
+      "hue": 150,
+      "connected": true,
+      "unread": 0,
+      "time": "Mon",
+      "preview": "holiday-photos.zip",
+      "lastMine": true,
+      "status": "sent",
+      "messages": [
+        { "id": "m1", "mine": false, "text": "Can you send me the holiday photos?", "time": "Mon" },
+        {
+          "id": "m2",
+          "mine": true,
+          "kind": "file",
+          "time": "Mon",
+          "status": "sent",
+          "file": { "name": "holiday-photos.zip", "size": "48 MB", "progress": 0.62, "state": "sending" }
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "name": "Nora Kim",
+      "hue": 280,
+      "connected": false,
+      "unread": 1,
+      "time": "Sun",
+      "preview": "Call me when you can 📞",
+      "lastMine": false,
+      "status": "read",
+      "messages": [{ "id": "m1", "mine": false, "text": "Call me when you can 📞", "time": "Sun" }]
+    },
+    {
+      "id": "c5",
+      "name": "Leo Martins",
+      "hue": 330,
+      "connected": false,
+      "unread": 0,
+      "time": "Sat",
+      "preview": "Thanks, talk soon!",
+      "lastMine": true,
+      "status": "delivered",
+      "messages": [
+        { "id": "m1", "mine": false, "text": "Great to see you yesterday", "time": "Sat" },
+        { "id": "m2", "mine": true, "text": "Thanks, talk soon!", "time": "Sat", "status": "delivered" }
+      ]
+    }
+  ],
+  "calls": [
+    { "id": "k1", "name": "Nora Kim", "hue": 280, "kind": "video", "direction": "missed", "time": "Yesterday" },
+    { "id": "k2", "name": "Maria López", "hue": 12, "kind": "voice", "direction": "outgoing", "time": "Yesterday" },
+    { "id": "k3", "name": "Sam Rivera", "hue": 150, "kind": "voice", "direction": "incoming", "time": "Mon" },
+    { "id": "k4", "name": "Alex Chen", "hue": 205, "kind": "video", "direction": "outgoing", "time": "Sun" }
+  ]
+}

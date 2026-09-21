@@ -1,0 +1,59 @@
+/* Shared building blocks of the FlickerTalk UI (prototype). */
+
+html,
+body {
+  background: var(--ft-bg);
+}
+
+ion-toolbar {
+  --padding-start: 12px;
+  --padding-end: 8px;
+}
+
+/* Lists of rows (chats, calls). */
+.ft-rows {
+  margin: 0;
+  padding: 4px 8px 24px;
+  list-style: none;
+}
+
+/* Round icon buttons (composer, identity card, call back). */
+.ft-round {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  font-size: 22px;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    opacity 0.2s ease;
+}
+.ft-round:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.ft-round:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: 2px;
+}
+.ft-round--ghost {
+  background: var(--ft-surface-2);
+  color: var(--ft-text);
+}
+.ft-round--accent,
+.ft-round--send {
+  background: linear-gradient(135deg, var(--ft-accent), var(--ft-accent-2));
+  color: var(--ft-on-accent);
+  box-shadow: 0 8px 20px -10px var(--ft-glow);
+}
+.ft-round--send:disabled {
+  background: var(--ft-surface-2);
+  color: var(--ft-muted);
+  box-shadow: none;
+  cursor: default;
+}

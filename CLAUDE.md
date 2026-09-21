@@ -5,7 +5,7 @@ Todo el **cliente** de FlickerTalk. Es un proyecto Tauri 2 generado con `create-
 
 | Carpeta       | Contenido                                                                    |
 | ------------- | ---------------------------------------------------------------------------- |
-| `src/`        | frontend (TypeScript + Vite; pasará a Vue 3 + Ionic, `§83`)                  |
+| `src/`        | frontend: Vue 3 + Ionic + TypeScript + Vite (`§83`)                          |
 | `src-tauri/`  | proyecto Rust de Tauri: comandos, capabilities, bridge nativo, `gen/android` |
 | `crates/ft-*` | núcleo Rust con la lógica de negocio (`§82`)                                 |
 | `packages/`   | `ui` (TypeScript)                                                            |
@@ -20,7 +20,9 @@ La plataforma objetivo del MVP es **Android e iOS** (`§85`); escritorio compila
 
 ```sh
 npm install                                        # registry público vía app/.npmrc
-npm run build                                      # tsc + vite build → dist/
+npm test                                           # tests (Vitest)
+npm run typecheck                                  # vue-tsc
+npm run build                                      # vue-tsc + vite build → dist/
 npm run tauri dev                                  # escritorio en modo desarrollo
 npm run tauri android dev                          # requiere ANDROID_HOME y NDK_HOME
 npm run tauri ios dev                              # requiere Xcode + `tauri ios init`

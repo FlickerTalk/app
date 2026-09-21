@@ -1,0 +1,160 @@
+/*
+ * FlickerTalk design tokens (prototype).
+ * Three visual directions (ember, aurora, mono), each in light and dark (`html.ft-dark`).
+ * Tokens (`--ft-*`) are mapped onto Ionic's CSS variables at the bottom.
+ * No external fonts or CDNs: system fonts only (privacy).
+ */
+
+:root {
+  --ft-rail-width: 80px;
+  --ft-radius-bubble: 20px;
+  --ft-radius-card: 16px;
+  --ft-space-1: 4px;
+  --ft-space-2: 8px;
+  --ft-space-3: 12px;
+  --ft-space-4: 16px;
+  --ft-space-5: 24px;
+  --ft-font-meta: 12px;
+  --ft-font-body: 16px;
+  --ft-font-title: 17px;
+}
+
+/* ---------- Ember: a warm flicker of light on near-black ---------- */
+html[data-direction="ember"] {
+  --ft-bg: #fbf8f5;
+  --ft-surface: #ffffff;
+  --ft-surface-2: #f2ebe4;
+  --ft-border: rgba(40, 20, 5, 0.08);
+  --ft-text: #1c1714;
+  --ft-muted: #7d726a;
+  --ft-accent: #e8731f;
+  --ft-accent-2: #d9481e;
+  --ft-on-accent: #ffffff;
+  --ft-glow: rgba(232, 115, 31, 0.35);
+}
+html.ft-dark[data-direction="ember"] {
+  --ft-bg: #0d0b0a;
+  --ft-surface: #161311;
+  --ft-surface-2: #221d1a;
+  --ft-border: rgba(255, 240, 225, 0.07);
+  --ft-text: #f6efe8;
+  --ft-muted: #9b8f86;
+  --ft-accent: #ffa24c;
+  --ft-accent-2: #ff6a3d;
+  --ft-on-accent: #1b0f06;
+  --ft-glow: rgba(255, 162, 76, 0.5);
+}
+
+/* ---------- Aurora: cool teal and indigo ---------- */
+html[data-direction="aurora"] {
+  --ft-bg: #f6f8fb;
+  --ft-surface: #ffffff;
+  --ft-surface-2: #e9eef6;
+  --ft-border: rgba(10, 25, 45, 0.08);
+  --ft-text: #121821;
+  --ft-muted: #66758a;
+  --ft-accent: #0fa89a;
+  --ft-accent-2: #5b5cf0;
+  --ft-on-accent: #ffffff;
+  --ft-glow: rgba(15, 168, 154, 0.3);
+}
+html.ft-dark[data-direction="aurora"] {
+  --ft-bg: #0a0e14;
+  --ft-surface: #111722;
+  --ft-surface-2: #1a2230;
+  --ft-border: rgba(200, 225, 255, 0.07);
+  --ft-text: #eaf1fa;
+  --ft-muted: #8a97a8;
+  --ft-accent: #3ddbc4;
+  --ft-accent-2: #7b7cff;
+  --ft-on-accent: #04141a;
+  --ft-glow: rgba(61, 219, 196, 0.45);
+}
+
+/* ---------- Mono: monochrome with a single electric accent ---------- */
+html[data-direction="mono"] {
+  --ft-bg: #ffffff;
+  --ft-surface: #ffffff;
+  --ft-surface-2: #f1f1f3;
+  --ft-border: rgba(0, 0, 0, 0.08);
+  --ft-text: #0a0a0b;
+  --ft-muted: #6e6e73;
+  --ft-accent: #111111;
+  --ft-accent-2: #111111;
+  --ft-on-accent: #ffffff;
+  --ft-glow: rgba(120, 170, 0, 0.35);
+}
+html.ft-dark[data-direction="mono"] {
+  --ft-bg: #000000;
+  --ft-surface: #0e0e0f;
+  --ft-surface-2: #1b1b1d;
+  --ft-border: rgba(255, 255, 255, 0.08);
+  --ft-text: #f5f5f7;
+  --ft-muted: #8e8e93;
+  --ft-accent: #c6f432;
+  --ft-accent-2: #c6f432;
+  --ft-on-accent: #0b0f00;
+  --ft-glow: rgba(198, 244, 50, 0.4);
+}
+
+/* ---------- Tokens → Ionic ---------- */
+html[data-direction] body {
+  color-scheme: light;
+  --ion-background-color: var(--ft-bg);
+  --ion-text-color: var(--ft-text);
+  --ion-border-color: var(--ft-border);
+
+  --ion-color-primary: var(--ft-accent);
+  --ion-color-primary-contrast: var(--ft-on-accent);
+  --ion-color-primary-shade: var(--ft-accent-2);
+  --ion-color-primary-tint: var(--ft-accent);
+  --ion-color-danger: #ff4d5e;
+
+  --ion-toolbar-background: var(--ft-bg);
+  --ion-toolbar-border-color: transparent;
+  --ion-toolbar-color: var(--ft-text);
+  --ion-tab-bar-background: color-mix(in srgb, var(--ft-surface) 92%, transparent);
+  --ion-tab-bar-border-color: var(--ft-border);
+  --ion-tab-bar-color: var(--ft-muted);
+  --ion-tab-bar-color-selected: var(--ft-accent);
+  --ion-item-background: transparent;
+  --ion-item-border-color: var(--ft-border);
+  --ion-card-background: var(--ft-surface);
+
+  --ion-background-color-step-50: color-mix(in srgb, var(--ft-text) 5%, var(--ft-bg));
+  --ion-background-color-step-100: color-mix(in srgb, var(--ft-text) 10%, var(--ft-bg));
+  --ion-background-color-step-150: color-mix(in srgb, var(--ft-text) 15%, var(--ft-bg));
+  --ion-background-color-step-200: color-mix(in srgb, var(--ft-text) 20%, var(--ft-bg));
+  --ion-background-color-step-250: color-mix(in srgb, var(--ft-text) 25%, var(--ft-bg));
+  --ion-background-color-step-300: color-mix(in srgb, var(--ft-text) 30%, var(--ft-bg));
+  --ion-background-color-step-400: color-mix(in srgb, var(--ft-text) 40%, var(--ft-bg));
+  --ion-background-color-step-600: color-mix(in srgb, var(--ft-text) 60%, var(--ft-bg));
+  --ion-text-color-step-150: color-mix(in srgb, var(--ft-bg) 15%, var(--ft-text));
+  --ion-text-color-step-400: color-mix(in srgb, var(--ft-bg) 40%, var(--ft-text));
+  --ion-text-color-step-600: color-mix(in srgb, var(--ft-bg) 60%, var(--ft-text));
+}
+html.ft-dark[data-direction] body {
+  color-scheme: dark;
+}
+
+/* ---------- The flicker: a small glowing spark for live direct connections ---------- */
+.ft-spark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ft-accent);
+  box-shadow: 0 0 0 2px var(--ft-bg), 0 0 10px 2px var(--ft-glow);
+  animation: ft-flicker 2.6s ease-in-out infinite;
+}
+@keyframes ft-flicker {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 2px var(--ft-bg), 0 0 10px 2px var(--ft-glow); }
+  45% { opacity: 0.75; box-shadow: 0 0 0 2px var(--ft-bg), 0 0 4px 0 var(--ft-glow); }
+  55% { opacity: 1; box-shadow: 0 0 0 2px var(--ft-bg), 0 0 14px 4px var(--ft-glow); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ft-spark { animation: none; }
+}
+
+.ft-muted {
+  color: var(--ft-muted);
+}
