@@ -670,6 +670,12 @@ pub async fn core_erase(app: AppHandle, client: State<'_, Client>) -> Result<(),
     Ok(())
 }
 
+/// What the user pressed on the incoming call notification: "answer", "decline" or nothing (§66).
+#[tauri::command]
+pub async fn core_pending_call(app: AppHandle) -> Result<String, String> {
+    Ok(app.platform().pending_call().unwrap_or_default())
+}
+
 /// Opens the phone's share sheet with a text, such as the Contact Card link (§32). Fails where
 /// there is none (desktop): the UI copies the link instead.
 #[tauri::command]

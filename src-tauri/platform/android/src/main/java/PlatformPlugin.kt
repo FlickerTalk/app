@@ -28,6 +28,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import android.webkit.WebView
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -66,6 +67,12 @@ private const val NOTIFICATION = 1
 const val CALL_CHANNEL = "ft.call"
 private const val CALL_NOTIFICATION = 2
 
+/** The notification's buttons travel as this extra on the intent that opens the app. */
+const val CALL_ACTION = "ft.call.action"
+
+/** What the user pressed on the call notification, if it was one of ours. */
+fun callAction(value: String?): String = if (value == "answer" || value == "decline") value else ""
+
 /** Who is calling; a contact with no name is still a caller. */
 fun callTitle(name: String): String = name.trim().ifEmpty { "Someone" }
 
@@ -92,6 +99,20 @@ class FtMessagingService : FirebaseMessagingService() {
  * intent that opens the app over the lock screen. If the system does not allow full screen (§66,
  * Android 14 keeps it for calling apps), it still shows as a heads-up notification.
  */
+/** Opening the app, carrying what the user pressed on the notification. */
+private fun callIntent(context: Context, action: String, request: Int): PendingIntent? {
+    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (action.isNotEmpty()) putExtra(CALL_ACTION, action)
+    } ?: return null
+    return PendingIntent.getActivity(
+        context,
+        request,
+        launch,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+}
+
 private fun showCall(context: Context, title: String, text: String) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -102,15 +123,10 @@ private fun showCall(context: Context, title: String, text: String) {
             }
         )
     }
-    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-    } ?: return
-    val open = PendingIntent.getActivity(
-        context,
-        1,
-        launch,
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
+    val open = callIntent(context, "", 1) ?: return
+    val answer = callIntent(context, "answer", 2) ?: return
+    val decline = callIntent(context, "decline", 3) ?: return
+    val caller = Person.Builder().setName(title).setImportant(true).build()
     val notification = NotificationCompat.Builder(context, CALL_CHANNEL)
         .setSmallIcon(R.drawable.ft_notification)
         .setContentTitle(title)
@@ -121,6 +137,9 @@ private fun showCall(context: Context, title: String, text: String) {
         .setAutoCancel(true)
         .setContentIntent(open)
         .setFullScreenIntent(open, true)
+        // Answer and decline from the notification itself: the user should not have to open the
+        // app to pick up (§66).
+        .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer))
         .build()
     try {
         manager.notify(CALL_NOTIFICATION, notification)
@@ -229,10 +248,57 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
 
+    /** What the user pressed on the call notification, until the app asks for it. */
+    private var pendingCall: String = ""
+
     /** The app is open: the "something new" notification has done its job. */
     override fun load(webView: WebView) {
         super.load(webView)
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
+        pendingCall = callAction(activity.intent?.getStringExtra(CALL_ACTION))
+        activity.intent?.removeExtra(CALL_ACTION)
+    }
+
+    /** The app was already open when the notification's button was pressed. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val action = callAction(intent.getStringExtra(CALL_ACTION))
+        if (action.isNotEmpty()) pendingCall = action
+        intent.removeExtra(CALL_ACTION)
+    }
+
+    /** Answer or decline, once, if the user pressed it on the notification. */
+    @Command
+    fun pendingCall(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("action", pendingCall) })
+        pendingCall = ""
+    }
+
+    /** Whether this phone lets us put a call on the whole screen (Android 14 and up). */
+    @Command
+    fun canShowFullScreen(invoke: Invoke) {
+        val manager = activity.getSystemService(NotificationManager::class.java)
+        val allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            manager?.canUseFullScreenIntent() == true
+        invoke.resolve(JSObject().apply { put("allowed", allowed) })
+    }
+
+    /** Opens the system screen where the user allows calls to take the whole screen. */
+    @Command
+    fun askFullScreen(invoke: Invoke) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                activity.startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                        android.net.Uri.parse("package:" + activity.packageName),
+                    )
+                )
+            }
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot open the setting")
+        }
     }
 
     /**

@@ -76,4 +76,14 @@ class PlatformPluginTest {
         assertEquals("Incoming video call", callText(true))
         assertEquals("Incoming call", callText(false))
     }
+
+    // The notification's buttons come back as an extra on the intent that opens the app; anything
+    // else is nothing at all.
+    @Test
+    fun onlyAnswerAndDeclineComeFromTheNotification() {
+        assertEquals("answer", callAction("answer"))
+        assertEquals("decline", callAction("decline"))
+        assertEquals("", callAction(null))
+        assertEquals("", callAction("do-something-else"))
+    }
 }
