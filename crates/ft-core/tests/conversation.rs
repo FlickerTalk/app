@@ -570,3 +570,21 @@ async fn a_busy_contact_says_so() {
     .await;
     assert_eq!(bob.store().call(&first).await.unwrap().unwrap().outcome, None, "the first call goes on");
 }
+
+// §41 (strategy A): the first year is free, counted on this phone from the install; reopening
+// the app never moves the date.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_free_year_counts_from_the_install() {
+    let net = Net::new();
+    let path = std::env::temp_dir().join(format!("ft-core-free-{}.db", ft_protocol::MessageId::new()));
+    let year = 365 * 24 * 3600 * 1000_i64;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let first = {
+        let alice = device_with(&net, "Alice", Store::open(&path).await.unwrap(), [1; 32]).await;
+        alice.free_until().await.expect("reads")
+    };
+    assert!((first - (now + year)).abs() < 60_000, "a year from now");
+    let alice = device_with(&net, "Alice", Store::open(&path).await.unwrap(), [1; 32]).await;
+    assert_eq!(alice.free_until().await.unwrap(), first);
+    let _ = std::fs::remove_file(&path);
+}

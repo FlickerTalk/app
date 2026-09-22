@@ -17,7 +17,7 @@ const at = (time: string) => {
 };
 
 export function seed(): void {
-  store.me = { ...fixture.me, mailbox: true };
+  store.me = { ...fixture.me, mailbox: true, freeUntil: 0 };
   store.chats = fixture.chats.map(
     (chat): Chat => ({
       ...chat,

@@ -12,10 +12,10 @@ import {
   IonPage,
   IonToolbar,
 } from "@ionic/vue";
-import { banOutline, flagOutline, qrCodeOutline } from "ionicons/icons";
+import { banOutline, flagOutline } from "ionicons/icons";
 import { useRoute } from "vue-router";
 import Avatar from "../components/Avatar.vue";
-import { block, chat, contactDetails, type ContactDetails } from "../core";
+import { block, chat, contactDetails, reportContact, type ContactDetails } from "../core";
 
 const route = useRoute();
 const id = String(route.params.id);
@@ -30,6 +30,23 @@ const blocked = computed(() => details.value?.blocked ?? false);
 onMounted(async () => {
   details.value = await contactDetails(id);
 });
+
+// Plan §36: a report goes by email with a reason and, only if the user wants, the contact's last
+// messages as evidence; the contact is blocked too.
+const REASONS = ["spam", "abuse", "other"] as const;
+const reporting = ref(false);
+const reason = ref<(typeof REASONS)[number] | "">("");
+const withEvidence = ref(false);
+
+async function sendReport() {
+  if (!reason.value) return;
+  const evidence = withEvidence.value
+    ? (chat(id)?.messages ?? []).filter((message) => !message.mine && message.text).slice(-5).map((message) => message.text)
+    : [];
+  await reportContact(id, reason.value, evidence);
+  reporting.value = false;
+  if (details.value) details.value.blocked = true;
+}
 
 // Plan §35: a blocked contact's messages, signals and mail are dropped on this phone.
 async function toggleBlock() {
@@ -69,21 +86,44 @@ async function toggleBlock() {
         </section>
 
         <ion-list inset class="ft-group">
-          <ion-item button detail lines="none">
-            <span slot="start" class="ft-tile"><ion-icon :icon="qrCodeOutline" aria-hidden="true" /></span>
-            <ion-label>{{ $t("contact.verify") }}</ion-label>
-          </ion-item>
           <ion-item button detail lines="none" data-test="block" @click="toggleBlock">
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
             <ion-label>{{ blocked ? $t("contact.unblock") : $t("contact.block") }}</ion-label>
           </ion-item>
-          <ion-item button detail lines="none">
+          <ion-item button detail lines="none" data-test="report" @click="reporting = !reporting">
             <span slot="start" class="ft-tile ft-tile--danger">
               <ion-icon :icon="flagOutline" aria-hidden="true" />
             </span>
             <ion-label color="danger">{{ $t("contact.report") }}</ion-label>
           </ion-item>
         </ion-list>
+
+        <section v-if="reporting" class="ft-report" data-test="report-form">
+          <span class="ft-contact__label">{{ $t("contact.reportWhy") }}</span>
+          <div class="ft-report__reasons" role="radiogroup" :aria-label="$t('contact.reportWhy')">
+            <button
+              v-for="option in REASONS"
+              :key="option"
+              type="button"
+              role="radio"
+              class="ft-report__reason"
+              :class="{ 'is-active': reason === option }"
+              :aria-checked="reason === option"
+              :data-test="`reason-${option}`"
+              @click="reason = option"
+            >
+              {{ $t(`contact.reasons.${option}`) }}
+            </button>
+          </div>
+          <label class="ft-report__evidence">
+            <input v-model="withEvidence" type="checkbox" data-test="evidence" />
+            {{ $t("contact.reportEvidence") }}
+          </label>
+          <button type="button" class="ft-report__send" data-test="send-report" :disabled="!reason" @click="sendReport">
+            {{ $t("contact.reportSend") }}
+          </button>
+          <span class="ft-contact__hint">{{ $t("contact.reportHint") }}</span>
+        </section>
       </div>
     </ion-content>
   </ion-page>
@@ -146,5 +186,51 @@ async function toggleBlock() {
 .ft-tile--danger {
   background: color-mix(in srgb, var(--ion-color-danger) 16%, transparent);
   color: var(--ion-color-danger);
+}
+
+.ft-report {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 520px;
+  padding: 16px;
+  border: 1px solid var(--ft-border);
+  border-radius: 20px;
+  background: var(--ft-surface);
+}
+.ft-report__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ft-report__reason {
+  padding: 8px 14px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  color: var(--ft-text);
+  background: transparent;
+}
+.ft-report__reason.is-active {
+  border-color: var(--ion-color-danger);
+  color: #fff;
+  background: var(--ion-color-danger);
+}
+.ft-report__evidence {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.ft-report__send {
+  padding: 12px;
+  border: 0;
+  border-radius: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--ion-color-danger);
+}
+.ft-report__send:disabled {
+  opacity: 0.5;
 }
 </style>

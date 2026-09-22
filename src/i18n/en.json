@@ -95,7 +95,20 @@
     "verifyHint": "Compare both codes when you are together",
     "block": "Block",
     "report": "Report",
+    "reportWhy": "Why are you reporting them?",
+    "reasons": {
+      "spam": "Spam",
+      "abuse": "Abuse or harassment",
+      "other": "Something else"
+    },
+    "reportEvidence": "Include their last messages as evidence",
+    "reportSend": "Report and block",
+    "reportHint": "Opens an email to FlickerTalk. Only what you send leaves this phone.",
     "unblock": "Unblock"
+  },
+  "blocked": {
+    "title": "Blocked",
+    "empty": "Nobody is blocked"
   },
   "settings": {
     "title": "Settings",
@@ -118,6 +131,8 @@
     "backup": "Backup",
     "plan": "Plan",
     "planFree": "Free · first year",
+    "planFreeDays": "Free · {days} days left",
+    "planOver": "Free year over",
     "privacy": "Privacy",
     "version": "Version"
   },

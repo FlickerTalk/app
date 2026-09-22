@@ -363,6 +363,10 @@ impl Transport for Network {
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()> {
         self.relay.deposit(&to.device_id, to.capability.as_bytes(), bytes).await
     }
+
+    async fn disconnect(&self, device_id: &str) {
+        Network::disconnect(self, device_id).await;
+    }
 }
 
 /// The listening addresses of `base` with the router's STUN and TURN.

@@ -40,6 +40,10 @@ const MAILBOX_WAIT: Duration = Duration::from_secs(600);
 
 const NAME: &str = "name";
 const MAILBOX: &str = "mailbox";
+/// When the app was first opened on this phone (ms): the free year counts from it (§41).
+const INSTALLED_AT: &str = "installed_at";
+/// The first year is free (§40–41).
+pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 3600);
 
 pub fn retry_delay(attempts: i64) -> Duration {
     let exponent = attempts.clamp(1, 16) as u32 - 1;
@@ -61,6 +65,8 @@ pub trait Transport: Send + Sync {
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool>;
     /// Leaves the packet, already encrypted, in the peer's mailbox on the router (§19).
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
+    /// Closes any direct connection with the device (a blocked contact, §35).
+    async fn disconnect(&self, _device_id: &str) {}
 }
 
 pub use calls::CallUpdate;
@@ -115,6 +121,9 @@ impl Core {
         };
         // A call cannot survive the app stopping.
         store.finish_open_calls(now()).await?;
+        if store.setting(INSTALLED_AT).await?.is_none() {
+            store.set_setting(INSTALLED_AT, &now().to_string()).await?;
+        }
         let (events, _) = broadcast::channel(256);
         Ok(Arc::new(Self {
             device_id: identity.device_id(),
@@ -161,6 +170,13 @@ impl Core {
 
     pub async fn set_name(&self, name: &str) -> Result<()> {
         self.store.set_setting(NAME, name.trim()).await
+    }
+
+    /// Until when (ms) the app is free: a year from the first time it opened on this phone,
+    /// counted only here (§41, strategy A).
+    pub async fn free_until(&self) -> Result<i64> {
+        let installed = self.store.setting(INSTALLED_AT).await?.and_then(|at| at.parse::<i64>().ok()).unwrap_or_else(now);
+        Ok(installed + FREE_PERIOD.as_millis() as i64)
     }
 
     /// Whether this user uses the mailbox (§19); on by default.
@@ -230,6 +246,9 @@ impl Core {
 
     pub async fn block(&self, contact: &str, blocked: bool) -> Result<()> {
         self.store.set_blocked(contact, blocked).await?;
+        if blocked {
+            self.transport.disconnect(contact).await;
+        }
         let _ = self.events.send(Event::ContactsChanged);
         Ok(())
     }

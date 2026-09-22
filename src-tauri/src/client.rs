@@ -120,6 +120,8 @@ pub struct MeView {
     id: String,
     name: String,
     mailbox: bool,
+    /// Until when (ms) the app is free (§41).
+    free_until: i64,
 }
 
 #[derive(Serialize)]
@@ -355,6 +357,7 @@ pub async fn core_me(client: State<'_, Client>) -> Result<MeView, String> {
         id: core.device_id().to_string(),
         name: core.name().await.map_err(failed)?.unwrap_or_default(),
         mailbox: core.mailbox().await.map_err(failed)?,
+        free_until: core.free_until().await.map_err(failed)?,
     })
 }
 
@@ -675,6 +678,15 @@ mod tests {
         let ended = serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Ended { outcome: CallOutcome::Busy })).unwrap();
         assert_eq!((ended["kind"].as_str(), ended["outcome"].as_str()), (Some("ended"), Some("busy")));
         assert!(ended.get("sdp").is_none());
+    }
+
+    // §41: the free year shows in Settings, counted on this phone.
+    #[test]
+    fn me_carries_the_free_period() {
+        let me = MeView { id: "ft_me".to_owned(), name: "Ioan".to_owned(), mailbox: true, free_until: 42 };
+        assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
+            "id": "ft_me", "name": "Ioan", "mailbox": true, "freeUntil": 42
+        }));
     }
 
     // An incoming call rings until it is answered, declined or given up (§66); our own calls

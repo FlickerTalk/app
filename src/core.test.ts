@@ -9,6 +9,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauri.invoke,
   convertFileSrc: (path: string) => `asset://localhost${path}`,
 }));
+const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => opener);
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, handler: (event: { payload: unknown }) => void) => {
     tauri.handlers[name] = handler;
@@ -21,7 +23,7 @@ import * as core from "./core";
 const at = (hours: number, minutes: number) => new Date(2026, 8, 22, hours, minutes).getTime();
 
 const answers: Record<string, unknown> = {
-  core_me: { id: "ft_me", name: "Ioan", mailbox: true },
+  core_me: { id: "ft_me", name: "Ioan", mailbox: true, freeUntil: 1_800_000_000_000 },
   core_conversations: [
     {
       id: "ft_bob",
@@ -50,7 +52,7 @@ describe("core bridge", () => {
 
   it("loads me and the conversations from the core", async () => {
     await core.start();
-    expect(core.store.me).toMatchObject({ id: "ft_me", name: "Ioan", mailbox: true });
+    expect(core.store.me).toMatchObject({ id: "ft_me", name: "Ioan", mailbox: true, freeUntil: 1_800_000_000_000 });
     expect(core.store.chats.map((chat) => chat.name)).toEqual(["Bob", "Carol"]);
     expect(core.store.chats[0]).toMatchObject({
       unread: 2,
@@ -173,6 +175,27 @@ describe("core bridge", () => {
       "48 MB",
       "2.3 GB",
     ]);
+  });
+
+  // §36: a report goes by email, outside the messaging system, and only with what the user
+  // chooses to send; the messages as evidence only if they ask for it.
+  it("writes a report as an email to FlickerTalk", () => {
+    const link = new URL(core.reportLink("ft_bob", "spam", []));
+    expect(link.protocol).toBe("mailto:");
+    expect(link.pathname).toBe("info@flickertalk.com");
+    const body = link.searchParams.get("body") ?? "";
+    expect(link.searchParams.get("subject")).toBe("Report ft_bob");
+    expect(body).toContain("Reported: ft_bob");
+    expect(body).toContain("Reason: spam");
+    expect(body).not.toContain("Evidence");
+    const withEvidence = new URL(core.reportLink("ft_bob", "abuse", ["you are an idiot"])).searchParams.get("body");
+    expect(withEvidence).toContain("you are an idiot");
+  });
+
+  it("reports and blocks the contact", async () => {
+    await core.reportContact("ft_bob", "spam", []);
+    expect(opener.openUrl).toHaveBeenCalledWith(expect.stringMatching(/^mailto:info@flickertalk\.com\?/));
+    expect(tauri.invoke).toHaveBeenCalledWith("core_block", { contact: "ft_bob", blocked: true });
   });
 
   it("gives every contact a stable colour", () => {
