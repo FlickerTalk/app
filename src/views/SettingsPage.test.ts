@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
 import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
+import { store } from "../core";
+
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => Promise.resolve("0.3.1") }));
+const push = vi.fn();
+vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
 
 describe("SettingsPage", () => {
   beforeEach(() => {
@@ -28,11 +33,30 @@ describe("SettingsPage", () => {
     expect(calls).toContainEqual(["core_set_mailbox", { enabled: false }]);
   });
 
-  it("offers moving the identity to a new phone and an encrypted backup", () => {
+  // §61: the encrypted backup comes after the MVP; nothing is shown before it works.
+  it("offers moving the identity to a new phone, and nothing that does not work yet", () => {
     const text = mount(SettingsPage, { shallow: true }).text();
     expect(text).toContain("Move to a new phone");
-    expect(text).toContain("Backup");
+    expect(text).not.toContain("Backup");
+    expect(text).not.toContain("Privacy");
     expect(text).not.toContain("Export identity");
+  });
+
+  // §41: the free year, counted on this phone.
+  it("shows how long the app stays free", () => {
+    store.me.freeUntil = Date.now() + 100.5 * 24 * 3600 * 1000;
+    expect(mount(SettingsPage, { shallow: true }).text()).toContain("Free · 100 days left");
+  });
+
+  it("shows the app's real version", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain("0.3.1");
+  });
+
+  it("lists the blocked contacts", async () => {
+    await mount(SettingsPage, { shallow: true }).find("[data-test='blocked']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/blocked");
   });
 
   it("lets the user choose how calls are routed", () => {

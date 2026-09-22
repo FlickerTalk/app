@@ -5,6 +5,7 @@
 import { reactive } from "vue";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type Status = "pending" | "sent" | "delivered" | "read";
 
@@ -51,6 +52,8 @@ export interface Me {
   name: string;
   hue: number;
   mailbox: boolean;
+  /** Until when (ms) the app is free: a year from the install, counted on this phone (§41). */
+  freeUntil: number;
 }
 
 export interface ContactDetails {
@@ -95,7 +98,7 @@ const UPLOAD_SLICE = 512 * 1024;
 
 export const store = reactive({
   ready: false,
-  me: { id: "", name: "", hue: 0, mailbox: true } as Me,
+  me: { id: "", name: "", hue: 0, mailbox: true, freeUntil: 0 } as Me,
   chats: [] as Chat[],
 });
 
@@ -264,6 +267,23 @@ export async function setName(name: string): Promise<void> {
 export async function setMailbox(enabled: boolean): Promise<void> {
   await invoke("core_set_mailbox", { enabled });
   store.me.mailbox = enabled;
+}
+
+/** Where reports go: email, outside the messaging system (§36). */
+const REPORT_ADDRESS = "info@flickertalk.com";
+
+/** A report as an email: who, why and, only if the user chose it, their messages as evidence. */
+export function reportLink(contact: string, reason: string, evidence: string[]): string {
+  const lines = [`Reported: ${contact}`, `Reason: ${reason}`];
+  if (evidence.length) lines.push("", "Evidence:", ...evidence.map((text) => `> ${text}`));
+  const subject = encodeURIComponent(`Report ${contact}`);
+  return `mailto:${REPORT_ADDRESS}?subject=${subject}&body=${encodeURIComponent(lines.join("\n"))}`;
+}
+
+/** Opens the report in the user's mail app and blocks the contact. */
+export async function reportContact(contact: string, reason: string, evidence: string[]): Promise<void> {
+  await openUrl(reportLink(contact, reason, evidence));
+  await block(contact, true);
 }
 
 export async function contactDetails(contact: string): Promise<ContactDetails> {

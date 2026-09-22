@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
+import { useRouter } from "vue-router";
 import {
   IonContent,
   IonHeader,
@@ -16,13 +18,11 @@ import {
   IonToolbar,
 } from "@ionic/vue";
 import {
-  archiveOutline,
   banOutline,
   callOutline,
   colorPaletteOutline,
   contrastOutline,
   copyOutline,
-  eyeOffOutline,
   fileTrayOutline,
   flaskOutline,
   informationCircleOutline,
@@ -45,6 +45,20 @@ import {
   type Appearance,
   type Direction,
 } from "../theme";
+
+const router = useRouter();
+
+// §41: free for a year from the install, counted on this phone.
+const plan = computed(() => {
+  const days = Math.floor((store.me.freeUntil - Date.now()) / (24 * 3600 * 1000));
+  if (!store.me.freeUntil) return t("settings.planFree");
+  return days >= 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");
+});
+
+const version = ref("");
+onMounted(async () => {
+  version.value = await getVersion().catch(() => "");
+});
 
 // Development builds, or PoC builds made with VITE_POC=1 (Android APKs are production builds).
 const isDev = import.meta.env.DEV || import.meta.env.VITE_POC === "1";
@@ -139,7 +153,7 @@ function chooseAppearance(id: Appearance) {
               <ion-select-option value="always">{{ $t("settings.callsAlways") }}</ion-select-option>
             </ion-select>
           </ion-item>
-          <ion-item button detail lines="none">
+          <ion-item button detail lines="none" data-test="blocked" @click="router.push('/blocked')">
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.blocked") }}</ion-label>
           </ion-item>
@@ -191,27 +205,18 @@ function chooseAppearance(id: Appearance) {
             <span slot="start" class="ft-tile"><ion-icon :icon="swapHorizontalOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.movePhone") }}</ion-label>
           </ion-item>
-          <!-- Plan §61: encrypted .ftbackup file, for when the old phone is lost. -->
-          <ion-item button detail lines="none">
-            <span slot="start" class="ft-tile"><ion-icon :icon="archiveOutline" aria-hidden="true" /></span>
-            <ion-label>{{ $t("settings.backup") }}</ion-label>
-          </ion-item>
         </ion-list>
 
         <ion-list inset class="ft-group">
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="sparklesOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.plan") }}</ion-label>
-            <ion-note slot="end">{{ $t("settings.planFree") }}</ion-note>
-          </ion-item>
-          <ion-item button detail lines="none">
-            <span slot="start" class="ft-tile"><ion-icon :icon="eyeOffOutline" aria-hidden="true" /></span>
-            <ion-label>{{ $t("settings.privacy") }}</ion-label>
+            <ion-note slot="end">{{ plan }}</ion-note>
           </ion-item>
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="informationCircleOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.version") }}</ion-label>
-            <ion-note slot="end">0.1.0</ion-note>
+            <ion-note slot="end">{{ version }}</ion-note>
           </ion-item>
           <!-- PoC 0 (Plan §87): developer screen, only in development builds. -->
           <ion-item v-if="isDev" button detail lines="none" router-link="/poc" data-test="poc">

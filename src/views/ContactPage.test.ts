@@ -17,11 +17,25 @@ describe("ContactPage", () => {
     expect(wrapper.find("[data-test='fingerprint']").text()).toBe("a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718");
   });
 
-  it("offers verifying in person, blocking and reporting", () => {
+  // The fingerprint card is how to verify in person; no separate button that does nothing.
+  it("offers blocking and reporting", () => {
     const wrapper = mount(ContactPage, { shallow: true });
-    for (const label of ["Verify in person", "Block", "Report"]) {
+    expect(wrapper.text()).not.toContain("Verify in person");
+    for (const label of ["Compare both codes", "Block", "Report"]) {
       expect(wrapper.text()).toContain(label);
     }
+  });
+
+  // §36: a reason, the messages as evidence only if asked, and the contact is blocked too.
+  it("reports the contact by email and blocks them", async () => {
+    const wrapper = mount(ContactPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[data-test='report']").trigger("click");
+    await wrapper.find("[data-test='reason-spam']").trigger("click");
+    await wrapper.find("[data-test='send-report']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["plugin:opener|open_url", expect.objectContaining({ url: expect.stringContaining("Reason%3A%20spam") })]);
+    expect(calls).toContainEqual(["core_block", { contact: "c1", blocked: true }]);
   });
 
   it("blocks the contact", async () => {

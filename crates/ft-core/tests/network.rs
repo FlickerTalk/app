@@ -261,3 +261,21 @@ async fn a_file_crosses_a_real_data_channel() {
     assert_eq!(std::fs::read(received.path).unwrap(), bytes);
     assert_eq!(bus.mail_for(&bob.id()), 0);
 }
+
+// §35: blocking someone also closes the direct connection with them.
+#[tokio::test(flavor = "multi_thread")]
+async fn blocking_closes_the_connection() {
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    alice.core.send_text(&bob.id(), "hi").await.unwrap();
+    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+
+    alice.core.block(&bob.id(), true).await.expect("blocks");
+    until("closed on both sides", || async {
+        !alice.network.is_connected(&bob.id()).await && !bob.network.is_connected(&alice.id()).await
+    })
+    .await;
+}
