@@ -442,7 +442,7 @@ impl Client {
                 while let Ok(event) = events.recv().await {
                     let contact = match event {
                         Event::MessagesChanged { contact } => Some(contact),
-                        Event::ContactsChanged | Event::ConnectionChanged { .. } => None,
+                        Event::ContactsChanged | Event::ConnectionChanged { .. } | Event::PluginsChanged => None,
                         Event::Move(update) => {
                             let _ = app.emit(MOVE_EVENT, MoveEvent::from(update.clone()));
                             after_move(&app, &dir_for_events, &router_for_events, update);
