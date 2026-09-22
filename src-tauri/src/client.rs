@@ -443,6 +443,9 @@ impl Client {
         online.core.set_move_dir(dir.join(MOVE_DIR));
         online.core.set_plugins_dir(dir.join("plugins"));
         install_bundled_plugins(&online.core).await;
+        if let Some(app) = self.app.get() {
+            refresh_served_plugins(app, &online.core, dir).await;
+        }
 
         if let Some(app) = self.app.get().cloned() {
             let mut events = online.core.events();
@@ -494,6 +497,24 @@ impl Client {
 /// The plugins that travel with the app (§52). They live in the binary: on Android the resources
 /// sit inside the APK, where there is no file to read.
 const BUNDLED_PLUGINS: &[&[u8]] = &[include_bytes!("../resources/plugins/code-block.ftplugin")];
+
+/// What the WebView may serve of each plugin right now: kept in step with what is installed and
+/// what the user granted (§53, §55).
+pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, dir: &Path) {
+    let mut served = std::collections::HashMap::new();
+    for plugin in core.plugins().await.unwrap_or_default() {
+        let Some(component) = plugin.manifest.components.first().cloned() else { continue };
+        served.insert(
+            plugin.manifest.id.clone(),
+            crate::plugins::Served {
+                dir: dir.join("plugins").join(&plugin.manifest.id),
+                component,
+                policy: crate::plugins::policy_for(&plugin.granted),
+            },
+        );
+    }
+    app.state::<crate::plugins::Plugins>().set(served);
+}
 
 /// Installs them the first time they are seen, and updates them when the app brings a newer one.
 /// Installing grants nothing (§53).
@@ -747,7 +768,12 @@ pub async fn core_plugins(client: State<'_, Client>) -> Result<Vec<PluginView>, 
 
 /// What the user allows a plugin to do, always within what it asked for (§53).
 #[tauri::command]
-pub async fn core_plugin_grant(plugin: String, granted: PermissionsView, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_plugin_grant(
+    plugin: String,
+    granted: PermissionsView,
+    app: AppHandle,
+    client: State<'_, Client>,
+) -> Result<(), String> {
     let permissions = ft_plugins::Permissions {
         network: granted.network,
         reads_given_messages: granted.messages,
@@ -757,13 +783,19 @@ pub async fn core_plugin_grant(plugin: String, granted: PermissionsView, client:
             _ => ft_plugins::Sending::Nothing,
         },
     };
-    client.core().await?.grant_plugin(&plugin, permissions).await.map_err(failed)
+    let core = client.core().await?;
+    core.grant_plugin(&plugin, permissions).await.map_err(failed)?;
+    refresh_served_plugins(&app, &core, client.dir()?).await;
+    Ok(())
 }
 
 /// Takes a plugin off this phone.
 #[tauri::command]
-pub async fn core_plugin_remove(plugin: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.remove_plugin(&plugin).await.map_err(failed)
+pub async fn core_plugin_remove(plugin: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    core.remove_plugin(&plugin).await.map_err(failed)?;
+    refresh_served_plugins(&app, &core, client.dir()?).await;
+    Ok(())
 }
 
 /// What the user pressed on the incoming call notification: "answer", "decline" or nothing (§66).

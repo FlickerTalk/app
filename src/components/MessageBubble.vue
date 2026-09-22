@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IonIcon } from "@ionic/vue";
-import { checkmark, checkmarkDone, documentOutline, downloadOutline, micOutline, timeOutline } from "ionicons/icons";
+import { checkmark, checkmarkDone, documentOutline, downloadOutline, extensionPuzzleOutline, micOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -23,8 +23,8 @@ export interface Message {
   file?: TransferredFile;
 }
 
-const props = defineProps<{ message: Message; saved?: boolean }>();
-const emit = defineEmits<{ open: [id: string]; save: [id: string] }>();
+const props = defineProps<{ message: Message; saved?: boolean; withPlugin?: boolean }>();
+const emit = defineEmits<{ open: [id: string]; save: [id: string]; plugin: [id: string] }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
   pending: { icon: timeOutline, label: t("status.pending") },
@@ -90,6 +90,17 @@ function open() {
         </button>
       </div>
       <p v-else class="ft-bubble__text">{{ message.text }}</p>
+      <!-- Issue app#3: hand this message to a plugin, only because the user asked (§53). -->
+      <button
+        v-if="withPlugin && !file && message.text"
+        type="button"
+        class="ft-bubble__plugin"
+        data-test="plugin"
+        :aria-label="t('chat.openWithPlugin')"
+        @click.stop="emit('plugin', message.id)"
+      >
+        <ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" />
+      </button>
 
       <span class="ft-bubble__meta">
         <span>{{ message.time }}</span>

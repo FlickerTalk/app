@@ -28,7 +28,7 @@
         "connect-src": "'self' ipc: http://ipc.localhost data:",
         "font-src": "'self' data:",
         "object-src": "'none'",
-        "frame-src": "'none'",
+        "frame-src": "ftplugin: http://ftplugin.localhost",
         "base-uri": "'self'",
         "form-action": "'none'"
       },

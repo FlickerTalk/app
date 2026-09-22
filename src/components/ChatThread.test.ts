@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonTextarea } from "@ionic/vue";
+import { IonModal, IonTextarea } from "@ionic/vue";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
@@ -163,5 +163,18 @@ describe("ChatThread", () => {
     await flushPromises();
     expect(wrapper.find("[aria-label='Send']").exists()).toBe(true);
     expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(false);
+  });
+
+  // Issue app#3: a message is handed to a plugin only when the user asks for it (§53).
+  it("opens a message with a plugin the user allowed", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    const button = wrapper.find("[data-test='plugin']");
+    expect(button.exists()).toBe(true);
+    await button.trigger("click");
+    await flushPromises();
+    const sheet = wrapper.findComponent(IonModal);
+    expect(sheet.props("isOpen")).toBe(true);
+    expect(sheet.text()).not.toContain("core_");
   });
 });
