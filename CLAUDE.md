@@ -26,7 +26,9 @@ npm run build                                      # vue-tsc + vite build → di
 npm run tauri dev                                  # escritorio en modo desarrollo
 npm run tauri android dev                          # requiere ANDROID_HOME y NDK_HOME
 npm run tauri ios dev                              # requiere Xcode + `tauri ios init`
-cargo check --manifest-path src-tauri/Cargo.toml   # comprobar el lado Rust
+cargo test --workspace                             # tests de Rust (sin red)
+cargo test -p ft-webrtc -- --ignored               # WebRTC por la red real (STUN)
+cargo check --workspace                            # comprobar el lado Rust
 ```
 
 ## Entorno
@@ -42,8 +44,9 @@ cargo check --manifest-path src-tauri/Cargo.toml   # comprobar el lado Rust
 
 - **Poca lógica de negocio fuera de `crates/`** (`§82`): `src/` y `src-tauri/` son capas finas
   sobre `ft-core`. Si algo se puede testear sin Tauri, va en un crate.
-- Todavía no hay workspace Cargo: `src-tauri/` es un proyecto Cargo independiente. Al crear el
-  primer crate de `crates/` hay que montar el workspace (`src-tauri` + `crates/*`).
+- Workspace Cargo en `app/Cargo.toml`, con miembros **explícitos** (`src-tauri`, `crates/ft-webrtc`):
+  cada crate nuevo se añade a la lista. Un glob `crates/*` fallaría con las carpetas que aún solo
+  tienen `CLAUDE.md`. El perfil de release vive en la raíz del workspace.
 - El identificador `com.flickertalk.flickertalk` (`tauri.conf.json`, paquete Android) es
   **provisional**. Es un contrato con las stores: se fija el definitivo antes de la primera
   subida, y cambiarlo implica regenerar `src-tauri/gen/`.
