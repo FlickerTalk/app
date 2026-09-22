@@ -64,6 +64,8 @@ pub trait Transport: Send + Sync {
 pub enum Event {
     ContactsChanged,
     MessagesChanged { contact: String },
+    /// A direct connection with the contact opened or closed.
+    ConnectionChanged { contact: String },
 }
 
 enum Route {

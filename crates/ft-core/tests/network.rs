@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
-use ft_core::Core;
+use ft_core::{Core, Event};
 use ft_push::RouterEvent;
 use ft_storage::{MessageState, Store};
 use ft_webrtc::SessionConfig;
@@ -204,4 +204,35 @@ async fn an_open_connection_is_reused() {
     })
     .await;
     assert_eq!(bus.signals.load(Ordering::SeqCst), signals, "no new signalling");
+}
+
+// The UI shows whether a direct connection is open with each contact (§84: honest status).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_network_reports_open_connections() {
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    let mut events = alice.core.events();
+    pair(&alice, &bob).await;
+
+    alice.core.send_text(&bob.id(), "hi").await.unwrap();
+    until("both see the connection", || async {
+        alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await
+    })
+    .await;
+    assert_eq!(alice.network.connected().await, [bob.id()]);
+    let announced = async {
+        loop {
+            if let Ok(Event::ConnectionChanged { contact }) = events.recv().await {
+                return contact;
+            }
+        }
+    };
+    let contact = tokio::time::timeout(Duration::from_secs(5), announced).await.expect("announced");
+    assert_eq!(contact, bob.id());
+
+    alice.network.disconnect(&bob.id()).await;
+    assert!(!alice.network.is_connected(&bob.id()).await);
+    until("bob sees it closed", || async { !bob.network.is_connected(&alice.id()).await }).await;
 }

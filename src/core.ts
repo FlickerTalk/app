@@ -20,7 +20,7 @@ export interface Chat {
   id: string;
   name: string;
   hue: number;
-  /** Whether a direct connection is open now (not reported by the core yet). */
+  /** Whether a direct connection is open now. */
   connected: boolean;
   unread: number;
   time: string;
@@ -59,6 +59,7 @@ interface ConversationView {
   name: string;
   unread: number;
   blocked: boolean;
+  connected: boolean;
   last: MessageView | null;
 }
 
@@ -99,7 +100,7 @@ function toChat(view: ConversationView): Chat {
     id: view.id,
     name: view.name,
     hue: hueOf(view.id),
-    connected: false,
+    connected: view.connected,
     unread: view.unread,
     time: clock(view.last?.sentAt ?? 0),
     preview: view.last?.text ?? "",

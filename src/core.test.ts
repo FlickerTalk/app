@@ -25,9 +25,10 @@ const answers: Record<string, unknown> = {
       name: "Bob",
       unread: 2,
       blocked: false,
+      connected: true,
       last: { id: "m2", outgoing: true, text: "see you", sentAt: at(9, 41), state: "delivered" },
     },
-    { id: "ft_carol", name: "Carol", unread: 0, blocked: false, last: null },
+    { id: "ft_carol", name: "Carol", unread: 0, blocked: false, connected: false, last: null },
   ],
   core_messages: [
     { id: "m1", outgoing: false, text: "hi", sentAt: at(9, 30), state: "delivered" },
@@ -53,8 +54,9 @@ describe("core bridge", () => {
       lastMine: true,
       status: "delivered",
       time: "09:41",
+      connected: true,
     });
-    expect(core.store.chats[1]).toMatchObject({ preview: "", lastMine: false, time: "" });
+    expect(core.store.chats[1]).toMatchObject({ preview: "", lastMine: false, time: "", connected: false });
   });
 
   it("loads a conversation's messages", async () => {

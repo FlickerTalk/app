@@ -69,6 +69,26 @@ async fn binary_packets_cross_the_data_channel_unchanged() {
     assert_eq!(timeout(LIMIT, callee_inbox.next()).await.expect("in time"), Some(packet));
 }
 
+/// Closing a session ends the other side's channel too: its inbox finishes and it stops being open.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_one_side_closes_the_other() {
+    let (caller_out, caller_signals) = mpsc::channel(32);
+    let (callee_out, callee_signals) = mpsc::channel(32);
+    let (caller, _) = Session::start(SessionConfig::offline(), Role::Caller, caller_out).await.expect("starts");
+    let (callee, mut callee_inbox) = Session::start(SessionConfig::offline(), Role::Callee, callee_out).await.expect("starts");
+    pipe(caller_signals, callee.clone());
+    pipe(callee_signals, caller.clone());
+    caller.invite().await.expect("offers");
+    timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
+    timeout(LIMIT, callee.wait_open()).await.expect("opens in time").expect("opens");
+
+    caller.close().await.expect("closes");
+    assert!(!caller.is_open());
+    let ended = timeout(Duration::from_secs(5), callee_inbox.next()).await.expect("the other side sees the close");
+    assert_eq!(ended, None);
+    assert!(!callee.is_open());
+}
+
 /// Same exchange, gathering candidates through Google's STUN over the real network (Plan §16:
 /// allowed during the PoC). Ignored by default because it needs internet:
 /// `cargo test -p ft-webrtc -- --ignored`.

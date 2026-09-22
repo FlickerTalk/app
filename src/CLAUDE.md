@@ -27,9 +27,10 @@ Estado (2026-09-22, `§106` M3): los datos son reales. La identidad nace en el n
 bienvenida pide un nombre opcional (viaja en la Contact Card). «Añadir contacto» muestra el QR de
 la tarjeta firmada, copia el enlace, escanea con la cámara (`@tauri-apps/plugin-barcode-scanner`,
 solo en móvil) o acepta un enlace pegado. El hilo carga los mensajes, envía y marca como leído. El
-buzón se activa en el núcleo. Pendiente: saber si hay conexión directa con un contacto (hoy siempre
-«Not connected»), ficheros (M5), llamadas (M6; la lista de llamadas está vacía, nunca inventada) y
-el resto del MVP (M7).
+buzón se activa en el núcleo. La cabecera del hilo dice «Direct» solo si hay un DataChannel abierto
+con el contacto (`connected` de `core_conversations`; el núcleo avisa al abrirse o cerrarse).
+Pendiente: ficheros (M5), llamadas (M6; la lista de llamadas está vacía, nunca inventada) y el resto
+del MVP (M7).
 
 ## Reglas
 
