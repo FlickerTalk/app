@@ -1629,6 +1629,7 @@ dependencies = [
  "base64 0.22.1",
  "ft-contacts",
  "ft-core",
+ "ft-plugins",
  "ft-storage",
  "ft-webrtc",
  "rand 0.9.5",
@@ -1761,6 +1762,7 @@ name = "ft-plugins"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "blake3",
  "serde",
  "serde_json",
