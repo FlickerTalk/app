@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonModal, IonTextarea } from "@ionic/vue";
+import { IonTextarea } from "@ionic/vue";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
@@ -193,18 +193,32 @@ describe("ChatThread", () => {
     expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("# Title");
   });
 
-  // The old way in: a long press on a message. Kept out, it was noise (Ioan, 2026-09-22).
-  it.skip("opens the plugin only after a long press on a message", async () => {
+  // Issue app#4: the emoji live in the core, in the composer, not in a plugin.
+  it("puts the emoji that was picked at the end of what is being written", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
     await flushPromises();
-    expect(wrapper.find("[data-test='plugin']").exists()).toBe(false);
-    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(false);
+    expect(wrapper.findComponent({ name: "EmojiPicker" }).exists()).toBe(false);
 
-    vi.useFakeTimers();
-    await wrapper.findAll("[data-test='bubble']")[0].trigger("pointerdown");
-    await vi.advanceTimersByTimeAsync(600);
-    vi.useRealTimers();
+    await wrapper.find("[data-test='open-emoji']").trigger("click");
+    const picker = wrapper.findComponent({ name: "EmojiPicker" });
+    expect(picker.exists()).toBe(true);
+
+    picker.vm.$emit("pick", "🎉");
     await flushPromises();
-    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(true);
+    expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎉");
   });
+
+  it("closes the emoji when the message goes", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await wrapper.find("[data-test='open-emoji']").trigger("click");
+    wrapper.findComponent({ name: "EmojiPicker" }).vm.$emit("pick", "🎉");
+    await flushPromises();
+
+    await wrapper.find("[aria-label='Send']").trigger("click");
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "EmojiPicker" }).exists()).toBe(false);
+    expect(calls).toContainEqual(["core_send", { contact: "c1", text: "🎉" }]);
+  });
+
 });
