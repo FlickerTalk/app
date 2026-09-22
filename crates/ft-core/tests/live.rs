@@ -1,50 +1,20 @@
 //! Two complete devices against the live router (api.flickertalk.com), with WebRTC over the real
 //! network and the cluster's STUN and TURN. Ignored by default: `cargo test -p ft-core -- --ignored`.
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use ft_core::net::Network;
-use ft_core::Core;
-use ft_push::RouterClient;
+use ft_core::online::Online;
 use ft_storage::{MessageState, Store};
 use ft_webrtc::SessionConfig;
 
 const ROUTER: &str = "https://api.flickertalk.com";
 
-struct Phone {
-    core: Arc<Core>,
-    router: Arc<RouterClient>,
-}
-
-async fn phone(name: &str) -> Phone {
-    let slot: Arc<std::sync::OnceLock<Arc<Core>>> = Arc::default();
-    let signer = Arc::new(LateSigner(slot.clone()));
-    let router = Arc::new(RouterClient::new(ROUTER, signer).expect("client"));
-    let network = Network::new(router.clone(), SessionConfig::default());
-    let core = Core::open(Store::open_in_memory().await.unwrap(), rand_key(), network.clone()).await.expect("opens");
-    core.set_name(name).await.unwrap();
-    slot.set(core.clone()).ok();
-    network.attach(&core);
-    router.register(&core.route_capability().hash()).await.expect("registers");
-    network.listen(router.listen());
-    Phone { core, router }
-}
-
-/// The router client needs the core to sign, and the core needs the network: resolved late.
-struct LateSigner(Arc<std::sync::OnceLock<Arc<Core>>>);
-
-#[async_trait::async_trait]
-impl ft_push::Signer for LateSigner {
-    fn device_id(&self) -> String {
-        self.0.get().expect("core").device_id().to_string()
-    }
-    async fn signing_key(&self) -> String {
-        self.0.get().expect("core").signing_key().await
-    }
-    async fn sign(&self, message: &[u8]) -> String {
-        self.0.get().expect("core").sign(message).await
-    }
+async fn phone(name: &str) -> Online {
+    let online = ft_core::online::start(Store::open_in_memory().await.unwrap(), rand_key(), ROUTER, SessionConfig::default())
+        .await
+        .expect("starts");
+    online.core.set_name(name).await.unwrap();
+    online
 }
 
 fn rand_key() -> [u8; 32] {

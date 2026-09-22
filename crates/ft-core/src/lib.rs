@@ -13,6 +13,7 @@
 //!   contacts are dropped (§35).
 
 pub mod net;
+pub mod online;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -190,6 +191,13 @@ impl Core {
         self.introduce(&contact).await?;
         let _ = self.events.send(Event::ContactsChanged);
         Ok(contact)
+    }
+
+    /// Safety number with a contact (§29), the same on both phones.
+    pub async fn fingerprint(&self, contact: &str) -> Result<String> {
+        let card = ContactCard::decode(&self.contact(contact).await?.card)?;
+        let mine = self.identity.lock().await.signing_key();
+        Ok(ft_contacts::fingerprint(&mine, &card.signing_key()))
     }
 
     pub async fn rename_contact(&self, contact: &str, name: &str) -> Result<()> {

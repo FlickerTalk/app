@@ -1,14 +1,20 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { IonContent, IonIcon, IonPage } from "@ionic/vue";
 import { arrowForward } from "ionicons/icons";
 import { useRouter } from "vue-router";
-import data from "../mock/chats.json";
+import { setName, store } from "../core";
 import { setOnboarded } from "../preferences";
 
 const router = useRouter();
+const name = ref("");
 
 // Plan §6: the identity is created on the device on first run. No account, no phone number.
-function start() {
+// The name only travels inside the Contact Card, so contacts see it when they scan.
+async function start() {
+  if (name.value.trim()) {
+    await setName(name.value);
+  }
   setOnboarded();
   router.replace("/tabs/chats");
 }
@@ -37,9 +43,21 @@ function start() {
 
         <section class="ft-welcome__identity">
           <span class="ft-welcome__label">{{ $t("welcome.identityCreated") }}</span>
-          <code class="ft-welcome__id">{{ data.me.id }}</code>
+          <code class="ft-welcome__id">{{ store.me.id }}</code>
           <span class="ft-welcome__note">{{ $t("welcome.noAccount") }}</span>
         </section>
+
+        <label class="ft-welcome__name">
+          <input
+            v-model="name"
+            data-test="name"
+            :placeholder="$t('welcome.name')"
+            :aria-label="$t('welcome.name')"
+            autocomplete="nickname"
+            maxlength="40"
+          />
+          <span class="ft-welcome__note">{{ $t("welcome.nameHint") }}</span>
+        </label>
 
         <button type="button" class="ft-welcome__start" data-test="start" @click="start">
           {{ $t("welcome.start") }}
@@ -51,6 +69,23 @@ function start() {
 </template>
 
 <style scoped>
+.ft-welcome__name {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(100%, 320px);
+}
+.ft-welcome__name input {
+  padding: 14px 16px;
+  border: 1px solid var(--ft-border);
+  border-radius: 14px;
+  background: var(--ft-surface);
+  color: var(--ft-text);
+  font: inherit;
+  font-size: 16px;
+  text-align: center;
+}
+
 .ft-welcome {
   --background: var(--ft-bg);
 }

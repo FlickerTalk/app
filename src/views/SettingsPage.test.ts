@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
 import SettingsPage from "./SettingsPage.vue";
+import { calls, seed } from "../__tests__/seed";
 
 describe("SettingsPage", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    seed();
+  });
 
   it("shows the FlickerTalk ID of this device", () => {
     expect(mount(SettingsPage, { shallow: true }).text()).toContain("ft_74MxNcJ8E2kQ");
@@ -14,6 +18,14 @@ describe("SettingsPage", () => {
     const toggle = mount(SettingsPage, { shallow: true }).findComponent(IonToggle);
     expect(toggle.attributes("aria-label")).toBe("Offline mailbox");
     expect(toggle.attributes("checked")).toBe("true");
+  });
+
+  // Plan §19: the preference lives in the core and travels to contacts, never to the server.
+  it("turns the mailbox off through the core", async () => {
+    const toggle = mount(SettingsPage, { shallow: true }).findComponent(IonToggle);
+    toggle.vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_mailbox", { enabled: false }]);
   });
 
   it("offers moving the identity to a new phone and an encrypted backup", () => {

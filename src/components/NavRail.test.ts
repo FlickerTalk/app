@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { seed } from "../__tests__/seed";
 import NavRail from "./NavRail.vue";
 
 const push = vi.fn();
@@ -9,7 +10,10 @@ vi.mock("vue-router", () => ({
 }));
 
 describe("NavRail", () => {
-  beforeEach(() => push.mockClear());
+  beforeEach(() => {
+    push.mockClear();
+    seed();
+  });
 
   it("offers one entry per section", () => {
     const wrapper = mount(NavRail, { shallow: true });

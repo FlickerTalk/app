@@ -14,7 +14,7 @@ import { checkmark, checkmarkDone, qrCodeOutline, timeOutline } from "ionicons/i
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
-import data from "../mock/chats.json";
+import { store } from "../core";
 
 const router = useRouter();
 
@@ -26,7 +26,7 @@ const onWidthChange = (event: MediaQueryListEvent) => {
 onMounted(() => wideQuery.addEventListener("change", onWidthChange));
 onBeforeUnmount(() => wideQuery.removeEventListener("change", onWidthChange));
 
-const selectedId = ref(data.chats[0].id);
+const selectedId = ref(store.chats[0]?.id ?? "");
 
 function open(id: string) {
   if (wide.value) {
@@ -66,8 +66,17 @@ const STATUS_ICON: Record<string, string> = {
             </ion-toolbar>
           </ion-header>
 
-          <ul class="ft-rows">
-            <li v-for="chat in data.chats" :key="chat.id">
+          <div v-if="!store.chats.length" class="ft-empty" data-test="empty">
+            <p class="ft-empty__title">{{ $t("chats.empty") }}</p>
+            <p class="ft-empty__hint">{{ $t("chats.emptyHint") }}</p>
+            <button type="button" class="ft-empty__action" @click="router.push('/add-contact')">
+              <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
+              {{ $t("addContact.title") }}
+            </button>
+          </div>
+
+          <ul v-else class="ft-rows">
+            <li v-for="chat in store.chats" :key="chat.id">
               <button
                 type="button"
                 class="ft-row"
@@ -99,7 +108,7 @@ const STATUS_ICON: Record<string, string> = {
         </ion-content>
       </section>
 
-      <section v-if="wide" class="ft-chats__detail">
+      <section v-if="wide && selectedId" class="ft-chats__detail">
         <ChatThread :chat-id="selectedId" />
       </section>
     </div>
@@ -107,6 +116,41 @@ const STATUS_ICON: Record<string, string> = {
 </template>
 
 <style scoped>
+.ft-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ft-space-3);
+  padding: 20vh var(--ft-space-5) 0;
+  text-align: center;
+}
+.ft-empty__title {
+  margin: 0;
+  font-size: var(--ft-font-title);
+  font-weight: 600;
+}
+.ft-empty__hint {
+  margin: 0;
+  max-width: 28ch;
+  color: var(--ft-muted);
+  line-height: 1.4;
+}
+.ft-empty__action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--ft-space-2);
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--ft-accent), var(--ft-accent-2));
+  color: var(--ft-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .ft-chats {
   display: flex;
   height: 100%;
