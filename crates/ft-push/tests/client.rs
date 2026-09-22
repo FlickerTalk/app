@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
@@ -42,6 +42,9 @@ fn device() -> Arc<Device> {
 #[derive(Default)]
 struct Seen {
     verified: Mutex<Vec<String>>,
+    /// The key the device registered, to check its later requests.
+    key: Mutex<Option<[u8; 32]>>,
+    push: Mutex<Vec<Value>>,
 }
 
 /// Checks the signature headers the way ft-router does, with ed25519-dalek.
@@ -65,6 +68,19 @@ async fn fake_router() -> (String, Arc<Seen>) {
                 let key: [u8; 32] = STANDARD_NO_PAD.decode(registration["signing_key"].as_str().unwrap()).unwrap().try_into().unwrap();
                 if check(&key, "POST", "/v1/device/register", &headers, &body) {
                     seen.verified.lock().unwrap().push("register".to_owned());
+                    *seen.key.lock().unwrap() = Some(key);
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::UNAUTHORIZED
+                }
+            }),
+        )
+        .route(
+            "/v1/device/push",
+            put(|State(seen): State<Arc<Seen>>, headers: HeaderMap, body: Bytes| async move {
+                let key = seen.key.lock().unwrap().expect("registered first");
+                if check(&key, "PUT", "/v1/device/push", &headers, &body) {
+                    seen.push.lock().unwrap().push(serde_json::from_slice(&body).unwrap());
                     StatusCode::NO_CONTENT
                 } else {
                     StatusCode::UNAUTHORIZED
@@ -103,6 +119,16 @@ async fn registration_is_signed_so_the_router_accepts_it() {
     let client = RouterClient::new(&base, device()).expect("client");
     client.register(&[5; 32]).await.expect("registers");
     assert_eq!(seen.verified.lock().unwrap().as_slice(), ["register"]);
+}
+
+// §8: where this device can be woken, signed like every request.
+#[tokio::test]
+async fn the_push_token_is_left_signed() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&[5; 32]).await.expect("registers");
+    client.set_push("fcm", "fcm-token-1").await.expect("leaves the token");
+    assert_eq!(seen.push.lock().unwrap().as_slice(), [json!({ "provider": "fcm", "token": "fcm-token-1" })]);
 }
 
 #[tokio::test]

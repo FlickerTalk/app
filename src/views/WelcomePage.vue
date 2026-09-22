@@ -3,7 +3,7 @@ import { ref } from "vue";
 import { IonContent, IonIcon, IonPage } from "@ionic/vue";
 import { arrowForward } from "ionicons/icons";
 import { useRouter } from "vue-router";
-import { setName, store } from "../core";
+import { enablePush, setName, store } from "../core";
 import { setOnboarded } from "../preferences";
 
 const router = useRouter();
@@ -16,6 +16,8 @@ async function start() {
     await setName(name.value);
   }
   setOnboarded();
+  // M4: from now on the phone can be woken when the app is closed (asks for notifications).
+  void enablePush();
   router.replace("/tabs/chats");
 }
 </script>

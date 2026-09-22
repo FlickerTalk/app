@@ -6,10 +6,12 @@
 //! - `save_to_downloads`: copies a file to the phone's Downloads (MediaStore, Android 10 and up).
 //! - `start_ringing` / `stop_ringing`: an incoming call rings with the user's ringtone and
 //!   vibrates, as the phone is set to (silent, vibrate only or normal).
+//! - `push_token`, `request_notifications`: the FCM token the router wakes this device with, and
+//!   Android 13's permission to show the notification a wake-up brings (M4).
 //! - `restart_app`: starts the app again (after moving to a new phone, §60); Tauri's own restart
 //!   only exits on Android.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime};
 
@@ -39,6 +41,13 @@ struct SaveFile<'a> {
     mime: &'a str,
 }
 
+/// What Kotlin's `pushToken` resolves with.
+#[derive(Deserialize)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+struct PushToken {
+    token: String,
+}
+
 pub struct Platform<R: Runtime> {
     #[cfg(target_os = "android")]
     handle: tauri::plugin::PluginHandle<R>,
@@ -63,6 +72,22 @@ impl<R: Runtime> Platform<R> {
 
     pub fn stop_ringing(&self) -> Result<()> {
         self.run("stopRinging", ())
+    }
+
+    /// The FCM token of this device.
+    pub fn push_token(&self) -> Result<String> {
+        #[cfg(target_os = "android")]
+        {
+            Ok(self.handle.run_mobile_plugin::<PushToken>("pushToken", ())?.token)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Err(Error::Unsupported)
+        }
+    }
+
+    pub fn request_notifications(&self) -> Result<()> {
+        self.run("requestNotifications", ())
     }
 
     pub fn restart_app(&self) -> Result<()> {
@@ -108,6 +133,13 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // What Kotlin's `pushToken` resolves with.
+    #[test]
+    fn the_push_token_comes_back_from_kotlin() {
+        let answer: PushToken = serde_json::from_value(serde_json::json!({ "token": "fcm-abc" })).unwrap();
+        assert_eq!(answer.token, "fcm-abc");
+    }
 
     // The Kotlin side reads these names (`OpenFileArgs`, `SaveFileArgs` in PlatformPlugin.kt).
     #[test]

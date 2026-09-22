@@ -16,8 +16,12 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
 - `platform/` — plugin de Tauri propio (`tauri-plugin-ft-platform`), el **puente nativo**: lo que
   Android solo deja hacer a Kotlin. Hoy abre un fichero de la app en otro visor (su propio
   `FtFileProvider`, limitado a la carpeta `files/`) y lo copia a Descargas (MediaStore). La WebView no
-  lo llama: solo el Rust de la app (`client.rs`). Tests de Kotlin:
+  lo llama: solo el Rust de la app (`client.rs`). También lleva el push (M4): `FtMessagingService`
+  recibe el aviso de FCM y, si la app no está en pantalla, muestra una notificación sin contenido;
+  `pushToken` y `requestNotifications`. Tests de Kotlin:
   `(cd gen/android && ./gradlew :tauri-plugin-ft-platform:testDebugUnitTest)`.
+- Firebase: `gen/android/app/google-services.json` **no se versiona** (el repo es público); está
+  en `infra/secrets/` y CI lo escribirá desde un secreto. Sin él la app compila, sin push.
 - En el `AndroidManifest.xml` de la app, las copias de Android están desactivadas
   (`allowBackup=false` y `data_extraction_rules.xml` sin nada): el historial y las claves no salen
   del teléfono (`§61`).

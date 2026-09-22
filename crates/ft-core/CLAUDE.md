@@ -79,3 +79,12 @@ bloquear. El historial (`calls` en SQLite) solo vive en el teléfono; al arranca
 llamadas que quedaron abiertas. `Event::Call` avisa a la UI. Al abrirse una conexión se reanudan
 en el acto las transferencias de ficheros de ese contacto (`resume_files_from`).
 
+## Estado (2026-09-22, `§106` M4)
+
+Push: la app deja su token de FCM al router (`RouterClient::set_push`, desde `core_enable_push` tras
+el onboarding y en cada arranque). El router despierta a un dispositivo no conectado cuando le llega
+una señal o un correo; en Android sale una notificación sin contenido que abre la app. Una llamada
+sigue intentándolo hasta 40 s (`CALL_REACH`) mientras el otro teléfono despierta. Probado en una
+Lenovo real con la app cerrada: notificación a los ~10 s y mensaje entregado al abrirla
+(`tests/live.rs`, `writes_to_a_real_phone`). iOS (APNs) espera a la cuenta de pago de Apple.
+

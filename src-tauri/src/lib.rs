@@ -39,6 +39,7 @@ pub fn run() {
             client::core_call_answer,
             client::core_call_end,
             client::core_calls,
+            client::core_enable_push,
             client::core_move_invite,
             client::core_move_to,
             poc::poc_default_relay,

@@ -91,6 +91,8 @@ describe("core bridge", () => {
     await core.markRead("ft_bob");
     await core.setMailbox(false);
     await core.setName("  Ioan  ");
+    await core.enablePush();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_enable_push");
     await core.openFile("f1");
     await core.saveFile("f1");
     expect(tauri.invoke).toHaveBeenCalledWith("core_open_file", { message: "f1" });

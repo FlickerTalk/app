@@ -1,4 +1,4 @@
-package com.flickertalk.flickertalk
+package com.flickertalk.app
 
 import android.graphics.Color
 import android.os.Bundle

@@ -15,10 +15,10 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    namespace = "com.flickertalk.flickertalk"
+    namespace = "com.flickertalk.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.flickertalk.flickertalk"
+        applicationId = "com.flickertalk.app"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
@@ -69,3 +69,9 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+// Firebase (push wake-ups, M4): only when this build has its configuration. It stays out of the
+// public repository; CI writes it from a secret.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}

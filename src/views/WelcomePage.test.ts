@@ -38,6 +38,14 @@ describe("WelcomePage", () => {
     expect(replace).toHaveBeenCalledWith("/tabs/chats");
   });
 
+  // M4: once the user starts, the phone can be woken when the app is closed.
+  it("lets the router wake this phone once started", async () => {
+    const wrapper = mount(WelcomePage, { shallow: true });
+    await wrapper.find("[data-test='start']").trigger("click");
+    await flushPromises();
+    expect(calls.map(([command]) => command)).toContain("core_enable_push");
+  });
+
   // §60: a new phone can take the identity of the old one instead of starting from scratch.
   it("offers bringing everything from an old phone", async () => {
     await mount(WelcomePage, { shallow: true }).find("[data-test='move-from-old']").trigger("click");

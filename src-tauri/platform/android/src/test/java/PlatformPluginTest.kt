@@ -1,5 +1,6 @@
 package com.flickertalk.platform
 
+import android.app.ActivityManager
 import android.media.AudioManager
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -8,7 +9,7 @@ class PlatformPluginTest {
     // Must match `android:authorities` in the plugin's AndroidManifest.xml.
     @Test
     fun theFileProviderAuthorityBelongsToTheApp() {
-        assertEquals("com.flickertalk.flickertalk.ft.files", fileProviderAuthority("com.flickertalk.flickertalk"))
+        assertEquals("com.flickertalk.app.ft.files", fileProviderAuthority("com.flickertalk.app"))
     }
 
     // Android 10 and up write to Downloads without any storage permission.
@@ -25,5 +26,21 @@ class PlatformPluginTest {
         assertEquals(Ringing(sound = true, vibrate = true), ringingFor(AudioManager.RINGER_MODE_NORMAL))
         assertEquals(Ringing(sound = false, vibrate = true), ringingFor(AudioManager.RINGER_MODE_VIBRATE))
         assertEquals(Ringing(sound = false, vibrate = false), ringingFor(AudioManager.RINGER_MODE_SILENT))
+    }
+
+    // M4: the router's push only says "wake"; anything else is ignored.
+    @Test
+    fun onlyWakeUpsCount() {
+        assertEquals(true, isWake(mapOf("t" to "wake")))
+        assertEquals(false, isWake(mapOf("t" to "other")))
+        assertEquals(false, isWake(emptyMap()))
+    }
+
+    // An open app is already connected: it gets everything without a notification.
+    @Test
+    fun notifiesOnlyWhenTheAppIsNotOnScreen() {
+        assertEquals(false, shouldNotify(ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND))
+        assertEquals(true, shouldNotify(ActivityManager.RunningAppProcessInfo.IMPORTANCE_CACHED))
+        assertEquals(true, shouldNotify(ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE))
     }
 }

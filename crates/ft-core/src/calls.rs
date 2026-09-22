@@ -14,6 +14,11 @@ use ft_storage::{CallOutcome, CallRecord, Contact};
 
 use crate::{now, Core, Event};
 
+/// How long a call keeps trying to reach a phone that may be asleep (the router wakes it).
+pub const CALL_REACH: Duration = Duration::from_secs(40);
+/// Between attempts.
+const CALL_RETRY: Duration = Duration::from_secs(2);
+
 /// A call nobody answers stops ringing after this long.
 pub const RING_LIMIT: Duration = Duration::from_secs(60);
 
@@ -63,14 +68,30 @@ impl Core {
         Ok(call)
     }
 
-    /// Sends our offer; if the contact cannot be reached directly, the call ends as unreachable.
+    /// Sends our offer, trying for a while: the contact's phone may be asleep, and each attempt
+    /// has the router wake it (M4). If it cannot be reached, the call ends as unreachable.
     pub async fn offer_call(&self, call: &str, sdp: &str) -> Result<()> {
+        self.offer_call_within(call, sdp, CALL_REACH).await
+    }
+
+    /// Like `offer_call`, trying for `reach`.
+    pub async fn offer_call_within(&self, call: &str, sdp: &str, reach: Duration) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, true).await? else { bail!("no such call") };
         let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video };
-        if !self.transmit_direct(&contact, &Packet::new(body)).await? {
-            self.close_call(&record, CallOutcome::Unreachable).await?;
+        let deadline = std::time::Instant::now() + reach;
+        loop {
+            // The caller may have given up meanwhile.
+            if self.store.call(call).await?.is_none_or(|current| current.ended_at.is_some()) {
+                return Ok(());
+            }
+            if self.transmit_direct(&contact, &Packet::new(body.clone())).await? {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return self.close_call(&record, CallOutcome::Unreachable).await;
+            }
+            tokio::time::sleep(CALL_RETRY.min(reach)).await;
         }
-        Ok(())
     }
 
     /// Accepts an incoming call with our answer.

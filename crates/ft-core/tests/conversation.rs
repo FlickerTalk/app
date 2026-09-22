@@ -549,7 +549,8 @@ async fn an_unreachable_contact_cannot_be_called() {
     net.set_direct(false);
     let mut at_alice = alice.events();
     let call = alice.place_call(&id(&bob), true).await.unwrap();
-    alice.offer_call(&call, "offer").await.expect("tries");
+    // A call keeps trying while the other phone wakes up (M4); here, only briefly.
+    alice.offer_call_within(&call, "offer", Duration::from_millis(300)).await.expect("tries");
     assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Unreachable });
     assert_eq!(net.mailbox_len(&id(&bob)), 0);
     assert!(bob.store().call(&call).await.unwrap().is_none());
@@ -685,4 +686,45 @@ async fn files_are_found_after_the_app_folder_moves() {
     })
     .await;
     assert_eq!(std::fs::read(alice.file_path(&file_of(&alice, &sent).await)).unwrap().len(), 60_000);
+}
+
+// M4: the callee's phone may be asleep; the router wakes it, and the call keeps trying until it
+// answers the connection or the caller gives up.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_waits_for_the_contact_to_wake_up() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+    let mut at_bob = bob.events();
+    let call = alice.place_call(&id(&bob), false).await.unwrap();
+    let calling = {
+        let (alice, call) = (alice.clone(), call.clone());
+        tokio::spawn(async move { alice.offer_call_within(&call, "offer", Duration::from_secs(10)).await })
+    };
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    net.set_direct(true);
+    let (_, ringing, update) = tokio::time::timeout(Duration::from_secs(8), next_call(&mut at_bob)).await.expect("bob rings");
+    assert_eq!(ringing, call);
+    assert!(matches!(update, CallUpdate::Incoming { .. }));
+    calling.await.unwrap().expect("offered");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_given_up_while_waiting_stops_trying() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+    let call = alice.place_call(&id(&bob), false).await.unwrap();
+    let calling = {
+        let (alice, call) = (alice.clone(), call.clone());
+        tokio::spawn(async move { alice.offer_call_within(&call, "offer", Duration::from_secs(10)).await })
+    };
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    alice.end_call(&call, false).await.expect("gives up");
+    tokio::time::timeout(Duration::from_secs(5), calling).await.expect("stops trying").unwrap().expect("ends quietly");
+    net.set_direct(true);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(bob.store().call(&call).await.unwrap().is_none(), "bob never rang");
 }

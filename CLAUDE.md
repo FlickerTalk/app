@@ -84,7 +84,7 @@ app (`storage.key`, `flickertalk.db`): desinstalar borra la identidad.
 - Workspace Cargo en `app/Cargo.toml`, con miembros **explícitos**: cada crate nuevo se añade a la
   lista. Un glob `crates/*` fallaría con las carpetas que aún solo
   tienen `CLAUDE.md`. El perfil de release vive en la raíz del workspace.
-- El identificador `com.flickertalk.flickertalk` (`tauri.conf.json`, paquete Android) es
+- El identificador `com.flickertalk.app` (`tauri.conf.json`, paquete Android) es
   **provisional**. Es un contrato con las stores: se fija el definitivo antes de la primera
   subida, y cambiarlo implica regenerar `src-tauri/gen/`.
 - **Segundo plano** (`§19–20`): en Android, FCM despierta la app y el core Rust inicia la

@@ -586,6 +586,22 @@ pub async fn core_save_file(message: String, app: AppHandle, client: State<'_, C
     app.platform().save_to_downloads(&file.path, &file.name, &file.mime).map_err(failed)
 }
 
+/// Lets the router wake this phone when the app is closed (M4): asks to show notifications and
+/// hands the FCM token over. Where there is no push (iOS for now, desktop) it says so.
+#[tauri::command]
+pub async fn core_enable_push(app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let router = client.online().await?.router.clone();
+    let platform = app.clone();
+    let token = tauri::async_runtime::spawn_blocking(move || {
+        let _ = platform.platform().request_notifications();
+        platform.platform().push_token()
+    })
+    .await
+    .map_err(failed)?
+    .map_err(failed)?;
+    router.set_push("fcm", &token).await.map_err(failed)
+}
+
 /// New phone: the invite to show as a QR code (§60).
 #[tauri::command]
 pub async fn core_move_invite(client: State<'_, Client>) -> Result<String, String> {

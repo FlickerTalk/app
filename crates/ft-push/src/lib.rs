@@ -152,6 +152,12 @@ impl RouterClient {
         expect(self.signed(Method::POST, "/v1/device/register", serde_json::to_vec(&body)?).await?, StatusCode::NO_CONTENT)
     }
 
+    /// Where the router can wake this device when it is not connected (§8); `provider` is "fcm".
+    pub async fn set_push(&self, provider: &str, token: &str) -> Result<()> {
+        let body = json!({ "provider": provider, "token": token });
+        expect(self.signed(Method::PUT, "/v1/device/push", serde_json::to_vec(&body)?).await?, StatusCode::NO_CONTENT)
+    }
+
     /// Removes this device and its mail from the router.
     pub async fn forget(&self) -> Result<()> {
         expect(self.signed(Method::DELETE, "/v1/device", Vec::new()).await?, StatusCode::NO_CONTENT)

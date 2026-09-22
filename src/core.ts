@@ -238,6 +238,14 @@ export async function sendFile(contact: string, file: File): Promise<void> {
   await invoke("core_send_file", { contact, upload, name: file.name, mime: file.type || "application/octet-stream" });
 }
 
+/**
+ * Lets the router wake this phone when the app is closed (M4): notification permission and the
+ * push token. Where there is no push yet (iOS), nothing happens.
+ */
+export async function enablePush(): Promise<void> {
+  await invoke("core_enable_push").catch(() => undefined);
+}
+
 /** Shows a file in the viewer the user picks. */
 export async function openFile(message: string): Promise<void> {
   await invoke("core_open_file", { message });

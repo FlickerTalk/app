@@ -15,7 +15,8 @@ import "./theme/variables.css";
 import "./theme/base.css";
 import { initTheme } from "./theme";
 import { i18n } from "./i18n";
-import { start } from "./core";
+import { enablePush, start } from "./core";
+import { isOnboarded } from "./preferences";
 import { loadHistory, startCalls } from "./calls";
 import { startMoving } from "./moving";
 
@@ -28,6 +29,8 @@ const app = createApp(App).use(IonicVue).use(i18n).use(router);
 const ready = start().then(async () => {
   await startCalls();
   await startMoving();
+  // M4: tokens change; the router learns the current one at every start.
+  if (isOnboarded()) void enablePush();
   await loadHistory();
 });
 Promise.allSettled([ready, router.isReady()]).then(() => {
