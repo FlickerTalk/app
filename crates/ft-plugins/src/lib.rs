@@ -99,7 +99,8 @@ impl Permissions {
         };
         format!(
             "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
-             font-src 'self'; connect-src {connect}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+             font-src 'self'; connect-src {connect}; base-uri 'none'; form-action 'none'; child-src 'none'; \
+             frame-ancestors http://tauri.localhost tauri://localhost"
         )
     }
 }
@@ -477,6 +478,12 @@ mod tests {
         let none = Permissions::default();
         assert!(none.content_security_policy().contains("connect-src 'none'"));
         assert!(none.content_security_policy().starts_with("default-src 'none'"));
+        // The plugin is shown inside the app's own frame: only the app may embed it, and it may
+        // not embed anything itself.
+        let policy = none.content_security_policy();
+        assert!(policy.contains("frame-ancestors http://tauri.localhost tauri://localhost"), "{policy}");
+        assert!(policy.contains("child-src 'none'"), "{policy}");
+        assert!(!policy.contains("frame-ancestors 'none'"), "that would keep the app from showing it");
 
         let ai = Permissions { network: vec!["api.openai.com".to_owned()], ..Permissions::default() };
         assert!(ai.content_security_policy().contains("connect-src https://api.openai.com"));
@@ -574,6 +581,6 @@ mod policy_shape {
         let policy = Permissions { network: vec!["api.openai.com".to_owned()], ..Permissions::default() }
             .content_security_policy();
         assert!(!policy.contains('\n') && !policy.contains("  "), "{policy}");
-        assert!(policy.ends_with("frame-ancestors 'none'"), "{policy}");
+        assert!(policy.ends_with("frame-ancestors http://tauri.localhost tauri://localhost"), "{policy}");
     }
 }

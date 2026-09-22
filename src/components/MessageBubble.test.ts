@@ -150,4 +150,30 @@ describe("MessageBubble", () => {
     expect(opener.openUrl).toHaveBeenCalledWith("mailto:info@flickertalk.com");
     expect(wrapper.find("img[src^='http']").exists()).toBe(false);
   });
+
+  // §53: a message reaches a plugin only when the user hands it over, with a long press.
+  it("hands the message to a plugin after a long press, not a tap", async () => {
+    vi.useFakeTimers();
+    const wrapper = mount(MessageBubble, { props: { message: base, withPlugin: true }, shallow: true });
+    const bubble = wrapper.find("[data-test='bubble']");
+
+    await bubble.trigger("pointerdown");
+    await bubble.trigger("pointerup");
+    vi.advanceTimersByTime(1000);
+    expect(wrapper.emitted("plugin")).toBeUndefined();
+
+    await bubble.trigger("pointerdown");
+    vi.advanceTimersByTime(600);
+    expect(wrapper.emitted("plugin")).toEqual([["m1"]]);
+    vi.useRealTimers();
+  });
+
+  it("does nothing on a long press when no plugin may read it", async () => {
+    vi.useFakeTimers();
+    const wrapper = mount(MessageBubble, { props: { message: base }, shallow: true });
+    await wrapper.find("[data-test='bubble']").trigger("pointerdown");
+    vi.advanceTimersByTime(1000);
+    expect(wrapper.emitted("plugin")).toBeUndefined();
+    vi.useRealTimers();
+  });
 });
