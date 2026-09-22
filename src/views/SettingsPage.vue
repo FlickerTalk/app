@@ -201,7 +201,7 @@ function chooseAppearance(id: Appearance) {
 
         <ion-list inset class="ft-group">
           <!-- Plan §60: a QR pairs both phones for a direct P2P transfer; it never contains the key. -->
-          <ion-item button detail lines="none">
+          <ion-item button detail lines="none" data-test="move" @click="router.push('/move?role=old')">
             <span slot="start" class="ft-tile"><ion-icon :icon="swapHorizontalOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.movePhone") }}</ion-label>
           </ion-item>

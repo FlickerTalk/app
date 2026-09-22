@@ -30,7 +30,7 @@ ft-storage = { path = "../crates/ft-storage" }
 ft-webrtc = { path = "../crates/ft-webrtc" }
 anyhow = "1"
 rand = "0.9"
-tokio = { version = "1", features = ["sync", "fs", "io-util"] }
+tokio = { version = "1", features = ["sync", "fs", "io-util", "time"] }
 base64 = "0.22"
 
 # QR codes of Contact Cards (Plan §32): the camera scanner exists on phones only.

@@ -178,6 +178,11 @@ impl Store {
         Self::with(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?).await
     }
 
+    /// Closes the database; the file can be moved or deleted afterwards.
+    pub async fn close(&self) {
+        self.pool.close().await;
+    }
+
     async fn with(pool: SqlitePool) -> Result<Self> {
         sqlx::migrate!("./migrations").run(&pool).await.context("cannot migrate the local database")?;
         Ok(Self { pool })
@@ -230,6 +235,13 @@ impl Store {
     pub async fn contacts(&self) -> Result<Vec<Contact>> {
         let rows = sqlx::query("SELECT * FROM contacts ORDER BY name").fetch_all(&self.pool).await?;
         Ok(rows.iter().map(contact_from).collect())
+    }
+
+    /// Removes the contact with its conversation, files, calls and pending messages.
+    pub async fn remove_contact(&self, device_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM pending_outbox WHERE contact = ?").bind(device_id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM contacts WHERE device_id = ?").bind(device_id).execute(&self.pool).await?;
+        Ok(())
     }
 
     pub async fn rename_contact(&self, device_id: &str, name: &str) -> Result<()> {
@@ -510,6 +522,16 @@ impl Store {
         Ok(())
     }
 
+    /// Writes a consistent copy of the whole database to `path`, which must not exist (§60).
+    pub async fn snapshot(&self, path: &Path) -> Result<()> {
+        let target = path.to_str().context("the snapshot path is not valid text")?;
+        sqlx::query("VACUUM INTO ?").bind(target).execute(&self.pool).await.context("cannot copy the database")?;
+        if !path.exists() {
+            anyhow::bail!("the database copy was not written");
+        }
+        Ok(())
+    }
+
     pub async fn setting(&self, key: &str) -> Result<Option<String>> {
         let row = sqlx::query("SELECT value FROM settings WHERE key = ?").bind(key).fetch_optional(&self.pool).await?;
         Ok(row.map(|row| row.get("value")))
@@ -750,6 +772,43 @@ mod tests {
             assert_eq!(CallOutcome::parse(outcome.as_str()), Some(outcome));
         }
         assert_eq!(CallOutcome::Unreachable.as_str(), "unreachable");
+    }
+
+    // §60: moving to a new phone sends a consistent copy of the whole database.
+    #[tokio::test]
+    async fn a_snapshot_is_a_complete_copy() {
+        let path = std::env::temp_dir().join(format!("ft-storage-snapshot-{}.db", std::process::id()));
+        let source = path.with_extension("source.db");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&source);
+        // On disk, as in the app: an in-memory database copies into memory too.
+        let store = Store::open(&source).await.expect("opens");
+        store.add_contact(&contact("ft_bob")).await.unwrap();
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.unwrap();
+        store.set_setting("name", "Alice").await.unwrap();
+
+        store.snapshot(&path).await.expect("copies");
+        let copy = Store::open(&path).await.expect("opens the copy");
+        assert_eq!(copy.contacts().await.unwrap().len(), 1);
+        assert_eq!(copy.messages("ft_bob", 10).await.unwrap()[0].message_id, "m1");
+        assert_eq!(copy.setting("name").await.unwrap().as_deref(), Some("Alice"));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&source);
+    }
+
+    // Removing a contact takes its conversation with it.
+    #[tokio::test]
+    async fn a_removed_contact_leaves_nothing_behind() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.unwrap();
+        store.add_contact(&contact("ft_carol")).await.unwrap();
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.unwrap();
+        store.enqueue("m1", "ft_bob", 1).await.unwrap();
+        store.remove_contact("ft_bob").await.expect("removes");
+        assert!(store.contact("ft_bob").await.unwrap().is_none());
+        assert!(store.message("m1").await.unwrap().is_none());
+        assert!(store.outbox().await.unwrap().is_empty());
+        assert!(store.contact("ft_carol").await.unwrap().is_some());
     }
 
     #[tokio::test]

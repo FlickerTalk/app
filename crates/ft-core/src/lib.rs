@@ -14,6 +14,7 @@
 
 pub mod calls;
 pub mod files;
+pub mod moving;
 pub mod net;
 pub mod online;
 
@@ -70,7 +71,7 @@ pub trait Transport: Send + Sync {
 }
 
 pub use calls::CallUpdate;
-pub use ft_push::TurnGrant;
+pub use ft_push::{RouterClient, TurnGrant};
 
 /// What the UI listens to, to refresh itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +82,8 @@ pub enum Event {
     ConnectionChanged { contact: String },
     /// Something happened to a call (§66).
     Call { contact: String, call: String, update: CallUpdate },
+    /// Moving to a new phone (§60).
+    Move(moving::MoveUpdate),
 }
 
 enum Route {
@@ -105,6 +108,9 @@ pub struct Core {
     transfers: std::sync::Mutex<HashMap<String, files::Transfer>>,
     /// The call going on, if any: one at a time.
     active_call: std::sync::Mutex<Option<String>>,
+    /// Where a move to a new phone writes its copies (set by the app).
+    move_dir: OnceLock<PathBuf>,
+    moving: std::sync::Mutex<moving::MoveState>,
 }
 
 impl Core {
@@ -136,6 +142,8 @@ impl Core {
             files_dir: OnceLock::new(),
             transfers: std::sync::Mutex::default(),
             active_call: std::sync::Mutex::default(),
+            move_dir: OnceLock::new(),
+            moving: std::sync::Mutex::default(),
         }))
     }
 
@@ -448,6 +456,10 @@ impl Core {
             Body::CallOffer { call, sdp, video } => self.call_offered(contact, call, sdp, video).await?,
             Body::CallAnswer { call, sdp } => self.call_answered(contact, call, sdp).await?,
             Body::CallEnd { call, reason } => self.call_ended(contact, call, reason).await?,
+            Body::MoveOffer { proof, key, size, hash } => self.move_offered(contact, proof, key, size, hash).await?,
+            Body::MoveRequest { from, count } => self.move_requested(contact, from, count).await?,
+            Body::MoveChunk { index, data } => self.move_chunk(contact, index, data).await?,
+            Body::MoveDone => self.move_finished(contact).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
             Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }

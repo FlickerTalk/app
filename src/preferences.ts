@@ -27,3 +27,8 @@ export function isOnboarded(): boolean {
 export function setOnboarded() {
   localStorage.setItem(ONBOARDED_KEY, "1");
 }
+
+/** After moving to another phone this one is erased, and starts again at the welcome (§60). */
+export function clearOnboarded() {
+  localStorage.removeItem(ONBOARDED_KEY);
+}

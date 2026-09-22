@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use ft_core::moving::{received_move, MoveUpdate};
 use ft_core::{CallUpdate, Core, Event, Peer, Transport};
 use ft_storage::{CallOutcome, FileRecord, MessageState, Store};
 use tokio::sync::mpsc;
@@ -587,4 +588,66 @@ async fn the_free_year_counts_from_the_install() {
     let alice = device_with(&net, "Alice", Store::open(&path).await.unwrap(), [1; 32]).await;
     assert_eq!(alice.free_until().await.unwrap(), first);
     let _ = std::fs::remove_file(&path);
+}
+
+/// Waits until the device hears this move update.
+async fn move_update(events: &mut tokio::sync::broadcast::Receiver<Event>, wanted: MoveUpdate) {
+    let wait = async {
+        loop {
+            if let Ok(Event::Move(update)) = events.recv().await {
+                if update == wanted {
+                    return;
+                }
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(20), wait).await.unwrap_or_else(|_| panic!("no {wanted:?} in time"));
+}
+
+// §60: the old phone hands its identity, contacts and history to the new one, directly; the QR
+// only pairs them.
+#[tokio::test(flavor = "multi_thread")]
+async fn moving_hands_the_whole_identity_to_the_new_phone() {
+    let net = Net::new();
+    let dir = scratch("move");
+    let old = device_with(&net, "Alice", Store::open(&dir.join("old.db")).await.unwrap(), [1; 32]).await;
+    old.set_move_dir(dir.join("old-move"));
+    let bob = device(&net, "Bob").await;
+    pair(&old, &bob).await;
+    old.send_text(&id(&bob), "before moving").await.unwrap();
+    until("bob has it", || async { texts(&bob, &id(&old)).await.len() == 1 }).await;
+
+    let new = device_with(&net, "", Store::open(&dir.join("new.db")).await.unwrap(), [2; 32]).await;
+    new.set_move_dir(dir.join("new-move"));
+    let (mut at_old, mut at_new) = (old.events(), new.events());
+    let invite = new.invite_move().await.expect("invites");
+    old.move_to(&invite).await.expect("starts the move");
+    move_update(&mut at_new, MoveUpdate::Received).await;
+    move_update(&mut at_old, MoveUpdate::Sent).await;
+    assert_eq!(net.mailbox_len(&id(&new)), 0, "nothing of it through the mailbox");
+
+    // What arrived opens with the old phone's key and is the old phone.
+    let (copy, key) = received_move(&dir.join("new-move")).expect("a copy is ready");
+    let moved = device_with(&net, "Alice", Store::open(&copy).await.unwrap(), key).await;
+    assert_eq!(moved.device_id(), old.device_id());
+    assert_eq!(moved.store().contact(&id(&bob)).await.unwrap().expect("bob came along").name, "Bob");
+    assert_eq!(texts(&moved, &id(&bob)).await, ["before moving"]);
+}
+
+// Only whoever read the QR can move an identity into the new phone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_move_without_the_secret_is_ignored() {
+    let net = Net::new();
+    let dir = scratch("move-forged");
+    let old = device_with(&net, "Mallory", Store::open(&dir.join("old.db")).await.unwrap(), [1; 32]).await;
+    old.set_move_dir(dir.join("old-move"));
+    let new = device_with(&net, "", Store::open(&dir.join("new.db")).await.unwrap(), [2; 32]).await;
+    new.set_move_dir(dir.join("new-move"));
+    let invite = new.invite_move().await.expect("invites");
+    let mut forged = ft_contacts::MoveInvite::from_link(&invite).unwrap();
+    forged.secret = [0; 32];
+
+    old.move_to(&forged.to_link()).await.expect("tries");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(received_move(&dir.join("new-move")).is_none());
 }

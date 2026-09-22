@@ -112,6 +112,26 @@ pub enum Body {
     CallOffer { call: MessageId, sdp: String, video: bool },
     CallAnswer { call: MessageId, sdp: String },
     CallEnd { call: MessageId, reason: EndReason },
+    /// Moving to a new phone (§60), from the old phone to the new one, only directly. `proof`
+    /// shows it read the new phone's QR; `key` seals the database copy that follows, of `size`
+    /// bytes and BLAKE3 `hash`, pulled with `MoveRequest` like a file.
+    MoveOffer {
+        #[serde(with = "serde_bytes")]
+        proof: [u8; 32],
+        #[serde(with = "serde_bytes")]
+        key: [u8; 32],
+        size: u64,
+        #[serde(with = "serde_bytes")]
+        hash: [u8; 32],
+    },
+    MoveRequest { from: u64, count: u32 },
+    MoveChunk {
+        index: u64,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+    },
+    /// The new phone has the whole copy and its hash matches: the old one can let go.
+    MoveDone,
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -277,6 +297,10 @@ mod tests {
         for reason in [EndReason::Hangup, EndReason::Declined, EndReason::Busy, EndReason::Cancelled, EndReason::Failed] {
             round_trip(Body::CallEnd { call, reason });
         }
+        round_trip(Body::MoveOffer { proof: [1; 32], key: [2; 32], size: 1 << 20, hash: [3; 32] });
+        round_trip(Body::MoveRequest { from: 4, count: 16 });
+        round_trip(Body::MoveChunk { index: 4, data: vec![5; 10] });
+        round_trip(Body::MoveDone);
     }
 
     // §62–63: a whole chunk, once sealed with Olm (under 200 bytes more), fits a single

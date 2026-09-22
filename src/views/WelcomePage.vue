@@ -63,6 +63,10 @@ async function start() {
           {{ $t("welcome.start") }}
           <ion-icon :icon="arrowForward" aria-hidden="true" />
         </button>
+        <!-- Plan §60: take the identity, contacts and history of the old phone instead. -->
+        <button type="button" class="ft-welcome__move" data-test="move-from-old" @click="router.push('/move?role=new')">
+          {{ $t("welcome.fromOld") }}
+        </button>
       </div>
     </ion-content>
   </ion-page>
@@ -160,5 +164,14 @@ async function start() {
 }
 .ft-welcome__start:active {
   transform: scale(0.97);
+}
+.ft-welcome__move {
+  margin-top: 4px;
+  padding: 10px;
+  border: 0;
+  color: var(--ft-muted);
+  background: transparent;
+  font-size: 14px;
+  text-decoration: underline;
 }
 </style>

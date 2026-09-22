@@ -10,6 +10,7 @@ use anyhow::Context;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use ft_core::online::{self, Online};
+use ft_core::moving::MoveUpdate;
 use ft_core::{CallUpdate, Core, Event, TurnGrant};
 use ft_storage::{CallOutcome, CallRecord, Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
@@ -187,6 +188,74 @@ pub struct IceServer {
     credential: Option<String>,
 }
 
+/// Sent to the UI on `ft://move` (§60).
+pub const MOVE_EVENT: &str = "ft://move";
+
+/// How moving to a new phone goes, as the WebView hears it.
+#[derive(Clone, Serialize)]
+pub struct MoveEvent {
+    /// `progress`, `received` (new phone), `sent` (old phone) or `failed`.
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    done: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total: Option<u64>,
+}
+
+impl From<MoveUpdate> for MoveEvent {
+    fn from(update: MoveUpdate) -> Self {
+        let (kind, done, total) = match update {
+            MoveUpdate::Progress { done, total } => ("progress", Some(done), Some(total)),
+            MoveUpdate::Received => ("received", None, None),
+            MoveUpdate::Sent => ("sent", None, None),
+            MoveUpdate::Failed => ("failed", None, None),
+        };
+        Self { kind, done, total }
+    }
+}
+
+const DATABASE: &str = "flickertalk.db";
+const KEY_FILE: &str = "storage.key";
+const MOVE_DIR: &str = "move";
+
+/// The database and its SQLite side files.
+fn database_files(dir: &Path) -> [PathBuf; 3] {
+    [dir.join(DATABASE), dir.join(format!("{DATABASE}-wal")), dir.join(format!("{DATABASE}-shm"))]
+}
+
+/// Swaps in the database and key a move brought (§60); `true` if there was one. Runs at start,
+/// before the core opens.
+pub fn apply_move(dir: &Path) -> std::io::Result<bool> {
+    let incoming = dir.join(MOVE_DIR);
+    let Some((database, key)) = ft_core::moving::received_move(&incoming) else { return Ok(false) };
+    for file in database_files(dir) {
+        let _ = std::fs::remove_file(file);
+    }
+    std::fs::rename(database, dir.join(DATABASE))?;
+    std::fs::write(dir.join(KEY_FILE), key)?;
+    #[cfg(unix)]
+    std::fs::set_permissions(dir.join(KEY_FILE), std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    std::fs::remove_dir_all(incoming)?;
+    Ok(true)
+}
+
+/// Erases this phone's identity, contacts, history and files: it moved to another phone (§60).
+pub fn erase(dir: &Path) -> std::io::Result<()> {
+    for file in database_files(dir).into_iter().chain([dir.join(KEY_FILE)]) {
+        match std::fs::remove_file(file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+    }
+    for folder in [dir.join("files"), dir.join(MOVE_DIR)] {
+        match std::fs::remove_dir_all(folder) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// The router's STUN servers and short-lived TURN user, for the WebView's calls (§16–17).
 pub fn ice_servers(stun: Vec<String>, turn: Option<TurnGrant>) -> Vec<IceServer> {
     let mut servers = Vec::new();
@@ -304,18 +373,27 @@ impl Client {
 
     async fn start(&self) -> anyhow::Result<Online> {
         let dir = self.dir.get().context("the app is not set up yet")?;
+        apply_move(dir)?;
         let key = storage_key(dir)?;
-        let store = Store::open(&dir.join("flickertalk.db")).await?;
+        let store = Store::open(&dir.join(DATABASE)).await?;
         let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
         online.core.set_files_dir(dir.join("files"));
+        online.core.set_move_dir(dir.join(MOVE_DIR));
 
         if let Some(app) = self.app.get().cloned() {
             let mut events = online.core.events();
+            let dir_for_events = dir.to_owned();
+            let router_for_events = online.router.clone();
             tauri::async_runtime::spawn(async move {
                 while let Ok(event) = events.recv().await {
                     let contact = match event {
                         Event::MessagesChanged { contact } => Some(contact),
                         Event::ContactsChanged | Event::ConnectionChanged { .. } => None,
+                        Event::Move(update) => {
+                            let _ = app.emit(MOVE_EVENT, MoveEvent::from(update.clone()));
+                            after_move(&app, &dir_for_events, &router_for_events, update);
+                            continue;
+                        }
                         Event::Call { contact, call, update } => {
                             match ringing(&update) {
                                 Some(true) => {
@@ -335,6 +413,39 @@ impl Client {
             });
         }
         Ok(online)
+    }
+}
+
+/// After a move (§60): the new phone forgets its temporary identity on the router and starts
+/// again with the one it received; the old phone erases itself and starts again empty. The UI
+/// gets a moment to say so first.
+fn after_move(app: &AppHandle, dir: &Path, router: &Arc<ft_core::RouterClient>, update: MoveUpdate) {
+    let (app, dir, router) = (app.clone(), dir.to_owned(), router.clone());
+    match update {
+        MoveUpdate::Received => {
+            tauri::async_runtime::spawn(async move {
+                let _ = router.forget().await;
+                tokio::time::sleep(RESTART_PAUSE).await;
+                restart(&app);
+            });
+        }
+        MoveUpdate::Sent => {
+            let _ = erase(&dir);
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(RESTART_PAUSE).await;
+                restart(&app);
+            });
+        }
+        MoveUpdate::Progress { .. } | MoveUpdate::Failed => {}
+    }
+}
+
+/// How long the UI shows the end of a move before the app starts again.
+const RESTART_PAUSE: std::time::Duration = std::time::Duration::from_millis(2500);
+
+fn restart(app: &AppHandle) {
+    if app.platform().restart_app().is_err() {
+        app.restart();
     }
 }
 
@@ -461,6 +572,19 @@ pub async fn core_open_file(message: String, app: AppHandle, client: State<'_, C
 pub async fn core_save_file(message: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let file = file_of(&client, &message).await?;
     app.platform().save_to_downloads(&file.path, &file.name, &file.mime).map_err(failed)
+}
+
+/// New phone: the invite to show as a QR code (§60).
+#[tauri::command]
+pub async fn core_move_invite(client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.invite_move().await.map_err(failed)
+}
+
+/// Old phone: hands everything to the phone whose invite was scanned; the transfer goes on in the
+/// background and is told on `ft://move`.
+#[tauri::command]
+pub async fn core_move_to(link: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.move_to(&link).await.map_err(failed)
 }
 
 /// STUN and TURN for the WebView's calls.
@@ -740,6 +864,58 @@ mod tests {
         assert_ne!(new_upload_id(), id);
         for bad in ["../identity", "", "abc", "/etc/passwd", "0123456789abcdef0123456789abcdeg"] {
             assert!(upload_path(dir, bad).is_err(), "{bad}");
+        }
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ft-client-{name}-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // §60: the new phone swaps in the database and key it received, once, at start.
+    #[test]
+    fn a_received_move_replaces_the_database_and_key() {
+        let dir = scratch("apply");
+        std::fs::write(dir.join("flickertalk.db"), b"temporary").unwrap();
+        std::fs::write(dir.join("flickertalk.db-wal"), b"wal").unwrap();
+        std::fs::write(dir.join("storage.key"), [1; 32]).unwrap();
+        assert!(!apply_move(&dir).unwrap(), "nothing to apply");
+
+        std::fs::create_dir_all(dir.join("move")).unwrap();
+        std::fs::write(dir.join("move").join(ft_core::moving::MOVE_DB), b"moved").unwrap();
+        std::fs::write(dir.join("move").join(ft_core::moving::MOVE_KEY), [2; 32]).unwrap();
+        assert!(apply_move(&dir).unwrap());
+        assert_eq!(std::fs::read(dir.join("flickertalk.db")).unwrap(), b"moved");
+        assert_eq!(std::fs::read(dir.join("storage.key")).unwrap(), [2; 32]);
+        assert!(!dir.join("flickertalk.db-wal").exists(), "the old write-ahead log goes");
+        assert!(!dir.join("move").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // §60: once the new phone has everything, the old one keeps nothing of the identity.
+    #[test]
+    fn a_moved_phone_is_erased() {
+        let dir = scratch("wipe");
+        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        std::fs::create_dir_all(dir.join("files").join("m1")).unwrap();
+        std::fs::create_dir_all(dir.join("move")).unwrap();
+        erase(&dir).unwrap();
+        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key", "files", "move"] {
+            assert!(!dir.join(name).exists(), "{name} is gone");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_updates_reach_the_ui() {
+        use ft_core::moving::MoveUpdate;
+        assert_eq!(serde_json::to_value(MoveEvent::from(MoveUpdate::Progress { done: 3, total: 8 })).unwrap(),
+            serde_json::json!({ "kind": "progress", "done": 3, "total": 8 }));
+        for (update, kind) in [(MoveUpdate::Received, "received"), (MoveUpdate::Sent, "sent"), (MoveUpdate::Failed, "failed")] {
+            assert_eq!(serde_json::to_value(MoveEvent::from(update)).unwrap()["kind"], kind);
         }
     }
 

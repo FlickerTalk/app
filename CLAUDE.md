@@ -69,8 +69,13 @@ app (`storage.key`, `flickertalk.db`): desinstalar borra la identidad.
   configurados de forma global en la máquina.
 - Android necesita `ANDROID_HOME` y `NDK_HOME`. Si no están exportadas, pásalas al comando
   (`ANDROID_HOME=… NDK_HOME=… npm run tauri android …`).
-- iOS pendiente: `npm run tauri ios init` necesita Xcode completo, así que
-  `src-tauri/gen/apple/` aún no existe.
+- iOS: Xcode completo (`xcode-select -p` → `/Applications/Xcode.app/…`), CocoaPods y `xcodegen`
+  (Homebrew). `src-tauri/gen/apple/` se versiona **sin** equipo de firma: se compila con
+  `APPLE_DEVELOPMENT_TEAM=<team> npm run tauri ios build -- --debug --target aarch64` y se
+  instala con `xcrun devicectl device install app --device <udid> src-tauri/gen/apple/build/arm64/flickertalk.ipa`.
+  Un iPhone nuevo se registra una vez con `xcodebuild -allowProvisioningUpdates
+  -allowProvisioningDeviceRegistration -destination id=<udid> …`. Los permisos de cámara y micrófono
+  están en `src-tauri/Info.ios.plist`. El WebView de iOS no habla CDP: en el iPhone se prueba a mano.
 
 ## Reglas
 

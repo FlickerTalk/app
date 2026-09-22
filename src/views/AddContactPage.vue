@@ -12,10 +12,10 @@ import {
   IonToolbar,
 } from "@ionic/vue";
 import { checkmarkOutline, scanOutline, shareOutline } from "ionicons/icons";
-import { Format, scan } from "@tauri-apps/plugin-barcode-scanner";
 import { useRouter } from "vue-router";
 import QrCode from "../components/QrCode.vue";
 import { addContact, myCardLink, refreshChats, store } from "../core";
+import { scanQr } from "../scanner";
 import { t } from "../i18n";
 
 // Plan §32: pairing happens through a signed Contact Card shared by QR, link or share sheet.
@@ -37,12 +37,8 @@ async function share() {
 
 // The camera reads the other phone's QR code: its content is the Contact Card link.
 async function scanCode() {
-  try {
-    const read = await scan({ windowed: false, formats: [Format.QRCode] });
-    await add(read.content);
-  } catch {
-    error.value = t("addContact.invalid");
-  }
+  const read = await scanQr();
+  if (read) await add(read);
 }
 
 async function add(value: string) {

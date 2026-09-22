@@ -6,6 +6,8 @@
 //! - `save_to_downloads`: copies a file to the phone's Downloads (MediaStore, Android 10 and up).
 //! - `start_ringing` / `stop_ringing`: an incoming call rings with the user's ringtone and
 //!   vibrates, as the phone is set to (silent, vibrate only or normal).
+//! - `restart_app`: starts the app again (after moving to a new phone, §60); Tauri's own restart
+//!   only exits on Android.
 
 use serde::Serialize;
 use tauri::plugin::{Builder, TauriPlugin};
@@ -61,6 +63,10 @@ impl<R: Runtime> Platform<R> {
 
     pub fn stop_ringing(&self) -> Result<()> {
         self.run("stopRinging", ())
+    }
+
+    pub fn restart_app(&self) -> Result<()> {
+        self.run("restartApp", ())
     }
 
     #[cfg(target_os = "android")]

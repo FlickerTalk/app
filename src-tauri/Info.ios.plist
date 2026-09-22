@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Voice and video calls (Plan §66) and scanning Contact Cards; asked for only when needed (§30). -->
+	<key>NSCameraUsageDescription</key>
+	<string>FlickerTalk uses the camera for video calls and to scan contact codes.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>FlickerTalk uses the microphone for calls.</string>
+</dict>
+</plist>

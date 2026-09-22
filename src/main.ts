@@ -17,6 +17,7 @@ import { initTheme } from "./theme";
 import { i18n } from "./i18n";
 import { start } from "./core";
 import { loadHistory, startCalls } from "./calls";
+import { startMoving } from "./moving";
 
 initTheme();
 
@@ -26,6 +27,7 @@ const app = createApp(App).use(IonicVue).use(i18n).use(router);
 // (a plain browser during development) the UI still starts, empty.
 const ready = start().then(async () => {
   await startCalls();
+  await startMoving();
   await loadHistory();
 });
 Promise.allSettled([ready, router.isReady()]).then(() => {
