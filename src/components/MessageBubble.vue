@@ -4,7 +4,7 @@ import { readCode } from "../code";
 import { piecesOf } from "../links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonIcon } from "@ionic/vue";
-import { checkmark, checkmarkDone, documentOutline, downloadOutline, extensionPuzzleOutline, micOutline, timeOutline } from "ionicons/icons";
+import { checkmark, checkmarkDone, documentOutline, downloadOutline, micOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -120,17 +120,6 @@ function open() {
           <template v-else>{{ piece.text }}</template>
         </template>
       </p>
-      <!-- Issue app#3: hand this message to a plugin, only because the user asked (§53). -->
-      <button
-        v-if="withPlugin && !file && message.text"
-        type="button"
-        class="ft-bubble__plugin"
-        data-test="plugin"
-        :aria-label="t('chat.openWithPlugin')"
-        @click.stop="emit('plugin', message.id)"
-      >
-        <ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" />
-      </button>
 
       <span class="ft-bubble__meta">
         <span>{{ message.time }}</span>

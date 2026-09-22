@@ -18,7 +18,8 @@ pub fn run() {
                 .uri()
                 .path()
                 .to_owned();
-            println!("ftplugin: {served}");
+            let known = ctx.app_handle().state::<plugins::Plugins>().ids();
+            println!("ftplugin: {served} (installed: {known:?})");
             let answer = plugins::route(&served)
                 .and_then(|(id, file)| ctx.app_handle().state::<plugins::Plugins>().get(&id).map(|one| (one, file)))
                 .and_then(|(one, file)| {
@@ -30,6 +31,7 @@ pub fn run() {
                     };
                     Some((body, kind, one.policy))
                 });
+            println!("ftplugin: answered {}", answer.is_some());
             match answer {
                 Some((body, kind, policy)) => tauri::http::Response::builder()
                     .header(tauri::http::header::CONTENT_TYPE, kind)
