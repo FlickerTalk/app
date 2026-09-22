@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+
+const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => opener);
+
 import MessageBubble from "./MessageBubble.vue";
 
 const base = { id: "m1", text: "Hi", time: "10:02", mine: true };
@@ -118,5 +122,32 @@ describe("MessageBubble", () => {
     const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "just text" } }, shallow: true });
     expect(wrapper.find("[data-test='code']").exists()).toBe(false);
     expect(wrapper.text()).toContain("just text");
+  });
+
+  // A video that arrived plays in the chat, like an image or a voice message.
+  it("plays a received video", () => {
+    const message = {
+      ...base,
+      kind: "file",
+      file: { name: "clip.mp4", size: "8 MB", mime: "video/mp4", state: "ready", progress: 1, url: "asset://localhost/files/clip.mp4" },
+    };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    const video = wrapper.find("video");
+    expect(video.exists()).toBe(true);
+    expect(video.attributes("src")).toBe("asset://localhost/files/clip.mp4");
+    expect(video.attributes("controls")).toBeDefined();
+  });
+
+  // Addresses are marked so they can be opened, and nothing is ever fetched to preview them.
+  it("marks the links of a message", async () => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: { ...base, text: "mira https://flickertalk.com y escribe a info@flickertalk.com" } },
+      shallow: true,
+    });
+    const links = wrapper.findAll("[data-test='link']");
+    expect(links.map((link) => link.text())).toEqual(["https://flickertalk.com", "info@flickertalk.com"]);
+    await links[1].trigger("click");
+    expect(opener.openUrl).toHaveBeenCalledWith("mailto:info@flickertalk.com");
+    expect(wrapper.find("img[src^='http']").exists()).toBe(false);
   });
 });
