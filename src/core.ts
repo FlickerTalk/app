@@ -265,6 +265,14 @@ export async function myCardLink(): Promise<string> {
   return invoke<string>("core_card");
 }
 
+/**
+ * Takes this device off the router and wipes everything FlickerTalk keeps on the phone (§78).
+ * The app starts again empty; there is no way back.
+ */
+export async function erasePhone(): Promise<void> {
+  await invoke("core_erase");
+}
+
 /** Opens the phone's share sheet with `text`; fails where there is none (a desktop). */
 export async function shareText(text: string): Promise<void> {
   await invoke("core_share", { text });

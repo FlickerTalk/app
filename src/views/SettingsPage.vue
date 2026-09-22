@@ -31,9 +31,10 @@ import {
   sparklesOutline,
   sunnyOutline,
   swapHorizontalOutline,
+  trashOutline,
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
-import { setMailbox, store } from "../core";
+import { erasePhone, setMailbox, store } from "../core";
 import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -73,9 +74,9 @@ function onCallRoutingChange(event: CustomEvent<{ value: CallRouting }>) {
 }
 
 const colors: { id: Direction; label: string; swatch: string }[] = [
+  { id: "mono", label: t("colors.mono"), swatch: "linear-gradient(135deg, #ffffff 50%, #000000 50%)" },
   { id: "ember", label: t("colors.ember"), swatch: "linear-gradient(135deg, #ffa24c, #ff6a3d)" },
   { id: "aurora", label: t("colors.aurora"), swatch: "linear-gradient(135deg, #3ddbc4, #7b7cff)" },
-  { id: "mono", label: t("colors.mono"), swatch: "linear-gradient(135deg, #f5f5f7 50%, #c6f432 50%)" },
 ];
 const appearances: { id: Appearance; label: string; icon: string }[] = [
   { id: "system", label: t("settings.system"), icon: phonePortraitOutline },
@@ -84,6 +85,13 @@ const appearances: { id: Appearance; label: string; icon: string }[] = [
 ];
 
 const direction = ref(storedDirection());
+const asksToErase = ref(false);
+
+// §78: it takes this device off the router and wipes the phone, so it asks first.
+async function erase() {
+  asksToErase.value = false;
+  await erasePhone();
+}
 const appearance = ref(storedAppearance());
 
 function chooseColor(id: Direction) {
@@ -202,6 +210,26 @@ function chooseAppearance(id: Appearance) {
             <span slot="start" class="ft-tile"><ion-icon :icon="swapHorizontalOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.movePhone") }}</ion-label>
           </ion-item>
+          <!-- §78: the router forgets this device and the phone is wiped. It asks first. -->
+          <ion-item v-if="!asksToErase" button lines="none" data-test="erase" @click="asksToErase = true">
+            <span slot="start" class="ft-tile"><ion-icon :icon="trashOutline" aria-hidden="true" /></span>
+            <ion-label>
+              {{ $t("settings.erase") }}
+              <p class="ft-muted">{{ $t("settings.eraseHint") }}</p>
+            </ion-label>
+          </ion-item>
+          <ion-item v-else lines="none" class="ft-erase">
+            <span slot="start" class="ft-tile"><ion-icon :icon="trashOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.eraseAsk") }}</ion-label>
+            <span slot="end" class="ft-choices">
+              <button type="button" class="ft-erase__cancel" data-test="erase-cancel" @click="asksToErase = false">
+                {{ $t("common.cancel") }}
+              </button>
+              <button type="button" class="ft-erase__go" data-test="erase-confirm" @click="erase">
+                {{ $t("settings.eraseConfirm") }}
+              </button>
+            </span>
+          </ion-item>
         </ion-list>
 
         <ion-list inset class="ft-group">
@@ -274,6 +302,25 @@ function chooseAppearance(id: Appearance) {
   background: color-mix(in srgb, var(--ft-accent) 14%, transparent);
   color: var(--ft-accent);
   font-size: 18px;
+}
+
+.ft-erase__cancel,
+.ft-erase__go {
+  appearance: none;
+  padding: 7px 14px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ft-erase__go {
+  border-color: transparent;
+  background: var(--ion-color-danger);
+  color: #fff;
+  font-weight: 600;
 }
 
 .ft-choices {

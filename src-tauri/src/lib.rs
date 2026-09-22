@@ -32,6 +32,7 @@ pub fn run() {
             client::core_send_file,
             client::core_open_file,
             client::core_share,
+            client::core_erase,
             client::core_save_file,
             client::core_call_ice,
             client::core_call_start,

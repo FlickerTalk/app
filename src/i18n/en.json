@@ -160,7 +160,11 @@
     "planFreeDays": "Free · {days} days left",
     "planOver": "Free year over",
     "privacy": "Privacy",
-    "version": "Version"
+    "version": "Version",
+    "erase": "Erase this phone",
+    "eraseHint": "Removes this device from our server and deletes everything on this phone",
+    "eraseAsk": "Erase everything on this phone?",
+    "eraseConfirm": "Erase"
   },
   "colors": {
     "ember": "Ember",
