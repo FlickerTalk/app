@@ -166,6 +166,15 @@ impl CallEvent {
     }
 }
 
+/// Whether the phone should start (`Some(true)`) or stop ringing after a call update.
+pub fn ringing(update: &CallUpdate) -> Option<bool> {
+    match update {
+        CallUpdate::Incoming { .. } => Some(true),
+        CallUpdate::Ended { .. } => Some(false),
+        CallUpdate::Answered { .. } => None,
+    }
+}
+
 /// An ICE server as the WebView's `RTCPeerConnection` takes it.
 #[derive(Serialize)]
 pub struct IceServer {
@@ -306,6 +315,15 @@ impl Client {
                         Event::MessagesChanged { contact } => Some(contact),
                         Event::ContactsChanged | Event::ConnectionChanged { .. } => None,
                         Event::Call { contact, call, update } => {
+                            match ringing(&update) {
+                                Some(true) => {
+                                    let _ = app.platform().start_ringing();
+                                }
+                                Some(false) => {
+                                    let _ = app.platform().stop_ringing();
+                                }
+                                None => {}
+                            }
                             let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
                             continue;
                         }
@@ -462,7 +480,8 @@ pub async fn core_call_start(contact: String, video: bool, sdp: String, client: 
 }
 
 #[tauri::command]
-pub async fn core_call_answer(call: String, sdp: String, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_call_answer(call: String, sdp: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let _ = app.platform().stop_ringing();
     let core = client.core().await?;
     tauri::async_runtime::spawn(async move {
         let _ = core.answer_call(&call, &sdp).await;
@@ -472,7 +491,8 @@ pub async fn core_call_answer(call: String, sdp: String, client: State<'_, Clien
 
 /// Hangs up, declines or gives up; `failed` when the media could not connect.
 #[tauri::command]
-pub async fn core_call_end(call: String, failed: bool, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_call_end(call: String, failed: bool, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let _ = app.platform().stop_ringing();
     let core = client.core().await?;
     tauri::async_runtime::spawn(async move {
         let _ = core.end_call(&call, failed).await;
@@ -655,6 +675,15 @@ mod tests {
         let ended = serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Ended { outcome: CallOutcome::Busy })).unwrap();
         assert_eq!((ended["kind"].as_str(), ended["outcome"].as_str()), (Some("ended"), Some("busy")));
         assert!(ended.get("sdp").is_none());
+    }
+
+    // An incoming call rings until it is answered, declined or given up (§66); our own calls
+    // being answered never ring.
+    #[test]
+    fn only_incoming_calls_ring() {
+        assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }), Some(true));
+        assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }), Some(false));
+        assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }), None);
     }
 
     // The WebView's WebRTC uses the cluster's STUN and a short-lived TURN user (§16–17).

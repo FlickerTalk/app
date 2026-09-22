@@ -87,7 +87,11 @@ watch(
             :aria-pressed="call.muted"
             @click="toggleMute"
           >
-            <ion-icon :icon="call.muted ? micOffOutline : micOutline" aria-hidden="true" />
+            <ion-icon
+              :key="call.muted ? 'mic-off' : 'mic-on'"
+              :icon="call.muted ? micOffOutline : micOutline"
+              aria-hidden="true"
+            />
           </button>
           <button
             v-if="isVideo"
@@ -98,7 +102,11 @@ watch(
             :aria-pressed="!call.cameraOff"
             @click="toggleCamera"
           >
-            <ion-icon :icon="call.cameraOff ? videocamOffOutline : videocamOutline" aria-hidden="true" />
+            <ion-icon
+              :key="call.cameraOff ? 'camera-off' : 'camera-on'"
+              :icon="call.cameraOff ? videocamOffOutline : videocamOutline"
+              aria-hidden="true"
+            />
           </button>
           <button type="button" class="ft-round ft-call__hangup" :aria-label="$t('calls.hangUp')" @click="hangUp">
             <ion-icon :icon="callOutline" aria-hidden="true" />

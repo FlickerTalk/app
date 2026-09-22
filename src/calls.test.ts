@@ -100,6 +100,7 @@ describe("calls", () => {
       return stream as unknown as MediaStream;
     });
     calls.media.createPeer = (config: RTCConfiguration) => new FakePeer(config) as unknown as RTCPeerConnection;
+    calls.media.ringback = { start: vi.fn(), stop: vi.fn() };
     localStorage.clear();
     calls.reset();
     await calls.startCalls();
@@ -209,6 +210,30 @@ describe("calls", () => {
     await calls.startCall("ft_bob", true);
     expect(calls.call).toMatchObject({ phase: "ended", outcome: "failed" });
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_start", expect.anything());
+  });
+
+  // The caller hears that it rings, until the contact answers or it ends.
+  it("plays the ringback tone while calling", async () => {
+    await calls.startCall("ft_bob", false);
+    expect(calls.media.ringback.start).toHaveBeenCalled();
+    tauri.handlers["ft://call"]({ payload: { contact: "ft_bob", call: "call-1", kind: "answered", sdp: "a" } });
+    await flushPromises();
+    expect(calls.media.ringback.stop).toHaveBeenCalled();
+  });
+
+  it("stops the ringback tone when the call ends before an answer", async () => {
+    await calls.startCall("ft_bob", false);
+    await calls.hangUp();
+    expect(calls.media.ringback.stop).toHaveBeenCalled();
+  });
+
+  // Each call starts with the microphone and camera on, whatever the last one ended with.
+  it("starts every call unmuted", async () => {
+    await calls.startCall("ft_bob", true);
+    calls.toggleMute();
+    await calls.hangUp();
+    incoming();
+    expect(calls.call).toMatchObject({ muted: false, cameraOff: false });
   });
 
   it("keeps the history up to date", async () => {

@@ -4,6 +4,8 @@
 //! - `open_file`: shows a file of the app in the viewer the user picks (Android's FileProvider
 //!   lends it for that viewing only).
 //! - `save_to_downloads`: copies a file to the phone's Downloads (MediaStore, Android 10 and up).
+//! - `start_ringing` / `stop_ringing`: an incoming call rings with the user's ringtone and
+//!   vibrates, as the phone is set to (silent, vibrate only or normal).
 
 use serde::Serialize;
 use tauri::plugin::{Builder, TauriPlugin};
@@ -51,6 +53,14 @@ impl<R: Runtime> Platform<R> {
     /// Copies a file of the app to the phone's Downloads, where the user finds it.
     pub fn save_to_downloads(&self, path: &str, name: &str, mime: &str) -> Result<()> {
         self.run("saveToDownloads", SaveFile { path, name, mime })
+    }
+
+    pub fn start_ringing(&self) -> Result<()> {
+        self.run("startRinging", ())
+    }
+
+    pub fn stop_ringing(&self) -> Result<()> {
+        self.run("stopRinging", ())
     }
 
     #[cfg(target_os = "android")]

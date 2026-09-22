@@ -52,10 +52,43 @@ export const RING_LIMIT = 45_000;
 /** The longest wait for ICE candidates before the description goes anyway. */
 const GATHER_LIMIT = 3_000;
 
+interface Tone {
+  start(): void;
+  stop(): void;
+}
+
+/** The ringback tone the caller hears (425 Hz, 1 s on and 4 s off), made with Web Audio. */
+function webRingback(): Tone {
+  let context: AudioContext | null = null;
+  return {
+    start() {
+      if (context) return;
+      context = new AudioContext();
+      const gain = context.createGain();
+      gain.gain.value = 0;
+      gain.connect(context.destination);
+      const tone = context.createOscillator();
+      tone.frequency.value = 425;
+      tone.connect(gain);
+      const now = context.currentTime;
+      for (let second = 0; second < RING_LIMIT / 1000; second += 5) {
+        gain.gain.setValueAtTime(0.12, now + second);
+        gain.gain.setValueAtTime(0, now + second + 1);
+      }
+      tone.start();
+    },
+    stop() {
+      void context?.close();
+      context = null;
+    },
+  };
+}
+
 /** The browser's media and WebRTC, replaceable in tests. */
 export const media = {
   getUserMedia: (constraints: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(constraints),
   createPeer: (config: RTCConfiguration) => new RTCPeerConnection(config),
+  ringback: webRingback() as Tone,
 };
 
 const idle = (): CallState => ({
@@ -140,6 +173,7 @@ async function preparePeer(video: boolean): Promise<RTCPeerConnection> {
 /** Lets go of the camera, the microphone and the connection. */
 function release() {
   clearTimeout(ringTimer);
+  media.ringback.stop();
   call.local?.getTracks().forEach((track) => track.stop());
   peer?.close();
   peer = null;
@@ -169,6 +203,7 @@ export async function startCall(contact: string, video: boolean): Promise<void> 
     await fail();
     return;
   }
+  media.ringback.start();
   ringTimer = setTimeout(() => {
     if (call.phase === "calling") void hangUp();
   }, RING_LIMIT);
@@ -221,6 +256,7 @@ async function onEvent(event: CallEvent) {
     offer = event.sdp ?? "";
   } else if (event.call === call.id && event.kind === "answered" && peer) {
     clearTimeout(ringTimer);
+    media.ringback.stop();
     call.phase = "connecting";
     await peer.setRemoteDescription({ type: "answer", sdp: event.sdp ?? "" });
   } else if (event.call === call.id && event.kind === "ended") {

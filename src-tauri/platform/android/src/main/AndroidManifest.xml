@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- An incoming call vibrates as the phone is set to (§66). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <application>
         <!-- Lends a file of the app to the viewer the user picks, only for that viewing (§62). -->
         <provider
