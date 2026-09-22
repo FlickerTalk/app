@@ -45,6 +45,20 @@ const code = computed(() => (props.message.kind === "file" ? null : readCode(pro
 // Web and mail addresses are marked so they can be opened; nothing is fetched to preview them.
 const pieces = computed(() => piecesOf(props.message.text ?? ""));
 
+// §53: a long press hands this message to a plugin; a tap does nothing of the sort.
+const LONG_PRESS = 500;
+let pressing: ReturnType<typeof setTimeout> | undefined;
+
+function startPress() {
+  if (!props.withPlugin) return;
+  pressing = setTimeout(() => emit("plugin", props.message.id), LONG_PRESS);
+}
+
+function endPress() {
+  clearTimeout(pressing);
+  pressing = undefined;
+}
+
 function openLink(href: string) {
   void Promise.resolve(openUrl(href)).catch(() => undefined);
 }
@@ -71,7 +85,15 @@ function open() {
     class="ft-msg"
     :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending' }]"
   >
-    <div class="ft-bubble" :class="{ 'is-file': file }">
+    <div
+      class="ft-bubble"
+      :class="{ 'is-file': file }"
+      data-test="bubble"
+      @pointerdown="startPress"
+      @pointerup="endPress"
+      @pointercancel="endPress"
+      @pointerleave="endPress"
+    >
       <img v-if="file?.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" @click="open" />
       <audio v-if="file?.url && isVoice" class="ft-voice" :src="file.url" controls preload="metadata" />
       <!-- A video that arrived plays here, from the app's own files (§62). -->

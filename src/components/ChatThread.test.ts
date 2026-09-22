@@ -165,12 +165,18 @@ describe("ChatThread", () => {
     expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(false);
   });
 
-  // Issue app#3: a message reaches a plugin only when the user hands it over. The gesture is
-  // still to be decided, so nothing of it shows in the chat.
-  it("shows nothing of the plugins in the chat", async () => {
+  // Issue app#3: a long press hands the message to a plugin; nothing else in the chat shows it.
+  it("opens the plugin only after a long press on a message", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
     await flushPromises();
     expect(wrapper.find("[data-test='plugin']").exists()).toBe(false);
     expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(false);
+
+    vi.useFakeTimers();
+    await wrapper.findAll("[data-test='bubble']")[0].trigger("pointerdown");
+    await vi.advanceTimersByTimeAsync(600);
+    vi.useRealTimers();
+    await flushPromises();
+    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(true);
   });
 });
