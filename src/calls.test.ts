@@ -248,4 +248,46 @@ describe("calls", () => {
     await flushPromises();
     expect(calls.history.calls.map((entry) => entry.id)).toEqual(["c9"]);
   });
+
+  // §66: the call notification has Answer and Decline; what the user pressed there reaches the
+  // app when it opens.
+  it("answers the call the user accepted on the notification", async () => {
+    incoming(false);
+    await flushPromises();
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_pending_call" ? "answer" : command === "core_call_ice" ? servers : command === "core_calls" ? [] : undefined,
+      ),
+    );
+
+    await calls.applyCallNotification();
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer", expect.objectContaining({ call: "call-1" }));
+  });
+
+  it("ends the call the user declined on the notification", async () => {
+    incoming(false);
+    await flushPromises();
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_pending_call" ? "decline" : command === "core_calls" ? [] : undefined),
+    );
+
+    await calls.applyCallNotification();
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_end", { call: "call-1", failed: false });
+    expect(calls.call.phase).toBe("ended");
+  });
+
+  it("does nothing when the notification was not pressed", async () => {
+    incoming(false);
+    await flushPromises();
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_pending_call" ? "" : command === "core_calls" ? [] : undefined),
+    );
+
+    await calls.applyCallNotification();
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_end", expect.anything());
+    expect(calls.call.phase).toBe("ringing");
+  });
 });

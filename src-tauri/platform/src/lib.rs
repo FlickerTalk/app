@@ -70,6 +70,20 @@ struct KeyBytes {
     value: String,
 }
 
+/// What Kotlin's `pendingCall` resolves with: what the user pressed on the call notification.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct PendingCall {
+    action: String,
+}
+
+/// What Kotlin's `canShowFullScreen` resolves with.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct FullScreen {
+    allowed: bool,
+}
+
 /// What Kotlin's `pushToken` resolves with.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -119,6 +133,35 @@ impl<R: Runtime> Platform<R> {
         {
             Err(Error::Unsupported)
         }
+    }
+
+    /// What the user pressed on the call notification ("answer", "decline" or nothing), once.
+    pub fn pending_call(&self) -> Result<String> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<PendingCall>("pendingCall", ())?.action)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(String::new())
+        }
+    }
+
+    /// Whether this phone lets a call take the whole screen (Android 14 asks the user).
+    pub fn can_show_full_screen(&self) -> Result<bool> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<FullScreen>("canShowFullScreen", ())?.allowed)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(false)
+        }
+    }
+
+    /// Opens the system screen where the user allows it.
+    pub fn ask_full_screen(&self) -> Result<()> {
+        self.run("askFullScreen", ())
     }
 
     pub fn request_notifications(&self) -> Result<()> {
@@ -209,6 +252,8 @@ mod tests {
         assert_eq!(open, serde_json::json!({ "path": "/files/a.jpg", "mime": "image/jpeg" }));
         let save = serde_json::to_value(SaveFile { path: "/files/a.jpg", name: "a.jpg", mime: "image/jpeg" }).unwrap();
         assert_eq!(save, serde_json::json!({ "path": "/files/a.jpg", "name": "a.jpg", "mime": "image/jpeg" }));
+        let pending: PendingCall = serde_json::from_value(serde_json::json!({ "action": "answer" })).unwrap();
+        assert_eq!(pending.action, "answer");
         let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true }).unwrap();
         assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true }));
         let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();

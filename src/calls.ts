@@ -222,6 +222,17 @@ export async function acceptCall(): Promise<void> {
   }
 }
 
+/**
+ * What the user pressed on the call notification of the phone (§66). The app asks for it when it
+ * opens or comes back, because a call may have been answered from the notification while the
+ * WebView was not even running.
+ */
+export async function applyCallNotification(): Promise<void> {
+  const action = await invoke<string>("core_pending_call").catch(() => "");
+  if (action === "answer") await acceptCall();
+  else if (action === "decline") await hangUp();
+}
+
 /** Hangs up, declines or gives up, whichever it is by now. */
 export async function hangUp(): Promise<void> {
   const id = call.id;
@@ -271,4 +282,9 @@ export async function startCalls(): Promise<void> {
   if (listening) return;
   listening = true;
   await listen<CallEvent>(CALL_EVENT, ({ payload }) => void onEvent(payload));
+  // The user may have answered from the notification before this WebView was even there (§66).
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void applyCallNotification();
+  });
+  await applyCallNotification();
 }
