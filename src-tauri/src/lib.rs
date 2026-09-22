@@ -29,6 +29,9 @@ pub fn run() {
             client::core_contact,
             client::core_block,
             client::core_rename,
+            client::core_upload_start,
+            client::core_upload_append,
+            client::core_send_file,
             poc::poc_default_relay,
             poc::poc_connect,
             poc::poc_send

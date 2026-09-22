@@ -35,7 +35,8 @@
     "delivered": "Delivered",
     "read": "Read",
     "connected": "Directly connected",
-    "paused": "Paused"
+    "paused": "Paused",
+    "failed": "Failed"
   },
   "calls": {
     "callBack": "Call back",

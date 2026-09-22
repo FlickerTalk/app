@@ -4,12 +4,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::{Core, Peer, Transport};
-use ft_storage::{MessageState, Store};
+use ft_storage::{FileRecord, MessageState, Store};
 use tokio::sync::mpsc;
 
 /// The network between the test devices: a direct link that can be cut, and mailboxes. Like a
@@ -24,6 +25,8 @@ struct Net {
     mailboxes: Mutex<HashMap<String, Vec<Vec<u8>>>>,
     /// Every packet handed to the direct link, to replay duplicates.
     sent: Mutex<Vec<(String, Vec<u8>)>>,
+    /// The direct link goes down once this many packets have gone to that device.
+    cut_after: Mutex<Option<(String, usize)>>,
 }
 
 impl Net {
@@ -35,6 +38,10 @@ impl Net {
 
     fn set_direct(&self, up: bool) {
         self.direct.store(up, Ordering::SeqCst);
+    }
+
+    fn sent_to(&self, device: &str) -> usize {
+        self.sent.lock().unwrap().iter().filter(|(to, _)| to == device).count()
     }
 
     fn mailbox_len(&self, device: &str) -> usize {
@@ -63,6 +70,12 @@ impl Transport for Link {
         let Some(queue) = self.net.queues.lock().unwrap().get(&to.device_id).cloned() else {
             return Ok(false);
         };
+        if let Some((device, limit)) = self.net.cut_after.lock().unwrap().clone() {
+            if device == to.device_id && self.net.sent_to(&device) >= limit {
+                self.net.set_direct(false);
+                return Ok(false);
+            }
+        }
         self.net.sent.lock().unwrap().push((to.device_id.clone(), bytes.clone()));
         Ok(queue.send(bytes).is_ok())
     }
@@ -80,6 +93,7 @@ async fn device(net: &Arc<Net>, name: &str) -> Arc<Core> {
 async fn device_with(net: &Arc<Net>, name: &str, store: Store, key: [u8; 32]) -> Arc<Core> {
     let core = Core::open(store, key, Arc::new(Link { net: net.clone() })).await.expect("opens");
     core.set_name(name).await.expect("names");
+    core.set_files_dir(scratch(name));
     let id = core.device_id().as_str().to_owned();
     net.cores.lock().unwrap().insert(id.clone(), Arc::downgrade(&core));
 
@@ -129,6 +143,25 @@ async fn texts(core: &Core, contact: &str) -> Vec<String> {
 
 fn id(core: &Core) -> String {
     core.device_id().as_str().to_owned()
+}
+
+/// A fresh directory for a test device's files.
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ft-core-{name}-{}", ft_protocol::MessageId::new()));
+    std::fs::create_dir_all(&dir).expect("creates the directory");
+    dir
+}
+
+/// A file of `size` pseudo-random bytes, ready to send.
+fn some_file(size: usize) -> (PathBuf, Vec<u8>) {
+    let bytes: Vec<u8> = (0..size).map(|i| (i * 7 + i / 251) as u8).collect();
+    let path = scratch("outgoing").join("holiday photo.jpg");
+    std::fs::write(&path, &bytes).expect("writes");
+    (path, bytes)
+}
+
+async fn file_of(core: &Core, message_id: &str) -> FileRecord {
+    core.store().file(message_id).await.expect("reads").expect("the file exists")
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -317,4 +350,104 @@ async fn the_conversation_survives_a_restart() {
     alice.send_text(&id(&bob), "after").await.expect("sends after restarting");
     until("bob got both", || async { texts(&bob, &id(&alice)).await == ["before", "after"] }).await;
     let _ = std::fs::remove_file(&path);
+}
+
+// §62–63: the file goes in chunks, straight to the contact, and arrives whole.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_crosses_in_chunks_and_is_verified() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let (path, bytes) = some_file(200_000);
+
+    let sent = alice.send_file(&id(&bob), &path, "holiday photo.jpg", "image/jpeg").await.expect("offers");
+    until("bob has the whole file", || async {
+        bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete)
+    })
+    .await;
+    let received = file_of(&bob, &sent).await;
+    assert_eq!(std::fs::read(&received.path).expect("reads"), bytes);
+    assert_eq!((received.name.as_str(), received.mime.as_str(), received.size), ("holiday photo.jpg", "image/jpeg", 200_000));
+    assert_eq!(texts(&bob, &id(&alice)).await, ["holiday photo.jpg"]);
+    until("alice knows it arrived", || async { file_of(&alice, &sent).await.complete }).await;
+    assert_eq!(state_of(&alice, &id(&bob), &sent).await, MessageState::Delivered);
+}
+
+// §62: files are P2P only. Without a direct connection the file waits on the sender's phone.
+#[tokio::test(flavor = "multi_thread")]
+async fn files_never_go_through_the_mailbox() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+    let (path, bytes) = some_file(70_000);
+
+    let sent = alice.send_file(&id(&bob), &path, "a.bin", "application/octet-stream").await.expect("queues");
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&id(&bob)), 0, "nothing of the file reaches the server");
+    assert_eq!(state_of(&alice, &id(&bob), &sent).await, MessageState::Pending);
+
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until("bob has it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete) }).await;
+    assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), bytes);
+}
+
+// §63: when the connection drops, the transfer goes on from the first missing chunk.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_interrupted_transfer_resumes_where_it_stopped() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let chunks = 100;
+    let (path, bytes) = some_file(chunks * ft_protocol::FILE_CHUNK as usize);
+    let before = net.sent_to(&id(&bob));
+    *net.cut_after.lock().unwrap() = Some((id(&bob), before + 60));
+
+    let sent = alice.send_file(&id(&bob), &path, "big.bin", "application/octet-stream").await.expect("offers");
+    until("the link went down", || async { !net.direct.load(Ordering::SeqCst) }).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let got = file_of(&bob, &sent).await.chunks_done;
+    assert!(got > 0 && got < chunks as i64, "bob got part of it: {got}");
+
+    *net.cut_after.lock().unwrap() = None;
+    net.set_direct(true);
+    let at_resume = net.sent_to(&id(&bob));
+    bob.resume_files_after(Duration::ZERO).await.expect("resumes");
+    until("bob has it all", || async { file_of(&bob, &sent).await.complete }).await;
+    assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), bytes);
+    let resent = net.sent_to(&id(&bob)) - at_resume;
+    assert!(resent < chunks - got as usize + 25, "only the missing chunks travel again: {resent}");
+}
+
+// A file whose bytes do not match the hash of the offer is thrown away, never shown as received.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_that_does_not_match_its_hash_is_rejected() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+    let (path, _) = some_file(100_000);
+    let sent = alice.send_file(&id(&bob), &path, "a.bin", "application/octet-stream").await.expect("queues");
+    std::fs::write(&path, vec![0u8; 100_000]).expect("the file changes after the offer");
+
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until("bob gives up on it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.failed) }).await;
+    let received = file_of(&bob, &sent).await;
+    assert!(!received.complete);
+    assert!(!std::path::Path::new(&received.path).exists(), "the bad bytes are deleted");
+    assert!(!file_of(&alice, &sent).await.complete);
+}
+
+// An empty file needs no chunks.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_file_arrives_at_once() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let (path, _) = some_file(0);
+    let sent = alice.send_file(&id(&bob), &path, "empty.txt", "text/plain").await.expect("offers");
+    until("bob has it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete) }).await;
+    assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), Vec::<u8>::new());
 }

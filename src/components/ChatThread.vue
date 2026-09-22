@@ -15,7 +15,7 @@ import { add, arrowUp, callOutline, videocamOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
-import { chat as chatOf, loadMessages, markRead, sendText } from "../core";
+import { chat as chatOf, loadMessages, markRead, sendFile, sendText } from "../core";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
 
@@ -35,6 +35,18 @@ async function send() {
   if (!text) return;
   draft.value = "";
   await sendText(props.chatId, text);
+}
+
+// §62: files go straight to the contact; the picker is the system's.
+const picker = ref<HTMLInputElement | null>(null);
+
+async function attach(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = "";
+  for (const file of files) {
+    await sendFile(props.chatId, file);
+  }
 }
 
 type Scrollable = { $el?: { scrollToBottom?: (duration: number) => Promise<void> } };
@@ -109,9 +121,10 @@ watch(
     <ion-footer class="ion-no-border">
       <ion-toolbar class="ft-composer">
         <div class="ft-composer__row">
-          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.attach')">
+          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.attach')" @click="picker?.click()">
             <ion-icon :icon="add" aria-hidden="true" />
           </button>
+          <input ref="picker" type="file" multiple hidden @change="attach" />
           <ion-textarea
             v-model="draft"
             class="ft-composer__input"

@@ -1,6 +1,7 @@
 //! Starting the core online (Plan §106 M3): the router client signs with the core's identity, the
 //! core sends through the network and the network talks through that router client. This module
-//! ties the knot, registers the device, listens to the router and retries the outbox.
+//! ties the knot, registers the device, listens to the router, retries the outbox and resumes
+//! stalled file transfers.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -79,6 +80,7 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
             every.tick().await;
             let Some(core) = retrying.upgrade() else { break };
             let _ = core.retry_due().await;
+            let _ = core.resume_files().await;
         }
     });
 

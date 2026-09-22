@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
+/// Bytes of a file per chunk (§63): one chunk, sealed, fits a single DataChannel message.
+pub const FILE_CHUNK: u32 = 48 * 1024;
+
 /// UUIDv7 generated on the device (§24).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -81,6 +84,29 @@ pub enum Body {
     },
     /// WebRTC answer, the plaintext of a `Signal`.
     Answer { sdp: String },
+    /// A file on offer (§62–63); the packet id identifies it. Only ever sent directly: files never
+    /// go through the mailbox. The receiver pulls the chunks with `FileRequest`.
+    File {
+        name: String,
+        size: u64,
+        mime: String,
+        /// BLAKE3 of the whole file, checked once every chunk is in.
+        #[serde(with = "serde_bytes")]
+        hash: [u8; 32],
+        /// Bytes per chunk; the last one may be shorter.
+        chunk: u32,
+    },
+    /// The receiver asks for `count` chunks from `from` on: flow control, and resuming where it
+    /// stopped.
+    FileRequest { file: MessageId, from: u64, count: u32 },
+    FileChunk {
+        file: MessageId,
+        index: u64,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+    },
+    /// The receiver has the whole file and its hash matches.
+    FileDone { file: MessageId },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -213,6 +239,25 @@ mod tests {
         round_trip(Body::Offer { sdp: "v=0".to_owned(), card: Some(vec![1]) });
         round_trip(Body::Offer { sdp: "v=0".to_owned(), card: None });
         round_trip(Body::Answer { sdp: "v=0".to_owned() });
+        round_trip(Body::File {
+            name: "photo.jpg".to_owned(),
+            size: 123_456,
+            mime: "image/jpeg".to_owned(),
+            hash: [7; 32],
+            chunk: FILE_CHUNK,
+        });
+        let file = MessageId::new();
+        round_trip(Body::FileRequest { file, from: 3, count: 16 });
+        round_trip(Body::FileChunk { file, index: 3, data: vec![1, 2, 3] });
+        round_trip(Body::FileDone { file });
+    }
+
+    // §62–63: a whole chunk, once sealed with Olm (under 200 bytes more), fits a single
+    // DataChannel message (64 KiB, the smallest limit peers announce).
+    #[test]
+    fn a_file_chunk_fits_one_data_channel_message() {
+        let packet = Packet::new(Body::FileChunk { file: MessageId::new(), index: 1 << 40, data: vec![0xab; FILE_CHUNK as usize] });
+        assert!(packet.encode().len() + 200 < 64 * 1024, "{} bytes", packet.encode().len());
     }
 
     // §24: generated on the device, time-ordered, never by a server.

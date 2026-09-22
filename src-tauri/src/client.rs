@@ -2,13 +2,16 @@
 //! commands to the UI. No business logic here: every command delegates to the core, and what
 //! crosses to the WebView are plain views (never keys, never the capability, §54).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Context;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use ft_core::online::{self, Online};
 use ft_core::{Core, Event};
-use ft_storage::{Conversation, Message, MessageState, Store};
+use ft_storage::{Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -36,17 +39,52 @@ pub struct MessageView {
     text: String,
     sent_at: i64,
     state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<FileView>,
 }
 
-impl From<&Message> for MessageView {
-    fn from(message: &Message) -> Self {
+impl MessageView {
+    pub fn new(message: &Message, file: Option<&FileRecord>) -> Self {
         Self {
             id: message.message_id.clone(),
             outgoing: message.outgoing,
             text: message.body.clone(),
             sent_at: message.sent_at,
             state: state_name(message.state),
+            file: file.map(FileView::from),
         }
+    }
+}
+
+/// A file message's transfer (§62–63). `path` is on this device, for showing images.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileView {
+    name: String,
+    size: i64,
+    mime: String,
+    /// From 0 to 1: chunks sent (outgoing) or received (incoming).
+    progress: f64,
+    /// `transferring`, `done` (the receiver has it and the hash matches) or `failed`.
+    state: &'static str,
+    path: String,
+}
+
+impl From<&FileRecord> for FileView {
+    fn from(file: &FileRecord) -> Self {
+        let progress = match file.chunks() {
+            _ if file.complete => 1.0,
+            0 => 0.0,
+            chunks => file.chunks_done as f64 / chunks as f64,
+        };
+        let state = if file.complete {
+            "done"
+        } else if file.failed {
+            "failed"
+        } else {
+            "transferring"
+        };
+        Self { name: file.name.clone(), size: file.size, mime: file.mime.clone(), progress, state, path: file.path.clone() }
     }
 }
 
@@ -70,7 +108,7 @@ impl ConversationView {
             unread: conversation.unread,
             blocked: conversation.contact.blocked,
             connected,
-            last: conversation.last.as_ref().map(MessageView::from),
+            last: conversation.last.as_ref().map(|last| MessageView::new(last, None)),
         }
     }
 }
@@ -115,6 +153,20 @@ pub fn storage_key(dir: &Path) -> anyhow::Result<[u8; 32]> {
     Ok(key)
 }
 
+/// A random name for a file being copied in from the WebView.
+pub fn new_upload_id() -> String {
+    rand::random::<[u8; 16]>().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Where an upload is written. Only ids made by `new_upload_id` are accepted.
+pub fn upload_path(dir: &Path, id: &str) -> Result<PathBuf, String> {
+    let valid = id.len() == 32 && id.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
+    if !valid {
+        return Err("invalid upload".to_owned());
+    }
+    Ok(dir.join("outgoing").join(id))
+}
+
 /// The running core, started once.
 #[derive(Default)]
 pub struct Client {
@@ -139,11 +191,16 @@ impl Client {
         Ok(self.online().await?.core.clone())
     }
 
+    fn dir(&self) -> Result<&Path, String> {
+        self.dir.get().map(PathBuf::as_path).ok_or_else(|| "the app is not set up yet".to_owned())
+    }
+
     async fn start(&self) -> anyhow::Result<Online> {
         let dir = self.dir.get().context("the app is not set up yet")?;
         let key = storage_key(dir)?;
         let store = Store::open(&dir.join("flickertalk.db")).await?;
         let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
+        online.core.set_files_dir(dir.join("files"));
 
         if let Some(app) = self.app.get().cloned() {
             let mut events = online.core.events();
@@ -224,17 +281,59 @@ pub async fn core_add_contact(link: String, client: State<'_, Client>) -> Result
 pub async fn core_conversations(client: State<'_, Client>) -> Result<Vec<ConversationView>, String> {
     let online = client.online().await?;
     let connected = online.network.connected().await;
-    let conversations = online.core.store().conversations().await.map_err(failed)?;
-    Ok(conversations
-        .iter()
-        .map(|conversation| ConversationView::new(conversation, connected.contains(&conversation.contact.device_id)))
-        .collect())
+    let store = online.core.store();
+    let mut views = Vec::new();
+    for conversation in store.conversations().await.map_err(failed)? {
+        let mut view = ConversationView::new(&conversation, connected.contains(&conversation.contact.device_id));
+        if let Some(last) = view.last.as_mut() {
+            last.file = store.file(&last.id).await.map_err(failed)?.as_ref().map(FileView::from);
+        }
+        views.push(view);
+    }
+    Ok(views)
 }
 
 #[tauri::command]
 pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client>) -> Result<Vec<MessageView>, String> {
     let core = client.core().await?;
-    Ok(core.store().messages(&contact, limit).await.map_err(failed)?.iter().map(MessageView::from).collect())
+    let files: HashMap<String, FileRecord> =
+        core.store().files(&contact).await.map_err(failed)?.into_iter().map(|file| (file.message_id.clone(), file)).collect();
+    let messages = core.store().messages(&contact, limit).await.map_err(failed)?;
+    Ok(messages.iter().map(|message| MessageView::new(message, files.get(&message.message_id))).collect())
+}
+
+/// Starts copying a file from the WebView into the app; returns the upload's id.
+#[tauri::command]
+pub async fn core_upload_start(client: State<'_, Client>) -> Result<String, String> {
+    let id = new_upload_id();
+    let path = upload_path(client.dir()?, &id)?;
+    let parent = path.parent().expect("uploads live in a directory");
+    tokio::fs::create_dir_all(parent).await.map_err(failed)?;
+    tokio::fs::File::create(&path).await.map_err(failed)?;
+    Ok(id)
+}
+
+/// Appends a slice, in base64 (Android's IPC only carries JSON), to the upload.
+#[tauri::command]
+pub async fn core_upload_append(upload: String, data: String, client: State<'_, Client>) -> Result<(), String> {
+    let bytes = BASE64.decode(data).map_err(failed)?;
+    let path = upload_path(client.dir()?, &upload)?;
+    let mut file = tokio::fs::OpenOptions::new().append(true).open(&path).await.map_err(failed)?;
+    tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await.map_err(failed)
+}
+
+/// Offers the uploaded file to the contact; the file stays in the app until it is delivered.
+#[tauri::command]
+pub async fn core_send_file(contact: String, upload: String, name: String, mime: String, client: State<'_, Client>) -> Result<(), String> {
+    let path = upload_path(client.dir()?, &upload)?;
+    if !path.exists() {
+        return Err("unknown upload".to_owned());
+    }
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.send_file(&contact, &path, &name, &mime).await;
+    });
+    Ok(())
 }
 
 /// Stored at once (the UI hears about it); delivered in the background.
@@ -303,7 +402,7 @@ mod tests {
 
     #[test]
     fn messages_become_plain_views() {
-        let view = MessageView::from(&message(MessageState::Delivered, true));
+        let view = MessageView::new(&message(MessageState::Delivered, true), None);
         assert_eq!(serde_json::to_value(&view).unwrap(), serde_json::json!({
             "id": "m1", "outgoing": true, "text": "hi", "sentAt": 42, "state": "delivered"
         }));
@@ -328,6 +427,54 @@ mod tests {
         assert_eq!(view["unread"], 2);
         assert_eq!(view["last"]["state"], "pending");
         assert!(view.get("card").is_none(), "the card, with the route capability, stays in Rust");
+    }
+
+    fn record(chunks_done: i64, complete: bool, failed: bool) -> ft_storage::FileRecord {
+        ft_storage::FileRecord {
+            message_id: "m1".to_owned(),
+            name: "photo.jpg".to_owned(),
+            size: 100,
+            mime: "image/jpeg".to_owned(),
+            hash: [0; 32],
+            chunk: 25,
+            path: "/data/files/m1/photo.jpg".to_owned(),
+            chunks_done,
+            complete,
+            failed,
+        }
+    }
+
+    // A file message shows what is known about the transfer, never more (§84).
+    #[test]
+    fn file_messages_carry_their_transfer() {
+        let view = MessageView::new(&message(MessageState::Delivered, false), Some(&record(2, false, false)));
+        assert_eq!(serde_json::to_value(&view).unwrap()["file"], serde_json::json!({
+            "name": "photo.jpg", "size": 100, "mime": "image/jpeg", "progress": 0.5,
+            "state": "transferring", "path": "/data/files/m1/photo.jpg"
+        }));
+        let done = serde_json::to_value(FileView::from(&record(4, true, false))).unwrap();
+        assert_eq!((done["state"].as_str(), done["progress"].as_f64()), (Some("done"), Some(1.0)));
+        assert_eq!(serde_json::to_value(FileView::from(&record(0, false, true))).unwrap()["state"], "failed");
+        let empty = ft_storage::FileRecord { size: 0, ..record(0, true, false) };
+        assert_eq!(serde_json::to_value(FileView::from(&empty)).unwrap()["progress"], 1.0);
+    }
+
+    #[test]
+    fn a_text_has_no_file() {
+        let view = serde_json::to_value(MessageView::new(&message(MessageState::Sent, true), None)).unwrap();
+        assert!(view.get("file").is_none());
+    }
+
+    // Uploads are named by the app, never by the WebView: no way out of their directory.
+    #[test]
+    fn upload_ids_cannot_point_elsewhere() {
+        let dir = Path::new("/data");
+        let id = new_upload_id();
+        assert_eq!(upload_path(dir, &id).unwrap(), dir.join("outgoing").join(&id));
+        assert_ne!(new_upload_id(), id);
+        for bad in ["../identity", "", "abc", "/etc/passwd", "0123456789abcdef0123456789abcdeg"] {
+            assert!(upload_path(dir, bad).is_err(), "{bad}");
+        }
     }
 
     // The key that seals the identity is created once and kept (Plan §106: Keystore later, §94).

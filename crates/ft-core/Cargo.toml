@@ -8,6 +8,7 @@ license = "AGPL-3.0-only"
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+blake3 = "1"
 ft-contacts = { path = "../ft-contacts" }
 ft-crypto = { path = "../ft-crypto" }
 ft-identity = { path = "../ft-identity" }
@@ -15,8 +16,7 @@ ft-protocol = { path = "../ft-protocol" }
 ft-push = { path = "../ft-push" }
 ft-storage = { path = "../ft-storage" }
 ft-webrtc = { path = "../ft-webrtc" }
-tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
 
 [dev-dependencies]
-blake3 = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

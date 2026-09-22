@@ -105,6 +105,9 @@ async fn phone(bus: &Arc<Bus>, name: &str) -> Phone {
     let network = Network::new(relay.clone(), SessionConfig::offline());
     let core = Core::open(Store::open_in_memory().await.unwrap(), [4; 32], network.clone()).await.expect("opens");
     core.set_name(name).await.unwrap();
+    let files = std::env::temp_dir().join(format!("ft-net-{name}-{}", ft_protocol::MessageId::new()));
+    std::fs::create_dir_all(&files).unwrap();
+    core.set_files_dir(files);
     relay.me.set(core.device_id().as_str().to_owned()).unwrap();
     network.attach(&core);
     bus.capabilities.lock().unwrap().insert(core.device_id().as_str().to_owned(), *core.route_capability().as_bytes());
@@ -235,4 +238,26 @@ async fn the_network_reports_open_connections() {
     alice.network.disconnect(&bob.id()).await;
     assert!(!alice.network.is_connected(&bob.id()).await);
     until("bob sees it closed", || async { !bob.network.is_connected(&alice.id()).await }).await;
+}
+
+// §62: whole chunks, sealed with Olm, fit the real DataChannel's messages.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_crosses_a_real_data_channel() {
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    let bytes: Vec<u8> = (0..300_000u32).map(|i| (i % 253) as u8).collect();
+    let path = std::env::temp_dir().join(format!("ft-net-{}.bin", ft_protocol::MessageId::new()));
+    std::fs::write(&path, &bytes).unwrap();
+
+    let sent = alice.core.send_file(&bob.id(), &path, "data.bin", "application/octet-stream").await.expect("offers");
+    until("bob has the file", || async {
+        bob.core.store().file(&sent).await.unwrap().is_some_and(|file| file.complete)
+    })
+    .await;
+    let received = bob.core.store().file(&sent).await.unwrap().unwrap();
+    assert_eq!(std::fs::read(received.path).unwrap(), bytes);
+    assert_eq!(bus.mail_for(&bob.id()), 0);
 }

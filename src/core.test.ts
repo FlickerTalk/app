@@ -5,7 +5,10 @@ const tauri = vi.hoisted(() => ({
   invoke: vi.fn(),
   handlers: {} as Record<string, (event: { payload: unknown }) => void>,
 }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: tauri.invoke,
+  convertFileSrc: (path: string) => `asset://localhost${path}`,
+}));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, handler: (event: { payload: unknown }) => void) => {
     tauri.handlers[name] = handler;
@@ -35,6 +38,7 @@ const answers: Record<string, unknown> = {
     { id: "m2", outgoing: true, text: "see you", sentAt: at(9, 41), state: "delivered" },
   ],
   core_card: "https://flickertalk.com/add#card",
+  core_upload_start: "up1",
   core_add_contact: "ft_dave",
 };
 
@@ -95,6 +99,76 @@ describe("core bridge", () => {
   it("adds a contact from a pasted link", async () => {
     expect(await core.addContact("  https://flickertalk.com/add#x  ")).toBe("ft_dave");
     expect(tauri.invoke).toHaveBeenCalledWith("core_add_contact", { link: "https://flickertalk.com/add#x" });
+  });
+
+  // §62–63: a file message shows its transfer; an image, once here, shows itself.
+  it("loads file messages with their transfer", async () => {
+    const file = (id: string, outgoing: boolean, state: string, progress: number) => ({
+      id,
+      outgoing,
+      text: "photo.jpg",
+      sentAt: at(9, 50),
+      state: "delivered",
+      file: { name: "photo.jpg", size: 1_200_000, mime: "image/jpeg", progress, state, path: `/files/${id}/photo.jpg` },
+    });
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [file("f1", false, "transferring", 0.5), file("f2", false, "done", 1), file("f3", true, "transferring", 0.25)]
+          : answers[command],
+      ),
+    );
+    await core.start();
+    await core.loadMessages("ft_bob");
+    const [receiving, received, sending] = core.chat("ft_bob")?.messages ?? [];
+    expect(receiving).toMatchObject({ kind: "file", file: { name: "photo.jpg", size: "1.2 MB", progress: 0.5, state: "receiving" } });
+    expect(receiving.file?.url).toBeUndefined();
+    expect(received.file).toMatchObject({ state: "done", url: "asset://localhost/files/f2/photo.jpg" });
+    expect(sending.file).toMatchObject({ state: "sending", url: "asset://localhost/files/f3/photo.jpg" });
+  });
+
+  // Without a direct connection a transfer cannot move: it says so instead of pretending.
+  it("shows transfers with a disconnected contact as paused", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [{ id: "f1", outgoing: false, text: "a.bin", sentAt: 0, state: "delivered",
+              file: { name: "a.bin", size: 10, mime: "", progress: 0.1, state: "transferring", path: "/a" } }]
+          : answers[command],
+      ),
+    );
+    await core.start();
+    await core.loadMessages("ft_carol");
+    expect(core.chat("ft_carol")?.messages[0].file?.state).toBe("paused");
+  });
+
+  it("sends a picked file in slices", async () => {
+    const file = new File([new Uint8Array(1_200_000)], "report.pdf", { type: "application/pdf" });
+    await core.sendFile("ft_bob", file);
+    // Android's IPC only carries JSON (no raw bodies), so the bytes travel as base64.
+    const appends = tauri.invoke.mock.calls.filter(([command]) => command === "core_upload_append");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_upload_start");
+    expect(appends).toHaveLength(3);
+    expect(appends.every(([, args]) => (args as { upload: string }).upload === "up1")).toBe(true);
+    const sizes = appends.map(([, args]) => atob((args as { data: string }).data).length);
+    expect(sizes.reduce((total, size) => total + size, 0)).toBe(1_200_000);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_send_file", {
+      contact: "ft_bob",
+      upload: "up1",
+      name: "report.pdf",
+      mime: "application/pdf",
+    });
+  });
+
+  it("writes sizes the short way", () => {
+    expect([0, 512, 1_500, 1_200_000, 48_000_000, 2_300_000_000].map(core.formatSize)).toEqual([
+      "0 B",
+      "512 B",
+      "1.5 KB",
+      "1.2 MB",
+      "48 MB",
+      "2.3 GB",
+    ]);
   });
 
   it("gives every contact a stable colour", () => {

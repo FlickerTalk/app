@@ -75,6 +75,36 @@ pub struct OutboxEntry {
     pub in_mailbox: bool,
 }
 
+/// A file sent or received (§62–63); its message carries the name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRecord {
+    pub message_id: String,
+    pub name: String,
+    pub size: i64,
+    pub mime: String,
+    /// BLAKE3 of the whole file.
+    pub hash: [u8; 32],
+    /// Bytes per chunk.
+    pub chunk: i64,
+    /// Where the bytes are on this device.
+    pub path: String,
+    /// Outgoing: chunks sent; incoming: chunks received in order.
+    pub chunks_done: i64,
+    /// The receiver has the whole file and its hash matches.
+    pub complete: bool,
+    /// The bytes did not match the hash: the transfer was given up.
+    pub failed: bool,
+}
+
+impl FileRecord {
+    pub fn chunks(&self) -> i64 {
+        if self.chunk <= 0 {
+            return 0;
+        }
+        (self.size + self.chunk - 1) / self.chunk
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Conversation {
     pub contact: Contact,
@@ -302,6 +332,70 @@ impl Store {
         Ok(())
     }
 
+    /// Returns false when the file was already there (a retried offer).
+    pub async fn insert_file(&self, file: &FileRecord) -> Result<bool> {
+        let result = sqlx::query(
+            "INSERT INTO files (message_id, name, size, mime, hash, chunk, path, chunks_done, complete)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message_id) DO NOTHING",
+        )
+        .bind(&file.message_id)
+        .bind(&file.name)
+        .bind(file.size)
+        .bind(&file.mime)
+        .bind(file.hash.as_slice())
+        .bind(file.chunk)
+        .bind(&file.path)
+        .bind(file.chunks_done)
+        .bind(file.complete)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn file(&self, message_id: &str) -> Result<Option<FileRecord>> {
+        let row = sqlx::query("SELECT * FROM files WHERE message_id = ?").bind(message_id).fetch_optional(&self.pool).await?;
+        row.as_ref().map(file_from).transpose()
+    }
+
+    /// The files exchanged with a contact.
+    pub async fn files(&self, contact: &str) -> Result<Vec<FileRecord>> {
+        let rows = sqlx::query("SELECT files.* FROM files JOIN messages USING (message_id) WHERE messages.contact = ? ORDER BY sent_at")
+            .bind(contact)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(file_from).collect()
+    }
+
+    pub async fn set_file_progress(&self, message_id: &str, chunks_done: i64, complete: bool) -> Result<()> {
+        sqlx::query("UPDATE files SET chunks_done = ?, complete = ? WHERE message_id = ?")
+            .bind(chunks_done)
+            .bind(complete)
+            .bind(message_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The received bytes did not match the hash: the transfer is given up.
+    pub async fn set_file_failed(&self, message_id: &str) -> Result<()> {
+        sqlx::query("UPDATE files SET failed = 1, complete = 0, chunks_done = 0 WHERE message_id = ?")
+            .bind(message_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Incoming files still missing chunks, with their sender: (contact, file).
+    pub async fn incomplete_incoming_files(&self) -> Result<Vec<(String, FileRecord)>> {
+        let rows = sqlx::query(
+            "SELECT files.*, messages.contact FROM files JOIN messages USING (message_id)
+             WHERE messages.outgoing = 0 AND files.complete = 0 AND files.failed = 0 ORDER BY sent_at",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(|row| Ok((row.get("contact"), file_from(row)?))).collect()
+    }
+
     pub async fn setting(&self, key: &str) -> Result<Option<String>> {
         let row = sqlx::query("SELECT value FROM settings WHERE key = ?").bind(key).fetch_optional(&self.pool).await?;
         Ok(row.map(|row| row.get("value")))
@@ -340,6 +434,22 @@ fn message_from(row: &SqliteRow) -> Message {
     }
 }
 
+fn file_from(row: &SqliteRow) -> Result<FileRecord> {
+    let hash: Vec<u8> = row.get("hash");
+    Ok(FileRecord {
+        message_id: row.get("message_id"),
+        name: row.get("name"),
+        size: row.get("size"),
+        mime: row.get("mime"),
+        hash: hash.try_into().map_err(|_| anyhow::anyhow!("a stored file hash is not 32 bytes"))?,
+        chunk: row.get("chunk"),
+        path: row.get("path"),
+        chunks_done: row.get("chunks_done"),
+        complete: row.get("complete"),
+        failed: row.get("failed"),
+    })
+}
+
 fn outbox_from(row: &SqliteRow) -> OutboxEntry {
     OutboxEntry {
         message_id: row.get("message_id"),
@@ -372,6 +482,68 @@ mod tests {
             sent_at,
             state: if outgoing { MessageState::Pending } else { MessageState::Delivered },
         }
+    }
+
+    fn file(id: &str) -> FileRecord {
+        FileRecord {
+            message_id: id.to_owned(),
+            name: "photo.jpg".to_owned(),
+            size: 100_000,
+            mime: "image/jpeg".to_owned(),
+            hash: [3; 32],
+            chunk: 49_152,
+            path: format!("/files/{id}"),
+            chunks_done: 0,
+            complete: false,
+            failed: false,
+        }
+    }
+
+    // §62–63: a file message keeps its metadata, where its bytes are and how far it got.
+    #[tokio::test]
+    async fn a_file_travels_with_its_message() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("f1", "ft_bob", false, 1)).await.expect("inserts");
+        store.insert_message(&message("m2", "ft_bob", false, 2)).await.expect("inserts");
+        assert!(store.insert_file(&file("f1")).await.expect("inserts the file"));
+        assert!(!store.insert_file(&file("f1")).await.expect("ignores it again"), "a retried offer is stored once");
+
+        let stored = store.file("f1").await.expect("reads").expect("present");
+        assert_eq!(stored, file("f1"));
+        assert_eq!(stored.chunks(), 3, "100 000 bytes in chunks of 48 KiB");
+        assert!(store.file("m2").await.expect("reads").is_none(), "a text is not a file");
+
+        store.set_file_progress("f1", 2, false).await.expect("updates");
+        assert_eq!(store.file("f1").await.unwrap().unwrap().chunks_done, 2);
+        assert_eq!(store.files("ft_bob").await.expect("lists").len(), 1);
+    }
+
+    // Incoming files still missing chunks are resumed when the sender is back (§63).
+    #[tokio::test]
+    async fn incomplete_incoming_files_are_listed_for_resuming() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("in", "ft_bob", false, 1)).await.unwrap();
+        store.insert_message(&message("out", "ft_bob", true, 2)).await.unwrap();
+        store.insert_message(&message("done", "ft_bob", false, 3)).await.unwrap();
+        for id in ["in", "out", "done"] {
+            store.insert_file(&file(id)).await.unwrap();
+        }
+        store.set_file_progress("done", 3, true).await.unwrap();
+        store.insert_message(&message("bad", "ft_bob", false, 4)).await.unwrap();
+        store.insert_file(&file("bad")).await.unwrap();
+        store.set_file_failed("bad").await.expect("marks it failed");
+        assert!(store.file("bad").await.unwrap().unwrap().failed);
+
+        let waiting = store.incomplete_incoming_files().await.expect("lists");
+        assert_eq!(waiting.iter().map(|(contact, file)| (contact.as_str(), file.message_id.as_str())).collect::<Vec<_>>(), [("ft_bob", "in")]);
+    }
+
+    #[test]
+    fn an_empty_file_has_no_chunks() {
+        assert_eq!(FileRecord { size: 0, ..file("x") }.chunks(), 0);
+        assert_eq!(FileRecord { size: 49_152, ..file("x") }.chunks(), 1);
     }
 
     #[tokio::test]

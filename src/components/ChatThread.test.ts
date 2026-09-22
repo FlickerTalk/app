@@ -47,6 +47,17 @@ describe("ChatThread", () => {
     expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
   });
 
+  // §62: the attach button sends the picked files straight to the contact.
+  it("sends the files picked with the attach button", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    const input = wrapper.find("input[type='file']");
+    const file = new File(["menu"], "menu.pdf", { type: "application/pdf" });
+    Object.defineProperty(input.element, "files", { value: [file] });
+    await input.trigger("change");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_send_file", { contact: "c1", upload: "up1", name: "menu.pdf", mime: "application/pdf" }]);
+  });
+
   it("offers voice and video calls", () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     expect(wrapper.find("[aria-label='Voice call']").exists()).toBe(true);
