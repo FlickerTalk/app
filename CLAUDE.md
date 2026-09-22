@@ -58,7 +58,10 @@ npm run tauri android build -- --aab                     # para Google Play
   tests de Kotlin.
 - Cada push a `main` publica un APK firmado como prerelease **canary** de GitHub.
 - Cada tag `vX.Y.Z` (igual a `version` de `tauri.conf.json`) publica un release con el APK y el
-  AAB firmados. La subida a Google Play aún no está automatizada; la primera es manual.
+  AAB firmados y, si existe la service account, sube el AAB a **Google Play** (pista `internal`;
+  producción siempre a mano en la consola, `§105`). La **primera** subida del AAB tiene que ser
+  manual: lo exige Google. Hasta que estén el secreto `PLAY_SERVICE_ACCOUNT_JSON` y la variable
+  `PLAY_PACKAGE_NAME`, ese job se salta solo.
 - La clave de subida y el `google-services.json` solo existen en el entorno `release` de GitHub
   (`main` y tags `v*`). Los PR, incluidos los de forks, nunca los ven.
 
