@@ -10,6 +10,38 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     builder
         .manage(client::Client::default())
+        .manage(plugins::Plugins::default())
+        // Each plugin is served from its own folder, inside an iframe, with the policy its
+        // permissions allow (issue app#3, §55, §58).
+        .register_uri_scheme_protocol("ftplugin", |ctx, request| {
+            let served = request
+                .uri()
+                .path()
+                .to_owned();
+            let answer = plugins::route(&served)
+                .and_then(|(id, file)| ctx.app_handle().state::<plugins::Plugins>().get(&id).map(|one| (one, file)))
+                .and_then(|(one, file)| {
+                    let (body, kind) = if file == "frame.html" {
+                        (plugins::frame_html(&one.component).into_bytes(), plugins::content_type("frame.html"))
+                    } else {
+                        let path = plugins::file_in(&one.dir, &file)?;
+                        (std::fs::read(path).ok()?, plugins::content_type(&file))
+                    };
+                    Some((body, kind, one.policy))
+                });
+            match answer {
+                Some((body, kind, policy)) => tauri::http::Response::builder()
+                    .header(tauri::http::header::CONTENT_TYPE, kind)
+                    .header(tauri::http::header::CONTENT_SECURITY_POLICY, policy)
+                    .header("Cross-Origin-Resource-Policy", "same-site")
+                    .body(body)
+                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                None => tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::NOT_FOUND)
+                    .body(Vec::new())
+                    .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+            }
+        })
         .setup(|app| {
             app.state::<client::Client>().setup(app.handle())?;
             client::start_in_background(app.handle());

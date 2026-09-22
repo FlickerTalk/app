@@ -5,6 +5,7 @@ import {
   IonButton,
   IonButtons,
   IonContent,
+  IonModal,
   IonFooter,
   IonHeader,
   IonIcon,
@@ -15,6 +16,8 @@ import { add, arrowUp, callOutline, micOutline, trashOutline, videocamOutline } 
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
+import PluginSheet from "./PluginSheet.vue";
+import { readyPlugins } from "../plugins";
 import { chat as chatOf, loadMessages, markRead, openFile, saveFile, sendFile, sendText } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { t } from "../i18n";
@@ -88,6 +91,19 @@ onUnmounted(() => {
 });
 
 const saved = reactive(new Set<string>());
+
+// Issue app#3: the plugins the user allowed to read what they hand them (§53).
+const plugin = ref<{ id: string; name: string } | null>(null);
+const handed = ref("");
+
+onMounted(async () => {
+  const ready = await readyPlugins().catch(() => []);
+  plugin.value = ready.length ? { id: ready[0].id, name: ready[0].name } : null;
+});
+
+function handToPlugin(id: string) {
+  handed.value = messages.value.find((message) => message.id === id)?.text ?? "";
+}
 
 async function save(id: string) {
   await saveFile(id);
@@ -164,9 +180,15 @@ watch(
         :key="message.id"
         :message="message"
         :saved="saved.has(message.id)"
+        :with-plugin="Boolean(plugin)"
         @open="openFile"
         @save="save"
+        @plugin="handToPlugin"
       />
+      <!-- Issue app#3: the message the user chose, in the plugin's own frame. -->
+      <ion-modal :is-open="Boolean(handed)" @did-dismiss="handed = ''">
+        <PluginSheet v-if="plugin && handed" :plugin="plugin" :text="handed" />
+      </ion-modal>
       <div class="ft-thread__end" />
     </ion-content>
 

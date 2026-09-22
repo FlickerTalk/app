@@ -53,7 +53,20 @@ export function seed(): void {
     if (command === "core_card") return "https://flickertalk.com/add#card";
     if (command === "core_upload_start") return "up1";
     if (command === "core_contact") {
-      return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false };
+      return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false, keepFor: 0, burnAfterRead: 0 };
+    }
+    // One plugin, allowed to read what the user hands it (issue app#3).
+    if (command === "core_plugins") {
+      return [
+        {
+          id: "com.flickertalk.code",
+          name: "Code block",
+          version: "1.0.0",
+          asks: { network: [], messages: true, send: "nothing" },
+          granted: { network: [], messages: true, send: "nothing" },
+          installedAt: at("09:00"),
+        },
+      ];
     }
     return undefined;
   });

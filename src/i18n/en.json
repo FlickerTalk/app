@@ -38,7 +38,8 @@
     "attach": "Attach file",
     "voiceCall": "Voice call",
     "videoCall": "Video call",
-    "contactSettings": "Contact settings"
+    "contactSettings": "Contact settings",
+    "openWithPlugin": "Open with a plugin"
   },
   "status": {
     "pending": "Waiting for device",
