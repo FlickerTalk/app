@@ -235,4 +235,17 @@ describe("core bridge", () => {
     await core.erasePhone();
     expect(tauri.invoke).toHaveBeenCalledWith("core_erase");
   });
+
+  // The WebView's own file input leaves the user outside the app on Android; the phone's picker
+  // hands back files that are already in the app's folder.
+  it("sends what the system picker gave, without passing the bytes through the WebView", async () => {
+    const picked = [{ path: "/data/uploads/1-a.jpg", name: "a.jpg", mime: "image/jpeg", size: 12 }];
+    tauri.invoke.mockImplementation((command: string) => Promise.resolve(command === "core_pick_files" ? picked : undefined));
+
+    const files = await core.pickFiles();
+    expect(files).toEqual(picked);
+    await core.sendPicked("ft_bob", files[0]);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_send_picked", { contact: "ft_bob", file: picked[0] });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_upload_start", expect.anything());
+  });
 });

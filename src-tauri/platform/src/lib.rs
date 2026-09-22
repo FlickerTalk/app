@@ -11,6 +11,7 @@
 //!   Android 13's permission to show the notification a wake-up brings (M4).
 //! - `seal_key` / `open_key`: the storage key, sealed by Android Keystore (an AES key that never
 //!   leaves it) or kept in the iOS Keychain (this device only), §94.
+//! - `pick_files`: the system file picker, copying what was picked into the app's folder.
 //! - `share_text`: the system share sheet (WhatsApp, Signal, mail…) with a text, such as the
 //!   Contact Card link (§32).
 //! - `restart_app`: starts the app again (after moving to a new phone, §60); Tauri's own restart
@@ -68,6 +69,22 @@ struct ShareText<'a> {
 #[cfg_attr(not(mobile), allow(dead_code))]
 struct KeyBytes {
     value: String,
+}
+
+/// A file the user picked, already copied into the app's folder.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+pub struct PickedFile {
+    pub path: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Picked {
+    files: Vec<PickedFile>,
 }
 
 /// What Kotlin's `pendingCall` resolves with: what the user pressed on the call notification.
@@ -128,6 +145,19 @@ impl<R: Runtime> Platform<R> {
         #[cfg(mobile)]
         {
             Ok(self.handle.run_mobile_plugin::<PushToken>("pushToken", ())?.token)
+        }
+        #[cfg(not(mobile))]
+        {
+            Err(Error::Unsupported)
+        }
+    }
+
+    /// Files picked with the system picker, copied into the app's folder. The WebView's own file
+    /// input leaves the user outside the app with no way back unless they pick something.
+    pub fn pick_files(&self) -> Result<Vec<PickedFile>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Picked>("pickFiles", ())?.files)
         }
         #[cfg(not(mobile))]
         {
@@ -252,6 +282,12 @@ mod tests {
         assert_eq!(open, serde_json::json!({ "path": "/files/a.jpg", "mime": "image/jpeg" }));
         let save = serde_json::to_value(SaveFile { path: "/files/a.jpg", name: "a.jpg", mime: "image/jpeg" }).unwrap();
         assert_eq!(save, serde_json::json!({ "path": "/files/a.jpg", "name": "a.jpg", "mime": "image/jpeg" }));
+        let picked: Picked = serde_json::from_value(serde_json::json!({
+            "files": [{ "path": "/data/uploads/1-a.jpg", "name": "a.jpg", "mime": "image/jpeg", "size": 12 }]
+        }))
+        .unwrap();
+        assert_eq!(picked.files[0].name, "a.jpg");
+        assert_eq!(picked.files[0].size, 12);
         let pending: PendingCall = serde_json::from_value(serde_json::json!({ "action": "answer" })).unwrap();
         assert_eq!(pending.action, "answer");
         let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true }).unwrap();

@@ -34,10 +34,13 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import androidx.core.content.FileProvider
+import androidx.activity.result.ActivityResult
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
@@ -220,6 +223,15 @@ class RingingArgs {
     var caller: String = ""
     var video: Boolean = false
 }
+
+/** Where a picked file is copied, inside the app's own folder. */
+const val PICKED_FOLDER = "uploads"
+
+/** The name to show for a picked file; something with no name is still a file. */
+fun pickedName(name: String?): String = name?.trim()?.takeIf { it.isNotEmpty() } ?: "file"
+
+/** What a picked file is, as far as we can tell. */
+fun pickedMime(mime: String?): String = mime?.trim()?.takeIf { it.isNotEmpty() } ?: "application/octet-stream"
 
 /** The text for the share sheet, or null when there is nothing to share. */
 fun shareableText(text: String): String? = text.trim().ifEmpty { null }
@@ -437,6 +449,65 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot share")
+        }
+    }
+
+    /**
+     * Picks files with the system picker and copies them into the app's folder. The WebView's own
+     * file input opens a screen the user cannot come back from without picking something; this one
+     * returns to the app either way.
+     */
+    @Command
+    fun pickFiles(invoke: Invoke) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        startActivityForResult(invoke, intent, "picked")
+    }
+
+    @ActivityCallback
+    fun picked(invoke: Invoke, result: ActivityResult) {
+        val picked = JSArray()
+        try {
+            val data = result.data
+            val uris = mutableListOf<android.net.Uri>()
+            data?.clipData?.let { clip -> for (index in 0 until clip.itemCount) uris.add(clip.getItemAt(index).uri) }
+            data?.data?.let(uris::add)
+            for (uri in uris) {
+                copyIn(uri)?.let(picked::put)
+            }
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot read what was picked")
+            return
+        }
+        invoke.resolve(JSObject().apply { put("files", picked) })
+    }
+
+    /** Copies what was picked into the app's folder, and says what it is. */
+    private fun copyIn(uri: android.net.Uri): JSObject? {
+        val resolver = activity.contentResolver
+        var name = "file"
+        var size = 0L
+        resolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameColumn = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            val sizeColumn = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+            if (cursor.moveToFirst()) {
+                if (nameColumn >= 0) name = pickedName(cursor.getString(nameColumn))
+                if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
+            }
+        }
+        val folder = File(activity.filesDir, PICKED_FOLDER).apply { mkdirs() }
+        val target = File(folder, "${System.currentTimeMillis()}-${name.replace('/', '_')}")
+        resolver.openInputStream(uri)?.use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        } ?: return null
+        return JSObject().apply {
+            put("path", target.absolutePath)
+            put("name", name)
+            put("mime", pickedMime(resolver.getType(uri)))
+            put("size", if (size > 0) size else target.length())
         }
     }
 

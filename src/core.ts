@@ -229,6 +229,27 @@ async function toBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
+/** A file the user picked with the phone's own picker, already in the app's folder. */
+export interface PickedFile {
+  path: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
+/**
+ * The phone's file picker. On Android the WebView's own file input opens a screen the user cannot
+ * come back from without picking something, so the app asks the system itself (§62).
+ */
+export async function pickFiles(): Promise<PickedFile[]> {
+  return invoke<PickedFile[]>("core_pick_files");
+}
+
+/** Sends a picked file: its bytes never travel through the WebView. */
+export async function sendPicked(contact: string, file: PickedFile): Promise<void> {
+  await invoke("core_send_picked", { contact, file });
+}
+
 /**
  * Copies the picked file into the app, a slice at a time, and offers it to the contact. The
  * slices travel as base64: on Android the IPC only carries JSON.
