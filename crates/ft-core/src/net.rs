@@ -26,6 +26,9 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::{Core, Event, Peer, Transport};
 
+/// A transfer quiet for this long when a connection opens is asked for again over it.
+const RESUME_QUIET: Duration = Duration::from_secs(2);
+
 /// How long to wait for a data channel before falling back to the mailbox.
 pub const CONNECT_WAIT: Duration = Duration::from_secs(12);
 
@@ -143,6 +146,11 @@ impl Network {
 
     fn core(&self) -> Result<Arc<Core>> {
         self.core.get().and_then(Weak::upgrade).ok_or_else(|| anyhow!("the core is gone"))
+    }
+
+    /// The router's STUN servers and TURN user, from its last welcome.
+    pub fn ice(&self) -> (Vec<String>, Option<TurnGrant>) {
+        self.ice.lock().expect("ice poisoned").clone()
     }
 
     fn session_config(&self) -> SessionConfig {
@@ -303,6 +311,13 @@ impl Network {
         let id = self.next_link.fetch_add(1, Ordering::Relaxed);
         self.links.lock().await.insert(contact.to_owned(), Link { id, session });
         self.announce(contact);
+        // File transfers stopped by the last connection go on over this one (§63).
+        if let Ok(core) = self.core() {
+            let from = contact.to_owned();
+            tokio::spawn(async move {
+                let _ = core.resume_files_from(&from, RESUME_QUIET).await;
+            });
+        }
 
         let (Some(core), Some(network)) = (self.core.get().cloned(), self.this.get().cloned()) else { return };
         let contact = contact.to_owned();

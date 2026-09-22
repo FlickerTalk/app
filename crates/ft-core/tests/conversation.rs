@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use ft_core::{Core, Peer, Transport};
-use ft_storage::{FileRecord, MessageState, Store};
+use ft_core::{CallUpdate, Core, Event, Peer, Transport};
+use ft_storage::{CallOutcome, FileRecord, MessageState, Store};
 use tokio::sync::mpsc;
 
 /// The network between the test devices: a direct link that can be cut, and mailboxes. Like a
@@ -116,7 +116,16 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    for _ in 0..250 {
+    until_within(what, Duration::from_secs(5), condition).await
+}
+
+/// Like `until`, for work that takes a while in a debug build (megabytes through Olm).
+async fn until_within<F, Fut>(what: &str, limit: Duration, condition: F)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    for _ in 0..limit.as_millis() / 20 {
         if condition().await {
             return;
         }
@@ -405,7 +414,7 @@ async fn an_interrupted_transfer_resumes_where_it_stopped() {
     *net.cut_after.lock().unwrap() = Some((id(&bob), before + 60));
 
     let sent = alice.send_file(&id(&bob), &path, "big.bin", "application/octet-stream").await.expect("offers");
-    until("the link went down", || async { !net.direct.load(Ordering::SeqCst) }).await;
+    until_within("the link went down", Duration::from_secs(20), || async { !net.direct.load(Ordering::SeqCst) }).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     let got = file_of(&bob, &sent).await.chunks_done;
     assert!(got > 0 && got < chunks as i64, "bob got part of it: {got}");
@@ -413,8 +422,9 @@ async fn an_interrupted_transfer_resumes_where_it_stopped() {
     *net.cut_after.lock().unwrap() = None;
     net.set_direct(true);
     let at_resume = net.sent_to(&id(&bob));
-    bob.resume_files_after(Duration::ZERO).await.expect("resumes");
-    until("bob has it all", || async { file_of(&bob, &sent).await.complete }).await;
+    // The connection is back: whatever stopped is asked for again at once, backoff or not.
+    bob.resume_files_from(&id(&alice), Duration::ZERO).await.expect("resumes");
+    until_within("bob has it all", Duration::from_secs(20), || async { file_of(&bob, &sent).await.complete }).await;
     assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), bytes);
     let resent = net.sent_to(&id(&bob)) - at_resume;
     assert!(resent < chunks - got as usize + 25, "only the missing chunks travel again: {resent}");
@@ -450,4 +460,113 @@ async fn an_empty_file_arrives_at_once() {
     let sent = alice.send_file(&id(&bob), &path, "empty.txt", "text/plain").await.expect("offers");
     until("bob has it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete) }).await;
     assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), Vec::<u8>::new());
+}
+
+/// The next call event a device hears: (contact, call, what happened).
+async fn next_call(events: &mut tokio::sync::broadcast::Receiver<Event>) -> (String, String, CallUpdate) {
+    let wait = async {
+        loop {
+            if let Ok(Event::Call { contact, call, update }) = events.recv().await {
+                return (contact, call, update);
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), wait).await.expect("a call event in time")
+}
+
+async fn outcome_of(core: &Core, call: &str) -> Option<CallOutcome> {
+    core.store().call(call).await.expect("reads").expect("logged").outcome
+}
+
+// §66: the descriptions of a call travel encrypted, straight to the contact.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_is_offered_answered_and_hung_up() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let (mut at_alice, mut at_bob) = (alice.events(), bob.events());
+
+    let call = alice.place_call(&id(&bob), true).await.expect("places");
+    alice.offer_call(&call, "offer-sdp").await.expect("offers");
+    let (from, ringing, update) = next_call(&mut at_bob).await;
+    assert_eq!((from.as_str(), ringing.as_str()), (id(&alice).as_str(), call.as_str()));
+    assert_eq!(update, CallUpdate::Incoming { video: true, sdp: "offer-sdp".to_owned() });
+
+    bob.answer_call(&call, "answer-sdp").await.expect("answers");
+    assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Answered { sdp: "answer-sdp".to_owned() });
+
+    alice.end_call(&call, false).await.expect("hangs up");
+    assert_eq!(next_call(&mut at_bob).await.2, CallUpdate::Ended { outcome: CallOutcome::Answered });
+    for (core, outgoing) in [(&alice, true), (&bob, false)] {
+        let logged = core.store().call(&call).await.unwrap().expect("logged");
+        assert_eq!((logged.outgoing, logged.video, logged.outcome), (outgoing, true, Some(CallOutcome::Answered)));
+        assert!(logged.answered_at.is_some() && logged.ended_at.is_some());
+    }
+    assert_eq!(net.mailbox_len(&id(&bob)) + net.mailbox_len(&id(&alice)), 0, "calls never use the mailbox");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_declined_call_is_logged_on_both_sides() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let (mut at_alice, mut at_bob) = (alice.events(), bob.events());
+    let call = alice.place_call(&id(&bob), false).await.unwrap();
+    alice.offer_call(&call, "offer").await.unwrap();
+    next_call(&mut at_bob).await;
+
+    bob.end_call(&call, false).await.expect("declines");
+    assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Declined });
+    assert_eq!(outcome_of(&bob, &call).await, Some(CallOutcome::Declined));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_given_up_by_the_caller_is_missed() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let mut at_bob = bob.events();
+    let call = alice.place_call(&id(&bob), false).await.unwrap();
+    alice.offer_call(&call, "offer").await.unwrap();
+    next_call(&mut at_bob).await;
+
+    alice.end_call(&call, false).await.expect("cancels");
+    assert_eq!(next_call(&mut at_bob).await.2, CallUpdate::Ended { outcome: CallOutcome::Missed });
+    assert_eq!(outcome_of(&alice, &call).await, Some(CallOutcome::Cancelled));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreachable_contact_cannot_be_called() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+    let mut at_alice = alice.events();
+    let call = alice.place_call(&id(&bob), true).await.unwrap();
+    alice.offer_call(&call, "offer").await.expect("tries");
+    assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Unreachable });
+    assert_eq!(net.mailbox_len(&id(&bob)), 0);
+    assert!(bob.store().call(&call).await.unwrap().is_none());
+}
+
+// One call at a time: a second caller hears "busy" and the callee sees a missed call.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_busy_contact_says_so() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    pair(&alice, &bob).await;
+    pair(&carol, &bob).await;
+    let (mut at_bob, mut at_carol) = (bob.events(), carol.events());
+    let first = alice.place_call(&id(&bob), false).await.unwrap();
+    alice.offer_call(&first, "offer").await.unwrap();
+    next_call(&mut at_bob).await;
+
+    let second = carol.place_call(&id(&bob), false).await.unwrap();
+    carol.offer_call(&second, "offer").await.unwrap();
+    assert_eq!(next_call(&mut at_carol).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
+    until("bob logged the missed call", || async {
+        bob.store().call(&second).await.unwrap().is_some_and(|call| call.outcome == Some(CallOutcome::Missed))
+    })
+    .await;
+    assert_eq!(bob.store().call(&first).await.unwrap().unwrap().outcome, None, "the first call goes on");
 }

@@ -107,10 +107,31 @@ pub enum Body {
     },
     /// The receiver has the whole file and its hash matches.
     FileDone { file: MessageId },
+    /// A voice or video call (§66). The media is the WebView's WebRTC; its descriptions travel
+    /// here, directly and encrypted, never through the mailbox.
+    CallOffer { call: MessageId, sdp: String, video: bool },
+    CallAnswer { call: MessageId, sdp: String },
+    CallEnd { call: MessageId, reason: EndReason },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
     Unknown,
+}
+
+/// Why a call ended, as told to the other side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndReason {
+    /// Hung up after it was answered.
+    Hangup,
+    /// The callee said no.
+    Declined,
+    /// The callee is in another call.
+    Busy,
+    /// The caller gave up before it was answered.
+    Cancelled,
+    /// The media could not connect.
+    Failed,
 }
 
 impl Packet {
@@ -250,6 +271,12 @@ mod tests {
         round_trip(Body::FileRequest { file, from: 3, count: 16 });
         round_trip(Body::FileChunk { file, index: 3, data: vec![1, 2, 3] });
         round_trip(Body::FileDone { file });
+        let call = MessageId::new();
+        round_trip(Body::CallOffer { call, sdp: "v=0".to_owned(), video: true });
+        round_trip(Body::CallAnswer { call, sdp: "v=0".to_owned() });
+        for reason in [EndReason::Hangup, EndReason::Declined, EndReason::Busy, EndReason::Cancelled, EndReason::Failed] {
+            round_trip(Body::CallEnd { call, reason });
+        }
     }
 
     // §62–63: a whole chunk, once sealed with Olm (under 200 bytes more), fits a single

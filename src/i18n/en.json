@@ -49,6 +49,17 @@
     "missed": "Missed",
     "connecting": "Connecting…",
     "ringing": "Ringing…",
+    "calling": "Calling…",
+    "outcomes": {
+      "answered": "Call ended",
+      "ended": "Call ended",
+      "missed": "Missed",
+      "declined": "Declined",
+      "busy": "Busy",
+      "cancelled": "Call ended",
+      "unreachable": "Not reachable",
+      "failed": "Couldn't connect"
+    },
     "mute": "Mute",
     "speaker": "Speaker",
     "camera": "Camera",
