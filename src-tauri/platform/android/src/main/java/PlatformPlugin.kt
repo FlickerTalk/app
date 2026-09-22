@@ -145,6 +145,14 @@ fun ringingFor(ringerMode: Int): Ringing = when (ringerMode) {
 /** Ring 0.8 s, pause 1.2 s, and again. */
 private val RING_PATTERN = longArrayOf(0, 800, 1200)
 
+/** The text for the share sheet, or null when there is nothing to share. */
+fun shareableText(text: String): String? = text.trim().ifEmpty { null }
+
+@InvokeArg
+class ShareTextArgs {
+    lateinit var text: String
+}
+
 @InvokeArg
 class OpenFileArgs {
     lateinit var path: String
@@ -284,6 +292,23 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             @Suppress("DEPRECATION")
             activity.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         }
+
+    /** The system share sheet (WhatsApp, Signal, mail…) with a text, such as the card link (§32). */
+    @Command
+    fun shareText(invoke: Invoke) {
+        try {
+            val text = shareableText(invoke.parseArgs(ShareTextArgs::class.java).text)
+            if (text == null) {
+                invoke.reject("nothing to share")
+                return
+            }
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+            activity.startActivity(Intent.createChooser(send, null))
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot share")
+        }
+    }
 
     @Command
     fun openFile(invoke: Invoke) {

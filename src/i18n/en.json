@@ -91,6 +91,7 @@
     "myCodeHint": "Let them scan this code, or share the link",
     "scanHint": "Point the camera at their code",
     "shareLink": "Share link",
+    "shareText": "Add me on FlickerTalk: {link}",
     "paste": "Or paste their link",
     "add": "Add",
     "copied": "Link copied",

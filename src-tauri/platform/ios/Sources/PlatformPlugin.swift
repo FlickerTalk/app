@@ -5,9 +5,9 @@ import Tauri
 import UIKit
 import WebKit
 
-// FlickerTalk's native bridge on iOS (see ../../src/lib.rs). For now only the storage key: it
-// lives in the Keychain, on this device only (Plan §94). The rest of the bridge answers that it is
-// not available on iOS yet, and the app carries on without it.
+// FlickerTalk's native bridge on iOS (see ../../src/lib.rs). For now the storage key, which lives
+// in the Keychain on this device only (Plan §94), and the share sheet. The rest of the bridge
+// answers that it is not available on iOS yet, and the app carries on without it.
 
 private let keyService = "com.flickertalk.app.storage"
 private let keyAccount = "storage-key"
@@ -20,6 +20,16 @@ func keychainMarker() -> Data {
 /// Readable after the first unlock, and never synced to iCloud or restored on another device.
 func keyAccessibility() -> String {
     kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+}
+
+/// The text for the share sheet, or nil when there is nothing to share.
+func shareableText(_ text: String) -> String? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+class ShareArgs: Decodable {
+    let text: String
 }
 
 class KeyArgs: Decodable {
@@ -72,6 +82,26 @@ class PlatformPlugin: Plugin {
             invoke.resolve(["value": keychainMarker().base64EncodedString()])
         } catch {
             invoke.reject("the Keychain refused the key: \(error)")
+        }
+    }
+
+    /// The system share sheet (WhatsApp, Signal, mail…) with a text, such as the card link (§32).
+    @objc public func shareText(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(ShareArgs.self)
+        guard let text = shareableText(args.text) else {
+            invoke.reject("nothing to share")
+            return
+        }
+        DispatchQueue.main.async { [manager] in
+            guard let screen = manager.viewController else {
+                invoke.reject("no screen to share from")
+                return
+            }
+            let sheet = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+            // On an iPad the sheet is a popover: it needs an anchor.
+            UIUtils.centerPopover(rootViewController: screen, popoverController: sheet)
+            screen.present(sheet, animated: true)
+            invoke.resolve()
         }
     }
 

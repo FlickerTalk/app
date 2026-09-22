@@ -3,6 +3,7 @@ package com.flickertalk.platform
 import android.app.ActivityManager
 import android.media.AudioManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PlatformPluginTest {
@@ -52,5 +53,11 @@ class PlatformPluginTest {
         assertEquals(12, iv.size)
         assertEquals(48, ciphertext.size)
         assertEquals(null, splitSealed(ByteArray(12)))
+    }
+
+    @Test
+    fun onlyRealTextIsShared() {
+        assertEquals("Add me: https://flickertalk.com/add#card", shareableText("  Add me: https://flickertalk.com/add#card\n"))
+        assertNull(shareableText("   "))
     }
 }

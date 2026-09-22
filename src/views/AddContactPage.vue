@@ -14,7 +14,7 @@ import {
 import { checkmarkOutline, scanOutline, shareOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import QrCode from "../components/QrCode.vue";
-import { addContact, myCardLink, refreshChats, store } from "../core";
+import { addContact, myCardLink, refreshChats, shareText, store } from "../core";
 import { scanQr } from "../scanner";
 import { t } from "../i18n";
 
@@ -30,9 +30,14 @@ onMounted(async () => {
   link.value = await myCardLink();
 });
 
+// The share sheet (WhatsApp, Signal, mail…) sends the link; only where there is none is it copied.
 async function share() {
-  await navigator.clipboard?.writeText(link.value);
-  copied.value = true;
+  try {
+    await shareText(t("addContact.shareText", { link: link.value }));
+  } catch {
+    await navigator.clipboard?.writeText(link.value);
+    copied.value = true;
+  }
 }
 
 // The camera reads the other phone's QR code: its content is the Contact Card link.

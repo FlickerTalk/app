@@ -10,6 +10,8 @@
 //!   Android 13's permission to show the notification a wake-up brings (M4).
 //! - `seal_key` / `open_key`: the storage key, sealed by Android Keystore (an AES key that never
 //!   leaves it) or kept in the iOS Keychain (this device only), §94.
+//! - `share_text`: the system share sheet (WhatsApp, Signal, mail…) with a text, such as the
+//!   Contact Card link (§32).
 //! - `restart_app`: starts the app again (after moving to a new phone, §60); Tauri's own restart
 //!   only exits on Android.
 
@@ -47,6 +49,12 @@ struct SaveFile<'a> {
     mime: &'a str,
 }
 
+/// Arguments of the native `shareText` command.
+#[derive(Serialize)]
+struct ShareText<'a> {
+    text: &'a str,
+}
+
 /// The key, or its sealed form, as the native side takes and gives it: base64.
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -77,6 +85,11 @@ impl<R: Runtime> Platform<R> {
     /// Copies a file of the app to the phone's Downloads, where the user finds it.
     pub fn save_to_downloads(&self, path: &str, name: &str, mime: &str) -> Result<()> {
         self.run("saveToDownloads", SaveFile { path, name, mime })
+    }
+
+    /// Opens the system share sheet with `text`.
+    pub fn share_text(&self, text: &str) -> Result<()> {
+        self.run("shareText", ShareText { text })
     }
 
     pub fn start_ringing(&self) -> Result<()> {
@@ -187,5 +200,7 @@ mod tests {
         assert_eq!(open, serde_json::json!({ "path": "/files/a.jpg", "mime": "image/jpeg" }));
         let save = serde_json::to_value(SaveFile { path: "/files/a.jpg", name: "a.jpg", mime: "image/jpeg" }).unwrap();
         assert_eq!(save, serde_json::json!({ "path": "/files/a.jpg", "name": "a.jpg", "mime": "image/jpeg" }));
+        let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();
+        assert_eq!(share, serde_json::json!({ "text": "Add me: https://flickertalk.com/add#card" }));
     }
 }

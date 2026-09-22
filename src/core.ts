@@ -265,6 +265,11 @@ export async function myCardLink(): Promise<string> {
   return invoke<string>("core_card");
 }
 
+/** Opens the phone's share sheet with `text`; fails where there is none (a desktop). */
+export async function shareText(text: string): Promise<void> {
+  await invoke("core_share", { text });
+}
+
 /** Adds the owner of a scanned or pasted card and returns their id. */
 export async function addContact(link: string): Promise<string> {
   return invoke<string>("core_add_contact", { link: link.trim() });
