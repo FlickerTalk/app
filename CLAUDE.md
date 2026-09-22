@@ -52,6 +52,16 @@ npm run tauri android build -- --apk --target aarch64   # APK firmado, minificad
 npm run tauri android build -- --aab                     # para Google Play
 ```
 
+**CI/CD** (`.github/workflows/app.yml`, Plan `§105`): una sola rama, `main`, y tags de versión.
+
+- Cada PR pasa typecheck, Vitest, clippy, los tests de Rust, un build de Android sin firmar y los
+  tests de Kotlin.
+- Cada push a `main` publica un APK firmado como prerelease **canary** de GitHub.
+- Cada tag `vX.Y.Z` (igual a `version` de `tauri.conf.json`) publica un release con el APK y el
+  AAB firmados. La subida a Google Play aún no está automatizada; la primera es manual.
+- La clave de subida y el `google-services.json` solo existen en el entorno `release` de GitHub
+  (`main` y tags `v*`). Los PR, incluidos los de forks, nunca los ven.
+
 La firma usa la **clave de subida** de Google Play (Play App Signing guarda la de la app):
 `gen/android/keystore.properties` (fuera de git) apunta a `infra/secrets/android-upload.jks`; en CI
 irá por variables de entorno (`ANDROID_UPLOAD_KEYSTORE_FILE`, `ANDROID_UPLOAD_KEY_ALIAS`,
@@ -80,8 +90,8 @@ irá por variables de entorno (`ANDROID_UPLOAD_KEYSTORE_FILE`, `ANDROID_UPLOAD_K
   lista. Un glob `crates/*` fallaría con las carpetas que aún solo
   tienen `CLAUDE.md`. El perfil de release vive en la raíz del workspace.
 - El identificador `com.flickertalk.app` (`tauri.conf.json`, paquete Android) es
-  **provisional**. Es un contrato con las stores: se fija el definitivo antes de la primera
-  subida, y cambiarlo implica regenerar `src-tauri/gen/`.
+  **definitivo**. Es un contrato con las stores: cambiarlo implica regenerar `src-tauri/gen/`, y
+  tras la primera subida a Google Play ya no se puede.
 - **Segundo plano** (`§19–20`): en Android, FCM despierta la app y el core Rust inicia la
   negociación, respetando las políticas de batería y foreground services. En iOS el silent push
   no está garantizado: la entrega fiable va por notificación visible + Notification Service
