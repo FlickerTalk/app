@@ -252,6 +252,47 @@ impl Core {
         Ok(())
     }
 
+    /// How long this phone keeps the conversation with a contact, and how long a read message
+    /// stays after being read; both in seconds, 0 for forever and never (issue app#1). It is a
+    /// choice of this phone: nothing of it travels.
+    pub async fn set_history(&self, contact: &str, keep_for: i64, burn_after_read: i64) -> Result<()> {
+        self.store.set_history(contact, keep_for.max(0), burn_after_read.max(0)).await?;
+        let _ = self.events.send(Event::ContactsChanged);
+        self.sweep_history().await
+    }
+
+    /// Applies the history rules, deleting the bytes of the files that go with the messages.
+    pub async fn sweep_history(&self) -> Result<()> {
+        self.sweep_history_at(now()).await
+    }
+
+    pub async fn sweep_history_at(&self, at: i64) -> Result<()> {
+        let watched: Vec<String> = self
+            .store
+            .contacts()
+            .await?
+            .into_iter()
+            .filter(|contact| contact.keep_for > 0 || contact.burn_after_read > 0)
+            .map(|contact| contact.device_id)
+            .collect();
+        let mut theirs = Vec::new();
+        for contact in &watched {
+            theirs.extend(self.store.files(contact).await?);
+        }
+
+        for contact in self.store.sweep(at).await? {
+            let _ = self.events.send(Event::MessagesChanged { contact });
+            let _ = self.events.send(Event::ContactsChanged);
+        }
+        // The bytes of the files whose message is gone.
+        for file in theirs {
+            if self.store.file(&file.message_id).await?.is_none() {
+                let _ = std::fs::remove_file(self.file_path(&file));
+            }
+        }
+        Ok(())
+    }
+
     pub async fn block(&self, contact: &str, blocked: bool) -> Result<()> {
         self.store.set_blocked(contact, blocked).await?;
         if blocked {

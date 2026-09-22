@@ -133,6 +133,10 @@ pub struct ContactView {
     fingerprint: String,
     mailbox: bool,
     blocked: bool,
+    /// Seconds this phone keeps their messages; 0 forever (issue app#1).
+    keep_for: i64,
+    /// Seconds a read message stays after being read; 0 never.
+    burn_after_read: i64,
 }
 
 #[derive(Clone, Serialize)]
@@ -785,7 +789,16 @@ pub async fn core_contact(contact: String, client: State<'_, Client>) -> Result<
         name: stored.name,
         mailbox: stored.mailbox,
         blocked: stored.blocked,
+        keep_for: stored.keep_for,
+        burn_after_read: stored.burn_after_read,
     })
+}
+
+/// How long this phone keeps the conversation with a contact, and how long a read message stays
+/// (issue app#1). Both in seconds; 0 means forever and never.
+#[tauri::command]
+pub async fn core_set_history(contact: String, keep_for: i64, burn_after_read: i64, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_history(&contact, keep_for, burn_after_read).await.map_err(failed)
 }
 
 #[tauri::command]
@@ -835,6 +848,8 @@ mod tests {
             blocked: false,
             introduced: true,
             added_at: 1,
+            keep_for: 0,
+            burn_after_read: 0,
         };
         let conversation = Conversation { contact, last: Some(message(MessageState::Pending, true)), unread: 2 };
         let view = serde_json::to_value(ConversationView::new(&conversation, true)).unwrap();
