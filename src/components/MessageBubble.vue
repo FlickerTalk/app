@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { readCode } from "../code";
+import { piecesOf } from "../links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonIcon } from "@ionic/vue";
 import { checkmark, checkmarkDone, documentOutline, downloadOutline, extensionPuzzleOutline, micOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
@@ -40,8 +42,15 @@ const status = computed(() =>
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
 // A message written with fences is code, and the app draws it as such (Ioan, 2026-09-22).
 const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
+// Web and mail addresses are marked so they can be opened; nothing is fetched to preview them.
+const pieces = computed(() => piecesOf(props.message.text ?? ""));
+
+function openLink(href: string) {
+  void Promise.resolve(openUrl(href)).catch(() => undefined);
+}
 const isImage = computed(() => file.value?.mime?.startsWith("image/") ?? false);
 const isVoice = computed(() => file.value?.mime?.startsWith("audio/") ?? false);
+const isVideo = computed(() => file.value?.mime?.startsWith("video/") ?? false);
 const percent = computed(() => Math.round((file.value?.progress ?? 0) * 100));
 const fileState = computed(() => {
   if (!file.value || file.value.state === "done") return "";
@@ -65,6 +74,8 @@ function open() {
     <div class="ft-bubble" :class="{ 'is-file': file }">
       <img v-if="file?.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" @click="open" />
       <audio v-if="file?.url && isVoice" class="ft-voice" :src="file.url" controls preload="metadata" />
+      <!-- A video that arrived plays here, from the app's own files (§62). -->
+      <video v-if="file?.url && isVideo" class="ft-video" :src="file.url" controls playsinline preload="metadata" />
       <div v-if="file" class="ft-file" :class="{ 'is-usable': usable }" data-test="file" @click="open">
         <span class="ft-file__icon"><ion-icon :icon="isVoice ? micOutline : documentOutline" aria-hidden="true" /></span>
         <span class="ft-file__body">
@@ -96,7 +107,19 @@ function open() {
         <span v-if="code.language" class="ft-code__language">{{ code.language }}</span>
         <pre class="ft-code__body"><code>{{ code.code }}</code></pre>
       </div>
-      <p v-else class="ft-bubble__text">{{ message.text }}</p>
+      <p v-else class="ft-bubble__text">
+        <template v-for="(piece, index) in pieces" :key="index">
+          <a
+            v-if="piece.kind === 'link'"
+            class="ft-bubble__link"
+            data-test="link"
+            :href="piece.href"
+            @click.prevent="openLink(piece.href ?? '')"
+            >{{ piece.text }}</a
+          >
+          <template v-else>{{ piece.text }}</template>
+        </template>
+      </p>
       <!-- Issue app#3: hand this message to a plugin, only because the user asked (§53). -->
       <button
         v-if="withPlugin && !file && message.text"
@@ -175,6 +198,12 @@ function open() {
   white-space: pre;
 }
 
+.ft-bubble__link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .ft-bubble__text {
   margin: 0;
   white-space: pre-wrap;
@@ -206,6 +235,14 @@ function open() {
   margin-bottom: 8px;
   border-radius: calc(var(--ft-radius-bubble) - 6px);
   object-fit: cover;
+}
+
+.ft-video {
+  display: block;
+  width: min(72vw, 420px);
+  max-height: 60vh;
+  border-radius: var(--ft-radius-card);
+  background: #000;
 }
 
 .ft-voice {

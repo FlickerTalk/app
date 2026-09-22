@@ -497,7 +497,7 @@ impl Client {
 /// The plugins that travel with the app (§52). They live in the binary: on Android the resources
 /// sit inside the APK, where there is no file to read. Code blocks are drawn by the app itself
 /// now, so the one that did it is only an example for others (app/plugins/code-block).
-const BUNDLED_PLUGINS: &[&[u8]] = &[];
+const BUNDLED_PLUGINS: &[&[u8]] = &[include_bytes!("../resources/plugins/markdown.ftplugin")];
 
 /// What the WebView may serve of each plugin right now: kept in step with what is installed and
 /// what the user granted (§53, §55).

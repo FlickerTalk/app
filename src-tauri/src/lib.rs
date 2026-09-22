@@ -18,6 +18,7 @@ pub fn run() {
                 .uri()
                 .path()
                 .to_owned();
+            println!("ftplugin: {served}");
             let answer = plugins::route(&served)
                 .and_then(|(id, file)| ctx.app_handle().state::<plugins::Plugins>().get(&id).map(|one| (one, file)))
                 .and_then(|(one, file)| {
