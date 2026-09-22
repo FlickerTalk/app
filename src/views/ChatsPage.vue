@@ -10,7 +10,7 @@ import {
   IonTitle,
   IonToolbar,
 } from "@ionic/vue";
-import { attachOutline, checkmark, checkmarkDone, micOutline, qrCodeOutline, timeOutline } from "ionicons/icons";
+import { attachOutline, checkmark, checkmarkDone, ellipsisVerticalOutline, micOutline, qrCodeOutline, timeOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
@@ -109,6 +109,16 @@ const STATUS_ICON: Record<string, string> = {
                     <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
                   </span>
                 </span>
+              </button>
+              <!-- Issue app#1: this contact's own settings (name, history, burning). -->
+              <button
+                type="button"
+                class="ft-row__more"
+                data-test="chat-more"
+                :aria-label="$t('chat.contactSettings')"
+                @click="router.push(`/contact/${chat.id}`)"
+              >
+                <ion-icon :icon="ellipsisVerticalOutline" aria-hidden="true" />
               </button>
             </li>
           </ul>
@@ -256,6 +266,24 @@ const STATUS_ICON: Record<string, string> = {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ft-rows li {
+  display: flex;
+  align-items: center;
+}
+.ft-row__more {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  align-self: stretch;
+  border: 0;
+  background: transparent;
+  color: var(--ft-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+
 .ft-row__badge {
   display: grid;
   place-items: center;

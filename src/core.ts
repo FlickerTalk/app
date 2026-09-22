@@ -64,6 +64,10 @@ export interface ContactDetails {
   fingerprint: string;
   mailbox: boolean;
   blocked: boolean;
+  /** Seconds this phone keeps their messages; 0 forever (issue app#1). */
+  keepFor: number;
+  /** Seconds a read message stays after being read; 0 never. */
+  burnAfterRead: number;
 }
 
 interface FileView {
@@ -303,6 +307,21 @@ export function reportLink(contact: string, reason: string, evidence: string[]):
   if (evidence.length) lines.push("", "Evidence:", ...evidence.map((text) => `> ${text}`));
   const subject = encodeURIComponent(`Report ${contact}`);
   return `mailto:${REPORT_ADDRESS}?subject=${subject}&body=${encodeURIComponent(lines.join("\n"))}`;
+}
+
+/** The name this phone shows for a contact; it never leaves the phone (issue app#1). */
+export async function renameContact(contact: string, name: string): Promise<void> {
+  await invoke("core_rename", { contact, name: name.trim() });
+  const chat = store.chats.find((item) => item.id === contact);
+  if (chat) chat.name = name.trim();
+}
+
+/**
+ * How long this phone keeps the conversation with a contact, and how long a read message stays
+ * after being read, in seconds; 0 means forever and never (issue app#1).
+ */
+export async function setHistory(contact: string, keepFor: number, burnAfterRead: number): Promise<void> {
+  await invoke("core_set_history", { contact, keepFor, burnAfterRead });
 }
 
 /** Opens the report in the user's mail app and blocks the contact. */

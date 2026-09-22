@@ -27,6 +27,7 @@ pub fn run() {
             client::core_contact,
             client::core_block,
             client::core_rename,
+            client::core_set_history,
             client::core_upload_start,
             client::core_upload_append,
             client::core_send_file,
