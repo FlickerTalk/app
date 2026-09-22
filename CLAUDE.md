@@ -45,6 +45,19 @@ Playwright por CDP; las capturas de CDP salen deformadas en la cabecera, las bue
 `adb exec-out screencap -p`. El núcleo y la base de datos viven en el directorio de datos de la
 app (`storage.key`, `flickertalk.db`): desinstalar borra la identidad.
 
+## Release (producción)
+
+```sh
+npm run tauri android build -- --apk --target aarch64   # APK firmado, minificado (R8)
+npm run tauri android build -- --aab                     # para Google Play
+```
+
+La firma usa la **clave de subida** de Google Play (Play App Signing guarda la de la app):
+`gen/android/keystore.properties` (fuera de git) apunta a `infra/secrets/android-upload.jks`; en CI
+irá por variables de entorno (`ANDROID_UPLOAD_KEYSTORE_FILE`, `ANDROID_UPLOAD_KEY_ALIAS`,
+`ANDROID_UPLOAD_PASSWORD`). Sin ellas, el release sale sin firmar. Los proc-macros no se hacen
+`strip` en release (`build-override`): con Xcode 27 la dylib quedaba rota.
+
 ## Entorno
 
 - `app/.npmrc` fuerza el registry público de npm, para no depender de registries privados

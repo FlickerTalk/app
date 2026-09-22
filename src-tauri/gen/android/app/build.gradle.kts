@@ -6,6 +6,18 @@ plugins {
     id("rust")
 }
 
+// Release signing with the Play upload key (Play App Signing keeps the app signing key). Locally
+// from keystore.properties (gitignored, pointing into infra/secrets); in CI from environment
+// variables. Without either, release builds stay unsigned.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+fun signingValue(property: String, variable: String): String? =
+    keystoreProperties.getProperty(property) ?: System.getenv(variable)
+
 val tauriProperties = Properties().apply {
     val propFile = file("tauri.properties")
     if (propFile.exists()) {
@@ -24,6 +36,17 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    signingConfigs {
+        val storeFilePath = signingValue("storeFile", "ANDROID_UPLOAD_KEYSTORE_FILE")
+        if (storeFilePath != null) {
+            create("release") {
+                storeFile = file(storeFilePath)
+                storePassword = signingValue("password", "ANDROID_UPLOAD_PASSWORD")
+                keyAlias = signingValue("keyAlias", "ANDROID_UPLOAD_KEY_ALIAS")
+                keyPassword = signingValue("password", "ANDROID_UPLOAD_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -37,6 +60,7 @@ android {
             }
         }
         getByName("release") {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
