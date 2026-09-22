@@ -442,9 +442,7 @@ impl Client {
         online.core.set_files_dir(dir.join("files"));
         online.core.set_move_dir(dir.join(MOVE_DIR));
         online.core.set_plugins_dir(dir.join("plugins"));
-        if let Some(app) = self.app.get() {
-            install_bundled_plugins(app, &online.core).await;
-        }
+        install_bundled_plugins(&online.core).await;
 
         if let Some(app) = self.app.get().cloned() {
             let mut events = online.core.events();
@@ -493,26 +491,21 @@ impl Client {
     }
 }
 
-/// The plugins that travel with the app (§52): installed the first time they are seen, and
-/// updated when the app brings a newer one. They are granted nothing by installing (§53).
-async fn install_bundled_plugins(app: &AppHandle, core: &Arc<ft_core::Core>) {
-    let Ok(dir) = app.path().resource_dir() else { return };
-    let Ok(entries) = std::fs::read_dir(dir.join("resources/plugins")) else { return };
+/// The plugins that travel with the app (§52). They live in the binary: on Android the resources
+/// sit inside the APK, where there is no file to read.
+const BUNDLED_PLUGINS: &[&[u8]] = &[include_bytes!("../resources/plugins/code-block.ftplugin")];
+
+/// Installs them the first time they are seen, and updates them when the app brings a newer one.
+/// Installing grants nothing (§53).
+async fn install_bundled_plugins(core: &Arc<ft_core::Core>) {
     let installed = core.plugins().await.unwrap_or_default();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_none_or(|extension| extension != "ftplugin") {
-            continue;
-        }
-        let Ok(package) = std::fs::read(&path) else { continue };
-        let Ok(plugin) = ft_plugins::open(&package, &ft_plugins::catalogue()) else { continue };
+    for package in BUNDLED_PLUGINS {
+        let Ok(plugin) = ft_plugins::open(package, &ft_plugins::catalogue()) else { continue };
         let known = installed.iter().find(|one| one.manifest.id == plugin.manifest.id);
         if known.is_some_and(|one| one.manifest.version == plugin.manifest.version) {
             continue;
         }
-        let _ = core
-            .install_plugin(&package, &ft_plugins::catalogue(), ft_plugins::Permissions::default())
-            .await;
+        let _ = core.install_plugin(package, &ft_plugins::catalogue(), ft_plugins::Permissions::default()).await;
     }
 }
 
