@@ -13,8 +13,9 @@ describe("theme", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => vi.restoreAllMocks());
 
-  it("uses the ember colors until the user picks others", () => {
-    expect(storedDirection()).toBe("ember");
+  // Black and white is the default (Ioan, 2026-09-22); the colours are a choice.
+  it("uses the black and white colors until the user picks others", () => {
+    expect(storedDirection()).toBe("mono");
   });
 
   it("remembers the colors the user picked", () => {
@@ -25,7 +26,7 @@ describe("theme", () => {
 
   it("ignores unknown stored colors", () => {
     localStorage.setItem("ft-direction", "neon");
-    expect(storedDirection()).toBe("ember");
+    expect(storedDirection()).toBe("mono");
   });
 
   it("is dark by default", () => {

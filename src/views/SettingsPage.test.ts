@@ -95,4 +95,25 @@ describe("SettingsPage", () => {
     expect(document.documentElement.classList.contains("ft-dark")).toBe(true);
     expect(wrapper.find("button[aria-label='System']").exists()).toBe(true);
   });
+
+  // §78: erasing takes this device off our server and wipes the phone, so it asks first.
+  it("erases the phone only after a confirmation", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const erase = wrapper.find("[data-test='erase']");
+    expect(erase.exists()).toBe(true);
+    await erase.trigger("click");
+    expect(calls.map(([command]) => command)).not.toContain("core_erase");
+    expect(wrapper.text()).toContain("Erase everything on this phone?");
+    await wrapper.find("[data-test='erase-confirm']").trigger("click");
+    await flushPromises();
+    expect(calls.map(([command]) => command)).toContain("core_erase");
+  });
+
+  it("can change its mind about erasing", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='erase']").trigger("click");
+    await wrapper.find("[data-test='erase-cancel']").trigger("click");
+    expect(wrapper.find("[data-test='erase-confirm']").exists()).toBe(false);
+    expect(calls.map(([command]) => command)).not.toContain("core_erase");
+  });
 });

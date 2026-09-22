@@ -1,6 +1,7 @@
 // Visual preferences chosen in Settings. They stay on this device (localStorage), never on a server.
 
-export const DIRECTIONS = ["ember", "aurora", "mono"] as const;
+// Black and white first: it is the default (Ioan, 2026-09-22).
+export const DIRECTIONS = ["mono", "ember", "aurora"] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 
 export const APPEARANCES = ["system", "dark", "light"] as const;
@@ -17,7 +18,7 @@ function stored<T extends string>(key: string, allowed: readonly T[], fallback: 
 }
 
 export function storedDirection(): Direction {
-  return stored(DIRECTION_KEY, DIRECTIONS, "ember");
+  return stored(DIRECTION_KEY, DIRECTIONS, "mono");
 }
 
 // Dark first (Plan §83–84).
