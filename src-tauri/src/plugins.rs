@@ -27,6 +27,11 @@ impl Plugins {
         *self.0.write().expect("plugins poisoned") = plugins;
     }
 
+    /// What is served right now, for looking at while debugging.
+    pub fn ids(&self) -> Vec<String> {
+        self.0.read().expect("plugins poisoned").keys().cloned().collect()
+    }
+
     pub fn get(&self, id: &str) -> Option<Served> {
         self.0.read().expect("plugins poisoned").get(id).cloned()
     }
