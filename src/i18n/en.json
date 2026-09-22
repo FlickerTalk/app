@@ -101,5 +101,19 @@
   },
   "qr": {
     "label": "QR code"
+  },
+  "poc": {
+    "title": "PoC 0",
+    "relay": "Relay",
+    "room": "Room",
+    "connect": "Connect",
+    "sendHello": "Send hello",
+    "state": {
+      "idle": "Not connected",
+      "connecting": "Connecting to the relay…",
+      "waiting": "Waiting for the other peer…",
+      "open": "Data channel open",
+      "closed": "Connection failed"
+    }
   }
 }

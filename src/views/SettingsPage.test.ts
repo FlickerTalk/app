@@ -31,6 +31,10 @@ describe("SettingsPage", () => {
     expect(wrapper.findAllComponents(IonSelectOption)).toHaveLength(3);
   });
 
+  it("links to the PoC screen in development builds", () => {
+    expect(mount(SettingsPage, { shallow: true }).find("[data-test='poc']").exists()).toBe(true);
+  });
+
   it("lets the user pick one of the three colors", async () => {
     const wrapper = mount(SettingsPage, { shallow: true });
     for (const label of ["Ember", "Aurora", "Mono"]) {
