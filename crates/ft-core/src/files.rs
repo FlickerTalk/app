@@ -93,19 +93,30 @@ impl Core {
         Ok(message_id)
     }
 
-    /// Asks again for the missing chunks of incoming files that have stalled (§63).
+    /// Asks again for the missing chunks of incoming files that have stalled (§63); a transfer
+    /// that could not reach its sender waits for its next try.
     pub async fn resume_files(&self) -> Result<()> {
-        self.resume_files_after(FILE_STALL).await
+        self.resume(None, FILE_STALL, true).await
     }
 
-    /// Like `resume_files`, with the time a transfer must be quiet to count as stalled.
-    pub async fn resume_files_after(&self, stall: Duration) -> Result<()> {
+    /// A direct connection with the contact opened: asks at once for what is missing from every
+    /// transfer of theirs that has been quiet for `quiet`, whatever its next try.
+    pub async fn resume_files_from(&self, contact: &str, quiet: Duration) -> Result<()> {
+        self.resume(Some(contact), quiet, false).await
+    }
+
+    async fn resume(&self, only: Option<&str>, quiet: Duration, backoff: bool) -> Result<()> {
         for (contact, file) in self.store.incomplete_incoming_files().await? {
+            if only.is_some_and(|only| only != contact) {
+                continue;
+            }
             let due = {
                 let transfers = self.transfers.lock().expect("transfers poisoned");
                 match transfers.get(&file.message_id) {
                     None => true,
-                    Some(transfer) if transfer.in_flight => transfer.last_activity.is_none_or(|at| at.elapsed() >= stall),
+                    Some(transfer) if transfer.in_flight || !backoff => {
+                        transfer.last_activity.is_none_or(|at| at.elapsed() >= quiet)
+                    }
                     Some(transfer) => transfer.next_try.is_none_or(|at| Instant::now() >= at),
                 }
             };

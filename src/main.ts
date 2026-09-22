@@ -16,6 +16,7 @@ import "./theme/base.css";
 import { initTheme } from "./theme";
 import { i18n } from "./i18n";
 import { start } from "./core";
+import { loadHistory, startCalls } from "./calls";
 
 initTheme();
 
@@ -23,6 +24,10 @@ const app = createApp(App).use(IonicVue).use(i18n).use(router);
 
 // The Rust core opens the identity and the local history before the first screen; without it
 // (a plain browser during development) the UI still starts, empty.
-Promise.allSettled([start(), router.isReady()]).then(() => {
+const ready = start().then(async () => {
+  await startCalls();
+  await loadHistory();
+});
+Promise.allSettled([ready, router.isReady()]).then(() => {
   app.mount("#app");
 });

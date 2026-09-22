@@ -1,78 +1,106 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from "vue";
 import { IonContent, IonIcon, IonPage } from "@ionic/vue";
-import {
-  callOutline,
-  micOffOutline,
-  micOutline,
-  videocamOffOutline,
-  videocamOutline,
-  volumeHighOutline,
-} from "ionicons/icons";
+import { callOutline, micOffOutline, micOutline, videocamOffOutline, videocamOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import { chat } from "../core";
+import { call, hangUp, startCall, toggleCamera, toggleMute } from "../calls";
+import { t } from "../i18n";
 
 const route = useRoute();
 const router = useRouter();
 
-const contact = computed(() => chat(String(route.params.id)) ?? { name: "", hue: 0, connected: false });
-const isVideo = computed(() => Boolean(route.query.video));
-
-const muted = ref(false);
-const cameraOff = ref(false);
-
 // Plan §66: calls are always peer to peer; the relay only steps in per the user's setting (§17).
-const state = computed(() => (contact.value.connected ? "ringing" : "connecting"));
+const id = computed(() => String(route.params.id));
+const current = computed(() => call.contact === id.value && call.phase !== "idle");
+const contact = computed(() => chat(id.value) ?? { name: "", hue: 0 });
+const isVideo = computed(() => (current.value ? call.video : Boolean(route.query.video)));
+
+const now = ref(Date.now());
+let ticking: ReturnType<typeof setInterval> | undefined;
+
+const pad = (value: number) => String(value).padStart(2, "0");
+const state = computed(() => {
+  switch (call.phase) {
+    case "active": {
+      const seconds = Math.max(0, Math.floor((now.value - call.since) / 1000));
+      return `${pad(Math.floor(seconds / 60))}:${pad(seconds % 60)}`;
+    }
+    case "ended":
+      return t(`calls.outcomes.${call.outcome ?? "ended"}`);
+    case "calling":
+      return t("calls.calling");
+    default:
+      return t("calls.connecting");
+  }
+});
+
+const remoteVideo = ref<HTMLVideoElement | null>(null);
+const localVideo = ref<HTMLVideoElement | null>(null);
+const remoteAudio = ref<HTMLAudioElement | null>(null);
+watchEffect(() => {
+  if (remoteVideo.value) remoteVideo.value.srcObject = call.remote;
+  if (localVideo.value) localVideo.value.srcObject = call.local;
+  if (remoteAudio.value) remoteAudio.value.srcObject = call.remote;
+});
+
+onMounted(() => {
+  if (!current.value || call.phase === "ended") void startCall(id.value, Boolean(route.query.video));
+  ticking = setInterval(() => (now.value = Date.now()), 1000);
+});
+onUnmounted(() => {
+  clearInterval(ticking);
+  // Leaving the screen ends the call: no call goes on out of sight.
+  if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
+});
+watch(
+  () => call.phase,
+  (phase) => {
+    if (phase === "ended") setTimeout(() => router.back(), 1500);
+  },
+);
 </script>
 
 <template>
   <ion-page>
     <ion-content class="ft-call">
-      <div class="ft-call__body" :class="{ 'is-video': isVideo }">
+      <div class="ft-call__body" :class="{ 'is-video': isVideo, 'is-live': Boolean(call.remote) }">
         <div v-if="isVideo" class="ft-call__video" data-test="video">
-          <span class="ft-call__self" />
+          <video v-if="call.remote" ref="remoteVideo" class="ft-call__remote" autoplay playsinline />
+          <video v-show="call.local" ref="localVideo" class="ft-call__self" autoplay playsinline muted />
         </div>
+        <audio v-else ref="remoteAudio" autoplay />
 
         <div class="ft-call__peer">
-          <Avatar v-if="!isVideo" :name="contact.name" :hue="contact.hue" :size="132" />
+          <Avatar v-if="!isVideo || !call.remote" :name="contact.name" :hue="contact.hue" :size="132" />
           <h1 class="ft-call__name">{{ contact.name }}</h1>
-          <span class="ft-call__state">
-            {{ state === "ringing" ? $t("calls.ringing") : $t("calls.connecting") }}
-          </span>
+          <span class="ft-call__state" :class="{ 'is-live': call.phase === 'active' }">{{ state }}</span>
         </div>
 
         <div class="ft-call__controls">
           <button
             type="button"
             class="ft-round ft-round--ghost"
-            :class="{ 'is-on': muted }"
+            :class="{ 'is-on': call.muted }"
             :aria-label="$t('calls.mute')"
-            :aria-pressed="muted"
-            @click="muted = !muted"
+            :aria-pressed="call.muted"
+            @click="toggleMute"
           >
-            <ion-icon :icon="muted ? micOffOutline : micOutline" aria-hidden="true" />
-          </button>
-          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('calls.speaker')">
-            <ion-icon :icon="volumeHighOutline" aria-hidden="true" />
+            <ion-icon :icon="call.muted ? micOffOutline : micOutline" aria-hidden="true" />
           </button>
           <button
             v-if="isVideo"
             type="button"
             class="ft-round ft-round--ghost"
-            :class="{ 'is-on': cameraOff }"
+            :class="{ 'is-on': call.cameraOff }"
             :aria-label="$t('calls.camera')"
-            :aria-pressed="!cameraOff"
-            @click="cameraOff = !cameraOff"
+            :aria-pressed="!call.cameraOff"
+            @click="toggleCamera"
           >
-            <ion-icon :icon="cameraOff ? videocamOffOutline : videocamOutline" aria-hidden="true" />
+            <ion-icon :icon="call.cameraOff ? videocamOffOutline : videocamOutline" aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            class="ft-round ft-call__hangup"
-            :aria-label="$t('calls.hangUp')"
-            @click="router.back()"
-          >
+          <button type="button" class="ft-round ft-call__hangup" :aria-label="$t('calls.hangUp')" @click="hangUp">
             <ion-icon :icon="callOutline" aria-hidden="true" />
           </button>
         </div>
@@ -102,7 +130,17 @@ const state = computed(() => (contact.value.connected ? "ringing" : "connecting"
     radial-gradient(90% 60% at 50% 20%, color-mix(in srgb, var(--ft-accent) 18%, transparent), transparent 70%),
     var(--ft-surface-2);
 }
+/* The whole picture, whatever its shape: never cropped (a tablet's camera on a phone, say). */
+.ft-call__remote {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  object-fit: contain;
+}
+/* The front camera, as a mirror. */
 .ft-call__self {
+  object-fit: cover;
+  transform: scaleX(-1);
   position: absolute;
   right: var(--ft-space-4);
   bottom: calc(env(safe-area-inset-bottom) + 110px);
@@ -123,7 +161,7 @@ const state = computed(() => (contact.value.connected ? "ringing" : "connecting"
   margin-top: 12vh;
   text-align: center;
 }
-.is-video .ft-call__peer {
+.is-video.is-live .ft-call__peer {
   margin-top: 0;
   padding: 10px 18px;
   border-radius: 999px;
@@ -138,6 +176,10 @@ const state = computed(() => (contact.value.connected ? "ringing" : "connecting"
 .ft-call__state {
   color: var(--ft-muted);
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.ft-call__state.is-live {
+  color: var(--ft-accent);
 }
 
 .ft-call__controls {

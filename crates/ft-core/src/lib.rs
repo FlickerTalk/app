@@ -12,6 +12,7 @@
 //! - Receiving: stored once per `message_id` and always acknowledged (§27). Packets from blocked
 //!   contacts are dropped (§35).
 
+pub mod calls;
 pub mod files;
 pub mod net;
 pub mod online;
@@ -62,6 +63,9 @@ pub trait Transport: Send + Sync {
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
 }
 
+pub use calls::CallUpdate;
+pub use ft_push::TurnGrant;
+
 /// What the UI listens to, to refresh itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
@@ -69,6 +73,8 @@ pub enum Event {
     MessagesChanged { contact: String },
     /// A direct connection with the contact opened or closed.
     ConnectionChanged { contact: String },
+    /// Something happened to a call (§66).
+    Call { contact: String, call: String, update: CallUpdate },
 }
 
 enum Route {
@@ -91,6 +97,8 @@ pub struct Core {
     files_dir: OnceLock<PathBuf>,
     /// Incoming file transfers in progress, by message id.
     transfers: std::sync::Mutex<HashMap<String, files::Transfer>>,
+    /// The call going on, if any: one at a time.
+    active_call: std::sync::Mutex<Option<String>>,
 }
 
 impl Core {
@@ -105,6 +113,8 @@ impl Core {
                 (identity, capability)
             }
         };
+        // A call cannot survive the app stopping.
+        store.finish_open_calls(now()).await?;
         let (events, _) = broadcast::channel(256);
         Ok(Arc::new(Self {
             device_id: identity.device_id(),
@@ -116,6 +126,7 @@ impl Core {
             events,
             files_dir: OnceLock::new(),
             transfers: std::sync::Mutex::default(),
+            active_call: std::sync::Mutex::default(),
         }))
     }
 
@@ -415,6 +426,9 @@ impl Core {
             Body::FileRequest { file, from, count } => self.serve_chunks(contact, file, from, count).await?,
             Body::FileChunk { file, index, data } => self.take_chunk(contact, file, index, data).await?,
             Body::FileDone { file } => self.file_done(contact, file).await?,
+            Body::CallOffer { call, sdp, video } => self.call_offered(contact, call, sdp, video).await?,
+            Body::CallAnswer { call, sdp } => self.call_answered(contact, call, sdp).await?,
+            Body::CallEnd { call, reason } => self.call_ended(contact, call, reason).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
             Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }

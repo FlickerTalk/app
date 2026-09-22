@@ -34,6 +34,11 @@ pub fn run() {
             client::core_send_file,
             client::core_open_file,
             client::core_save_file,
+            client::core_call_ice,
+            client::core_call_start,
+            client::core_call_answer,
+            client::core_call_end,
+            client::core_calls,
             poc::poc_default_relay,
             poc::poc_connect,
             poc::poc_send

@@ -1,25 +1,40 @@
 <script setup lang="ts">
+import { onMounted } from "vue";
 import { IonContent, IonHeader, IonIcon, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
 import { arrowDownOutline, arrowUpOutline, callOutline, videocamOutline } from "ionicons/icons";
+import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
+import { clock, hueOf } from "../core";
+import { history, loadHistory, type CallEntry } from "../calls";
 
-interface CallEntry {
-  id: string;
-  name: string;
-  hue: number;
-  direction: "incoming" | "outgoing" | "missed";
-  kind: "voice" | "video";
-  time: string;
-}
-
-// Calls arrive with milestone M6 (Plan §106): until then the history is empty, never invented.
-const calls: CallEntry[] = [];
+// Plan §66: the history is what happened on this phone, never invented.
+const router = useRouter();
+onMounted(() => void loadHistory());
 
 const DIRECTION_ICON: Record<string, string> = {
   incoming: arrowDownOutline,
   missed: arrowDownOutline,
   outgoing: arrowUpOutline,
 };
+
+function direction(entry: CallEntry): "incoming" | "outgoing" | "missed" {
+  if (entry.outgoing) return "outgoing";
+  return entry.outcome === "missed" ? "missed" : "incoming";
+}
+
+function when(entry: CallEntry): string {
+  const date = new Date(entry.startedAt);
+  const today = new Date().toDateString() === date.toDateString();
+  return today ? clock(entry.startedAt) : date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function duration(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function callBack(entry: CallEntry) {
+  void router.push(`/call/${entry.contact}${entry.video ? "?video=1" : ""}`);
+}
 </script>
 
 <template>
@@ -37,36 +52,39 @@ const DIRECTION_ICON: Record<string, string> = {
         </ion-toolbar>
       </ion-header>
 
-      <p v-if="!calls.length" class="ft-empty" data-test="empty">{{ $t("calls.empty") }}</p>
+      <p v-if="!history.calls.length" class="ft-empty" data-test="empty">{{ $t("calls.empty") }}</p>
 
       <ul v-else class="ft-rows">
         <li
-          v-for="call in calls"
-          :key="call.id"
+          v-for="entry in history.calls"
+          :key="entry.id"
           class="ft-call"
-          :class="{ 'is-missed': call.direction === 'missed' }"
+          :class="{ 'is-missed': direction(entry) === 'missed' }"
           data-test="call-row"
         >
-          <Avatar :name="call.name" :hue="call.hue" :size="44" />
+          <Avatar :name="entry.name" :hue="hueOf(entry.contact)" :size="44" />
           <span class="ft-call__body">
-            <span class="ft-call__name">{{ call.name }}</span>
+            <span class="ft-call__name">{{ entry.name }}</span>
             <span class="ft-call__meta">
               <ion-icon
-                :icon="DIRECTION_ICON[call.direction]"
+                :icon="DIRECTION_ICON[direction(entry)]"
                 class="ft-call__direction"
-                :aria-label="$t(`calls.${call.direction}`)"
+                :aria-label="$t(`calls.${direction(entry)}`)"
                 role="img"
               />
               <ion-icon
-                :icon="call.kind === 'video' ? videocamOutline : callOutline"
-                :aria-label="call.kind === 'video' ? $t('chat.videoCall') : $t('chat.voiceCall')"
+                :icon="entry.video ? videocamOutline : callOutline"
+                :aria-label="entry.video ? $t('chat.videoCall') : $t('chat.voiceCall')"
                 role="img"
               />
-              <span>{{ call.kind === "video" ? $t("calls.video") : $t("calls.voice") }} · {{ call.time }}</span>
+              <span>
+                {{ entry.video ? $t("calls.video") : $t("calls.voice") }} · {{ when(entry)
+                }}<template v-if="entry.seconds"> · {{ duration(entry.seconds) }}</template>
+              </span>
             </span>
           </span>
-          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('calls.callBack')">
-            <ion-icon :icon="call.kind === 'video' ? videocamOutline : callOutline" aria-hidden="true" />
+          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('calls.callBack')" @click="callBack(entry)">
+            <ion-icon :icon="entry.video ? videocamOutline : callOutline" aria-hidden="true" />
           </button>
         </li>
       </ul>

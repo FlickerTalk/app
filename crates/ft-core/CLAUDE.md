@@ -69,3 +69,13 @@ transferencia parada 15 s se vuelve a pedir desde el primer trozo que falta (`re
 el bucle de reintentos de `online`). La app fija la carpeta con `set_files_dir`. Probado en memoria,
 con WebRTC real en loopback y entre los dos emuladores (imagen y 3 MB, directo).
 
+## Estado (2026-09-22, `§106` M6)
+
+Llamadas (`calls.rs`): la media es el WebRTC del WebView; el núcleo lleva la oferta, la respuesta y
+el final (`CallOffer`, `CallAnswer`, `CallEnd`), cifrados con Olm y solo por conexión directa (el
+DataChannel se abre bajo demanda por el router), nunca por el buzón. Una llamada a la vez: otra
+oferta recibe «busy» y queda como perdida; una llamada que suena más de 60 s sin respuesta deja de
+bloquear. El historial (`calls` en SQLite) solo vive en el teléfono; al arrancar se cierran las
+llamadas que quedaron abiertas. `Event::Call` avisa a la UI. Al abrirse una conexión se reanudan
+en el acto las transferencias de ficheros de ese contacto (`resume_files_from`).
+

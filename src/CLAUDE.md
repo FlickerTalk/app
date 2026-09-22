@@ -35,8 +35,13 @@ Android el IPC de Tauri solo lleva JSON) y el núcleo lo ofrece. La burbuja mues
 «Paused» sin conexión directa, «Failed» si el hash no coincide y las imágenes con el protocolo
 `asset` (limitado a `$APPDATA/files`, donde viven también las subidas). Tocar un fichero lo abre en
 otra app y el botón de descarga lo copia a Descargas (puente nativo de `src-tauri/platform`); los de
-otros, solo cuando han llegado enteros. Pendiente: llamadas (M6; la lista de llamadas está vacía,
-nunca inventada) y el resto del MVP (M7).
+otros, solo cuando han llegado enteros. Llamadas (M6, `calls.ts`): `getUserMedia` + `RTCPeerConnection` del WebView con el STUN y el
+TURN del router (`core_call_ice`), filtrados según el enrutado de Ajustes; las descripciones van
+enteras, sin trickle, por el núcleo. `IncomingCall` avisa encima de cualquier pantalla,
+`CallPage` muestra la llamada (el vídeo del otro entero, sin recortar, y solo cuando llega) y
+salir de ella cuelga; `CallsPage` es el historial del núcleo. En el emulador la cámara es
+sintética, el micrófono no capta sin «host audio input» y QEMU puede colgarse con vídeo: las
+llamadas se prueban en dispositivos reales. Pendiente: el resto del MVP (M7).
 
 ## Reglas
 

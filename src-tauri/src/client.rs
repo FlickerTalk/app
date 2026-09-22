@@ -10,8 +10,8 @@ use anyhow::Context;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use ft_core::online::{self, Online};
-use ft_core::{Core, Event};
-use ft_storage::{Conversation, FileRecord, Message, MessageState, Store};
+use ft_core::{CallUpdate, Core, Event, TurnGrant};
+use ft_storage::{CallOutcome, CallRecord, Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -137,6 +137,91 @@ struct Changed {
     contact: Option<String>,
 }
 
+/// Sent to the UI on `ft://call` (§66).
+pub const CALL_EVENT: &str = "ft://call";
+
+/// What happened to a call, as the WebView hears it.
+#[derive(Clone, Serialize)]
+pub struct CallEvent {
+    contact: String,
+    call: String,
+    /// `incoming`, `answered` or `ended`.
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    video: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sdp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outcome: Option<&'static str>,
+}
+
+impl CallEvent {
+    pub fn new(contact: &str, call: &str, update: CallUpdate) -> Self {
+        let (kind, video, sdp, outcome) = match update {
+            CallUpdate::Incoming { video, sdp } => ("incoming", Some(video), Some(sdp), None),
+            CallUpdate::Answered { sdp } => ("answered", None, Some(sdp), None),
+            CallUpdate::Ended { outcome } => ("ended", None, None, Some(outcome.as_str())),
+        };
+        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome }
+    }
+}
+
+/// An ICE server as the WebView's `RTCPeerConnection` takes it.
+#[derive(Serialize)]
+pub struct IceServer {
+    urls: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    credential: Option<String>,
+}
+
+/// The router's STUN servers and short-lived TURN user, for the WebView's calls (§16–17).
+pub fn ice_servers(stun: Vec<String>, turn: Option<TurnGrant>) -> Vec<IceServer> {
+    let mut servers = Vec::new();
+    if !stun.is_empty() {
+        servers.push(IceServer { urls: stun, username: None, credential: None });
+    }
+    if let Some(grant) = turn {
+        servers.push(IceServer { urls: grant.urls, username: Some(grant.username), credential: Some(grant.credential) });
+    }
+    servers
+}
+
+/// A call in the history.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallView {
+    id: String,
+    contact: String,
+    name: String,
+    outgoing: bool,
+    video: bool,
+    started_at: i64,
+    /// How long it was talked, from the answer to the end.
+    seconds: i64,
+    outcome: Option<&'static str>,
+}
+
+impl CallView {
+    pub fn new(call: &CallRecord, name: &str) -> Self {
+        let seconds = match (call.answered_at, call.ended_at) {
+            (Some(answered), Some(ended)) => (ended - answered).max(0) / 1000,
+            _ => 0,
+        };
+        Self {
+            id: call.call_id.clone(),
+            contact: call.contact.clone(),
+            name: name.to_owned(),
+            outgoing: call.outgoing,
+            video: call.video,
+            started_at: call.started_at,
+            seconds,
+            outcome: call.outcome.map(CallOutcome::as_str),
+        }
+    }
+}
+
 /// The 32-byte key that seals the identity and the Olm sessions at rest, in the app's private
 /// storage. TODO(§94): keep it in Android Keystore / Keychain through a native bridge.
 pub fn storage_key(dir: &Path) -> anyhow::Result<[u8; 32]> {
@@ -220,6 +305,10 @@ impl Client {
                     let contact = match event {
                         Event::MessagesChanged { contact } => Some(contact),
                         Event::ContactsChanged | Event::ConnectionChanged { .. } => None,
+                        Event::Call { contact, call, update } => {
+                            let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
+                            continue;
+                        }
                     };
                     let _ = app.emit(CHANGED_EVENT, Changed { contact });
                 }
@@ -351,6 +440,54 @@ pub async fn core_open_file(message: String, app: AppHandle, client: State<'_, C
 pub async fn core_save_file(message: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let file = file_of(&client, &message).await?;
     app.platform().save_to_downloads(&file.path, &file.name, &file.mime).map_err(failed)
+}
+
+/// STUN and TURN for the WebView's calls.
+#[tauri::command]
+pub async fn core_call_ice(client: State<'_, Client>) -> Result<Vec<IceServer>, String> {
+    let (stun, turn) = client.online().await?.network.ice();
+    Ok(ice_servers(stun, turn))
+}
+
+/// Places a call with our offer; returns its id at once, the offer goes in the background.
+#[tauri::command]
+pub async fn core_call_start(contact: String, video: bool, sdp: String, client: State<'_, Client>) -> Result<String, String> {
+    let core = client.core().await?;
+    let call = core.place_call(&contact, video).await.map_err(failed)?;
+    let offered = call.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = core.offer_call(&offered, &sdp).await;
+    });
+    Ok(call)
+}
+
+#[tauri::command]
+pub async fn core_call_answer(call: String, sdp: String, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.answer_call(&call, &sdp).await;
+    });
+    Ok(())
+}
+
+/// Hangs up, declines or gives up; `failed` when the media could not connect.
+#[tauri::command]
+pub async fn core_call_end(call: String, failed: bool, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.end_call(&call, failed).await;
+    });
+    Ok(())
+}
+
+/// The call history, newest first.
+#[tauri::command]
+pub async fn core_calls(client: State<'_, Client>) -> Result<Vec<CallView>, String> {
+    let core = client.core().await?;
+    let names: HashMap<String, String> =
+        core.store().contacts().await.map_err(failed)?.into_iter().map(|contact| (contact.device_id, contact.name)).collect();
+    let calls = core.store().calls(100).await.map_err(failed)?;
+    Ok(calls.iter().map(|call| CallView::new(call, names.get(&call.contact).map_or("", String::as_str))).collect())
 }
 
 /// Offers the uploaded file to the contact; the file stays in the app until it is delivered.
@@ -504,6 +641,52 @@ mod tests {
         assert!(openable(Some(record(0, false, true)), false).is_err());
         assert!(openable(Some(record(1, false, false)), true).is_ok());
         assert!(openable(None, true).is_err());
+    }
+
+    // §66: what the WebView hears about a call, and what it needs to answer or show it.
+    #[test]
+    fn call_updates_reach_the_ui_as_plain_events() {
+        let incoming = CallEvent::new("ft_bob", "c1", CallUpdate::Incoming { video: true, sdp: "offer".to_owned() });
+        assert_eq!(serde_json::to_value(&incoming).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "incoming", "video": true, "sdp": "offer"
+        }));
+        let answered = serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Answered { sdp: "answer".to_owned() })).unwrap();
+        assert_eq!((answered["kind"].as_str(), answered["sdp"].as_str()), (Some("answered"), Some("answer")));
+        let ended = serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Ended { outcome: CallOutcome::Busy })).unwrap();
+        assert_eq!((ended["kind"].as_str(), ended["outcome"].as_str()), (Some("ended"), Some("busy")));
+        assert!(ended.get("sdp").is_none());
+    }
+
+    // The WebView's WebRTC uses the cluster's STUN and a short-lived TURN user (§16–17).
+    #[test]
+    fn the_webview_gets_the_routers_ice_servers() {
+        let turn = ft_core::TurnGrant { urls: vec!["turn:t:3478".to_owned()], username: "u".to_owned(), credential: "c".to_owned() };
+        let servers = serde_json::to_value(ice_servers(vec!["stun:s:3478".to_owned()], Some(turn))).unwrap();
+        assert_eq!(servers, serde_json::json!([
+            { "urls": ["stun:s:3478"] },
+            { "urls": ["turn:t:3478"], "username": "u", "credential": "c" }
+        ]));
+        assert_eq!(serde_json::to_value(ice_servers(vec![], None)).unwrap(), serde_json::json!([]));
+    }
+
+    #[test]
+    fn the_call_history_shows_who_how_and_how_long() {
+        let call = ft_storage::CallRecord {
+            call_id: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            outgoing: false,
+            video: true,
+            started_at: 1_000,
+            answered_at: Some(3_000),
+            ended_at: Some(65_500),
+            outcome: Some(CallOutcome::Answered),
+        };
+        assert_eq!(serde_json::to_value(CallView::new(&call, "Bob")).unwrap(), serde_json::json!({
+            "id": "c1", "contact": "ft_bob", "name": "Bob", "outgoing": false, "video": true,
+            "startedAt": 1_000, "seconds": 62, "outcome": "answered"
+        }));
+        let missed = ft_storage::CallRecord { answered_at: None, outcome: Some(CallOutcome::Missed), ..call };
+        assert_eq!(serde_json::to_value(CallView::new(&missed, "Bob")).unwrap()["seconds"], 0);
     }
 
     // Uploads are named by the app, never by the WebView: no way out of their directory.
