@@ -912,6 +912,51 @@ pub async fn core_send_file(contact: String, upload: String, name: String, mime:
     Ok(())
 }
 
+/// What a plugin may be handed, and what it may hand back: a file, never more than this. A plugin
+/// that could ask for anything of any size would be a way to drain the phone (issue app#3, §53).
+pub const PLUGIN_FILE_LIMIT: u64 = 32 * 1024 * 1024;
+
+/// Reads a file the user picked, for a plugin that asked for one. Only a file the user chose in
+/// the system picker, and only up to the limit.
+#[tauri::command]
+pub async fn core_read_picked(path: String) -> Result<String, String> {
+    let path = PathBuf::from(path);
+    let size = std::fs::metadata(&path).map_err(failed)?.len();
+    if size > PLUGIN_FILE_LIMIT {
+        return Err("that file is too big to hand over".to_owned());
+    }
+    let bytes = std::fs::read(&path).map_err(failed)?;
+    Ok(BASE64.encode(bytes))
+}
+
+/// Sends what a plugin made: the bytes are written to the app's folder and sent as a file (§62).
+#[tauri::command]
+pub async fn core_send_made(
+    contact: String,
+    name: String,
+    mime: String,
+    data: String,
+    client: State<'_, Client>,
+) -> Result<(), String> {
+    let bytes = BASE64.decode(data.as_bytes()).map_err(|_| "that is not a file".to_owned())?;
+    if bytes.len() as u64 > PLUGIN_FILE_LIMIT {
+        return Err("that file is too big to send".to_owned());
+    }
+    let safe = name.replace(['/', '\\'], "_");
+    let dir = client.dir()?.join("files").join("outgoing");
+    std::fs::create_dir_all(&dir).map_err(failed)?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("{stamp}-{safe}"));
+    std::fs::write(&path, bytes).map_err(failed)?;
+
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.send_file(&contact, &path, &safe, &mime).await;
+        let _ = std::fs::remove_file(&path);
+    });
+    Ok(())
+}
+
 /// The system file picker. What it gives back is already in the app's folder, so sending it is
 /// only a matter of naming it (§62). The WebView's own file input leaves the user outside the app.
 #[tauri::command]

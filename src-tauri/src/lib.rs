@@ -14,12 +14,7 @@ pub fn run() {
         // Each plugin is served from its own folder, inside an iframe, with the policy its
         // permissions allow (issue app#3, §55, §58).
         .register_uri_scheme_protocol("ftplugin", |ctx, request| {
-            let served = request
-                .uri()
-                .path()
-                .to_owned();
-            let known = ctx.app_handle().state::<plugins::Plugins>().ids();
-            println!("ftplugin: {served} (installed: {known:?})");
+            let served = request.uri().path().to_owned();
             let answer = plugins::route(&served)
                 .and_then(|(id, file)| ctx.app_handle().state::<plugins::Plugins>().get(&id).map(|one| (one, file)))
                 .and_then(|(one, file)| {
@@ -33,7 +28,6 @@ pub fn run() {
                     };
                     Some((body, kind, one.policy))
                 });
-            println!("ftplugin: answered {}", answer.is_some());
             match answer {
                 Some((body, kind, policy)) => tauri::http::Response::builder()
                     .header(tauri::http::header::CONTENT_TYPE, kind)
@@ -74,6 +68,8 @@ pub fn run() {
             client::core_share,
             client::core_pending_call,
             client::core_pick_files,
+            client::core_read_picked,
+            client::core_send_made,
             client::core_send_picked,
             client::core_plugins,
             client::core_plugin_grant,

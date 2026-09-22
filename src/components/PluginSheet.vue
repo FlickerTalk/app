@@ -1,34 +1,70 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { pickFiles, readPicked, sendMade } from "../core";
 import { frameUrl, fromFrame } from "../plugins";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
-// permissions allow. It is handed the text the user chose, and nothing else of the chat; it talks
-// back only to say that it is ready or how tall it has become.
-const props = defineProps<{ plugin: { id: string; name: string }; text: string }>();
+// permissions allow. It never sees the app's window, the chat or the keys. It can be handed a text,
+// it can ask the app for a file the user picks, and it can hand back a file or a text; the app does
+// the sending, never the plugin.
+const props = defineProps<{ plugin: { id: string; name: string }; contact: string; text?: string }>();
+const emit = defineEmits<{ text: [text: string]; done: [] }>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
-const height = ref(120);
+const height = ref(320);
+const working = ref(false);
 
-function hand() {
-  frame.value?.contentWindow?.postMessage({ type: "ft.render", text: props.text }, "*");
+function tell(message: Record<string, unknown>) {
+  frame.value?.contentWindow?.postMessage(message, "*");
 }
 
-function onMessage(event: MessageEvent) {
+async function onMessage(event: MessageEvent) {
   const said = fromFrame(event, frame.value);
   if (!said) return;
-  if (said.type === "ft.ready") hand();
-  else if (said.type === "ft.height" && said.height) height.value = Math.min(Math.max(said.height, 80), 2000);
+
+  if (said.type === "ft.ready") {
+    tell({ type: "ft.open", text: props.text ?? "" });
+  } else if (said.type === "ft.height") {
+    height.value = Math.min(Math.max(said.height, 160), 4000);
+  } else if (said.type === "ft.pickFile") {
+    // The plugin never opens the picker: it asks, and the app asks the user (§53).
+    working.value = true;
+    try {
+      const [file] = await pickFiles();
+      if (file) tell({ type: "ft.file", name: file.name, mime: file.mime, data: await readPicked(file.path) });
+      else tell({ type: "ft.file", name: "", mime: "", data: "" });
+    } catch {
+      tell({ type: "ft.file", name: "", mime: "", data: "" });
+    } finally {
+      working.value = false;
+    }
+  } else if (said.type === "ft.made") {
+    working.value = true;
+    try {
+      await sendMade(props.contact, said.name, said.mime, said.data);
+      emit("done");
+    } finally {
+      working.value = false;
+    }
+  } else if (said.type === "ft.text") {
+    emit("text", said.text);
+  }
 }
 
 onMounted(() => window.addEventListener("message", onMessage));
 onBeforeUnmount(() => window.removeEventListener("message", onMessage));
-watch(() => props.text, hand);
+watch(
+  () => props.text,
+  (text) => tell({ type: "ft.open", text: text ?? "" }),
+);
 </script>
 
 <template>
   <section class="ft-plugin">
-    <h2 class="ft-plugin__name">{{ plugin.name }}</h2>
+    <h2 class="ft-plugin__name">
+      {{ plugin.name }}
+      <span v-if="working" class="ft-plugin__working">…</span>
+    </h2>
     <iframe
       ref="frame"
       class="ft-plugin__frame"
@@ -50,6 +86,9 @@ watch(() => props.text, hand);
   font-size: 15px;
   color: var(--ft-muted);
   font-weight: 600;
+}
+.ft-plugin__working {
+  color: var(--ft-accent);
 }
 .ft-plugin__frame {
   display: block;

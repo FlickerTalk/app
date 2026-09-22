@@ -245,6 +245,16 @@ export async function pickFiles(): Promise<PickedFile[]> {
   return invoke<PickedFile[]>("core_pick_files");
 }
 
+/** The bytes of a file the user picked, for a plugin that asked for one (issue app#3). */
+export async function readPicked(path: string): Promise<string> {
+  return invoke<string>("core_read_picked", { path });
+}
+
+/** Sends what a plugin made: the app writes the bytes and sends them as a file. */
+export async function sendMade(contact: string, name: string, mime: string, data: string): Promise<void> {
+  await invoke("core_send_made", { contact, name, mime, data });
+}
+
 /** Sends a picked file: its bytes never travel through the WebView. */
 export async function sendPicked(contact: string, file: PickedFile): Promise<void> {
   await invoke("core_send_picked", { contact, file });
