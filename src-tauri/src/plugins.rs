@@ -55,23 +55,60 @@ pub fn frame_html(component: &str) -> String {
 /// What the frame does: load the plugin, hand it the text the app sends, and say how tall it is.
 /// It talks to the app only through `postMessage`; it never sees the app's window.
 pub fn frame_js() -> &'static str {
-    r#"import "./dist/index.js";
+    r#"// The API a plugin has (plugin-sdk): it is opened with a text, it may ask the app for a file
+// the user picks, and it may hand back a file or a text. Nothing else reaches the app, and the
+// app is the only one that sends anything to the chat (§53).
+const post = (message) => parent.postMessage(message, "*");
+const opened = [];
+let waiting = null;
+
+globalThis.ft = {
+  /** Called when the app opens the plugin, with the text the user handed it (may be empty). */
+  onOpen(handler) {
+    opened.push(handler);
+  },
+  /** Asks the app to ask the user for a file. Resolves with {name, mime, data} or null. */
+  pickFile(accept) {
+    post({ type: "ft.pickFile", accept: accept ?? "" });
+    return new Promise((resolve) => {
+      waiting = resolve;
+    });
+  },
+  /** Hands a file to the chat; the app sends it. `data` is base64. */
+  send(name, mime, data) {
+    post({ type: "ft.made", name: String(name), mime: String(mime), data: String(data) });
+  },
+  /** Puts a text in the composer, for the user to look at before sending it. */
+  say(text) {
+    post({ type: "ft.text", text: String(text) });
+  },
+};
+
+await import("./dist/index.js");
 
 const fallback = document.getElementById("fallback");
 if (fallback) fallback.remove();
 
 const view = document.getElementById("view");
-const tell = () => parent.postMessage({ type: "ft.height", height: document.documentElement.scrollHeight }, "*");
+const tell = () => post({ type: "ft.height", height: document.documentElement.scrollHeight });
 
 addEventListener("message", (event) => {
-  if (event.data && event.data.type === "ft.render") {
-    view.setAttribute("text", String(event.data.text ?? ""));
+  const said = event.data;
+  if (!said || typeof said.type !== "string") return;
+  if (said.type === "ft.open") {
+    const text = String(said.text ?? "");
+    if (view) view.setAttribute("text", text);
+    for (const handler of opened) handler({ text });
     requestAnimationFrame(tell);
+  } else if (said.type === "ft.file") {
+    const resolve = waiting;
+    waiting = null;
+    if (resolve) resolve(said.name ? { name: said.name, mime: said.mime, data: said.data } : null);
   }
 });
 
 new ResizeObserver(tell).observe(document.documentElement);
-parent.postMessage({ type: "ft.ready" }, "*");
+post({ type: "ft.ready" });
 "#
 }
 
@@ -179,8 +216,15 @@ mod tests {
         assert!(html.contains("loading…"), "something shows even if the script never runs");
 
         let script = frame_js();
-        assert!(script.contains(r#"import "./dist/index.js""#));
-        assert!(script.contains("ft.render"), "the app hands it the text through postMessage");
+        assert!(script.contains(r#"import("./dist/index.js")"#));
+        assert!(script.contains("globalThis.ft"), "the plugin is given its API");
+        assert!(
+            script.find("globalThis.ft").unwrap() < script.find(r#"import("./dist/index.js")"#).unwrap(),
+            "the API is there before the plugin runs"
+        );
+        assert!(script.contains("ft.open"), "the app opens it, with the text the user handed it");
+        assert!(script.contains("ft.file"), "the app answers the file the plugin asked for");
+        assert!(script.contains("ft.ready"), "the plugin says when it is up");
     }
 
     // §55: a plugin without the network permission cannot reach anything.

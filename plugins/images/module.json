@@ -1,0 +1,10 @@
+{
+  "id": "com.flickertalk.images",
+  "name": "Image",
+  "version": "1.0.0",
+  "minCoreVersion": "0.1.0",
+  "components": [
+    "ft-images"
+  ],
+  "permissions": {}
+}

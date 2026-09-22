@@ -6,7 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
-import { fromFrame, frameUrl, readyPlugins } from "./plugins";
+import { fromFrame, frameUrl, installedPlugins } from "./plugins";
 
 const CODE = {
   id: "com.flickertalk.code",
@@ -21,10 +21,12 @@ const LOCKED = { ...CODE, id: "com.example.locked", granted: { network: [], mess
 describe("plugins in the app", () => {
   beforeEach(() => tauri.invoke.mockReset());
 
-  // §53: a plugin only gets what the user hands it, and only if it was allowed to read it.
-  it("offers only the plugins allowed to read what you send them", async () => {
+  // The apps of this phone are all the ones installed: a tool that works on a picture never
+  // needed to read a message (§53). What was granted decides what it is handed, not whether it is
+  // there.
+  it("offers every app that is installed", async () => {
     tauri.invoke.mockResolvedValue([CODE, LOCKED]);
-    expect((await readyPlugins()).map((plugin) => plugin.id)).toEqual(["com.flickertalk.code"]);
+    expect((await installedPlugins()).map((plugin) => plugin.id)).toEqual([CODE.id, LOCKED.id]);
   });
 
   it("serves each plugin from its own place, never from the app's", () => {

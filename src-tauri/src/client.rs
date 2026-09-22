@@ -494,10 +494,16 @@ impl Client {
     }
 }
 
-/// The plugins that travel with the app (§52). They live in the binary: on Android the resources
+/// The tools that travel with the app (§52). They live in the binary: on Android the resources
 /// sit inside the APK, where there is no file to read. Code blocks are drawn by the app itself
 /// now, so the one that did it is only an example for others (app/plugins/code-block).
-const BUNDLED_PLUGINS: &[&[u8]] = &[include_bytes!("../resources/plugins/markdown.ftplugin")];
+const BUNDLED_PLUGINS: &[&[u8]] = &[
+    include_bytes!("../resources/plugins/markdown.ftplugin"),
+    include_bytes!("../resources/plugins/images.ftplugin"),
+    include_bytes!("../resources/plugins/pdf.ftplugin"),
+    include_bytes!("../resources/plugins/redact.ftplugin"),
+    include_bytes!("../resources/plugins/sketch.ftplugin"),
+];
 
 /// What the WebView may serve of each plugin right now: kept in step with what is installed and
 /// what the user granted (§53, §55).
@@ -1054,6 +1060,24 @@ mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
 
     use super::*;
+
+    // The tools the app ships with (§52): every one of them opens with the catalogue's key and
+    // names the element the frame shows, or the phone would install nothing and say nothing.
+    #[test]
+    fn every_plugin_that_travels_with_the_app_opens_and_has_a_component() {
+        let ids: Vec<String> = BUNDLED_PLUGINS
+            .iter()
+            .map(|package| {
+                let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a bundled plugin is not signed for us");
+                assert!(!plugin.manifest.components.is_empty(), "{} shows nothing", plugin.manifest.id);
+                assert!(plugin.file("dist/index.js").is_some(), "{} has no code", plugin.manifest.id);
+                plugin.manifest.id
+            })
+            .collect();
+        for wanted in ["markdown", "images", "pdf", "redact", "sketch"] {
+            assert!(ids.contains(&format!("com.flickertalk.{wanted}")), "{wanted} does not travel with the app: {ids:?}");
+        }
+    }
 
     fn message(state: MessageState, outgoing: bool) -> Message {
         Message { message_id: "m1".to_owned(), contact: "ft_bob".to_owned(), outgoing, body: "hi".to_owned(), sent_at: 42, state }

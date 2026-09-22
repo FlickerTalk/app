@@ -103,7 +103,7 @@ impl Permissions {
         };
         format!(
             "default-src 'none'; script-src {PLUGIN_ORIGINS}; style-src {PLUGIN_ORIGINS} 'unsafe-inline'; \
-             img-src {PLUGIN_ORIGINS} data:; font-src {PLUGIN_ORIGINS}; connect-src {connect}; base-uri 'none'; \
+             img-src {PLUGIN_ORIGINS} data: blob:; font-src {PLUGIN_ORIGINS}; connect-src {connect}; base-uri 'none'; \
              form-action 'none'; child-src 'none'; frame-ancestors http://tauri.localhost tauri://localhost"
         )
     }
@@ -492,6 +492,9 @@ mod tests {
         assert!(!policy.contains("script-src 'self'"), "{policy}");
         assert!(policy.contains("frame-ancestors http://tauri.localhost tauri://localhost"), "{policy}");
         assert!(policy.contains("child-src 'none'"), "{policy}");
+        // The tools work on pictures the user gave them: what the plugin draws is its own, and
+        // never travels anywhere.
+        assert!(policy.contains("img-src") && policy.contains("data: blob:"), "{policy}");
         assert!(!policy.contains("frame-ancestors 'none'"), "that would keep the app from showing it");
 
         let ai = Permissions { network: vec!["api.openai.com".to_owned()], ..Permissions::default() };
