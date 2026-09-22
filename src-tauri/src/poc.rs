@@ -51,7 +51,7 @@ pub async fn poc_connect(
     tauri::async_runtime::spawn(async move {
         let state = if session.wait_open().await.is_ok() { "open" } else { "closed" };
         let _ = app.emit(STATE_EVENT, state);
-        while let Some(message) = inbox.next().await {
+        while let Some(message) = inbox.next_text().await {
             let _ = app.emit(MESSAGE_EVENT, message);
         }
     });

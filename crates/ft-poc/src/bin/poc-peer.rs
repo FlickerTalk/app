@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         println!("→ hello");
     }
 
-    while let Some(message) = inbox.next().await {
+    while let Some(message) = inbox.next_text().await {
         println!("← {message}");
         if args.role == Role::Callee {
             let reply = format!("{message} back");

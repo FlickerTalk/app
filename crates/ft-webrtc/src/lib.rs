@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use bytes::BytesMut;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch, Mutex};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
@@ -121,12 +122,21 @@ pub fn interface_addresses() -> Vec<String> {
     }
 }
 
-/// Incoming messages of a session.
-pub struct Inbox(mpsc::Receiver<String>);
+/// Incoming messages of a session, as the bytes that were sent.
+pub struct Inbox(mpsc::Receiver<Vec<u8>>);
 
 impl Inbox {
-    pub async fn next(&mut self) -> Option<String> {
+    pub async fn next(&mut self) -> Option<Vec<u8>> {
         self.0.recv().await
+    }
+
+    /// The next message that is valid UTF-8 text (the PoC screen talks in text).
+    pub async fn next_text(&mut self) -> Option<String> {
+        loop {
+            if let Ok(text) = String::from_utf8(self.next().await?) {
+                return Some(text);
+            }
+        }
     }
 }
 
@@ -138,7 +148,7 @@ struct Events {
     gathered: watch::Sender<bool>,
     open: watch::Sender<bool>,
     channel: SharedChannel,
-    messages: mpsc::Sender<String>,
+    messages: mpsc::Sender<Vec<u8>>,
 }
 
 #[async_trait::async_trait]
@@ -248,14 +258,22 @@ impl Session {
     }
 
     pub async fn send(&self, text: &str) -> Result<()> {
-        let channel = self
-            .channel
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| anyhow!("the data channel is not open yet"))?;
-        channel.send_text(text).await?;
+        self.open_channel().await?.send_text(text).await?;
         Ok(())
+    }
+
+    pub async fn send_bytes(&self, bytes: &[u8]) -> Result<()> {
+        self.open_channel().await?.send(BytesMut::from(bytes)).await?;
+        Ok(())
+    }
+
+    async fn open_channel(&self) -> Result<Arc<dyn DataChannel>> {
+        self.channel.lock().await.clone().ok_or_else(|| anyhow!("the data channel is not open yet"))
+    }
+
+    /// Whether the data channel is open right now.
+    pub fn is_open(&self) -> bool {
+        *self.opened.borrow()
     }
 
     pub async fn close(&self) -> Result<()> {
@@ -309,7 +327,7 @@ fn listen(
     runtime: &Arc<dyn Runtime>,
     channel: Arc<dyn DataChannel>,
     open: watch::Sender<bool>,
-    messages: mpsc::Sender<String>,
+    messages: mpsc::Sender<Vec<u8>>,
 ) {
     runtime.spawn(Box::pin(async move {
         while let Some(event) = channel.poll().await {
@@ -318,11 +336,12 @@ fn listen(
                     let _ = open.send(true);
                 }
                 DataChannelEvent::OnMessage(message) => {
-                    if let Ok(text) = String::from_utf8(message.data.to_vec()) {
-                        let _ = messages.send(text).await;
-                    }
+                    let _ = messages.send(message.data.to_vec()).await;
                 }
-                DataChannelEvent::OnClose => break,
+                DataChannelEvent::OnClose => {
+                    let _ = open.send(false);
+                    break;
+                }
                 _ => {}
             }
         }
