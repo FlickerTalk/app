@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { readCode } from "../code";
 import { IonIcon } from "@ionic/vue";
 import { checkmark, checkmarkDone, documentOutline, downloadOutline, extensionPuzzleOutline, micOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
@@ -37,6 +38,8 @@ const status = computed(() =>
   props.message.mine && props.message.status ? STATUS[props.message.status] : undefined,
 );
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
+// A message written with fences is code, and the app draws it as such (Ioan, 2026-09-22).
+const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
 const isImage = computed(() => file.value?.mime?.startsWith("image/") ?? false);
 const isVoice = computed(() => file.value?.mime?.startsWith("audio/") ?? false);
 const percent = computed(() => Math.round((file.value?.progress ?? 0) * 100));
@@ -88,6 +91,10 @@ function open() {
         >
           <ion-icon :icon="saved ? checkmark : downloadOutline" aria-hidden="true" />
         </button>
+      </div>
+      <div v-else-if="code" class="ft-code" data-test="code">
+        <span v-if="code.language" class="ft-code__language">{{ code.language }}</span>
+        <pre class="ft-code__body"><code>{{ code.code }}</code></pre>
       </div>
       <p v-else class="ft-bubble__text">{{ message.text }}</p>
       <!-- Issue app#3: hand this message to a plugin, only because the user asked (§53). -->
@@ -145,6 +152,27 @@ function open() {
 }
 .is-pending .ft-bubble {
   opacity: 0.7;
+}
+
+.ft-code {
+  display: block;
+  max-width: min(78vw, 560px);
+}
+.ft-code__language {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ft-muted);
+  font-size: 12px;
+}
+.ft-code__body {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ft-surface-2);
+  color: var(--ft-text);
+  font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  overflow-x: auto;
+  white-space: pre;
 }
 
 .ft-bubble__text {

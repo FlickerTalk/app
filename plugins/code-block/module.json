@@ -1,9 +1,11 @@
 {
   "id": "com.flickertalk.code",
-  "name": "Code block",
+  "name": "Code block (example)",
   "version": "1.0.0",
   "minCoreVersion": "0.1.0",
-  "components": ["ft-code-block"],
+  "components": [
+    "ft-code-block"
+  ],
   "permissions": {
     "messages": "given"
   }
