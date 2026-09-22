@@ -72,8 +72,9 @@ describe("SettingsPage", () => {
     expect(wrapper.findAllComponents(IonSelectOption)).toHaveLength(3);
   });
 
-  it("links to the PoC screen in development builds", () => {
-    expect(mount(SettingsPage, { shallow: true }).find("[data-test='poc']").exists()).toBe(true);
+  // PoC 0 is over (§87): no test screen in the app, not even in development builds.
+  it("has no PoC screen", () => {
+    expect(mount(SettingsPage, { shallow: true }).find("[data-test='poc']").exists()).toBe(false);
   });
 
   it("lets the user pick one of the three colors", async () => {

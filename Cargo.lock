@@ -1609,7 +1609,6 @@ dependencies = [
  "base64 0.22.1",
  "ft-contacts",
  "ft-core",
- "ft-poc",
  "ft-storage",
  "ft-webrtc",
  "rand 0.9.5",

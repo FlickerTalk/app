@@ -26,12 +26,17 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   (`allowBackup=false` y `data_extraction_rules.xml` sin nada): el historial y las claves no salen
   del teléfono (`§61`).
 
-La demo `greet` y `tauri-plugin-opener` vienen de la plantilla y se sustituirán en el PoC 0.
+## Seguridad del WebView (2026-09-22)
 
-## Deuda de la plantilla frente al plan
-
-- `app.security.csp` es `null` y `withGlobalTauri` es `true`: hay que endurecerlos antes de
-  producción y antes de cargar plugins (`§55`, `§58`).
+- **CSP** en `tauri.conf.json`: solo recursos propios, estilos en línea (Ionic y Vue los usan),
+  imágenes y audio del protocolo `asset` (limitado a la carpeta `files/`) y la IPC de Tauri. Nada
+  externo, sin `eval`, sin frames. Comprobada recorriendo el bundle de producción bajo la misma
+  cabecera en Chromium.
+- `withGlobalTauri: false`: el WebView no tiene `window.__TAURI__`.
+- **Permisos** (`capabilities/`): del núcleo solo eventos y la versión; `opener` solo `mailto:`
+  (reportes, `§36`); en móvil, el escáner. Todo lo demás pasa por los comandos `core_*`.
+- El PoC 0 ya no está en la app (pantalla, comandos ni dependencia); `crates/ft-poc` sigue como
+  herramienta de desarrollo.
 
 ## Reglas
 

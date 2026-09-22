@@ -17,8 +17,10 @@ describe("routes", () => {
   it("has a screen for the welcome, adding contacts, a contact and a call", () => {
     const paths = routes.map((route) => route.path);
     expect(paths).toEqual(
-      expect.arrayContaining(["/welcome", "/add-contact", "/contact/:id", "/call/:id", "/poc"]),
+      expect.arrayContaining(["/welcome", "/add-contact", "/contact/:id", "/call/:id", "/move", "/blocked"]),
     );
+    // PoC 0 is over (§87): its test screen is not part of the app.
+    expect(paths).not.toContain("/poc");
   });
 
   // §60: a new phone may bring the identity of the old one instead of starting fresh.
