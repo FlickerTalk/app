@@ -57,16 +57,19 @@ pub struct ConversationView {
     name: String,
     unread: i64,
     blocked: bool,
+    /// Whether a direct connection with the contact is open now.
+    connected: bool,
     last: Option<MessageView>,
 }
 
-impl From<&Conversation> for ConversationView {
-    fn from(conversation: &Conversation) -> Self {
+impl ConversationView {
+    pub fn new(conversation: &Conversation, connected: bool) -> Self {
         Self {
             id: conversation.contact.device_id.clone(),
             name: conversation.contact.name.clone(),
             unread: conversation.unread,
             blocked: conversation.contact.blocked,
+            connected,
             last: conversation.last.as_ref().map(MessageView::from),
         }
     }
@@ -128,9 +131,12 @@ impl Client {
         Ok(())
     }
 
+    async fn online(&self) -> Result<&Online, String> {
+        self.online.get_or_try_init(|| self.start()).await.map_err(|error| error.to_string())
+    }
+
     async fn core(&self) -> Result<Arc<Core>, String> {
-        let online = self.online.get_or_try_init(|| self.start()).await.map_err(|error| error.to_string())?;
-        Ok(online.core.clone())
+        Ok(self.online().await?.core.clone())
     }
 
     async fn start(&self) -> anyhow::Result<Online> {
@@ -145,7 +151,7 @@ impl Client {
                 while let Ok(event) = events.recv().await {
                     let contact = match event {
                         Event::MessagesChanged { contact } => Some(contact),
-                        Event::ContactsChanged => None,
+                        Event::ContactsChanged | Event::ConnectionChanged { .. } => None,
                     };
                     let _ = app.emit(CHANGED_EVENT, Changed { contact });
                 }
@@ -216,8 +222,13 @@ pub async fn core_add_contact(link: String, client: State<'_, Client>) -> Result
 
 #[tauri::command]
 pub async fn core_conversations(client: State<'_, Client>) -> Result<Vec<ConversationView>, String> {
-    let core = client.core().await?;
-    Ok(core.store().conversations().await.map_err(failed)?.iter().map(ConversationView::from).collect())
+    let online = client.online().await?;
+    let connected = online.network.connected().await;
+    let conversations = online.core.store().conversations().await.map_err(failed)?;
+    Ok(conversations
+        .iter()
+        .map(|conversation| ConversationView::new(conversation, connected.contains(&conversation.contact.device_id)))
+        .collect())
 }
 
 #[tauri::command]
@@ -310,8 +321,9 @@ mod tests {
             added_at: 1,
         };
         let conversation = Conversation { contact, last: Some(message(MessageState::Pending, true)), unread: 2 };
-        let view = serde_json::to_value(ConversationView::from(&conversation)).unwrap();
+        let view = serde_json::to_value(ConversationView::new(&conversation, true)).unwrap();
         assert_eq!(view["id"], "ft_bob");
+        assert_eq!(view["connected"], true, "a direct connection is open");
         assert_eq!(view["name"], "Bob");
         assert_eq!(view["unread"], 2);
         assert_eq!(view["last"]["state"], "pending");

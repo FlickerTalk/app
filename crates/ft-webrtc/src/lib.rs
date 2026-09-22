@@ -26,6 +26,9 @@ use webrtc::runtime::{default_runtime, Runtime};
 /// of it by the protocol (§22).
 pub const CHANNEL_LABEL: &str = "messages";
 
+/// How long closing waits for the other side to acknowledge the channel's end.
+const CLOSE_WAIT: Duration = Duration::from_secs(1);
+
 /// What one peer has to hand to the other to connect. The payload is opaque here: whoever
 /// transports it encrypts it (§14).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,7 +151,9 @@ struct Events {
     gathered: watch::Sender<bool>,
     open: watch::Sender<bool>,
     channel: SharedChannel,
-    messages: mpsc::Sender<Vec<u8>>,
+    /// The callee's inbox, handed to its one channel: once that channel closes nothing holds a
+    /// sender any more, so the inbox ends.
+    messages: std::sync::Mutex<Option<mpsc::Sender<Vec<u8>>>>,
 }
 
 #[async_trait::async_trait]
@@ -161,8 +166,9 @@ impl PeerConnectionEventHandler for Events {
 
     // The callee receives the caller's channel here.
     async fn on_data_channel(&self, channel: Arc<dyn DataChannel>) {
+        let Some(messages) = self.messages.lock().expect("messages poisoned").take() else { return };
         *self.channel.lock().await = Some(channel.clone());
-        listen(&self.runtime, channel, self.open.clone(), self.messages.clone());
+        listen(&self.runtime, channel, self.open.clone(), messages);
     }
 }
 
@@ -174,6 +180,7 @@ pub struct Session {
     gathered: watch::Receiver<bool>,
     gather_timeout: Duration,
     opened: watch::Receiver<bool>,
+    open: watch::Sender<bool>,
 }
 
 impl Session {
@@ -194,7 +201,7 @@ impl Session {
             gathered: gathered_tx,
             open: open_tx.clone(),
             channel: channel.clone(),
-            messages: messages.clone(),
+            messages: std::sync::Mutex::new((role == Role::Callee).then(|| messages.clone())),
         });
 
         let connection: Arc<dyn PeerConnection> = Arc::new(
@@ -215,11 +222,13 @@ impl Session {
         if role == Role::Caller {
             let created = connection.create_data_channel(CHANNEL_LABEL, None).await?;
             *channel.lock().await = Some(created.clone());
-            listen(&runtime, created, open_tx, messages);
+            listen(&runtime, created, open_tx.clone(), messages.clone());
         }
 
         let gather_timeout = config.gather_timeout;
-        Ok((Self { connection, signals, channel, gathered, gather_timeout, opened }, Inbox(inbox)))
+        drop(messages);
+        let open = open_tx;
+        Ok((Self { connection, signals, channel, gathered, gather_timeout, opened, open }, Inbox(inbox)))
     }
 
     /// Creates the offer and sends it out. Only the caller does this.
@@ -276,7 +285,17 @@ impl Session {
         *self.opened.borrow()
     }
 
+    /// Ends the session. The data channel is closed first: that is what tells the other side,
+    /// which closing the connection alone does not.
     pub async fn close(&self) -> Result<()> {
+        let channel = self.channel.lock().await.clone();
+        if let Some(channel) = channel {
+            if channel.close().await.is_ok() {
+                let mut opened = self.opened.clone();
+                let _ = tokio::time::timeout(CLOSE_WAIT, opened.wait_for(|open| !open)).await;
+            }
+        }
+        let _ = self.open.send(false);
         self.connection.close().await?;
         Ok(())
     }

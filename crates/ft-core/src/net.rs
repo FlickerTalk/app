@@ -24,7 +24,7 @@ use ft_push::{RouterClient, RouterEvent, TurnGrant};
 use ft_webrtc::{Inbox, Role, Session, SessionConfig, Signal as Description, TurnServer};
 use tokio::sync::{mpsc, Mutex};
 
-use crate::{Core, Peer, Transport};
+use crate::{Core, Event, Peer, Transport};
 
 /// How long to wait for a data channel before falling back to the mailbox.
 pub const CONNECT_WAIT: Duration = Duration::from_secs(12);
@@ -172,6 +172,35 @@ impl Network {
         }
     }
 
+    /// Whether a direct connection with the contact is open now.
+    pub async fn is_connected(&self, contact: &str) -> bool {
+        self.links.lock().await.get(contact).is_some_and(|link| link.session.is_open())
+    }
+
+    /// The contacts with a direct connection open now.
+    pub async fn connected(&self) -> Vec<String> {
+        let links = self.links.lock().await;
+        let mut contacts: Vec<String> =
+            links.iter().filter(|(_, link)| link.session.is_open()).map(|(contact, _)| contact.clone()).collect();
+        contacts.sort();
+        contacts
+    }
+
+    /// Closes the direct connection with the contact, if any (the other side sees it close too).
+    pub async fn disconnect(&self, contact: &str) {
+        let link = self.links.lock().await.remove(contact);
+        if let Some(link) = link {
+            let _ = link.session.close().await;
+            self.announce(contact);
+        }
+    }
+
+    fn announce(&self, contact: &str) {
+        if let Ok(core) = self.core() {
+            let _ = core.events.send(Event::ConnectionChanged { contact: contact.to_owned() });
+        }
+    }
+
     async fn gate(&self, contact: &str) -> Arc<Mutex<()>> {
         self.gates.lock().await.entry(contact.to_owned()).or_default().clone()
     }
@@ -273,6 +302,7 @@ impl Network {
     async fn adopt(&self, contact: &str, session: Session, mut inbox: Inbox) {
         let id = self.next_link.fetch_add(1, Ordering::Relaxed);
         self.links.lock().await.insert(contact.to_owned(), Link { id, session });
+        self.announce(contact);
 
         let (Some(core), Some(network)) = (self.core.get().cloned(), self.this.get().cloned()) else { return };
         let contact = contact.to_owned();
@@ -282,9 +312,12 @@ impl Network {
                 let _ = core.receive(&bytes).await;
             }
             if let Some(network) = network.upgrade() {
-                let mut links = network.links.lock().await;
-                if links.get(&contact).is_some_and(|link| link.id == id) {
-                    links.remove(&contact);
+                let removed = {
+                    let mut links = network.links.lock().await;
+                    links.get(&contact).is_some_and(|link| link.id == id) && links.remove(&contact).is_some()
+                };
+                if removed {
+                    network.announce(&contact);
                 }
             }
         });
