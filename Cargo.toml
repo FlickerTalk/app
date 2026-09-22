@@ -10,3 +10,8 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Proc-macros and build scripts run on the build machine, not in the app: stripping them breaks
+# the proc-macro dylibs on macOS with Xcode 27's toolchain ("mis-aligned LINKEDIT string pool").
+[profile.release.build-override]
+strip = false
