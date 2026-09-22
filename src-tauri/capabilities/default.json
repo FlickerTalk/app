@@ -1,10 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "What the WebView may ask of Tauri: events, the app's version and opening mail (reports, \u00a736). Everything else goes through the app's own commands.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
-    "core:default",
-    "opener:default"
+    "core:event:default",
+    "core:app:allow-version",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "mailto:*"
+        }
+      ]
+    }
   ]
 }

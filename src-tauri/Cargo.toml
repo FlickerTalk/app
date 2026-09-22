@@ -25,7 +25,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ft-contacts = { path = "../crates/ft-contacts" }
 ft-core = { path = "../crates/ft-core" }
-ft-poc = { path = "../crates/ft-poc" }
 ft-storage = { path = "../crates/ft-storage" }
 ft-webrtc = { path = "../crates/ft-webrtc" }
 anyhow = "1"
