@@ -27,3 +27,24 @@ Paquete `.ftplugin`: `module.json`, `dist/index.js`, `dist/style.css`, `assets/`
 - **Modo desarrollador**: carga un plugin desde una carpeta local sin firmar, para que los autores
   lo prueben en la app real. Solo con activación explícita del usuario y un aviso visible; nunca
   en el flujo normal de instalación, que exige firma (`§50`).
+
+## Estado (2026-09-22, issue app#3)
+
+Primer trozo del runtime, todo en seco y con tests:
+
+- **Paquete `.ftplugin`**: un zip con `module.json`, `dist/`, `assets/` y `signature`. Lo que se
+  firma es el BLAKE3 de cada fichero encadenado con su ruta, así que cambiar, añadir o quitar un
+  byte rompe la firma. `open()` verifica la firma **antes** de leer nada como manifest, y rechaza
+  manifests inválidos (id que no es un nombre, versión que no lo es, componente sin guion) y
+  cualquier ruta que se salga de la carpeta del plugin.
+- **Confianza (decisión 2026-09-22, cierra el pendiente de `§50`):** firma **el catálogo**, con una
+  clave que viaja en la app. El autor puede firmar además, pero la confianza viene del catálogo,
+  que así puede revocar. Un plugin nunca se acepta por venir firmado por su autor.
+- **Catálogo** (`§56`): `index.json` estático y firmado; `catalogue_entries()` no lo lee si la
+  firma no es del catálogo, y `download()` exige que el paquete sea exactamente el que el índice
+  listaba (hash, id y versión), no solo «algo firmado».
+- **Instalación**: `install()` escribe en `<dir>/<id>`, `installed()` lista los manifests y
+  `remove()` borra. Nada se escribe fuera de esa carpeta.
+
+Falta: la Plugin API con permisos, el sandbox del WebView, la pantalla del marketplace en la app,
+el modo desarrollador y el propio sitio `plugins.flickertalk.com`.
