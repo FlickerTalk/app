@@ -72,6 +72,15 @@ pub enum Body {
     /// Whether the sender uses the mailbox (§19); travels only between the two devices.
     MailboxPreference { enabled: bool },
     Block,
+    /// WebRTC offer, the plaintext of a `Signal`. A first contact adds its Contact Card, so the
+    /// recipient can read it and connect without the mailbox.
+    Offer {
+        sdp: String,
+        #[serde(default, with = "serde_bytes")]
+        card: Option<Vec<u8>>,
+    },
+    /// WebRTC answer, the plaintext of a `Signal`.
+    Answer { sdp: String },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -201,6 +210,9 @@ mod tests {
         round_trip(Body::ContactCard { card: vec![1, 2, 3] });
         round_trip(Body::MailboxPreference { enabled: false });
         round_trip(Body::Block);
+        round_trip(Body::Offer { sdp: "v=0".to_owned(), card: Some(vec![1]) });
+        round_trip(Body::Offer { sdp: "v=0".to_owned(), card: None });
+        round_trip(Body::Answer { sdp: "v=0".to_owned() });
     }
 
     // §24: generated on the device, time-ordered, never by a server.

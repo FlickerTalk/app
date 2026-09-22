@@ -41,15 +41,32 @@ async fn two_peers_exchange_messages_over_the_data_channel() {
         .expect("the data channel opens");
 
     caller.send("hello").await.expect("the caller sends");
-    let received = timeout(LIMIT, callee_inbox.next()).await.expect("the callee receives in time");
+    let received = timeout(LIMIT, callee_inbox.next_text()).await.expect("the callee receives in time");
     assert_eq!(received.as_deref(), Some("hello"));
 
     callee.send("hello back").await.expect("the callee sends");
-    let received = timeout(LIMIT, caller_inbox.next()).await.expect("the caller receives in time");
+    let received = timeout(LIMIT, caller_inbox.next_text()).await.expect("the caller receives in time");
     assert_eq!(received.as_deref(), Some("hello back"));
 
     caller.close().await.expect("the caller closes");
     callee.close().await.expect("the callee closes");
+}
+
+/// Encrypted packets are binary: they must arrive byte for byte.
+#[tokio::test(flavor = "multi_thread")]
+async fn binary_packets_cross_the_data_channel_unchanged() {
+    let (caller_out, caller_signals) = mpsc::channel(32);
+    let (callee_out, callee_signals) = mpsc::channel(32);
+    let (caller, _) = Session::start(SessionConfig::offline(), Role::Caller, caller_out).await.expect("starts");
+    let (callee, mut callee_inbox) = Session::start(SessionConfig::offline(), Role::Callee, callee_out).await.expect("starts");
+    pipe(caller_signals, callee.clone());
+    pipe(callee_signals, caller.clone());
+    caller.invite().await.expect("offers");
+    timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
+
+    let packet = vec![0u8, 255, 1, 2, 0xc3, 0x28, 7];
+    caller.send_bytes(&packet).await.expect("sends");
+    assert_eq!(timeout(LIMIT, callee_inbox.next()).await.expect("in time"), Some(packet));
 }
 
 /// Same exchange, gathering candidates through Google's STUN over the real network (Plan §16:
@@ -71,7 +88,7 @@ async fn two_peers_connect_through_stun_on_the_real_network() {
     caller.invite().await.expect("the caller sends the offer");
     timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
     caller.send("hello").await.expect("the caller sends");
-    let received = timeout(LIMIT, callee_inbox.next()).await.expect("received in time");
+    let received = timeout(LIMIT, callee_inbox.next_text()).await.expect("received in time");
     assert_eq!(received.as_deref(), Some("hello"));
 }
 
@@ -110,6 +127,6 @@ async fn two_peers_connect_through_the_turn_relay_alone() {
     caller.invite().await.expect("the caller sends the offer");
     timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
     caller.send("hello").await.expect("the caller sends");
-    let received = timeout(LIMIT, callee_inbox.next()).await.expect("received in time");
+    let received = timeout(LIMIT, callee_inbox.next_text()).await.expect("received in time");
     assert_eq!(received.as_deref(), Some("hello"));
 }

@@ -12,6 +12,8 @@
 //! - Receiving: stored once per `message_id` and always acknowledged (§27). Packets from blocked
 //!   contacts are dropped (§35).
 
+pub mod net;
+
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -262,11 +264,48 @@ impl Core {
 
     /// A packet from the network: the DataChannel or the mailbox.
     pub async fn receive(&self, bytes: &[u8]) -> Result<()> {
+        let Some((contact, packet, first_contact)) = self.open_sealed(bytes).await? else {
+            return Ok(());
+        };
+        self.handle(&contact, packet, first_contact).await
+    }
+
+    /// Encrypts a signal body (offer or answer) for a contact: its plaintext is a `Packet`.
+    pub async fn seal_signal(&self, contact: &str, body: Body) -> Result<Vec<u8>> {
+        let contact = self.contact(contact).await?;
+        let _identity = self.identity.lock().await;
+        let mut channel = self.channel(&contact.device_id).await?;
+        let sealed = channel.encrypt(&self.device_id, &Packet::new(body).encode())?;
+        self.store.save_channel(&contact.device_id, &channel.seal(&self.key)).await?;
+        Ok(sealed.encode())
+    }
+
+    /// Decrypts a signal from a contact, or from someone whose offer carries their card (a first
+    /// contact). Returns the sender and the body; `None` if the sender is blocked.
+    pub async fn open_signal(&self, bytes: &[u8]) -> Result<Option<(String, Body)>> {
+        Ok(self.open_sealed(bytes).await?.map(|(contact, packet, first_contact)| {
+            if first_contact {
+                let _ = self.events.send(Event::ContactsChanged);
+            }
+            (contact.device_id, packet.body)
+        }))
+    }
+
+    /// Where to reach a contact.
+    pub async fn peer(&self, contact: &str) -> Result<Peer> {
+        let contact = self.contact(contact).await?;
+        let card = ContactCard::decode(&contact.card)?;
+        Ok(Peer { device_id: contact.device_id, capability: card.route_capability() })
+    }
+
+    /// Decrypts an incoming `Sealed`, adding the sender if it is a first contact that presents a
+    /// valid card. `None` when the sender is blocked (dropped silently, §35).
+    async fn open_sealed(&self, bytes: &[u8]) -> Result<Option<(Contact, Packet, bool)>> {
         let sealed = Sealed::decode(bytes)?;
         let from = DeviceId::parse(&sealed.from)?;
         let known = self.store.contact(from.as_str()).await?;
         if known.as_ref().is_some_and(|contact| contact.blocked) {
-            return Ok(());
+            return Ok(None);
         }
 
         let (packet, first_contact) = {
@@ -282,10 +321,10 @@ impl Core {
                 None => {
                     let (channel, plaintext, sender_key) = accept_first_contact(&mut identity, &sealed)?;
                     let packet = Packet::decode(&plaintext)?;
-                    let Body::ContactCard { card } = &packet.body else {
-                        bail!("a first contact must introduce itself with its contact card");
+                    let card = match &packet.body {
+                        Body::ContactCard { card } | Body::Offer { card: Some(card), .. } => ContactCard::decode(card)?,
+                        _ => bail!("a first contact must introduce itself with its contact card"),
                     };
-                    let card = ContactCard::decode(card)?;
                     if card.device_id() != from || card.contact_keys().exchange_key != sender_key {
                         bail!("the contact card does not match its sender");
                     }
@@ -299,8 +338,7 @@ impl Core {
             }
         };
         self.store.set_introduced(from.as_str()).await?;
-        let contact = self.contact(from.as_str()).await?;
-        self.handle(&contact, packet, first_contact).await
+        Ok(Some((self.contact(from.as_str()).await?, packet, first_contact)))
     }
 
     async fn handle(&self, contact: &Contact, packet: Packet, first_contact: bool) -> Result<()> {
@@ -352,7 +390,8 @@ impl Core {
             Body::Ping => {
                 let _ = self.send_control(contact, Body::Pong).await;
             }
-            Body::Pong | Body::Typing | Body::Block | Body::Unknown => {}
+            // Offers and answers travel as signals (see `open_signal`), never as packets.
+            Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }
@@ -437,6 +476,22 @@ impl Core {
 
     async fn contact(&self, device_id: &str) -> Result<Contact> {
         self.store.contact(device_id).await?.ok_or_else(|| anyhow!("unknown contact"))
+    }
+}
+
+/// The router client signs with the device identity.
+#[async_trait]
+impl ft_push::Signer for Core {
+    fn device_id(&self) -> String {
+        self.device_id.to_string()
+    }
+
+    async fn signing_key(&self) -> String {
+        Core::signing_key(self).await
+    }
+
+    async fn sign(&self, message: &[u8]) -> String {
+        Core::sign(self, message).await
     }
 }
 

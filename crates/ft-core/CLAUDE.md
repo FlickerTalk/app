@@ -41,3 +41,13 @@ buzón). La red es el trait `Transport` (envío directo y buzón): los tests usa
 con dos dispositivos completos (`tests/conversation.rs`); la implementación real sobre WebRTC y el
 router es el hito M2. Hasta que un contacto responde (`introduced`), nuestra tarjeta viaja antes
 de cada reintento.
+
+## Estado (2026-09-22, `§106` M2)
+
+`net::Network` es el `Transport` real: DataChannels WebRTC (`ft-webrtc`) por contacto, abiertos con
+una oferta cifrada con Olm y enviada por el router (`ft-push`), que lleva la Contact Card en un
+primer contacto; si el contacto no está conectado o el canal no abre en 12 s, el core usa el
+buzón. Los eventos del router (bienvenida con STUN/TURN, señales, aviso de correo) se atienden en
+segundo plano para que una respuesta nunca espere detrás de otro trabajo. `Relay` abstrae el
+router (fake en `tests/network.rs`, con WebRTC real en loopback). `tests/live.rs` (ignorado) prueba
+dos núcleos contra `api.flickertalk.com`: emparejan, envían y confirman en ~9 s.

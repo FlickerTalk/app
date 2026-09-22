@@ -25,3 +25,11 @@ Cliente del router `api.flickertalk.com` (`§10`, `§82`): push, wake y buzón.
 - Este crate no cifra: recibe blobs ya cifrados por `ft-crypto` y los transporta.
 - El token nativo lo obtiene el bridge de plataforma (Kotlin/Swift). Este crate no habla con
   FCM/APNs: eso lo hace el router.
+
+## Estado (2026-09-22, `§106` M2)
+
+`RouterClient`: peticiones firmadas (el texto firmado se fija con el mismo vector que el router),
+registro, señales, buzón, credenciales TURN y WebSocket `/v1/connect` con reconexión (`listen`).
+HTTPS/WSS con rustls sobre ring y raíces de `webpki-roots` (sin `aws-lc-rs` ni el verificador de la
+plataforma, que en Android exige JNI). El push nativo (FCM, `PUT /v1/device/push`) llega con M4.
+`tests/client.rs` prueba contra un router falso y, ignorado, contra el real.

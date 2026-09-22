@@ -83,8 +83,8 @@ async fn talk_through(relay: &str) {
 
     timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
     caller.send("hello").await.expect("the caller sends");
-    assert_eq!(timeout(LIMIT, callee_inbox.next()).await.expect("in time").as_deref(), Some("hello"));
+    assert_eq!(timeout(LIMIT, callee_inbox.next_text()).await.expect("in time").as_deref(), Some("hello"));
 
     callee.send("hello back").await.expect("the callee answers");
-    assert_eq!(timeout(LIMIT, caller_inbox.next()).await.expect("in time").as_deref(), Some("hello back"));
+    assert_eq!(timeout(LIMIT, caller_inbox.next_text()).await.expect("in time").as_deref(), Some("hello back"));
 }
