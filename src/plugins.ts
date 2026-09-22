@@ -6,9 +6,12 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { plugins, type PluginView } from "./core";
 
-/** Where the frame of a plugin lives; never the app's own origin. */
+/**
+ * Where the frame of a plugin lives; never the app's own origin. Only the id goes through
+ * `convertFileSrc`, which would turn the slash of a path into `%2F`.
+ */
 export function frameUrl(id: string): string {
-  return convertFileSrc(`${id}/frame.html`, "ftplugin");
+  return `${convertFileSrc(id, "ftplugin")}/frame.html`;
 }
 
 /** The plugins the user allowed to read what they are handed. */
