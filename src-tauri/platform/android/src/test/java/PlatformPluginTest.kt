@@ -86,4 +86,20 @@ class PlatformPluginTest {
         assertEquals("", callAction(null))
         assertEquals("", callAction("do-something-else"))
     }
+
+    // The file picker of the WebView takes the user out of the app; ours copies what was picked
+    // into the app's own folder and gives it a name we can show.
+    @Test
+    fun aPickedFileKeepsItsNameAndGetsAKindWeUnderstand() {
+        assertEquals("photo.jpg", pickedName("photo.jpg"))
+        assertEquals("something with no name is still a file", "file", pickedName(""))
+        assertEquals("file", pickedName(null))
+        assertEquals("image/jpeg", pickedMime("image/jpeg"))
+        assertEquals("application/octet-stream", pickedMime(null))
+    }
+
+    @Test
+    fun aPickedFileIsWrittenWhereOnlyTheAppCanRead() {
+        assertEquals("uploads", PICKED_FOLDER)
+    }
 }

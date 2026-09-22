@@ -67,6 +67,8 @@ pub fn run() {
             client::core_open_file,
             client::core_share,
             client::core_pending_call,
+            client::core_pick_files,
+            client::core_send_picked,
             client::core_plugins,
             client::core_plugin_grant,
             client::core_plugin_remove,

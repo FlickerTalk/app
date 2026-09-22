@@ -18,7 +18,7 @@ import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import { readyPlugins } from "../plugins";
-import { chat as chatOf, loadMessages, markRead, openFile, saveFile, sendFile, sendText } from "../core";
+import { chat as chatOf, loadMessages, markRead, openFile, pickFiles, saveFile, sendFile, sendPicked, sendText } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { t } from "../i18n";
 
@@ -51,6 +51,21 @@ async function attach(event: Event) {
   input.value = "";
   for (const file of files) {
     await sendFile(props.chatId, file);
+  }
+}
+
+/**
+ * The phone's own picker where there is one (§62). On Android the WebView's file input takes the
+ * user out of the app with no way back unless they pick something; this returns either way. On a
+ * desktop there is no such picker, so the hidden input is used.
+ */
+async function pick() {
+  try {
+    for (const file of await pickFiles()) {
+      await sendPicked(props.chatId, file);
+    }
+  } catch {
+    picker.value?.click();
   }
 }
 
@@ -196,7 +211,7 @@ watch(
       <p v-if="voiceError" class="ft-composer__error" role="alert">{{ voiceError }}</p>
       <ion-toolbar class="ft-composer">
         <div class="ft-composer__row">
-          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.attach')" @click="picker?.click()">
+          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.attach')" @click="pick">
             <ion-icon :icon="add" aria-hidden="true" />
           </button>
           <input ref="picker" type="file" multiple hidden @change="attach" />

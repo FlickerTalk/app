@@ -911,6 +911,44 @@ pub async fn core_send_file(contact: String, upload: String, name: String, mime:
     Ok(())
 }
 
+/// The system file picker. What it gives back is already in the app's folder, so sending it is
+/// only a matter of naming it (§62). The WebView's own file input leaves the user outside the app.
+#[tauri::command]
+pub async fn core_pick_files(app: AppHandle) -> Result<Vec<PickedView>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || app.platform().pick_files())
+        .await
+        .map_err(failed)?
+        .map_err(failed)?;
+    Ok(picked
+        .into_iter()
+        .map(|file| PickedView { path: file.path, name: file.name, mime: file.mime, size: file.size })
+        .collect())
+}
+
+/// A file the user picked, waiting in the app's folder.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PickedView {
+    pub path: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+}
+
+/// Sends a file the user picked; the bytes never go through the WebView.
+#[tauri::command]
+pub async fn core_send_picked(contact: String, file: PickedView, client: State<'_, Client>) -> Result<(), String> {
+    let path = PathBuf::from(&file.path);
+    if !path.exists() {
+        return Err("that file is no longer there".to_owned());
+    }
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.send_file(&contact, &path, &file.name, &file.mime).await;
+        let _ = std::fs::remove_file(&path);
+    });
+    Ok(())
+}
+
 /// Stored at once (the UI hears about it); delivered in the background.
 #[tauri::command]
 pub async fn core_send(contact: String, text: String, client: State<'_, Client>) -> Result<(), String> {
