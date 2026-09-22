@@ -140,11 +140,18 @@ where
     panic!("timed out waiting until {what}");
 }
 
+/// Pairing ends when Bob's card comes back. Until then Alice introduces herself again with each
+/// packet, and Bob's answer is still in flight: a test that cuts the link right after would count
+/// them in the mailboxes on a slow machine.
 async fn pair(alice: &Core, bob: &Core) {
     let link = bob.my_card().await.expect("card").to_link();
     alice.add_contact(&link, None).await.expect("alice adds bob");
-    let alice_id = alice.device_id().as_str().to_owned();
+    let (alice_id, bob_id) = (alice.device_id().as_str().to_owned(), bob.device_id().as_str().to_owned());
     until("bob knows alice", || async { bob.store().contact(&alice_id).await.unwrap().is_some() }).await;
+    until("bob's card came back", || async {
+        alice.store().contact(&bob_id).await.unwrap().is_some_and(|contact| contact.introduced)
+    })
+    .await;
 }
 
 async fn state_of(core: &Core, contact: &str, message_id: &str) -> MessageState {
