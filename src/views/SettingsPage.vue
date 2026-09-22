@@ -24,6 +24,7 @@ import {
   copyOutline,
   eyeOffOutline,
   fileTrayOutline,
+  flaskOutline,
   informationCircleOutline,
   moonOutline,
   phonePortraitOutline,
@@ -50,6 +51,9 @@ import {
   type Appearance,
   type Direction,
 } from "../theme";
+
+// Development builds, or PoC builds made with VITE_POC=1 (Android APKs are production builds).
+const isDev = import.meta.env.DEV || import.meta.env.VITE_POC === "1";
 
 const mailbox = ref(storedMailbox());
 
@@ -216,6 +220,11 @@ function chooseAppearance(id: Appearance) {
             <span slot="start" class="ft-tile"><ion-icon :icon="informationCircleOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.version") }}</ion-label>
             <ion-note slot="end">0.1.0</ion-note>
+          </ion-item>
+          <!-- PoC 0 (Plan §87): developer screen, only in development builds. -->
+          <ion-item v-if="isDev" button detail lines="none" router-link="/poc" data-test="poc">
+            <span slot="start" class="ft-tile"><ion-icon :icon="flaskOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("poc.title") }}</ion-label>
           </ion-item>
         </ion-list>
       </div>

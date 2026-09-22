@@ -31,6 +31,18 @@ cargo test -p ft-webrtc -- --ignored               # WebRTC por la red real (STU
 cargo check --workspace                            # comprobar el lado Rust
 ```
 
+## PoC 0 en el emulador (`§87`, fase B1)
+
+```sh
+(cd ../server && cargo run -p ft-router)                      # relay en el Mac, puerto 8787
+cargo run -p ft-poc --bin poc-peer -- --room demo --role callee  # par del Mac
+VITE_POC=1 npm run tauri android build -- --debug --apk --target aarch64
+adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+En la app: Ajustes → PoC 0 → Connect → Send hello. El emulador llega al Mac por `10.0.2.2`.
+`VITE_POC=1` muestra la entrada del PoC en builds que no son de desarrollo (un APK lo es).
+
 ## Entorno
 
 - `app/.npmrc` fuerza el registry público de npm, para no depender de registries privados

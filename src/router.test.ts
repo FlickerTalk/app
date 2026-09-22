@@ -17,7 +17,7 @@ describe("routes", () => {
   it("has a screen for the welcome, adding contacts, a contact and a call", () => {
     const paths = routes.map((route) => route.path);
     expect(paths).toEqual(
-      expect.arrayContaining(["/welcome", "/add-contact", "/contact/:id", "/call/:id"]),
+      expect.arrayContaining(["/welcome", "/add-contact", "/contact/:id", "/call/:id", "/poc"]),
     );
   });
 

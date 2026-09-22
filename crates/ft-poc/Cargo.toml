@@ -1,0 +1,15 @@
+[package]
+name = "ft-poc"
+version = "0.1.0"
+edition = "2021"
+description = "PoC 0 only: connects ft-webrtc sessions through the signalling relay. Replaced by push signalling (ft-push)."
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+ft-webrtc = { path = "../ft-webrtc" }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = "0.30"
