@@ -17,7 +17,7 @@ import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
-import { readyPlugins } from "../plugins";
+import { installedPlugins } from "../plugins";
 import type { PluginView } from "../core";
 import { chat as chatOf, loadMessages, markRead, openFile, pickFiles, saveFile, sendFile, sendPicked, sendText } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
@@ -116,13 +116,13 @@ onUnmounted(() => {
 
 const saved = reactive(new Set<string>());
 
-// Issue app#3: the plugins the user allowed to read what they hand them (§53).
+// Issue app#3: the apps of this phone, each in its own window.
 const installed = ref<PluginView[]>([]);
 const showApps = ref(false);
 const plugin = ref<{ id: string; name: string } | null>(null);
 
 async function loadPlugins() {
-  installed.value = await readyPlugins().catch(() => []);
+  installed.value = await installedPlugins().catch(() => []);
 }
 
 function useApp(id: string) {

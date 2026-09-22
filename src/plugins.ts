@@ -14,9 +14,9 @@ export function frameUrl(id: string): string {
   return `${convertFileSrc(id, "ftplugin")}/frame.html`;
 }
 
-/** The plugins the user allowed to read what they are handed. */
-export async function readyPlugins(): Promise<PluginView[]> {
-  return (await plugins()).filter((plugin) => plugin.granted.messages);
+/** The apps of this phone: every plugin installed, whatever it was granted (§53). */
+export async function installedPlugins(): Promise<PluginView[]> {
+  return await plugins();
 }
 
 /**

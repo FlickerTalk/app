@@ -22,7 +22,10 @@ fn files_of(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
             let path = entry?.path();
             if path.is_dir() {
                 pending.push(path);
-            } else if !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.')) {
+            } else if !path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                name.starts_with('.') || name.ends_with(".test.js")
+            }) {
                 let name = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
                 files.push((name, std::fs::read(&path)?));
             }
@@ -69,12 +72,13 @@ mod tests {
         std::fs::write(dir.join("module.json"), b"{}").unwrap();
         std::fs::write(dir.join("dist/index.js"), b"code").unwrap();
         std::fs::write(dir.join(".DS_Store"), b"junk").unwrap();
+        std::fs::write(dir.join("index.test.js"), b"tests").unwrap();
 
         let files = files_of(&dir).unwrap();
         assert_eq!(
             files.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
             ["dist/index.js", "module.json"],
-            "the folder's own junk stays out"
+            "the folder's own junk, and its tests, stay out"
         );
     }
 
