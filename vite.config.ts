@@ -37,5 +37,7 @@ export default defineConfig(() => ({
   test: {
     environment: "happy-dom",
     setupFiles: ["src/__tests__/setup.ts"],
+    // Theme tests read the design tokens as text.
+    css: { include: [/theme\/variables\.css/] },
   },
 }));
