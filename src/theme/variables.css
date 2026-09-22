@@ -75,32 +75,32 @@ html.ft-dark[data-direction="aurora"] {
   --ft-glow: rgba(61, 219, 196, 0.45);
 }
 
-/* ---------- Mono: monochrome with a single electric accent ---------- */
+/* ---------- Mono: black and white, and nothing else. The default (Ioan, 2026-09-22) ---------- */
 html[data-direction="mono"] {
   --ft-bg: #ffffff;
   --ft-surface: #ffffff;
-  --ft-surface-2: #f1f1f3;
-  --ft-border: rgba(0, 0, 0, 0.08);
-  --ft-text: #0a0a0b;
-  --ft-muted: #6e6e73;
-  --ft-accent: #111111;
-  --ft-accent-rgb: 17, 17, 17;
-  --ft-accent-2: #111111;
+  --ft-surface-2: #f2f2f2;
+  --ft-border: rgba(0, 0, 0, 0.10);
+  --ft-text: #0a0a0a;
+  --ft-muted: #6e6e6e;
+  --ft-accent: #000000;
+  --ft-accent-rgb: 0, 0, 0;
+  --ft-accent-2: #000000;
   --ft-on-accent: #ffffff;
-  --ft-glow: rgba(120, 170, 0, 0.35);
+  --ft-glow: rgba(0, 0, 0, 0.30);
 }
 html.ft-dark[data-direction="mono"] {
   --ft-bg: #000000;
-  --ft-surface: #0e0e0f;
-  --ft-surface-2: #1b1b1d;
-  --ft-border: rgba(255, 255, 255, 0.08);
-  --ft-text: #f5f5f7;
-  --ft-muted: #8e8e93;
-  --ft-accent: #c6f432;
-  --ft-accent-rgb: 198, 244, 50;
-  --ft-accent-2: #c6f432;
-  --ft-on-accent: #0b0f00;
-  --ft-glow: rgba(198, 244, 50, 0.4);
+  --ft-surface: #0e0e0e;
+  --ft-surface-2: #1c1c1c;
+  --ft-border: rgba(255, 255, 255, 0.12);
+  --ft-text: #f5f5f5;
+  --ft-muted: #8e8e8e;
+  --ft-accent: #ffffff;
+  --ft-accent-rgb: 255, 255, 255;
+  --ft-accent-2: #ffffff;
+  --ft-on-accent: #000000;
+  --ft-glow: rgba(255, 255, 255, 0.35);
 }
 
 /* ---------- Tokens → Ionic ---------- */

@@ -629,6 +629,23 @@ pub async fn core_open_file(message: String, app: AppHandle, client: State<'_, C
     app.platform().open_file(&file.path, &file.mime).map_err(failed)
 }
 
+/// Erases this phone (§78): the router forgets the device and its mail, everything FlickerTalk
+/// keeps here is deleted, and the app starts again at the welcome. The router is best effort: a
+/// phone with no network still erases itself.
+#[tauri::command]
+pub async fn core_erase(app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    if let Ok(online) = client.online().await {
+        let _ = online.router.forget().await;
+    }
+    erase(client.dir()?).map_err(failed)?;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(RESTART_PAUSE).await;
+        restart(&app);
+    });
+    Ok(())
+}
+
 /// Opens the phone's share sheet with a text, such as the Contact Card link (§32). Fails where
 /// there is none (desktop): the UI copies the link instead.
 #[tauri::command]

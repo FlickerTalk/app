@@ -229,4 +229,10 @@ describe("core bridge", () => {
     expect(core.clock(at(7, 5))).toBe("07:05");
     expect(core.clock(0)).toBe("");
   });
+
+  // §78: the user can take their device off our server and wipe this phone.
+  it("erases this phone through the core", async () => {
+    await core.erasePhone();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_erase");
+  });
 });
