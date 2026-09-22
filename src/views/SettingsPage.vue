@@ -30,6 +30,7 @@ import {
   qrCodeOutline,
   sparklesOutline,
   sunnyOutline,
+  extensionPuzzleOutline,
   swapHorizontalOutline,
   trashOutline,
 } from "ionicons/icons";
@@ -201,6 +202,14 @@ function chooseAppearance(id: Appearance) {
                 <ion-icon :icon="option.icon" aria-hidden="true" />
               </button>
             </span>
+          </ion-item>
+        </ion-list>
+
+        <ion-list inset class="ft-group">
+          <!-- Issue app#3: what runs inside FlickerTalk, and what each one may do. -->
+          <ion-item button detail lines="none" data-test="plugins" @click="router.push('/plugins')">
+            <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.plugins") }}</ion-label>
           </ion-item>
         </ion-list>
 

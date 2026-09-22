@@ -5,7 +5,12 @@ edition = "2021"
 description = "Plugin packages: signature, manifest and installation (Plan §48-§58)"
 license = "AGPL-3.0-only"
 
+[[bin]]
+name = "ftplugin"
+path = "src/bin/ftplugin.rs"
+
 [dependencies]
+base64 = "0.22"
 anyhow = "1"
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }

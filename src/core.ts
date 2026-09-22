@@ -309,6 +309,38 @@ export function reportLink(contact: string, reason: string, evidence: string[]):
   return `mailto:${REPORT_ADDRESS}?subject=${subject}&body=${encodeURIComponent(lines.join("\n"))}`;
 }
 
+/** A plugin on this phone, with what it asks for and what it may do (issue app#3). */
+export interface PluginPermissions {
+  /** Hosts it may talk to; empty is no network at all. */
+  network: string[];
+  /** Whether it may read the message the user hands it. */
+  messages: boolean;
+  /** "nothing", "propose" (fills the composer) or "auto" (sends by itself). */
+  send: string;
+}
+
+export interface PluginView {
+  id: string;
+  name: string;
+  version: string;
+  asks: PluginPermissions;
+  granted: PluginPermissions;
+  installedAt: number;
+}
+
+export async function plugins(): Promise<PluginView[]> {
+  return invoke<PluginView[]>("core_plugins");
+}
+
+/** What the user allows a plugin to do; never more than it asked for (§53). */
+export async function grantPlugin(plugin: string, granted: PluginPermissions): Promise<void> {
+  await invoke("core_plugin_grant", { plugin, granted });
+}
+
+export async function removePlugin(plugin: string): Promise<void> {
+  await invoke("core_plugin_remove", { plugin });
+}
+
 /** The name this phone shows for a contact; it never leaves the phone (issue app#1). */
 export async function renameContact(contact: string, name: string): Promise<void> {
   await invoke("core_rename", { contact, name: name.trim() });

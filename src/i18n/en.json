@@ -174,7 +174,8 @@
     "erase": "Erase this phone",
     "eraseHint": "Removes this device from our server and deletes everything on this phone",
     "eraseAsk": "Erase everything on this phone?",
-    "eraseConfirm": "Erase"
+    "eraseConfirm": "Erase",
+    "plugins": "Plugins"
   },
   "colors": {
     "ember": "Ember",
@@ -183,5 +184,15 @@
   },
   "qr": {
     "label": "QR code"
+  },
+  "plugins": {
+    "title": "Plugins",
+    "hint": "Plugins run inside FlickerTalk. They start with nothing: you choose what each one may do, and you can take it back.",
+    "readsGiven": "Read what you send it",
+    "writes": "Write in the chat",
+    "sendsAlone": "Send messages by itself",
+    "asksNothing": "Asks for nothing",
+    "remove": "Remove",
+    "none": "No plugins yet"
   }
 }

@@ -116,4 +116,11 @@ describe("SettingsPage", () => {
     expect(wrapper.find("[data-test='erase-confirm']").exists()).toBe(false);
     expect(calls.map(([command]) => command)).not.toContain("core_erase");
   });
+
+  // Issue app#3: from here you see what runs inside FlickerTalk.
+  it("opens the plugins screen", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='plugins']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/plugins");
+  });
 });

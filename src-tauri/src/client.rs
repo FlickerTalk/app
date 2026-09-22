@@ -14,7 +14,7 @@ use ft_core::moving::MoveUpdate;
 use ft_core::{CallUpdate, Core, Event, TurnGrant};
 use ft_storage::{CallOutcome, CallRecord, Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_ft_platform::PlatformExt;
 use tokio::sync::OnceCell;
@@ -442,6 +442,9 @@ impl Client {
         online.core.set_files_dir(dir.join("files"));
         online.core.set_move_dir(dir.join(MOVE_DIR));
         online.core.set_plugins_dir(dir.join("plugins"));
+        if let Some(app) = self.app.get() {
+            install_bundled_plugins(app, &online.core).await;
+        }
 
         if let Some(app) = self.app.get().cloned() {
             let mut events = online.core.events();
@@ -487,6 +490,29 @@ impl Client {
             });
         }
         Ok(online)
+    }
+}
+
+/// The plugins that travel with the app (§52): installed the first time they are seen, and
+/// updated when the app brings a newer one. They are granted nothing by installing (§53).
+async fn install_bundled_plugins(app: &AppHandle, core: &Arc<ft_core::Core>) {
+    let Ok(dir) = app.path().resource_dir() else { return };
+    let Ok(entries) = std::fs::read_dir(dir.join("resources/plugins")) else { return };
+    let installed = core.plugins().await.unwrap_or_default();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|extension| extension != "ftplugin") {
+            continue;
+        }
+        let Ok(package) = std::fs::read(&path) else { continue };
+        let Ok(plugin) = ft_plugins::open(&package, &ft_plugins::catalogue()) else { continue };
+        let known = installed.iter().find(|one| one.manifest.id == plugin.manifest.id);
+        if known.is_some_and(|one| one.manifest.version == plugin.manifest.version) {
+            continue;
+        }
+        let _ = core
+            .install_plugin(&package, &ft_plugins::catalogue(), ft_plugins::Permissions::default())
+            .await;
     }
 }
 
@@ -668,6 +694,83 @@ pub async fn core_erase(app: AppHandle, client: State<'_, Client>) -> Result<(),
         restart(&app);
     });
     Ok(())
+}
+
+/// A plugin as the screen shows it (issue app#3).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginView {
+    id: String,
+    name: String,
+    version: String,
+    /// What it asks for, and what it was granted: the screen shows both (§53).
+    asks: PermissionsView,
+    granted: PermissionsView,
+    installed_at: i64,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionsView {
+    network: Vec<String>,
+    messages: bool,
+    send: String,
+}
+
+impl From<&ft_plugins::Permissions> for PermissionsView {
+    fn from(permissions: &ft_plugins::Permissions) -> Self {
+        Self {
+            network: permissions.network.clone(),
+            messages: permissions.reads_given_messages,
+            send: match permissions.send {
+                ft_plugins::Sending::Nothing => "nothing",
+                ft_plugins::Sending::Propose => "propose",
+                ft_plugins::Sending::Auto => "auto",
+            }
+            .to_owned(),
+        }
+    }
+}
+
+/// The plugins installed on this phone, with what each one asks for and what it may do.
+#[tauri::command]
+pub async fn core_plugins(client: State<'_, Client>) -> Result<Vec<PluginView>, String> {
+    let core = client.core().await?;
+    Ok(core
+        .plugins()
+        .await
+        .map_err(failed)?
+        .into_iter()
+        .map(|plugin| PluginView {
+            asks: PermissionsView::from(&plugin.manifest.permissions),
+            granted: PermissionsView::from(&plugin.granted),
+            id: plugin.manifest.id,
+            name: plugin.manifest.name,
+            version: plugin.manifest.version,
+            installed_at: plugin.installed_at,
+        })
+        .collect())
+}
+
+/// What the user allows a plugin to do, always within what it asked for (§53).
+#[tauri::command]
+pub async fn core_plugin_grant(plugin: String, granted: PermissionsView, client: State<'_, Client>) -> Result<(), String> {
+    let permissions = ft_plugins::Permissions {
+        network: granted.network,
+        reads_given_messages: granted.messages,
+        send: match granted.send.as_str() {
+            "propose" => ft_plugins::Sending::Propose,
+            "auto" => ft_plugins::Sending::Auto,
+            _ => ft_plugins::Sending::Nothing,
+        },
+    };
+    client.core().await?.grant_plugin(&plugin, permissions).await.map_err(failed)
+}
+
+/// Takes a plugin off this phone.
+#[tauri::command]
+pub async fn core_plugin_remove(plugin: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.remove_plugin(&plugin).await.map_err(failed)
 }
 
 /// What the user pressed on the incoming call notification: "answer", "decline" or nothing (§66).
