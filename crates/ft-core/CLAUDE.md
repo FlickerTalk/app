@@ -31,3 +31,13 @@ Funciones base (`§85`): texto, ficheros, llamada de voz y videollamada, siempre
 - Al buzón solo llega texto cifrado a nivel de mensaje, nunca texto en claro (`§28`), y solo si
   los dos extremos lo permiten.
 - Sin UI ni código de plataforma: expone una API que la app llama.
+
+## Estado (2026-09-22, `§106` M1)
+
+`Core` empareja por Contact Card, envía y recibe texto cifrado con acuses de entrega y lectura,
+usa el buzón solo si los dos lo tienen activado y reintenta desde `pending_outbox` (5 s, 10 s…
+hasta 5 min sin conexión; 30 s esperando el acuse tras un envío directo; 10 min si está en el
+buzón). La red es el trait `Transport` (envío directo y buzón): los tests usan una red en memoria
+con dos dispositivos completos (`tests/conversation.rs`); la implementación real sobre WebRTC y el
+router es el hito M2. Hasta que un contacto responde (`introduced`), nuestra tarjeta viaja antes
+de cada reintento.

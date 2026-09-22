@@ -1,0 +1,12 @@
+[package]
+name = "ft-identity"
+version = "0.1.0"
+edition = "2021"
+description = "Cryptographic identity of the device: the Olm account, device_id and signatures"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+blake3 = "1"
+bs58 = "0.5"
+vodozemac = "0.11"

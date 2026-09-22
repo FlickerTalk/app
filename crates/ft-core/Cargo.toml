@@ -1,0 +1,19 @@
+[package]
+name = "ft-core"
+version = "0.1.0"
+edition = "2021"
+description = "Client orchestrator: pairing, sending and receiving over P2P or the mailbox"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+ft-contacts = { path = "../ft-contacts" }
+ft-crypto = { path = "../ft-crypto" }
+ft-identity = { path = "../ft-identity" }
+ft-protocol = { path = "../ft-protocol" }
+ft-storage = { path = "../ft-storage" }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

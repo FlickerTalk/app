@@ -19,3 +19,11 @@ identidad **es** la clave.
 - La clave privada **nunca** sale del dispositivo ni se expone a la UI o a los plugins (`§54`).
 - v1: teléfono nuevo = identidad nueva. Multi-dispositivo y migración por QR entre dispositivos
   son posteriores (`§59–60`).
+
+## Estado (2026-09-22, `§106` M1)
+
+La identidad es una cuenta Olm de `vodozemac`: Ed25519 para firmar y Curve25519 para el
+intercambio de claves de `ft-crypto`. `DeviceId` = `ft_` + base58(BLAKE3(Ed25519)). `seal`/`unseal`
+cifran la cuenta con una clave de 32 bytes que aporta la plataforma. Pendiente: guardar esa clave
+en Android Keystore / Keychain (hoy la custodia la app en su almacenamiento privado, `§94`) y el
+export/import cifrado.

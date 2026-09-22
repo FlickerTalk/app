@@ -3,10 +3,12 @@
 Base de datos **local** del dispositivo: SQLite con `sqlx` (`§25`). Todo el historial vive aquí y
 en ningún otro sitio.
 
-## Tablas previstas
+## Tablas (2026-09-22)
 
-`contacts`, `conversations`, `messages`, `message_receipts`, `devices`, `settings`,
-`plugin_registry`, `plugin_storage`, `pending_outbox`, `blocked_devices` (`§25–26`, `§35`).
+`identity` (cuenta Olm sellada y route capability), `contacts` (tarjeta, sesiones Olm selladas,
+buzón, bloqueo e `introduced`), `messages`, `pending_outbox` y `settings`. Una conversación 1 a 1
+es su contacto, así que no hay tabla `conversations`. Migraciones en `migrations/`, incrustadas
+en el binario. Ficheros, plugins y billing añadirán las suyas.
 
 ## Reglas
 

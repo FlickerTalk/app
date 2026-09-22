@@ -62,8 +62,8 @@ Relay local, sin TURN: `(cd ../server && cargo run -p ft-router)` y, en la app, 
 
 - **Poca lógica de negocio fuera de `crates/`** (`§82`): `src/` y `src-tauri/` son capas finas
   sobre `ft-core`. Si algo se puede testear sin Tauri, va en un crate.
-- Workspace Cargo en `app/Cargo.toml`, con miembros **explícitos** (`src-tauri`, `crates/ft-webrtc`):
-  cada crate nuevo se añade a la lista. Un glob `crates/*` fallaría con las carpetas que aún solo
+- Workspace Cargo en `app/Cargo.toml`, con miembros **explícitos**: cada crate nuevo se añade a la
+  lista. Un glob `crates/*` fallaría con las carpetas que aún solo
   tienen `CLAUDE.md`. El perfil de release vive en la raíz del workspace.
 - El identificador `com.flickertalk.flickertalk` (`tauri.conf.json`, paquete Android) es
   **provisional**. Es un contrato con las stores: se fija el definitivo antes de la primera

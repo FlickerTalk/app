@@ -2,17 +2,17 @@
 
 Wire protocol de FlickerTalk: tipos y (de)serialización. Sin I/O, sin red, sin almacenamiento.
 
-## Formatos
+## Formatos (implementados, 2026-09-22)
 
-- **`SignalEnvelope`** (`§14`) — viaja por push: `version`, `type`, `session_id`, `sender_id`,
-  `payload` (cifrado para el receptor), `signature`. Tipos: `WAKE`, `OFFER`, `ANSWER`, `ICE`,
-  `CANCEL`.
-- **`FlickerPacket`** (`§23`) — viaja por DataChannel: `protocol_version`, `packet_type`,
-  `message_id`, `timestamp_local`, `payload`, `signature`. Tipos iniciales: `HELLO`, `MESSAGE`,
-  `DELIVERED`, `READ`, `TYPING`, `PING`, `PONG`, `CONTACT_CARD`, `BLOCK`, `FILE_META`,
-  `FILE_CHUNK`.
-- **`FlickerContactCard`** (`§32`) — `device_id`, `public_identity_key`, `routing_capability`,
-  `version`, `signature`.
+- **`Packet`** (`§23`): `version`, `id` (UUIDv7), `sent_at` (reloj local, ms) y `body`: `message`,
+  `delivered`, `read`, `typing`, `ping`, `pong`, `contact_card`, `mailbox_preference`, `block`. Un
+  tipo desconocido se decodifica como `Unknown` y se ignora. Siempre viaja cifrado con Olm: no
+  lleva firma propia, porque Olm ya autentica al remitente.
+- **`Sealed`**: el `Packet` cifrado (`from`, tipo de mensaje Olm y `ciphertext`), igual por
+  DataChannel que por el buzón.
+- **`Signal`** (`§14`): señalización de WebRTC entre dos dispositivos (`wake`, `offer`, `answer`,
+  `cancel`, `session`, `from`, `to` y el `Sealed` con la descripción). El router solo mueve bytes.
+- La **Contact Card** (`§32`) tiene su propio formato firmado en `ft-contacts`.
 
 ## Reglas
 

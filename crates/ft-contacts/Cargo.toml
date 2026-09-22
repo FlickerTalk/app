@@ -1,0 +1,17 @@
+[package]
+name = "ft-contacts"
+version = "0.1.0"
+edition = "2021"
+description = "Signed Contact Card exchanged by QR or link, route capabilities and pairing"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+blake3 = "1"
+ciborium = "0.2"
+ft-crypto = { path = "../ft-crypto" }
+ft-identity = { path = "../ft-identity" }
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"

@@ -20,3 +20,13 @@ Protocolos criptográficos del cliente (`§28`).
 - Candidatas a evaluar (`§28`): `vodozemac` (Apache-2.0), `OpenMLS` (MIT), `libsignal`
   (AGPL-3.0, condiciona la licencia del cliente).
 - Todo lo de aquí entra en la revisión de protocolo y cripto previa a producción (`§94`).
+
+## Estado (2026-09-22, `§106` M1)
+
+Olm de `vodozemac` 0.11, sesiones versión 1 (la 2 es experimental). `contact_keys` da la clave
+Curve25519 y la *fallback key* para la Contact Card (nunca se marca como publicada, para que la
+tarjeta no cambie). `Channel` guarda las sesiones con un contacto, descifra con la que encaje y
+cifra con la última que funcionó, así que dos contactos que se escanean a la vez convergen.
+`accept_first_contact` abre el primer mensaje de un desconocido con la clave que trae su pre-key
+message; quien llama debe comprobarla contra la tarjeta que viene dentro. Un mensaje repetido
+byte a byte se rechaza (protección contra *replay*).
