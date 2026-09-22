@@ -37,8 +37,8 @@ impl Plugins {
     }
 }
 
-/// The page that hosts a plugin: it loads the plugin's script, puts its component on the page and
-/// talks to the app only through `postMessage`. The plugin never sees the app's window.
+/// The page that hosts a plugin. Its script is a file of its own: the policy allows no script
+/// written inside the page, which is what keeps a plugin from slipping code into it.
 pub fn frame_html(component: &str) -> String {
     format!(
         r#"<!doctype html>
@@ -46,26 +46,38 @@ pub fn frame_html(component: &str) -> String {
 <head>
 <meta charset="utf-8">
 <style>html,body{{margin:0;padding:0;background:transparent}}</style>
+<script type="module" src="./frame.js"></script>
 </head>
 <body>
+<p id="fallback" style="font:13px system-ui;color:#888">loading…</p>
 <{component} id="view"></{component}>
-<script type="module">
-import "./dist/index.js";
-const view = document.getElementById("view");
-const tell = () => parent.postMessage({{ type: "ft.height", height: document.documentElement.scrollHeight }}, "*");
-addEventListener("message", (event) => {{
-  if (event.data && event.data.type === "ft.render") {{
-    view.setAttribute("text", String(event.data.text ?? ""));
-    requestAnimationFrame(tell);
-  }}
-}});
-new ResizeObserver(tell).observe(document.documentElement);
-parent.postMessage({{ type: "ft.ready" }}, "*");
-</script>
 </body>
 </html>
 "#
     )
+}
+
+/// What the frame does: load the plugin, hand it the text the app sends, and say how tall it is.
+/// It talks to the app only through `postMessage`; it never sees the app's window.
+pub fn frame_js() -> &'static str {
+    r#"import "./dist/index.js";
+
+const fallback = document.getElementById("fallback");
+if (fallback) fallback.remove();
+
+const view = document.getElementById("view");
+const tell = () => parent.postMessage({ type: "ft.height", height: document.documentElement.scrollHeight }, "*");
+
+addEventListener("message", (event) => {
+  if (event.data && event.data.type === "ft.render") {
+    view.setAttribute("text", String(event.data.text ?? ""));
+    requestAnimationFrame(tell);
+  }
+});
+
+new ResizeObserver(tell).observe(document.documentElement);
+parent.postMessage({ type: "ft.ready" }, "*");
+"#
 }
 
 /// The type of a file we serve; anything we do not know is bytes, never markup.
@@ -126,6 +138,11 @@ pub fn file_in(dir: &Path, file: &str) -> Option<PathBuf> {
     path.starts_with(dir).then_some(path)
 }
 
+/// The frame is sandboxed, so its origin is opaque: a module script is fetched with CORS and the
+/// answer has to say that an opaque origin may read it. The files are the plugin's own, nothing
+/// of the app or of the chat.
+pub const ALLOW_OPAQUE_ORIGIN: (&str, &str) = ("Access-Control-Allow-Origin", "*");
+
 /// What a plugin's frame is allowed, from what the user granted it.
 pub fn policy_for(granted: &Permissions) -> String {
     granted.content_security_policy()
@@ -162,8 +179,13 @@ mod tests {
     fn the_frame_loads_the_plugin_and_shows_its_component() {
         let html = frame_html("ft-code-block");
         assert!(html.contains("<ft-code-block id=\"view\">"));
-        assert!(html.contains(r#"import "./dist/index.js""#));
-        assert!(html.contains("ft.render"), "the app hands it the text through postMessage");
+        assert!(html.contains(r#"src="./frame.js""#), "the script is a file, never written in the page");
+        assert!(!html.contains("import "), "nothing of the script lives in the page");
+        assert!(html.contains("loading…"), "something shows even if the script never runs");
+
+        let script = frame_js();
+        assert!(script.contains(r#"import "./dist/index.js""#));
+        assert!(script.contains("ft.render"), "the app hands it the text through postMessage");
     }
 
     // §55: a plugin without the network permission cannot reach anything.
@@ -173,6 +195,12 @@ mod tests {
         assert!(policy.contains("connect-src 'none'"));
         let with_network = Permissions { network: vec!["api.openai.com".to_owned()], ..Permissions::default() };
         assert!(policy_for(&with_network).contains("connect-src https://api.openai.com"));
+    }
+
+    // Without this the module of a sandboxed frame never loads, and the plugin shows nothing.
+    #[test]
+    fn a_sandboxed_frame_may_read_its_own_files() {
+        assert_eq!(ALLOW_OPAQUE_ORIGIN, ("Access-Control-Allow-Origin", "*"));
     }
 
     #[test]

@@ -88,6 +88,10 @@ mod given {
     }
 }
 
+/// Where a plugin's own files come from, one form per platform. The frame is sandboxed, so its
+/// origin is opaque and `'self'` would match nothing.
+const PLUGIN_ORIGINS: &str = "http://ftplugin.localhost https://ftplugin.localhost ftplugin://localhost";
+
 impl Permissions {
     /// The policy the WebView enforces on this plugin: its own files, no network beyond what it
     /// was granted, and no way to bring in code from anywhere else (§55, §58).
@@ -98,9 +102,9 @@ impl Permissions {
             self.network.iter().map(|host| format!("https://{host}")).collect::<Vec<_>>().join(" ")
         };
         format!(
-            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
-             font-src 'self'; connect-src {connect}; base-uri 'none'; form-action 'none'; child-src 'none'; \
-             frame-ancestors http://tauri.localhost tauri://localhost"
+            "default-src 'none'; script-src {PLUGIN_ORIGINS}; style-src {PLUGIN_ORIGINS} 'unsafe-inline'; \
+             img-src {PLUGIN_ORIGINS} data:; font-src {PLUGIN_ORIGINS}; connect-src {connect}; base-uri 'none'; \
+             form-action 'none'; child-src 'none'; frame-ancestors http://tauri.localhost tauri://localhost"
         )
     }
 }
@@ -481,6 +485,11 @@ mod tests {
         // The plugin is shown inside the app's own frame: only the app may embed it, and it may
         // not embed anything itself.
         let policy = none.content_security_policy();
+        // The frame is sandboxed, so its origin is opaque and `'self'` matches nothing: the
+        // plugin's own scheme has to be named for its script to run at all.
+        assert!(policy.contains("script-src http://ftplugin.localhost"), "{policy}");
+        assert!(policy.contains("ftplugin://localhost"), "{policy}");
+        assert!(!policy.contains("script-src 'self'"), "{policy}");
         assert!(policy.contains("frame-ancestors http://tauri.localhost tauri://localhost"), "{policy}");
         assert!(policy.contains("child-src 'none'"), "{policy}");
         assert!(!policy.contains("frame-ancestors 'none'"), "that would keep the app from showing it");

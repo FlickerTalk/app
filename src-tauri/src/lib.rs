@@ -25,6 +25,8 @@ pub fn run() {
                 .and_then(|(one, file)| {
                     let (body, kind) = if file == "frame.html" {
                         (plugins::frame_html(&one.component).into_bytes(), plugins::content_type("frame.html"))
+                    } else if file == "frame.js" {
+                        (plugins::frame_js().as_bytes().to_vec(), plugins::content_type("frame.js"))
                     } else {
                         let path = plugins::file_in(&one.dir, &file)?;
                         (std::fs::read(path).ok()?, plugins::content_type(&file))
@@ -36,7 +38,8 @@ pub fn run() {
                 Some((body, kind, policy)) => tauri::http::Response::builder()
                     .header(tauri::http::header::CONTENT_TYPE, kind)
                     .header(tauri::http::header::CONTENT_SECURITY_POLICY, policy)
-                    .header("Cross-Origin-Resource-Policy", "same-site")
+                    .header(plugins::ALLOW_OPAQUE_ORIGIN.0, plugins::ALLOW_OPAQUE_ORIGIN.1)
+                    .header("Cross-Origin-Resource-Policy", "cross-origin")
                     .body(body)
                     .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
                 None => tauri::http::Response::builder()
