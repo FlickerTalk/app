@@ -629,6 +629,13 @@ pub async fn core_open_file(message: String, app: AppHandle, client: State<'_, C
     app.platform().open_file(&file.path, &file.mime).map_err(failed)
 }
 
+/// Opens the phone's share sheet with a text, such as the Contact Card link (§32). Fails where
+/// there is none (desktop): the UI copies the link instead.
+#[tauri::command]
+pub async fn core_share(text: String, app: AppHandle) -> Result<(), String> {
+    app.platform().share_text(&text).map_err(failed)
+}
+
 /// Copies the file to the phone's Downloads.
 #[tauri::command]
 pub async fn core_save_file(message: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {

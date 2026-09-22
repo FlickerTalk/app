@@ -3,6 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import AddContactPage from "./AddContactPage.vue";
 import QrCode from "../components/QrCode.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
+import { installTauri } from "../__tests__/tauri";
 
 const replace = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ replace }) }));
@@ -27,13 +28,31 @@ describe("AddContactPage", () => {
     expect(wrapper.text()).toContain(fixture.me.id);
   });
 
-  it("copies the link to share it another way", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  // The system share sheet (WhatsApp, Signal, mail…): nobody copies and pastes a code.
+  it("shares the link through the phone's share sheet", async () => {
     const wrapper = mount(AddContactPage, { shallow: true });
     await flushPromises();
     await wrapper.find("[aria-label='Share link']").trigger("click");
+    await flushPromises();
+    const shared = calls.find(([command]) => command === "core_share");
+    expect(shared?.[1]).toEqual({ text: "Add me on FlickerTalk: https://flickertalk.com/add#card" });
+  });
+
+  // Where there is no share sheet (a desktop), the link is copied instead.
+  it("copies the link where it cannot be shared", async () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    installTauri((command) => {
+      if (command === "core_card") return "https://flickertalk.com/add#card";
+      if (command === "core_share") throw new Error("not available on this platform");
+      return undefined;
+    });
+    const wrapper = mount(AddContactPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[aria-label='Share link']").trigger("click");
+    await flushPromises();
     expect(writeText).toHaveBeenCalledWith("https://flickertalk.com/add#card");
+    expect(wrapper.text()).toContain("Link copied");
   });
 
   it("can switch to scanning the other code", async () => {

@@ -15,4 +15,10 @@ final class PlatformPluginTests: XCTestCase {
     func testTheKeyStaysOnThisDevice() throws {
         XCTAssertEqual(keyAccessibility(), kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
     }
+
+    // The share sheet gets the text without stray spaces, and never empty.
+    func testOnlyRealTextIsShared() throws {
+        XCTAssertEqual(shareableText("  Add me: https://flickertalk.com/add#card\n"), "Add me: https://flickertalk.com/add#card")
+        XCTAssertNil(shareableText("   "))
+    }
 }
