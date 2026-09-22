@@ -11,9 +11,10 @@ import {
   IonTextarea,
   IonToolbar,
 } from "@ionic/vue";
-import { add, appsOutline, arrowUp, callOutline, closeOutline, micOutline, trashOutline, videocamOutline } from "ionicons/icons";
+import { add, appsOutline, arrowUp, callOutline, closeOutline, happyOutline, micOutline, trashOutline, videocamOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
+import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import { readyPlugins } from "../plugins";
@@ -39,7 +40,15 @@ async function send() {
   const text = draft.value.trim();
   if (!text) return;
   draft.value = "";
+  emoji.value = false;
   await sendText(props.chatId, text);
+}
+
+// §84, issue app#4: the emoji are the app's own, next to the composer.
+const emoji = ref(false);
+
+function addEmoji(one: string) {
+  draft.value += one;
 }
 
 // §62: files go straight to the contact; the picker is the system's.
@@ -254,6 +263,18 @@ watch(
             <ion-icon :icon="add" aria-hidden="true" />
           </button>
           <input ref="picker" type="file" multiple hidden @change="attach" />
+          <button
+            v-if="!recording.active"
+            type="button"
+            class="ft-round ft-round--ghost"
+            :class="{ 'is-open': emoji }"
+            :aria-label="$t('chat.emoji')"
+            :aria-pressed="emoji"
+            data-test="open-emoji"
+            @click="emoji = !emoji"
+          >
+            <ion-icon :icon="happyOutline" aria-hidden="true" />
+          </button>
           <div v-if="recording.active" class="ft-recording" data-test="recording">
             <span class="ft-recording__dot" aria-hidden="true" />
             <span class="ft-recording__time">{{ elapsed }}</span>
@@ -287,11 +308,16 @@ watch(
           </button>
         </div>
       </ion-toolbar>
+      <emoji-picker v-if="emoji" @pick="addEmoji" />
     </ion-footer>
   </div>
 </template>
 
 <style scoped>
+.ft-round--ghost.is-open {
+  color: var(--ft-accent);
+}
+
 .ft-thread {
   position: absolute;
   inset: 0;

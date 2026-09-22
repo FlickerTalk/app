@@ -39,7 +39,8 @@
     "voiceCall": "Voice call",
     "videoCall": "Video call",
     "contactSettings": "Contact settings",
-    "openWithPlugin": "Open with a plugin"
+    "openWithPlugin": "Open with a plugin",
+    "emoji": "Emoji"
   },
   "status": {
     "pending": "Waiting for device",
@@ -195,5 +196,18 @@
     "asksNothing": "Asks for nothing",
     "remove": "Remove",
     "none": "No plugins yet"
+  },
+  "emoji": {
+    "open": "Emoji",
+    "recent": "Recently used",
+    "faces": "Faces",
+    "hands": "People",
+    "hearts": "Hearts",
+    "nature": "Nature",
+    "food": "Food",
+    "activity": "Activity",
+    "travel": "Travel",
+    "things": "Objects",
+    "symbols": "Symbols"
   }
 }
