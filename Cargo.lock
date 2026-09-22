@@ -1618,6 +1618,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-barcode-scanner",
+ "tauri-plugin-ft-platform",
  "tauri-plugin-opener",
  "tokio",
 ]
@@ -5573,6 +5574,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81f76741c77b8213350fd37a5608f0c78f4e61fe33f0334f5dfd0e6cc8d00138"
 dependencies = [
  "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "tauri-plugin-ft-platform"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
  "tauri",

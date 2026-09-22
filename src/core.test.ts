@@ -89,6 +89,10 @@ describe("core bridge", () => {
     await core.markRead("ft_bob");
     await core.setMailbox(false);
     await core.setName("  Ioan  ");
+    await core.openFile("f1");
+    await core.saveFile("f1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_open_file", { message: "f1" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_save_file", { message: "f1" });
     expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hello" });
     expect(tauri.invoke).toHaveBeenCalledWith("core_mark_read", { contact: "ft_bob" });
     expect(tauri.invoke).toHaveBeenCalledWith("core_set_mailbox", { enabled: false });

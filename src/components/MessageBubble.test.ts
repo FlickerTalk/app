@@ -53,4 +53,37 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).toContain("Failed");
     expect(wrapper.find("[role='progressbar']").exists()).toBe(false);
   });
+
+  const arrived = {
+    ...base,
+    mine: false,
+    kind: "file",
+    file: { name: "menu.pdf", size: "1.2 MB", progress: 1, state: "done", mime: "application/pdf" },
+  };
+
+  it("opens an arrived file when tapped", async () => {
+    const wrapper = mount(MessageBubble, { props: { message: arrived }, shallow: true });
+    await wrapper.find("[data-test='file']").trigger("click");
+    expect(wrapper.emitted("open")).toEqual([["m1"]]);
+  });
+
+  it("offers to save an arrived file to Downloads", async () => {
+    const wrapper = mount(MessageBubble, { props: { message: arrived }, shallow: true });
+    await wrapper.find("[aria-label='Save to Downloads']").trigger("click");
+    expect(wrapper.emitted("save")).toEqual([["m1"]]);
+    expect(wrapper.emitted("open")).toBeUndefined();
+  });
+
+  it("shows when the file has been saved", () => {
+    const wrapper = mount(MessageBubble, { props: { message: arrived, saved: true }, shallow: true });
+    expect(wrapper.find("[aria-label='Saved to Downloads']").exists()).toBe(true);
+  });
+
+  it("cannot open or save a file still on its way", async () => {
+    const message = { ...arrived, file: { ...arrived.file, progress: 0.4, state: "receiving" } };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    await wrapper.find("[data-test='file']").trigger("click");
+    expect(wrapper.emitted("open")).toBeUndefined();
+    expect(wrapper.find("[aria-label='Save to Downloads']").exists()).toBe(false);
+  });
 });

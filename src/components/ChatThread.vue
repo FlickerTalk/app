@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import {
   IonBackButton,
   IonButton,
@@ -15,7 +15,7 @@ import { add, arrowUp, callOutline, videocamOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
-import { chat as chatOf, loadMessages, markRead, sendFile, sendText } from "../core";
+import { chat as chatOf, loadMessages, markRead, openFile, saveFile, sendFile, sendText } from "../core";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
 
@@ -47,6 +47,13 @@ async function attach(event: Event) {
   for (const file of files) {
     await sendFile(props.chatId, file);
   }
+}
+
+const saved = reactive(new Set<string>());
+
+async function save(id: string) {
+  await saveFile(id);
+  saved.add(id);
 }
 
 type Scrollable = { $el?: { scrollToBottom?: (duration: number) => Promise<void> } };
@@ -114,7 +121,14 @@ watch(
 
     <ion-content ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
-      <MessageBubble v-for="message in messages" :key="message.id" :message="message" />
+      <MessageBubble
+        v-for="message in messages"
+        :key="message.id"
+        :message="message"
+        :saved="saved.has(message.id)"
+        @open="openFile"
+        @save="save"
+      />
       <div class="ft-thread__end" />
     </ion-content>
 

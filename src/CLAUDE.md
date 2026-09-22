@@ -33,9 +33,10 @@ Ficheros (M5): el botón de adjuntar abre el selector del sistema (`<input type=
 WebView de Android admite); `sendFile` copia el fichero a la app en trozos de 512 KiB en base64 (en
 Android el IPC de Tauri solo lleva JSON) y el núcleo lo ofrece. La burbuja muestra el progreso,
 «Paused» sin conexión directa, «Failed» si el hash no coincide y las imágenes con el protocolo
-`asset` (limitado a `$APPDATA/files` y `$APPDATA/outgoing`). Pendiente: abrir o guardar un fichero
-recibido (necesita un puente nativo), llamadas (M6; la lista de llamadas está vacía, nunca
-inventada) y el resto del MVP (M7).
+`asset` (limitado a `$APPDATA/files`, donde viven también las subidas). Tocar un fichero lo abre en
+otra app y el botón de descarga lo copia a Descargas (puente nativo de `src-tauri/platform`); los de
+otros, solo cuando han llegado enteros. Pendiente: llamadas (M6; la lista de llamadas está vacía,
+nunca inventada) y el resto del MVP (M7).
 
 ## Reglas
 

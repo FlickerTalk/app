@@ -58,6 +58,17 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_send_file", { contact: "c1", upload: "up1", name: "menu.pdf", mime: "application/pdf" }]);
   });
 
+  it("opens and saves files through the core", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    const bubble = wrapper.findAllComponents(MessageBubble)[0];
+    bubble.vm.$emit("open", "m4");
+    bubble.vm.$emit("save", "m4");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+    expect(calls).toContainEqual(["core_save_file", { message: "m4" }]);
+    expect(wrapper.findAllComponents(MessageBubble).find((b) => b.props("message").id === "m4")?.props("saved")).toBe(true);
+  });
+
   it("offers voice and video calls", () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     expect(wrapper.find("[aria-label='Voice call']").exists()).toBe(true);

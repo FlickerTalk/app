@@ -13,6 +13,14 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
 - `gen/android/` — proyecto Android Studio generado por `tauri android init`; se versiona (la
   plantilla solo ignora `gen/schemas`). `gen/apple/` aún no existe (falta Xcode).
 - `icons/`, `build.rs` — plantilla.
+- `platform/` — plugin de Tauri propio (`tauri-plugin-ft-platform`), el **puente nativo**: lo que
+  Android solo deja hacer a Kotlin. Hoy abre un fichero de la app en otro visor (su propio
+  `FtFileProvider`, limitado a la carpeta `files/`) y lo copia a Descargas (MediaStore). La WebView no
+  lo llama: solo el Rust de la app (`client.rs`). Tests de Kotlin:
+  `(cd gen/android && ./gradlew :tauri-plugin-ft-platform:testDebugUnitTest)`.
+- En el `AndroidManifest.xml` de la app, las copias de Android están desactivadas
+  (`allowBackup=false` y `data_extraction_rules.xml` sin nada): el historial y las claves no salen
+  del teléfono (`§61`).
 
 La demo `greet` y `tauri-plugin-opener` vienen de la plantilla y se sustituirán en el PoC 0.
 
