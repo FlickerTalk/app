@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1BB4D4EEDFBD0478C9C4732 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = FC31FFBF06FE6A232FAB0FB0 /* PrivacyInfo.xcprivacy */; };
 		03B49AAF1F9070B233BA17DC /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = A7438964ED5C200B0062A4B1 /* main.mm */; };
 		1282F3667019B6008A7E1A94 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C08771C32E7EDC0DFF531DCE /* UIKit.framework */; };
 		2A221C3EE94547C34F70D812 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C98A1B6514F4CE3EBB5A9669 /* Security.framework */; };
@@ -42,6 +43,7 @@
 		F153667AA0A615FE2C3CE396 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		F184F67009BA534568065BD0 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		FFB7633D62A4125795102420 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FC31FFBF06FE6A232FAB0FB0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -138,6 +140,7 @@
 			children = (
 				856EC860DA4670985DC385DF /* flickertalk_iOS.entitlements */,
 				FFB7633D62A4125795102420 /* Info.plist */,
+				FC31FFBF06FE6A232FAB0FB0 /* PrivacyInfo.xcprivacy */,
 			);
 			path = flickertalk_iOS;
 			sourceTree = "<group>";
@@ -212,6 +215,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1BB4D4EEDFBD0478C9C4732 /* PrivacyInfo.xcprivacy in Resources */,
 				6619A1B22AB99007DE8B6E92 /* Assets.xcassets in Resources */,
 				8DBC962D73C3D9AB279AAD92 /* LaunchScreen.storyboard in Resources */,
 				2AFEDC3FCCB480E9C02E2437 /* assets in Resources */,

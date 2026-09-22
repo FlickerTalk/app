@@ -78,6 +78,12 @@ irá por variables de entorno (`ANDROID_UPLOAD_KEYSTORE_FILE`, `ANDROID_UPLOAD_K
   (Homebrew). `src-tauri/gen/apple/` se versiona **sin** equipo de firma: compila e instala
   `APPLE_DEVELOPMENT_TEAM=<team> scripts/ios-build.sh [udid]`, que pone el equipo en el proyecto
   solo mientras compila (la exportación lo necesita ahí).
+  El **manifiesto de privacidad** que pide la App Store está en
+  `src-tauri/gen/apple/flickertalk_iOS/PrivacyInfo.xcprivacy` (copiado a la raíz del paquete por la
+  fase *Resources*): no se recoge ningún dato y se declaran las APIs de motivo obligado que usan la
+  app y sus librerías. **No regeneres el proyecto con `xcodegen`**: borra las descripciones de
+  cámara y micrófono del `Info.plist` y las líneas `DEVELOPMENT_TEAM = ""` que necesita
+  `scripts/ios-build.sh`.
   Un iPhone nuevo se registra una vez con `xcodebuild -allowProvisioningUpdates
   -allowProvisioningDeviceRegistration -destination id=<udid> …`. Los permisos de cámara y micrófono
   están en `src-tauri/Info.ios.plist`. El WebView de iOS no habla CDP: en el iPhone se prueba a mano.
