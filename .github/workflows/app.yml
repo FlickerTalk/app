@@ -56,8 +56,9 @@ jobs:
   android:
     needs: [web, rust]
     runs-on: ubuntu-latest
-    # Pull requests build without an environment, so without secrets.
-    environment: ${{ github.event_name == 'pull_request' && '' || 'release' }}
+    # Pull requests build without an environment, so without secrets. ('' is falsy in expressions:
+    # the empty branch has to come last.)
+    environment: ${{ github.event_name != 'pull_request' && 'release' || '' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
