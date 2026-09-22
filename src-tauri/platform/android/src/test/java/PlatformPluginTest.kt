@@ -60,4 +60,20 @@ class PlatformPluginTest {
         assertEquals("Add me: https://flickertalk.com/add#card", shareableText("  Add me: https://flickertalk.com/add#card\n"))
         assertNull(shareableText("   "))
     }
+
+    // §66: a call arriving with the app in the background has to show on the screen, not just
+    // ring. Android does it with a call notification and a full-screen intent, on its own channel
+    // so the user can keep calls loud and messages quiet.
+    @Test
+    fun callsHaveTheirOwnNotificationChannel() {
+        assertEquals("ft.call", CALL_CHANNEL)
+    }
+
+    @Test
+    fun theCallNotificationSaysWhoIsCallingAndWhatKind() {
+        assertEquals("Ioan", callTitle("Ioan"))
+        assertEquals("a contact with no name is still a caller", "Someone", callTitle("  "))
+        assertEquals("Incoming video call", callText(true))
+        assertEquals("Incoming call", callText(false))
+    }
 }

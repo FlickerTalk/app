@@ -62,6 +62,15 @@ fun shouldNotify(importance: Int): Boolean =
 private const val CHANNEL = "ft.activity"
 private const val NOTIFICATION = 1
 
+/** Calls ring on their own channel, so messages and calls can be set apart (§66). */
+const val CALL_CHANNEL = "ft.call"
+private const val CALL_NOTIFICATION = 2
+
+/** Who is calling; a contact with no name is still a caller. */
+fun callTitle(name: String): String = name.trim().ifEmpty { "Someone" }
+
+fun callText(video: Boolean): String = if (video) "Incoming video call" else "Incoming call"
+
 /**
  * FCM wake-ups (M4). The push carries nothing to read: when the app is not on screen, a plain
  * notification invites the user to open it; opening it connects and fetches what waits.
@@ -76,6 +85,48 @@ class FtMessagingService : FirebaseMessagingService() {
 
     // A new token reaches the router the next time the app starts.
     override fun onNewToken(token: String) {}
+}
+
+/**
+ * The incoming call on the screen: its own high channel, the call category and a full-screen
+ * intent that opens the app over the lock screen. If the system does not allow full screen (§66,
+ * Android 14 keeps it for calling apps), it still shows as a heads-up notification.
+ */
+private fun showCall(context: Context, title: String, text: String) {
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        manager.createNotificationChannel(
+            NotificationChannel(CALL_CHANNEL, "Calls", NotificationManager.IMPORTANCE_HIGH).apply {
+                setSound(null, null) // the ringtone is ours, so the notification stays quiet
+                enableVibration(false)
+            }
+        )
+    }
+    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    } ?: return
+    val open = PendingIntent.getActivity(
+        context,
+        1,
+        launch,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    val notification = NotificationCompat.Builder(context, CALL_CHANNEL)
+        .setSmallIcon(R.drawable.ft_notification)
+        .setContentTitle(title)
+        .setContentText(text)
+        .setPriority(NotificationCompat.PRIORITY_MAX)
+        .setCategory(NotificationCompat.CATEGORY_CALL)
+        .setOngoing(true)
+        .setAutoCancel(true)
+        .setContentIntent(open)
+        .setFullScreenIntent(open, true)
+        .build()
+    try {
+        manager.notify(CALL_NOTIFICATION, notification)
+    } catch (_: SecurityException) {
+        // Notifications not allowed: the ringtone still plays.
+    }
 }
 
 private fun showActivityNotification(context: Context) {
@@ -145,6 +196,12 @@ fun ringingFor(ringerMode: Int): Ringing = when (ringerMode) {
 /** Ring 0.8 s, pause 1.2 s, and again. */
 private val RING_PATTERN = longArrayOf(0, 800, 1200)
 
+@InvokeArg
+class RingingArgs {
+    var caller: String = ""
+    var video: Boolean = false
+}
+
 /** The text for the share sheet, or null when there is nothing to share. */
 fun shareableText(text: String): String? = text.trim().ifEmpty { null }
 
@@ -178,11 +235,17 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
     }
 
-    /** An incoming call (§66): the user's ringtone and vibration, until `stopRinging`. */
+    /**
+     * An incoming call (§66): the user's ringtone and vibration, and a call notification with a
+     * full-screen intent, so the call shows on the screen even with the app in the background or
+     * the phone locked. It all goes away with `stopRinging`.
+     */
     @Command
     fun startRinging(invoke: Invoke) {
         try {
+            val args = invoke.parseArgs(RingingArgs::class.java)
             silence()
+            showCall(activity, callTitle(args.caller), callText(args.video))
             val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val ringing = ringingFor(audio.ringerMode)
             if (ringing.sound) {
@@ -274,6 +337,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun stopRinging(invoke: Invoke) {
+        activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
         silence()
         invoke.resolve()
     }
