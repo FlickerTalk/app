@@ -141,6 +141,17 @@ async fn scanning_a_card_pairs_both_devices() {
     assert_eq!(bob.store().contact(&id(&alice)).await.unwrap().expect("alice").name, "Alice");
 }
 
+// §29: the safety number both users compare in person.
+#[tokio::test(flavor = "multi_thread")]
+async fn both_sides_show_the_same_fingerprint() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let at_alice = alice.fingerprint(&id(&bob)).await.expect("fingerprint");
+    assert_eq!(at_alice, bob.fingerprint(&id(&alice)).await.expect("fingerprint"));
+    assert_eq!(at_alice.split(' ').count(), 12);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_text_is_delivered_and_acknowledged() {
     let net = Net::new();

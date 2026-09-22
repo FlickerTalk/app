@@ -34,14 +34,8 @@ import {
   swapHorizontalOutline,
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
-import data from "../mock/chats.json";
-import {
-  setCallRouting,
-  setMailbox,
-  storedCallRouting,
-  storedMailbox,
-  type CallRouting,
-} from "../preferences";
+import { setMailbox, store } from "../core";
+import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
   applyAppearance,
@@ -55,11 +49,9 @@ import {
 // Development builds, or PoC builds made with VITE_POC=1 (Android APKs are production builds).
 const isDev = import.meta.env.DEV || import.meta.env.VITE_POC === "1";
 
-const mailbox = ref(storedMailbox());
-
-function onMailboxChange(event: CustomEvent<{ checked: boolean }>) {
-  mailbox.value = event.detail.checked;
-  setMailbox(mailbox.value);
+// Plan §19: the preference lives in the core, which tells contacts; the server never stores it.
+async function onMailboxChange(event: CustomEvent<{ checked: boolean }>) {
+  await setMailbox(event.detail.checked);
 }
 
 const callRouting = ref(storedCallRouting());
@@ -111,10 +103,10 @@ function chooseAppearance(id: Appearance) {
 
       <div class="ft-settings">
         <section class="ft-me">
-          <Avatar :name="data.me.name" :hue="data.me.hue" :size="60" />
+          <Avatar :name="store.me.name || store.me.id" :hue="store.me.hue" :size="60" />
           <span class="ft-me__text">
             <span class="ft-me__label">{{ $t("settings.yourId") }}</span>
-            <code class="ft-me__id">{{ data.me.id }}</code>
+            <code class="ft-me__id">{{ store.me.id }}</code>
           </span>
           <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('settings.copyId')">
             <ion-icon :icon="copyOutline" aria-hidden="true" />
@@ -127,7 +119,7 @@ function chooseAppearance(id: Appearance) {
         <ion-list inset class="ft-group">
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="fileTrayOutline" aria-hidden="true" /></span>
-            <ion-toggle :checked="mailbox" :aria-label="$t('settings.mailbox')" @ion-change="onMailboxChange">
+            <ion-toggle :checked="store.me.mailbox" :aria-label="$t('settings.mailbox')" @ion-change="onMailboxChange">
               <span class="ft-item__title">{{ $t("settings.mailbox") }}</span>
               <span class="ft-item__note">{{ $t("settings.mailboxNote") }}</span>
             </ion-toggle>

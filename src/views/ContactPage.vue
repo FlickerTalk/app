@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   IonBackButton,
   IonButtons,
@@ -15,27 +15,28 @@ import {
 import { banOutline, flagOutline, qrCodeOutline } from "ionicons/icons";
 import { useRoute } from "vue-router";
 import Avatar from "../components/Avatar.vue";
-import data from "../mock/chats.json";
+import { block, chat, contactDetails, type ContactDetails } from "../core";
 
 const route = useRoute();
-const contact = computed(
-  () => data.chats.find((chat) => chat.id === String(route.params.id)) ?? data.chats[0],
-);
+const id = String(route.params.id);
+const contact = computed(() => chat(id) ?? { name: "", hue: 0, connected: false });
+const details = ref<ContactDetails | null>(null);
 
-// Plan §29: every contact has a fingerprint both sides can compare in person.
-// Placeholder until ft-identity computes the real one from the public keys.
-const fingerprint = computed(() => {
-  const source = `${contact.value.id}:${contact.value.name}`;
-  const groups: string[] = [];
-  for (let group = 0; group < 12; group += 1) {
-    let value = 0x9e37 + group * 0x85eb;
-    for (const char of source) {
-      value = (value * 31 + char.charCodeAt(0) + group) % 0xffff;
-    }
-    groups.push(value.toString(16).padStart(4, "0"));
-  }
-  return groups.join(" ");
+// Plan §29: every contact has a fingerprint both sides can compare in person, computed by the
+// core from the two identity keys.
+const fingerprint = computed(() => details.value?.fingerprint ?? "");
+const blocked = computed(() => details.value?.blocked ?? false);
+
+onMounted(async () => {
+  details.value = await contactDetails(id);
 });
+
+// Plan §35: a blocked contact's messages, signals and mail are dropped on this phone.
+async function toggleBlock() {
+  const next = !blocked.value;
+  await block(id, next);
+  if (details.value) details.value.blocked = next;
+}
 </script>
 
 <template>
@@ -72,9 +73,9 @@ const fingerprint = computed(() => {
             <span slot="start" class="ft-tile"><ion-icon :icon="qrCodeOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("contact.verify") }}</ion-label>
           </ion-item>
-          <ion-item button detail lines="none">
+          <ion-item button detail lines="none" data-test="block" @click="toggleBlock">
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
-            <ion-label>{{ $t("contact.block") }}</ion-label>
+            <ion-label>{{ blocked ? $t("contact.unblock") : $t("contact.block") }}</ion-label>
           </ion-item>
           <ion-item button detail lines="none">
             <span slot="start" class="ft-tile ft-tile--danger">

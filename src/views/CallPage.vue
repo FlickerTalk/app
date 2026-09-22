@@ -11,14 +11,12 @@ import {
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
-import data from "../mock/chats.json";
+import { chat } from "../core";
 
 const route = useRoute();
 const router = useRouter();
 
-const contact = computed(
-  () => data.chats.find((chat) => chat.id === String(route.params.id)) ?? data.chats[0],
-);
+const contact = computed(() => chat(String(route.params.id)) ?? { name: "", hue: 0, connected: false });
 const isVideo = computed(() => Boolean(route.query.video));
 
 const muted = ref(false);

@@ -2,7 +2,18 @@
 import { IonContent, IonHeader, IonIcon, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
 import { arrowDownOutline, arrowUpOutline, callOutline, videocamOutline } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
-import data from "../mock/chats.json";
+
+interface CallEntry {
+  id: string;
+  name: string;
+  hue: number;
+  direction: "incoming" | "outgoing" | "missed";
+  kind: "voice" | "video";
+  time: string;
+}
+
+// Calls arrive with milestone M6 (Plan §106): until then the history is empty, never invented.
+const calls: CallEntry[] = [];
 
 const DIRECTION_ICON: Record<string, string> = {
   incoming: arrowDownOutline,
@@ -26,9 +37,11 @@ const DIRECTION_ICON: Record<string, string> = {
         </ion-toolbar>
       </ion-header>
 
-      <ul class="ft-rows">
+      <p v-if="!calls.length" class="ft-empty" data-test="empty">{{ $t("calls.empty") }}</p>
+
+      <ul v-else class="ft-rows">
         <li
-          v-for="call in data.calls"
+          v-for="call in calls"
           :key="call.id"
           class="ft-call"
           :class="{ 'is-missed': call.direction === 'missed' }"
@@ -62,6 +75,12 @@ const DIRECTION_ICON: Record<string, string> = {
 </template>
 
 <style scoped>
+.ft-empty {
+  margin: 20vh 0 0;
+  color: var(--ft-muted);
+  text-align: center;
+}
+
 .ft-call {
   display: flex;
   align-items: center;

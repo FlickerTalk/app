@@ -11,7 +11,7 @@ import {
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import { t } from "../i18n";
-import data from "../mock/chats.json";
+import { store } from "../core";
 
 const sections = [
   { path: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline, activeIcon: chatbubbles },
@@ -58,7 +58,7 @@ const isActive = (path: string) => route.path.startsWith(path);
     </button>
 
     <span class="ft-rail__spacer" />
-    <Avatar :name="data.me.name" :hue="data.me.hue" :size="36" />
+    <Avatar :name="store.me.name || store.me.id" :hue="store.me.hue" :size="36" />
   </nav>
 </template>
 

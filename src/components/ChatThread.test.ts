@@ -1,16 +1,50 @@
-import { describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import { IonTextarea } from "@ionic/vue";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
-import data from "../mock/chats.json";
+import { calls, fixture, seed } from "../__tests__/seed";
+import { chat } from "../core";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
 
 describe("ChatThread", () => {
+  beforeEach(() => seed());
+
   it("shows every message of the conversation", () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
-    expect(wrapper.findAllComponents(MessageBubble)).toHaveLength(data.chats[0].messages.length);
+    expect(wrapper.findAllComponents(MessageBubble)).toHaveLength(fixture.chats[0].messages.length);
+  });
+
+  it("loads the conversation from the core and marks it read", async () => {
+    mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_messages", { contact: "c1", limit: 200 }]);
+    expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+  });
+
+  // A message arriving while the conversation is on screen has been seen: its sender learns it.
+  it("marks newly arrived messages read while the conversation is open", async () => {
+    mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await flushPromises();
+    calls.length = 0;
+    // The list's unread count may still be stale when the new message shows up.
+    const shown = chat("c1");
+    if (shown) shown.unread = 0;
+    shown?.messages.push({ id: "new", mine: false, text: "still there?", time: "09:50" });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+  });
+
+  it("sends what is written and clears the composer", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "  hello there ");
+    await flushPromises();
+    await wrapper.find("[aria-label='Send']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hello there" }]);
+    expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
   });
 
   it("offers voice and video calls", () => {

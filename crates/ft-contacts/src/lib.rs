@@ -183,6 +183,21 @@ impl ContactCard {
     }
 }
 
+/// Safety number of a pair of contacts (§29): the same on both phones, compared in person to
+/// rule out a swapped key. 12 groups of 4 hex digits from BLAKE3 over both identity keys, sorted.
+pub fn fingerprint(one: &Ed25519PublicKey, other: &Ed25519PublicKey) -> String {
+    let (first, second) = if one.as_bytes() <= other.as_bytes() { (one, other) } else { (other, one) };
+    let mut hasher = blake3::Hasher::new_derive_key("FlickerTalk contact fingerprint v1");
+    hasher.update(first.as_bytes());
+    hasher.update(second.as_bytes());
+    let hash = hasher.finalize();
+    hash.as_bytes()[..24]
+        .chunks(2)
+        .map(|pair| format!("{:02x}{:02x}", pair[0], pair[1]))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn key_bytes(bytes: &[u8]) -> Result<[u8; 32]> {
     bytes.try_into().map_err(|_| anyhow!("a key has 32 bytes"))
 }
@@ -266,6 +281,22 @@ mod tests {
     fn links_that_are_not_cards_are_rejected() {
         assert!(ContactCard::from_link("https://flickertalk.com/add#bm90IGEgY2FyZA").is_err());
         assert!(ContactCard::from_link("https://example.com/").is_err());
+    }
+
+    // §29: both phones compute the same safety number and the users compare it in person.
+    #[test]
+    fn both_sides_see_the_same_fingerprint() {
+        let (alice, bob) = (Identity::generate(), Identity::generate());
+        let at_alice = fingerprint(&alice.signing_key(), &bob.signing_key());
+        assert_eq!(at_alice, fingerprint(&bob.signing_key(), &alice.signing_key()));
+        assert_eq!(at_alice.split(' ').count(), 12);
+        assert!(at_alice.split(' ').all(|group| group.len() == 4 && group.chars().all(|c| c.is_ascii_hexdigit())));
+    }
+
+    #[test]
+    fn another_pair_has_another_fingerprint() {
+        let (alice, bob, mallory) = (Identity::generate(), Identity::generate(), Identity::generate());
+        assert_ne!(fingerprint(&alice.signing_key(), &bob.signing_key()), fingerprint(&alice.signing_key(), &mallory.signing_key()));
     }
 
     // §34: the router only ever sees a hash of the capability.

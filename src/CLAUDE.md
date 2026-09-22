@@ -13,17 +13,23 @@ Diseño aprobado el 2026-09-21 (`§84`). Estructura:
 | `components/`            | `NavRail`, `ChatThread`, `MessageBubble`, `Avatar`, `QrCode`             |
 | `theme/`                 | `variables.css` (tokens de Ember, Aurora y Mono, claro y oscuro), `base.css` |
 | `theme.ts`               | color y apariencia elegidos en Ajustes                                    |
-| `preferences.ts`         | buzón, enrutado de llamadas y si ya se vio la bienvenida                  |
+| `core.ts`                | puente con el núcleo Rust: almacén reactivo (`me`, `chats`, mensajes) alimentado por los comandos `core_*` y el evento `ft://changed` |
+| `preferences.ts`         | enrutado de llamadas y si ya se vio la bienvenida                         |
 | `i18n.ts`, `i18n/en.json`| catálogo de textos; inglés como fuente, sin traducciones en la fase 1     |
-| `mock/chats.json`        | datos de ejemplo hasta que existan los comandos de `ft-core`              |
 
 Cada componente tiene su test al lado (`*.test.ts`, Vitest + Vue Test Utils + happy-dom); los
-tests stubean Ionic e instalan el catálogo (`src/__tests__/setup.ts`). Comandos: `npm test`,
-`npm run typecheck`.
+tests stubean Ionic e instalan el catálogo (`src/__tests__/setup.ts`). El puente de Tauri se
+simula con `__tests__/tauri.ts` (el código real de `@tauri-apps/api` se ejecuta) y `seed()`
+(`__tests__/seed.ts`) llena el almacén con `__tests__/chats.fixture.json`, que solo existe para los
+tests. Comandos: `npm test`, `npm run typecheck`.
 
-Pendiente: sustituir los datos de ejemplo por los comandos de `ft-core`; las preferencias viven en
-`localStorage` hasta que exista el almacén local de `ft-storage`; el escaneo de QR es todavía un
-marco de cámara falso y los estados de llamada son fijos.
+Estado (2026-09-22, `§106` M3): los datos son reales. La identidad nace en el núcleo; la
+bienvenida pide un nombre opcional (viaja en la Contact Card). «Añadir contacto» muestra el QR de
+la tarjeta firmada, copia el enlace, escanea con la cámara (`@tauri-apps/plugin-barcode-scanner`,
+solo en móvil) o acepta un enlace pegado. El hilo carga los mensajes, envía y marca como leído. El
+buzón se activa en el núcleo. Pendiente: saber si hay conexión directa con un contacto (hoy siempre
+«Not connected»), ficheros (M5), llamadas (M6; la lista de llamadas está vacía, nunca inventada) y
+el resto del MVP (M7).
 
 ## Reglas
 
@@ -44,8 +50,8 @@ marco de cámara falso y los estados de llamada son fijos.
   no se guarda nada del usuario en el servidor. También el enrutado de llamadas (`§17`: solo
   directa, relay cuando haga falta —por defecto— o siempre relay, que oculta la IP al contacto),
   el color (Ember por defecto, Aurora o Mono) y la apariencia (oscuro por defecto, claro o
-  sistema). Todas estas preferencias viven en `preferences.ts` y `theme.ts`, solo en el
-  dispositivo.
+  sistema). El buzón vive en el núcleo (que se lo comunica a los contactos); las demás
+  preferencias en `preferences.ts` y `theme.ts`, solo en el dispositivo.
 - En pantallas anchas el contenido se desplaza con `.ft-tabs-frame`, no sobre `ion-tabs`:
   `IonTabs` pone un `inset: 0` inline que pisaría cualquier regla CSS.
 - Las llamadas de voz y vídeo (`§66`) necesitan su propia pantalla (componente por definir).

@@ -49,6 +49,20 @@ entrada del PoC en builds que no son de desarrollo (un APK lo es).
 Relay local, sin TURN: `(cd ../server && cargo run -p ft-router)` y, en la app, `ws://10.0.2.2:8787`
 (el emulador llega al Mac por `10.0.2.2`).
 
+## La app real en dos emuladores (`§106` M3)
+
+```sh
+npm run tauri android build -- --debug --apk --target aarch64
+for s in emulator-5554 emulator-5556; do adb -s $s install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk; done
+```
+
+Los dos usan `api.flickertalk.com`. Emparejar sin cámara: en uno, «Añadir contacto» → escanear →
+pegar el enlace de la tarjeta del otro (`core_card`). Para automatizar, se reenvía el DevTools de
+la WebView (`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`) y se conecta
+Playwright por CDP; las capturas de CDP salen deformadas en la cabecera, las buenas son las de
+`adb exec-out screencap -p`. El núcleo y la base de datos viven en el directorio de datos de la
+app (`storage.key`, `flickertalk.db`): desinstalar borra la identidad.
+
 ## Entorno
 
 - `app/.npmrc` fuerza el registry público de npm, para no depender de registries privados

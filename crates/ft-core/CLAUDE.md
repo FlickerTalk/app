@@ -51,3 +51,10 @@ buzón. Los eventos del router (bienvenida con STUN/TURN, señales, aviso de cor
 segundo plano para que una respuesta nunca espere detrás de otro trabajo. `Relay` abstrae el
 router (fake en `tests/network.rs`, con WebRTC real en loopback). `tests/live.rs` (ignorado) prueba
 dos núcleos contra `api.flickertalk.com`: emparejan, envían y confirman en ~9 s.
+
+## Estado (2026-09-22, `§106` M3)
+
+`online::start` une `Core`, `RouterClient` y `Network` para la app: registra el dispositivo,
+escucha el router y reintenta el `pending_outbox` cada 5 s. La app (`src-tauri/src/client.rs`)
+lo arranca en segundo plano y ningún comando espera a la red. Probado en dos emuladores: emparejar
+por enlace, texto en los dos sentidos y acuses `delivered` y `read`.

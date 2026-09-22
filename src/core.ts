@@ -1,0 +1,180 @@
+/**
+ * Bridge to the Rust core (Plan §82, §106 M3): the UI shows what the core has and forwards the
+ * user's intents. Keys, the route capability and the network never reach the WebView (§54).
+ */
+import { reactive } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+export type Status = "pending" | "sent" | "delivered" | "read";
+
+export interface ChatMessage {
+  id: string;
+  mine: boolean;
+  text: string;
+  time: string;
+  status?: Status;
+}
+
+export interface Chat {
+  id: string;
+  name: string;
+  hue: number;
+  /** Whether a direct connection is open now (not reported by the core yet). */
+  connected: boolean;
+  unread: number;
+  time: string;
+  preview: string;
+  lastMine: boolean;
+  status: Status | "";
+  blocked: boolean;
+  messages: ChatMessage[];
+}
+
+export interface Me {
+  id: string;
+  name: string;
+  hue: number;
+  mailbox: boolean;
+}
+
+export interface ContactDetails {
+  id: string;
+  name: string;
+  fingerprint: string;
+  mailbox: boolean;
+  blocked: boolean;
+}
+
+interface MessageView {
+  id: string;
+  outgoing: boolean;
+  text: string;
+  sentAt: number;
+  state: Status;
+}
+
+interface ConversationView {
+  id: string;
+  name: string;
+  unread: number;
+  blocked: boolean;
+  last: MessageView | null;
+}
+
+export const CHANGED_EVENT = "ft://changed";
+const MESSAGE_LIMIT = 200;
+
+export const store = reactive({
+  ready: false,
+  me: { id: "", name: "", hue: 0, mailbox: true } as Me,
+  chats: [] as Chat[],
+});
+
+/** Conversations whose messages are shown, so a change reloads them. */
+const loaded = new Set<string>();
+
+/** A stable colour per contact, from its id. */
+export function hueOf(id: string): number {
+  let hash = 2166136261;
+  for (const char of id) {
+    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  }
+  return (hash >>> 0) % 360;
+}
+
+export function clock(ms: number): string {
+  if (!ms) return "";
+  const date = new Date(ms);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function toMessage(view: MessageView): ChatMessage {
+  return { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), status: view.state };
+}
+
+function toChat(view: ConversationView): Chat {
+  return {
+    id: view.id,
+    name: view.name,
+    hue: hueOf(view.id),
+    connected: false,
+    unread: view.unread,
+    time: clock(view.last?.sentAt ?? 0),
+    preview: view.last?.text ?? "",
+    lastMine: view.last?.outgoing ?? false,
+    status: view.last?.state ?? "",
+    blocked: view.blocked,
+    messages: chat(view.id)?.messages ?? [],
+  };
+}
+
+export function chat(id: string): Chat | undefined {
+  return store.chats.find((candidate) => candidate.id === id);
+}
+
+export async function start(): Promise<void> {
+  const me = await invoke<Omit<Me, "hue">>("core_me");
+  store.me = { ...me, hue: hueOf(me.id) };
+  await refreshChats();
+  await listen<{ contact: string | null }>(CHANGED_EVENT, ({ payload }) => {
+    void refreshChats();
+    if (payload.contact && loaded.has(payload.contact)) {
+      void loadMessages(payload.contact);
+    }
+  });
+  store.ready = true;
+}
+
+export async function refreshChats(): Promise<void> {
+  const views = await invoke<ConversationView[]>("core_conversations", undefined);
+  store.chats = views.map(toChat);
+}
+
+export async function loadMessages(contact: string): Promise<void> {
+  loaded.add(contact);
+  const views = await invoke<MessageView[]>("core_messages", { contact, limit: MESSAGE_LIMIT });
+  const target = chat(contact);
+  if (target) {
+    target.messages = views.map(toMessage);
+  }
+}
+
+export async function sendText(contact: string, text: string): Promise<void> {
+  await invoke("core_send", { contact, text });
+}
+
+export async function markRead(contact: string): Promise<void> {
+  await invoke("core_mark_read", { contact });
+}
+
+/** This device's Contact Card as a link: shown as a QR code and shared. */
+export async function myCardLink(): Promise<string> {
+  return invoke<string>("core_card");
+}
+
+/** Adds the owner of a scanned or pasted card and returns their id. */
+export async function addContact(link: string): Promise<string> {
+  return invoke<string>("core_add_contact", { link: link.trim() });
+}
+
+export async function setName(name: string): Promise<void> {
+  const trimmed = name.trim();
+  await invoke("core_set_name", { name: trimmed });
+  store.me.name = trimmed;
+}
+
+export async function setMailbox(enabled: boolean): Promise<void> {
+  await invoke("core_set_mailbox", { enabled });
+  store.me.mailbox = enabled;
+}
+
+export async function contactDetails(contact: string): Promise<ContactDetails> {
+  return invoke<ContactDetails>("core_contact", { contact });
+}
+
+export async function block(contact: string, blocked: boolean): Promise<void> {
+  await invoke("core_block", { contact, blocked });
+  await refreshChats();
+}

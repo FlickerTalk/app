@@ -8,6 +8,10 @@
     "calls": "Calls",
     "settings": "Settings"
   },
+  "chats": {
+    "empty": "No chats yet",
+    "emptyHint": "Show your code or scan theirs to start"
+  },
   "common": {
     "back": "Back",
     "close": "Close",
@@ -47,13 +51,16 @@
     "camera": "Camera",
     "hangUp": "Hang up",
     "answer": "Answer",
-    "decline": "Decline"
+    "decline": "Decline",
+    "empty": "No calls yet"
   },
   "welcome": {
     "title": "Welcome",
     "identityCreated": "Your identity was created on this phone",
     "noAccount": "No account, no phone number, no email",
-    "start": "Start"
+    "start": "Start",
+    "name": "Your name",
+    "nameHint": "Contacts see it when they add you. Optional."
   },
   "addContact": {
     "title": "Add contact",
@@ -61,14 +68,20 @@
     "scan": "Scan",
     "myCodeHint": "Let them scan this code, or share the link",
     "scanHint": "Point the camera at their code",
-    "shareLink": "Share link"
+    "shareLink": "Share link",
+    "paste": "Or paste their link",
+    "add": "Add",
+    "copied": "Link copied",
+    "invalid": "That is not a FlickerTalk contact link",
+    "scanNow": "Scan code"
   },
   "contact": {
     "fingerprint": "Security fingerprint",
     "verify": "Verify in person",
     "verifyHint": "Compare both codes when you are together",
     "block": "Block",
-    "report": "Report"
+    "report": "Report",
+    "unblock": "Unblock"
   },
   "settings": {
     "title": "Settings",

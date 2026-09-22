@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { seed } from "../__tests__/seed";
 import CallPage from "./CallPage.vue";
 
 const route = { params: { id: "c1" }, query: {} as Record<string, string> };
 vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => ({ back: vi.fn() }) }));
 
 describe("CallPage", () => {
+  beforeEach(() => seed());
   it("shows who is being called and how to hang up", () => {
     route.query = {};
     const wrapper = mount(CallPage, { shallow: true });

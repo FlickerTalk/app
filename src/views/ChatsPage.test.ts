@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import ChatsPage from "./ChatsPage.vue";
 import ChatThread from "../components/ChatThread.vue";
-import data from "../mock/chats.json";
+import { fixture, seed } from "../__tests__/seed";
+import { store } from "../core";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -16,13 +17,16 @@ function screen(wide: boolean) {
 }
 
 describe("ChatsPage", () => {
-  beforeEach(() => push.mockClear());
+  beforeEach(() => {
+    push.mockClear();
+    seed();
+  });
   afterEach(() => vi.restoreAllMocks());
 
   it("lists every conversation", () => {
     screen(false);
     const wrapper = mount(ChatsPage, { shallow: true });
-    expect(wrapper.findAll("[data-test='chat-row']")).toHaveLength(data.chats.length);
+    expect(wrapper.findAll("[data-test='chat-row']")).toHaveLength(fixture.chats.length);
   });
 
   it("shows how many messages are unread", () => {
@@ -49,5 +53,15 @@ describe("ChatsPage", () => {
     screen(true);
     const wrapper = mount(ChatsPage, { shallow: true });
     expect(wrapper.findComponent(ChatThread).exists()).toBe(true);
+  });
+
+  // A new phone has no contacts yet: the list says how to start.
+  it("explains how to start when there are no conversations", async () => {
+    screen(false);
+    store.chats = [];
+    const wrapper = mount(ChatsPage, { shallow: true });
+    expect(wrapper.find("[data-test='empty']").exists()).toBe(true);
+    await wrapper.find("[data-test='empty'] button").trigger("click");
+    expect(push).toHaveBeenCalledWith("/add-contact");
   });
 });

@@ -15,13 +15,27 @@ import { add, arrowUp, callOutline, videocamOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
-import data from "../mock/chats.json";
+import { chat as chatOf, loadMessages, markRead, sendText } from "../core";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
 
-const chat = computed(() => data.chats.find((candidate) => candidate.id === props.chatId) ?? data.chats[0]);
+const chat = computed(() => chatOf(props.chatId));
+const messages = computed(() => chat.value?.messages ?? []);
 const draft = ref("");
 const router = useRouter();
+
+// Plan §38: what is on screen has been read; new messages arriving while it is open too.
+async function show() {
+  await loadMessages(props.chatId);
+  await markRead(props.chatId);
+}
+
+async function send() {
+  const text = draft.value.trim();
+  if (!text) return;
+  draft.value = "";
+  await sendText(props.chatId, text);
+}
 
 type Scrollable = { $el?: { scrollToBottom?: (duration: number) => Promise<void> } };
 const content = ref<Scrollable | null>(null);
@@ -31,12 +45,30 @@ async function scrollToEnd() {
   await content.value?.$el?.scrollToBottom?.(0);
 }
 
-onMounted(scrollToEnd);
-watch(() => props.chatId, scrollToEnd);
+onMounted(async () => {
+  await show();
+  await scrollToEnd();
+});
+watch(
+  () => props.chatId,
+  async () => {
+    await show();
+    await scrollToEnd();
+  },
+);
+// Unconditional: the list's unread count may still be stale when a new message shows up, and
+// the core does nothing when there is nothing to mark.
+watch(
+  () => messages.value.length,
+  async () => {
+    await markRead(props.chatId);
+    await scrollToEnd();
+  },
+);
 </script>
 
 <template>
-  <div class="ft-thread">
+  <div v-if="chat" class="ft-thread">
     <ion-header class="ion-no-border">
       <ion-toolbar class="ft-thread__bar">
         <ion-buttons v-if="showBack" slot="start">
@@ -70,7 +102,7 @@ watch(() => props.chatId, scrollToEnd);
 
     <ion-content ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
-      <MessageBubble v-for="message in chat.messages" :key="message.id" :message="message" />
+      <MessageBubble v-for="message in messages" :key="message.id" :message="message" />
       <div class="ft-thread__end" />
     </ion-content>
 
@@ -88,7 +120,13 @@ watch(() => props.chatId, scrollToEnd);
             :placeholder="$t('chat.message')"
             :aria-label="$t('chat.message')"
           />
-          <button type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" :disabled="!draft.trim()">
+          <button
+            type="button"
+            class="ft-round ft-round--send"
+            :aria-label="$t('chat.send')"
+            :disabled="!draft.trim()"
+            @click="send"
+          >
             <ion-icon :icon="arrowUp" aria-hidden="true" />
           </button>
         </div>
