@@ -18,7 +18,11 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   `FtFileProvider`, limitado a la carpeta `files/`) y lo copia a Descargas (MediaStore). La WebView no
   lo llama: solo el Rust de la app (`client.rs`). También lleva el push (M4): `FtMessagingService`
   recibe el aviso de FCM y, si la app no está en pantalla, muestra una notificación sin contenido;
-  `pushToken` y `requestNotifications`. Tests de Kotlin:
+  `pushToken` y `requestNotifications`. Y la **clave de almacenamiento** (`§94`): en Android se
+  sella con una clave AES del Keystore que nunca sale de él; en iOS (`platform/ios`, Swift) vive en
+  el Keychain, solo en este dispositivo. `storage.key.sealed` guarda la forma sellada; una clave en
+  claro de antes se migra sola, y si el almacén no la abre es un error (nunca se crea otra: se
+  perdería la identidad). Tests de Kotlin:
   `(cd gen/android && ./gradlew :tauri-plugin-ft-platform:testDebugUnitTest)`.
 - Firebase: `gen/android/app/google-services.json` **no se versiona** (el repo es público); está
   en `infra/secrets/` y CI lo escribirá desde un secreto. Sin él la app compila, sin push.

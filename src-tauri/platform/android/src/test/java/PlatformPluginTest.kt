@@ -43,4 +43,14 @@ class PlatformPluginTest {
         assertEquals(true, shouldNotify(ActivityManager.RunningAppProcessInfo.IMPORTANCE_CACHED))
         assertEquals(true, shouldNotify(ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE))
     }
+
+    // The sealed storage key: the 12-byte GCM nonce, then the ciphertext with its tag.
+    @Test
+    fun aSealedKeySplitsIntoNonceAndCiphertext() {
+        val sealed = ByteArray(12) { 1 } + ByteArray(48) { 2 }
+        val (iv, ciphertext) = splitSealed(sealed)!!
+        assertEquals(12, iv.size)
+        assertEquals(48, ciphertext.size)
+        assertEquals(null, splitSealed(ByteArray(12)))
+    }
 }

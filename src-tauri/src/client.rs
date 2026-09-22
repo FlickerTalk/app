@@ -232,6 +232,8 @@ pub fn apply_move(dir: &Path) -> std::io::Result<bool> {
         let _ = std::fs::remove_file(file);
     }
     std::fs::rename(database, dir.join(DATABASE))?;
+    // The moved key replaces this phone's own, sealed or not; the next start seals it.
+    let _ = std::fs::remove_file(dir.join(SEALED_KEY_FILE));
     std::fs::write(dir.join(KEY_FILE), key)?;
     #[cfg(unix)]
     std::fs::set_permissions(dir.join(KEY_FILE), std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
@@ -241,7 +243,7 @@ pub fn apply_move(dir: &Path) -> std::io::Result<bool> {
 
 /// Erases this phone's identity, contacts, history and files: it moved to another phone (§60).
 pub fn erase(dir: &Path) -> std::io::Result<()> {
-    for file in database_files(dir).into_iter().chain([dir.join(KEY_FILE)]) {
+    for file in database_files(dir).into_iter().chain([dir.join(KEY_FILE), dir.join(SEALED_KEY_FILE)]) {
         match std::fs::remove_file(file) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
             _ => {}
@@ -302,20 +304,50 @@ impl CallView {
     }
 }
 
-/// The 32-byte key that seals the identity and the Olm sessions at rest, in the app's private
-/// storage. TODO(§94): keep it in Android Keystore / Keychain through a native bridge.
-pub fn storage_key(dir: &Path) -> anyhow::Result<[u8; 32]> {
-    let path = dir.join("storage.key");
-    if let Ok(bytes) = std::fs::read(&path) {
-        return bytes.try_into().map_err(|_| anyhow::anyhow!("the storage key is corrupt"));
-    }
-    std::fs::create_dir_all(dir)?;
-    let key: [u8; 32] = rand::random();
+/// The operating system's key store (Android Keystore, iOS Keychain, §94): it seals the storage
+/// key so the file alone is useless off this phone.
+pub trait KeyVault {
+    fn seal(&self, key: &[u8; 32]) -> anyhow::Result<Vec<u8>>;
+    fn open(&self, sealed: &[u8]) -> anyhow::Result<[u8; 32]>;
+}
+
+const SEALED_KEY_FILE: &str = "storage.key.sealed";
+
+/// Writes a file only this app can read, replacing any before it.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    std::io::Write::write_all(&mut options.open(&path)?, &key)?;
+    std::io::Write::write_all(&mut options.open(path)?, bytes)
+}
+
+/// The 32-byte key that seals the identity and the Olm sessions at rest. With a `vault` it is kept
+/// sealed by the OS key store (`storage.key.sealed`), and a key from before is moved into it;
+/// without one (desktop), in a private file. A sealed key that does not open is an error: a new
+/// key would lose the identity.
+pub fn storage_key(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<[u8; 32]> {
+    std::fs::create_dir_all(dir)?;
+    let (clear, sealed) = (dir.join(KEY_FILE), dir.join(SEALED_KEY_FILE));
+    if let Some(vault) = vault {
+        if let Ok(bytes) = std::fs::read(&sealed) {
+            return vault.open(&bytes).context("the key store cannot open the storage key");
+        }
+    }
+    let key: [u8; 32] = match std::fs::read(&clear) {
+        Ok(bytes) => bytes.try_into().map_err(|_| anyhow::anyhow!("the storage key is corrupt"))?,
+        Err(_) => {
+            let key: [u8; 32] = rand::random();
+            if vault.is_none() {
+                write_private(&clear, &key)?;
+            }
+            key
+        }
+    };
+    if let Some(vault) = vault {
+        write_private(&sealed, &vault.seal(&key)?)?;
+        let _ = std::fs::remove_file(&clear);
+    }
     Ok(key)
 }
 
@@ -349,6 +381,21 @@ pub struct Client {
     online: OnceCell<Online>,
     dir: OnceLock<PathBuf>,
     app: OnceLock<AppHandle>,
+    /// The OS key store on phones; none on desktop.
+    vault: OnceLock<Box<dyn KeyVault + Send + Sync>>,
+}
+
+/// The key store through the native bridge (Android Keystore, iOS Keychain).
+struct PlatformVault(AppHandle);
+
+impl KeyVault for PlatformVault {
+    fn seal(&self, key: &[u8; 32]) -> anyhow::Result<Vec<u8>> {
+        Ok(self.0.platform().seal_key(key)?)
+    }
+
+    fn open(&self, sealed: &[u8]) -> anyhow::Result<[u8; 32]> {
+        Ok(self.0.platform().open_key(sealed)?)
+    }
 }
 
 impl Client {
@@ -356,6 +403,9 @@ impl Client {
         let dir = app.path().app_data_dir().context("no app data directory")?;
         let _ = self.dir.set(dir);
         let _ = self.app.set(app.clone());
+        if cfg!(mobile) {
+            let _ = self.vault.set(Box::new(PlatformVault(app.clone())));
+        }
         Ok(())
     }
 
@@ -374,7 +424,7 @@ impl Client {
     async fn start(&self) -> anyhow::Result<Online> {
         let dir = self.dir.get().context("the app is not set up yet")?;
         apply_move(dir)?;
-        let key = storage_key(dir)?;
+        let key = storage_key(dir, self.vault.get().map(|vault| vault.as_ref() as &dyn KeyVault))?;
         let store = Store::open(&dir.join(DATABASE)).await?;
         let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
         online.core.set_files_dir(dir.join("files"));
@@ -925,13 +975,13 @@ mod tests {
     #[test]
     fn a_moved_phone_is_erased() {
         let dir = scratch("wipe");
-        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key"] {
+        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key", "storage.key.sealed"] {
             std::fs::write(dir.join(name), b"x").unwrap();
         }
         std::fs::create_dir_all(dir.join("files").join("m1")).unwrap();
         std::fs::create_dir_all(dir.join("move")).unwrap();
         erase(&dir).unwrap();
-        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key", "files", "move"] {
+        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key", "storage.key.sealed", "files", "move"] {
             assert!(!dir.join(name).exists(), "{name} is gone");
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -947,14 +997,86 @@ mod tests {
         }
     }
 
-    // The key that seals the identity is created once and kept (Plan §106: Keystore later, §94).
+    /// Stands in for Android Keystore / iOS Keychain: seals by reversing and tagging; can be told
+    /// to fail, like a keystore that lost its key.
+    #[derive(Default)]
+    struct FakeVault {
+        broken: bool,
+    }
+
+    impl KeyVault for FakeVault {
+        fn seal(&self, key: &[u8; 32]) -> anyhow::Result<Vec<u8>> {
+            let mut sealed = b"sealed:".to_vec();
+            sealed.extend(key.iter().rev());
+            Ok(sealed)
+        }
+
+        fn open(&self, sealed: &[u8]) -> anyhow::Result<[u8; 32]> {
+            anyhow::ensure!(!self.broken, "the keystore lost its key");
+            let mut key: [u8; 32] = sealed.strip_prefix(b"sealed:").ok_or_else(|| anyhow::anyhow!("not sealed"))?.try_into()?;
+            key.reverse();
+            Ok(key)
+        }
+    }
+
+    // The key that seals the identity is created once and kept.
     #[test]
     fn the_storage_key_is_created_once_and_kept() {
-        let dir = std::env::temp_dir().join(format!("ft-key-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let first = storage_key(&dir).expect("creates");
-        assert_eq!(storage_key(&dir).expect("reads"), first);
+        let dir = scratch("key");
+        let first = storage_key(&dir, None).expect("creates");
+        assert_eq!(storage_key(&dir, None).expect("reads"), first);
         assert_ne!(first, [0; 32]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // §94: with the OS keystore, the file only holds the key sealed by it.
+    #[test]
+    fn the_storage_key_is_sealed_by_the_os_keystore() {
+        let dir = scratch("sealed-key");
+        let vault = FakeVault::default();
+        let key = storage_key(&dir, Some(&vault)).expect("creates");
+        assert!(!dir.join("storage.key").exists(), "no key in the clear");
+        let sealed = std::fs::read(dir.join("storage.key.sealed")).unwrap();
+        assert!(sealed.starts_with(b"sealed:"));
+        assert_eq!(storage_key(&dir, Some(&vault)).expect("opens"), key);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Installs from before the keystore keep their identity: the key moves into it.
+    #[test]
+    fn a_key_in_the_clear_moves_into_the_keystore() {
+        let dir = scratch("migrate-key");
+        let old = storage_key(&dir, None).expect("the old way");
+        let vault = FakeVault::default();
+        assert_eq!(storage_key(&dir, Some(&vault)).expect("migrates"), old);
+        assert!(!dir.join("storage.key").exists());
+        assert!(dir.join("storage.key.sealed").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A keystore that cannot open the key is an error: making a new key would lose the identity.
+    #[test]
+    fn a_key_the_keystore_cannot_open_is_an_error_never_replaced() {
+        let dir = scratch("broken-key");
+        storage_key(&dir, Some(&FakeVault::default())).expect("creates");
+        let sealed = std::fs::read(dir.join("storage.key.sealed")).unwrap();
+        assert!(storage_key(&dir, Some(&FakeVault { broken: true })).is_err());
+        assert_eq!(std::fs::read(dir.join("storage.key.sealed")).unwrap(), sealed, "left as it was");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // §60: after a move, the old key (sealed or not) gives way to the one that came with the copy.
+    #[test]
+    fn a_received_move_replaces_a_sealed_key_too() {
+        let dir = scratch("apply-sealed");
+        std::fs::write(dir.join("storage.key.sealed"), b"sealed:temporary").unwrap();
+        std::fs::create_dir_all(dir.join("move")).unwrap();
+        std::fs::write(dir.join("move").join(ft_core::moving::MOVE_DB), b"moved").unwrap();
+        std::fs::write(dir.join("move").join(ft_core::moving::MOVE_KEY), [2; 32]).unwrap();
+        assert!(apply_move(&dir).unwrap());
+        assert!(!dir.join("storage.key.sealed").exists());
+        assert_eq!(storage_key(&dir, Some(&FakeVault::default())).unwrap(), [2; 32]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 }

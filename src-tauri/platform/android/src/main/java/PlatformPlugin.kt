@@ -18,6 +18,14 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.MediaStore
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import android.webkit.WebView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -97,6 +105,33 @@ private fun showActivityNotification(context: Context) {
     }
 }
 
+private const val KEY_ALIAS = "ft.storage"
+private const val IV_BYTES = 12
+
+/** A sealed key is the GCM nonce followed by the ciphertext and its tag. */
+fun splitSealed(sealed: ByteArray): Pair<ByteArray, ByteArray>? =
+    if (sealed.size <= IV_BYTES) null else Pair(sealed.copyOfRange(0, IV_BYTES), sealed.copyOfRange(IV_BYTES, sealed.size))
+
+/** The Keystore's AES key for the storage key: made once, never leaves the Keystore (§94). */
+private fun keystoreKey(): SecretKey {
+    val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+    val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+    generator.init(
+        KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .build()
+    )
+    return generator.generateKey()
+}
+
+@InvokeArg
+class KeyArgs {
+    lateinit var value: String
+}
+
 /** How an incoming call rings. */
 data class Ringing(val sound: Boolean, val vibrate: Boolean)
 
@@ -160,6 +195,33 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot ring")
+        }
+    }
+
+    /** Seals the storage key with the Keystore's AES key (§94). */
+    @Command
+    fun sealKey(invoke: Invoke) {
+        try {
+            val key = Base64.decode(invoke.parseArgs(KeyArgs::class.java).value, Base64.NO_WRAP)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, keystoreKey()) }
+            val sealed = cipher.iv + cipher.doFinal(key)
+            invoke.resolve(JSObject().apply { put("value", Base64.encodeToString(sealed, Base64.NO_WRAP)) })
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot seal the key")
+        }
+    }
+
+    @Command
+    fun openKey(invoke: Invoke) {
+        try {
+            val sealed = Base64.decode(invoke.parseArgs(KeyArgs::class.java).value, Base64.NO_WRAP)
+            val (iv, ciphertext) = splitSealed(sealed) ?: throw IllegalArgumentException("not a sealed key")
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+                init(Cipher.DECRYPT_MODE, keystoreKey(), GCMParameterSpec(128, iv))
+            }
+            invoke.resolve(JSObject().apply { put("value", Base64.encodeToString(cipher.doFinal(ciphertext), Base64.NO_WRAP)) })
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot open the key")
         }
     }
 

@@ -8,9 +8,13 @@
 //!   vibrates, as the phone is set to (silent, vibrate only or normal).
 //! - `push_token`, `request_notifications`: the FCM token the router wakes this device with, and
 //!   Android 13's permission to show the notification a wake-up brings (M4).
+//! - `seal_key` / `open_key`: the storage key, sealed by Android Keystore (an AES key that never
+//!   leaves it) or kept in the iOS Keychain (this device only), §94.
 //! - `restart_app`: starts the app again (after moving to a new phone, §60); Tauri's own restart
 //!   only exits on Android.
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime};
@@ -19,7 +23,9 @@ use tauri::{Manager, Runtime};
 pub enum Error {
     #[error("not available on this platform")]
     Unsupported,
-    #[cfg(target_os = "android")]
+    #[error("the key store gave something that is not a key")]
+    Corrupt,
+    #[cfg(mobile)]
     #[error(transparent)]
     Invoke(#[from] tauri::plugin::mobile::PluginInvokeError),
 }
@@ -41,17 +47,24 @@ struct SaveFile<'a> {
     mime: &'a str,
 }
 
+/// The key, or its sealed form, as the native side takes and gives it: base64.
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct KeyBytes {
+    value: String,
+}
+
 /// What Kotlin's `pushToken` resolves with.
 #[derive(Deserialize)]
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[cfg_attr(not(mobile), allow(dead_code))]
 struct PushToken {
     token: String,
 }
 
 pub struct Platform<R: Runtime> {
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     handle: tauri::plugin::PluginHandle<R>,
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(mobile))]
     _runtime: std::marker::PhantomData<fn() -> R>,
 }
 
@@ -76,11 +89,11 @@ impl<R: Runtime> Platform<R> {
 
     /// The FCM token of this device.
     pub fn push_token(&self) -> Result<String> {
-        #[cfg(target_os = "android")]
+        #[cfg(mobile)]
         {
             Ok(self.handle.run_mobile_plugin::<PushToken>("pushToken", ())?.token)
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(mobile))]
         {
             Err(Error::Unsupported)
         }
@@ -90,17 +103,38 @@ impl<R: Runtime> Platform<R> {
         self.run("requestNotifications", ())
     }
 
+    /// Seals the storage key with the OS key store; the result is kept in a file.
+    pub fn seal_key(&self, key: &[u8; 32]) -> Result<Vec<u8>> {
+        let sealed = self.ask("sealKey", KeyBytes { value: BASE64.encode(key) })?;
+        BASE64.decode(sealed.value).map_err(|_| Error::Corrupt)
+    }
+
+    pub fn open_key(&self, sealed: &[u8]) -> Result<[u8; 32]> {
+        let key = self.ask("openKey", KeyBytes { value: BASE64.encode(sealed) })?;
+        BASE64.decode(key.value).ok().and_then(|bytes| bytes.try_into().ok()).ok_or(Error::Corrupt)
+    }
+
+    #[cfg(mobile)]
+    fn ask(&self, command: &str, args: KeyBytes) -> Result<KeyBytes> {
+        Ok(self.handle.run_mobile_plugin::<KeyBytes>(command, args)?)
+    }
+
+    #[cfg(not(mobile))]
+    fn ask(&self, _command: &str, _args: KeyBytes) -> Result<KeyBytes> {
+        Err(Error::Unsupported)
+    }
+
     pub fn restart_app(&self) -> Result<()> {
         self.run("restartApp", ())
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     fn run(&self, command: &str, args: impl Serialize) -> Result<()> {
         self.handle.run_mobile_plugin::<()>(command, args)?;
         Ok(())
     }
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(mobile))]
     fn run(&self, _command: &str, _args: impl Serialize) -> Result<()> {
         Err(Error::Unsupported)
     }
@@ -117,12 +151,17 @@ impl<R: Runtime, T: Manager<R>> PlatformExt<R> for T {
     }
 }
 
+#[cfg(target_os = "ios")]
+tauri::ios_plugin_binding!(init_plugin_ft_platform);
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("ft-platform")
         .setup(|app, _api| {
             #[cfg(target_os = "android")]
             let platform = Platform { handle: _api.register_android_plugin("com.flickertalk.platform", "PlatformPlugin")? };
-            #[cfg(not(target_os = "android"))]
+            #[cfg(target_os = "ios")]
+            let platform = Platform { handle: _api.register_ios_plugin(init_plugin_ft_platform)? };
+            #[cfg(not(mobile))]
             let platform = Platform::<R> { _runtime: std::marker::PhantomData };
             app.manage(platform);
             Ok(())
