@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "flickertalk",
+  "productName": "FlickerTalk",
   "version": "0.1.0",
   "identifier": "com.flickertalk.app",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "flickertalk",
+        "title": "FlickerTalk",
         "width": 800,
         "height": 600
       }
@@ -34,7 +34,9 @@
       },
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/files/**"]
+        "scope": [
+          "$APPDATA/files/**"
+        ]
       }
     }
   },
@@ -51,5 +53,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  }
+  },
+  "mainBinaryName": "flickertalk"
 }
