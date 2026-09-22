@@ -1,9 +1,14 @@
 package com.flickertalk.platform
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.Ringtone
@@ -13,11 +18,18 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.MediaStore
+import android.webkit.WebView
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.messaging.RemoteMessage
 import androidx.core.content.FileProvider
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
 
@@ -31,6 +43,59 @@ class FtFileProvider : FileProvider()
 fun fileProviderAuthority(packageName: String): String = "$packageName.ft.files"
 
 fun canSaveToDownloads(sdk: Int): Boolean = sdk >= Build.VERSION_CODES.Q
+
+/** The router's push only ever says "wake" (Plan §12): no sender, no content. */
+fun isWake(data: Map<String, String>): Boolean = data["t"] == "wake"
+
+/** An app on screen is already connected and gets everything: no notification then. */
+fun shouldNotify(importance: Int): Boolean =
+    importance > ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+
+private const val CHANNEL = "ft.activity"
+private const val NOTIFICATION = 1
+
+/**
+ * FCM wake-ups (M4). The push carries nothing to read: when the app is not on screen, a plain
+ * notification invites the user to open it; opening it connects and fetches what waits.
+ */
+class FtMessagingService : FirebaseMessagingService() {
+    override fun onMessageReceived(message: RemoteMessage) {
+        if (!isWake(message.data)) return
+        val state = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(state)
+        if (shouldNotify(state.importance)) showActivityNotification(this)
+    }
+
+    // A new token reaches the router the next time the app starts.
+    override fun onNewToken(token: String) {}
+}
+
+private fun showActivityNotification(context: Context) {
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL, "Messages and calls", NotificationManager.IMPORTANCE_HIGH)
+        )
+    }
+    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    } ?: return
+    val open = PendingIntent.getActivity(context, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    val notification = NotificationCompat.Builder(context, CHANNEL)
+        .setSmallIcon(R.drawable.ft_notification)
+        .setContentTitle("FlickerTalk")
+        .setContentText("Something new is waiting for you")
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        .setAutoCancel(true)
+        .setContentIntent(open)
+        .build()
+    try {
+        manager.notify(NOTIFICATION, notification)
+    } catch (_: SecurityException) {
+        // Notifications not allowed: the app gets everything when it opens.
+    }
+}
 
 /** How an incoming call rings. */
 data class Ringing(val sound: Boolean, val vibrate: Boolean)
@@ -64,6 +129,12 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
 
+    /** The app is open: the "something new" notification has done its job. */
+    override fun load(webView: WebView) {
+        super.load(webView)
+        activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
+    }
+
     /** An incoming call (§66): the user's ringtone and vibration, until `stopRinging`. */
     @Command
     fun startRinging(invoke: Invoke) {
@@ -90,6 +161,32 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot ring")
         }
+    }
+
+    /** This device's FCM token, for the router to wake it (M4). */
+    @Command
+    fun pushToken(invoke: Invoke) {
+        try {
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if (task.isSuccessful && task.result != null) {
+                    invoke.resolve(JSObject().apply { put("token", task.result) })
+                } else {
+                    invoke.reject(task.exception?.message ?: "no push token")
+                }
+            }
+        } catch (error: Exception) {
+            // No Firebase configuration in this build.
+            invoke.reject(error.message ?: "push is not configured")
+        }
+    }
+
+    /** Android 13 and up ask before showing notifications. */
+    @Command
+    fun requestNotifications(invoke: Invoke) {
+        val needed = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(activity, "android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
+        if (needed) activity.requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 4242)
+        invoke.resolve()
     }
 
     /** Starts the app again from its launcher activity, in a fresh process (§60). */

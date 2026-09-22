@@ -1,6 +1,6 @@
 name: flickertalk
 options:
-  bundleIdPrefix: com.flickertalk.flickertalk
+  bundleIdPrefix: com.flickertalk.app
   deploymentTarget:
     iOS: 15.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: flickertalk
-      PRODUCT_BUNDLE_IDENTIFIER: com.flickertalk.flickertalk
+      PRODUCT_BUNDLE_IDENTIFIER: com.flickertalk.app
 targetTemplates:
   app:
     type: application

@@ -56,3 +56,26 @@ async fn two_phones_chat_through_the_live_cluster() {
     alice.router.forget().await.ok();
     bob.router.forget().await.ok();
 }
+
+/// M4 by hand: writes to a real phone whose Contact Card link is in `FT_LIVE_CARD`, and waits for
+/// its receipt. With the app closed there, the router wakes it (FCM notification); opening the
+/// app delivers. `FT_LIVE_CARD=… cargo test -p ft-core --test live real_phone -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a real phone, api.flickertalk.com and the internet"]
+async fn writes_to_a_real_phone() {
+    let link = std::env::var("FT_LIVE_CARD").expect("FT_LIVE_CARD with the phone's card link");
+    let mac = phone("Mac").await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let contact = mac.core.add_contact(&link, None).await.expect("adds the phone");
+    let sent = mac.core.send_text(&contact.device_id, "hello from the Mac: wake up!").await.expect("sends");
+    println!("sent; waiting for the phone's receipt (open the app there when the notification shows)");
+    for _ in 0..1800 {
+        let state = mac.core.store().message(&sent).await.unwrap().unwrap().state;
+        if state >= MessageState::Delivered {
+            println!("delivered");
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("no receipt within three minutes");
+}

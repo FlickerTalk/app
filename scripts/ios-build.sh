@@ -13,5 +13,5 @@ sed -i '' "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = \"$APPLE_DEVELOPMENT_TE
 npm run tauri ios build -- --debug --target aarch64
 if [ -n "${1:-}" ]; then
   xcrun devicectl device install app --device "$1" src-tauri/gen/apple/build/arm64/flickertalk.ipa
-  xcrun devicectl device process launch --terminate-existing --device "$1" com.flickertalk.flickertalk || true
+  xcrun devicectl device process launch --terminate-existing --device "$1" com.flickertalk.app || true
 fi
