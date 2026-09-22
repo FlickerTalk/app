@@ -4,8 +4,9 @@
 //! - `open_file`: shows a file of the app in the viewer the user picks (Android's FileProvider
 //!   lends it for that viewing only).
 //! - `save_to_downloads`: copies a file to the phone's Downloads (MediaStore, Android 10 and up).
-//! - `start_ringing` / `stop_ringing`: an incoming call rings with the user's ringtone and
-//!   vibrates, as the phone is set to (silent, vibrate only or normal).
+//! - `start_ringing` / `stop_ringing`: an incoming call rings with the user's ringtone, vibrates
+//!   as the phone is set to (silent, vibrate only or normal) and shows on the screen, over the
+//!   lock screen if need be.
 //! - `push_token`, `request_notifications`: the FCM token the router wakes this device with, and
 //!   Android 13's permission to show the notification a wake-up brings (M4).
 //! - `seal_key` / `open_key`: the storage key, sealed by Android Keystore (an AES key that never
@@ -47,6 +48,13 @@ struct SaveFile<'a> {
     path: &'a str,
     name: &'a str,
     mime: &'a str,
+}
+
+/// Arguments of the native `startRinging` command: who is calling, and whether it is video.
+#[derive(Serialize)]
+struct Ringing<'a> {
+    caller: &'a str,
+    video: bool,
 }
 
 /// Arguments of the native `shareText` command.
@@ -92,8 +100,9 @@ impl<R: Runtime> Platform<R> {
         self.run("shareText", ShareText { text })
     }
 
-    pub fn start_ringing(&self) -> Result<()> {
-        self.run("startRinging", ())
+    /// Rings and shows the incoming call on the screen (§66).
+    pub fn start_ringing(&self, caller: &str, video: bool) -> Result<()> {
+        self.run("startRinging", Ringing { caller, video })
     }
 
     pub fn stop_ringing(&self) -> Result<()> {
@@ -200,6 +209,8 @@ mod tests {
         assert_eq!(open, serde_json::json!({ "path": "/files/a.jpg", "mime": "image/jpeg" }));
         let save = serde_json::to_value(SaveFile { path: "/files/a.jpg", name: "a.jpg", mime: "image/jpeg" }).unwrap();
         assert_eq!(save, serde_json::json!({ "path": "/files/a.jpg", "name": "a.jpg", "mime": "image/jpeg" }));
+        let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true }).unwrap();
+        assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true }));
         let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();
         assert_eq!(share, serde_json::json!({ "text": "Add me: https://flickertalk.com/add#card" }));
     }

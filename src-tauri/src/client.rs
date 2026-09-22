@@ -173,12 +173,20 @@ impl CallEvent {
     }
 }
 
-/// Whether the phone should start (`Some(true)`) or stop ringing after a call update.
-pub fn ringing(update: &CallUpdate) -> Option<bool> {
+/// What the phone does about ringing after a call update (§66).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ring {
+    /// Ring and show the call on the screen; video calls say so.
+    Start { video: bool },
+    Stop,
+    Nothing,
+}
+
+pub fn ringing(update: &CallUpdate) -> Ring {
     match update {
-        CallUpdate::Incoming { .. } => Some(true),
-        CallUpdate::Ended { .. } => Some(false),
-        CallUpdate::Answered { .. } => None,
+        CallUpdate::Incoming { video, .. } => Ring::Start { video: *video },
+        CallUpdate::Ended { .. } => Ring::Stop,
+        CallUpdate::Answered { .. } => Ring::Nothing,
     }
 }
 
@@ -433,11 +441,13 @@ impl Client {
         let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
         online.core.set_files_dir(dir.join("files"));
         online.core.set_move_dir(dir.join(MOVE_DIR));
+        online.core.set_plugins_dir(dir.join("plugins"));
 
         if let Some(app) = self.app.get().cloned() {
             let mut events = online.core.events();
             let dir_for_events = dir.to_owned();
             let router_for_events = online.router.clone();
+            let core_for_events = online.core.clone();
             tauri::async_runtime::spawn(async move {
                 while let Ok(event) = events.recv().await {
                     let contact = match event {
@@ -450,13 +460,23 @@ impl Client {
                         }
                         Event::Call { contact, call, update } => {
                             match ringing(&update) {
-                                Some(true) => {
-                                    let _ = app.platform().start_ringing();
+                                Ring::Start { video } => {
+                                    // The screen says who is calling, so a call in the background
+                                    // is more than a ringtone (§66).
+                                    let name = core_for_events
+                                        .store()
+                                        .contact(&contact)
+                                        .await
+                                        .ok()
+                                        .flatten()
+                                        .map(|stored| stored.name)
+                                        .unwrap_or_default();
+                                    let _ = app.platform().start_ringing(&name, video);
                                 }
-                                Some(false) => {
+                                Ring::Stop => {
                                     let _ = app.platform().stop_ringing();
                                 }
-                                None => {}
+                                Ring::Nothing => {}
                             }
                             let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
                             continue;
@@ -934,9 +954,10 @@ mod tests {
     // being answered never ring.
     #[test]
     fn only_incoming_calls_ring() {
-        assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }), Some(true));
-        assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }), Some(false));
-        assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }), None);
+        assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }), Ring::Start { video: true });
+        assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }), Ring::Start { video: false });
+        assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }), Ring::Stop);
+        assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }), Ring::Nothing);
     }
 
     // The WebView's WebRTC uses the cluster's STUN and a short-lived TURN user (§16–17).

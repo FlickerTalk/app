@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Wake-ups from the router show a notification when the app is not open (M4). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- §66: an incoming call shows on the screen, over the lock screen if the phone is locked. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <application>
         <service
             android:name="com.flickertalk.platform.FtMessagingService"
