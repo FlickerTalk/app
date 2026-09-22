@@ -1,0 +1,13 @@
+[package]
+name = "ft-storage"
+version = "0.1.0"
+edition = "2021"
+description = "Local SQLite of the device: identity, contacts, messages and the pending outbox"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,12 @@
+[package]
+name = "ft-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "End-to-end encryption between two devices: Olm sessions (vodozemac), no home-made crypto"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+ft-identity = { path = "../ft-identity" }
+ft-protocol = { path = "../ft-protocol" }
+vodozemac = "0.11"
