@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IonIcon } from "@ionic/vue";
-import { checkmark, checkmarkDone, documentOutline, downloadOutline, timeOutline } from "ionicons/icons";
+import { checkmark, checkmarkDone, documentOutline, downloadOutline, micOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -37,6 +37,8 @@ const status = computed(() =>
   props.message.mine && props.message.status ? STATUS[props.message.status] : undefined,
 );
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
+const isImage = computed(() => file.value?.mime?.startsWith("image/") ?? false);
+const isVoice = computed(() => file.value?.mime?.startsWith("audio/") ?? false);
 const percent = computed(() => Math.round((file.value?.progress ?? 0) * 100));
 const fileState = computed(() => {
   if (!file.value || file.value.state === "done") return "";
@@ -58,11 +60,12 @@ function open() {
     :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending' }]"
   >
     <div class="ft-bubble" :class="{ 'is-file': file }">
-      <img v-if="file?.url" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" @click="open" />
+      <img v-if="file?.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" @click="open" />
+      <audio v-if="file?.url && isVoice" class="ft-voice" :src="file.url" controls preload="metadata" />
       <div v-if="file" class="ft-file" :class="{ 'is-usable': usable }" data-test="file" @click="open">
-        <span class="ft-file__icon"><ion-icon :icon="documentOutline" aria-hidden="true" /></span>
+        <span class="ft-file__icon"><ion-icon :icon="isVoice ? micOutline : documentOutline" aria-hidden="true" /></span>
         <span class="ft-file__body">
-          <span class="ft-file__name">{{ file.name }}</span>
+          <span class="ft-file__name">{{ isVoice ? t("chat.voiceMessage") : file.name }}</span>
           <span class="ft-file__meta">{{ file.size }}{{ fileState }}</span>
           <span
             v-if="moving"
@@ -164,6 +167,13 @@ function open() {
   margin-bottom: 8px;
   border-radius: calc(var(--ft-radius-bubble) - 6px);
   object-fit: cover;
+}
+
+.ft-voice {
+  display: block;
+  width: min(260px, 100%);
+  height: 40px;
+  margin-bottom: 6px;
 }
 
 .ft-file {

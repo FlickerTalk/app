@@ -42,6 +42,8 @@ export interface Chat {
   time: string;
   preview: string;
   lastMine: boolean;
+  /** What the last message was, for the list. */
+  lastKind: "text" | "file" | "voice";
   status: Status | "";
   blocked: boolean;
   messages: ChatMessage[];
@@ -139,7 +141,8 @@ function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
   if (view.state === "done" || view.state === "failed") state = view.state;
   else if (!connected) state = "paused";
   else state = mine ? "sending" : "receiving";
-  const showable = view.mime.startsWith("image/") && (mine || view.state === "done");
+  const playable = view.mime.startsWith("image/") || view.mime.startsWith("audio/");
+  const showable = playable && (mine || view.state === "done");
   return {
     name: view.name,
     size: formatSize(view.size),
@@ -169,6 +172,7 @@ function toChat(view: ConversationView): Chat {
     time: clock(view.last?.sentAt ?? 0),
     preview: view.last?.text ?? "",
     lastMine: view.last?.outgoing ?? false,
+    lastKind: !view.last?.file ? "text" : view.last.file.mime.startsWith("audio/") ? "voice" : "file",
     status: view.last?.state ?? "",
     blocked: view.blocked,
     messages: chat(view.id)?.messages ?? [],

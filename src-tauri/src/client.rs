@@ -457,6 +457,11 @@ pub fn start_in_background(app: &AppHandle) {
     });
 }
 
+/// The file with its path on this device (kept relative to the files folder by the core).
+fn located(core: &Core, file: FileRecord) -> FileRecord {
+    FileRecord { path: core.file_path(&file).to_string_lossy().into_owned(), ..file }
+}
+
 fn failed(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -518,7 +523,7 @@ pub async fn core_conversations(client: State<'_, Client>) -> Result<Vec<Convers
     for conversation in store.conversations().await.map_err(failed)? {
         let mut view = ConversationView::new(&conversation, connected.contains(&conversation.contact.device_id));
         if let Some(last) = view.last.as_mut() {
-            last.file = store.file(&last.id).await.map_err(failed)?.as_ref().map(FileView::from);
+            last.file = store.file(&last.id).await.map_err(failed)?.map(|file| FileView::from(&located(&online.core, file)));
         }
         views.push(view);
     }
@@ -528,8 +533,14 @@ pub async fn core_conversations(client: State<'_, Client>) -> Result<Vec<Convers
 #[tauri::command]
 pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client>) -> Result<Vec<MessageView>, String> {
     let core = client.core().await?;
-    let files: HashMap<String, FileRecord> =
-        core.store().files(&contact).await.map_err(failed)?.into_iter().map(|file| (file.message_id.clone(), file)).collect();
+    let files: HashMap<String, FileRecord> = core
+        .store()
+        .files(&contact)
+        .await
+        .map_err(failed)?
+        .into_iter()
+        .map(|file| (file.message_id.clone(), located(&core, file)))
+        .collect();
     let messages = core.store().messages(&contact, limit).await.map_err(failed)?;
     Ok(messages.iter().map(|message| MessageView::new(message, files.get(&message.message_id))).collect())
 }
@@ -557,7 +568,8 @@ pub async fn core_upload_append(upload: String, data: String, client: State<'_, 
 async fn file_of(client: &Client, message: &str) -> Result<FileRecord, String> {
     let core = client.core().await?;
     let stored = core.store().message(message).await.map_err(failed)?.ok_or("unknown message")?;
-    openable(core.store().file(message).await.map_err(failed)?, stored.outgoing)
+    let file = core.store().file(message).await.map_err(failed)?.map(|file| located(&core, file));
+    openable(file, stored.outgoing)
 }
 
 /// Shows the file in the viewer the user picks (Android's FileProvider, §62).

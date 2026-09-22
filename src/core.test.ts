@@ -198,6 +198,24 @@ describe("core bridge", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_block", { contact: "ft_bob", blocked: true });
   });
 
+  // The list says what the last message was: text, a file or a voice message.
+  it("tells what kind of message came last", async () => {
+    const file = (mime: string) => ({ name: "x", size: 1, mime, progress: 1, state: "done", path: "/x" });
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_conversations"
+          ? [
+              { id: "a", name: "A", unread: 0, blocked: false, connected: false, last: { id: "1", outgoing: false, text: "hi", sentAt: 1, state: "read" } },
+              { id: "b", name: "B", unread: 0, blocked: false, connected: false, last: { id: "2", outgoing: false, text: "menu.pdf", sentAt: 1, state: "read", file: file("application/pdf") } },
+              { id: "c", name: "C", unread: 0, blocked: false, connected: false, last: { id: "3", outgoing: true, text: "voice.m4a", sentAt: 1, state: "read", file: file("audio/mp4") } },
+            ]
+          : answers[command],
+      ),
+    );
+    await core.refreshChats();
+    expect(core.store.chats.map((chat) => chat.lastKind)).toEqual(["text", "file", "voice"]);
+  });
+
   it("gives every contact a stable colour", () => {
     expect(core.hueOf("ft_bob")).toBe(core.hueOf("ft_bob"));
     expect(core.hueOf("ft_bob")).toBeGreaterThanOrEqual(0);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import {
   IonBackButton,
   IonButton,
@@ -11,11 +11,13 @@ import {
   IonTextarea,
   IonToolbar,
 } from "@ionic/vue";
-import { add, arrowUp, callOutline, videocamOutline } from "ionicons/icons";
+import { add, arrowUp, callOutline, micOutline, trashOutline, videocamOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { chat as chatOf, loadMessages, markRead, openFile, saveFile, sendFile, sendText } from "../core";
+import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
+import { t } from "../i18n";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
 
@@ -48,6 +50,42 @@ async function attach(event: Event) {
     await sendFile(props.chatId, file);
   }
 }
+
+// Voice messages: recorded here, sent as an audio file, straight to the contact (§62).
+const now = ref(Date.now());
+let ticking: ReturnType<typeof setInterval> | undefined;
+const elapsed = computed(() => {
+  const seconds = Math.max(0, Math.floor((now.value - recording.startedAt) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+});
+
+const voiceError = ref("");
+
+async function record() {
+  voiceError.value = "";
+  const started = await startRecording();
+  if (started !== "recording") {
+    voiceError.value = started === "unsupported" ? t("chat.cannotRecordHere") : t("chat.cannotRecord");
+    return;
+  }
+  now.value = Date.now();
+  ticking = setInterval(() => (now.value = Date.now()), 500);
+}
+
+async function sendVoice() {
+  clearInterval(ticking);
+  const voice = await stopRecording();
+  if (voice) await sendFile(props.chatId, voice);
+}
+
+function discardVoice() {
+  clearInterval(ticking);
+  cancelRecording();
+}
+
+onUnmounted(() => {
+  if (recording.active) discardVoice();
+});
 
 const saved = reactive(new Set<string>());
 
@@ -133,13 +171,22 @@ watch(
     </ion-content>
 
     <ion-footer class="ion-no-border">
+      <p v-if="voiceError" class="ft-composer__error" role="alert">{{ voiceError }}</p>
       <ion-toolbar class="ft-composer">
         <div class="ft-composer__row">
           <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.attach')" @click="picker?.click()">
             <ion-icon :icon="add" aria-hidden="true" />
           </button>
           <input ref="picker" type="file" multiple hidden @change="attach" />
+          <div v-if="recording.active" class="ft-recording" data-test="recording">
+            <span class="ft-recording__dot" aria-hidden="true" />
+            <span class="ft-recording__time">{{ elapsed }}</span>
+            <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.discardVoice')" @click="discardVoice">
+              <ion-icon :icon="trashOutline" aria-hidden="true" />
+            </button>
+          </div>
           <ion-textarea
+            v-else
             v-model="draft"
             class="ft-composer__input"
             :auto-grow="true"
@@ -148,13 +195,19 @@ watch(
             :aria-label="$t('chat.message')"
           />
           <button
+            v-if="recording.active"
             type="button"
             class="ft-round ft-round--send"
-            :aria-label="$t('chat.send')"
-            :disabled="!draft.trim()"
-            @click="send"
+            :aria-label="$t('chat.sendVoice')"
+            @click="sendVoice"
           >
             <ion-icon :icon="arrowUp" aria-hidden="true" />
+          </button>
+          <button v-else-if="draft.trim()" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" @click="send">
+            <ion-icon :icon="arrowUp" aria-hidden="true" />
+          </button>
+          <button v-else type="button" class="ft-round ft-round--send" :aria-label="$t('chat.record')" @click="record">
+            <ion-icon :icon="micOutline" aria-hidden="true" />
           </button>
         </div>
       </ion-toolbar>
@@ -261,5 +314,40 @@ watch(
   --padding-end: 16px;
   --padding-top: 11px;
   --padding-bottom: 11px;
+}
+
+.ft-recording {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 6px 0 14px;
+  border-radius: 22px;
+  background: var(--ft-surface-2);
+}
+.ft-recording__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ion-color-danger);
+  animation: ft-recording-blink 1s ease-in-out infinite;
+}
+.ft-recording__time {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes ft-recording-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.ft-composer__error {
+  margin: 0;
+  padding: 6px 16px;
+  color: var(--ion-color-danger);
+  font-size: 13px;
+  text-align: center;
 }
 </style>

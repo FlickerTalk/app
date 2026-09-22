@@ -22,6 +22,7 @@ export function seed(): void {
     (chat): Chat => ({
       ...chat,
       status: chat.status as Status,
+      lastKind: "text",
       blocked: false,
       messages: chat.messages.map(
         (message): ChatMessage => ({

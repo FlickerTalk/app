@@ -47,6 +47,19 @@ describe("MessageBubble", () => {
     expect(image.attributes("alt")).toBe("beach.jpg");
   });
 
+  it("plays a voice message", () => {
+    const message = {
+      ...base,
+      mine: false,
+      kind: "file",
+      file: { name: "voice-20260922-161500.m4a", size: "24 KB", progress: 1, state: "done", mime: "audio/mp4", url: "asset://localhost/v.m4a" },
+    };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.find("audio").attributes("src")).toBe("asset://localhost/v.m4a");
+    expect(wrapper.text()).toContain("Voice message");
+    expect(wrapper.text()).not.toContain("voice-20260922");
+  });
+
   it("says when a transfer failed", () => {
     const message = { ...base, mine: false, kind: "file", file: { name: "a.bin", size: "10 B", progress: 0, state: "failed" } };
     const wrapper = mount(MessageBubble, { props: { message }, shallow: true });

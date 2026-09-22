@@ -258,7 +258,7 @@ async fn a_file_crosses_a_real_data_channel() {
     })
     .await;
     let received = bob.core.store().file(&sent).await.unwrap().unwrap();
-    assert_eq!(std::fs::read(received.path).unwrap(), bytes);
+    assert_eq!(std::fs::read(bob.core.file_path(&received)).unwrap(), bytes);
     assert_eq!(bus.mail_for(&bob.id()), 0);
 }
 

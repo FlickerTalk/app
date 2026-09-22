@@ -51,6 +51,24 @@ impl Core {
         self.files_dir.get().map(PathBuf::as_path).ok_or_else(|| anyhow!("no directory for files"))
     }
 
+    /// Where a file's bytes are on this device. Paths are kept relative to the files folder,
+    /// because that folder moves: iOS may change the app's folder on an update, and a move takes
+    /// the database to another phone (§60).
+    pub fn file_path(&self, file: &FileRecord) -> PathBuf {
+        match self.files_dir.get() {
+            Some(dir) => resolve(Path::new(&file.path), dir),
+            None => PathBuf::from(&file.path),
+        }
+    }
+
+    /// How a path is kept: relative when it is inside the files folder.
+    fn stored_path(&self, path: &Path) -> String {
+        match self.files_dir.get().and_then(|dir| path.strip_prefix(dir).ok()) {
+            Some(relative) => relative.to_string_lossy().into_owned(),
+            None => path.to_string_lossy().into_owned(),
+        }
+    }
+
     /// Offers the file at `path` to the contact and returns its message id. The file must stay
     /// there: its chunks are read from it when the contact asks for them.
     pub async fn send_file(&self, contact: &str, path: &Path, name: &str, mime: &str) -> Result<String> {
@@ -78,7 +96,7 @@ impl Core {
                 mime: mime.to_owned(),
                 hash,
                 chunk: FILE_CHUNK as i64,
-                path: path.to_string_lossy().into_owned(),
+                path: self.stored_path(path),
                 chunks_done: 0,
                 complete: false,
                 failed: false,
@@ -186,7 +204,7 @@ impl Core {
         self.store
             .insert_file(&FileRecord {
                 message_id: message_id.clone(),
-                path: dir.join(&name).to_string_lossy().into_owned(),
+                path: self.stored_path(&dir.join(&name)),
                 name,
                 size: size as i64,
                 mime,
@@ -250,7 +268,7 @@ impl Core {
         let end = (from.saturating_add(count as u64)).min(record.chunks() as u64);
         let mut sent_upto = from as i64;
         for index in from..end {
-            let (path, offset, length) = (PathBuf::from(&record.path), index * record.chunk as u64, chunk_length(&record, index));
+            let (path, offset, length) = (self.file_path(&record), index * record.chunk as u64, chunk_length(&record, index));
             let data = tokio::task::spawn_blocking(move || read_chunk(&path, offset, length)).await??;
             if !self.transmit_direct(contact, &Packet::new(Body::FileChunk { file, index, data })).await? {
                 break;
@@ -274,7 +292,7 @@ impl Core {
         if data.len() as u64 != chunk_length(&record, index) as u64 {
             bail!("a chunk of the wrong size");
         }
-        let (path, offset) = (PathBuf::from(&record.path), index * record.chunk as u64);
+        let (path, offset) = (self.file_path(&record), index * record.chunk as u64);
         tokio::task::spawn_blocking(move || write_chunk(&path, offset, &data)).await??;
         let done = index as i64 + 1;
         self.store.set_file_progress(&message_id, done, false).await?;
@@ -315,7 +333,7 @@ impl Core {
     /// Every chunk is in: check the hash, keep or throw away the bytes, tell the sender.
     async fn finish(&self, contact: &Contact, file: &FileRecord) -> Result<()> {
         self.transfers.lock().expect("transfers poisoned").remove(&file.message_id);
-        let path = PathBuf::from(&file.path);
+        let path = self.file_path(file);
         let checked = path.clone();
         let (size, hash) = tokio::task::spawn_blocking(move || {
             // An empty file has no chunk to create it.
@@ -359,6 +377,23 @@ impl Core {
             return Ok(None);
         }
         self.store.file(message_id).await
+    }
+}
+
+/// A stored path on this device: relative ones under the files folder; an absolute one from an
+/// older version, if it is gone, from its `files` folder on, under the current one.
+fn resolve(stored: &Path, files_dir: &Path) -> PathBuf {
+    if !stored.is_absolute() {
+        return files_dir.join(stored);
+    }
+    if stored.exists() {
+        return stored.to_owned();
+    }
+    let Some(folder) = files_dir.file_name() else { return stored.to_owned() };
+    let parts: Vec<_> = stored.components().collect();
+    match parts.iter().rposition(|part| part.as_os_str() == folder) {
+        Some(at) => parts[at + 1..].iter().fold(files_dir.to_owned(), |path, part| path.join(part)),
+        None => stored.to_owned(),
     }
 }
 
@@ -437,6 +472,15 @@ mod tests {
         let name = safe_file_name(&format!("{}.pdf", "x".repeat(300)));
         assert_eq!(name.chars().count(), 120);
         assert!(name.ends_with(".pdf"));
+    }
+
+    #[test]
+    fn stored_paths_follow_the_files_folder() {
+        let files = Path::new("/new/container/files");
+        assert_eq!(resolve(Path::new("m1/photo.jpg"), files), files.join("m1/photo.jpg"));
+        // An absolute path from before the folder moved (iOS update).
+        assert_eq!(resolve(Path::new("/old/container/files/outgoing/u1"), files), files.join("outgoing/u1"));
+        assert_eq!(resolve(Path::new("/elsewhere/x.bin"), files), Path::new("/elsewhere/x.bin"));
     }
 
     #[test]

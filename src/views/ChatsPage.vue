@@ -10,7 +10,7 @@ import {
   IonTitle,
   IonToolbar,
 } from "@ionic/vue";
-import { checkmark, checkmarkDone, qrCodeOutline, timeOutline } from "ionicons/icons";
+import { attachOutline, checkmark, checkmarkDone, micOutline, qrCodeOutline, timeOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
@@ -98,7 +98,14 @@ const STATUS_ICON: Record<string, string> = {
                       :class="`is-${chat.status}`"
                       aria-hidden="true"
                     />
-                    <span class="ft-row__preview">{{ chat.preview }}</span>
+                    <ion-icon
+                      v-if="chat.lastKind !== 'text'"
+                      :icon="chat.lastKind === 'voice' ? micOutline : attachOutline"
+                      class="ft-row__kind"
+                      role="img"
+                      :aria-label="chat.lastKind === 'voice' ? $t('chat.voiceMessage') : $t('chat.file')"
+                    />
+                    <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : chat.preview }}</span>
                     <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
                   </span>
                 </span>
@@ -235,6 +242,11 @@ const STATUS_ICON: Record<string, string> = {
 }
 .ft-row__status.is-read {
   color: var(--ft-accent);
+}
+.ft-row__kind {
+  flex-shrink: 0;
+  font-size: 15px;
+  color: var(--ft-muted);
 }
 .ft-row__preview {
   flex: 1;
