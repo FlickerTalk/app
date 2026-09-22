@@ -34,4 +34,23 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).toContain("photos.zip");
     expect(wrapper.find("[role='progressbar']").attributes("aria-valuenow")).toBe("62");
   });
+
+  it("shows a received image", () => {
+    const message = {
+      ...base,
+      mine: false,
+      kind: "file",
+      file: { name: "beach.jpg", size: "1.2 MB", progress: 1, state: "done", mime: "image/jpeg", url: "asset://localhost/beach.jpg" },
+    };
+    const image = mount(MessageBubble, { props: { message }, shallow: true }).find("img");
+    expect(image.attributes("src")).toBe("asset://localhost/beach.jpg");
+    expect(image.attributes("alt")).toBe("beach.jpg");
+  });
+
+  it("says when a transfer failed", () => {
+    const message = { ...base, mine: false, kind: "file", file: { name: "a.bin", size: "10 B", progress: 0, state: "failed" } };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.text()).toContain("Failed");
+    expect(wrapper.find("[role='progressbar']").exists()).toBe(false);
+  });
 });

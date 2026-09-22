@@ -29,8 +29,13 @@ la tarjeta firmada, copia el enlace, escanea con la cámara (`@tauri-apps/plugin
 solo en móvil) o acepta un enlace pegado. El hilo carga los mensajes, envía y marca como leído. El
 buzón se activa en el núcleo. La cabecera del hilo dice «Direct» solo si hay un DataChannel abierto
 con el contacto (`connected` de `core_conversations`; el núcleo avisa al abrirse o cerrarse).
-Pendiente: ficheros (M5), llamadas (M6; la lista de llamadas está vacía, nunca inventada) y el resto
-del MVP (M7).
+Ficheros (M5): el botón de adjuntar abre el selector del sistema (`<input type="file">`, que el
+WebView de Android admite); `sendFile` copia el fichero a la app en trozos de 512 KiB en base64 (en
+Android el IPC de Tauri solo lleva JSON) y el núcleo lo ofrece. La burbuja muestra el progreso,
+«Paused» sin conexión directa, «Failed» si el hash no coincide y las imágenes con el protocolo
+`asset` (limitado a `$APPDATA/files` y `$APPDATA/outgoing`). Pendiente: abrir o guardar un fichero
+recibido (necesita un puente nativo), llamadas (M6; la lista de llamadas está vacía, nunca
+inventada) y el resto del MVP (M7).
 
 ## Reglas
 

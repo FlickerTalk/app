@@ -12,10 +12,13 @@
 //! - Receiving: stored once per `message_id` and always acknowledged (§27). Packets from blocked
 //!   contacts are dropped (§35).
 
+pub mod files;
 pub mod net;
 pub mod online;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -84,6 +87,10 @@ pub struct Core {
     capability: RouteCapability,
     transport: Arc<dyn Transport>,
     events: broadcast::Sender<Event>,
+    /// Where received files are written (set by the app).
+    files_dir: OnceLock<PathBuf>,
+    /// Incoming file transfers in progress, by message id.
+    transfers: std::sync::Mutex<HashMap<String, files::Transfer>>,
 }
 
 impl Core {
@@ -107,6 +114,8 @@ impl Core {
             capability,
             transport,
             events,
+            files_dir: OnceLock::new(),
+            transfers: std::sync::Mutex::default(),
         }))
     }
 
@@ -400,6 +409,12 @@ impl Core {
             Body::Ping => {
                 let _ = self.send_control(contact, Body::Pong).await;
             }
+            Body::File { name, size, mime, hash, chunk } => {
+                self.offered(contact, packet.id, packet.sent_at, name, size, mime, hash, chunk).await?
+            }
+            Body::FileRequest { file, from, count } => self.serve_chunks(contact, file, from, count).await?,
+            Body::FileChunk { file, index, data } => self.take_chunk(contact, file, index, data).await?,
+            Body::FileDone { file } => self.file_done(contact, file).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
             Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
@@ -424,6 +439,9 @@ impl Core {
         let contact = self.contact(&entry.contact).await?;
         if !contact.introduced {
             self.introduce(&contact).await?;
+        }
+        if let Some(file) = self.store.file(&entry.message_id).await? {
+            return self.deliver_file(entry, &contact, &message, &file).await;
         }
         let packet = Packet::resend(MessageId::parse(&message.message_id)?, message.sent_at as u64, Body::Message { text: message.body });
         let attempts = entry.attempts + 1;
@@ -456,14 +474,25 @@ impl Core {
         Ok(())
     }
 
+    /// Encrypts a packet for the contact with Olm.
+    async fn seal_for(&self, contact: &Contact, packet: &Packet) -> Result<Vec<u8>> {
+        let _identity = self.identity.lock().await;
+        let mut channel = self.channel(&contact.device_id).await?;
+        let sealed = channel.encrypt(&self.device_id, &packet.encode())?;
+        self.store.save_channel(&contact.device_id, &channel.seal(&self.key)).await?;
+        Ok(sealed.encode())
+    }
+
+    /// Sends over a direct connection only (files, §62); `false` if the contact cannot be reached.
+    async fn transmit_direct(&self, contact: &Contact, packet: &Packet) -> Result<bool> {
+        let bytes = self.seal_for(contact, packet).await?;
+        let card = ContactCard::decode(&contact.card)?;
+        let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
+        Ok(self.transport.send_direct(&peer, bytes).await.unwrap_or(false))
+    }
+
     async fn transmit(&self, contact: &Contact, packet: &Packet) -> Result<Route> {
-        let bytes = {
-            let _identity = self.identity.lock().await;
-            let mut channel = self.channel(&contact.device_id).await?;
-            let sealed = channel.encrypt(&self.device_id, &packet.encode())?;
-            self.store.save_channel(&contact.device_id, &channel.seal(&self.key)).await?;
-            sealed.encode()
-        };
+        let bytes = self.seal_for(contact, packet).await?;
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
 

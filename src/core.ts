@@ -3,10 +3,23 @@
  * user's intents. Keys, the route capability and the network never reach the WebView (§54).
  */
 import { reactive } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 export type Status = "pending" | "sent" | "delivered" | "read";
+
+/** `paused`: the transfer cannot move without a direct connection (§62). */
+export type FileState = "sending" | "receiving" | "paused" | "done" | "failed";
+
+export interface ChatFile {
+  name: string;
+  size: string;
+  mime: string;
+  progress: number;
+  state: FileState;
+  /** For images on this device: the sender's copy, or the receiver's once complete. */
+  url?: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -14,6 +27,8 @@ export interface ChatMessage {
   text: string;
   time: string;
   status?: Status;
+  kind?: "file";
+  file?: ChatFile;
 }
 
 export interface Chat {
@@ -46,12 +61,22 @@ export interface ContactDetails {
   blocked: boolean;
 }
 
+interface FileView {
+  name: string;
+  size: number;
+  mime: string;
+  progress: number;
+  state: "transferring" | "done" | "failed";
+  path: string;
+}
+
 interface MessageView {
   id: string;
   outgoing: boolean;
   text: string;
   sentAt: number;
   state: Status;
+  file?: FileView;
 }
 
 interface ConversationView {
@@ -65,6 +90,8 @@ interface ConversationView {
 
 export const CHANGED_EVENT = "ft://changed";
 const MESSAGE_LIMIT = 200;
+/** Bytes per call when copying a picked file into the app. */
+const UPLOAD_SLICE = 512 * 1024;
 
 export const store = reactive({
   ready: false,
@@ -91,8 +118,42 @@ export function clock(ms: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function toMessage(view: MessageView): ChatMessage {
-  return { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), status: view.state };
+/** Sizes as people read them: 512 B, 1.5 KB, 48 MB. */
+export function formatSize(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  const shown = unit === 0 || value >= 10 ? Math.round(value).toString() : value.toFixed(1).replace(/\.0$/, "");
+  return `${shown} ${units[unit]}`;
+}
+
+function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
+  let state: FileState;
+  if (view.state === "done" || view.state === "failed") state = view.state;
+  else if (!connected) state = "paused";
+  else state = mine ? "sending" : "receiving";
+  const showable = view.mime.startsWith("image/") && (mine || view.state === "done");
+  return {
+    name: view.name,
+    size: formatSize(view.size),
+    mime: view.mime,
+    progress: view.progress,
+    state,
+    url: showable ? convertFileSrc(view.path) : undefined,
+  };
+}
+
+function toMessage(view: MessageView, connected = false): ChatMessage {
+  const message: ChatMessage = { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), status: view.state };
+  if (view.file) {
+    message.kind = "file";
+    message.file = toFile(view.file, view.outgoing, connected);
+  }
+  return message;
 }
 
 function toChat(view: ConversationView): Chat {
@@ -120,10 +181,12 @@ export async function start(): Promise<void> {
   store.me = { ...me, hue: hueOf(me.id) };
   await refreshChats();
   await listen<{ contact: string | null }>(CHANGED_EVENT, ({ payload }) => {
-    void refreshChats();
-    if (payload.contact && loaded.has(payload.contact)) {
-      void loadMessages(payload.contact);
-    }
+    // The list first: an open conversation's files depend on the connection it reports.
+    void refreshChats().then(() => {
+      if (payload.contact && loaded.has(payload.contact)) {
+        return loadMessages(payload.contact);
+      }
+    });
   });
   store.ready = true;
 }
@@ -138,12 +201,34 @@ export async function loadMessages(contact: string): Promise<void> {
   const views = await invoke<MessageView[]>("core_messages", { contact, limit: MESSAGE_LIMIT });
   const target = chat(contact);
   if (target) {
-    target.messages = views.map(toMessage);
+    target.messages = views.map((view) => toMessage(view, target.connected));
   }
 }
 
 export async function sendText(contact: string, text: string): Promise<void> {
   await invoke("core_send", { contact, text });
+}
+
+async function toBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Copies the picked file into the app, a slice at a time, and offers it to the contact. The
+ * slices travel as base64: on Android the IPC only carries JSON.
+ */
+export async function sendFile(contact: string, file: File): Promise<void> {
+  const upload = await invoke<string>("core_upload_start");
+  for (let offset = 0; offset < file.size; offset += UPLOAD_SLICE) {
+    const data = await toBase64(file.slice(offset, offset + UPLOAD_SLICE));
+    await invoke("core_upload_append", { upload, data });
+  }
+  await invoke("core_send_file", { contact, upload, name: file.name, mime: file.type || "application/octet-stream" });
 }
 
 export async function markRead(contact: string): Promise<void> {

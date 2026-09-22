@@ -58,3 +58,14 @@ dos núcleos contra `api.flickertalk.com`: emparejan, envían y confirman en ~9 
 escucha el router y reintenta el `pending_outbox` cada 5 s. La app (`src-tauri/src/client.rs`)
 lo arranca en segundo plano y ningún comando espera a la red. Probado en dos emuladores: emparejar
 por enlace, texto en los dos sentidos y acuses `delivered` y `read`.
+
+## Estado (2026-09-22, `§106` M5)
+
+Ficheros (`files.rs`): la oferta (nombre, tamaño, tipo, BLAKE3) va por el outbox como un texto,
+pero **solo por conexión directa**; nada de un fichero llega al buzón. El receptor pide los trozos
+(48 KiB, `FILE_CHUNK`) en ventanas de 16 (`FileRequest`), los escribe en su sitio, comprueba el
+hash al final y avisa (`FileDone`); si no coincide, borra los bytes y lo marca como fallido. Una
+transferencia parada 15 s se vuelve a pedir desde el primer trozo que falta (`resume_files`, desde
+el bucle de reintentos de `online`). La app fija la carpeta con `set_files_dir`. Probado en memoria,
+con WebRTC real en loopback y entre los dos emuladores (imagen y 3 MB, directo).
+

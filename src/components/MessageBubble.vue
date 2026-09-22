@@ -9,6 +9,8 @@ interface TransferredFile {
   size: string;
   progress: number;
   state: string;
+  mime?: string;
+  url?: string;
 }
 
 export interface Message {
@@ -37,8 +39,10 @@ const file = computed(() => (props.message.kind === "file" ? props.message.file 
 const percent = computed(() => Math.round((file.value?.progress ?? 0) * 100));
 const fileState = computed(() => {
   if (!file.value || file.value.state === "done") return "";
+  if (file.value.state === "failed") return ` · ${t("status.failed")}`;
   return file.value.state === "paused" ? ` · ${t("status.paused")}` : ` · ${percent.value}%`;
 });
+const moving = computed(() => file.value && file.value.state !== "done" && file.value.state !== "failed");
 </script>
 
 <template>
@@ -47,13 +51,14 @@ const fileState = computed(() => {
     :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending' }]"
   >
     <div class="ft-bubble" :class="{ 'is-file': file }">
+      <img v-if="file?.url" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
       <div v-if="file" class="ft-file">
         <span class="ft-file__icon"><ion-icon :icon="documentOutline" aria-hidden="true" /></span>
         <span class="ft-file__body">
           <span class="ft-file__name">{{ file.name }}</span>
           <span class="ft-file__meta">{{ file.size }}{{ fileState }}</span>
           <span
-            v-if="file.state !== 'done'"
+            v-if="moving"
             class="ft-progress"
             role="progressbar"
             aria-valuemin="0"
@@ -134,6 +139,15 @@ const fileState = computed(() => {
 .ft-bubble__meta ion-icon.is-read {
   opacity: 1;
   filter: drop-shadow(0 0 4px var(--ft-glow));
+}
+
+.ft-image {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  margin-bottom: 8px;
+  border-radius: calc(var(--ft-radius-bubble) - 6px);
+  object-fit: cover;
 }
 
 .ft-file {

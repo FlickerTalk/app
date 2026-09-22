@@ -3,7 +3,7 @@
  * so view tests show realistic data without a Rust core.
  */
 import fixture from "./chats.fixture.json";
-import { store, type Chat, type Status } from "../core";
+import { store, type Chat, type ChatMessage, type FileState, type Status } from "../core";
 import { installTauri } from "./tauri";
 
 export { fixture };
@@ -23,7 +23,15 @@ export function seed(): void {
       ...chat,
       status: chat.status as Status,
       blocked: false,
-      messages: chat.messages.map((message) => ({ ...message, text: message.text ?? "", status: message.status as Status })),
+      messages: chat.messages.map(
+        (message): ChatMessage => ({
+          ...message,
+          text: message.text ?? "",
+          status: message.status as Status,
+          kind: message.kind === "file" ? "file" : undefined,
+          file: message.file && { ...message.file, mime: "", state: message.file.state as FileState },
+        }),
+      ),
     }),
   );
   store.ready = true;
@@ -42,6 +50,7 @@ export function seed(): void {
     }
     if (command === "core_conversations") return [];
     if (command === "core_card") return "https://flickertalk.com/add#card";
+    if (command === "core_upload_start") return "up1";
     if (command === "core_contact") {
       return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false };
     }
