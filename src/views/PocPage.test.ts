@@ -34,10 +34,31 @@ describe("PocPage", () => {
     expect((wrapper.find("[data-test='relay']").element as HTMLInputElement).value).toBe("ws://10.0.2.2:8787");
   });
 
-  it("joins the room as the caller", async () => {
+  it("joins the room as the caller by default", async () => {
     const wrapper = await open();
     await wrapper.find("[data-test='connect']").trigger("click");
-    expect(tauri.invoke).toHaveBeenCalledWith("poc_connect", { relay: "ws://10.0.2.2:8787", room: "demo" });
+    expect(tauri.invoke).toHaveBeenCalledWith("poc_connect", {
+      relay: "ws://10.0.2.2:8787",
+      room: "demo",
+      role: "caller",
+      relayOnly: false,
+    });
+  });
+
+  // Two emulators: one calls, the other answers.
+  it("can wait for the call instead", async () => {
+    const wrapper = await open();
+    await wrapper.find("[data-test='role']").setValue("callee");
+    await wrapper.find("[data-test='connect']").trigger("click");
+    expect(tauri.invoke).toHaveBeenCalledWith("poc_connect", expect.objectContaining({ role: "callee" }));
+  });
+
+  // Plan §17: "Always relay" sends everything through TURN.
+  it("can force every packet through the TURN relay", async () => {
+    const wrapper = await open();
+    await wrapper.find("[data-test='relay-only']").setValue(true);
+    await wrapper.find("[data-test='connect']").trigger("click");
+    expect(tauri.invoke).toHaveBeenCalledWith("poc_connect", expect.objectContaining({ relayOnly: true }));
   });
 
   it("shows when the data channel opens and what arrives", async () => {

@@ -24,17 +24,30 @@ pub fn default_relay() -> &'static str {
     }
 }
 
+/// Google's STUN as the fallback; the relay's welcome adds ours and a temporary TURN user (ft-poc).
+/// `relay_only` forces every packet through TURN.
+fn session_config(relay_only: bool) -> SessionConfig {
+    SessionConfig { relay_only, ..SessionConfig::with_stun([GOOGLE_STUN.to_owned()]) }
+}
+
 #[tauri::command]
 pub fn poc_default_relay() -> String {
     default_relay().to_owned()
 }
 
-/// Joins the room as the caller. Progress and incoming messages arrive as events.
+/// Joins the room with the given role. Progress and incoming messages arrive as events.
 #[tauri::command]
-pub async fn poc_connect(relay: String, room: String, app: AppHandle, poc: State<'_, Poc>) -> Result<(), String> {
-    let config = SessionConfig::with_stun([GOOGLE_STUN.to_owned()]);
-    let (session, mut inbox) =
-        ft_poc::connect(&relay, &room, Role::Caller, config).await.map_err(|error| error.to_string())?;
+pub async fn poc_connect(
+    relay: String,
+    room: String,
+    role: Role,
+    relay_only: bool,
+    app: AppHandle,
+    poc: State<'_, Poc>,
+) -> Result<(), String> {
+    let (session, mut inbox) = ft_poc::connect(&relay, &room, role, session_config(relay_only))
+        .await
+        .map_err(|error| error.to_string())?;
     *poc.0.lock().await = Some(session.clone());
     let _ = app.emit(STATE_EVENT, "waiting");
 
@@ -61,6 +74,21 @@ mod tests {
     #[test]
     fn the_desktop_build_looks_for_the_relay_on_this_machine() {
         assert_eq!(default_relay(), "ws://127.0.0.1:8787");
+    }
+
+    // The relay hands out our STUN and a temporary TURN user (ft-poc); Google's STUN is only the
+    // fallback for a relay that offers none (Plan §16).
+    #[test]
+    fn the_relay_provides_turn_and_google_stun_is_only_the_fallback() {
+        let config = session_config(false);
+        assert_eq!(config.stun_servers, [GOOGLE_STUN]);
+        assert!(config.turn_servers.is_empty());
+        assert!(!config.relay_only);
+    }
+
+    #[test]
+    fn always_relay_reaches_the_session() {
+        assert!(session_config(true).relay_only);
     }
 
     #[test]

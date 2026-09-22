@@ -7,9 +7,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 type State = "idle" | "connecting" | "waiting" | "open" | "closed";
+type Role = "caller" | "callee";
 
 const relay = ref("");
 const room = ref("demo");
+const role = ref<Role>("caller");
+const relayOnly = ref(false);
 const state = ref<State>("idle");
 const log = ref<string[]>([]);
 const stops: UnlistenFn[] = [];
@@ -27,7 +30,12 @@ onBeforeUnmount(() => stops.forEach((stop) => stop()));
 async function connect() {
   state.value = "connecting";
   try {
-    await invoke("poc_connect", { relay: relay.value, room: room.value });
+    await invoke("poc_connect", {
+      relay: relay.value,
+      room: room.value,
+      role: role.value,
+      relayOnly: relayOnly.value,
+    });
   } catch (error) {
     state.value = "closed";
     log.value.push(`✗ ${String(error)}`);
@@ -60,6 +68,17 @@ async function sendHello() {
         <label class="ft-poc__field">
           <span>{{ $t("poc.room") }}</span>
           <input v-model="room" data-test="room" autocapitalize="off" spellcheck="false" />
+        </label>
+        <label class="ft-poc__field">
+          <span>{{ $t("poc.role") }}</span>
+          <select v-model="role" data-test="role">
+            <option value="caller">{{ $t("poc.roles.caller") }}</option>
+            <option value="callee">{{ $t("poc.roles.callee") }}</option>
+          </select>
+        </label>
+        <label class="ft-poc__check">
+          <input v-model="relayOnly" type="checkbox" data-test="relay-only" />
+          <span>{{ $t("poc.relayOnly") }}</span>
         </label>
 
         <div class="ft-poc__status" :class="`is-${state}`">
@@ -113,7 +132,8 @@ async function sendHello() {
   font-size: 12px;
   color: var(--ft-muted);
 }
-.ft-poc__field input {
+.ft-poc__field input,
+.ft-poc__field select {
   padding: 12px 14px;
   border: 1px solid var(--ft-border);
   border-radius: 12px;
@@ -121,6 +141,18 @@ async function sendHello() {
   color: var(--ft-text);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 15px;
+}
+
+.ft-poc__check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ft-text);
+}
+.ft-poc__check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--ft-accent);
 }
 
 .ft-poc__status {

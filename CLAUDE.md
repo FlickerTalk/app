@@ -27,21 +27,29 @@ npm run tauri dev                                  # escritorio en modo desarrol
 npm run tauri android dev                          # requiere ANDROID_HOME y NDK_HOME
 npm run tauri ios dev                              # requiere Xcode + `tauri ios init`
 cargo test --workspace                             # tests de Rust (sin red)
-cargo test -p ft-webrtc -- --ignored               # WebRTC por la red real (STUN)
+cargo test -p ft-webrtc -- --ignored               # red real: STUN; TURN con FT_TURN_URL/USERNAME/CREDENTIAL
 cargo check --workspace                            # comprobar el lado Rust
 ```
 
-## PoC 0 en el emulador (`§87`, fase B1)
+## PoC 0 en el emulador (`§87`, fases B1 y B2)
+
+Contra el clúster (B2): un túnel SSH lleva el router del clúster al puerto 8788 del Mac (el
+comando está en el repo privado `infra/`), y STUN/TURN van por internet a `turn.flickertalk.com`,
+con las credenciales temporales que entrega el router en su bienvenida.
 
 ```sh
-(cd ../server && cargo run -p ft-router)                      # relay en el Mac, puerto 8787
-cargo run -p ft-poc --bin poc-peer -- --room demo --role callee  # par del Mac
 VITE_POC=1 npm run tauri android build -- --debug --apk --target aarch64
-adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+adb -s emulator-5554 install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+cargo run -p ft-poc --bin poc-peer -- --relay ws://127.0.0.1:8788 --room demo --role callee  # par del Mac
 ```
 
-En la app: Ajustes → PoC 0 → Connect → Send hello. El emulador llega al Mac por `10.0.2.2`.
-`VITE_POC=1` muestra la entrada del PoC en builds que no son de desarrollo (un APK lo es).
+En la app: Ajustes → PoC 0, relay `ws://10.0.2.2:8788` (el emulador llega al Mac por `10.0.2.2`),
+sala, rol (Call/Answer) y, si se quiere, «Always relay (TURN only)» → Connect → Send hello. Con
+dos emuladores, uno llama y el otro responde. Cuando exista `api.flickertalk.com`, el relay será
+`wss://api.flickertalk.com`. `VITE_POC=1` muestra la entrada del PoC en builds que no son de
+desarrollo (un APK lo es).
+
+Relay local (B1): `(cd ../server && cargo run -p ft-router)` y `ws://10.0.2.2:8787`, sin TURN.
 
 ## Entorno
 
