@@ -21,14 +21,18 @@ export const routes: RouteRecordRaw[] = [
   { path: "/add-contact", component: () => import("./views/AddContactPage.vue") },
   { path: "/contact/:id", component: () => import("./views/ContactPage.vue") },
   { path: "/blocked", component: () => import("./views/BlockedPage.vue") },
+  { path: "/move", component: () => import("./views/MovePage.vue") },
   { path: "/call/:id", component: () => import("./views/CallPage.vue") },
   // PoC 0 developer screen (Plan §87); reachable from Settings in development builds.
   { path: "/poc", component: () => import("./views/PocPage.vue") },
 ];
 
-// On first run the identity is created and shown before anything else (Plan §6).
+// On first run the identity is created and shown before anything else (Plan §6), unless the
+// identity comes from the old phone (§60).
+const FIRST_RUN_PATHS = new Set(["/welcome", "/move"]);
+
 export function onboardingGuard(path: string): string | true {
-  return isOnboarded() || path === "/welcome" ? true : "/welcome";
+  return isOnboarded() || FIRST_RUN_PATHS.has(path) ? true : "/welcome";
 }
 
 export const router = createRouter({

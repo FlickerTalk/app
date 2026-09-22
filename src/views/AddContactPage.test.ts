@@ -49,7 +49,8 @@ describe("AddContactPage", () => {
     await wrapper.find("[data-test='mode-scan']").trigger("click");
     await wrapper.find("[data-test='scan-now']").trigger("click");
     await flushPromises();
-    expect(scanner.scan).toHaveBeenCalledWith({ windowed: false, formats: ["QR_CODE"] });
+    // Under a see-through app, which draws the way out (see scanner.ts).
+    expect(scanner.scan).toHaveBeenCalledWith({ windowed: true, formats: ["QR_CODE"] });
     expect(calls).toContainEqual(["core_add_contact", { link: "https://flickertalk.com/add#scanned" }]);
   });
 

@@ -183,6 +183,53 @@ impl ContactCard {
     }
 }
 
+/// Where a move invite points (§60): the new phone shows it as a QR code.
+pub const MOVE_LINK_PREFIX: &str = "https://flickertalk.com/move#";
+
+/// The new phone's invitation to receive an identity (§60): its own card, so the old phone can
+/// reach it, and a one-time secret that only whoever reads the QR learns. No identity key.
+#[derive(Debug, Clone)]
+pub struct MoveInvite {
+    pub card: ContactCard,
+    pub secret: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize)]
+struct MoveInviteWire {
+    #[serde(with = "serde_bytes")]
+    card: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    secret: [u8; 32],
+}
+
+impl MoveInvite {
+    pub fn new(card: ContactCard) -> Self {
+        Self { card, secret: rand::random() }
+    }
+
+    pub fn to_link(&self) -> String {
+        let wire = MoveInviteWire { card: self.card.encode(), secret: self.secret };
+        format!("{MOVE_LINK_PREFIX}{}", URL_SAFE_NO_PAD.encode(cbor(&wire)))
+    }
+
+    pub fn from_link(link: &str) -> Result<Self> {
+        let encoded = link.trim().strip_prefix(MOVE_LINK_PREFIX).ok_or_else(|| anyhow!("not a FlickerTalk move link"))?;
+        let bytes = URL_SAFE_NO_PAD.decode(encoded).context("not a FlickerTalk move link")?;
+        let wire: MoveInviteWire = ciborium::from_reader(bytes.as_slice()).context("not a FlickerTalk move link")?;
+        Ok(Self { card: ContactCard::decode(&wire.card)?, secret: wire.secret })
+    }
+}
+
+/// What the old phone shows to prove it read the QR: bound to the secret and to both phones.
+pub fn move_proof(secret: &[u8; 32], old_device: &str, new_device: &str) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_keyed(secret);
+    hasher.update(b"FlickerTalk move v1\0");
+    hasher.update(old_device.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(new_device.as_bytes());
+    *hasher.finalize().as_bytes()
+}
+
 /// Safety number of a pair of contacts (§29): the same on both phones, compared in person to
 /// rule out a swapped key. 12 groups of 4 hex digits from BLAKE3 over both identity keys, sorted.
 pub fn fingerprint(one: &Ed25519PublicKey, other: &Ed25519PublicKey) -> String {
@@ -214,6 +261,33 @@ mod tests {
     use ft_identity::Identity;
 
     use super::*;
+
+    // §60: the new phone's QR pairs the two phones: its (temporary) card and a one-time secret,
+    // never an identity key.
+    #[test]
+    fn a_move_invite_travels_as_a_link() {
+        let mut identity = Identity::generate();
+        let invite = MoveInvite::new(card_of(&mut identity));
+        let link = invite.to_link();
+        assert!(link.starts_with(MOVE_LINK_PREFIX));
+        let back = MoveInvite::from_link(&link).expect("parses");
+        assert_eq!(back.secret, invite.secret);
+        assert_eq!(back.card.device_id(), identity.device_id());
+        assert_ne!(MoveInvite::new(card_of(&mut identity)).secret, invite.secret, "a fresh secret each time");
+        assert!(MoveInvite::from_link("https://flickertalk.com/move#garbage").is_err());
+        assert!(MoveInvite::from_link(&card_of(&mut identity).to_link()).is_err(), "a contact link is not an invite");
+    }
+
+    // Only whoever read the QR knows the secret: the proof ties it to both phones.
+    #[test]
+    fn a_move_proof_needs_the_secret_and_both_phones() {
+        let secret = [7; 32];
+        let proof = move_proof(&secret, "ft_old", "ft_new");
+        assert_eq!(proof, move_proof(&secret, "ft_old", "ft_new"));
+        assert_ne!(proof, move_proof(&[8; 32], "ft_old", "ft_new"));
+        assert_ne!(proof, move_proof(&secret, "ft_other", "ft_new"));
+        assert_ne!(proof, move_proof(&secret, "ft_old", "ft_other"));
+    }
 
     fn card_of(identity: &mut Identity) -> ContactCard {
         ContactCard::create(identity, Some("Bob".to_owned()), RouteCapability::generate(), true)

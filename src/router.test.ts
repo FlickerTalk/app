@@ -21,6 +21,12 @@ describe("routes", () => {
     );
   });
 
+  // §60: a new phone may bring the identity of the old one instead of starting fresh.
+  it("lets a first run move in from an old phone", () => {
+    localStorage.clear();
+    expect(onboardingGuard("/move")).toBe(true);
+  });
+
   it("sends a first run to the welcome screen", () => {
     localStorage.clear();
     expect(onboardingGuard("/tabs/chats")).toBe("/welcome");

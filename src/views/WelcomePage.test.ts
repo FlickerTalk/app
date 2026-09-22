@@ -5,7 +5,8 @@ import { isOnboarded } from "../preferences";
 import { calls, fixture, seed } from "../__tests__/seed";
 
 const replace = vi.fn();
-vi.mock("vue-router", () => ({ useRouter: () => ({ replace }) }));
+const push = vi.fn();
+vi.mock("vue-router", () => ({ useRouter: () => ({ replace, push }) }));
 
 describe("WelcomePage", () => {
   beforeEach(() => {
@@ -35,5 +36,11 @@ describe("WelcomePage", () => {
     await flushPromises();
     expect(isOnboarded()).toBe(true);
     expect(replace).toHaveBeenCalledWith("/tabs/chats");
+  });
+
+  // §60: a new phone can take the identity of the old one instead of starting from scratch.
+  it("offers bringing everything from an old phone", async () => {
+    await mount(WelcomePage, { shallow: true }).find("[data-test='move-from-old']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/move?role=new");
   });
 });

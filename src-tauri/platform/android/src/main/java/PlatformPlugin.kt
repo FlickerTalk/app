@@ -92,6 +92,19 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /** Starts the app again from its launcher activity, in a fresh process (§60). */
+    @Command
+    fun restartApp(invoke: Invoke) {
+        val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
+        if (launch?.component == null) {
+            invoke.reject("no launcher activity")
+            return
+        }
+        invoke.resolve()
+        activity.startActivity(Intent.makeRestartActivityTask(launch.component))
+        Runtime.getRuntime().exit(0)
+    }
+
     @Command
     fun stopRinging(invoke: Invoke) {
         silence()

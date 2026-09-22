@@ -69,6 +69,7 @@
     "empty": "No calls yet"
   },
   "welcome": {
+    "fromOld": "I have FlickerTalk on another phone",
     "title": "Welcome",
     "identityCreated": "Your identity was created on this phone",
     "noAccount": "No account, no phone number, no email",
@@ -105,6 +106,23 @@
     "reportSend": "Report and block",
     "reportHint": "Opens an email to FlickerTalk. Only what you send leaves this phone.",
     "unblock": "Unblock"
+  },
+  "move": {
+    "fromOld": "From your old phone",
+    "toNew": "Move to a new phone",
+    "scanThis": "On your old phone: Settings → Move to a new phone, and scan this code.",
+    "noKey": "The code only pairs the two phones: your keys travel directly, encrypted.",
+    "everything": "Your identity, contacts and messages move to the new phone",
+    "erased": "This phone will be erased afterwards. Files you sent or received stay behind.",
+    "scan": "Scan the new phone's code",
+    "paste": "Or paste its link",
+    "go": "Move and erase",
+    "moving": "Moving…",
+    "keepClose": "Keep both phones open and close together",
+    "received": "Everything is here",
+    "sent": "Moved. This phone is being erased",
+    "restarting": "FlickerTalk starts again in a moment",
+    "failed": "It could not move"
   },
   "blocked": {
     "title": "Blocked",

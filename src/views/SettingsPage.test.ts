@@ -54,6 +54,11 @@ describe("SettingsPage", () => {
     expect(wrapper.text()).toContain("0.3.1");
   });
 
+  it("moves to a new phone from here, as the old phone", async () => {
+    await mount(SettingsPage, { shallow: true }).find("[data-test='move']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/move?role=old");
+  });
+
   it("lists the blocked contacts", async () => {
     await mount(SettingsPage, { shallow: true }).find("[data-test='blocked']").trigger("click");
     expect(push).toHaveBeenCalledWith("/blocked");
