@@ -15,6 +15,7 @@
 pub mod calls;
 pub mod files;
 pub mod moving;
+pub mod plugins;
 pub mod net;
 pub mod online;
 
@@ -84,6 +85,8 @@ pub enum Event {
     Call { contact: String, call: String, update: CallUpdate },
     /// Moving to a new phone (§60).
     Move(moving::MoveUpdate),
+    /// A plugin was installed, granted something, or removed (issue app#3).
+    PluginsChanged,
 }
 
 enum Route {
@@ -104,6 +107,8 @@ pub struct Core {
     events: broadcast::Sender<Event>,
     /// Where received files are written (set by the app).
     files_dir: OnceLock<PathBuf>,
+    /// Where installed plugins live (issue app#3).
+    plugins_dir: OnceLock<PathBuf>,
     /// Incoming file transfers in progress, by message id.
     transfers: std::sync::Mutex<HashMap<String, files::Transfer>>,
     /// The call going on, if any: one at a time.
@@ -140,6 +145,7 @@ impl Core {
             transport,
             events,
             files_dir: OnceLock::new(),
+            plugins_dir: OnceLock::new(),
             transfers: std::sync::Mutex::default(),
             active_call: std::sync::Mutex::default(),
             move_dir: OnceLock::new(),

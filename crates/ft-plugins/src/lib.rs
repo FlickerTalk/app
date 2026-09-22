@@ -12,6 +12,15 @@ use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature};
 use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
+/// The catalogue's public key: the only signature FlickerTalk trusts for a plugin or for the
+/// index (§50). Its private half never leaves `infra/secrets/plugin-catalogue.key`.
+pub const CATALOGUE_KEY: &str = "4XXrMhV2sRZSK/RpFoheNAposE119EfQE8bqdRP8JcA";
+
+/// The catalogue's key, ready to verify with.
+pub fn catalogue() -> Ed25519PublicKey {
+    Ed25519PublicKey::from_base64(CATALOGUE_KEY).expect("the catalogue key is built in")
+}
+
 /// Where the signature lives inside the package; everything else is what gets signed.
 const SIGNATURE: &str = "signature";
 /// The manifest, read only after the signature checks out.
@@ -28,6 +37,71 @@ pub struct Manifest {
     pub min_core_version: String,
     /// The web components it registers.
     pub components: Vec<String>,
+    /// What it asks the user for; nothing by default (§53).
+    #[serde(default)]
+    pub permissions: Permissions,
+}
+
+/// What a plugin may do. Each one is asked for, granted and revoked on its own: installing grants
+/// nothing (§53). A plugin never gets keys, the push token or the whole conversation (§54, §55).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Permissions {
+    /// Hosts it may talk to. Empty means no network at all, which is the default (§55).
+    #[serde(default)]
+    pub network: Vec<String>,
+    /// Whether it may read the message or selection the user hands it. It never reads more.
+    #[serde(default, rename = "messages", with = "given")]
+    pub reads_given_messages: bool,
+    /// Whether it may put text in the chat, and whether the user still presses send.
+    #[serde(default)]
+    pub send: Sending,
+}
+
+/// How far a plugin goes when it writes in the chat.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Sending {
+    /// It writes nothing.
+    #[default]
+    Nothing,
+    /// It fills the composer and the user presses send.
+    Propose,
+    /// It sends on the user's behalf; a permission of its own, never granted by default.
+    Auto,
+}
+
+/// `"messages": "given"` in the manifest, and nothing else.
+mod given {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(reads: &bool, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(if *reads { "given" } else { "none" })
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "given" => Ok(true),
+            "none" => Ok(false),
+            other => Err(serde::de::Error::custom(format!("'{other}' is not a messages permission"))),
+        }
+    }
+}
+
+impl Permissions {
+    /// The policy the WebView enforces on this plugin: its own files, no network beyond what it
+    /// was granted, and no way to bring in code from anywhere else (§55, §58).
+    pub fn content_security_policy(&self) -> String {
+        let connect = if self.network.is_empty() {
+            "'none'".to_owned()
+        } else {
+            self.network.iter().map(|host| format!("https://{host}")).collect::<Vec<_>>().join(" ")
+        };
+        format!(
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+             font-src 'self'; connect-src {connect}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        )
+    }
 }
 
 /// A package whose signature and manifest already checked out.
@@ -149,7 +223,26 @@ fn check(manifest: &Manifest) -> Result<()> {
     for component in &manifest.components {
         ensure!(is_component(component), "'{component}' is not a web component name");
     }
+    ensure!(manifest.permissions.network.len() <= 8, "a plugin may not ask for that many hosts");
+    for host in &manifest.permissions.network {
+        ensure!(is_host(host), "'{host}' is not a host a plugin may talk to");
+    }
     Ok(())
+}
+
+/// A host we can put in a content security policy: a name, lowercase, without scheme, port, path
+/// or wildcard. No plugin gets "the internet" (§55).
+fn is_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 253
+        && host.split('.').count() >= 2
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        })
 }
 
 fn is_id(id: &str) -> bool {
@@ -338,6 +431,68 @@ mod tests {
         )
     }
 
+    /// A manifest with the permissions a plugin asks for (§53, §55).
+    fn manifest_with(permissions: &str) -> String {
+        format!(
+            r#"{{"id":"com.example.ai","name":"Assistant","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-ai"],"permissions":{permissions}}}"#
+        )
+    }
+
+    // §53: nothing is granted by installing. A plugin that asks for nothing gets nothing.
+    #[test]
+    fn a_plugin_asks_for_what_it_needs_and_nothing_else() {
+        let catalogue = Ed25519SecretKey::new();
+        let plain = open(&package(&manifest_of("com.example.code"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(plain.manifest.permissions, Permissions::default());
+        assert!(plain.manifest.permissions.network.is_empty(), "no network unless it asks");
+        assert_eq!(plain.manifest.permissions.send, Sending::Nothing);
+
+        let asking = manifest_with(r#"{"messages":"given","send":"propose","network":["api.openai.com"]}"#);
+        let ai = open(&package(&asking, b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(ai.manifest.permissions.network, ["api.openai.com"]);
+        assert_eq!(ai.manifest.permissions.send, Sending::Propose);
+        assert!(ai.manifest.permissions.reads_given_messages);
+    }
+
+    // §55: the domains are hosts we can put in a CSP, not wildcards or URLs.
+    #[test]
+    fn a_plugin_cannot_ask_for_the_whole_internet() {
+        let catalogue = Ed25519SecretKey::new();
+        for asked in [
+            r#"{"network":["*"]}"#,
+            r#"{"network":["*.com"]}"#,
+            r#"{"network":["https://api.openai.com"]}"#,
+            r#"{"network":["api.openai.com/v1/chat"]}"#,
+            r#"{"network":["API.OPENAI.COM"]}"#,
+            r#"{"network":[""]}"#,
+        ] {
+            let bytes = package(&manifest_with(asked), b"", &catalogue);
+            assert!(open(&bytes, &catalogue.public_key()).is_err(), "{asked} should be refused");
+        }
+    }
+
+    // The CSP the WebView gets for that plugin: its own files, and nothing else on the network.
+    #[test]
+    fn the_content_security_policy_matches_what_was_granted() {
+        let none = Permissions::default();
+        assert!(none.content_security_policy().contains("connect-src 'none'"));
+        assert!(none.content_security_policy().starts_with("default-src 'none'"));
+
+        let ai = Permissions { network: vec!["api.openai.com".to_owned()], ..Permissions::default() };
+        assert!(ai.content_security_policy().contains("connect-src https://api.openai.com"));
+        assert!(!ai.content_security_policy().contains("'unsafe-eval'"));
+    }
+
+    // The key that ships with the app is the trust root: nothing else opens a package.
+    #[test]
+    fn the_catalogue_key_ships_with_the_app() {
+        let key = catalogue();
+        assert_eq!(key.to_base64(), CATALOGUE_KEY);
+        let stranger = Ed25519SecretKey::new();
+        let bytes = package(&manifest_of("com.example.code"), b"", &stranger);
+        assert!(open(&bytes, &key).is_err(), "someone else's signature is not the catalogue's");
+    }
+
     #[test]
     fn a_package_signed_by_the_catalogue_is_accepted() {
         let catalogue = Ed25519SecretKey::new();
@@ -407,5 +562,18 @@ mod tests {
         remove("com.example.translator", &dir).expect("removes");
         assert!(installed(&dir).expect("lists").is_empty());
         assert!(!home.exists());
+    }
+}
+
+#[cfg(test)]
+mod policy_shape {
+    use super::*;
+
+    #[test]
+    fn the_policy_is_one_line_without_double_spaces() {
+        let policy = Permissions { network: vec!["api.openai.com".to_owned()], ..Permissions::default() }
+            .content_security_policy();
+        assert!(!policy.contains('\n') && !policy.contains("  "), "{policy}");
+        assert!(policy.ends_with("frame-ancestors 'none'"), "{policy}");
     }
 }

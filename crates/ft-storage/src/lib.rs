@@ -59,6 +59,16 @@ pub struct Contact {
     pub burn_after_read: i64,
 }
 
+/// A plugin installed on this phone, with what the user granted it (issue app#3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledPlugin {
+    pub id: String,
+    pub version: String,
+    /// The granted permissions, as the manifest writes them (JSON); ft-plugins reads it.
+    pub granted: String,
+    pub installed_at: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub message_id: String,
@@ -591,6 +601,43 @@ impl Store {
     }
 
     /// Writes a consistent copy of the whole database to `path`, which must not exist (§60).
+    /// Installs a plugin, or moves it to a new version. An update keeps what was granted: the
+    /// user said yes to this plugin, not to this build of it (§53).
+    pub async fn install_plugin(&self, id: &str, version: &str, granted: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO plugins (id, version, granted, installed_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET version = excluded.version",
+        )
+        .bind(id)
+        .bind(version)
+        .bind(granted)
+        .bind(now())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// What the user grants, and revokes, at any time.
+    pub async fn grant_plugin(&self, id: &str, granted: &str) -> Result<()> {
+        sqlx::query("UPDATE plugins SET granted = ? WHERE id = ?").bind(granted).bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn plugin(&self, id: &str) -> Result<Option<InstalledPlugin>> {
+        let row = sqlx::query("SELECT * FROM plugins WHERE id = ?").bind(id).fetch_optional(&self.pool).await?;
+        Ok(row.as_ref().map(plugin_from))
+    }
+
+    pub async fn plugins(&self) -> Result<Vec<InstalledPlugin>> {
+        let rows = sqlx::query("SELECT * FROM plugins ORDER BY id").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(plugin_from).collect())
+    }
+
+    pub async fn remove_plugin(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM plugins WHERE id = ?").bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn snapshot(&self, path: &Path) -> Result<()> {
         let target = path.to_str().context("the snapshot path is not valid text")?;
         sqlx::query("VACUUM INTO ?").bind(target).execute(&self.pool).await.context("cannot copy the database")?;
@@ -621,6 +668,15 @@ fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|since| since.as_millis() as i64)
         .unwrap_or_default()
+}
+
+fn plugin_from(row: &SqliteRow) -> InstalledPlugin {
+    InstalledPlugin {
+        id: row.get("id"),
+        version: row.get("version"),
+        granted: row.get("granted"),
+        installed_at: row.get("installed_at"),
+    }
 }
 
 fn contact_from(row: &SqliteRow) -> Contact {
@@ -1109,5 +1165,36 @@ mod tests {
         assert_eq!(left, vec!["recent".to_owned()], "the old one and the read one are gone");
         assert!(store.file("old").await.unwrap().is_none(), "its file row goes with it");
         assert_eq!(store.messages("carol", 50).await.unwrap().len(), 1, "carol keeps everything");
+    }
+
+    // Issue app#3: what the user granted each plugin lives on the phone, next to the plugin.
+    // Installing grants nothing: the grants start as the plugin was installed with (§53).
+    #[tokio::test]
+    async fn remembers_which_plugins_are_installed_and_what_they_were_granted() {
+        let store = store().await;
+        assert!(store.plugins().await.unwrap().is_empty());
+
+        store.install_plugin("com.example.code", "1.0.0", "{}").await.unwrap();
+        store.install_plugin("com.example.ai", "2.1.0", r#"{"network":[]}"#).await.unwrap();
+        let listed = store.plugins().await.unwrap();
+        assert_eq!(
+            listed.iter().map(|p| (p.id.as_str(), p.version.as_str())).collect::<Vec<_>>(),
+            [("com.example.ai", "2.1.0"), ("com.example.code", "1.0.0")],
+            "in a stable order"
+        );
+        assert!(listed[0].installed_at > 0);
+
+        store.grant_plugin("com.example.ai", r#"{"network":["api.openai.com"]}"#).await.unwrap();
+        let ai = store.plugin("com.example.ai").await.unwrap().expect("installed");
+        assert_eq!(ai.granted, r#"{"network":["api.openai.com"]}"#);
+        assert_eq!(ai.version, "2.1.0", "granting does not touch the version");
+
+        // Installing again is an update: the version moves, what was granted stays.
+        store.install_plugin("com.example.ai", "2.2.0", r#"{"network":[]}"#).await.unwrap();
+        let ai = store.plugin("com.example.ai").await.unwrap().expect("installed");
+        assert_eq!((ai.version.as_str(), ai.granted.as_str()), ("2.2.0", r#"{"network":["api.openai.com"]}"#));
+
+        store.remove_plugin("com.example.ai").await.unwrap();
+        assert_eq!(store.plugins().await.unwrap().len(), 1);
     }
 }
