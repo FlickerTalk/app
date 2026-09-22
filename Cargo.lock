@@ -1726,11 +1726,14 @@ dependencies = [
  "ft-contacts",
  "ft-crypto",
  "ft-identity",
+ "ft-plugins",
  "ft-protocol",
  "ft-push",
  "ft-storage",
  "ft-webrtc",
+ "serde_json",
  "tokio",
+ "vodozemac",
 ]
 
 [[package]]
