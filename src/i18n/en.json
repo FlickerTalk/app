@@ -25,6 +25,8 @@
     "today": "Today",
     "message": "Message",
     "send": "Send",
+    "save": "Save to Downloads",
+    "saved": "Saved to Downloads",
     "attach": "Attach file",
     "voiceCall": "Voice call",
     "videoCall": "Video call"

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the app's files folder: files received and sent (the database and keys are outside it). -->
+<paths>
+    <files-path name="files" path="." />
+</paths>

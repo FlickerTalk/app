@@ -5,7 +5,7 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_ft_platform::init());
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     builder
@@ -32,6 +32,8 @@ pub fn run() {
             client::core_upload_start,
             client::core_upload_append,
             client::core_send_file,
+            client::core_open_file,
+            client::core_save_file,
             poc::poc_default_relay,
             poc::poc_connect,
             poc::poc_send

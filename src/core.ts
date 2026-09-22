@@ -231,6 +231,16 @@ export async function sendFile(contact: string, file: File): Promise<void> {
   await invoke("core_send_file", { contact, upload, name: file.name, mime: file.type || "application/octet-stream" });
 }
 
+/** Shows a file in the viewer the user picks. */
+export async function openFile(message: string): Promise<void> {
+  await invoke("core_open_file", { message });
+}
+
+/** Copies a file to the phone's Downloads. */
+export async function saveFile(message: string): Promise<void> {
+  await invoke("core_save_file", { message });
+}
+
 export async function markRead(contact: string): Promise<void> {
   await invoke("core_mark_read", { contact });
 }

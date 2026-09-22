@@ -15,6 +15,7 @@ use ft_storage::{Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_ft_platform::PlatformExt;
 use tokio::sync::OnceCell;
 
 /// The router of the cluster, behind the load balancer (Plan §75).
@@ -164,7 +165,17 @@ pub fn upload_path(dir: &Path, id: &str) -> Result<PathBuf, String> {
     if !valid {
         return Err("invalid upload".to_owned());
     }
-    Ok(dir.join("outgoing").join(id))
+    Ok(dir.join("files").join("outgoing").join(id))
+}
+
+/// The file behind a message, if it can be opened here: ours always, theirs once it has arrived
+/// whole and verified.
+pub fn openable(file: Option<FileRecord>, outgoing: bool) -> Result<FileRecord, String> {
+    match file {
+        Some(file) if outgoing || file.complete => Ok(file),
+        Some(_) => Err("the file has not arrived yet".to_owned()),
+        None => Err("not a file".to_owned()),
+    }
 }
 
 /// The running core, started once.
@@ -322,6 +333,26 @@ pub async fn core_upload_append(upload: String, data: String, client: State<'_, 
     tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await.map_err(failed)
 }
 
+async fn file_of(client: &Client, message: &str) -> Result<FileRecord, String> {
+    let core = client.core().await?;
+    let stored = core.store().message(message).await.map_err(failed)?.ok_or("unknown message")?;
+    openable(core.store().file(message).await.map_err(failed)?, stored.outgoing)
+}
+
+/// Shows the file in the viewer the user picks (Android's FileProvider, §62).
+#[tauri::command]
+pub async fn core_open_file(message: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let file = file_of(&client, &message).await?;
+    app.platform().open_file(&file.path, &file.mime).map_err(failed)
+}
+
+/// Copies the file to the phone's Downloads.
+#[tauri::command]
+pub async fn core_save_file(message: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let file = file_of(&client, &message).await?;
+    app.platform().save_to_downloads(&file.path, &file.name, &file.mime).map_err(failed)
+}
+
 /// Offers the uploaded file to the contact; the file stays in the app until it is delivered.
 #[tauri::command]
 pub async fn core_send_file(contact: String, upload: String, name: String, mime: String, client: State<'_, Client>) -> Result<(), String> {
@@ -465,12 +496,23 @@ mod tests {
         assert!(view.get("file").is_none());
     }
 
+    // Ours can always be opened; theirs only once it has arrived whole and verified.
+    #[test]
+    fn only_whole_files_can_be_opened() {
+        assert!(openable(Some(record(4, true, false)), false).is_ok());
+        assert!(openable(Some(record(2, false, false)), false).is_err());
+        assert!(openable(Some(record(0, false, true)), false).is_err());
+        assert!(openable(Some(record(1, false, false)), true).is_ok());
+        assert!(openable(None, true).is_err());
+    }
+
     // Uploads are named by the app, never by the WebView: no way out of their directory.
     #[test]
     fn upload_ids_cannot_point_elsewhere() {
         let dir = Path::new("/data");
         let id = new_upload_id();
-        assert_eq!(upload_path(dir, &id).unwrap(), dir.join("outgoing").join(&id));
+        // Under `files/`, the one folder Android's FileProvider shares when a file is opened.
+        assert_eq!(upload_path(dir, &id).unwrap(), dir.join("files").join("outgoing").join(&id));
         assert_ne!(new_upload_id(), id);
         for bad in ["../identity", "", "abc", "/etc/passwd", "0123456789abcdef0123456789abcdeg"] {
             assert!(upload_path(dir, bad).is_err(), "{bad}");

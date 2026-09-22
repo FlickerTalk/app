@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { IonIcon } from "@ionic/vue";
-import { checkmark, checkmarkDone, documentOutline, timeOutline } from "ionicons/icons";
+import { checkmark, checkmarkDone, documentOutline, downloadOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -23,7 +23,8 @@ export interface Message {
   file?: TransferredFile;
 }
 
-const props = defineProps<{ message: Message }>();
+const props = defineProps<{ message: Message; saved?: boolean }>();
+const emit = defineEmits<{ open: [id: string]; save: [id: string] }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
   pending: { icon: timeOutline, label: t("status.pending") },
@@ -43,6 +44,12 @@ const fileState = computed(() => {
   return file.value.state === "paused" ? ` · ${t("status.paused")}` : ` · ${percent.value}%`;
 });
 const moving = computed(() => file.value && file.value.state !== "done" && file.value.state !== "failed");
+// Ours is always here; theirs once it has arrived whole and verified.
+const usable = computed(() => file.value && file.value.state !== "failed" && (props.message.mine || file.value.state === "done"));
+
+function open() {
+  if (usable.value) emit("open", props.message.id);
+}
 </script>
 
 <template>
@@ -51,8 +58,8 @@ const moving = computed(() => file.value && file.value.state !== "done" && file.
     :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending' }]"
   >
     <div class="ft-bubble" :class="{ 'is-file': file }">
-      <img v-if="file?.url" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
-      <div v-if="file" class="ft-file">
+      <img v-if="file?.url" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" @click="open" />
+      <div v-if="file" class="ft-file" :class="{ 'is-usable': usable }" data-test="file" @click="open">
         <span class="ft-file__icon"><ion-icon :icon="documentOutline" aria-hidden="true" /></span>
         <span class="ft-file__body">
           <span class="ft-file__name">{{ file.name }}</span>
@@ -69,6 +76,15 @@ const moving = computed(() => file.value && file.value.state !== "done" && file.
             <span class="ft-progress__bar" :style="{ width: `${percent}%` }" />
           </span>
         </span>
+        <button
+          v-if="usable"
+          type="button"
+          class="ft-file__save"
+          :aria-label="saved ? t('chat.saved') : t('chat.save')"
+          @click.stop="emit('save', message.id)"
+        >
+          <ion-icon :icon="saved ? checkmark : downloadOutline" aria-hidden="true" />
+        </button>
       </div>
       <p v-else class="ft-bubble__text">{{ message.text }}</p>
 
@@ -167,6 +183,24 @@ const moving = computed(() => file.value && file.value.state !== "done" && file.
   background: rgba(255, 255, 255, 0.2);
 }
 .is-theirs .ft-file__icon {
+  background: var(--ft-surface);
+}
+.ft-file.is-usable {
+  cursor: pointer;
+}
+.ft-file__save {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  font-size: 20px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.16);
+}
+.is-theirs .ft-file__save {
   background: var(--ft-surface);
 }
 .ft-file__body {

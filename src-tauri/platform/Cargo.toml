@@ -1,0 +1,19 @@
+[package]
+name = "tauri-plugin-ft-platform"
+version = "0.1.0"
+edition = "2021"
+description = "FlickerTalk's native bridge: what the phone's OS only lets Kotlin (or Swift) do"
+license = "AGPL-3.0-only"
+publish = false
+links = "tauri-plugin-ft-platform"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = "2"
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
