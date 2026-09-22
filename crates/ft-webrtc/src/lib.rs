@@ -16,7 +16,8 @@ use tokio::sync::{mpsc, watch, Mutex};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::peer_connection::{
     PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-    RTCIceCandidateInit, RTCIceGatheringState, RTCIceServer, RTCSdpType, RTCSessionDescription,
+    RTCIceCandidateInit, RTCIceGatheringState, RTCIceServer, RTCIceTransportPolicy, RTCSdpType,
+    RTCSessionDescription,
 };
 use webrtc::runtime::{default_runtime, Runtime};
 
@@ -35,7 +36,8 @@ pub enum Signal {
     Ice(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Role {
     /// Starts the connection and opens the data channel.
     Caller,
@@ -43,9 +45,21 @@ pub enum Role {
     Callee,
 }
 
+/// A TURN relay with its credentials. They are temporary, with a random user (§17).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnServer {
+    pub url: String,
+    pub username: String,
+    pub credential: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
     pub stun_servers: Vec<String>,
+    /// Fallback relays, used when no direct path works (§17).
+    pub turn_servers: Vec<TurnServer>,
+    /// Only the TURN relay is used: the contact never learns the user's IP ("Always relay", §17).
+    pub relay_only: bool,
     /// Local UDP addresses to listen on, one per network interface.
     pub bind: Vec<String>,
     /// How long to wait for ICE gathering before sending what was gathered so far.
@@ -56,6 +70,8 @@ impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             stun_servers: Vec::new(),
+            turn_servers: Vec::new(),
+            relay_only: false,
             bind: interface_addresses(),
             gather_timeout: Duration::from_secs(3),
         }
@@ -71,6 +87,19 @@ impl SessionConfig {
     pub fn with_stun(servers: impl IntoIterator<Item = String>) -> Self {
         Self { stun_servers: servers.into_iter().collect(), ..Self::default() }
     }
+}
+
+/// The ICE servers and transport policy a session is configured with.
+pub fn ice_configuration(config: &SessionConfig) -> (Vec<RTCIceServer>, RTCIceTransportPolicy) {
+    let stun = (!config.stun_servers.is_empty())
+        .then(|| RTCIceServer { urls: config.stun_servers.clone(), ..Default::default() });
+    let turn = config.turn_servers.iter().map(|server| RTCIceServer {
+        urls: vec![server.url.clone()],
+        username: server.username.clone(),
+        credential: server.credential.clone(),
+    });
+    let policy = if config.relay_only { RTCIceTransportPolicy::Relay } else { RTCIceTransportPolicy::All };
+    (stun.into_iter().chain(turn).collect(), policy)
 }
 
 /// Every non-loopback IPv4 address of the device (Wi-Fi, mobile data…), with an ephemeral port.
@@ -149,12 +178,7 @@ impl Session {
         let (open_tx, opened) = watch::channel(false);
         let channel: SharedChannel = Arc::new(Mutex::new(None));
 
-        let ice_servers = if config.stun_servers.is_empty() {
-            Vec::new()
-        } else {
-            vec![RTCIceServer { urls: config.stun_servers.clone(), ..Default::default() }]
-        };
-
+        let (ice_servers, policy) = ice_configuration(&config);
         let events = Arc::new(Events {
             runtime: runtime.clone(),
             gathered: gathered_tx,
@@ -165,7 +189,12 @@ impl Session {
 
         let connection: Arc<dyn PeerConnection> = Arc::new(
             PeerConnectionBuilder::new()
-                .with_configuration(RTCConfigurationBuilder::new().with_ice_servers(ice_servers).build())
+                .with_configuration(
+                    RTCConfigurationBuilder::new()
+                        .with_ice_servers(ice_servers)
+                        .with_ice_transport_policy(policy)
+                        .build(),
+                )
                 .with_handler(events)
                 .with_runtime(runtime.clone())
                 .with_udp_addrs(config.bind.clone())
@@ -312,6 +341,12 @@ mod tests {
     }
 
     #[test]
+    fn roles_arrive_from_the_ui_in_snake_case() {
+        assert_eq!(serde_json::from_str::<Role>("\"caller\"").expect("parses"), Role::Caller);
+        assert_eq!(serde_json::from_str::<Role>("\"callee\"").expect("parses"), Role::Callee);
+    }
+
+    #[test]
     fn an_offline_session_stays_on_loopback_without_stun() {
         let config = SessionConfig::offline();
         assert!(config.stun_servers.is_empty());
@@ -325,6 +360,39 @@ mod tests {
         let config = SessionConfig::with_stun(["stun:one:3478".to_owned()]);
         assert!(!config.bind.is_empty());
         assert!(config.bind.iter().all(|address| !address.starts_with("0.0.0.0")));
+    }
+
+    #[test]
+    fn stun_servers_need_no_credentials() {
+        let (servers, policy) = ice_configuration(&SessionConfig::with_stun(["stun:one:3478".to_owned()]));
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].urls, ["stun:one:3478"]);
+        assert!(servers[0].username.is_empty());
+        assert_eq!(policy, RTCIceTransportPolicy::All);
+    }
+
+    #[test]
+    fn turn_servers_carry_their_credentials() {
+        let config = SessionConfig {
+            turn_servers: vec![TurnServer {
+                url: "turn:relay:3478".to_owned(),
+                username: "user".to_owned(),
+                credential: "secret".to_owned(),
+            }],
+            ..SessionConfig::offline()
+        };
+        let (servers, _) = ice_configuration(&config);
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].urls, ["turn:relay:3478"]);
+        assert_eq!(servers[0].username, "user");
+        assert_eq!(servers[0].credential, "secret");
+    }
+
+    // Plan §17: "Always relay" hides the user's IP from the contact.
+    #[test]
+    fn relay_only_sessions_use_nothing_but_the_turn_relay() {
+        let config = SessionConfig { relay_only: true, ..SessionConfig::offline() };
+        assert_eq!(ice_configuration(&config).1, RTCIceTransportPolicy::Relay);
     }
 
     #[test]

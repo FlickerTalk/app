@@ -106,6 +106,12 @@
     "title": "PoC 0",
     "relay": "Relay",
     "room": "Room",
+    "role": "Role",
+    "roles": {
+      "caller": "Call",
+      "callee": "Answer"
+    },
+    "relayOnly": "Always relay (TURN only)",
     "connect": "Connect",
     "sendHello": "Send hello",
     "state": {
