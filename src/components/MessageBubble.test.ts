@@ -99,4 +99,24 @@ describe("MessageBubble", () => {
     expect(wrapper.emitted("open")).toBeUndefined();
     expect(wrapper.find("[aria-label='Save to Downloads']").exists()).toBe(false);
   });
+
+  // A message written with fences is code: monospace, as it was written, with its language.
+  it("shows a fenced message as a block of code", () => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: { ...base, text: "```python\nif x:\n    go()\n```" } },
+      shallow: true,
+    });
+    const code = wrapper.find("[data-test='code']");
+    expect(code.exists()).toBe(true);
+    expect(code.text()).toContain("if x:");
+    expect(code.text()).toContain("    go()");
+    expect(wrapper.text()).toContain("python");
+    expect(wrapper.find("[data-test='code'] script").exists()).toBe(false);
+  });
+
+  it("leaves a message that is not code as it is", () => {
+    const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "just text" } }, shallow: true });
+    expect(wrapper.find("[data-test='code']").exists()).toBe(false);
+    expect(wrapper.text()).toContain("just text");
+  });
 });
