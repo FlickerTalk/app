@@ -92,9 +92,14 @@ async fn device(net: &Arc<Net>, name: &str) -> Arc<Core> {
 }
 
 async fn device_with(net: &Arc<Net>, name: &str, store: Store, key: [u8; 32]) -> Arc<Core> {
+    device_in(net, name, store, key, scratch(name)).await
+}
+
+/// A device whose files live in `files`.
+async fn device_in(net: &Arc<Net>, name: &str, store: Store, key: [u8; 32], files: PathBuf) -> Arc<Core> {
     let core = Core::open(store, key, Arc::new(Link { net: net.clone() })).await.expect("opens");
     core.set_name(name).await.expect("names");
-    core.set_files_dir(scratch(name));
+    core.set_files_dir(files);
     let id = core.device_id().as_str().to_owned();
     net.cores.lock().unwrap().insert(id.clone(), Arc::downgrade(&core));
 
@@ -376,7 +381,7 @@ async fn a_file_crosses_in_chunks_and_is_verified() {
     })
     .await;
     let received = file_of(&bob, &sent).await;
-    assert_eq!(std::fs::read(&received.path).expect("reads"), bytes);
+    assert_eq!(std::fs::read(bob.file_path(&received)).expect("reads"), bytes);
     assert_eq!((received.name.as_str(), received.mime.as_str(), received.size), ("holiday photo.jpg", "image/jpeg", 200_000));
     assert_eq!(texts(&bob, &id(&alice)).await, ["holiday photo.jpg"]);
     until("alice knows it arrived", || async { file_of(&alice, &sent).await.complete }).await;
@@ -400,7 +405,7 @@ async fn files_never_go_through_the_mailbox() {
     net.set_direct(true);
     alice.retry_now().await.expect("retries");
     until("bob has it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete) }).await;
-    assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), bytes);
+    assert_eq!(std::fs::read(bob.file_path(&file_of(&bob, &sent).await)).unwrap(), bytes);
 }
 
 // §63: when the connection drops, the transfer goes on from the first missing chunk.
@@ -426,7 +431,7 @@ async fn an_interrupted_transfer_resumes_where_it_stopped() {
     // The connection is back: whatever stopped is asked for again at once, backoff or not.
     bob.resume_files_from(&id(&alice), Duration::ZERO).await.expect("resumes");
     until_within("bob has it all", Duration::from_secs(20), || async { file_of(&bob, &sent).await.complete }).await;
-    assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), bytes);
+    assert_eq!(std::fs::read(bob.file_path(&file_of(&bob, &sent).await)).unwrap(), bytes);
     let resent = net.sent_to(&id(&bob)) - at_resume;
     assert!(resent < chunks - got as usize + 25, "only the missing chunks travel again: {resent}");
 }
@@ -447,7 +452,7 @@ async fn a_file_that_does_not_match_its_hash_is_rejected() {
     until("bob gives up on it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.failed) }).await;
     let received = file_of(&bob, &sent).await;
     assert!(!received.complete);
-    assert!(!std::path::Path::new(&received.path).exists(), "the bad bytes are deleted");
+    assert!(!bob.file_path(&received).exists(), "the bad bytes are deleted");
     assert!(!file_of(&alice, &sent).await.complete);
 }
 
@@ -460,7 +465,7 @@ async fn an_empty_file_arrives_at_once() {
     let (path, _) = some_file(0);
     let sent = alice.send_file(&id(&bob), &path, "empty.txt", "text/plain").await.expect("offers");
     until("bob has it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete) }).await;
-    assert_eq!(std::fs::read(file_of(&bob, &sent).await.path).unwrap(), Vec::<u8>::new());
+    assert_eq!(std::fs::read(bob.file_path(&file_of(&bob, &sent).await)).unwrap(), Vec::<u8>::new());
 }
 
 /// The next call event a device hears: (contact, call, what happened).
@@ -650,4 +655,34 @@ async fn a_move_without_the_secret_is_ignored() {
     old.move_to(&forged.to_link()).await.expect("tries");
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(received_move(&dir.join("new-move")).is_none());
+}
+
+// iOS may move the app's folder on an update, and a move takes the database to another phone:
+// files are found relative to the files folder, not by where it used to be.
+#[tokio::test(flavor = "multi_thread")]
+async fn files_are_found_after_the_app_folder_moves() {
+    let net = Net::new();
+    let dir = scratch("folder-moves");
+    let (before, after) = (dir.join("before"), dir.join("after"));
+    let store_path = dir.join("alice.db");
+    let bob = device(&net, "Bob").await;
+    let sent = {
+        let alice = device_in(&net, "Alice", Store::open(&store_path).await.unwrap(), [1; 32], before.clone()).await;
+        pair(&alice, &bob).await;
+        net.set_direct(false);
+        let upload = before.join("outgoing").join("upload-1");
+        std::fs::create_dir_all(upload.parent().unwrap()).unwrap();
+        std::fs::write(&upload, vec![7u8; 60_000]).unwrap();
+        alice.send_file(&id(&bob), &upload, "voice.m4a", "audio/mp4").await.expect("offers")
+    };
+    std::fs::rename(&before, &after).expect("the folder moves");
+
+    let alice = device_in(&net, "Alice", Store::open(&store_path).await.unwrap(), [1; 32], after.clone()).await;
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until_within("bob has it", Duration::from_secs(20), || async {
+        bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete)
+    })
+    .await;
+    assert_eq!(std::fs::read(alice.file_path(&file_of(&alice, &sent).await)).unwrap().len(), 60_000);
 }

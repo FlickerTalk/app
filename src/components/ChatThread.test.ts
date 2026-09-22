@@ -8,6 +8,27 @@ import { chat } from "../core";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
+const recorder = vi.hoisted(() => ({
+  startRecording: vi.fn(async (): Promise<string> => "recording"),
+  stopRecording: vi.fn(async () => new File(["voice"], "voice-20260922-161500.m4a", { type: "audio/mp4" })),
+  cancelRecording: vi.fn(),
+}));
+vi.mock("../recorder", async () => {
+  const { reactive } = await import("vue");
+  const recording = reactive({ active: false, startedAt: 0 });
+  recorder.startRecording.mockImplementation(async () => {
+    recording.active = true;
+    return "recording";
+  });
+  recorder.stopRecording.mockImplementation(async () => {
+    recording.active = false;
+    return new File(["voice"], "voice-20260922-161500.m4a", { type: "audio/mp4" });
+  });
+  recorder.cancelRecording.mockImplementation(() => {
+    recording.active = false;
+  });
+  return { recording, ...recorder };
+});
 
 describe("ChatThread", () => {
   beforeEach(() => seed());
@@ -69,6 +90,45 @@ describe("ChatThread", () => {
     expect(wrapper.findAllComponents(MessageBubble).find((b) => b.props("message").id === "m4")?.props("saved")).toBe(true);
   });
 
+  // Voice messages: with nothing written, the send button records instead.
+  it("records and sends a voice message", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await wrapper.find("[aria-label='Record voice message']").trigger("click");
+    await flushPromises();
+    expect(recorder.startRecording).toHaveBeenCalled();
+    expect(wrapper.find("[data-test='recording']").exists()).toBe(true);
+    await wrapper.find("[aria-label='Send voice message']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual([
+      "core_send_file",
+      { contact: "c1", upload: "up1", name: "voice-20260922-161500.m4a", mime: "audio/mp4" },
+    ]);
+    expect(wrapper.find("[data-test='recording']").exists()).toBe(false);
+  });
+
+  // Never a silent no: without a microphone (or a recorder in this WebView) the user is told.
+  it("says when it cannot record", async () => {
+    recorder.startRecording.mockImplementationOnce(async () => "unsupported");
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await wrapper.find("[aria-label='Record voice message']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='recording']").exists()).toBe(false);
+    expect(wrapper.find("[role='alert']").text()).toContain("Can't record here");
+    recorder.startRecording.mockImplementationOnce(async () => "denied");
+    await wrapper.find("[aria-label='Record voice message']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[role='alert']").text()).toContain("microphone");
+  });
+
+  it("throws a voice message away", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await wrapper.find("[aria-label='Record voice message']").trigger("click");
+    await flushPromises();
+    await wrapper.find("[aria-label='Discard voice message']").trigger("click");
+    expect(recorder.cancelRecording).toHaveBeenCalled();
+    expect(calls.some(([command]) => command === "core_send_file")).toBe(false);
+  });
+
   it("offers voice and video calls", () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     expect(wrapper.find("[aria-label='Voice call']").exists()).toBe(true);
@@ -94,9 +154,14 @@ describe("ChatThread", () => {
     expect(push).toHaveBeenCalledWith("/contact/c1");
   });
 
-  it("has a composer to attach and send", () => {
+  // With nothing written the round button records a voice message; with text, it sends.
+  it("has a composer to attach, record and send", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     expect(wrapper.find("[aria-label='Attach file']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(true);
+    wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hi");
+    await flushPromises();
     expect(wrapper.find("[aria-label='Send']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(false);
   });
 });

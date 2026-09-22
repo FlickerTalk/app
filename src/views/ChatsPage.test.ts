@@ -23,6 +23,17 @@ describe("ChatsPage", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
+  it("shows a voice message or a file as such in the list", () => {
+    screen(false);
+    store.chats[0].lastKind = "voice";
+    store.chats[1].lastKind = "file";
+    store.chats[1].preview = "menu.pdf";
+    const rows = mount(ChatsPage, { shallow: true }).findAll("[data-test='chat-row']");
+    expect(rows[0].text()).toContain("Voice message");
+    expect(rows[1].find("[aria-label='File']").exists()).toBe(true);
+    expect(rows[1].text()).toContain("menu.pdf");
+  });
+
   it("lists every conversation", () => {
     screen(false);
     const wrapper = mount(ChatsPage, { shallow: true });
