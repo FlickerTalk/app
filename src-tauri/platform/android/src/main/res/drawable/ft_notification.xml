@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Status bar icon: a speech bubble (Material Icons, Apache 2.0), white on transparent. -->
+<!-- Status bar icon: the FlickerTalk mark (two devices, a direct dashed link), white on transparent.
+     Vector drawables have no dash arrays, so the two dashes are drawn as short lines. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
+    android:viewportWidth="32"
+    android:viewportHeight="32">
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M20,2H4C2.9,2 2,2.9 2,4v18l4,-4h14c1.1,0 2,-0.9 2,-2V4C22,2.9 21.1,2 20,2z" />
+        android:fillAlpha="0.62"
+        android:pathData="M4,24a4,4 0 1,0 8,0a4,4 0 1,0 -8,0" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M20,8a4,4 0 1,0 8,0a4,4 0 1,0 -8,0" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M11.5,20.5L13.62,18.38M16.45,15.55L18.57,13.43" />
 </vector>
