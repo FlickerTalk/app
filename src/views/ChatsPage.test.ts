@@ -75,4 +75,13 @@ describe("ChatsPage", () => {
     await wrapper.find("[data-test='empty'] button").trigger("click");
     expect(push).toHaveBeenCalledWith("/add-contact");
   });
+
+  // Issue app#1: every row opens its contact's own settings.
+  it("opens the settings of a contact from its row", async () => {
+    const wrapper = mount(ChatsPage, { shallow: true });
+    const more = wrapper.findAll("[data-test='chat-more']");
+    expect(more).toHaveLength(store.chats.length);
+    await more[0].trigger("click");
+    expect(push).toHaveBeenCalledWith(`/contact/${store.chats[0].id}`);
+  });
 });

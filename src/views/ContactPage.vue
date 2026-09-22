@@ -10,12 +10,15 @@ import {
   IonLabel,
   IonList,
   IonPage,
+  IonSelect,
+  IonSelectOption,
   IonToolbar,
 } from "@ionic/vue";
-import { banOutline, flagOutline } from "ionicons/icons";
+import { banOutline, flagOutline, hourglassOutline, pencilOutline, timerOutline } from "ionicons/icons";
 import { useRoute } from "vue-router";
 import Avatar from "../components/Avatar.vue";
-import { block, chat, contactDetails, reportContact, type ContactDetails } from "../core";
+import { block, chat, contactDetails, renameContact, reportContact, setHistory, type ContactDetails } from "../core";
+import { t } from "../i18n";
 
 const route = useRoute();
 const id = String(route.params.id);
@@ -27,9 +30,39 @@ const details = ref<ContactDetails | null>(null);
 const fingerprint = computed(() => details.value?.fingerprint ?? "");
 const blocked = computed(() => details.value?.blocked ?? false);
 
+const name = ref("");
+// Issue app#1: how long this phone keeps the conversation, and how long a read message stays.
+// Seconds; 0 is forever and never. All of it is a choice of this phone.
+const HISTORIES = [0, 30 * 86_400, 7 * 86_400, 86_400] as const;
+const BURNS = [0, 60, 300, 3_600] as const;
+const keepFor = ref(0);
+const burnAfterRead = ref(0);
+
 onMounted(async () => {
   details.value = await contactDetails(id);
+  name.value = details.value?.name ?? "";
+  keepFor.value = details.value?.keepFor ?? 0;
+  burnAfterRead.value = details.value?.burnAfterRead ?? 0;
 });
+
+async function saveName() {
+  if (name.value.trim()) await renameContact(id, name.value);
+}
+
+async function chooseHistory(seconds: number) {
+  keepFor.value = seconds;
+  await setHistory(id, keepFor.value, burnAfterRead.value);
+}
+
+async function chooseBurn(seconds: number) {
+  burnAfterRead.value = seconds;
+  await setHistory(id, keepFor.value, burnAfterRead.value);
+}
+
+const historyLabel = (seconds: number) =>
+  seconds === 0 ? t("contact.forever") : t("contact.days", { days: Math.round(seconds / 86_400) });
+const burnLabel = (seconds: number) =>
+  seconds === 0 ? t("contact.never") : seconds >= 3_600 ? t("contact.hours", { hours: seconds / 3_600 }) : t("contact.minutes", { minutes: seconds / 60 });
 
 // Plan §36: a report goes by email with a reason and, only if the user wants, the contact's last
 // messages as evidence; the contact is blocked too.
@@ -84,6 +117,59 @@ async function toggleBlock() {
           <code class="ft-contact__fingerprint" data-test="fingerprint">{{ fingerprint }}</code>
           <span class="ft-contact__hint">{{ $t("contact.verifyHint") }}</span>
         </section>
+
+        <ion-list inset class="ft-group">
+          <!-- Issue app#1: the name this phone shows, and the two history rules. -->
+          <ion-item lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="pencilOutline" aria-hidden="true" /></span>
+            <input
+              v-model="name"
+              class="ft-contact__input"
+              data-test="name"
+              :aria-label="$t('contact.name')"
+              :placeholder="$t('contact.name')"
+              @keyup.enter="saveName"
+            />
+            <button
+              slot="end"
+              type="button"
+              class="ft-contact__save"
+              data-test="save-name"
+              :disabled="!name.trim() || name.trim() === details?.name"
+              @click="saveName"
+            >
+              {{ $t("common.save") }}
+            </button>
+          </ion-item>
+          <ion-item lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="hourglassOutline" aria-hidden="true" /></span>
+            <ion-select
+              :value="keepFor"
+              data-test="history"
+              interface="popover"
+              :label="$t('contact.history')"
+              @ion-change="chooseHistory($event.detail.value)"
+            >
+              <ion-select-option v-for="option in HISTORIES" :key="option" :value="option">
+                {{ historyLabel(option) }}
+              </ion-select-option>
+            </ion-select>
+          </ion-item>
+          <ion-item lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="timerOutline" aria-hidden="true" /></span>
+            <ion-select
+              :value="burnAfterRead"
+              data-test="burn"
+              interface="popover"
+              :label="$t('contact.burn')"
+              @ion-change="chooseBurn($event.detail.value)"
+            >
+              <ion-select-option v-for="option in BURNS" :key="option" :value="option">
+                {{ burnLabel(option) }}
+              </ion-select-option>
+            </ion-select>
+          </ion-item>
+        </ion-list>
 
         <ion-list inset class="ft-group">
           <ion-item button detail lines="none" data-test="block" @click="toggleBlock">

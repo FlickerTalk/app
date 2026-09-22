@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { IonSelect } from "@ionic/vue";
 import ContactPage from "./ContactPage.vue";
 import { calls, seed } from "../__tests__/seed";
 
@@ -44,5 +45,28 @@ describe("ContactPage", () => {
     await wrapper.find("[data-test='block']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_block", { contact: "c1", blocked: true }]);
+  });
+
+  // Issue app#1: each contact carries their own name and history rules, kept on this phone.
+  it("renames the contact", async () => {
+    const wrapper = mount(ContactPage, { shallow: true });
+    await flushPromises();
+    const name = wrapper.find("[data-test='name']");
+    await name.setValue("Maria");
+    await wrapper.find("[data-test='save-name']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_rename", { contact: "c1", name: "Maria" }]);
+  });
+
+  it("sets how long the history lasts and when read messages burn", async () => {
+    const wrapper = mount(ContactPage, { shallow: true });
+    await flushPromises();
+    const [history, burn] = wrapper.findAllComponents(IonSelect);
+    history.vm.$emit("ionChange", { detail: { value: 7 * 86_400 } });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_history", { contact: "c1", keepFor: 604800, burnAfterRead: 0 }]);
+    burn.vm.$emit("ionChange", { detail: { value: 300 } });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_history", { contact: "c1", keepFor: 604800, burnAfterRead: 300 }]);
   });
 });

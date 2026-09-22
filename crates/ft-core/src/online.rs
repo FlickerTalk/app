@@ -81,6 +81,8 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
             let Some(core) = retrying.upgrade() else { break };
             let _ = core.retry_due().await;
             let _ = core.resume_files().await;
+            // Issue app#1: histories that expire and read messages that burn.
+            let _ = core.sweep_history().await;
         }
     });
 

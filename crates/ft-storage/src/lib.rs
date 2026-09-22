@@ -53,6 +53,10 @@ pub struct Contact {
     /// They have written back, so they have our Contact Card.
     pub introduced: bool,
     pub added_at: i64,
+    /// How long this phone keeps their messages, in seconds; 0 keeps them forever (issue app#1).
+    pub keep_for: i64,
+    /// How long a read message stays, in seconds after it was read; 0 never burns them.
+    pub burn_after_read: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,6 +262,18 @@ impl Store {
         Ok(())
     }
 
+    /// How long this phone keeps the conversation with them, and how long a read message stays
+    /// after being read (issue app#1). Both in seconds; 0 means forever and never.
+    pub async fn set_history(&self, device_id: &str, keep_for: i64, burn_after_read: i64) -> Result<()> {
+        sqlx::query("UPDATE contacts SET keep_for = ?, burn_after_read = ? WHERE device_id = ?")
+            .bind(keep_for)
+            .bind(burn_after_read)
+            .bind(device_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_contact_mailbox(&self, device_id: &str, mailbox: bool) -> Result<()> {
         sqlx::query("UPDATE contacts SET mailbox = ? WHERE device_id = ?").bind(mailbox).bind(device_id).execute(&self.pool).await?;
         Ok(())
@@ -314,6 +330,11 @@ impl Store {
 
     /// Moves messages to `state`, never backwards.
     pub async fn advance(&self, message_ids: &[String], state: MessageState) -> Result<()> {
+        self.advance_at(message_ids, state, now()).await
+    }
+
+    /// Like `advance`, with the clock given: reading stamps `read_at`, and only the first time.
+    pub async fn advance_at(&self, message_ids: &[String], state: MessageState, at: i64) -> Result<()> {
         for id in message_ids {
             sqlx::query("UPDATE messages SET state = ? WHERE message_id = ? AND state < ?")
                 .bind(state as i64)
@@ -321,8 +342,55 @@ impl Store {
                 .bind(state as i64)
                 .execute(&self.pool)
                 .await?;
+            if state == MessageState::Read {
+                sqlx::query("UPDATE messages SET read_at = ? WHERE message_id = ? AND read_at IS NULL")
+                    .bind(at)
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await?;
+            }
         }
         Ok(())
+    }
+
+    /// When the message was first read, in milliseconds.
+    pub async fn read_at(&self, message_id: &str) -> Result<Option<i64>> {
+        let row = sqlx::query("SELECT read_at FROM messages WHERE message_id = ?")
+            .bind(message_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.and_then(|row| row.get("read_at")))
+    }
+
+    /// Applies the history rules (issue app#1) and returns the contacts whose conversation
+    /// changed. Files of the deleted messages go with them (their rows cascade); the bytes on
+    /// disk are the caller's to remove.
+    pub async fn sweep(&self, now: i64) -> Result<Vec<String>> {
+        let stale = sqlx::query(
+            "SELECT DISTINCT m.contact FROM messages m JOIN contacts c ON c.device_id = m.contact
+             WHERE (c.keep_for > 0 AND m.sent_at < ? - c.keep_for * 1000)
+                OR (c.burn_after_read > 0 AND m.read_at IS NOT NULL AND m.read_at < ? - c.burn_after_read * 1000)",
+        )
+        .bind(now)
+        .bind(now)
+        .fetch_all(&self.pool)
+        .await?;
+        let contacts: Vec<String> = stale.iter().map(|row| row.get("contact")).collect();
+        if contacts.is_empty() {
+            return Ok(contacts);
+        }
+        sqlx::query(
+            "DELETE FROM messages WHERE message_id IN (
+                 SELECT m.message_id FROM messages m JOIN contacts c ON c.device_id = m.contact
+                 WHERE (c.keep_for > 0 AND m.sent_at < ? - c.keep_for * 1000)
+                    OR (c.burn_after_read > 0 AND m.read_at IS NOT NULL AND m.read_at < ? - c.burn_after_read * 1000)
+             )",
+        )
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(contacts)
     }
 
     /// Incoming messages from `contact` not yet shown to the user.
@@ -547,6 +615,14 @@ impl Store {
     }
 }
 
+/// Milliseconds since the epoch, this device's clock.
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or_default()
+}
+
 fn contact_from(row: &SqliteRow) -> Contact {
     Contact {
         device_id: row.get("device_id"),
@@ -556,6 +632,8 @@ fn contact_from(row: &SqliteRow) -> Contact {
         blocked: row.get("blocked"),
         introduced: row.get("introduced"),
         added_at: row.get("added_at"),
+        keep_for: row.get("keep_for"),
+        burn_after_read: row.get("burn_after_read"),
     }
 }
 
@@ -979,5 +1057,57 @@ mod tests {
         let store = Store::open(&path).await.expect("reopens");
         assert!(store.contact("ft_bob").await.expect("reads").is_some());
         let _ = std::fs::remove_file(&path);
+    }
+
+    // Issue #1: each contact can have its history expire, and read messages can disappear a few
+    // minutes later. Both are choices of this phone: nothing of it travels.
+    #[tokio::test]
+    async fn keeps_a_history_rule_for_each_contact() {
+        let store = store().await;
+        store.add_contact(&contact("bob")).await.unwrap();
+        let bob = store.contact("bob").await.unwrap().unwrap();
+        assert_eq!((bob.keep_for, bob.burn_after_read), (0, 0), "forever, and no burning, by default");
+
+        store.set_history("bob", 7 * 86_400, 300).await.unwrap();
+        let bob = store.contact("bob").await.unwrap().unwrap();
+        assert_eq!((bob.keep_for, bob.burn_after_read), (7 * 86_400, 300));
+    }
+
+    #[tokio::test]
+    async fn stamps_when_a_message_was_read() {
+        let store = store().await;
+        store.add_contact(&contact("bob")).await.unwrap();
+        store.insert_message(&message("m1", "bob", false, 1_000)).await.unwrap();
+        assert_eq!(store.read_at("m1").await.unwrap(), None);
+
+        store.advance_at(&["m1".to_owned()], MessageState::Read, 5_000).await.unwrap();
+        assert_eq!(store.read_at("m1").await.unwrap(), Some(5_000));
+        store.advance_at(&["m1".to_owned()], MessageState::Read, 9_000).await.unwrap();
+        assert_eq!(store.read_at("m1").await.unwrap(), Some(5_000), "the first reading is the one");
+    }
+
+    #[tokio::test]
+    async fn sweeps_old_messages_and_read_ones() {
+        let store = store().await;
+        store.add_contact(&contact("bob")).await.unwrap();
+        store.add_contact(&NewContact { device_id: "carol".to_owned(), ..contact("carol") }).await.unwrap();
+        // Bob: a week of history, and read messages gone five minutes later.
+        store.set_history("bob", 7 * 86_400, 300).await.unwrap();
+
+        let day = 86_400_000;
+        let now = 30 * day;
+        store.insert_message(&message("old", "bob", false, now - 8 * day)).await.unwrap();
+        store.insert_message(&message("recent", "bob", false, now - day)).await.unwrap();
+        store.insert_message(&message("read", "bob", false, now - 1000)).await.unwrap();
+        store.insert_file(&file("old")).await.unwrap();
+        store.insert_message(&message("ancient", "carol", false, now - 400 * day)).await.unwrap();
+        store.advance_at(&["read".to_owned()], MessageState::Read, now - 600_000).await.unwrap();
+
+        let gone = store.sweep(now).await.unwrap();
+        assert_eq!(gone, vec!["bob".to_owned()], "only bob has a rule");
+        let left: Vec<String> = store.messages("bob", 50).await.unwrap().into_iter().map(|m| m.message_id).collect();
+        assert_eq!(left, vec!["recent".to_owned()], "the old one and the read one are gone");
+        assert!(store.file("old").await.unwrap().is_none(), "its file row goes with it");
+        assert_eq!(store.messages("carol", 50).await.unwrap().len(), 1, "carol keeps everything");
     }
 }

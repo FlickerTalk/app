@@ -182,6 +182,10 @@ fn some_file(size: usize) -> (PathBuf, Vec<u8>) {
     (path, bytes)
 }
 
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_millis() as i64
+}
+
 async fn file_of(core: &Core, message_id: &str) -> FileRecord {
     core.store().file(message_id).await.expect("reads").expect("the file exists")
 }
@@ -734,4 +738,36 @@ async fn a_call_given_up_while_waiting_stops_trying() {
     net.set_direct(true);
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(bob.store().call(&call).await.unwrap().is_none(), "bob never rang");
+}
+
+// Issue app#1: each contact can have their history expire and their read messages burn. It is a
+// choice of this phone: nothing of it travels, and the files on disk go with the messages.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_contact_can_have_their_history_expire() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+
+    let (path, _) = some_file(1_000);
+    let sent = alice.send_file(&id(&bob), &path, "a.bin", "application/octet-stream").await.expect("queues");
+    until("bob has the file", || async {
+        bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete)
+    })
+    .await;
+    alice.send_text(&id(&bob), "old news").await.expect("sends");
+    until("bob got it", || async { texts(&bob, &id(&alice)).await.contains(&"old news".to_owned()) }).await;
+
+    let file = file_of(&bob, &sent).await;
+    let kept = bob.file_path(&file);
+    assert!(kept.exists(), "the bytes are on the phone");
+
+    // A day of history: everything said so far is already older than that.
+    bob.set_history(&id(&alice), 86_400, 0).await.expect("sets the rule");
+    let contact = bob.store().contact(&id(&alice)).await.unwrap().unwrap();
+    assert_eq!((contact.keep_for, contact.burn_after_read), (86_400, 0));
+
+    bob.sweep_history_at(now() + 2 * 86_400_000).await.expect("sweeps");
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "the conversation is gone");
+    assert!(!kept.exists(), "and so are the bytes it kept");
+    assert!(!texts(&alice, &id(&bob)).await.is_empty(), "only this phone forgets");
 }

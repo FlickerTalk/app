@@ -17,7 +17,8 @@
     "close": "Close",
     "share": "Share",
     "copy": "Copy",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "save": "Save"
   },
   "chat": {
     "direct": "Direct",
@@ -36,7 +37,8 @@
     "saved": "Saved to Downloads",
     "attach": "Attach file",
     "voiceCall": "Voice call",
-    "videoCall": "Video call"
+    "videoCall": "Video call",
+    "contactSettings": "Contact settings"
   },
   "status": {
     "pending": "Waiting for device",
@@ -113,7 +115,15 @@
     "reportEvidence": "Include their last messages as evidence",
     "reportSend": "Report and block",
     "reportHint": "Opens an email to FlickerTalk. Only what you send leaves this phone.",
-    "unblock": "Unblock"
+    "unblock": "Unblock",
+    "name": "Name on this phone",
+    "history": "Keep history",
+    "burn": "Delete after reading",
+    "forever": "Forever",
+    "never": "Never",
+    "days": "{days} days",
+    "hours": "{hours} h",
+    "minutes": "{minutes} min"
   },
   "move": {
     "fromOld": "From your old phone",
