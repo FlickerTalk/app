@@ -78,9 +78,30 @@ pub fn content_type(path: &str) -> &'static str {
     }
 }
 
-/// The plugin id and the file from a request path like `/com.example.x/dist/index.js`.
+/// Percent-decoding, enough for a path: `%2F` is a slash, `%20` a space.
+fn decoded(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&path[index + 1..index + 3], 16) {
+                out.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The plugin id and the file from a request path like `/com.example.x/dist/index.js`. The path
+/// may arrive percent-encoded, as some WebViews do.
 pub fn route(path: &str) -> Option<(String, String)> {
-    let trimmed = path.trim_start_matches('/');
+    let decoded = decoded(path);
+    let trimmed = decoded.trim_start_matches('/');
     let (id, file) = trimmed.split_once('/')?;
     if id.is_empty() || file.is_empty() {
         return None;
@@ -108,6 +129,12 @@ pub fn policy_for(granted: &Permissions) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_request_whose_slash_arrived_encoded_is_still_a_path() {
+        assert_eq!(route("/com.example.x%2Fframe.html"), Some(("com.example.x".into(), "frame.html".into())));
+        assert_eq!(route("/com.example.x/dist%2Findex.js"), Some(("com.example.x".into(), "dist/index.js".into())));
+    }
 
     #[test]
     fn a_request_names_a_plugin_and_a_file() {

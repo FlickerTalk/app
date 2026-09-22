@@ -111,10 +111,21 @@ const saved = reactive(new Set<string>());
 const plugin = ref<{ id: string; name: string } | null>(null);
 const handed = ref("");
 
-onMounted(async () => {
+async function loadPlugins() {
   const ready = await readyPlugins().catch(() => []);
   plugin.value = ready.length ? { id: ready[0].id, name: ready[0].name } : null;
+}
+
+onMounted(() => {
+  void loadPlugins();
+  // A permission granted in Settings shows up here as soon as the chat comes back.
+  document.addEventListener("visibilitychange", onVisible);
 });
+onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
+
+function onVisible() {
+  if (document.visibilityState === "visible") void loadPlugins();
+}
 
 function handToPlugin(id: string) {
   handed.value = messages.value.find((message) => message.id === id)?.text ?? "";
