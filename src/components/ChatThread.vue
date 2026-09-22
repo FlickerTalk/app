@@ -5,19 +5,19 @@ import {
   IonButton,
   IonButtons,
   IonContent,
-  IonModal,
   IonFooter,
   IonHeader,
   IonIcon,
   IonTextarea,
   IonToolbar,
 } from "@ionic/vue";
-import { add, arrowUp, callOutline, micOutline, trashOutline, videocamOutline } from "ionicons/icons";
+import { add, appsOutline, arrowUp, callOutline, closeOutline, micOutline, trashOutline, videocamOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import { readyPlugins } from "../plugins";
+import type { PluginView } from "../core";
 import { chat as chatOf, loadMessages, markRead, openFile, pickFiles, saveFile, sendFile, sendPicked, sendText } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { t } from "../i18n";
@@ -108,12 +108,25 @@ onUnmounted(() => {
 const saved = reactive(new Set<string>());
 
 // Issue app#3: the plugins the user allowed to read what they hand them (§53).
+const installed = ref<PluginView[]>([]);
+const showApps = ref(false);
 const plugin = ref<{ id: string; name: string } | null>(null);
-const handed = ref("");
 
 async function loadPlugins() {
-  const ready = await readyPlugins().catch(() => []);
-  plugin.value = ready.length ? { id: ready[0].id, name: ready[0].name } : null;
+  installed.value = await readyPlugins().catch(() => []);
+}
+
+function useApp(id: string) {
+  const chosen = installed.value.find((one) => one.id === id);
+  if (!chosen) return;
+  showApps.value = false;
+  plugin.value = { id: chosen.id, name: chosen.name };
+}
+
+/** A plugin proposes; the user sends (§53). */
+function fromPlugin(text: string) {
+  draft.value = text;
+  plugin.value = null;
 }
 
 onMounted(() => {
@@ -125,10 +138,6 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
 
 function onVisible() {
   if (document.visibilityState === "visible") void loadPlugins();
-}
-
-function handToPlugin(id: string) {
-  handed.value = messages.value.find((message) => message.id === id)?.text ?? "";
 }
 
 async function save(id: string) {
@@ -195,9 +204,33 @@ watch(
           <ion-button :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
+          <!-- Issue app#3: the utilities installed on this phone. -->
+          <ion-button v-if="installed.length" data-test="apps" :aria-label="$t('plugins.title')" @click="showApps = true">
+            <ion-icon slot="icon-only" :icon="appsOutline" aria-hidden="true" />
+          </ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
+
+    <!-- Issue app#3: each plugin does its thing inside its own window. -->
+    <div v-if="plugin" class="ft-app" role="dialog" :aria-label="plugin.name">
+      <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="plugin = null">
+        <ion-icon :icon="closeOutline" aria-hidden="true" />
+      </button>
+      <PluginSheet :plugin="plugin" :contact="chatId" @text="fromPlugin" @done="plugin = null" />
+    </div>
+
+    <!-- The apps of this phone; each opens its own window. -->
+    <div v-if="showApps" class="ft-apps" role="dialog" :aria-label="$t('plugins.title')" @click.self="showApps = false">
+      <ul class="ft-apps__list">
+        <li v-for="one in installed" :key="one.id">
+          <button type="button" class="ft-apps__item" :data-test="`app-${one.id}`" @click="useApp(one.id)">
+            <ion-icon :icon="appsOutline" aria-hidden="true" />
+            {{ one.name }}
+          </button>
+        </li>
+      </ul>
+    </div>
 
     <ion-content ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
@@ -206,15 +239,10 @@ watch(
         :key="message.id"
         :message="message"
         :saved="saved.has(message.id)"
-        :with-plugin="Boolean(plugin)"
         @open="openFile"
         @save="save"
-        @plugin="handToPlugin"
       />
-      <!-- Issue app#3: the message the user chose, in the plugin's own frame. -->
-      <ion-modal :is-open="Boolean(handed)" @did-dismiss="handed = ''">
-        <PluginSheet v-if="plugin && handed" :plugin="plugin" :text="handed" />
-      </ion-modal>
+
       <div class="ft-thread__end" />
     </ion-content>
 
@@ -319,6 +347,63 @@ watch(
 .ft-thread__content {
   --background: var(--ft-bg);
 }
+.ft-app {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  overflow-y: auto;
+  background: var(--ft-bg);
+}
+.ft-app__close {
+  position: sticky;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: var(--ft-space-2);
+  border: 0;
+  border-radius: 50%;
+  background: var(--ft-surface-2);
+  color: var(--ft-text);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.ft-apps {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: end center;
+  padding: var(--ft-space-4);
+  background: rgba(0, 0, 0, 0.35);
+}
+.ft-apps__list {
+  width: min(100%, 420px);
+  margin: 0;
+  padding: var(--ft-space-2);
+  list-style: none;
+  border-radius: var(--ft-radius-card);
+  background: var(--ft-surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.ft-apps__item {
+  display: flex;
+  align-items: center;
+  gap: var(--ft-space-3);
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
 .ft-thread__day {
   display: flex;
   justify-content: center;

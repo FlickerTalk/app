@@ -11,6 +11,8 @@ export const emptyAnswers: Answer = (command) => (LISTS.has(command) ? [] : unde
 export function installTauri(answer: Answer = emptyAnswers): void {
   (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
     invoke: (command: string, args?: Record<string, unknown>) => Promise.resolve(answer(command, args)),
+    // The app asks for the URL of a file or of a plugin; in a test it is just a path.
+    convertFileSrc: (path: string, protocol = "asset") => `http://${protocol}.localhost/${path}`,
     transformCallback: () => 0,
     unregisterCallback: () => undefined,
   };

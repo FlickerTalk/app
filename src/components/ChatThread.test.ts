@@ -165,8 +165,36 @@ describe("ChatThread", () => {
     expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(false);
   });
 
-  // Issue app#3: a long press hands the message to a plugin; nothing else in the chat shows it.
-  it("opens the plugin only after a long press on a message", async () => {
+  // Issue app#3: the plugins live behind the apps button of the header, and each one does its
+  // thing inside its own window.
+  it("opens a plugin from the apps button", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    expect(wrapper.find("[data-test='close-app']").exists()).toBe(false);
+
+    await wrapper.find("[data-test='apps']").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Code block");
+
+    await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+  });
+
+  it("puts in the composer the text a plugin proposes", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await wrapper.find("[data-test='apps']").trigger("click");
+    await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
+    await flushPromises();
+
+    wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("text", "# Title");
+    await flushPromises();
+    expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("# Title");
+  });
+
+  // The old way in: a long press on a message. Kept out, it was noise (Ioan, 2026-09-22).
+  it.skip("opens the plugin only after a long press on a message", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
     await flushPromises();
     expect(wrapper.find("[data-test='plugin']").exists()).toBe(false);

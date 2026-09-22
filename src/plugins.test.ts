@@ -45,4 +45,24 @@ describe("plugins in the app", () => {
     const nonsense = { source: frame.contentWindow, data: { type: "ft.doSomething" } } as unknown as MessageEvent;
     expect(fromFrame(nonsense, frame)).toBeNull();
   });
+
+  // What a plugin may say to the app, and nothing else (§53): give me a file, take this file,
+  // put this text in the chat, this is how tall I am.
+  it("understands only what a plugin is allowed to ask", () => {
+    const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+    const said = (data: unknown) =>
+      fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
+
+    expect(said({ type: "ft.ready" })).toEqual({ type: "ft.ready" });
+    expect(said({ type: "ft.pickFile", accept: "image/*" })).toEqual({ type: "ft.pickFile", accept: "image/*" });
+    expect(said({ type: "ft.made", name: "a.pdf", mime: "application/pdf", data: "AAA" })).toEqual({
+      type: "ft.made",
+      name: "a.pdf",
+      mime: "application/pdf",
+      data: "AAA",
+    });
+    expect(said({ type: "ft.text", text: "hello" })).toEqual({ type: "ft.text", text: "hello" });
+    expect(said({ type: "ft.readEverything" })).toBeNull();
+    expect(said({ type: "ft.made" })).toBeNull();
+  });
 });
