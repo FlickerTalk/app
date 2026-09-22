@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import CallPage from "./CallPage.vue";
@@ -73,6 +74,17 @@ describe("CallPage", () => {
     const live = mount(CallPage, { shallow: true });
     expect(live.find(".ft-call__remote").exists()).toBe(true);
     expect(live.findComponent({ name: "Avatar" }).exists()).toBe(false);
+  });
+
+  // One icon element per state: Ionicons loads icons asynchronously, and a reused element could
+  // end up showing the previous state (a crossed microphone while it is on).
+  it("draws a fresh icon for each state of the toggles", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", video: true, muted: false });
+    const wrapper = mount(CallPage, { shallow: true });
+    const before = wrapper.find("[aria-label='Mute']").findComponent(IonIcon).element;
+    call.muted = true;
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find("[aria-label='Mute']").findComponent(IonIcon).element).not.toBe(before);
   });
 
   it("shows the video area only on video calls", () => {

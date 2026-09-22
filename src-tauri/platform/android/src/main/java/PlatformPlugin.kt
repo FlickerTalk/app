@@ -2,8 +2,16 @@ package com.flickertalk.platform
 
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import app.tauri.annotation.Command
@@ -24,6 +32,19 @@ fun fileProviderAuthority(packageName: String): String = "$packageName.ft.files"
 
 fun canSaveToDownloads(sdk: Int): Boolean = sdk >= Build.VERSION_CODES.Q
 
+/** How an incoming call rings. */
+data class Ringing(val sound: Boolean, val vibrate: Boolean)
+
+/** As the user set the phone: sound and vibration, vibration only, or nothing. */
+fun ringingFor(ringerMode: Int): Ringing = when (ringerMode) {
+    AudioManager.RINGER_MODE_NORMAL -> Ringing(sound = true, vibrate = true)
+    AudioManager.RINGER_MODE_VIBRATE -> Ringing(sound = false, vibrate = true)
+    else -> Ringing(sound = false, vibrate = false)
+}
+
+/** Ring 0.8 s, pause 1.2 s, and again. */
+private val RING_PATTERN = longArrayOf(0, 800, 1200)
+
 @InvokeArg
 class OpenFileArgs {
     lateinit var path: String
@@ -40,6 +61,58 @@ class SaveFileArgs {
 /** What only Android lets Kotlin do (Plan §5): lend a file to a viewer, save it to Downloads. */
 @TauriPlugin
 class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
+    private var ringtone: Ringtone? = null
+    private var vibrator: Vibrator? = null
+
+    /** An incoming call (§66): the user's ringtone and vibration, until `stopRinging`. */
+    @Command
+    fun startRinging(invoke: Invoke) {
+        try {
+            silence()
+            val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val ringing = ringingFor(audio.ringerMode)
+            if (ringing.sound) {
+                val uri = RingtoneManager.getActualDefaultRingtoneUri(activity, RingtoneManager.TYPE_RINGTONE)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                ringtone = RingtoneManager.getRingtone(activity, uri)?.apply {
+                    audioAttributes = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) isLooping = true
+                    play()
+                }
+            }
+            if (ringing.vibrate && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator = phoneVibrator()?.apply { vibrate(VibrationEffect.createWaveform(RING_PATTERN, 0)) }
+            }
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot ring")
+        }
+    }
+
+    @Command
+    fun stopRinging(invoke: Invoke) {
+        silence()
+        invoke.resolve()
+    }
+
+    private fun silence() {
+        ringtone?.stop()
+        ringtone = null
+        vibrator?.cancel()
+        vibrator = null
+    }
+
+    private fun phoneVibrator(): Vibrator? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            activity.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            activity.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+
     @Command
     fun openFile(invoke: Invoke) {
         try {
