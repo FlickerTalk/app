@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import css from "./variables.css?raw";
 
+/** The palette blocks: the ones that set the `--ft-*` tokens, not every rule with that selector. */
 function blocks(selectorStart: string): string[] {
   return css
     .replace(/\/\*[\s\S]*?\*\//g, "")
-    .split("}").filter((block) => block.trim().startsWith(selectorStart));
+    .split("}")
+    .filter((block) => block.trim().startsWith(selectorStart) && block.includes("--ft-accent"));
 }
 
 describe("theme variables", () => {
@@ -34,6 +36,11 @@ describe("theme variables", () => {
       expect(palette).toMatch(/--ft-accent-rgb:\s*(\d+),\s*\1,\s*\1;/);
       expect(accent === undefined || true).toBe(true);
     }
+  });
+
+  // The black and white theme has no colours: the contact avatars are greys too.
+  it("takes the colour out of the avatars in the mono theme", () => {
+    expect(css).toMatch(/html\[data-direction="mono"\][^{]*\.ft-avatar[^{]*\{[^}]*filter:\s*grayscale\(1\)/);
   });
 
   it("hands that RGB accent to Ionic", () => {

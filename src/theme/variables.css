@@ -103,6 +103,11 @@ html.ft-dark[data-direction="mono"] {
   --ft-glow: rgba(255, 255, 255, 0.35);
 }
 
+/* Black and white means black and white: the colour each contact gets is a grey here. */
+html[data-direction="mono"] .ft-avatar {
+  filter: grayscale(1);
+}
+
 /* ---------- Tokens → Ionic ---------- */
 html[data-direction] body {
   color-scheme: light;
