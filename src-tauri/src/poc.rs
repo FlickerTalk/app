@@ -15,13 +15,10 @@ const GOOGLE_STUN: &str = "stun:stun.l.google.com:19302";
 #[derive(Default)]
 pub struct Poc(Mutex<Option<Session>>);
 
-/// The relay runs on the developer's Mac; the Android emulator reaches the host at 10.0.2.2.
+/// The cluster's relay behind the load balancer (Plan §75). The PoC screen lets a local one be
+/// typed in (the Android emulator reaches the developer's Mac at 10.0.2.2).
 pub fn default_relay() -> &'static str {
-    if cfg!(target_os = "android") {
-        "ws://10.0.2.2:8787"
-    } else {
-        "ws://127.0.0.1:8787"
-    }
+    "wss://api.flickertalk.com"
 }
 
 /// Google's STUN as the fallback; the relay's welcome adds ours and a temporary TURN user (ft-poc).
@@ -71,9 +68,10 @@ pub async fn poc_send(text: String, poc: State<'_, Poc>) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    // The cluster's relay behind the load balancer (Plan §75); a local one can still be typed in.
     #[test]
-    fn the_desktop_build_looks_for_the_relay_on_this_machine() {
-        assert_eq!(default_relay(), "ws://127.0.0.1:8787");
+    fn every_build_uses_the_cluster_relay_by_default() {
+        assert_eq!(default_relay(), "wss://api.flickertalk.com");
     }
 
     // The relay hands out our STUN and a temporary TURN user (ft-poc); Google's STUN is only the

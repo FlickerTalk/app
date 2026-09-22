@@ -33,23 +33,21 @@ cargo check --workspace                            # comprobar el lado Rust
 
 ## PoC 0 en el emulador (`§87`, fases B1 y B2)
 
-Contra el clúster (B2): un túnel SSH lleva el router del clúster al puerto 8788 del Mac (el
-comando está en el repo privado `infra/`), y STUN/TURN van por internet a `turn.flickertalk.com`,
-con las credenciales temporales que entrega el router en su bienvenida.
+La pantalla del PoC usa por defecto el relay del clúster, `wss://api.flickertalk.com`, que entrega
+nuestro STUN y un usuario TURN temporal (`turn.flickertalk.com`) en su bienvenida.
 
 ```sh
 VITE_POC=1 npm run tauri android build -- --debug --apk --target aarch64
 adb -s emulator-5554 install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
-cargo run -p ft-poc --bin poc-peer -- --relay ws://127.0.0.1:8788 --room demo --role callee  # par del Mac
+cargo run -p ft-poc --bin poc-peer -- --relay wss://api.flickertalk.com --room demo --role callee  # par del Mac
 ```
 
-En la app: Ajustes → PoC 0, relay `ws://10.0.2.2:8788` (el emulador llega al Mac por `10.0.2.2`),
-sala, rol (Call/Answer) y, si se quiere, «Always relay (TURN only)» → Connect → Send hello. Con
-dos emuladores, uno llama y el otro responde. Cuando exista `api.flickertalk.com`, el relay será
-`wss://api.flickertalk.com`. `VITE_POC=1` muestra la entrada del PoC en builds que no son de
-desarrollo (un APK lo es).
+En la app: Ajustes → PoC 0, sala, rol (Call/Answer) y, si se quiere, «Always relay (TURN only)» →
+Connect → Send hello. Con dos emuladores, uno llama y el otro responde. `VITE_POC=1` muestra la
+entrada del PoC en builds que no son de desarrollo (un APK lo es).
 
-Relay local (B1): `(cd ../server && cargo run -p ft-router)` y `ws://10.0.2.2:8787`, sin TURN.
+Relay local, sin TURN: `(cd ../server && cargo run -p ft-router)` y, en la app, `ws://10.0.2.2:8787`
+(el emulador llega al Mac por `10.0.2.2`).
 
 ## Entorno
 
