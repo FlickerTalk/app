@@ -3,6 +3,7 @@
  * own scheme, with the policy its permissions allow, and only ever sees the text the user hands
  * it. It never touches the app's window, its storage or its keys.
  */
+import { shallowRef } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { plugins, type PluginView } from "./core";
 
@@ -14,9 +15,16 @@ export function frameUrl(id: string): string {
   return `${convertFileSrc(id, "ftplugin")}/frame.html`;
 }
 
-/** The apps of this phone: every plugin installed, whatever it was granted (§53). */
-export async function installedPlugins(): Promise<PluginView[]> {
-  return await plugins();
+/**
+ * The apps of this phone: every plugin installed, whatever it was granted (§53). One list for the
+ * whole app, so a tool added or removed in Settings reaches a conversation that is already open.
+ */
+export const installed = shallowRef<PluginView[]>([]);
+
+/** Asks the core what is installed and hands it to every screen that is watching. */
+export async function refreshPlugins(): Promise<PluginView[]> {
+  installed.value = await plugins().catch(() => []);
+  return installed.value;
 }
 
 /**

@@ -31,8 +31,7 @@ import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
-import { installedPlugins } from "../plugins";
-import type { PluginView } from "../core";
+import { installed, refreshPlugins } from "../plugins";
 import {
   chat as chatOf,
   forgetMessage,
@@ -193,14 +192,10 @@ async function forwardTo(contact: string) {
   await forwardMessage(id, contact).catch(() => {});
 }
 
-// Issue app#3: the apps of this phone, each in its own window.
-const installed = ref<PluginView[]>([]);
+// Issue app#3: the apps of this phone, each in its own window. The list is the app's, not this
+// component's: what Settings installs or removes shows up here without leaving the conversation.
 const showApps = ref(false);
 const plugin = ref<{ id: string; name: string } | null>(null);
-
-async function loadPlugins() {
-  installed.value = await installedPlugins().catch(() => []);
-}
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
@@ -216,14 +211,14 @@ function fromPlugin(text: string) {
 }
 
 onMounted(() => {
-  void loadPlugins();
-  // A permission granted in Settings shows up here as soon as the chat comes back.
+  void refreshPlugins();
+  // A tool installed from another window shows up here as soon as the chat comes back.
   document.addEventListener("visibilitychange", onVisible);
 });
 onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
 
 function onVisible() {
-  if (document.visibilityState === "visible") void loadPlugins();
+  if (document.visibilityState === "visible") void refreshPlugins();
 }
 
 async function save(id: string) {
