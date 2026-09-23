@@ -829,3 +829,114 @@ async fn a_message_can_be_sent_on_to_someone_else() {
     }
     assert!(alice.forward("not a message", &id(&carol)).await.is_err());
 }
+
+// Hidden sessions (Plan, 2026-09-23): a 6-digit PIN opens a space of its own. The same PIN always
+// opens the same session; a new PIN makes a new one, and nothing says which happened.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pin_opens_a_session_and_the_same_pin_opens_the_same_one() {
+    let net = Net::new();
+    let bob = device(&net, "Bob").await;
+
+    let friends = bob.open_session("246810").await.expect("opens");
+    assert_eq!(bob.open_session("246810").await.expect("opens again"), friends);
+    assert_eq!(bob.open_sessions(), vec![friends.clone()]);
+    let work = bob.open_session("111222").await.expect("opens another");
+    assert_ne!(work, friends);
+    assert_eq!(bob.open_sessions().len(), 2);
+
+    bob.close_session(&friends);
+    assert_eq!(bob.open_sessions(), vec![work]);
+    assert!(bob.open_session("12345").await.is_err(), "six digits, nothing else");
+    assert!(bob.open_session("12345a").await.is_err());
+}
+
+// A contact scanned inside a session belongs there and never shows in the main list.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_contact_added_inside_a_session_stays_out_of_the_main_list() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let friends = bob.open_session("246810").await.expect("opens");
+    let link = alice.my_card().await.expect("card").to_link();
+    bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds alice in friends");
+    until("alice knows bob", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some() }).await;
+
+    assert!(bob.store().conversations().await.unwrap().is_empty(), "the main list shows nothing");
+    let hidden = bob.store().session_conversations(&friends).await.unwrap();
+    assert_eq!(hidden.len(), 1);
+    assert_eq!(hidden[0].contact.device_id, id(&alice));
+    assert_eq!(bob.store().contact(&id(&alice)).await.unwrap().unwrap().session.as_deref(), Some(friends.as_str()));
+}
+
+// While the session is closed its messages arrive and are acknowledged, but the phone says
+// nothing: no event, so no refresh and no badge. Opening the session shows them unread.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_session_receives_in_silence() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let friends = bob.open_session("246810").await.expect("opens");
+    let link = alice.my_card().await.expect("card").to_link();
+    bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
+    until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+    bob.close_session(&friends);
+    let mut at_bob = bob.events();
+
+    let message = alice.send_text(&id(&bob), "poker on friday?").await.expect("sends");
+    until("bob stored it", || async { texts(&bob, &id(&alice)).await == vec!["poker on friday?"] }).await;
+    until("alice got the receipt", || async { state_of(&alice, &id(&bob), &message).await == MessageState::Delivered }).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    while let Ok(event) = at_bob.try_recv() {
+        assert_ne!(event, Event::MessagesChanged { contact: id(&alice) }, "a closed session makes no noise");
+    }
+
+    bob.open_session("246810").await.expect("opens again");
+    let hidden = bob.store().session_conversations(&friends).await.unwrap();
+    assert_eq!((hidden.len(), hidden[0].unread), (1, 1));
+}
+
+// A call to a closed session is answered as busy: neutral for the caller, silent for the phone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_session_answers_calls_as_busy_and_an_open_one_rings() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let friends = bob.open_session("246810").await.expect("opens");
+    let link = alice.my_card().await.expect("card").to_link();
+    bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
+    until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+    bob.close_session(&friends);
+    let (mut at_alice, mut at_bob) = (alice.events(), bob.events());
+
+    let call = alice.place_call(&id(&bob), false).await.expect("places");
+    alice.offer_call(&call, "offer-sdp").await.expect("offers");
+    assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
+    until("bob logged it as missed", || async { outcome_of(&bob, &call).await == Some(CallOutcome::Missed) }).await;
+    while let Ok(event) = at_bob.try_recv() {
+        assert!(!matches!(event, Event::Call { .. }), "a closed session never rings");
+    }
+
+    bob.open_session("246810").await.expect("opens again");
+    let second = alice.place_call(&id(&bob), false).await.expect("places");
+    alice.offer_call(&second, "offer-sdp").await.expect("offers");
+    assert!(matches!(next_call(&mut at_bob).await.2, CallUpdate::Incoming { .. }), "an open session rings");
+}
+
+// The calls list is part of the screen: a closed session's calls must not show there either.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_session_leaves_no_calls_in_the_history() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let friends = bob.open_session("246810").await.expect("opens");
+    let link = alice.my_card().await.expect("card").to_link();
+    bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
+    until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+    bob.close_session(&friends);
+    let mut at_alice = alice.events();
+
+    let call = alice.place_call(&id(&bob), false).await.expect("places");
+    alice.offer_call(&call, "offer-sdp").await.expect("offers");
+    assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
+    until("bob logged it", || async { outcome_of(&bob, &call).await == Some(CallOutcome::Missed) }).await;
+
+    assert!(bob.visible_calls(100).await.expect("lists").is_empty(), "nothing shows while the session is closed");
+    bob.open_session("246810").await.expect("opens again");
+    assert_eq!(bob.visible_calls(100).await.expect("lists").len(), 1, "the session's history is back");
+}

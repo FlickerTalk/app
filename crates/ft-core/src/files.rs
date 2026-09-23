@@ -217,7 +217,7 @@ impl Core {
             })
             .await?;
         if stored {
-            let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+            self.announce_messages(contact);
         }
         // Always acknowledged, even a repeated offer: the sender is waiting for it (§27).
         let _ = self.send_control(contact, Body::Delivered { ids: vec![id] }).await;

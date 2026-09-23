@@ -25,6 +25,7 @@ import {
   copyOutline,
   fileTrayOutline,
   informationCircleOutline,
+  lockClosedOutline,
   moonOutline,
   phonePortraitOutline,
   qrCodeOutline,
@@ -162,6 +163,11 @@ function chooseAppearance(id: Appearance) {
           <ion-item button detail lines="none" data-test="blocked" @click="router.push('/blocked')">
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.blocked") }}</ion-label>
+          </ion-item>
+          <!-- Hidden sessions: a PIN pad, nothing else. The same six digits create or enter one. -->
+          <ion-item button detail lines="none" data-test="session" @click="router.push('/session')">
+            <span slot="start" class="ft-tile"><ion-icon :icon="lockClosedOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.session") }}</ion-label>
           </ion-item>
         </ion-list>
 

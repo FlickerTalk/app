@@ -97,6 +97,21 @@ interface ConversationView {
   last: MessageView | null;
 }
 
+/**
+ * A hidden session: its own contacts and conversations, opened with a 6-digit PIN and nothing
+ * else, not even a name. Only the person who created it knows it exists; while it is closed it
+ * receives texts and files in silence, with no notification and no calls.
+ */
+export interface Session {
+  id: string;
+  chats: Chat[];
+}
+
+interface SessionView {
+  id: string;
+  conversations: ConversationView[];
+}
+
 export const CHANGED_EVENT = "ft://changed";
 const MESSAGE_LIMIT = 200;
 /** Bytes per call when copying a picked file into the app. */
@@ -106,6 +121,8 @@ export const store = reactive({
   ready: false,
   me: { id: "", name: "", hue: 0, mailbox: true, freeUntil: 0 } as Me,
   chats: [] as Chat[],
+  /** The hidden sessions open right now; an empty list looks exactly like having none. */
+  sessions: [] as Session[],
 });
 
 /** Conversations whose messages are shown, so a change reloads them. */
@@ -184,7 +201,30 @@ function toChat(view: ConversationView): Chat {
 }
 
 export function chat(id: string): Chat | undefined {
-  return store.chats.find((candidate) => candidate.id === id);
+  return allChats().find((candidate) => candidate.id === id);
+}
+
+/** The main list plus every open session's conversations. */
+function allChats(): Chat[] {
+  return store.chats.concat(...store.sessions.map((session) => session.chats));
+}
+
+/**
+ * Opens the session that has this PIN or, if none has it, a new empty one. The core never says
+ * which of the two happened, so nothing reveals whether a session existed.
+ */
+export async function openSession(pin: string): Promise<void> {
+  const view = await invoke<SessionView>("core_session_open", { pin });
+  const session: Session = { id: view.id, chats: view.conversations.map(toChat) };
+  const index = store.sessions.findIndex((candidate) => candidate.id === session.id);
+  if (index >= 0) store.sessions[index] = session;
+  else store.sessions.push(session);
+}
+
+/** Leaves the session: it disappears from the screen and keeps receiving in silence. */
+export async function closeSession(session: string): Promise<void> {
+  await invoke("core_session_close", { session });
+  store.sessions = store.sessions.filter((candidate) => candidate.id !== session);
 }
 
 export async function start(): Promise<void> {
@@ -205,6 +245,9 @@ export async function start(): Promise<void> {
 export async function refreshChats(): Promise<void> {
   const views = await invoke<ConversationView[]>("core_conversations", undefined);
   store.chats = views.map(toChat);
+  // The open sessions follow: their unread counts change with the same events.
+  const sessions = (await invoke<SessionView[] | undefined>("core_sessions", undefined)) ?? [];
+  store.sessions = sessions.map((session) => ({ id: session.id, chats: session.conversations.map(toChat) }));
 }
 
 export async function loadMessages(contact: string): Promise<void> {
@@ -313,9 +356,9 @@ export async function shareText(text: string): Promise<void> {
   await invoke("core_share", { text });
 }
 
-/** Adds the owner of a scanned or pasted card and returns their id. */
-export async function addContact(link: string): Promise<string> {
-  return invoke<string>("core_add_contact", { link: link.trim() });
+/** Adds the owner of a scanned or pasted card, to a hidden session if given, and returns their id. */
+export async function addContact(link: string, session?: string): Promise<string> {
+  return invoke<string>("core_add_contact", { link: link.trim(), session });
 }
 
 export async function setName(name: string): Promise<void> {

@@ -23,7 +23,7 @@ pub mod web;
 pub use plugins::CATALOGUE_HOME;
 pub use web::{Fetch, Web, WebAnswer, WebRequest};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -128,7 +128,13 @@ pub struct Core {
     /// Where a move to a new phone writes its copies (set by the app).
     move_dir: OnceLock<PathBuf>,
     moving: std::sync::Mutex<moving::MoveState>,
+    /// The hidden sessions open right now. Only in memory: the app starts with all of them closed.
+    open_sessions: std::sync::Mutex<HashSet<String>>,
 }
+
+/// What a session's PIN is hashed with, so the hash is bound to this phone's key.
+const SESSION_PIN_CONTEXT: &str = "flickertalk 2026-09-23 hidden session pin";
+const SESSION_PIN_LENGTH: usize = 6;
 
 impl Core {
     /// Opens the device's core; the first run creates the identity and route capability.
@@ -162,6 +168,7 @@ impl Core {
             active_call: std::sync::Mutex::default(),
             move_dir: OnceLock::new(),
             moving: std::sync::Mutex::default(),
+            open_sessions: std::sync::Mutex::default(),
         }))
     }
 
@@ -266,6 +273,15 @@ impl Core {
 
     /// Adds the owner of a scanned card and introduces ourselves to them.
     pub async fn add_contact(&self, link: &str, name: Option<String>) -> Result<Contact> {
+        self.add_contact_in(link, name, None).await
+    }
+
+    /// Adds the owner of a card to the main list or, given one, to a hidden session. A contact
+    /// already known stays where they were.
+    pub async fn add_contact_in(&self, link: &str, name: Option<String>, session: Option<&str>) -> Result<Contact> {
+        if let Some(session) = session {
+            ensure!(self.open_sessions.lock().expect("sessions poisoned").contains(session), "that session is not open");
+        }
         let card = ContactCard::from_link(link)?;
         let device_id = card.device_id();
         if device_id == self.device_id {
@@ -276,7 +292,13 @@ impl Core {
             .or_else(|| card.name().map(str::to_owned))
             .unwrap_or_else(|| short_name(&device_id));
         self.store
-            .add_contact(&NewContact { device_id: device_id.to_string(), name, card: card.encode(), mailbox: card.mailbox() })
+            .add_contact(&NewContact {
+                device_id: device_id.to_string(),
+                name,
+                card: card.encode(),
+                mailbox: card.mailbox(),
+                session: session.map(str::to_owned),
+            })
             .await?;
         {
             let identity = self.identity.lock().await;
@@ -290,6 +312,63 @@ impl Core {
         self.introduce(&contact).await?;
         let _ = self.events.send(Event::ContactsChanged);
         Ok(contact)
+    }
+
+    /// Opens the hidden session whose PIN this is or, if none has it, a new empty one, and
+    /// returns its id. Nothing tells the two apart: that is what keeps a session unknowable.
+    pub async fn open_session(&self, pin: &str) -> Result<String> {
+        ensure!(pin.len() == SESSION_PIN_LENGTH && pin.bytes().all(|byte| byte.is_ascii_digit()), "a PIN is six digits");
+        let hash = *blake3::keyed_hash(&blake3::derive_key(SESSION_PIN_CONTEXT, &self.key), pin.as_bytes()).as_bytes();
+        let id = match self.store.session_by_pin(&hash).await? {
+            Some(id) => id,
+            None => {
+                let id = MessageId::new().to_string();
+                self.store.add_session(&id, &hash).await?;
+                id
+            }
+        };
+        self.open_sessions.lock().expect("sessions poisoned").insert(id.clone());
+        Ok(id)
+    }
+
+    /// Leaves the session: from now on it receives in silence, until its PIN opens it again.
+    pub fn close_session(&self, session: &str) {
+        self.open_sessions.lock().expect("sessions poisoned").remove(session);
+    }
+
+    /// The sessions open right now, oldest first.
+    pub fn open_sessions(&self) -> Vec<String> {
+        let mut open: Vec<String> = self.open_sessions.lock().expect("sessions poisoned").iter().cloned().collect();
+        open.sort();
+        open
+    }
+
+    /// Whether what this contact sends must make no noise: they belong to a closed session.
+    pub(crate) fn silent(&self, contact: &Contact) -> bool {
+        contact.session.as_deref().is_some_and(|session| !self.open_sessions.lock().expect("sessions poisoned").contains(session))
+    }
+
+    /// The call history the screen may show: the main list's calls and those of open sessions.
+    /// A closed session's calls stay stored and come back when its PIN opens it again.
+    pub async fn visible_calls(&self, limit: i64) -> Result<Vec<ft_storage::CallRecord>> {
+        let mut visible = Vec::new();
+        for call in self.store.calls(limit).await? {
+            let shown = match self.store.contact(&call.contact).await? {
+                Some(contact) => !self.silent(&contact),
+                None => true,
+            };
+            if shown {
+                visible.push(call);
+            }
+        }
+        Ok(visible)
+    }
+
+    /// Tells the UI the conversation changed, unless the contact's session is closed.
+    pub(crate) fn announce_messages(&self, contact: &Contact) {
+        if !self.silent(contact) {
+            let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        }
     }
 
     /// Safety number with a contact (§29), the same on both phones.
@@ -517,7 +596,7 @@ impl Core {
                     }
                     let name = card.name().map(str::to_owned).unwrap_or_else(|| short_name(&from));
                     self.store
-                        .add_contact(&NewContact { device_id: from.to_string(), name, card: card.encode(), mailbox: card.mailbox() })
+                        .add_contact(&NewContact { device_id: from.to_string(), name, card: card.encode(), mailbox: card.mailbox(), session: None })
                         .await?;
                     self.store.save_channel(from.as_str(), &channel.seal(&self.key)).await?;
                     (packet, true)
@@ -544,7 +623,7 @@ impl Core {
                     })
                     .await?;
                 if stored {
-                    let _ = self.events.send(Event::MessagesChanged { contact: id.to_owned() });
+                    self.announce_messages(contact);
                 }
                 // Always acknowledged, even a duplicate: the sender is waiting for it (§27).
                 let _ = self.send_control(contact, Body::Delivered { ids: vec![packet.id] }).await;
@@ -562,6 +641,7 @@ impl Core {
                         name: contact.name.clone(),
                         card: card.encode(),
                         mailbox: card.mailbox(),
+                        session: None,
                     })
                     .await?;
                 if first_contact {

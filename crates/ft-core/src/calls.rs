@@ -151,6 +151,23 @@ impl Core {
     /// The contact calls us.
     pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool) -> Result<()> {
         let call_id = call.to_string();
+        if self.silent(contact) {
+            // A closed hidden session takes no calls: busy is neutral for the caller, and the
+            // phone neither rings nor says anything. The session's history keeps it as missed.
+            let record = CallRecord {
+                call_id: call_id.clone(),
+                contact: contact.device_id.clone(),
+                outgoing: false,
+                video,
+                started_at: now(),
+                answered_at: None,
+                ended_at: Some(now()),
+                outcome: Some(CallOutcome::Missed),
+            };
+            self.store.insert_call(&record).await?;
+            let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
+            return Ok(());
+        }
         self.drop_stale_call().await?;
         let busy = {
             let mut active = self.active_call.lock().expect("active call poisoned");
