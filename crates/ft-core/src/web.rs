@@ -52,16 +52,14 @@ impl Default for Web {
     }
 }
 
+/// How long the core waits for the catalogue, or for a call it makes for a plugin.
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl Web {
+    /// It follows nothing and carries nothing of its own: no redirects, no cookies, and its own
+    /// cryptography, which a phone does not install by itself.
     pub fn new() -> Self {
-        let http = reqwest::Client::builder()
-            // It follows nothing and carries nothing of its own: no redirects, no cookies (the
-            // cookie store is off unless the feature is on), and a short patience.
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .unwrap_or_default();
-        Self { http }
+        Self { http: ft_push::https_client(PATIENCE).expect("the HTTPS client is built the same way as the router's") }
     }
 
     async fn body_within(answer: reqwest::Response, limit: u64) -> Result<Vec<u8>> {
@@ -100,6 +98,13 @@ impl Fetch for Web {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // On a phone there is no crypto provider installed by default: a client built without one
+    // aborts the whole app the first time it is made (seen on a real Android, 2026-09-23).
+    #[test]
+    fn the_client_brings_its_own_crypto() {
+        let _ = Web::new();
+    }
 
     #[test]
     fn only_an_https_host_can_be_checked_against_what_was_granted() {

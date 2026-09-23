@@ -107,19 +107,26 @@ pub struct RouterClient {
     signer: Arc<dyn Signer>,
 }
 
+/// An HTTPS client that carries its own cryptography. A phone has no crypto provider installed,
+/// so one built without this aborts the app the first time it is made.
+pub fn https_client(timeout: Duration) -> Result<reqwest::Client> {
+    let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .context("no TLS versions")?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    reqwest::Client::builder()
+        .use_preconfigured_tls(tls)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .build()
+        .context("cannot build the HTTP client")
+}
+
 impl RouterClient {
     pub fn new(base: &str, signer: Arc<dyn Signer>) -> Result<Self> {
-        let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
-        let tls = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .context("no TLS versions")?
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let http = reqwest::Client::builder()
-            .use_preconfigured_tls(tls)
-            .timeout(Duration::from_secs(20))
-            .build()
-            .context("cannot build the HTTP client")?;
+        let http = https_client(Duration::from_secs(20))?;
         Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer })
     }
 
