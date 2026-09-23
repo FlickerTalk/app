@@ -34,6 +34,36 @@ impl Plugins {
 
 /// The page that hosts a plugin. Its script is a file of its own: the policy allows no script
 /// written inside the page, which is what keeps a plugin from slipping code into it.
+/// The icons the app lends its tools (Ionicons, MIT). A plugin has no network and carries no
+/// pictures of its own, so it asks the core for these and paints them in the colour of the app
+/// (`mask-image` + `currentColor`), which is why they are served as they are: one path, no fill.
+const ICONS: &[(&str, &[u8])] = &[
+    ("add-outline", include_bytes!("../resources/icons/add-outline.svg")),
+    ("arrow-undo-outline", include_bytes!("../resources/icons/arrow-undo-outline.svg")),
+    ("arrow-up-outline", include_bytes!("../resources/icons/arrow-up-outline.svg")),
+    ("brush-outline", include_bytes!("../resources/icons/brush-outline.svg")),
+    ("close-outline", include_bytes!("../resources/icons/close-outline.svg")),
+    ("crop-outline", include_bytes!("../resources/icons/crop-outline.svg")),
+    ("document-text-outline", include_bytes!("../resources/icons/document-text-outline.svg")),
+    ("download-outline", include_bytes!("../resources/icons/download-outline.svg")),
+    ("eye-outline", include_bytes!("../resources/icons/eye-outline.svg")),
+    ("folder-open-outline", include_bytes!("../resources/icons/folder-open-outline.svg")),
+    ("grid-outline", include_bytes!("../resources/icons/grid-outline.svg")),
+    ("image-outline", include_bytes!("../resources/icons/image-outline.svg")),
+    ("options-outline", include_bytes!("../resources/icons/options-outline.svg")),
+    ("pencil-outline", include_bytes!("../resources/icons/pencil-outline.svg")),
+    ("refresh-outline", include_bytes!("../resources/icons/refresh-outline.svg")),
+    ("resize-outline", include_bytes!("../resources/icons/resize-outline.svg")),
+    ("send-outline", include_bytes!("../resources/icons/send-outline.svg")),
+    ("square-outline", include_bytes!("../resources/icons/square-outline.svg")),
+    ("trash-outline", include_bytes!("../resources/icons/trash-outline.svg")),
+];
+
+/// An icon by name, or nothing. A name is a name: never a path, never a way out of the list.
+pub fn icon(name: &str) -> Option<(&'static str, &'static [u8])> {
+    ICONS.iter().find(|(known, _)| *known == name).map(|(_, svg)| ("image/svg+xml", *svg))
+}
+
 pub fn frame_html(component: &str) -> String {
     format!(
         r#"<!doctype html>
@@ -284,6 +314,26 @@ mod tests {
     #[test]
     fn a_sandboxed_frame_may_read_its_own_files() {
         assert_eq!(ALLOW_OPAQUE_ORIGIN, ("Access-Control-Allow-Origin", "*"));
+    }
+
+    // The tools look like the app because the app lends them its icons (Ioan, 2026-09-23): a
+    // plugin has no network and carries no pictures, so the core serves them.
+    #[test]
+    fn the_core_lends_its_icons_to_the_plugins() {
+        let (name, svg) = icon("pencil-outline").expect("the icon the tools write with");
+        assert_eq!(name, "image/svg+xml");
+        assert!(svg.starts_with(b"<svg"));
+        assert!(icon("../../secret").is_none(), "an icon is a name, never a path");
+        assert!(icon("not-an-icon").is_none());
+        // Everything the tools ask for is really there.
+        for wanted in ["eye-outline", "folder-open-outline", "send-outline", "trash-outline", "image-outline"] {
+            assert!(icon(wanted).is_some(), "{wanted} is missing");
+        }
+    }
+
+    #[test]
+    fn an_icon_is_served_from_the_plugin_scheme() {
+        assert_eq!(route("/com.example.x/icon/pencil-outline.svg"), Some(("com.example.x".into(), "icon/pencil-outline.svg".into())));
     }
 
     #[test]
