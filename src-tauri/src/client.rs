@@ -115,6 +115,14 @@ impl ConversationView {
     }
 }
 
+/// A hidden session as the UI sees it: an id and its conversations. No name, nothing to read.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionView {
+    id: String,
+    conversations: Vec<ConversationView>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeView {
@@ -613,8 +621,9 @@ pub async fn core_card(client: State<'_, Client>) -> Result<String, String> {
 
 /// Adds the owner of a scanned or pasted card; returns their id at once and introduces us in the
 /// background.
+/// Adds a contact to the main list or, given `session`, to that open hidden session.
 #[tauri::command]
-pub async fn core_add_contact(link: String, client: State<'_, Client>) -> Result<String, String> {
+pub async fn core_add_contact(link: String, session: Option<String>, client: State<'_, Client>) -> Result<String, String> {
     let core = client.core().await?;
     let card = ft_contacts::ContactCard::from_link(&link).map_err(failed)?;
     if &card.device_id() == core.device_id() {
@@ -622,7 +631,7 @@ pub async fn core_add_contact(link: String, client: State<'_, Client>) -> Result
     }
     let id = card.device_id().to_string();
     tauri::async_runtime::spawn(async move {
-        let _ = core.add_contact(&link, None).await;
+        let _ = core.add_contact_in(&link, None, session.as_deref()).await;
     });
     Ok(id)
 }
@@ -630,15 +639,50 @@ pub async fn core_add_contact(link: String, client: State<'_, Client>) -> Result
 #[tauri::command]
 pub async fn core_conversations(client: State<'_, Client>) -> Result<Vec<ConversationView>, String> {
     let online = client.online().await?;
+    let conversations = online.core.store().conversations().await.map_err(failed)?;
+    conversation_views(online, conversations).await
+}
+
+async fn conversation_views(online: &Online, conversations: Vec<Conversation>) -> Result<Vec<ConversationView>, String> {
     let connected = online.network.connected().await;
     let store = online.core.store();
     let mut views = Vec::new();
-    for conversation in store.conversations().await.map_err(failed)? {
+    for conversation in conversations {
         let mut view = ConversationView::new(&conversation, connected.contains(&conversation.contact.device_id));
         if let Some(last) = view.last.as_mut() {
             last.file = store.file(&last.id).await.map_err(failed)?.map(|file| FileView::from(&located(&online.core, file)));
         }
         views.push(view);
+    }
+    Ok(views)
+}
+
+async fn session_view(online: &Online, session: String) -> Result<SessionView, String> {
+    let conversations = online.core.store().session_conversations(&session).await.map_err(failed)?;
+    Ok(SessionView { id: session, conversations: conversation_views(online, conversations).await? })
+}
+
+/// Six digits open the hidden session that has them, or a new one; the answer never says which.
+#[tauri::command]
+pub async fn core_session_open(pin: String, client: State<'_, Client>) -> Result<SessionView, String> {
+    let online = client.online().await?;
+    let session = online.core.open_session(&pin).await.map_err(failed)?;
+    session_view(online, session).await
+}
+
+#[tauri::command]
+pub async fn core_session_close(session: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.close_session(&session);
+    Ok(())
+}
+
+/// The sessions open right now, with their conversations: what the chats list refreshes.
+#[tauri::command]
+pub async fn core_sessions(client: State<'_, Client>) -> Result<Vec<SessionView>, String> {
+    let online = client.online().await?;
+    let mut views = Vec::new();
+    for session in online.core.open_sessions() {
+        views.push(session_view(online, session).await?);
     }
     Ok(views)
 }
@@ -1249,9 +1293,13 @@ pub async fn core_call_end(call: String, failed: bool, app: AppHandle, client: S
 #[tauri::command]
 pub async fn core_calls(client: State<'_, Client>) -> Result<Vec<CallView>, String> {
     let core = client.core().await?;
-    let names: HashMap<String, String> =
-        core.store().contacts().await.map_err(failed)?.into_iter().map(|contact| (contact.device_id, contact.name)).collect();
-    let calls = core.store().calls(100).await.map_err(failed)?;
+    let mut contacts = core.store().contacts().await.map_err(failed)?;
+    for session in core.open_sessions() {
+        contacts.extend(core.store().session_contacts(&session).await.map_err(failed)?);
+    }
+    let names: HashMap<String, String> = contacts.into_iter().map(|contact| (contact.device_id, contact.name)).collect();
+    // A closed hidden session's calls stay out of sight (Plan §108).
+    let calls = core.visible_calls(100).await.map_err(failed)?;
     Ok(calls.iter().map(|call| CallView::new(call, names.get(&call.contact).map_or("", String::as_str))).collect())
 }
 
@@ -1526,6 +1574,7 @@ mod tests {
             added_at: 1,
             keep_for: 0,
             burn_after_read: 0,
+            session: None,
         };
         let conversation = Conversation { contact, last: Some(message(MessageState::Pending, true)), unread: 2 };
         let view = serde_json::to_value(ConversationView::new(&conversation, true)).unwrap();
@@ -1795,4 +1844,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // Hidden sessions: the UI gets an id and the conversations, and nothing else to show.
+    #[test]
+    fn a_session_view_is_its_id_and_its_conversations() {
+        let view = serde_json::to_value(SessionView { id: "s1".to_owned(), conversations: vec![] }).unwrap();
+        assert_eq!(view, serde_json::json!({ "id": "s1", "conversations": [] }));
+    }
 }

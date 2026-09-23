@@ -185,7 +185,16 @@
     "eraseHint": "Removes this device from our server and deletes everything on this phone",
     "eraseAsk": "Erase everything on this phone?",
     "eraseConfirm": "Erase",
-    "plugins": "Plugins"
+    "plugins": "Plugins",
+    "session": "Session"
+  },
+  "session": {
+    "pin": "PIN",
+    "delete": "Delete",
+    "toggle": "Session",
+    "addContact": "Add a contact to this session",
+    "close": "Leave this session",
+    "empty": "No contacts here yet. Add one with the QR button: it belongs to this session only."
   },
   "colors": {
     "ember": "Ember",

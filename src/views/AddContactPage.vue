@@ -12,7 +12,7 @@ import {
   IonToolbar,
 } from "@ionic/vue";
 import { checkmarkOutline, scanOutline, shareOutline } from "ionicons/icons";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import QrCode from "../components/QrCode.vue";
 import { addContact, myCardLink, refreshChats, shareText, store } from "../core";
 import { scanQr } from "../scanner";
@@ -20,6 +20,9 @@ import { t } from "../i18n";
 
 // Plan §32: pairing happens through a signed Contact Card shared by QR, link or share sheet.
 const router = useRouter();
+const route = useRoute();
+// Opened from a hidden session's QR button: the contact belongs to that session (Plan, 2026-09-23).
+const session = typeof route.query.session === "string" ? route.query.session : undefined;
 const link = ref("");
 const mode = ref<"code" | "scan">("code");
 const copied = ref(false);
@@ -49,7 +52,7 @@ async function scanCode() {
 async function add(value: string) {
   error.value = "";
   try {
-    const id = await addContact(value);
+    const id = await addContact(value, session);
     await refreshChats();
     router.replace(`/chat/${id}`);
   } catch {

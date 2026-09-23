@@ -131,4 +131,10 @@ describe("SettingsPage", () => {
     await wrapper.find("[data-test='plan']").trigger("click");
     expect(push).toHaveBeenCalledWith("/plan");
   });
+
+  // Hidden sessions: one row, no explanation, that goes to the PIN pad.
+  it("goes to the PIN pad from a row", async () => {
+    await mount(SettingsPage, { shallow: true }).find("[data-test='session']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/session");
+  });
 });

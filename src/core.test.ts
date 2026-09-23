@@ -249,3 +249,76 @@ describe("core bridge", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_upload_start", expect.anything());
   });
 });
+
+// Hidden sessions (Plan, 2026-09-23): a 6-digit PIN opens a session of its own, with its own
+// contacts and no name. The core answers with its conversations; the same PIN always opens the same one.
+describe("hidden sessions", () => {
+  beforeEach(() => {
+    core.store.sessions = [];
+    core.store.chats = [];
+    tauri.invoke.mockReset();
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_session_open") {
+        return Promise.resolve({
+          id: "s1",
+          conversations: [
+            { id: "ft_pablo", name: "Pablo", unread: 1, blocked: false, connected: true, last: { id: "p1", outgoing: false, text: "Poker?", sentAt: at(13, 30), state: "delivered" } },
+          ],
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+  });
+
+  it("opens a session through the core and lists its conversations", async () => {
+    await core.openSession("246810");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_session_open", { pin: "246810" });
+    expect(core.store.sessions).toHaveLength(1);
+    expect(core.store.sessions[0].id).toBe("s1");
+    expect(core.store.sessions[0].chats.map((chat) => chat.name)).toEqual(["Pablo"]);
+    expect(core.store.sessions[0].chats[0].unread).toBe(1);
+  });
+
+  it("finds a session's conversation like any other", async () => {
+    await core.openSession("246810");
+    expect(core.chat("ft_pablo")?.name).toBe("Pablo");
+  });
+
+  // Every change refreshes the open sessions too, so their unread counts follow the main list.
+  it("refreshes the open sessions with the conversations", async () => {
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_conversations") return Promise.resolve(answers.core_conversations);
+      if (command === "core_sessions") {
+        return Promise.resolve([
+          { id: "s1", conversations: [{ id: "ft_pablo", name: "Pablo", unread: 3, blocked: false, connected: false, last: null }] },
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+    await core.refreshChats();
+    expect(core.store.chats.map((chat) => chat.id)).toEqual(["ft_bob", "ft_carol"]);
+    expect(core.store.sessions).toHaveLength(1);
+    expect(core.store.sessions[0].chats[0].unread).toBe(3);
+  });
+
+  it("adds a contact to a session", async () => {
+    tauri.invoke.mockResolvedValue("ft_pablo");
+    await core.addContact(" https://flickertalk.com/add#pablo ", "s1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_add_contact", { link: "https://flickertalk.com/add#pablo", session: "s1" });
+  });
+
+  it("opens the same session once", async () => {
+    await core.openSession("246810");
+    await core.openSession("246810");
+    expect(core.store.sessions).toHaveLength(1);
+  });
+
+  // Leaving hides the session again; the core keeps receiving for it silently.
+  it("closes a session through the core and hides it", async () => {
+    await core.openSession("246810");
+    await core.closeSession("s1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_session_close", { session: "s1" });
+    expect(core.store.sessions).toHaveLength(0);
+    expect(core.chat("ft_pablo")).toBeUndefined();
+  });
+});

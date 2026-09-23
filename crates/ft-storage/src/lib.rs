@@ -41,6 +41,8 @@ pub struct NewContact {
     pub name: String,
     pub card: Vec<u8>,
     pub mailbox: bool,
+    /// The hidden session the contact is added to; `None` for the main list.
+    pub session: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +59,8 @@ pub struct Contact {
     pub keep_for: i64,
     /// How long a read message stays, in seconds after it was read; 0 never burns them.
     pub burn_after_read: i64,
+    /// The hidden session this contact belongs to; `None` for the main list.
+    pub session: Option<String>,
 }
 
 /// A plugin installed on this phone, with what the user granted it (issue app#3).
@@ -227,18 +231,37 @@ impl Store {
     }
 
     /// Adds a contact or, if already known, refreshes its card (keys, capability, mailbox).
+    /// Adds the contact, or refreshes the card of a known one. A known contact keeps its name and
+    /// stays in the list or session where it was.
     pub async fn add_contact(&self, contact: &NewContact) -> Result<()> {
         sqlx::query(
-            "INSERT INTO contacts (device_id, name, card, mailbox, added_at) VALUES (?, ?, ?, ?, unixepoch())
+            "INSERT INTO contacts (device_id, name, card, mailbox, added_at, session) VALUES (?, ?, ?, ?, unixepoch(), ?)
              ON CONFLICT (device_id) DO UPDATE SET card = excluded.card, mailbox = excluded.mailbox",
         )
         .bind(&contact.device_id)
         .bind(&contact.name)
         .bind(&contact.card)
         .bind(contact.mailbox)
+        .bind(&contact.session)
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Creates a hidden session under the keyed hash of its PIN; fails if another has that hash.
+    pub async fn add_session(&self, id: &str, pin_hash: &[u8; 32]) -> Result<()> {
+        sqlx::query("INSERT INTO sessions (id, pin_hash, created_at) VALUES (?, ?, unixepoch())")
+            .bind(id)
+            .bind(pin_hash.as_slice())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The session whose PIN has this hash, if any.
+    pub async fn session_by_pin(&self, pin_hash: &[u8; 32]) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT id FROM sessions WHERE pin_hash = ?").bind(pin_hash.as_slice()).fetch_optional(&self.pool).await?;
+        Ok(row.map(|row| row.get("id")))
     }
 
     pub async fn contact(&self, device_id: &str) -> Result<Option<Contact>> {
@@ -246,8 +269,15 @@ impl Store {
         Ok(row.as_ref().map(contact_from))
     }
 
+    /// The contacts of the main list: a session's contacts are listed through it.
     pub async fn contacts(&self) -> Result<Vec<Contact>> {
-        let rows = sqlx::query("SELECT * FROM contacts ORDER BY name").fetch_all(&self.pool).await?;
+        let rows = sqlx::query("SELECT * FROM contacts WHERE session IS NULL ORDER BY name").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(contact_from).collect())
+    }
+
+    /// The contacts of a hidden session.
+    pub async fn session_contacts(&self, session: &str) -> Result<Vec<Contact>> {
+        let rows = sqlx::query("SELECT * FROM contacts WHERE session = ? ORDER BY name").bind(session).fetch_all(&self.pool).await?;
         Ok(rows.iter().map(contact_from).collect())
     }
 
@@ -424,9 +454,19 @@ impl Store {
     }
 
     /// Every contact with its last message and unread count, most recent first.
+    /// The conversations of the main list, newest first.
     pub async fn conversations(&self) -> Result<Vec<Conversation>> {
+        self.conversations_of(self.contacts().await?).await
+    }
+
+    /// The conversations of a hidden session, newest first.
+    pub async fn session_conversations(&self, session: &str) -> Result<Vec<Conversation>> {
+        self.conversations_of(self.session_contacts(session).await?).await
+    }
+
+    async fn conversations_of(&self, contacts: Vec<Contact>) -> Result<Vec<Conversation>> {
         let mut conversations = Vec::new();
-        for contact in self.contacts().await? {
+        for contact in contacts {
             let last = sqlx::query("SELECT * FROM messages WHERE contact = ? ORDER BY sent_at DESC, message_id DESC LIMIT 1")
                 .bind(&contact.device_id)
                 .fetch_optional(&self.pool)
@@ -743,6 +783,7 @@ fn contact_from(row: &SqliteRow) -> Contact {
         added_at: row.get("added_at"),
         keep_for: row.get("keep_for"),
         burn_after_read: row.get("burn_after_read"),
+        session: row.get("session"),
     }
 }
 
@@ -807,7 +848,7 @@ mod tests {
     }
 
     fn contact(id: &str) -> NewContact {
-        NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true }
+        NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true, session: None }
     }
 
     fn message(id: &str, contact: &str, outgoing: bool, sent_at: i64) -> Message {
@@ -1291,5 +1332,45 @@ mod tests {
         store.install_plugin("com.example.code", "1.0.0", "{}").await.unwrap();
         store.remove_plugin("com.example.code").await.unwrap();
         assert_eq!(store.plugin_keys("com.example.code").await.unwrap(), Vec::<String>::new());
+    }
+
+    // Hidden sessions (Plan, 2026-09-23): a contact belongs to the main list or to one session,
+    // and only the main list is what the phone shows by default.
+    #[tokio::test]
+    async fn a_session_is_found_by_its_pin_hash_and_owns_its_contacts() {
+        let store = store().await;
+        store.add_session("s1", &[7; 32]).await.expect("adds");
+        assert_eq!(store.session_by_pin(&[7; 32]).await.expect("reads").as_deref(), Some("s1"));
+        assert_eq!(store.session_by_pin(&[8; 32]).await.expect("reads"), None);
+
+        store.add_contact(&contact("ft_bob")).await.expect("adds bob");
+        store.add_contact(&NewContact { session: Some("s1".to_owned()), ..contact("ft_pablo") }).await.expect("adds pablo");
+        store.insert_message(&message("m1", "ft_pablo", false, 5)).await.expect("inserts");
+
+        let main: Vec<String> = store.conversations().await.expect("lists").into_iter().map(|c| c.contact.device_id).collect();
+        assert_eq!(main, vec!["ft_bob"], "the main list never shows a session's contacts");
+        let hidden = store.session_conversations("s1").await.expect("lists");
+        assert_eq!(hidden.len(), 1);
+        assert_eq!(hidden[0].contact.device_id, "ft_pablo");
+        assert_eq!(hidden[0].unread, 1);
+        assert_eq!(store.contact("ft_pablo").await.unwrap().unwrap().session.as_deref(), Some("s1"));
+        assert_eq!(store.contact("ft_bob").await.unwrap().unwrap().session, None);
+    }
+
+    // The same person scanned again stays where they were: a card refresh never moves a contact.
+    #[tokio::test]
+    async fn scanning_a_known_contact_inside_a_session_does_not_move_them() {
+        let store = store().await;
+        store.add_session("s1", &[7; 32]).await.expect("adds");
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.add_contact(&NewContact { session: Some("s1".to_owned()), ..contact("ft_bob") }).await.expect("updates");
+        assert_eq!(store.contact("ft_bob").await.unwrap().unwrap().session, None);
+    }
+
+    #[tokio::test]
+    async fn two_sessions_cannot_share_a_pin() {
+        let store = store().await;
+        store.add_session("s1", &[7; 32]).await.expect("adds");
+        assert!(store.add_session("s2", &[7; 32]).await.is_err());
     }
 }

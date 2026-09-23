@@ -6,7 +6,8 @@ import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 
 const replace = vi.fn();
-vi.mock("vue-router", () => ({ useRouter: () => ({ replace }) }));
+const query: Record<string, string> = {};
+vi.mock("vue-router", () => ({ useRouter: () => ({ replace }), useRoute: () => ({ query }) }));
 const scanner = vi.hoisted(() => ({ scan: vi.fn() }));
 vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
   scan: scanner.scan,
@@ -16,6 +17,7 @@ vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
 describe("AddContactPage", () => {
   beforeEach(() => {
     replace.mockClear();
+    delete query.session;
     seed();
   });
 
@@ -81,5 +83,16 @@ describe("AddContactPage", () => {
     await wrapper.find("[data-test='add']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_add_contact", { link: "https://flickertalk.com/add#theirs" }]);
+  });
+
+  // Hidden sessions: opened from a session's QR button, the contact belongs to that session.
+  it("adds the contact to the session it was opened from", async () => {
+    query.session = "s1";
+    const wrapper = mount(AddContactPage, { shallow: true });
+    await wrapper.find("[data-test='mode-scan']").trigger("click");
+    await wrapper.find("[data-test='paste']").setValue("https://flickertalk.com/add#theirs");
+    await wrapper.find("[data-test='add']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_add_contact", { link: "https://flickertalk.com/add#theirs", session: "s1" }]);
   });
 });

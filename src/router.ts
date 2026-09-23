@@ -21,6 +21,7 @@ export const routes: RouteRecordRaw[] = [
   { path: "/add-contact", component: () => import("./views/AddContactPage.vue") },
   { path: "/contact/:id", component: () => import("./views/ContactPage.vue") },
   { path: "/blocked", component: () => import("./views/BlockedPage.vue") },
+  { path: "/session", component: () => import("./views/SessionPage.vue") },
   { path: "/plugins", component: () => import("./views/PluginsPage.vue") },
   { path: "/plan", component: () => import("./views/PlanPage.vue") },
   { path: "/move", component: () => import("./views/MovePage.vue") },

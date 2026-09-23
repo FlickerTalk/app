@@ -10,11 +10,21 @@ import {
   IonTitle,
   IonToolbar,
 } from "@ionic/vue";
-import { attachOutline, checkmark, checkmarkDone, ellipsisVerticalOutline, micOutline, qrCodeOutline, timeOutline } from "ionicons/icons";
+import {
+  attachOutline,
+  checkmark,
+  checkmarkDone,
+  chevronForwardOutline,
+  ellipsisVerticalOutline,
+  logOutOutline,
+  micOutline,
+  qrCodeOutline,
+  timeOutline,
+} from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
-import { store } from "../core";
+import { closeSession, store } from "../core";
 
 const router = useRouter();
 
@@ -34,6 +44,13 @@ function open(id: string) {
   } else {
     router.push(`/chat/${id}`);
   }
+}
+
+// Hidden sessions fold like the panels of a sidebar; each remembers whether it is open.
+const folded = ref<Record<string, boolean>>({});
+const isFolded = (id: string) => folded.value[id] === true;
+function fold(id: string) {
+  folded.value = { ...folded.value, [id]: !isFolded(id) };
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -122,6 +139,92 @@ const STATUS_ICON: Record<string, string> = {
               </button>
             </li>
           </ul>
+
+          <!-- Open hidden sessions, one panel each under the main list: a chevron, a QR button and a
+               leave button, no name. Closed ones leave no trace. -->
+          <section
+            v-for="session in store.sessions"
+            :key="session.id"
+            class="ft-session"
+            :class="{ 'is-folded': isFolded(session.id) }"
+            data-test="session-section"
+          >
+            <header class="ft-session__head">
+              <button
+                type="button"
+                class="ft-session__toggle"
+                data-test="session-toggle"
+                :aria-label="$t('session.toggle')"
+                :aria-expanded="!isFolded(session.id)"
+                @click="fold(session.id)"
+              >
+                <ion-icon :icon="chevronForwardOutline" class="ft-session__chevron" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="ft-session__action"
+                data-test="session-add"
+                :aria-label="$t('session.addContact')"
+                :title="$t('session.addContact')"
+                @click="router.push(`/add-contact?session=${session.id}`)"
+              >
+                <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="ft-session__action ft-session__action--leave"
+                data-test="session-close"
+                :aria-label="$t('session.close')"
+                :title="$t('session.close')"
+                @click="closeSession(session.id)"
+              >
+                <ion-icon :icon="logOutOutline" aria-hidden="true" />
+              </button>
+            </header>
+
+            <template v-if="!isFolded(session.id)">
+              <p v-if="!session.chats.length" class="ft-session__empty">{{ $t("session.empty") }}</p>
+              <ul v-else class="ft-rows">
+                <li v-for="chat in session.chats" :key="chat.id">
+                  <button
+                    type="button"
+                    class="ft-row"
+                    :class="{ 'is-selected': wide && chat.id === selectedId }"
+                    data-test="chat-row"
+                    @click="open(chat.id)"
+                  >
+                    <Avatar :name="chat.name" :hue="chat.hue" :connected="chat.connected" />
+                    <span class="ft-row__body">
+                      <span class="ft-row__line">
+                        <span class="ft-row__name">{{ chat.name }}</span>
+                        <span class="ft-row__time" :class="{ 'is-unread': chat.unread }">{{ chat.time }}</span>
+                      </span>
+                      <span class="ft-row__line">
+                        <ion-icon
+                          v-if="chat.lastMine"
+                          :icon="STATUS_ICON[chat.status]"
+                          class="ft-row__status"
+                          :class="`is-${chat.status}`"
+                          aria-hidden="true"
+                        />
+                        <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : chat.preview }}</span>
+                        <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="ft-row__more"
+                    data-test="chat-more"
+                    :aria-label="$t('chat.contactSettings')"
+                    @click="router.push(`/contact/${chat.id}`)"
+                  >
+                    <ion-icon :icon="ellipsisVerticalOutline" aria-hidden="true" />
+                  </button>
+                </li>
+              </ul>
+            </template>
+          </section>
         </ion-content>
       </section>
 
@@ -282,6 +385,77 @@ const STATUS_ICON: Record<string, string> = {
   color: var(--ft-muted);
   font-size: 18px;
   cursor: pointer;
+}
+
+/* A hidden session's panel: a header that folds, then the same rows as the main list. */
+.ft-session {
+  border-top: 1px solid var(--ft-border);
+}
+.ft-session .ft-rows {
+  padding-bottom: 8px;
+}
+.ft-session__head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px 6px 10px;
+}
+.ft-session__toggle {
+  appearance: none;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ft-session__toggle:hover {
+  background: color-mix(in srgb, var(--ft-surface-2) 60%, transparent);
+}
+.ft-session__chevron {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--ft-muted);
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+.ft-session.is-folded .ft-session__chevron {
+  transform: none;
+}
+.ft-session__action {
+  appearance: none;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ft-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+.ft-session__action:hover {
+  background: color-mix(in srgb, var(--ft-surface-2) 60%, transparent);
+  color: var(--ft-text);
+}
+.ft-session__action--leave {
+  color: var(--ft-accent);
+}
+.ft-session__empty {
+  margin: 0;
+  padding: 6px 20px 16px;
+  color: var(--ft-muted);
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .ft-row__badge {
