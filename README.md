@@ -11,6 +11,13 @@ history living only on the phones — never on a server. [flickertalk.com](https
   server, encrypted so that we cannot read it, until it is picked up or 7 days pass. Either side
   can turn the mailbox off.
 - **Files and calls** are one to one and never go through the mailbox.
+- **Hidden sessions:** a 6-digit PIN opens a space with its own contacts that nobody else can tell
+  exists; while closed it receives in silence.
+- **Per-contact rules:** mute, accept only messages or only calls, turn receipts off, keep history
+  for a while or delete after reading; weekly quiet hours.
+- **Plugins:** small tools you install from a signed catalogue, isolated, with permissions you grant.
+
+Everything the app does today, screen by screen (in Spanish): [docs/funcionalidades.md](docs/funcionalidades.md).
 
 What our server keeps, who can see what, and the limits of the model: see
 [how it works](https://flickertalk.com/how-it-works/).
