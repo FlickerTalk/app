@@ -60,8 +60,103 @@ describe("MessageBubble", () => {
     };
     const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
     expect(wrapper.find("audio").attributes("src")).toBe("asset://localhost/v.m4a");
-    expect(wrapper.text()).toContain("Voice message");
     expect(wrapper.text()).not.toContain("voice-20260922");
+  });
+
+  // Media bubbles carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size.
+  it("shows an image with nothing but the picture", () => {
+    const message = {
+      ...base,
+      mine: false,
+      kind: "file",
+      file: { name: "beach.jpg", size: "1.2 MB", progress: 1, state: "done", mime: "image/jpeg", url: "asset://localhost/beach.jpg" },
+    };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.find("img").exists()).toBe(true);
+    expect(wrapper.find("[data-test='file']").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("beach.jpg");
+    expect(wrapper.text()).not.toContain("1.2 MB");
+    expect(wrapper.find("[aria-label='Save to Downloads']").exists()).toBe(true);
+  });
+
+  it("shows a video with nothing but the video", () => {
+    const message = {
+      ...base,
+      mine: false,
+      kind: "file",
+      file: { name: "clip.mp4", size: "8 MB", progress: 1, state: "done", mime: "video/mp4", url: "asset://localhost/clip.mp4" },
+    };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.find("video").exists()).toBe(true);
+    expect(wrapper.find("[data-test='file']").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("clip.mp4");
+    expect(wrapper.text()).not.toContain("8 MB");
+  });
+
+  const voice = {
+    ...base,
+    mine: false,
+    kind: "file",
+    file: { name: "voice-20260922-161500.m4a", size: "24 KB", progress: 1, state: "done", mime: "audio/mp4", url: "asset://localhost/v.m4a" },
+  };
+
+  it("shows a voice message as a player alone", () => {
+    const wrapper = mount(MessageBubble, { props: { message: voice }, shallow: true });
+    expect(wrapper.text()).not.toContain("Voice message");
+    expect(wrapper.text()).not.toContain("24 KB");
+    expect(wrapper.find("[data-test='file']").exists()).toBe(false);
+    expect(wrapper.find("[aria-label='Play']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Save to Downloads']").exists()).toBe(true);
+  });
+
+  it("plays and pauses a voice message from its own button", async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    const wrapper = mount(MessageBubble, { props: { message: voice }, shallow: true });
+    await wrapper.find("[aria-label='Play']").trigger("click");
+    expect(play).toHaveBeenCalledTimes(1);
+    await wrapper.find("audio").trigger("play");
+    expect(wrapper.find("[aria-label='Pause']").exists()).toBe(true);
+    await wrapper.find("[aria-label='Pause']").trigger("click");
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted("open")).toBeUndefined();
+    play.mockRestore();
+    pause.mockRestore();
+  });
+
+  it("shows how long a voice message lasts", async () => {
+    const wrapper = mount(MessageBubble, { props: { message: voice }, shallow: true });
+    const audio = wrapper.find("audio").element as HTMLAudioElement;
+    Object.defineProperty(audio, "duration", { value: 63, configurable: true });
+    await wrapper.find("audio").trigger("loadedmetadata");
+    expect(wrapper.text()).toContain("1:03");
+  });
+
+  it("keeps the name of a document but not its size", () => {
+    const wrapper = mount(MessageBubble, { props: { message: arrived }, shallow: true });
+    expect(wrapper.text()).toContain("menu.pdf");
+    expect(wrapper.text()).not.toContain("1.2 MB");
+  });
+
+  // The state stays in sight and honest (§84), over the medium itself.
+  it("shows how much of an image has arrived", () => {
+    const message = {
+      ...base,
+      mine: false,
+      kind: "file",
+      file: { name: "beach.jpg", size: "1.2 MB", progress: 0.62, state: "receiving", mime: "image/jpeg" },
+    };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.find("[role='progressbar']").attributes("aria-valuenow")).toBe("62");
+    expect(wrapper.text()).toContain("62%");
+    expect(wrapper.find("[aria-label='Save to Downloads']").exists()).toBe(false);
+  });
+
+  it("says when a voice message failed to arrive", () => {
+    const message = { ...voice, file: { ...voice.file, progress: 0, state: "failed", url: undefined } };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.text()).toContain("Failed");
+    expect(wrapper.find("[aria-label='Play']").exists()).toBe(false);
   });
 
   it("says when a transfer failed", () => {

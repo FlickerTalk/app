@@ -27,6 +27,8 @@
     "message": "訊息",
     "send": "傳送",
     "voiceMessage": "語音訊息",
+    "play": "播放",
+    "pause": "暫停",
     "file": "檔案",
     "record": "錄製語音訊息",
     "sendVoice": "傳送語音訊息",

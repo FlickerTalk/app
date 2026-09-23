@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { readCode } from "../code";
 import { piecesOf } from "../links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonIcon } from "@ionic/vue";
-import { checkmark, checkmarkDone, documentOutline, downloadOutline, micOutline, timeOutline } from "ionicons/icons";
+import { checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -67,10 +67,41 @@ const isVideo = computed(() => file.value?.mime?.startsWith("video/") ?? false);
 const percent = computed(() => Math.round((file.value?.progress ?? 0) * 100));
 const fileState = computed(() => {
   if (!file.value || file.value.state === "done") return "";
-  if (file.value.state === "failed") return ` · ${t("status.failed")}`;
-  return file.value.state === "paused" ? ` · ${t("status.paused")}` : ` · ${percent.value}%`;
+  if (file.value.state === "failed") return t("status.failed");
+  return file.value.state === "paused" ? t("status.paused") : `${percent.value}%`;
 });
 const moving = computed(() => file.value && file.value.state !== "done" && file.value.state !== "failed");
+const failed = computed(() => file.value?.state === "failed");
+
+// A voice message is its own small player: play or pause, how far it is, how long it lasts.
+const player = ref<HTMLAudioElement | null>(null);
+const playing = ref(false);
+const duration = ref(0);
+const position = ref(0);
+const played = computed(() => (duration.value > 0 ? Math.min(100, (position.value / duration.value) * 100) : 0));
+const clock = computed(() => formatClock(playing.value || position.value > 0 ? position.value : duration.value));
+
+function onMetadata(event: Event) {
+  const seconds = (event.target as HTMLAudioElement).duration;
+  duration.value = Number.isFinite(seconds) ? seconds : 0;
+}
+
+function onTime(event: Event) {
+  position.value = (event.target as HTMLAudioElement).currentTime;
+}
+
+function toggle() {
+  const audio = player.value;
+  if (!audio) return;
+  if (playing.value) audio.pause();
+  else void Promise.resolve(audio.play()).catch(() => undefined);
+}
+
+/** Seconds as m:ss, the way a player shows them. */
+function formatClock(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
 // Ours is always here; theirs once it has arrived whole and verified.
 const usable = computed(() => file.value && file.value.state !== "failed" && (props.message.mine || file.value.state === "done"));
 
@@ -86,22 +117,96 @@ function open() {
   >
     <div
       class="ft-bubble"
-      :class="{ 'is-file': file, 'is-folded': folded }"
+      :class="{ 'is-file': file, 'is-media': file && (isImage || isVideo), 'is-voice': file && isVoice, 'is-folded': folded }"
       data-test="bubble"
       @pointerdown="startPress"
       @pointerup="endPress"
       @pointercancel="endPress"
       @pointerleave="endPress"
     >
-      <img v-if="file?.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" @click="open" />
-      <audio v-if="file?.url && isVoice" class="ft-voice" :src="file.url" controls preload="metadata" />
-      <!-- A video that arrived plays here, from the app's own files (§62). -->
-      <video v-if="file?.url && isVideo" class="ft-video" :src="file.url" controls playsinline preload="metadata" />
-      <div v-if="file" class="ft-file" :class="{ 'is-usable': usable }" data-test="file" @click="open">
-        <span class="ft-file__icon"><ion-icon :icon="isVoice ? micOutline : documentOutline" aria-hidden="true" /></span>
+      <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
+      <span v-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
+        <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
+        <!-- A video that arrived plays here, from the app's own files (§62). -->
+        <video v-else-if="file.url && isVideo" class="ft-video" :src="file.url" controls playsinline preload="metadata" @click.stop />
+        <span v-else class="ft-media__blank" aria-hidden="true" />
+        <span v-if="moving" class="ft-media__veil">
+          <span
+            class="ft-ring"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="percent"
+            :aria-label="`${file.name} transfer`"
+            :style="{ '--p': `${percent}%` }"
+          >
+            <span>{{ percent }}%</span>
+          </span>
+        </span>
+        <span v-else-if="failed" class="ft-media__failed">{{ t("status.failed") }}</span>
+        <button
+          v-if="usable"
+          type="button"
+          class="ft-media__save"
+          :aria-label="saved ? t('chat.saved') : t('chat.save')"
+          @click.stop="emit('save', message.id)"
+        >
+          <ion-icon :icon="saved ? checkmark : downloadOutline" aria-hidden="true" />
+        </button>
+      </span>
+      <div v-else-if="file && isVoice" class="ft-voice" data-test="voice">
+        <audio
+          v-if="file.url"
+          ref="player"
+          :src="file.url"
+          preload="metadata"
+          @play="playing = true"
+          @pause="playing = false"
+          @ended="playing = false"
+          @loadedmetadata="onMetadata"
+          @timeupdate="onTime"
+        />
+        <button
+          v-if="!failed"
+          type="button"
+          class="ft-voice__play"
+          :disabled="!usable"
+          :aria-label="playing ? t('chat.pause') : t('chat.play')"
+          @click.stop="toggle"
+        >
+          <ion-icon :icon="playing ? pause : play" aria-hidden="true" />
+        </button>
+        <span class="ft-voice__wave" :class="{ 'is-dim': moving || failed }" aria-hidden="true">
+          <span class="ft-voice__played" :style="{ width: `${played}%` }" />
+        </span>
+        <span
+          v-if="moving"
+          class="ft-voice__meta"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="percent"
+          :aria-label="`${file.name} transfer`"
+          >{{ percent }}%</span
+        >
+        <span v-else-if="failed" class="ft-voice__meta ft-voice__failed">{{ t("status.failed") }}</span>
+        <span v-else class="ft-voice__meta">{{ clock }}</span>
+        <button
+          v-if="usable"
+          type="button"
+          class="ft-file__save"
+          :aria-label="saved ? t('chat.saved') : t('chat.save')"
+          @click.stop="emit('save', message.id)"
+        >
+          <ion-icon :icon="saved ? checkmark : downloadOutline" aria-hidden="true" />
+        </button>
+      </div>
+      <!-- Any other file: icon and name stay, there is nothing else to show it by. -->
+      <div v-else-if="file" class="ft-file" :class="{ 'is-usable': usable }" data-test="file" @click="open">
+        <span class="ft-file__icon"><ion-icon :icon="documentOutline" aria-hidden="true" /></span>
         <span class="ft-file__body">
-          <span class="ft-file__name">{{ isVoice ? t("chat.voiceMessage") : file.name }}</span>
-          <span class="ft-file__meta">{{ file.size }}{{ fileState }}</span>
+          <span class="ft-file__name">{{ file.name }}</span>
+          <span v-if="fileState" class="ft-file__meta">{{ fileState }}</span>
           <span
             v-if="moving"
             class="ft-progress"
@@ -256,28 +361,170 @@ function open() {
   filter: drop-shadow(0 0 4px var(--ft-glow));
 }
 
+/* A medium fills its bubble: no frame, no card. The time sits over its corner. */
+.ft-bubble.is-media {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  max-width: min(86%, 520px);
+}
+.ft-media {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: var(--ft-radius-bubble);
+  box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.8);
+  background: var(--ft-surface-2);
+}
+.is-mine .ft-media {
+  border-bottom-right-radius: 6px;
+}
+.is-theirs .ft-media {
+  border-bottom-left-radius: 6px;
+}
+.ft-media.is-usable {
+  cursor: pointer;
+}
 .ft-image {
   display: block;
   width: 100%;
   max-height: 320px;
-  margin-bottom: 8px;
-  border-radius: calc(var(--ft-radius-bubble) - 6px);
   object-fit: cover;
 }
-
 .ft-video {
   display: block;
   width: min(72vw, 420px);
   max-height: 60vh;
-  border-radius: var(--ft-radius-card);
   background: #000;
 }
-
-.ft-voice {
+.ft-media__blank {
   display: block;
-  width: min(260px, 100%);
-  height: 40px;
-  margin-bottom: 6px;
+  width: min(60vw, 260px);
+  height: 160px;
+}
+.ft-media__veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+.ft-ring {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  background: conic-gradient(#fff var(--p), rgba(255, 255, 255, 0.25) 0);
+}
+.ft-ring > span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+}
+.ft-media__failed,
+.ft-bubble.is-media .ft-bubble__meta {
+  position: absolute;
+  bottom: 8px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+.ft-media__failed {
+  left: 10px;
+  color: #ffb4a8;
+}
+.ft-bubble.is-media .ft-bubble__meta {
+  right: 10px;
+  margin: 0;
+  opacity: 1;
+}
+.ft-media__save {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  font-size: 17px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+
+/* A voice message is only its player. */
+.ft-bubble.is-voice {
+  padding: 8px 10px 6px 8px;
+  min-width: 232px;
+}
+.ft-voice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ft-voice__play {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  font-size: 18px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.22);
+}
+.ft-voice__play:disabled {
+  opacity: 0.5;
+}
+.is-theirs .ft-voice__play {
+  color: var(--ft-accent);
+  background: var(--ft-surface);
+}
+.ft-voice__wave {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.25);
+}
+.is-theirs .ft-voice__wave {
+  background: rgba(255, 255, 255, 0.12);
+}
+.ft-voice__wave.is-dim {
+  opacity: 0.4;
+}
+.ft-voice__played {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  transition: width 0.2s linear;
+}
+.ft-voice__meta {
+  min-width: 34px;
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.ft-voice__failed {
+  color: #ffb4a8;
+}
+.is-theirs .ft-voice__failed {
+  color: #ff8a70;
 }
 
 .ft-file {

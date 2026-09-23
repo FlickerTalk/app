@@ -27,6 +27,8 @@
     "message": "Pesan",
     "send": "Kirim",
     "voiceMessage": "Pesan suara",
+    "play": "Putar",
+    "pause": "Jeda",
     "file": "File",
     "record": "Rekam pesan suara",
     "sendVoice": "Kirim pesan suara",

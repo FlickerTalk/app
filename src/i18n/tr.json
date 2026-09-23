@@ -27,6 +27,8 @@
     "message": "Mesaj",
     "send": "Gönder",
     "voiceMessage": "Sesli mesaj",
+    "play": "Oynat",
+    "pause": "Duraklat",
     "file": "Dosya",
     "record": "Sesli mesaj kaydet",
     "sendVoice": "Sesli mesajı gönder",

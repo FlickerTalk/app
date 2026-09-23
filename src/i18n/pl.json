@@ -27,6 +27,8 @@
     "message": "Wiadomość",
     "send": "Wyślij",
     "voiceMessage": "Wiadomość głosowa",
+    "play": "Odtwórz",
+    "pause": "Pauza",
     "file": "Plik",
     "record": "Nagraj wiadomość głosową",
     "sendVoice": "Wyślij wiadomość głosową",

@@ -60,6 +60,12 @@ Estado (2026-09-23): herramientas, acciones del mensaje y plan.
 - **Acciones del mensaje** (decisión de Ioan, 2026-09-23): una pulsación larga sobre una burbuja
   ofrece cuatro cosas —plegar (acordeón), reenviar a otra conversación, compartir con otra app
   (hoja del sistema) y borrar de este teléfono, que pregunta una vez porque es para siempre.
+- **Burbujas de medios** (decisión de Ioan, 2026-09-23): una foto, un vídeo o una nota de voz no
+  llevan tarjeta, nombre ni tamaño; la burbuja es el medio. Foto y vídeo llenan la burbuja sin marco,
+  con la hora y el icono de guardar superpuestos; la nota de voz es solo su reproductor (play/pausa,
+  progreso y duración; `chat.play`/`chat.pause`). Los demás ficheros conservan icono y nombre, sin
+  tamaño. El estado sigue a la vista (`§84`): anillo con el porcentaje sobre la foto, porcentaje en la
+  nota de voz y «Failed» cuando falla.
 - **Plan** (`§40–47`): `PlanPage` (Ajustes → Plan) dice cuánto queda del año gratis, ofrece el euro
   y pregunta la edad (nunca la fecha de nacimiento). La compra todavía contesta «todavía no»:
   falta el producto en las tiendas.
