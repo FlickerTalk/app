@@ -363,6 +363,7 @@ function open() {
 
 /* A medium fills its bubble: no frame, no card. The time sits over its corner. */
 .ft-bubble.is-media {
+  position: relative;
   padding: 0;
   background: none;
   box-shadow: none;
@@ -484,7 +485,8 @@ function open() {
   border-radius: 50%;
   font-size: 18px;
   color: inherit;
-  background: rgba(255, 255, 255, 0.22);
+  /* On whatever the bubble's colour is: a tint of the text, never a fixed white. */
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 .ft-voice__play:disabled {
   opacity: 0.5;
@@ -499,10 +501,7 @@ function open() {
   height: 6px;
   border-radius: 3px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.25);
-}
-.is-theirs .ft-voice__wave {
-  background: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, currentColor 22%, transparent);
 }
 .ft-voice__wave.is-dim {
   opacity: 0.4;
