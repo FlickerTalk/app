@@ -27,6 +27,8 @@
     "message": "메시지",
     "send": "보내기",
     "voiceMessage": "음성 메시지",
+    "play": "재생",
+    "pause": "일시정지",
     "file": "파일",
     "record": "음성 메시지 녹음",
     "sendVoice": "음성 메시지 보내기",

@@ -27,6 +27,8 @@
     "message": "メッセージ",
     "send": "送信",
     "voiceMessage": "ボイスメッセージ",
+    "play": "再生",
+    "pause": "一時停止",
     "file": "ファイル",
     "record": "ボイスメッセージを録音",
     "sendVoice": "ボイスメッセージを送信",

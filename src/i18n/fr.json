@@ -27,6 +27,8 @@
     "message": "Message",
     "send": "Envoyer",
     "voiceMessage": "Message vocal",
+    "play": "Lire",
+    "pause": "Pause",
     "file": "Fichier",
     "record": "Enregistrer un message vocal",
     "sendVoice": "Envoyer le message vocal",

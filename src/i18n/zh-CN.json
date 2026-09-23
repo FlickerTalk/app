@@ -27,6 +27,8 @@
     "message": "消息",
     "send": "发送",
     "voiceMessage": "语音消息",
+    "play": "播放",
+    "pause": "暂停",
     "file": "文件",
     "record": "录制语音消息",
     "sendVoice": "发送语音消息",

@@ -27,6 +27,8 @@
     "message": "Tin nhắn",
     "send": "Gửi",
     "voiceMessage": "Tin nhắn thoại",
+    "play": "Phát",
+    "pause": "Tạm dừng",
     "file": "Tệp",
     "record": "Ghi âm tin nhắn thoại",
     "sendVoice": "Gửi tin nhắn thoại",

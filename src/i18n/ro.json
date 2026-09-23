@@ -27,6 +27,8 @@
     "message": "Mesaj",
     "send": "Trimite",
     "voiceMessage": "Mesaj vocal",
+    "play": "Redă",
+    "pause": "Pauză",
     "file": "Fișier",
     "record": "Înregistrează mesaj vocal",
     "sendVoice": "Trimite mesajul vocal",
