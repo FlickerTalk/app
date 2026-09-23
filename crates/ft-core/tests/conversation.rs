@@ -11,7 +11,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ft_core::moving::{received_move, MoveUpdate};
 use ft_core::{CallUpdate, Core, Event, Peer, Transport};
-use ft_storage::{CallOutcome, FileRecord, MessageState, Store};
+use ft_storage::{CallOutcome, ContactRules, FileRecord, MessageState, Store};
 use tokio::sync::mpsc;
 
 /// The network between the test devices: a direct link that can be cut, and mailboxes. Like a
@@ -939,4 +939,83 @@ async fn a_closed_session_leaves_no_calls_in_the_history() {
     assert!(bob.visible_calls(100).await.expect("lists").is_empty(), "nothing shows while the session is closed");
     bob.open_session("246810").await.expect("opens again");
     assert_eq!(bob.visible_calls(100).await.expect("lists").len(), 1, "the session's history is back");
+}
+
+async fn outbox_len(core: &Core) -> usize {
+    core.store().outbox().await.expect("reads").len()
+}
+
+// Issue app#6: with receipts off, the sender stops retrying but never sees delivered or read (§84).
+#[tokio::test(flavor = "multi_thread")]
+async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    bob.set_rules(&id(&alice), ContactRules { receipts: false, ..ContactRules::default() }).await.expect("sets");
+
+    let message = alice.send_text(&id(&bob), "did you get it?").await.expect("sends");
+    until("bob stored it", || async { texts(&bob, &id(&alice)).await.contains(&"did you get it?".to_owned()) }).await;
+    until("alice stopped retrying", || async { outbox_len(&alice).await == 0 }).await;
+    bob.mark_read(&id(&alice)).await.expect("reads");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+}
+
+// The Settings switch is the default for contacts added afterwards.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_receipts_default_applies_to_new_contacts() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    assert!(bob.receipts_default().await.expect("reads"));
+    bob.set_receipts_default(false).await.expect("sets");
+    pair(&bob, &alice).await;
+    assert!(!bob.store().contact(&id(&alice)).await.unwrap().unwrap().rules.receipts);
+}
+
+// Issue app#5: chat off keeps nothing of theirs, and they only ever see sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_chat_off_their_messages_are_not_kept() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    bob.set_rules(&id(&alice), ContactRules { accepts_chat: false, ..ContactRules::default() }).await.expect("sets");
+
+    let message = alice.send_text(&id(&bob), "hello?").await.expect("sends");
+    until("alice stopped retrying", || async { outbox_len(&alice).await == 0 }).await;
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "nothing kept");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+}
+
+// Issue app#5: calls off answers busy and leaves no trace on the phone.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_calls_off_a_call_is_busy_and_leaves_no_trace() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    bob.set_rules(&id(&alice), ContactRules { accepts_calls: false, ..ContactRules::default() }).await.expect("sets");
+    let (mut at_alice, mut at_bob) = (alice.events(), bob.events());
+
+    let call = alice.place_call(&id(&bob), false).await.expect("places");
+    alice.offer_call(&call, "offer-sdp").await.expect("offers");
+    assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(bob.store().call(&call).await.unwrap().is_none(), "no trace in the history");
+    while let Ok(event) = at_bob.try_recv() {
+        assert!(!matches!(event, Event::Call { .. }), "it never rings");
+    }
+}
+
+// Issue app#7: the weekly hours are kept on the phone, and only well-formed ones.
+#[tokio::test(flavor = "multi_thread")]
+async fn quiet_hours_are_kept_and_checked() {
+    let net = Net::new();
+    let bob = device(&net, "Bob").await;
+    assert_eq!(bob.quiet_hours().await.expect("reads"), None, "off by default");
+    let week = r#"{"days":[{"from":"18:00","to":"22:00"},{"from":"18:00","to":"22:00"},{"from":"18:00","to":"22:00"},{"from":"18:00","to":"22:00"},{"from":"15:00","to":"22:00"},"all","all"]}"#;
+    bob.set_quiet_hours(Some(week)).await.expect("keeps");
+    assert!(bob.quiet_hours().await.unwrap().is_some());
+    assert!(bob.set_quiet_hours(Some(r#"{"days":["all"]}"#)).await.is_err(), "seven days");
+    assert!(bob.set_quiet_hours(Some(r#"{"days":[{"from":"25:00","to":"22:00"},"all","all","all","all","all","all"]}"#)).await.is_err(), "real times");
+    bob.set_quiet_hours(None).await.expect("turns off");
+    assert_eq!(bob.quiet_hours().await.unwrap(), None);
 }

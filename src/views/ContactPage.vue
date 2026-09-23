@@ -12,12 +12,33 @@ import {
   IonPage,
   IonSelect,
   IonSelectOption,
+  IonToggle,
   IonToolbar,
 } from "@ionic/vue";
-import { banOutline, flagOutline, hourglassOutline, pencilOutline, timerOutline } from "ionicons/icons";
+import {
+  banOutline,
+  callOutline,
+  chatbubbleOutline,
+  checkmarkDoneOutline,
+  flagOutline,
+  hourglassOutline,
+  notificationsOffOutline,
+  pencilOutline,
+  timerOutline,
+} from "ionicons/icons";
 import { useRoute } from "vue-router";
 import Avatar from "../components/Avatar.vue";
-import { block, chat, contactDetails, renameContact, reportContact, setHistory, type ContactDetails } from "../core";
+import {
+  block,
+  chat,
+  contactDetails,
+  renameContact,
+  reportContact,
+  setHistory,
+  setRules,
+  type ContactDetails,
+  type ContactRules,
+} from "../core";
 import { t } from "../i18n";
 
 const route = useRoute();
@@ -38,11 +59,26 @@ const BURNS = [0, 60, 300, 3_600] as const;
 const keepFor = ref(0);
 const burnAfterRead = ref(0);
 
+// Issues app#4–#6: what this phone takes from them and tells them. Nothing of it travels.
+const rules = ref<ContactRules>({ muted: false, acceptsChat: true, acceptsCalls: true, receipts: true });
+const RULES = [
+  { key: "muted", label: "contact.mute", icon: notificationsOffOutline, test: "mute" },
+  { key: "acceptsChat", label: "contact.acceptsChat", icon: chatbubbleOutline, test: "chat" },
+  { key: "acceptsCalls", label: "contact.acceptsCalls", icon: callOutline, test: "calls" },
+  { key: "receipts", label: "contact.receipts", icon: checkmarkDoneOutline, test: "receipts" },
+] as const;
+
+async function changeRule(key: keyof ContactRules, on: boolean) {
+  rules.value = { ...rules.value, [key]: on };
+  await setRules(id, rules.value);
+}
+
 onMounted(async () => {
   details.value = await contactDetails(id);
   name.value = details.value?.name ?? "";
   keepFor.value = details.value?.keepFor ?? 0;
   burnAfterRead.value = details.value?.burnAfterRead ?? 0;
+  if (details.value?.rules) rules.value = { ...details.value.rules };
 });
 
 async function saveName() {
@@ -168,6 +204,20 @@ async function toggleBlock() {
                 {{ burnLabel(option) }}
               </ion-select-option>
             </ion-select>
+          </ion-item>
+        </ion-list>
+
+        <ion-list inset class="ft-group">
+          <ion-item v-for="rule in RULES" :key="rule.key" lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="rule.icon" aria-hidden="true" /></span>
+            <ion-toggle
+              :checked="rules[rule.key]"
+              :data-test="rule.test"
+              :aria-label="$t(rule.label)"
+              @ion-change="changeRule(rule.key, $event.detail.checked)"
+            >
+              {{ $t(rule.label) }}
+            </ion-toggle>
           </ion-item>
         </ion-list>
 

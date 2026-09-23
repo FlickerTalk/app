@@ -17,7 +17,7 @@ const at = (time: string) => {
 };
 
 export function seed(): void {
-  store.me = { ...fixture.me, mailbox: true, freeUntil: 0 };
+  store.me = { ...fixture.me, mailbox: true, receipts: true, freeUntil: 0 };
   store.chats = fixture.chats.map(
     (chat): Chat => ({
       ...chat,
@@ -56,7 +56,7 @@ export function seed(): void {
     if (command === "core_session_open") return { id: "s1", conversations: [] };
     if (command === "core_upload_start") return "up1";
     if (command === "core_contact") {
-      return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false, keepFor: 0, burnAfterRead: 0 };
+      return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false, keepFor: 0, burnAfterRead: 0, rules: { muted: false, acceptsChat: true, acceptsCalls: true, receipts: true } };
     }
     // One plugin, allowed to read what the user hands it (issue app#3).
     if (command === "core_plugins") {

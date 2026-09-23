@@ -187,6 +187,11 @@ impl Core {
         if chunk == 0 || chunk > MAX_CHUNK || size > i64::MAX as u64 {
             bail!("an offer with an impossible size");
         }
+        if !contact.rules.accepts_chat {
+            // Chat off (app#5): the file is not taken; they stop offering it and see only sent.
+            let _ = self.send_control(contact, Body::Received { ids: vec![id] }).await;
+            return Ok(());
+        }
         let message_id = id.to_string();
         let name = safe_file_name(&name);
         let dir = self.files_dir()?.join(&message_id);
@@ -220,7 +225,7 @@ impl Core {
             self.announce_messages(contact);
         }
         // Always acknowledged, even a repeated offer: the sender is waiting for it (§27).
-        let _ = self.send_control(contact, Body::Delivered { ids: vec![id] }).await;
+        let _ = self.send_control(contact, self.acknowledgement(contact, id)).await;
 
         let Some(file) = self.incoming_file(contact, &message_id).await? else { return Ok(()) };
         let busy = self.transfers.lock().expect("transfers poisoned").get(&message_id).is_some_and(|t| t.in_flight);

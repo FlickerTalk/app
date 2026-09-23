@@ -129,6 +129,8 @@ pub struct MeView {
     id: String,
     name: String,
     mailbox: bool,
+    /// Whether contacts added from now on get receipts (app#6).
+    receipts: bool,
     /// Until when (ms) the app is free (§41).
     free_until: i64,
 }
@@ -145,6 +147,29 @@ pub struct ContactView {
     keep_for: i64,
     /// Seconds a read message stays after being read; 0 never.
     burn_after_read: i64,
+    rules: RulesView,
+}
+
+/// What this phone takes from a contact and tells them (issues app#4–#6).
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesView {
+    muted: bool,
+    accepts_chat: bool,
+    accepts_calls: bool,
+    receipts: bool,
+}
+
+impl From<ft_storage::ContactRules> for RulesView {
+    fn from(rules: ft_storage::ContactRules) -> Self {
+        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts }
+    }
+}
+
+impl From<RulesView> for ft_storage::ContactRules {
+    fn from(rules: RulesView) -> Self {
+        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -470,6 +495,10 @@ impl Client {
         }
         if let Some(app) = self.app.get() {
             refresh_served_plugins(app, &online.core, dir).await;
+            // The weekly hours live in the core; the native side keeps its own copy (app#7).
+            if let Ok(week) = online.core.quiet_week().await {
+                let _ = app.platform().set_quiet_hours(&week);
+            }
         }
 
         if let Some(app) = self.app.get().cloned() {
@@ -492,15 +521,11 @@ impl Client {
                                 Ring::Start { video } => {
                                     // The screen says who is calling, so a call in the background
                                     // is more than a ringtone (§66).
-                                    let name = core_for_events
-                                        .store()
-                                        .contact(&contact)
-                                        .await
-                                        .ok()
-                                        .flatten()
-                                        .map(|stored| stored.name)
-                                        .unwrap_or_default();
-                                    let _ = app.platform().start_ringing(&name, video);
+                                    let stored = core_for_events.store().contact(&contact).await.ok().flatten();
+                                    let name = stored.as_ref().map(|stored| stored.name.clone()).unwrap_or_default();
+                                    // A muted contact shows but makes no noise (app#4).
+                                    let muted = stored.is_some_and(|stored| stored.rules.muted);
+                                    let _ = app.platform().start_ringing(&name, video, muted);
                                 }
                                 Ring::Stop => {
                                     let _ = app.platform().stop_ringing();
@@ -594,6 +619,7 @@ pub async fn core_me(client: State<'_, Client>) -> Result<MeView, String> {
         id: core.device_id().to_string(),
         name: core.name().await.map_err(failed)?.unwrap_or_default(),
         mailbox: core.mailbox().await.map_err(failed)?,
+        receipts: core.receipts_default().await.map_err(failed)?,
         free_until: core.free_until().await.map_err(failed)?,
     })
 }
@@ -1435,7 +1461,33 @@ pub async fn core_contact(contact: String, client: State<'_, Client>) -> Result<
         blocked: stored.blocked,
         keep_for: stored.keep_for,
         burn_after_read: stored.burn_after_read,
+        rules: stored.rules.into(),
     })
+}
+
+#[tauri::command]
+pub async fn core_set_rules(contact: String, rules: RulesView, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_rules(&contact, rules.into()).await.map_err(failed)
+}
+
+/// Whether contacts added from now on are told their messages arrived and were read (app#6).
+#[tauri::command]
+pub async fn core_set_receipts(enabled: bool, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_receipts_default(enabled).await.map_err(failed)
+}
+
+/// The weekly hours as JSON (app#7); `None` when off.
+#[tauri::command]
+pub async fn core_quiet_hours(client: State<'_, Client>) -> Result<Option<String>, String> {
+    client.core().await?.quiet_hours().await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_set_quiet_hours(hours: Option<String>, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    core.set_quiet_hours(hours.as_deref()).await.map_err(failed)?;
+    let week = core.quiet_week().await.map_err(failed)?;
+    app.platform().set_quiet_hours(&week).map_err(failed)
 }
 
 /// How long this phone keeps the conversation with a contact, and how long a read message stays
@@ -1575,6 +1627,7 @@ mod tests {
             keep_for: 0,
             burn_after_read: 0,
             session: None,
+            rules: Default::default(),
         };
         let conversation = Conversation { contact, last: Some(message(MessageState::Pending, true)), unread: 2 };
         let view = serde_json::to_value(ConversationView::new(&conversation, true)).unwrap();
@@ -1649,9 +1702,9 @@ mod tests {
     // §41: the free year shows in Settings, counted on this phone.
     #[test]
     fn me_carries_the_free_period() {
-        let me = MeView { id: "ft_me".to_owned(), name: "Ioan".to_owned(), mailbox: true, free_until: 42 };
+        let me = MeView { id: "ft_me".to_owned(), name: "Ioan".to_owned(), mailbox: true, receipts: false, free_until: 42 };
         assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
-            "id": "ft_me", "name": "Ioan", "mailbox": true, "freeUntil": 42
+            "id": "ft_me", "name": "Ioan", "mailbox": true, "receipts": false, "freeUntil": 42
         }));
     }
 
@@ -1849,5 +1902,13 @@ mod tests {
     fn a_session_view_is_its_id_and_its_conversations() {
         let view = serde_json::to_value(SessionView { id: "s1".to_owned(), conversations: vec![] }).unwrap();
         assert_eq!(view, serde_json::json!({ "id": "s1", "conversations": [] }));
+    }
+
+    // Issues app#4–#6: the contact's page shows what this phone takes from them.
+    #[test]
+    fn a_contact_view_carries_its_rules() {
+        let rules = ft_storage::ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false };
+        let view = serde_json::to_value(RulesView::from(rules)).unwrap();
+        assert_eq!(view, serde_json::json!({ "muted": true, "acceptsChat": false, "acceptsCalls": true, "receipts": false }));
     }
 }

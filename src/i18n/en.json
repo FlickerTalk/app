@@ -115,6 +115,10 @@
     "verify": "Verify in person",
     "verifyHint": "Compare both codes when you are together",
     "block": "Block",
+    "mute": "Mute",
+    "acceptsChat": "Messages",
+    "acceptsCalls": "Calls",
+    "receipts": "Delivered and read receipts",
     "report": "Report",
     "reportWhy": "Why are you reporting them?",
     "reasons": {
@@ -186,7 +190,22 @@
     "eraseAsk": "Erase everything on this phone?",
     "eraseConfirm": "Erase",
     "plugins": "Plugins",
-    "session": "Session"
+    "session": "Session",
+    "receipts": "Delivered and read receipts",
+    "receiptsNote": "For new contacts",
+    "hours": "Hours",
+    "hoursOff": "Off"
+  },
+  "hours": {
+    "title": "Hours",
+    "on": "Only in these hours",
+    "note": "Outside them, messages arrive in silence and calls do not ring",
+    "all": "All day",
+    "none": "Never",
+    "stretch": "From – to",
+    "from": "From",
+    "to": "To",
+    "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
   },
   "session": {
     "pin": "PIN",

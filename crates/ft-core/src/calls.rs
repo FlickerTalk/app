@@ -151,6 +151,11 @@ impl Core {
     /// The contact calls us.
     pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool) -> Result<()> {
         let call_id = call.to_string();
+        if !contact.rules.accepts_calls {
+            // Calls off (app#5): busy for them, and not a trace on this phone.
+            let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
+            return Ok(());
+        }
         if self.silent(contact) {
             // A closed hidden session takes no calls: busy is neutral for the caller, and the
             // phone neither rings nor says anything. The session's history keeps it as missed.

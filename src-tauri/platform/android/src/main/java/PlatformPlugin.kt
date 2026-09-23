@@ -114,7 +114,8 @@ class FtMessagingService : FirebaseMessagingService() {
         if (!isWake(message.data)) return
         val state = ActivityManager.RunningAppProcessInfo()
         ActivityManager.getMyMemoryState(state)
-        if (shouldNotify(state.importance)) showActivityNotification(this)
+        // Outside the weekly hours (app#7) the message still arrives when the app opens.
+        if (shouldNotify(state.importance) && mayDisturbNow(this)) showActivityNotification(this)
     }
 
     // A new token reaches the router the next time the app starts.
@@ -232,11 +233,44 @@ class KeyArgs {
 /** How an incoming call rings. */
 data class Ringing(val sound: Boolean, val vibrate: Boolean)
 
-/** As the user set the phone: sound and vibration, vibration only, or nothing. */
-fun ringingFor(ringerMode: Int): Ringing = when (ringerMode) {
-    AudioManager.RINGER_MODE_NORMAL -> Ringing(sound = true, vibrate = true)
-    AudioManager.RINGER_MODE_VIBRATE -> Ringing(sound = false, vibrate = true)
+/**
+ * As the user set the phone: sound and vibration, vibration only, or nothing. A quiet call (a
+ * muted contact, app#4, or outside the weekly hours, app#7) shows but makes no noise.
+ */
+fun ringingFor(ringerMode: Int, quiet: Boolean = false): Ringing = when {
+    quiet -> Ringing(sound = false, vibrate = false)
+    ringerMode == AudioManager.RINGER_MODE_NORMAL -> Ringing(sound = true, vibrate = true)
+    ringerMode == AudioManager.RINGER_MODE_VIBRATE -> Ringing(sound = false, vibrate = true)
     else -> Ringing(sound = false, vibrate = false)
+}
+
+/**
+ * Whether the phone may make noise now under the weekly hours (app#7). `week` is what the core
+ * hands over: seven days, Monday first, separated by `;`, each `all`, `none` or `FROM-TO` in
+ * minutes of the day (past midnight when TO comes first). Empty means no hours: always.
+ */
+fun mayDisturb(week: String, day: Int, minute: Int): Boolean {
+    if (week.isEmpty()) return true
+    val today = week.split(";").getOrNull(day) ?: return true
+    return when (today) {
+        "all" -> true
+        "none" -> false
+        else -> {
+            val (from, to) = today.split("-").mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return true
+            if (from <= to) minute in from until to else minute >= from || minute < to
+        }
+    }
+}
+
+private const val PREFERENCES = "ft.platform"
+private const val QUIET_HOURS = "quiet_hours"
+
+/** The weekly hours as the core last handed them over, checked against the phone's clock. */
+fun mayDisturbNow(context: Context): Boolean {
+    val week = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(QUIET_HOURS, "") ?: ""
+    val now = java.util.Calendar.getInstance()
+    val monday = (now.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+    return mayDisturb(week, monday, now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE))
 }
 
 /** Ring 0.8 s, pause 1.2 s, and again. */
@@ -246,6 +280,13 @@ private val RING_PATTERN = longArrayOf(0, 800, 1200)
 class RingingArgs {
     var caller: String = ""
     var video: Boolean = false
+    /** A muted contact (app#4): the call shows but makes no noise. */
+    var muted: Boolean = false
+}
+
+@InvokeArg
+class QuietHoursArgs {
+    var week: String = ""
 }
 
 /** Where a picked file is copied, inside the app's own folder. */
@@ -355,7 +396,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             silence()
             showCall(activity, callTitle(args.caller), callText(args.video))
             val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val ringing = ringingFor(audio.ringerMode)
+            val ringing = ringingFor(audio.ringerMode, quiet = args.muted || !mayDisturbNow(activity))
             if (ringing.sound) {
                 val uri = RingtoneManager.getActualDefaultRingtoneUri(activity, RingtoneManager.TYPE_RINGTONE)
                     ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -441,6 +482,14 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
         activity.startActivity(Intent.makeRestartActivityTask(launch.component))
         Runtime.getRuntime().exit(0)
+    }
+
+    /** Keeps the weekly hours where the push service can read them with the app closed (app#7). */
+    @Command
+    fun setQuietHours(invoke: Invoke) {
+        val week = invoke.parseArgs(QuietHoursArgs::class.java).week
+        activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(QUIET_HOURS, week).apply()
+        invoke.resolve()
     }
 
     @Command

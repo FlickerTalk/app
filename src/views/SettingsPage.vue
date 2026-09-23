@@ -20,6 +20,7 @@ import {
 import {
   banOutline,
   callOutline,
+  checkmarkDoneOutline,
   colorPaletteOutline,
   contrastOutline,
   copyOutline,
@@ -27,6 +28,7 @@ import {
   informationCircleOutline,
   lockClosedOutline,
   moonOutline,
+  notificationsOffOutline,
   phonePortraitOutline,
   qrCodeOutline,
   sparklesOutline,
@@ -36,7 +38,7 @@ import {
   trashOutline,
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
-import { erasePhone, setMailbox, store } from "../core";
+import { erasePhone, quietHours, setMailbox, setReceipts, store } from "../core";
 import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -58,9 +60,16 @@ const plan = computed(() => {
 });
 
 const version = ref("");
+// Issue app#7: whether the weekly hours are on, shown on their row.
+const hoursOn = ref(false);
 onMounted(async () => {
   version.value = await getVersion().catch(() => "");
+  hoursOn.value = (await quietHours().catch(() => null)) !== null;
 });
+
+async function onReceiptsChange(event: CustomEvent<{ checked: boolean }>) {
+  await setReceipts(event.detail.checked);
+}
 
 
 // Plan §19: the preference lives in the core, which tells contacts; the server never stores it.
@@ -144,6 +153,25 @@ function chooseAppearance(id: Appearance) {
               <span class="ft-item__title">{{ $t("settings.mailbox") }}</span>
               <span class="ft-item__note">{{ $t("settings.mailboxNote") }}</span>
             </ion-toggle>
+          </ion-item>
+          <!-- Issue app#6: the default for new contacts; each contact's page can differ. -->
+          <ion-item lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="checkmarkDoneOutline" aria-hidden="true" /></span>
+            <ion-toggle
+              :checked="store.me.receipts"
+              data-test="receipts"
+              :aria-label="$t('settings.receipts')"
+              @ion-change="onReceiptsChange"
+            >
+              <span class="ft-item__title">{{ $t("settings.receipts") }}</span>
+              <span class="ft-item__note">{{ $t("settings.receiptsNote") }}</span>
+            </ion-toggle>
+          </ion-item>
+          <!-- Issue app#7: the weekly hours when the phone may make noise. -->
+          <ion-item button detail lines="none" data-test="hours" @click="router.push('/hours')">
+            <span slot="start" class="ft-tile"><ion-icon :icon="notificationsOffOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.hours") }}</ion-label>
+            <ion-note v-if="!hoursOn" slot="end">{{ $t("settings.hoursOff") }}</ion-note>
           </ion-item>
           <!-- Plan §17/§67: "always" hides your IP from the contact; "direct" never uses our relay. -->
           <ion-item lines="none">

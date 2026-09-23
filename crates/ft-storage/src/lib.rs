@@ -43,6 +43,27 @@ pub struct NewContact {
     pub mailbox: bool,
     /// The hidden session the contact is added to; `None` for the main list.
     pub session: Option<String>,
+    /// Whether they are told their messages arrived and were read (the Settings default).
+    pub receipts: bool,
+}
+
+/// What this phone takes from a contact and what it tells them (issues app#4–#6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContactRules {
+    /// Their calls show but neither ring nor vibrate.
+    pub muted: bool,
+    /// Their messages and files are kept.
+    pub accepts_chat: bool,
+    /// Their calls come in.
+    pub accepts_calls: bool,
+    /// They see their messages as delivered and read.
+    pub receipts: bool,
+}
+
+impl Default for ContactRules {
+    fn default() -> Self {
+        Self { muted: false, accepts_chat: true, accepts_calls: true, receipts: true }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +82,7 @@ pub struct Contact {
     pub burn_after_read: i64,
     /// The hidden session this contact belongs to; `None` for the main list.
     pub session: Option<String>,
+    pub rules: ContactRules,
 }
 
 /// A plugin installed on this phone, with what the user granted it (issue app#3).
@@ -235,7 +257,7 @@ impl Store {
     /// stays in the list or session where it was.
     pub async fn add_contact(&self, contact: &NewContact) -> Result<()> {
         sqlx::query(
-            "INSERT INTO contacts (device_id, name, card, mailbox, added_at, session) VALUES (?, ?, ?, ?, unixepoch(), ?)
+            "INSERT INTO contacts (device_id, name, card, mailbox, added_at, session, receipts) VALUES (?, ?, ?, ?, unixepoch(), ?, ?)
              ON CONFLICT (device_id) DO UPDATE SET card = excluded.card, mailbox = excluded.mailbox",
         )
         .bind(&contact.device_id)
@@ -243,8 +265,21 @@ impl Store {
         .bind(&contact.card)
         .bind(contact.mailbox)
         .bind(&contact.session)
+        .bind(contact.receipts)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    pub async fn set_rules(&self, device_id: &str, rules: &ContactRules) -> Result<()> {
+        sqlx::query("UPDATE contacts SET muted = ?, accepts_chat = ?, accepts_calls = ?, receipts = ? WHERE device_id = ?")
+            .bind(rules.muted)
+            .bind(rules.accepts_chat)
+            .bind(rules.accepts_calls)
+            .bind(rules.receipts)
+            .bind(device_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -784,6 +819,12 @@ fn contact_from(row: &SqliteRow) -> Contact {
         keep_for: row.get("keep_for"),
         burn_after_read: row.get("burn_after_read"),
         session: row.get("session"),
+        rules: ContactRules {
+            muted: row.get("muted"),
+            accepts_chat: row.get("accepts_chat"),
+            accepts_calls: row.get("accepts_calls"),
+            receipts: row.get("receipts"),
+        },
     }
 }
 
@@ -848,7 +889,7 @@ mod tests {
     }
 
     fn contact(id: &str) -> NewContact {
-        NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true, session: None }
+        NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true, session: None, receipts: true }
     }
 
     fn message(id: &str, contact: &str, outgoing: bool, sent_at: i64) -> Message {
@@ -1372,5 +1413,28 @@ mod tests {
         let store = store().await;
         store.add_session("s1", &[7; 32]).await.expect("adds");
         assert!(store.add_session("s2", &[7; 32]).await.is_err());
+    }
+
+    // Issues app#4–#6: what this phone takes from a contact and what it tells them. Everything
+    // is on by default except muting, and none of it travels.
+    #[tokio::test]
+    async fn a_contact_starts_accepting_everything_and_its_rules_can_change() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        let bob = store.contact("ft_bob").await.unwrap().unwrap();
+        assert_eq!(bob.rules, ContactRules::default());
+        assert_eq!(ContactRules::default(), ContactRules { muted: false, accepts_chat: true, accepts_calls: true, receipts: true });
+
+        let rules = ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false };
+        store.set_rules("ft_bob", &rules).await.expect("sets");
+        assert_eq!(store.contact("ft_bob").await.unwrap().unwrap().rules, rules);
+    }
+
+    // The receipts switch in Settings is the default for contacts added later.
+    #[tokio::test]
+    async fn a_new_contact_takes_the_receipts_default_it_is_given() {
+        let store = store().await;
+        store.add_contact(&NewContact { receipts: false, ..contact("ft_bob") }).await.expect("adds");
+        assert!(!store.contact("ft_bob").await.unwrap().unwrap().rules.receipts);
     }
 }

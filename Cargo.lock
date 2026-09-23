@@ -1739,6 +1739,7 @@ dependencies = [
  "ft-storage",
  "ft-webrtc",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "vodozemac",
