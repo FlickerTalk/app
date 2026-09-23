@@ -179,6 +179,9 @@ describe("ChatThread", () => {
     await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
     await flushPromises();
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+    // The way out is always there, with the name of the tool next to it.
+    expect(wrapper.find("[data-test='close-app']").exists()).toBe(true);
+    expect(wrapper.find(".ft-app__name").text()).toBe("Code block");
   });
 
   it("puts in the composer the text a plugin proposes", async () => {

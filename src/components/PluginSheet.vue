@@ -104,10 +104,8 @@ watch(
 
 <template>
   <section class="ft-plugin">
-    <h2 class="ft-plugin__name">
-      {{ plugin.name }}
-      <span v-if="working" class="ft-plugin__working">…</span>
-    </h2>
+    <!-- The name and the way out are the window's job; here only what the tool is doing. -->
+    <p v-if="working" class="ft-plugin__working" role="status">…</p>
     <iframe
       ref="frame"
       class="ft-plugin__frame"
@@ -122,15 +120,10 @@ watch(
 
 <style scoped>
 .ft-plugin {
-  padding: var(--ft-space-4);
-}
-.ft-plugin__name {
-  margin: 0 0 var(--ft-space-3);
-  font-size: 15px;
-  color: var(--ft-muted);
-  font-weight: 600;
+  padding: 0 var(--ft-space-4) var(--ft-space-4);
 }
 .ft-plugin__working {
+  margin: 0 0 var(--ft-space-2);
   color: var(--ft-accent);
 }
 .ft-plugin__frame {

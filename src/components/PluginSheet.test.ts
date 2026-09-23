@@ -30,7 +30,7 @@ describe("PluginSheet", () => {
     const frame = wrapper.find("iframe");
     expect(frame.attributes("src")).toBe("http://ftplugin.localhost/com.flickertalk.markdown/frame.html");
     expect(frame.attributes("sandbox")).toBe("allow-scripts");
-    expect(wrapper.text()).toContain("Markdown");
+    expect(frame.attributes("title")).toBe("Markdown");
   });
 
   // §53: the plugin is handed the text the user chose, and only when it is ready.

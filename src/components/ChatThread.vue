@@ -304,9 +304,12 @@ watch(
 
     <!-- Issue app#3: each plugin does its thing inside its own window. -->
     <div v-if="plugin" class="ft-app" role="dialog" :aria-label="plugin.name">
-      <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="plugin = null">
-        <ion-icon :icon="closeOutline" aria-hidden="true" />
-      </button>
+      <div class="ft-app__bar">
+        <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="plugin = null">
+          <ion-icon :icon="closeOutline" aria-hidden="true" />
+        </button>
+        <span class="ft-app__name">{{ plugin.name }}</span>
+      </div>
       <PluginSheet :plugin="plugin" :contact="chatId" @text="fromPlugin" @done="plugin = null" />
     </div>
 
@@ -553,21 +556,36 @@ watch(
   z-index: 25;
   overflow-y: auto;
   background: var(--ft-bg);
+  /* The window starts under the status bar, or the way out ends up beneath the clock. */
+  padding-top: env(safe-area-inset-top);
 }
-.ft-app__close {
+/* A bar of its own, so the way out is always there while the tool scrolls under it. */
+.ft-app__bar {
   position: sticky;
   top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--ft-space-2);
+  padding: var(--ft-space-2);
+  background: var(--ft-bg);
+}
+.ft-app__close {
   display: grid;
   place-items: center;
   width: 44px;
   height: 44px;
-  margin: var(--ft-space-2);
+  flex: none;
   border: 0;
   border-radius: 50%;
   background: var(--ft-surface-2);
   color: var(--ft-text);
   font-size: 20px;
   cursor: pointer;
+}
+.ft-app__name {
+  font-size: var(--ft-font-title);
+  font-weight: 600;
 }
 
 .ft-apps {
