@@ -275,7 +275,14 @@ impl Core {
         let mut sent_upto = from as i64;
         for index in from..end {
             let (path, offset, length) = (self.file_path(&record), index * record.chunk as u64, chunk_length(&record, index));
-            let data = tokio::task::spawn_blocking(move || read_chunk(&path, offset, length)).await??;
+            let Ok(data) = tokio::task::spawn_blocking(move || read_chunk(&path, offset, length)).await? else {
+                // The bytes are gone (or unreadable): the transfer can never finish. Both sides
+                // must know, or the receiver keeps asking for ever and the UI stays at 0 %.
+                self.store.set_file_failed(&message_id).await?;
+                let _ = self.send_control(contact, Body::FileFailed { file }).await;
+                let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+                return Ok(());
+            };
             if !self.transmit_direct(contact, &Packet::new(Body::FileChunk { file, index, data })).await? {
                 break;
             }
@@ -365,6 +372,21 @@ impl Core {
             self.store.set_file_progress(&message_id, record.chunks(), true).await?;
             let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
         }
+        Ok(())
+    }
+
+    /// The contact no longer has the bytes of a file they offered us: what came is thrown away
+    /// and the transfer is marked failed, so it is not asked for again.
+    pub(crate) async fn file_failed(&self, contact: &Contact, file: MessageId) -> Result<()> {
+        let message_id = file.to_string();
+        let Some(record) = self.incoming_file(contact, &message_id).await? else { return Ok(()) };
+        if record.complete || record.failed {
+            return Ok(());
+        }
+        self.transfers.lock().expect("transfers poisoned").remove(&message_id);
+        let _ = tokio::fs::remove_file(self.file_path(&record)).await;
+        self.store.set_file_failed(&message_id).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
         Ok(())
     }
 

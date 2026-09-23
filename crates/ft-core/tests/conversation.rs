@@ -467,6 +467,27 @@ async fn a_file_that_does_not_match_its_hash_is_rejected() {
     assert!(!file_of(&alice, &sent).await.complete);
 }
 
+// A file whose bytes are gone from the sender's phone before the contact pulled them (the app
+// deleted a picked photo too early) is marked failed on both sides, instead of staying at 0 %
+// for ever while the receiver keeps asking for chunks nobody can read.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_gone_from_the_sender_fails_on_both_sides() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+    let (path, _) = some_file(100_000);
+    let sent = alice.send_file(&id(&bob), &path, "beach.jpg", "image/jpeg").await.expect("queues");
+    std::fs::remove_file(&path).expect("the file is deleted after the offer");
+
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until("bob gives up on it", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.failed) }).await;
+    assert!(!bob.file_path(&file_of(&bob, &sent).await).exists(), "nothing half-written is left");
+    until("alice knows it failed", || async { file_of(&alice, &sent).await.failed }).await;
+    assert!(!file_of(&alice, &sent).await.complete);
+}
+
 // An empty file needs no chunks.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_empty_file_arrives_at_once() {

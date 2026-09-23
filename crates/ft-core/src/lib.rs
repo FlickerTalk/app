@@ -807,6 +807,7 @@ impl Core {
             Body::FileRequest { file, from, count } => self.serve_chunks(contact, file, from, count).await?,
             Body::FileChunk { file, index, data } => self.take_chunk(contact, file, index, data).await?,
             Body::FileDone { file } => self.file_done(contact, file).await?,
+            Body::FileFailed { file } => self.file_failed(contact, file).await?,
             Body::CallOffer { call, sdp, video } => self.call_offered(contact, call, sdp, video).await?,
             Body::CallAnswer { call, sdp } => self.call_answered(contact, call, sdp).await?,
             Body::CallEnd { call, reason } => self.call_ended(contact, call, reason).await?,
