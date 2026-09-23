@@ -137,7 +137,7 @@ describe("MessageBubble", () => {
   it("lights the bars of a voice message as far as it has played", async () => {
     const wrapper = mount(MessageBubble, { props: { message: voice }, shallow: true });
     const bars = wrapper.findAll("[data-test='bar']");
-    expect(bars.length).toBeGreaterThanOrEqual(20);
+    expect(bars).toHaveLength(18);
     expect(bars.filter((bar) => bar.classes("is-on"))).toHaveLength(0);
     const audio = wrapper.find("audio").element as HTMLAudioElement;
     Object.defineProperty(audio, "duration", { value: 10, configurable: true });
@@ -148,6 +148,28 @@ describe("MessageBubble", () => {
     const again = mount(MessageBubble, { props: { message: voice }, shallow: true });
     expect(again.findAll("[data-test='bar']").map((bar) => bar.attributes("style"))).toEqual(bars.map((bar) => bar.attributes("style")));
   });
+
+  // A waveform, not noise: two bars next to each other never jump the whole height, so the shape
+  // reads as a voice and not as static (Ioan, 2026-09-23).
+  // Every message, not just a lucky one: the ids the app really makes are UUIDv7.
+  it.each(["m1", "01a0cf49-a448-71fe-87a4-f43f3344df08", "01a0cf8b-1395-7263-b947-d600372d4113", "01a0cf69-f758-745e-91b4-7a59978b9e12"])(
+    "draws a waveform that rises and falls gently for %s",
+    (id) => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...voice, id } }, shallow: true });
+      const heights = wrapper.findAll("[data-test='bar']").map((bar) => Number(/height: ([\d.]+)%/.exec(bar.attributes("style") ?? "")?.[1]));
+      expect(heights.every((height) => height >= 20 && height <= 100)).toBe(true);
+      const jumps = heights.slice(1).map((height, index) => Math.abs(height - heights[index]));
+      expect(Math.max(...jumps)).toBeLessThanOrEqual(30);
+      // A shape, not a flat line: it neither flattens out nor sticks to the edges.
+      expect(Math.max(...heights) - Math.min(...heights)).toBeGreaterThan(30);
+      const runs = heights.reduce<number[]>((all, height, index) => {
+        if (index > 0 && height === heights[index - 1]) all[all.length - 1] += 1;
+        else all.push(1);
+        return all;
+      }, []);
+      expect(Math.max(...runs)).toBeLessThanOrEqual(2);
+    },
+  );
 
   it("keeps the name of a document but not its size", () => {
     const wrapper = mount(MessageBubble, { props: { message: arrived }, shallow: true });
