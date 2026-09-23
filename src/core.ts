@@ -491,6 +491,17 @@ export async function setAge(age: "minor" | "adult"): Promise<void> {
 }
 
 /** Asks the Store for the subscription. No payment data ever reaches us (§47). */
+/**
+ * What the Store answered, as an i18n key. Backing out of the Store window is not a failure, so
+ * it says nothing; anything nobody wrote is shown as a plain failure, never as it came (§84).
+ */
+export function payTrouble(error: unknown): string {
+  const answer = String(error).trim();
+  if (answer === "cancelled") return "";
+  const known = ["not_on_sale", "store_unavailable", "pending_approval"];
+  return `plan.trouble.${known.includes(answer) ? answer : "failed"}`;
+}
+
 export async function subscribe(): Promise<void> {
   await invoke("core_subscribe");
 }

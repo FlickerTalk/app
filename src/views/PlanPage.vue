@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
-import { plan as planOf, setAge, subscribe, type PlanView } from "../core";
+import { payTrouble, plan as planOf, setAge, subscribe, type PlanView } from "../core";
 import { t } from "../i18n";
 
 // Plan §40–§47: the first year is free from the install, then 1 € a year; under 21 it is always
@@ -47,7 +47,8 @@ async function pay() {
   try {
     await subscribe();
   } catch (error) {
-    trouble.value = String(error);
+    const say = payTrouble(error);
+    trouble.value = say ? t(say) : "";
   }
   await refresh();
 }

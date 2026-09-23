@@ -210,7 +210,15 @@
     "stretch": "From – to",
     "from": "From",
     "to": "To",
-    "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    "days": [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday"
+    ]
   },
   "session": {
     "pin": "PIN",
@@ -261,6 +269,12 @@
     "hint": "FlickerTalk is €1 a year, and free if you are under 21. The first year from the install is free for everyone. Without it you still receive and answer; starting a new conversation, calling and sending files need the euro.",
     "pay": "€1 a year",
     "iAmYoung": "I am under 21",
-    "iAmOlder": "I am 21 or older"
+    "iAmOlder": "I am 21 or older",
+    "trouble": {
+      "not_on_sale": "The subscription is not on sale yet.",
+      "store_unavailable": "The Store is not answering. Try again later.",
+      "pending_approval": "The purchase is waiting to be approved.",
+      "failed": "The Store could not take the payment."
+    }
   }
 }

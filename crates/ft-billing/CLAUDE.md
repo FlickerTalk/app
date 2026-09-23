@@ -19,6 +19,23 @@ Periodo gratuito, clase de edad y suscripción, todo **local** (`§39–47`).
   purchases), verificado y cacheado en local.
 - Decisión de acceso tras el trial (`§42`): menor → gratis; adulto → entitlement o paywall.
 
+## Decisión (2026-09-24): de dónde sale `until` en cada tienda
+
+Las dos tiendas responden `until` (ms), pero **no saben lo mismo**:
+
+- **Apple (StoreKit 2)** dice **hasta cuándo**: `Transaction.expirationDate`. Se guarda esa fecha
+  tal cual, y `revocationDate` (devolución) deja de contar en el acto.
+- **Google (Play Billing)** solo dice **cuándo se pagó**: el `Purchase` del cliente lleva
+  `purchaseTime`, no la caducidad. La caducidad real solo la da la Play Developer API **desde un
+  servidor**, y eso sería que nuestro backend supiera quién paga (`§45–46`). Así que en Android
+  `until = purchaseTime + 365 días`, y cada renovación mueve la fecha porque llega con un
+  `purchaseTime` nuevo.
+
+Consecuencia asumida: en Android la fecha puede desviarse algún día respecto de la de Google
+(años bisiestos, reintentos de cobro). Da de más, nunca de menos, y nadie pierde acceso por ello.
+Una compra **pendiente** (efectivo, transferencia, Ask to Buy) **no cuenta** hasta que se paga
+(`§84`).
+
 ## Estado (2026-09-23)
 
 Hecho y probado: `Access::of(now, Plan)` decide entre `Trial`, `Young`, `Subscribed` y `Limited`,
@@ -26,10 +43,12 @@ y `may(Doing)` dice qué se puede hacer. El núcleo lo aplica en `send_text` (re
 no), `send_file` y `place_call`, guarda la clase de edad y lo que diga la Store, y la app tiene su
 pantalla de Plan (Ajustes → Plan): cuánto queda del año, el euro y la declaración de edad.
 
-**Falta solo la compra**: Google Play Billing y StoreKit 2 necesitan un producto dado de alta en
-la consola de cada tienda, que no existe hasta publicar. El puente ya está (`subscribe`,
-`subscription` en `src-tauri/platform`): hoy Kotlin contesta «todavía no» en vez de fingir, y al
-arrancar la app pregunta a la Store qué sabe.
+**Estado de la compra (2026-09-24):** el puente ya **compra de verdad** en los dos sistemas.
+Android usa `com.android.billingclient:billing:9.1.0` (la variante Java: la `-ktx` viene compilada
+con Kotlin 2.3 y el módulo va con 1.9) y iOS usa StoreKit 2. Lo que falta **no es código**: el
+producto `yearly` no existe todavía en ninguna de las dos consolas. Play no deja crearlo hasta
+subir un paquete que lleve la librería de facturación —por eso iba antes el código que el
+producto— y App Store Connect necesita la cuenta de pago de Apple.
 
 ## Reglas
 

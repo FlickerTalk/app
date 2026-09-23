@@ -210,7 +210,15 @@
     "stretch": "Başlangıç – bitiş",
     "from": "Başlangıç",
     "to": "Bitiş",
-    "days": ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+    "days": [
+      "Pazartesi",
+      "Salı",
+      "Çarşamba",
+      "Perşembe",
+      "Cuma",
+      "Cumartesi",
+      "Pazar"
+    ]
   },
   "session": {
     "pin": "PIN",
@@ -261,6 +269,12 @@
     "hint": "FlickerTalk yılda 1 €'dur ve 21 yaşın altındaysanız ücretsizdir. Kurulumdan itibaren ilk yıl herkes için ücretsizdir. Ödeme yapmasanız da mesaj almaya ve yanıtlamaya devam edersiniz; yeni bir sohbet başlatmak, arama yapmak ve dosya göndermek için o 1 € gerekir.",
     "pay": "Yılda 1 €",
     "iAmYoung": "21 yaşından küçüğüm",
-    "iAmOlder": "21 yaşında veya daha büyüğüm"
+    "iAmOlder": "21 yaşında veya daha büyüğüm",
+    "trouble": {
+      "not_on_sale": "Abonelik henüz satışta değil.",
+      "store_unavailable": "Mağaza yanıt vermiyor. Daha sonra tekrar dene.",
+      "pending_approval": "Satın alma onay bekliyor.",
+      "failed": "Mağaza ödemeyi alamadı."
+    }
   }
 }

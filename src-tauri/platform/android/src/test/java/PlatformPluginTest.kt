@@ -2,6 +2,7 @@ package com.flickertalk.platform
 
 import android.app.ActivityManager
 import android.media.AudioManager
+import com.android.billingclient.api.Purchase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -227,5 +228,61 @@ class PlatformPluginTest {
         assertEquals(false, wakeIsHeard("3", setOf(1, 2)))
         assertEquals(true, wakeIsHeard("3", setOf(3)))
         assertEquals(false, wakeIsHeard("nonsense", setOf(3)))
+    }
+
+    // What the Store handed back about one purchase, as the plugin reads it.
+    private fun purchase(
+        product: String = YEARLY,
+        state: Int = Purchase.PurchaseState.PURCHASED,
+        boughtAt: Long = 1790208000000L,
+        acknowledged: Boolean = true,
+    ) = StorePurchase(product, state, boughtAt, acknowledged)
+
+    // The Store says when the money was taken, never until when. Asking Play's server for the
+    // expiry would mean our backend learning who pays (§45-46), so the phone counts a year from
+    // the purchase; every renewal moves that date on.
+    @Test
+    fun aPurchaseIsGoodForAYear() {
+        val bought = 1790208000000L
+        assertEquals(bought + 365L * 24 * 60 * 60 * 1000, untilFromPurchase(bought))
+    }
+
+    // Play takes payments that land days later (cash, transfer). Pending is not paid for, and the
+    // app never pretends it is (§84).
+    @Test
+    fun aPendingPurchaseBuysNothingYet() {
+        assertEquals(0L, activeUntil(listOf(purchase(state = Purchase.PurchaseState.PENDING))))
+    }
+
+    @Test
+    fun nothingBoughtIsNoSubscription() {
+        assertEquals(0L, activeUntil(emptyList()))
+    }
+
+    // Whatever else the Play account carries, only our own product pays for FlickerTalk.
+    @Test
+    fun onlyTheYearlyProductCounts() {
+        assertEquals(0L, activeUntil(listOf(purchase(product = "com.someone.else.pro"))))
+    }
+
+    // A renewal comes back as a later purchase time: the phone follows the furthest one.
+    @Test
+    fun theFurthestPurchaseIsTheOneThatCounts() {
+        val first = 1790208000000L
+        val renewed = first + 365L * 24 * 60 * 60 * 1000
+        val until = activeUntil(listOf(purchase(boughtAt = renewed), purchase(boughtAt = first)))
+        assertEquals(untilFromPurchase(renewed), until)
+    }
+
+    // Google gives the money back if a purchase is not acknowledged within three days, so it is
+    // acknowledged once and only once, and never while it is still pending.
+    @Test
+    fun aPaidPurchaseIsAcknowledgedOnce() {
+        assertEquals(true, needsAcknowledgement(purchase(acknowledged = false)))
+        assertEquals(false, needsAcknowledgement(purchase(acknowledged = true)))
+        assertEquals(
+            false,
+            needsAcknowledgement(purchase(state = Purchase.PurchaseState.PENDING, acknowledged = false)),
+        )
     }
 }

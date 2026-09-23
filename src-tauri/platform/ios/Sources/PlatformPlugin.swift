@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import StoreKit
 import SwiftRs
 import Tauri
 import UIKit
@@ -26,6 +27,27 @@ func keyAccessibility() -> String {
 func shareableText(_ text: String) -> String? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+}
+
+/// The yearly subscription, as it is named in App Store Connect (§40-42).
+let yearly = "yearly"
+
+/// One entitlement as the Store handed it back, with none of StoreKit's types in it.
+struct StoreEntitlement {
+    let product: String
+    let expires: Date?
+    let revoked: Date?
+}
+
+/// Until when this phone is paid up, in milliseconds as the core counts time; 0 when nothing is.
+/// StoreKit says when a subscription runs out, so unlike Play nothing is guessed here (§45).
+func activeUntil(_ entitlements: [StoreEntitlement], now: Date) -> Int64 {
+    entitlements
+        .filter { $0.product == yearly && $0.revoked == nil }
+        .compactMap { $0.expires }
+        .filter { $0 > now }
+        .map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) }
+        .max() ?? 0
 }
 
 class ShareArgs: Decodable {
@@ -110,6 +132,62 @@ class PlatformPlugin: Plugin {
             invoke.resolve(["value": try loadKey().base64EncodedString()])
         } catch {
             invoke.reject("the Keychain has no storage key: \(error)")
+        }
+    }
+
+    // What these commands reject with are keys, not sentences: the app turns them into the
+    // user's own language (`plan.trouble.*`), so nothing raw ever reaches the screen.
+    /// What the Store already knows about this phone, without asking anyone to buy anything.
+    private func entitlements() async -> [StoreEntitlement] {
+        var found: [StoreEntitlement] = []
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            found.append(
+                StoreEntitlement(
+                    product: transaction.productID,
+                    expires: transaction.expirationDate,
+                    revoked: transaction.revocationDate
+                )
+            )
+        }
+        return found
+    }
+
+    /// What the Store knows already (§45): the app asks every time it opens, and nothing else.
+    @objc public func subscription(_ invoke: Invoke) throws {
+        Task {
+            invoke.resolve(["until": activeUntil(await entitlements(), now: Date())])
+        }
+    }
+
+    /// The yearly subscription (§45, §47). Apple holds the money and the card; FlickerTalk only
+    /// learns until when this phone is paid up.
+    @objc public func subscribe(_ invoke: Invoke) throws {
+        Task {
+            do {
+                guard let product = try await Product.products(for: [yearly]).first else {
+                    invoke.reject("not_on_sale")
+                    return
+                }
+                switch try await product.purchase() {
+                case .success(let signed):
+                    guard case .verified(let transaction) = signed else {
+                        invoke.reject("payment_failed")
+                        return
+                    }
+                    await transaction.finish()
+                    invoke.resolve(["until": activeUntil(await entitlements(), now: Date())])
+                case .userCancelled:
+                    invoke.reject("cancelled")
+                case .pending:
+                    // Ask to Buy and the like: not paid for, so it is not pretended to be (§84).
+                    invoke.reject("pending_approval")
+                @unknown default:
+                    invoke.reject("payment_failed")
+                }
+            } catch {
+                invoke.reject("payment_failed")
+            }
         }
     }
 }

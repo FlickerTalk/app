@@ -210,7 +210,15 @@
     "stretch": "De la – până la",
     "from": "De la",
     "to": "Până la",
-    "days": ["Luni", "Marți", "Miercuri", "Joi", "Vineri", "Sâmbătă", "Duminică"]
+    "days": [
+      "Luni",
+      "Marți",
+      "Miercuri",
+      "Joi",
+      "Vineri",
+      "Sâmbătă",
+      "Duminică"
+    ]
   },
   "session": {
     "pin": "PIN",
@@ -261,6 +269,12 @@
     "hint": "FlickerTalk costă 1 € pe an și este gratuit dacă ai sub 21 de ani. Primul an de la instalare este gratuit pentru toți. Fără plată poți în continuare să primești și să răspunzi; pentru a începe o conversație nouă, a suna și a trimite fișiere e nevoie de acel euro.",
     "pay": "1 € pe an",
     "iAmYoung": "Am sub 21 de ani",
-    "iAmOlder": "Am 21 de ani sau mai mult"
+    "iAmOlder": "Am 21 de ani sau mai mult",
+    "trouble": {
+      "not_on_sale": "Abonamentul nu este încă la vânzare.",
+      "store_unavailable": "Magazinul nu răspunde. Încearcă mai târziu.",
+      "pending_approval": "Achiziția așteaptă aprobarea.",
+      "failed": "Magazinul nu a putut încasa plata."
+    }
   }
 }
