@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Cineva</string>
+    <string name="ft_incoming_call">Apel primit</string>
+    <string name="ft_incoming_video_call">Apel video primit</string>
+    <string name="ft_channel_calls">Apeluri</string>
+    <string name="ft_channel_messages">Mesaje și apeluri</string>
+    <string name="ft_something_new">Te așteaptă ceva nou</string>
+</resources>

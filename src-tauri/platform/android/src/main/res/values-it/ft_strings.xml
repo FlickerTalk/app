@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Qualcuno</string>
+    <string name="ft_incoming_call">Chiamata in arrivo</string>
+    <string name="ft_incoming_video_call">Videochiamata in arrivo</string>
+    <string name="ft_channel_calls">Chiamate</string>
+    <string name="ft_channel_messages">Messaggi e chiamate</string>
+    <string name="ft_something_new">C’è qualcosa di nuovo per te</string>
+</resources>

@@ -516,10 +516,10 @@ watch(
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding-left: 8px;
+  padding-inline-start: 8px;
 }
 .ft-peer.has-back {
-  padding-left: 0;
+  padding-inline-start: 0;
 }
 .ft-peer__text {
   display: flex;
@@ -613,7 +613,7 @@ watch(
   color: var(--ft-text);
   font: inherit;
   font-size: 16px;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 

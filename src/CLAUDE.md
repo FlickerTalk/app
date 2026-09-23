@@ -16,7 +16,7 @@ Diseño aprobado el 2026-09-21 (`§84`). Estructura:
 | `core.ts`                | puente con el núcleo Rust: almacén reactivo (`me`, `chats`, mensajes) alimentado por los comandos `core_*` y el evento `ft://changed` |
 | `plugins.ts`             | herramientas instaladas: **una sola lista** (`installed` + `refreshPlugins()`) para toda la app, la URL del marco de cada plugin y lo único que el marco puede decir (`fromFrame`) |
 | `preferences.ts`         | enrutado de llamadas y si ya se vio la bienvenida                         |
-| `i18n.ts`, `i18n/en.json`| catálogo de textos; inglés como fuente, sin traducciones en la fase 1     |
+| `i18n.ts`, `i18n/*.json` | catálogo de textos; inglés (`en.json`) como fuente y 20 traducciones que se cargan según el idioma del teléfono (`§84`) |
 
 Cada componente tiene su test al lado (`*.test.ts`, Vitest + Vue Test Utils + happy-dom); los
 tests stubean Ionic e instalan el catálogo (`src/__tests__/setup.ts`). El puente de Tauri se
@@ -74,8 +74,13 @@ Estado (2026-09-23): herramientas, acciones del mensaje y plan.
 - Sin presencia central (`§37`): `typing` solo existe mientras hay conexión P2P activa; no hay
   «last seen».
 - **Iconos primero** (`§84`): emoji e iconos estándar en lugar de texto; texto solo si es
-  imprescindible, en inglés y desde el catálogo i18n. Sin traducciones en la fase 1. Cada icono
-  lleva `aria-label` en inglés.
+  imprescindible, desde el catálogo i18n. Cada icono lleva `aria-label`, también desde el catálogo.
+- **Traducciones** (decisión 2026-09-23, `§84`): cada clave nueva de `en.json` se añade **en el
+  mismo cambio** a los 20 `i18n/<idioma>.json` (el test de `i18n.test.ts` falla si falta una clave o
+  cambia un `{marcador}`). Sin plurales dependientes del número: redacción neutra («Días: {days}»).
+  Nada de `left`/`right` en CSS: propiedades lógicas (`inset-inline-start`, `padding-inline-end`,
+  `text-align: start`) para que el árabe (RTL) se vea bien. Los textos de notificación de Android
+  viven en `src-tauri/platform/android/src/main/res/values*/ft_strings.xml`, con los mismos idiomas.
 - `PluginSheet` es el **único** punto donde se monta un plugin (ver `app/crates/ft-plugins`): un
   iframe servido por el esquema `ftplugin://`, sin origen y con su propia CSP. El frontend no
   habla con el plugin más que por `postMessage`, y solo acepta de él lo que `fromFrame` reconoce;

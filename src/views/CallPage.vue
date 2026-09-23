@@ -150,7 +150,7 @@ watch(
   object-fit: cover;
   transform: scaleX(-1);
   position: absolute;
-  right: var(--ft-space-4);
+  inset-inline-end: var(--ft-space-4);
   bottom: calc(env(safe-area-inset-bottom) + 110px);
   width: 96px;
   height: 140px;

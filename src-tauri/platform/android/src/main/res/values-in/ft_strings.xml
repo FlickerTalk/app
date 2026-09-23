@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Seseorang</string>
+    <string name="ft_incoming_call">Panggilan masuk</string>
+    <string name="ft_incoming_video_call">Panggilan video masuk</string>
+    <string name="ft_channel_calls">Panggilan</string>
+    <string name="ft_channel_messages">Pesan dan panggilan</string>
+    <string name="ft_something_new">Ada sesuatu yang baru untukmu</string>
+</resources>

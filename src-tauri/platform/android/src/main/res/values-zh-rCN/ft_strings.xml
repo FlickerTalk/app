@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">某人</string>
+    <string name="ft_incoming_call">来电</string>
+    <string name="ft_incoming_video_call">视频来电</string>
+    <string name="ft_channel_calls">通话</string>
+    <string name="ft_channel_messages">消息和通话</string>
+    <string name="ft_something_new">有新内容在等你</string>
+</resources>

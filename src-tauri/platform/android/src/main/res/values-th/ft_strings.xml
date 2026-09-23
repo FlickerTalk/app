@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">มีคน</string>
+    <string name="ft_incoming_call">สายเรียกเข้า</string>
+    <string name="ft_incoming_video_call">วิดีโอคอลเข้า</string>
+    <string name="ft_channel_calls">การโทร</string>
+    <string name="ft_channel_messages">ข้อความและการโทร</string>
+    <string name="ft_something_new">มีสิ่งใหม่รอคุณอยู่</string>
+</resources>

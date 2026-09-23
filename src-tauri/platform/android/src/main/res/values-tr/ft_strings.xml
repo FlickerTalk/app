@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Biri</string>
+    <string name="ft_incoming_call">Gelen arama</string>
+    <string name="ft_incoming_video_call">Gelen görüntülü arama</string>
+    <string name="ft_channel_calls">Aramalar</string>
+    <string name="ft_channel_messages">Mesajlar ve aramalar</string>
+    <string name="ft_something_new">Seni yeni bir şey bekliyor</string>
+</resources>
