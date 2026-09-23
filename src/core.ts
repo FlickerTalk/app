@@ -241,8 +241,8 @@ export interface PickedFile {
  * The phone's file picker. On Android the WebView's own file input opens a screen the user cannot
  * come back from without picking something, so the app asks the system itself (§62).
  */
-export async function pickFiles(): Promise<PickedFile[]> {
-  return invoke<PickedFile[]>("core_pick_files");
+export async function pickFiles(accept = ""): Promise<PickedFile[]> {
+  return invoke<PickedFile[]>("core_pick_files", { accept });
 }
 
 /** The bytes of a file the user picked, for a plugin that asked for one (issue app#3). */

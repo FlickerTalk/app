@@ -20,6 +20,26 @@ class PlatformPluginTest {
         assertEquals(true, canSaveToDownloads(29))
     }
 
+    // Asking for pictures opens the photo picker, which is a sheet over the app and closes with
+    // a swipe: the user is never taken out of FlickerTalk (Ioan, 2026-09-23). Anything else is a
+    // document, and that is the system's own picker.
+    @Test
+    fun picturesUseThePhotoPickerWhereThereIsOne() {
+        assertEquals(true, usesPhotoPicker("image/*", 33))
+        assertEquals(true, usesPhotoPicker("image/jpeg", 36))
+        assertEquals(false, usesPhotoPicker("image/*", 32))
+        assertEquals(false, usesPhotoPicker("", 36))
+        assertEquals(false, usesPhotoPicker("application/pdf", 36))
+    }
+
+    @Test
+    fun theDocumentPickerOnlyShowsWhatWasAskedFor() {
+        assertEquals("*/*", documentType(""))
+        assertEquals("application/pdf", documentType("application/pdf"))
+        assertEquals("image/*", documentType("image/*"))
+        assertEquals("*/*", documentType("nonsense"))
+    }
+
     // An incoming call rings as the user set the phone: sound and vibration, vibration only, or
     // nothing at all.
     @Test
