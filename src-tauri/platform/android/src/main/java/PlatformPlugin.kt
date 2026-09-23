@@ -586,6 +586,22 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * The yearly subscription (§45, §47). Google Play Billing needs a product set up in the Play
+     * Console, which only exists once the app is published: until then this says so instead of
+     * pretending. Nothing about the payment ever reaches FlickerTalk.
+     */
+    @Command
+    fun subscribe(invoke: Invoke) {
+        invoke.reject("paying is not available in this version yet")
+    }
+
+    /** What the Store already knows: nothing, while there is no product to know about. */
+    @Command
+    fun subscription(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("until", 0) })
+    }
+
     @Command
     fun saveToDownloads(invoke: Invoke) {
         if (!canSaveToDownloads(Build.VERSION.SDK_INT)) {

@@ -453,6 +453,13 @@ impl Client {
         online.core.set_plugins_dir(dir.join("plugins"));
         // A new version of the app brings a fixed tool to whoever had installed it (§53).
         update_installed_plugins(&online.core).await;
+        // What the Store says about the subscription, every time the app opens (§45): a renewal
+        // shows up on its own, and one that was cancelled stops counting.
+        if let Some(app) = self.app.get() {
+            if let Ok(until) = app.platform().subscription() {
+                let _ = online.core.set_entitlement(until).await;
+            }
+        }
         if let Some(app) = self.app.get() {
             refresh_served_plugins(app, &online.core, dir).await;
         }
@@ -683,6 +690,54 @@ async fn file_of(client: &Client, message: &str) -> Result<FileRecord, String> {
 pub async fn core_open_file(message: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let file = file_of(&client, &message).await?;
     app.platform().open_file(&file.path, &file.mime).map_err(failed)
+}
+
+/// Where this phone stands with the plan (§40–§47). Nothing of this reaches the server.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanView {
+    state: String,
+    /// When the free year ends, or when the subscription runs out (ms); 0 when neither applies.
+    until: i64,
+    age: String,
+}
+
+#[tauri::command]
+pub async fn core_plan(client: State<'_, Client>) -> Result<PlanView, String> {
+    let core = client.core().await?;
+    let plan = core.plan().await.map_err(failed)?;
+    let (state, until) = match ft_billing::Access::of(now_ms(), plan) {
+        ft_billing::Access::Trial { until } => ("trial", until),
+        ft_billing::Access::Young => ("young", 0),
+        ft_billing::Access::Subscribed { until } => ("subscribed", until),
+        ft_billing::Access::Limited => ("limited", 0),
+    };
+    Ok(PlanView { state: state.to_owned(), until, age: plan.age.as_str().to_owned() })
+}
+
+/// What the user said about their age. Under 21 is always free (§40); it never leaves the phone.
+#[tauri::command]
+pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_age_class(ft_billing::AgeClass::of(&age)).await.map_err(failed)
+}
+
+/// Asks the Store for the subscription and keeps what it answers (§45, §47). The app never sees
+/// a card, an address or a name: that is the Store's business.
+#[tauri::command]
+pub async fn core_subscribe(app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let until = tauri::async_runtime::spawn_blocking(move || app.platform().subscribe())
+        .await
+        .map_err(failed)?
+        .map_err(failed)?;
+    client.core().await?.set_entitlement(until).await.map_err(failed)
+}
+
+/// The clock of this phone, in ms.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Erases one message from this phone (§61). The other side keeps their copy; nothing is sent.

@@ -1627,6 +1627,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "ft-billing",
  "ft-contacts",
  "ft-core",
  "ft-plugins",
@@ -1703,6 +1704,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ft-billing"
+version = "0.1.0"
+
+[[package]]
 name = "ft-contacts"
 version = "0.1.0"
 dependencies = [
@@ -1724,6 +1729,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "blake3",
+ "ft-billing",
  "ft-contacts",
  "ft-crypto",
  "ft-identity",

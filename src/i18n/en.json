@@ -219,5 +219,15 @@
     "travel": "Travel",
     "things": "Objects",
     "symbols": "Symbols"
+  },
+  "plan": {
+    "trial": "Free · {days} days left",
+    "young": "Free · under 21",
+    "subscribed": "Paid · until {until}",
+    "limited": "The free year is over",
+    "hint": "FlickerTalk is €1 a year, and free if you are under 21. The first year from the install is free for everyone. Without it you still receive and answer; starting a new conversation, calling and sending files need the euro.",
+    "pay": "€1 a year",
+    "iAmYoung": "I am under 21",
+    "iAmOlder": "I am 21 or older"
   }
 }

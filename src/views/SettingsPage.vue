@@ -242,7 +242,8 @@ function chooseAppearance(id: Appearance) {
         </ion-list>
 
         <ion-list inset class="ft-group">
-          <ion-item lines="none">
+          <!-- §40: what it costs, what is left of the free year and where the euro is paid. -->
+          <ion-item button detail lines="none" data-test="plan" @click="router.push('/plan')">
             <span slot="start" class="ft-tile"><ion-icon :icon="sparklesOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.plan") }}</ion-label>
             <ion-note slot="end">{{ plan }}</ion-note>

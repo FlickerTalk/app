@@ -9,6 +9,7 @@ license = "AGPL-3.0-only"
 anyhow = "1"
 async-trait = "0.1"
 blake3 = "1"
+ft-billing = { path = "../ft-billing" }
 ft-contacts = { path = "../ft-contacts" }
 ft-crypto = { path = "../ft-crypto" }
 ft-identity = { path = "../ft-identity" }

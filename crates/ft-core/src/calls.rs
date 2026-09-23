@@ -40,6 +40,8 @@ pub enum CallUpdate {
 impl Core {
     /// Logs a new outgoing call and returns its id; the offer follows with `offer_call`.
     pub async fn place_call(&self, contact: &str, video: bool) -> Result<String> {
+        // A call is something new: it needs the subscription once the free year is over (§42).
+        self.allowed(ft_billing::Doing::Call).await?;
         let stored = self.contact(contact).await?;
         if stored.blocked {
             bail!("the contact is blocked");

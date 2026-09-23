@@ -123,4 +123,12 @@ describe("SettingsPage", () => {
     await wrapper.find("[data-test='plugins']").trigger("click");
     expect(push).toHaveBeenCalledWith("/plugins");
   });
+
+  // §40: the plan is a screen of its own, where the euro is asked for and the age is said.
+  it("opens the plan", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[data-test='plan']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/plan");
+  });
 });
