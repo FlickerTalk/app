@@ -31,9 +31,20 @@ class PlatformPluginTest {
     fun picturesUseThePhotoPickerWhereThereIsOne() {
         assertEquals(true, usesPhotoPicker("image/*", 33))
         assertEquals(true, usesPhotoPicker("image/jpeg", 36))
+        assertEquals(true, usesPhotoPicker("video/*", 33))
+        assertEquals(true, usesPhotoPicker("image/*,video/*", 33))
         assertEquals(false, usesPhotoPicker("image/*", 32))
         assertEquals(false, usesPhotoPicker("", 36))
         assertEquals(false, usesPhotoPicker("application/pdf", 36))
+    }
+
+    // The photo picker shows pictures, videos or both; a type it does not take means both.
+    @Test
+    fun thePhotoPickerShowsPicturesOrVideosOrBoth() {
+        assertEquals("image/*", photoPickerType("image/*"))
+        assertEquals("video/*", photoPickerType("video/*"))
+        assertEquals(null, photoPickerType("image/*,video/*"))
+        assertEquals(null, photoPickerType(""))
     }
 
     @Test

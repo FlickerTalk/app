@@ -30,9 +30,15 @@ la tarjeta firmada, copia el enlace, escanea con la cámara (`@tauri-apps/plugin
 solo en móvil) o acepta un enlace pegado. El hilo carga los mensajes, envía y marca como leído. El
 buzón se activa en el núcleo. La cabecera del hilo dice «Direct» solo si hay un DataChannel abierto
 con el contacto (`connected` de `core_conversations`; el núcleo avisa al abrirse o cerrarse).
-Ficheros (M5): el botón de adjuntar abre el selector del sistema (`<input type="file">`, que el
-WebView de Android admite); `sendFile` copia el fichero a la app en trozos de 512 KiB en base64 (en
-Android el IPC de Tauri solo lleva JSON) y el núcleo lo ofrece. La burbuja muestra el progreso,
+Ficheros (M5): el «+» del compositor es un `ion-fab` que despliega dos botones (decisión de Ioan,
+2026-09-23): **foto o vídeo** abre la hoja modal de fotos del sistema (`ACTION_PICK_IMAGES`, se ve el
+chat detrás y se cierra deslizando) y **fichero** abre el selector de documentos
+(`ACTION_OPEN_DOCUMENT`, a pantalla completa y sin cierre visible: solo el «atrás» del sistema).
+Ambos van por `core_pick_files` (puente nativo); el `<input type="file">` del WebView queda solo
+para escritorio, porque en Android saca al usuario de la app sin vuelta. El compositor es un `div`
+dentro del `ion-footer`, no una `ion-toolbar`, porque esta recorta lo que se despliega por encima.
+Las notas de voz van por `sendFile`, que copia el fichero a la app en trozos de 512 KiB en base64
+(en Android el IPC de Tauri solo lleva JSON) y el núcleo lo ofrece. La burbuja muestra el progreso,
 «Paused» sin conexión directa, «Failed» si el hash no coincide y las imágenes con el protocolo
 `asset` (limitado a `$APPDATA/files`, donde viven también las subidas). Tocar un fichero lo abre en
 otra app y el botón de descarga lo copia a Descargas (puente nativo de `src-tauri/platform`); los de

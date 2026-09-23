@@ -5,6 +5,9 @@ import {
   IonButton,
   IonButtons,
   IonContent,
+  IonFab,
+  IonFabButton,
+  IonFabList,
   IonFooter,
   IonHeader,
   IonIcon,
@@ -19,7 +22,9 @@ import {
   contractOutline,
   expandOutline,
   closeOutline,
+  documentOutline,
   happyOutline,
+  imageOutline,
   micOutline,
   shareOutline,
   arrowRedoOutline,
@@ -91,13 +96,15 @@ async function attach(event: Event) {
 }
 
 /**
- * The phone's own picker where there is one (§62). On Android the WebView's file input takes the
- * user out of the app with no way back unless they pick something; this returns either way. On a
- * desktop there is no such picker, so the hidden input is used.
+ * The phone's own picker where there is one (§62). The «+» unfolds two (Ioan, 2026-09-23): a photo
+ * or video comes through the system's sheet over the chat, which closes with a swipe; any other
+ * file through the document picker. Never the WebView's own file input, which takes the user out
+ * of the app with no way back unless they pick something. On a desktop there is no such picker,
+ * so the hidden input is used.
  */
-async function pick() {
+async function pick(accept: string) {
   try {
-    for (const file of await pickFiles()) {
+    for (const file of await pickFiles(accept)) {
       await sendPicked(props.chatId, file);
     }
   } catch {
@@ -380,11 +387,22 @@ watch(
 
     <ion-footer class="ion-no-border">
       <p v-if="voiceError" class="ft-composer__error" role="alert">{{ voiceError }}</p>
-      <ion-toolbar class="ft-composer">
+      <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
+      <div class="ft-composer">
         <div class="ft-composer__row">
-          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.attach')" @click="pick">
-            <ion-icon :icon="add" aria-hidden="true" />
-          </button>
+          <ion-fab class="ft-attach">
+            <ion-fab-button size="small" class="ft-attach__button" :aria-label="$t('chat.attach')">
+              <ion-icon :icon="add" aria-hidden="true" />
+            </ion-fab-button>
+            <ion-fab-list side="top">
+              <ion-fab-button :aria-label="$t('chat.attachMedia')" @click="pick('image/*,video/*')">
+                <ion-icon :icon="imageOutline" aria-hidden="true" />
+              </ion-fab-button>
+              <ion-fab-button :aria-label="$t('chat.attachFile')" @click="pick('')">
+                <ion-icon :icon="documentOutline" aria-hidden="true" />
+              </ion-fab-button>
+            </ion-fab-list>
+          </ion-fab>
           <input ref="picker" type="file" multiple hidden @change="attach" />
           <button
             v-if="!recording.active"
@@ -430,7 +448,7 @@ watch(
             <ion-icon :icon="micOutline" aria-hidden="true" />
           </button>
         </div>
-      </ion-toolbar>
+      </div>
       <emoji-picker v-if="emoji" @pick="addEmoji" />
     </ion-footer>
   </div>
@@ -634,17 +652,33 @@ watch(
 }
 
 .ft-composer {
-  --background: var(--ft-bg);
-  --border-width: 0;
-  --padding-top: 6px;
-  --padding-bottom: 8px;
-  --padding-start: 8px;
-  --padding-end: 8px;
+  padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
+  background: var(--ft-bg);
 }
 .ft-composer__row {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+}
+/* The «+» stays in the row; what it unfolds rises above the composer, over the thread. */
+.ft-attach {
+  position: relative;
+  flex-shrink: 0;
+}
+.ft-attach__button {
+  --background: transparent;
+  --background-activated: var(--ft-surface-2);
+  --box-shadow: none;
+  --color: var(--ft-muted);
+  width: 44px;
+  height: 44px;
+  font-size: 24px;
+}
+.ft-attach ion-fab-list ion-fab-button {
+  --background: var(--ft-surface-2);
+  --color: var(--ft-accent);
+  --box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.8);
+  font-size: 20px;
 }
 .ft-composer__input {
   flex: 1;
