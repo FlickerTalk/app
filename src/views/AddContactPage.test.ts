@@ -95,4 +95,12 @@ describe("AddContactPage", () => {
     await flushPromises();
     expect(calls).toContainEqual(["core_add_contact", { link: "https://flickertalk.com/add#theirs", session: "s1" }]);
   });
+
+  // app#9: from a session, the QR is the session's own card, so whoever scans it lands there.
+  it("shows the session's own card when opened from a session", async () => {
+    query.session = "s1";
+    mount(AddContactPage, { shallow: true });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_card", { session: "s1" }]);
+  });
 });

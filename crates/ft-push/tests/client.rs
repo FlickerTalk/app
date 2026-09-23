@@ -45,6 +45,7 @@ struct Seen {
     /// The key the device registered, to check its later requests.
     key: Mutex<Option<[u8; 32]>>,
     push: Mutex<Vec<Value>>,
+    registration: Mutex<Option<Value>>,
 }
 
 /// Checks the signature headers the way ft-router does, with ed25519-dalek.
@@ -69,6 +70,7 @@ async fn fake_router() -> (String, Arc<Seen>) {
                 if check(&key, "POST", "/v1/device/register", &headers, &body) {
                     seen.verified.lock().unwrap().push("register".to_owned());
                     *seen.key.lock().unwrap() = Some(key);
+                    *seen.registration.lock().unwrap() = Some(registration.clone());
                     StatusCode::NO_CONTENT
                 } else {
                     StatusCode::UNAUTHORIZED
@@ -117,8 +119,26 @@ async fn fake_router() -> (String, Arc<Seen>) {
 async fn registration_is_signed_so_the_router_accepts_it() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&[5; 32]).await.expect("registers");
+    client.register(&eight()).await.expect("registers");
     assert_eq!(seen.verified.lock().unwrap().as_slice(), ["register"]);
+}
+
+/// Eight capability hashes, the first the device's own.
+fn eight() -> [[u8; 32]; 8] {
+    std::array::from_fn(|slot| [slot as u8 + 5; 32])
+}
+
+// app#9: always eight capabilities, the first also as the one routers before knew.
+#[tokio::test]
+async fn registration_hands_over_eight_capabilities() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight()).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    let hashes = registration["capability_hashes"].as_array().expect("a list").clone();
+    assert_eq!(hashes.len(), 8);
+    assert_eq!(registration["capability_hash"], hashes[0]);
+    assert_eq!(hashes[3], json!(STANDARD_NO_PAD.encode([8u8; 32])));
 }
 
 // §8: where this device can be woken, signed like every request.
@@ -126,7 +146,7 @@ async fn registration_is_signed_so_the_router_accepts_it() {
 async fn the_push_token_is_left_signed() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&[5; 32]).await.expect("registers");
+    client.register(&eight()).await.expect("registers");
     client.set_push("fcm", "fcm-token-1").await.expect("leaves the token");
     assert_eq!(seen.push.lock().unwrap().as_slice(), [json!({ "provider": "fcm", "token": "fcm-token-1" })]);
 }
@@ -158,8 +178,8 @@ async fn two_devices_meet_on_the_live_router() {
     let base = "https://api.flickertalk.com";
     let (alice, bob) = (RouterClient::new(base, device()).unwrap(), Arc::new(RouterClient::new(base, device()).unwrap()));
     let bob_capability = [7u8; 32];
-    alice.register(&[8; 32]).await.expect("alice registers");
-    bob.register(blake3::hash(&bob_capability).as_bytes()).await.expect("bob registers");
+    alice.register(&[[8; 32]; 8]).await.expect("alice registers");
+    bob.register(&[*blake3::hash(&bob_capability).as_bytes(); 8]).await.expect("bob registers");
 
     let mut events = bob.listen();
     let Some(RouterEvent::Connected { stun, turn }) = events.recv().await else { panic!("a welcome") };

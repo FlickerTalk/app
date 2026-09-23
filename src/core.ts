@@ -359,9 +359,9 @@ export async function markRead(contact: string): Promise<void> {
   await invoke("core_mark_read", { contact });
 }
 
-/** This device's Contact Card as a link: shown as a QR code and shared. */
-export async function myCardLink(): Promise<string> {
-  return invoke<string>("core_card");
+/** This device's Contact Card as a link, or a hidden session's own (app#9): shown as a QR code and shared. */
+export async function myCardLink(session?: string): Promise<string> {
+  return invoke<string>("core_card", session ? { session } : undefined);
 }
 
 /**

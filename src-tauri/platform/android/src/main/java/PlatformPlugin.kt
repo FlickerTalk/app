@@ -83,6 +83,20 @@ fun documentType(accept: String): String =
 /** The router's push only ever says "wake" (Plan §12): no sender, no content. */
 fun isWake(data: Map<String, String>): Boolean = data["t"] == "wake"
 
+/**
+ * Whether a wake-up should be heard (app#9). `slot` says which of the device's eight route
+ * capabilities the sender used: 0 (or none, from an older router) is the device's own; 1–7 belong
+ * to hidden sessions, heard only while open. A process that was not running has none open.
+ */
+fun wakeIsHeard(slot: String?, open: Set<Int>): Boolean {
+    if (slot == null || slot == "0") return true
+    return slot.toIntOrNull()?.let { it in open } ?: false
+}
+
+/** The hidden sessions open right now, by slot, as the core last said; empty when the app starts. */
+@Volatile
+var openSlots: Set<Int> = emptySet()
+
 /** An app on screen is already connected and gets everything: no notification then. */
 fun shouldNotify(importance: Int): Boolean =
     importance > ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
@@ -112,6 +126,8 @@ fun callText(video: Boolean): String = if (video) "Incoming video call" else "In
 class FtMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         if (!isWake(message.data)) return
+        // A closed hidden session makes no noise, not even this (app#9).
+        if (!wakeIsHeard(message.data["s"], openSlots)) return
         val state = ActivityManager.RunningAppProcessInfo()
         ActivityManager.getMyMemoryState(state)
         // Outside the weekly hours (app#7) the message still arrives when the app opens.
@@ -287,6 +303,11 @@ class RingingArgs {
 @InvokeArg
 class QuietHoursArgs {
     var week: String = ""
+}
+
+@InvokeArg
+class OpenSlotsArgs {
+    var slots: IntArray = IntArray(0)
 }
 
 /** Where a picked file is copied, inside the app's own folder. */
@@ -482,6 +503,13 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
         activity.startActivity(Intent.makeRestartActivityTask(launch.component))
         Runtime.getRuntime().exit(0)
+    }
+
+    /** Which hidden sessions are open, by slot (app#9): their wake-ups are heard. */
+    @Command
+    fun setOpenSlots(invoke: Invoke) {
+        openSlots = invoke.parseArgs(OpenSlotsArgs::class.java).slots.toSet()
+        invoke.resolve()
     }
 
     /** Keeps the weekly hours where the push service can read them with the app closed (app#7). */

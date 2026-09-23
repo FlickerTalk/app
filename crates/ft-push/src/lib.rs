@@ -154,8 +154,15 @@ impl RouterClient {
     }
 
     /// Registers (again) this device and the hash of its route capability.
-    pub async fn register(&self, capability_hash: &[u8; 32]) -> Result<()> {
-        let body = json!({ "signing_key": self.signer.signing_key().await, "capability_hash": encode(capability_hash) });
+    /// Registers this device with the hashes of its eight route capabilities (app#9): the first
+    /// is its own; the rest belong to hidden sessions or are spares, and the router cannot tell.
+    pub async fn register(&self, capability_hashes: &[[u8; 32]; 8]) -> Result<()> {
+        let hashes: Vec<String> = capability_hashes.iter().map(|hash| encode(hash)).collect();
+        let body = json!({
+            "signing_key": self.signer.signing_key().await,
+            "capability_hash": hashes[0],
+            "capability_hashes": hashes,
+        });
         expect(self.signed(Method::POST, "/v1/device/register", serde_json::to_vec(&body)?).await?, StatusCode::NO_CONTENT)
     }
 

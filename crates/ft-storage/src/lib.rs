@@ -284,10 +284,54 @@ impl Store {
     }
 
     /// Creates a hidden session under the keyed hash of its PIN; fails if another has that hash.
-    pub async fn add_session(&self, id: &str, pin_hash: &[u8; 32]) -> Result<()> {
-        sqlx::query("INSERT INTO sessions (id, pin_hash, created_at) VALUES (?, ?, unixepoch())")
+    pub async fn add_session(&self, id: &str, pin_hash: &[u8; 32], slot: u8) -> Result<()> {
+        sqlx::query("INSERT INTO sessions (id, pin_hash, created_at, slot) VALUES (?, ?, unixepoch(), ?)")
             .bind(id)
             .bind(pin_hash.as_slice())
+            .bind(slot)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The slot of a session's route capability (app#9); `None` for one made before slots.
+    pub async fn session_slot(&self, id: &str) -> Result<Option<u8>> {
+        let row = sqlx::query("SELECT slot FROM sessions WHERE id = ?").bind(id).fetch_optional(&self.pool).await?;
+        Ok(row.and_then(|row| row.get::<Option<u8>, _>("slot")))
+    }
+
+    pub async fn set_session_slot(&self, id: &str, slot: u8) -> Result<()> {
+        sqlx::query("UPDATE sessions SET slot = ? WHERE id = ?").bind(slot).bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// The session holding a slot, if any.
+    pub async fn session_with_slot(&self, slot: u8) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT id FROM sessions WHERE slot = ?").bind(slot).fetch_optional(&self.pool).await?;
+        Ok(row.map(|row| row.get("id")))
+    }
+
+    /// The slots sessions have taken, in order.
+    pub async fn used_slots(&self) -> Result<Vec<u8>> {
+        let rows = sqlx::query("SELECT slot FROM sessions WHERE slot IS NOT NULL ORDER BY slot").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(|row| row.get::<u8, _>("slot")).collect())
+    }
+
+    /// The seven spare route capabilities (app#9), by slot.
+    pub async fn spare_capabilities(&self) -> Result<Vec<(u8, [u8; 32])>> {
+        let rows = sqlx::query("SELECT slot, capability FROM spare_capabilities ORDER BY slot").fetch_all(&self.pool).await?;
+        rows.iter()
+            .map(|row| {
+                let capability: Vec<u8> = row.get("capability");
+                Ok((row.get::<u8, _>("slot"), capability.try_into().map_err(|_| anyhow::anyhow!("corrupt capability"))?))
+            })
+            .collect()
+    }
+
+    pub async fn add_spare_capability(&self, slot: u8, capability: &[u8; 32]) -> Result<()> {
+        sqlx::query("INSERT INTO spare_capabilities (slot, capability) VALUES (?, ?)")
+            .bind(slot)
+            .bind(capability.as_slice())
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -1380,7 +1424,7 @@ mod tests {
     #[tokio::test]
     async fn a_session_is_found_by_its_pin_hash_and_owns_its_contacts() {
         let store = store().await;
-        store.add_session("s1", &[7; 32]).await.expect("adds");
+        store.add_session("s1", &[7; 32], 1).await.expect("adds");
         assert_eq!(store.session_by_pin(&[7; 32]).await.expect("reads").as_deref(), Some("s1"));
         assert_eq!(store.session_by_pin(&[8; 32]).await.expect("reads"), None);
 
@@ -1402,7 +1446,7 @@ mod tests {
     #[tokio::test]
     async fn scanning_a_known_contact_inside_a_session_does_not_move_them() {
         let store = store().await;
-        store.add_session("s1", &[7; 32]).await.expect("adds");
+        store.add_session("s1", &[7; 32], 1).await.expect("adds");
         store.add_contact(&contact("ft_bob")).await.expect("adds");
         store.add_contact(&NewContact { session: Some("s1".to_owned()), ..contact("ft_bob") }).await.expect("updates");
         assert_eq!(store.contact("ft_bob").await.unwrap().unwrap().session, None);
@@ -1411,8 +1455,8 @@ mod tests {
     #[tokio::test]
     async fn two_sessions_cannot_share_a_pin() {
         let store = store().await;
-        store.add_session("s1", &[7; 32]).await.expect("adds");
-        assert!(store.add_session("s2", &[7; 32]).await.is_err());
+        store.add_session("s1", &[7; 32], 1).await.expect("adds");
+        assert!(store.add_session("s2", &[7; 32], 2).await.is_err());
     }
 
     // Issues app#4–#6: what this phone takes from a contact and what it tells them. Everything
@@ -1436,5 +1480,25 @@ mod tests {
         let store = store().await;
         store.add_contact(&NewContact { receipts: false, ..contact("ft_bob") }).await.expect("adds");
         assert!(!store.contact("ft_bob").await.unwrap().unwrap().rules.receipts);
+    }
+
+    // Hidden sessions, phase 2 (app#9): seven spare route capabilities, kept once; each session
+    // takes one slot of its own.
+    #[tokio::test]
+    async fn spare_capabilities_are_kept_and_each_session_has_its_slot() {
+        let store = store().await;
+        assert!(store.spare_capabilities().await.expect("reads").is_empty());
+        for slot in 1..=7u8 {
+            store.add_spare_capability(slot, &[slot; 32]).await.expect("keeps");
+        }
+        let spares = store.spare_capabilities().await.expect("reads");
+        assert_eq!(spares.len(), 7);
+        assert_eq!(spares[2], (3, [3; 32]));
+
+        store.add_session("s1", &[7; 32], 1).await.expect("adds");
+        store.add_session("s2", &[8; 32], 4).await.expect("adds");
+        assert_eq!(store.session_slot("s2").await.expect("reads"), Some(4));
+        assert_eq!(store.used_slots().await.expect("reads"), vec![1, 4]);
+        assert!(store.add_session("s3", &[9; 32], 4).await.is_err(), "one session per slot");
     }
 }

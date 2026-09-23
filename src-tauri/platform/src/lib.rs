@@ -67,6 +67,12 @@ struct Ringing<'a> {
     muted: bool,
 }
 
+/// Arguments of the native `setOpenSlots` command (app#9): the slots of the open hidden sessions.
+#[derive(Serialize)]
+struct OpenSlots<'a> {
+    slots: &'a [u8],
+}
+
 /// Arguments of the native `setQuietHours` command (app#7): the week in the core's compact form.
 #[derive(Serialize)]
 struct QuietHours<'a> {
@@ -191,6 +197,11 @@ impl<R: Runtime> Platform<R> {
     /// Rings and shows the incoming call on the screen (§66).
     pub fn start_ringing(&self, caller: &str, video: bool, muted: bool) -> Result<()> {
         self.run("startRinging", Ringing { caller, video, muted })
+    }
+
+    /// Tells the native side which hidden sessions are open, so their wake-ups are heard (app#9).
+    pub fn set_open_slots(&self, slots: &[u8]) -> Result<()> {
+        self.run("setOpenSlots", OpenSlots { slots })
     }
 
     /// Hands the weekly hours to the native side, which checks them even with the app closed.
@@ -357,6 +368,8 @@ mod tests {
         assert_eq!(pending.action, "answer");
         let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true, muted: true }).unwrap();
         assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true, "muted": true }));
+        let slots = serde_json::to_value(OpenSlots { slots: &[1, 3] }).unwrap();
+        assert_eq!(slots, serde_json::json!({ "slots": [1, 3] }));
         let hours = serde_json::to_value(QuietHours { week: "all;all;all;all;all;none;none" }).unwrap();
         assert_eq!(hours, serde_json::json!({ "week": "all;all;all;all;all;none;none" }));
         let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();

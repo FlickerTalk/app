@@ -223,9 +223,13 @@ impl Network {
             bail!("no offer was produced");
         };
 
-        let introduced = core.store().contact(&peer.device_id).await?.is_some_and(|contact| contact.introduced);
-        let card = if introduced { None } else { Some(core.my_card().await?.encode()) };
-        let sealed = core.seal_signal(&peer.device_id, Body::Offer { sdp, card }).await?;
+        let contact = core.store().contact(&peer.device_id).await?;
+        let introduced = contact.as_ref().is_some_and(|contact| contact.introduced);
+        // A contact of a hidden session gets that session's card (app#9).
+        let hidden = contact.as_ref().and_then(|contact| contact.session.clone());
+        let card = if introduced { None } else { Some(core.my_card_in(hidden.as_deref()).await?.encode()) };
+        let via = Some(peer.capability.hash().to_vec());
+        let sealed = core.seal_signal(&peer.device_id, Body::Offer { sdp, card, via }).await?;
         let session_id = uuid_like();
         let signal = Signal {
             version: PROTOCOL_VERSION,

@@ -641,13 +641,13 @@ pub async fn core_set_mailbox(enabled: bool, client: State<'_, Client>) -> Resul
 
 /// This device's Contact Card as a link, for the QR code and for sharing.
 #[tauri::command]
-pub async fn core_card(client: State<'_, Client>) -> Result<String, String> {
-    Ok(client.core().await?.my_card().await.map_err(failed)?.to_link())
+/// Our card as a link; from a hidden session, the session's own card (app#9).
+pub async fn core_card(session: Option<String>, client: State<'_, Client>) -> Result<String, String> {
+    Ok(client.core().await?.my_card_in(session.as_deref()).await.map_err(failed)?.to_link())
 }
 
-/// Adds the owner of a scanned or pasted card; returns their id at once and introduces us in the
-/// background.
-/// Adds a contact to the main list or, given `session`, to that open hidden session.
+/// Adds the owner of a scanned or pasted card, to the main list or, given `session`, to that open
+/// hidden session; returns their id at once and introduces us in the background.
 #[tauri::command]
 pub async fn core_add_contact(link: String, session: Option<String>, client: State<'_, Client>) -> Result<String, String> {
     let core = client.core().await?;
@@ -690,15 +690,19 @@ async fn session_view(online: &Online, session: String) -> Result<SessionView, S
 
 /// Six digits open the hidden session that has them, or a new one; the answer never says which.
 #[tauri::command]
-pub async fn core_session_open(pin: String, client: State<'_, Client>) -> Result<SessionView, String> {
+pub async fn core_session_open(pin: String, app: AppHandle, client: State<'_, Client>) -> Result<SessionView, String> {
     let online = client.online().await?;
     let session = online.core.open_session(&pin).await.map_err(failed)?;
+    // Its wake-ups are heard from now on (app#9).
+    let _ = app.platform().set_open_slots(&online.core.open_slots());
     session_view(online, session).await
 }
 
 #[tauri::command]
-pub async fn core_session_close(session: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.close_session(&session);
+pub async fn core_session_close(session: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    core.close_session(&session);
+    let _ = app.platform().set_open_slots(&core.open_slots());
     Ok(())
 }
 
