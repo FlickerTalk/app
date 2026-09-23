@@ -16,8 +16,8 @@ import {
   appsOutline,
   arrowUp,
   callOutline,
-  chevronCollapseOutline,
-  chevronExpandOutline,
+  contractOutline,
+  expandOutline,
   closeOutline,
   happyOutline,
   micOutline,
@@ -356,7 +356,7 @@ watch(
       </div>
       <div v-else class="ft-actions__bar">
         <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
-          <ion-icon :icon="folded.has(acting) ? chevronExpandOutline : chevronCollapseOutline" aria-hidden="true" />
+          <ion-icon :icon="folded.has(acting) ? expandOutline : contractOutline" aria-hidden="true" />
         </button>
         <button type="button" class="ft-round ft-round--ghost" data-test="forward" :aria-label="$t('chat.forward')" @click="forwarding = true">
           <ion-icon :icon="arrowRedoOutline" aria-hidden="true" />
