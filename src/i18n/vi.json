@@ -210,7 +210,15 @@
     "stretch": "Từ – đến",
     "from": "Từ",
     "to": "Đến",
-    "days": ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+    "days": [
+      "Thứ Hai",
+      "Thứ Ba",
+      "Thứ Tư",
+      "Thứ Năm",
+      "Thứ Sáu",
+      "Thứ Bảy",
+      "Chủ Nhật"
+    ]
   },
   "session": {
     "pin": "PIN",
@@ -261,6 +269,12 @@
     "hint": "FlickerTalk có giá €1 mỗi năm, và miễn phí nếu bạn dưới 21 tuổi. Năm đầu tiên kể từ khi cài đặt miễn phí cho mọi người. Không trả phí, bạn vẫn nhận và trả lời được; bắt đầu cuộc trò chuyện mới, gọi điện và gửi tệp thì cần một euro đó.",
     "pay": "€1 mỗi năm",
     "iAmYoung": "Tôi dưới 21 tuổi",
-    "iAmOlder": "Tôi từ 21 tuổi trở lên"
+    "iAmOlder": "Tôi từ 21 tuổi trở lên",
+    "trouble": {
+      "not_on_sale": "Gói đăng ký chưa được bán.",
+      "store_unavailable": "Cửa hàng không phản hồi. Hãy thử lại sau.",
+      "pending_approval": "Giao dịch đang chờ phê duyệt.",
+      "failed": "Cửa hàng không thể nhận thanh toán."
+    }
   }
 }

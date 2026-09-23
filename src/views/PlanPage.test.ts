@@ -3,6 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import PlanPage from "./PlanPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
+import en from "../i18n/en.json";
 
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
@@ -63,5 +64,51 @@ describe("PlanPage", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("2027");
     expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+  });
+
+  // The Store answers with a key, never with a sentence: what the user reads is translated like
+  // everything else, and a key we never wrote never reaches the screen.
+  it("says in the user's own words when the Store will not sell", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscribe") throw "not_on_sale";
+      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+
+    await wrapper.find("[data-test='pay']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.not_on_sale);
+  });
+
+  it("keeps an answer nobody wrote off the screen", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscribe") throw "BillingClient exploded at 0x7f";
+      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+
+    await wrapper.find("[data-test='pay']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.failed);
+    expect(wrapper.text()).not.toContain("0x7f");
+  });
+
+  // Backing out of the Store window is not a failure: the screen says nothing about it.
+  it("says nothing when the user backs out of the Store", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscribe") throw "cancelled";
+      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+
+    await wrapper.find("[data-test='pay']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
   });
 });

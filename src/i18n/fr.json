@@ -210,7 +210,15 @@
     "stretch": "De – à",
     "from": "De",
     "to": "À",
-    "days": ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+    "days": [
+      "Lundi",
+      "Mardi",
+      "Mercredi",
+      "Jeudi",
+      "Vendredi",
+      "Samedi",
+      "Dimanche"
+    ]
   },
   "session": {
     "pin": "PIN",
@@ -261,6 +269,12 @@
     "hint": "FlickerTalk coûte 1 € par an, et c’est gratuit si vous avez moins de 21 ans. La première année après l’installation est gratuite pour tous. Sans payer, vous pouvez toujours recevoir et répondre ; démarrer une nouvelle conversation, appeler et envoyer des fichiers demandent l’euro.",
     "pay": "1 € par an",
     "iAmYoung": "J’ai moins de 21 ans",
-    "iAmOlder": "J’ai 21 ans ou plus"
+    "iAmOlder": "J’ai 21 ans ou plus",
+    "trouble": {
+      "not_on_sale": "L'abonnement n'est pas encore en vente.",
+      "store_unavailable": "La boutique ne répond pas. Réessaie plus tard.",
+      "pending_approval": "L'achat attend une approbation.",
+      "failed": "La boutique n'a pas pu encaisser le paiement."
+    }
   }
 }

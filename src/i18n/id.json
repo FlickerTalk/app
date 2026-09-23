@@ -210,7 +210,15 @@
     "stretch": "Dari – sampai",
     "from": "Dari",
     "to": "Sampai",
-    "days": ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+    "days": [
+      "Senin",
+      "Selasa",
+      "Rabu",
+      "Kamis",
+      "Jumat",
+      "Sabtu",
+      "Minggu"
+    ]
   },
   "session": {
     "pin": "PIN",
@@ -261,6 +269,12 @@
     "hint": "FlickerTalk seharga €1 per tahun, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan euro tersebut.",
     "pay": "€1 per tahun",
     "iAmYoung": "Usia saya di bawah 21 tahun",
-    "iAmOlder": "Usia saya 21 tahun atau lebih"
+    "iAmOlder": "Usia saya 21 tahun atau lebih",
+    "trouble": {
+      "not_on_sale": "Langganan belum dijual.",
+      "store_unavailable": "Toko tidak menjawab. Coba lagi nanti.",
+      "pending_approval": "Pembelian menunggu persetujuan.",
+      "failed": "Toko tidak dapat menerima pembayaran."
+    }
   }
 }

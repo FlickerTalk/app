@@ -36,6 +36,15 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import android.webkit.WebView
+import com.android.billingclient.api.AcknowledgePurchaseParams
+import com.android.billingclient.api.BillingClient
+import com.android.billingclient.api.BillingClientStateListener
+import com.android.billingclient.api.BillingFlowParams
+import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.PendingPurchasesParams
+import com.android.billingclient.api.Purchase
+import com.android.billingclient.api.QueryProductDetailsParams
+import com.android.billingclient.api.QueryPurchasesParams
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.content.ContextCompat
@@ -335,6 +344,34 @@ fun pickedMime(mime: String?): String = mime?.trim()?.takeIf { it.isNotEmpty() }
 
 /** The text for the share sheet, or null when there is nothing to share. */
 fun shareableText(text: String): String? = text.trim().ifEmpty { null }
+
+/** The yearly subscription, as it is named in the Play Console (§40-42). */
+const val YEARLY = "yearly"
+
+/** One purchase as the Store handed it back, with none of Google's classes in it. */
+data class StorePurchase(
+    val product: String,
+    val state: Int,
+    val boughtAt: Long,
+    val acknowledged: Boolean,
+)
+
+/**
+ * A year of FlickerTalk from the moment the Store took the money. The purchase only carries when
+ * it was bought: asking Play's server for the expiry would mean our backend learning who pays
+ * (§45-46), so the phone works it out and each renewal moves the date on.
+ */
+fun untilFromPurchase(boughtAt: Long): Long = boughtAt + 365L * 24 * 60 * 60 * 1000
+
+/** Until when this phone is paid up, out of everything the Store returned; 0 when nothing is. */
+fun activeUntil(purchases: List<StorePurchase>): Long =
+    purchases
+        .filter { it.product == YEARLY && it.state == Purchase.PurchaseState.PURCHASED }
+        .maxOfOrNull { untilFromPurchase(it.boughtAt) } ?: 0L
+
+/** Google gives the money back if a paid purchase is not acknowledged within three days. */
+fun needsAcknowledgement(purchase: StorePurchase): Boolean =
+    purchase.state == Purchase.PurchaseState.PURCHASED && !purchase.acknowledged
 
 @InvokeArg
 class ShareTextArgs {
@@ -723,20 +760,135 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    // What these commands reject with are keys, not sentences: the app turns them into the
+    // user's own language (`plan.trouble.*`), so nothing raw ever reaches the screen.
+    /** Play holds the money and the card; the app only ever asks and waits (§47). */
+    private var billing: BillingClient? = null
+
+    /** The call waiting for the Store window to close, since the answer arrives by listener. */
+    private var buying: Invoke? = null
+
+    private fun withBilling(invoke: Invoke, work: (BillingClient) -> Unit) {
+        val client = billing ?: BillingClient.newBuilder(activity)
+            .enableAutoServiceReconnection()
+            .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
+            .setListener { result, purchases -> purchasesUpdated(result, purchases) }
+            .build()
+            .also { billing = it }
+        if (client.isReady) {
+            work(client)
+            return
+        }
+        client.startConnection(object : BillingClientStateListener {
+            override fun onBillingSetupFinished(result: BillingResult) {
+                if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                    work(client)
+                } else {
+                    invoke.reject("store_unavailable")
+                }
+            }
+
+            override fun onBillingServiceDisconnected() {}
+        })
+    }
+
+    /** What the Store handed back, without any of Google's classes going further in. */
+    private fun storePurchases(purchases: List<Purchase>): List<StorePurchase> =
+        purchases.flatMap { purchase ->
+            purchase.products.map {
+                StorePurchase(it, purchase.purchaseState, purchase.purchaseTime, purchase.isAcknowledged)
+            }
+        }
+
+    /** Google refunds a purchase nobody acknowledged within three days, so it is told at once. */
+    private fun acknowledge(client: BillingClient, purchases: List<Purchase>) {
+        for (purchase in purchases) {
+            val ours = storePurchases(listOf(purchase)).filter { it.product == YEARLY }
+            if (ours.any { needsAcknowledgement(it) }) {
+                client.acknowledgePurchase(
+                    AcknowledgePurchaseParams.newBuilder().setPurchaseToken(purchase.purchaseToken).build(),
+                ) {}
+            }
+        }
+    }
+
+    /** How the Store answers a purchase: the window is gone and `subscribe` can be let go. */
+    private fun purchasesUpdated(result: BillingResult, purchases: List<Purchase>?) {
+        val invoke = buying ?: return
+        buying = null
+        when (result.responseCode) {
+            BillingClient.BillingResponseCode.OK -> {
+                val bought = purchases.orEmpty()
+                billing?.let { acknowledge(it, bought) }
+                invoke.resolve(JSObject().apply { put("until", activeUntil(storePurchases(bought))) })
+            }
+            BillingClient.BillingResponseCode.USER_CANCELED -> invoke.reject("cancelled")
+            else -> invoke.reject("payment_failed")
+        }
+    }
+
     /**
-     * The yearly subscription (§45, §47). Google Play Billing needs a product set up in the Play
-     * Console, which only exists once the app is published: until then this says so instead of
-     * pretending. Nothing about the payment ever reaches FlickerTalk.
+     * The yearly subscription (§45, §47): asks Play for the product, opens its window and answers
+     * until when the phone is paid up. Nothing about the payment ever reaches FlickerTalk.
      */
     @Command
     fun subscribe(invoke: Invoke) {
-        invoke.reject("paying is not available in this version yet")
+        withBilling(invoke) { client ->
+            val wanted = QueryProductDetailsParams.newBuilder()
+                .setProductList(
+                    listOf(
+                        QueryProductDetailsParams.Product.newBuilder()
+                            .setProductId(YEARLY)
+                            .setProductType(BillingClient.ProductType.SUBS)
+                            .build(),
+                    ),
+                )
+                .build()
+            client.queryProductDetailsAsync(wanted) { result, found ->
+                val details = found.productDetailsList.firstOrNull()
+                val offer = details?.subscriptionOfferDetails?.firstOrNull()?.offerToken
+                if (result.responseCode != BillingClient.BillingResponseCode.OK || details == null || offer == null) {
+                    invoke.reject("not_on_sale")
+                    return@queryProductDetailsAsync
+                }
+                buying = invoke
+                val flow = BillingFlowParams.newBuilder()
+                    .setProductDetailsParamsList(
+                        listOf(
+                            BillingFlowParams.ProductDetailsParams.newBuilder()
+                                .setProductDetails(details)
+                                .setOfferToken(offer)
+                                .build(),
+                        ),
+                    )
+                    .build()
+                // The Store window belongs to the activity, so it is opened from its own thread.
+                activity.runOnUiThread {
+                    if (client.launchBillingFlow(activity, flow).responseCode != BillingClient.BillingResponseCode.OK) {
+                        buying = null
+                        invoke.reject("store_unavailable")
+                    }
+                }
+            }
+        }
     }
 
-    /** What the Store already knows: nothing, while there is no product to know about. */
+    /** What the Store already knows about this phone, without asking anyone to buy anything. */
     @Command
     fun subscription(invoke: Invoke) {
-        invoke.resolve(JSObject().apply { put("until", 0) })
+        withBilling(invoke) { client ->
+            val subs = QueryPurchasesParams.newBuilder()
+                .setProductType(BillingClient.ProductType.SUBS)
+                .build()
+            client.queryPurchasesAsync(subs) { result, purchases ->
+                if (result.responseCode != BillingClient.BillingResponseCode.OK) {
+                    invoke.reject("store_unavailable")
+                    return@queryPurchasesAsync
+                }
+                acknowledge(client, purchases)
+                invoke.resolve(JSObject().apply { put("until", activeUntil(storePurchases(purchases))) })
+            }
+        }
     }
 
     @Command
