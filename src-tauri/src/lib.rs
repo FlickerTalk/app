@@ -18,6 +18,11 @@ pub fn run() {
             let answer = plugins::route(&served)
                 .and_then(|(id, file)| ctx.app_handle().state::<plugins::Plugins>().get(&id).map(|one| (one, file)))
                 .and_then(|(one, file)| {
+                    // The app lends its icons to every plugin: `./icon/<name>.svg` (§53).
+                    if let Some(name) = file.strip_prefix("icon/").and_then(|name| name.strip_suffix(".svg")) {
+                        let (kind, svg) = plugins::icon(name)?;
+                        return Some((svg.to_vec(), kind, one.policy));
+                    }
                     let (body, kind) = if file == "frame.html" {
                         (plugins::frame_html(&one.component).into_bytes(), plugins::content_type("frame.html"))
                     } else if file == "frame.js" {
