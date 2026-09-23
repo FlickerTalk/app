@@ -403,6 +403,17 @@ impl Store {
         Ok(contacts)
     }
 
+    /// Erases one message from this phone, with its file and its place in the outbox (§61). Says
+    /// whether there was one to erase.
+    pub async fn forget_message(&self, message_id: &str) -> Result<bool> {
+        let gone = sqlx::query("DELETE FROM messages WHERE message_id = ?")
+            .bind(message_id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        Ok(gone > 0)
+    }
+
     /// Incoming messages from `contact` not yet shown to the user.
     pub async fn unread(&self, contact: &str) -> Result<Vec<String>> {
         let rows = sqlx::query("SELECT message_id FROM messages WHERE contact = ? AND outgoing = 0 AND state < 3 ORDER BY sent_at")
@@ -823,6 +834,25 @@ mod tests {
             complete: false,
             failed: false,
         }
+    }
+
+    // The user erases one message on this phone (§61): the row goes, and with it its file and
+    // its place in the outbox. Nothing is told to the other side: this is our copy.
+    #[tokio::test]
+    async fn a_message_is_erased_with_everything_that_hangs_from_it() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
+        store.insert_message(&message("m2", "ft_bob", true, 2)).await.expect("inserts");
+        store.insert_file(&file("m1")).await.expect("inserts the file");
+        store.enqueue("m1", "ft_bob", 1).await.expect("queues");
+
+        assert!(store.forget_message("m1").await.expect("erases"));
+        assert!(store.message("m1").await.expect("reads").is_none());
+        assert!(store.file("m1").await.expect("reads").is_none(), "its file goes with it");
+        assert!(store.outbox().await.expect("reads").is_empty(), "and its place in the outbox");
+        assert!(store.message("m2").await.expect("reads").is_some(), "the others stay");
+        assert!(!store.forget_message("m1").await.expect("says so"), "erasing it twice erases nothing");
     }
 
     // §62–63: a file message keeps its metadata, where its bytes are and how far it got.

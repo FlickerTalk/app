@@ -40,7 +40,15 @@
     "videoCall": "Video call",
     "contactSettings": "Contact settings",
     "openWithPlugin": "Open with a plugin",
-    "emoji": "Emoji"
+    "emoji": "Emoji",
+    "folded": "Folded",
+    "fold": "Fold",
+    "unfold": "Unfold",
+    "forward": "Forward",
+    "share": "Share",
+    "delete": "Delete here",
+    "deleteSure": "Delete",
+    "forwardTo": "Forward to"
   },
   "status": {
     "pending": "Waiting for device",

@@ -26,8 +26,8 @@ export interface Message {
   file?: TransferredFile;
 }
 
-const props = defineProps<{ message: Message; saved?: boolean; withPlugin?: boolean }>();
-const emit = defineEmits<{ open: [id: string]; save: [id: string]; plugin: [id: string] }>();
+const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean }>();
+const emit = defineEmits<{ open: [id: string]; save: [id: string]; actions: [id: string] }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
   pending: { icon: timeOutline, label: t("status.pending") },
@@ -45,13 +45,12 @@ const code = computed(() => (props.message.kind === "file" ? null : readCode(pro
 // Web and mail addresses are marked so they can be opened; nothing is fetched to preview them.
 const pieces = computed(() => piecesOf(props.message.text ?? ""));
 
-// §53: a long press hands this message to a plugin; a tap does nothing of the sort.
+// A long press asks for what can be done with this message; a tap does nothing of the sort.
 const LONG_PRESS = 500;
 let pressing: ReturnType<typeof setTimeout> | undefined;
 
 function startPress() {
-  if (!props.withPlugin) return;
-  pressing = setTimeout(() => emit("plugin", props.message.id), LONG_PRESS);
+  pressing = setTimeout(() => emit("actions", props.message.id), LONG_PRESS);
 }
 
 function endPress() {
@@ -87,7 +86,7 @@ function open() {
   >
     <div
       class="ft-bubble"
-      :class="{ 'is-file': file }"
+      :class="{ 'is-file': file, 'is-folded': folded }"
       data-test="bubble"
       @pointerdown="startPress"
       @pointerup="endPress"
@@ -154,6 +153,8 @@ function open() {
         />
       </span>
     </div>
+    <!-- Outside the bubble, so the fold does not hide the sign that it is folded. -->
+    <span v-if="folded" class="ft-fold" data-test="folded" :aria-label="t('chat.folded')">⌄</span>
   </div>
 </template>
 
@@ -164,6 +165,22 @@ function open() {
 }
 .ft-msg.is-mine {
   justify-content: flex-end;
+}
+
+.ft-fold {
+  align-self: flex-end;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.5;
+}
+
+/* Folded, a long message takes a few lines and fades out; nothing of it is lost. */
+.ft-bubble.is-folded {
+  max-height: 4.8em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
 }
 
 .ft-bubble {

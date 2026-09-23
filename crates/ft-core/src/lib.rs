@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use async_trait::async_trait;
 use ft_contacts::{ContactCard, RouteCapability};
 use ft_crypto::{accept_first_contact, Channel};
@@ -300,6 +300,37 @@ impl Core {
                 let _ = std::fs::remove_file(self.file_path(&file));
             }
         }
+        Ok(())
+    }
+
+    /// Sends a message on to someone else (§61): the same text, or the same file from the bytes
+    /// this phone already has. It becomes a message of its own; nothing of where it came from
+    /// travels with it.
+    pub async fn forward(&self, message_id: &str, to: &str) -> Result<String> {
+        let stored = self.store.message(message_id).await?.context("that message is not here")?;
+        match self.store.file(message_id).await? {
+            Some(file) => {
+                ensure!(file.complete, "that file is not here whole yet");
+                let path = self.file_path(&file);
+                ensure!(path.exists(), "the bytes of that file are no longer here");
+                self.send_file(to, &path, &file.name, &file.mime).await
+            }
+            None => self.send_text(to, &stored.body).await,
+        }
+    }
+
+    /// Erases one message from this phone, with its file and its place in the outbox (§61). It is
+    /// our copy: nothing is sent to the other side, which keeps theirs.
+    pub async fn forget_message(&self, message_id: &str) -> Result<()> {
+        let stored = self.store.message(message_id).await?.context("that message is not here")?;
+        let file = self.store.file(message_id).await?;
+        if !self.store.forget_message(message_id).await? {
+            bail!("that message is not here");
+        }
+        if let Some(file) = file {
+            let _ = std::fs::remove_file(self.file_path(&file));
+        }
+        let _ = self.events.send(Event::MessagesChanged { contact: stored.contact });
         Ok(())
     }
 

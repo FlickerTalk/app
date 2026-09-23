@@ -685,6 +685,33 @@ pub async fn core_open_file(message: String, app: AppHandle, client: State<'_, C
     app.platform().open_file(&file.path, &file.mime).map_err(failed)
 }
 
+/// Erases one message from this phone (§61). The other side keeps their copy; nothing is sent.
+#[tauri::command]
+pub async fn core_forget_message(message: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.forget_message(&message).await.map_err(failed)
+}
+
+/// Sends a message on to another contact: the same text, or the same file (§61).
+#[tauri::command]
+pub async fn core_forward(message: String, contact: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.forward(&message, &contact).await.map_err(failed).map(|_| ())
+}
+
+/// Hands a message to another app through the phone's share sheet (§62): the text, or the file.
+#[tauri::command]
+pub async fn core_share_message(message: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    let stored = core.store().message(&message).await.map_err(failed)?.ok_or("unknown message")?;
+    match core.store().file(&message).await.map_err(failed)? {
+        Some(file) if file.complete => {
+            let path = core.file_path(&file);
+            app.platform().share_file(&path.to_string_lossy(), &file.name, &file.mime).map_err(failed)
+        }
+        Some(_) => Err("that file is not here whole yet".to_owned()),
+        None => app.platform().share_text(&stored.body).map_err(failed),
+    }
+}
+
 /// Erases this phone (§78): the router forgets the device and its mail, everything FlickerTalk
 /// keeps here is deleted, and the app starts again at the welcome. The router is best effort: a
 /// phone with no network still erases itself.

@@ -151,29 +151,31 @@ describe("MessageBubble", () => {
     expect(wrapper.find("img[src^='http']").exists()).toBe(false);
   });
 
-  // §53: a message reaches a plugin only when the user hands it over, with a long press.
-  it("hands the message to a plugin after a long press, not a tap", async () => {
+  // A long press is how a message is acted on (Ioan, 2026-09-23); a tap is not.
+  it("asks for the actions of a message after a long press, not a tap", async () => {
     vi.useFakeTimers();
-    const wrapper = mount(MessageBubble, { props: { message: base, withPlugin: true }, shallow: true });
+    const wrapper = mount(MessageBubble, { props: { message: base }, shallow: true });
     const bubble = wrapper.find("[data-test='bubble']");
 
     await bubble.trigger("pointerdown");
     await bubble.trigger("pointerup");
     vi.advanceTimersByTime(1000);
-    expect(wrapper.emitted("plugin")).toBeUndefined();
+    expect(wrapper.emitted("actions")).toBeUndefined();
 
     await bubble.trigger("pointerdown");
     vi.advanceTimersByTime(600);
-    expect(wrapper.emitted("plugin")).toEqual([["m1"]]);
+    expect(wrapper.emitted("actions")).toEqual([["m1"]]);
     vi.useRealTimers();
   });
 
-  it("does nothing on a long press when no plugin may read it", async () => {
-    vi.useFakeTimers();
-    const wrapper = mount(MessageBubble, { props: { message: base }, shallow: true });
-    await wrapper.find("[data-test='bubble']").trigger("pointerdown");
-    vi.advanceTimersByTime(1000);
-    expect(wrapper.emitted("plugin")).toBeUndefined();
-    vi.useRealTimers();
+  // Folded, a long message takes a few lines instead of the whole screen; it is still there.
+  it("folds a message that was folded, and says how to unfold it", () => {
+    const long = { ...base, text: "line\n".repeat(40) };
+    const open = mount(MessageBubble, { props: { message: long }, shallow: true });
+    expect(open.find("[data-test='folded']").exists()).toBe(false);
+
+    const folded = mount(MessageBubble, { props: { message: long, folded: true }, shallow: true });
+    expect(folded.find("[data-test='folded']").exists()).toBe(true);
+    expect(folded.text()).toContain("line");
   });
 });
