@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const [port] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts()[0].pages()[0];
+const back = page.url();
+await page.goto("http://tauri.localhost/add-contact");
+await page.waitForTimeout(1800);
+const id = /ft_[A-Za-z0-9]+/.exec(await page.evaluate(() => document.body.innerText))?.[0] ?? "";
+await page.goto(back);
+await page.waitForTimeout(800);
+console.log(id);
+await browser.close();

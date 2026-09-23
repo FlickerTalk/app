@@ -70,7 +70,7 @@ pub fn frame_html(component: &str) -> String {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<style>html,body{{margin:0;padding:0;background:transparent}}</style>
+<style>html{{color-scheme:light dark}}html,body{{margin:0;padding:0;background:transparent}}</style>
 <script type="module" src="./frame.js"></script>
 </head>
 <body>
@@ -283,6 +283,8 @@ mod tests {
         assert!(html.contains(r#"src="./frame.js""#), "the script is a file, never written in the page");
         assert!(!html.contains("import "), "nothing of the script lives in the page");
         assert!(html.contains("loading…"), "something shows even if the script never runs");
+        // Without this the frame paints itself white in a dark app and the plugin is unreadable.
+        assert!(html.contains("color-scheme:light dark"), "the frame follows the app's colours");
 
         let script = frame_js();
         assert!(script.contains(r#"import("./dist/index.js")"#));
