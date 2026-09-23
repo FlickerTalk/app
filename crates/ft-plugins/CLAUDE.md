@@ -46,5 +46,23 @@ Primer trozo del runtime, todo en seco y con tests:
 - **Instalación**: `install()` escribe en `<dir>/<id>`, `installed()` lista los manifests y
   `remove()` borra. Nada se escribe fuera de esa carpeta.
 
-Falta: la Plugin API con permisos, el sandbox del WebView, la pantalla del marketplace en la app,
-el modo desarrollador y el propio sitio `plugins.flickertalk.com`.
+## Estado (2026-09-23, issue app#4)
+
+El núcleo es un **puente**, no un contenedor: **ninguna herramienta viaja dentro de la app**.
+
+- **Catálogo servido**: `https://flickertalk.com/plugins/index.json` + `index.json.sig` + los
+  paquetes. Lo construye y firma `ftcatalogue` (bin de este crate) desde los repos de los plugins;
+  la clave privada nunca sale de `infra/secrets/plugin-catalogue.key`. La app lo lee con
+  `Core::catalogue()` y solo instala con `Core::add_plugin()`, que exige que el paquete sea byte a
+  byte el que el índice listaba y que la URL sea del propio catálogo.
+- **Qué se empaqueta**: solo `module.json` y `dist/**`. Los tests, la licencia y las herramientas
+  del repo del plugin no corren en el teléfono y no se firman.
+- **La Plugin API** (lo único que un plugin puede hacer, `app/src-tauri/src/plugins.rs` la
+  inyecta en el marco antes de cargar el plugin): `onOpen`, `pickFile`, `send`, `say`, `save`,
+  `print`, `fetch`, `store`, `close`. Cada llamada la resuelve el core después de comprobar lo
+  concedido; `fetch` solo alcanza los hosts concedidos (la CSP es el segundo cerrojo) y `store` es
+  la memoria del plugin, porque su marco no tiene origen y el navegador no le da ninguna.
+- **Permiso nuevo**: `print`. Se pide en el manifiesto y se concede aparte, como los demás.
+- El contrato para terceros vive en `FlickerTalk/plugin-sdk` (tipos + esquema del manifiesto).
+
+Falta: el modo desarrollador (cargar una carpeta sin firmar) y la revocación desde el catálogo.

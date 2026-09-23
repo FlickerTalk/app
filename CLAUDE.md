@@ -10,9 +10,11 @@ Todo el **cliente** de FlickerTalk. Es un proyecto Tauri 2 generado con `create-
 | `crates/ft-*` | núcleo Rust con la lógica de negocio (`§82`)                                 |
 | `packages/`   | `ui` (TypeScript)                                                            |
 
-Los plugins **no** viven aquí: cada uno tiene su repo. La app solo contiene el runtime que los
-instala y ejecuta (`crates/ft-plugins`, con un modo desarrollador para probarlos en local); el
-SDK que define su contrato vive en su propio repo (`plugin-sdk/`, MIT).
+Los plugins **no** viven aquí: cada uno tiene su repo (`FlickerTalk/plugin-images`, `plugin-pdf`,
+`plugin-redact`, `plugin-sketch`, `plugin-markdown`) y **ninguno viaja dentro de la app**: se
+descargan del catálogo firmado de `flickertalk.com/plugins`. Aquí está solo el runtime que los
+instala y ejecuta (`crates/ft-plugins`) y la API que el núcleo les expone; el contrato para
+terceros vive en `plugin-sdk/` (MIT).
 
 La plataforma objetivo del MVP es **Android e iOS** (`§85`); escritorio compila pero no se publica.
 
