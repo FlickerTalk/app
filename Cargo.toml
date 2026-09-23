@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 # Crates are added here as they appear (Plan §82).
-members = ["src-tauri", "src-tauri/platform", "crates/ft-webrtc", "crates/ft-poc", "crates/ft-identity", "crates/ft-protocol", "crates/ft-crypto", "crates/ft-contacts", "crates/ft-storage", "crates/ft-core", "crates/ft-push", "crates/ft-plugins"]
+members = ["src-tauri", "src-tauri/platform", "crates/ft-webrtc", "crates/ft-poc", "crates/ft-identity", "crates/ft-protocol", "crates/ft-crypto", "crates/ft-contacts", "crates/ft-storage", "crates/ft-core", "crates/ft-push", "crates/ft-plugins", "crates/ft-billing"]
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

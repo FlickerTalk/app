@@ -383,6 +383,28 @@ export async function installPlugin(plugin: string): Promise<void> {
   await invoke("core_plugin_add", { plugin });
 }
 
+/** Where this phone stands with the plan (§40–§47); all of it decided on the phone. */
+export interface PlanView {
+  state: "trial" | "young" | "subscribed" | "limited";
+  /** When the free year ends, or when the subscription runs out (ms); 0 when neither applies. */
+  until: number;
+  age: "minor" | "adult" | "unknown";
+}
+
+export async function plan(): Promise<PlanView> {
+  return invoke<PlanView>("core_plan");
+}
+
+/** What the user says about their age; never a date of birth (§30, §43). */
+export async function setAge(age: "minor" | "adult"): Promise<void> {
+  await invoke("core_set_age", { age });
+}
+
+/** Asks the Store for the subscription. No payment data ever reaches us (§47). */
+export async function subscribe(): Promise<void> {
+  await invoke("core_subscribe");
+}
+
 /** What the user does with one message of theirs (§61). */
 export async function forgetMessage(message: string): Promise<void> {
   await invoke("core_forget_message", { message });

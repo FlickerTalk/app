@@ -108,6 +108,13 @@ struct FullScreen {
     allowed: bool,
 }
 
+/// What the Store said: until when the subscription runs (ms), 0 when there is none.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Subscription {
+    until: i64,
+}
+
 /// What Kotlin's `pushToken` resolves with.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -136,6 +143,31 @@ impl<R: Runtime> Platform<R> {
     /// Hands a file to the phone's print service; the user picks the printer (§53).
     pub fn print_file(&self, path: &str, name: &str, mime: &str) -> Result<()> {
         self.run("printFile", SaveFile { path, name, mime })
+    }
+
+    /// Asks the Store for the yearly subscription and answers until when it runs (ms), or 0.
+    /// The app never handles the payment itself (§47).
+    pub fn subscribe(&self) -> Result<i64> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Subscription>("subscribe", ())?.until)
+        }
+        #[cfg(not(mobile))]
+        {
+            Err(Error::Unsupported)
+        }
+    }
+
+    /// What the Store already knows about this phone's subscription, without asking to buy.
+    pub fn subscription(&self) -> Result<i64> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Subscription>("subscription", ())?.until)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(0)
+        }
     }
 
     /// Opens the system share sheet with `text`.
@@ -315,6 +347,8 @@ mod tests {
         let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();
         assert_eq!(share, serde_json::json!({ "text": "Add me: https://flickertalk.com/add#card" }));
         // Printing is the phone's: the app hands it a file and the user picks the printer (§53).
+        let subscription: Subscription = serde_json::from_value(serde_json::json!({ "until": 1_800_000_000_000i64 })).unwrap();
+        assert_eq!(subscription.until, 1_800_000_000_000);
         let pick = serde_json::to_value(Pick { accept: "image/*" }).unwrap();
         assert_eq!(pick, serde_json::json!({ "accept": "image/*" }));
         let print = serde_json::to_value(SaveFile { path: "/files/a.pdf", name: "a.pdf", mime: "application/pdf" }).unwrap();

@@ -73,6 +73,7 @@ impl Core {
     /// there: its chunks are read from it when the contact asks for them.
     pub async fn send_file(&self, contact: &str, path: &Path, name: &str, mime: &str) -> Result<String> {
         self.contact(contact).await?;
+        self.allowed(ft_billing::Doing::SendFile).await?;
         let name = safe_file_name(name);
         let source = path.to_owned();
         let (size, hash) = tokio::task::spawn_blocking(move || hash_file(&source)).await??;
