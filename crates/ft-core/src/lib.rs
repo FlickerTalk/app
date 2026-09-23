@@ -310,7 +310,9 @@ impl Core {
         let stored = self.store.message(message_id).await?.context("that message is not here")?;
         match self.store.file(message_id).await? {
             Some(file) => {
-                ensure!(file.complete, "that file is not here whole yet");
+                // A file of ours has its bytes here from the start; one that is arriving only
+                // when it has arrived whole (§62). "Complete" is about the transfer, not the bytes.
+                ensure!(stored.outgoing || file.complete, "that file is not here whole yet");
                 let path = self.file_path(&file);
                 ensure!(path.exists(), "the bytes of that file are no longer here");
                 self.send_file(to, &path, &file.name, &file.mime).await
