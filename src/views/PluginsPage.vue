@@ -28,12 +28,12 @@ import {
   grantPlugin,
   installPlugin,
   offeredPlugins,
-  plugins,
   removePlugin,
   type OfferedPlugin,
   type PluginPermissions,
   type PluginView,
 } from "../core";
+import { refreshPlugins } from "../plugins";
 import { t } from "../i18n";
 
 // Plan §53: a plugin is granted nothing by installing. Every permission it asked for is shown on
@@ -45,7 +45,7 @@ const asksToRemove = ref("");
 onMounted(refresh);
 
 async function refresh() {
-  installed.value = await plugins();
+  installed.value = await refreshPlugins();
   offered.value = (await offeredPlugins().catch(() => [])).filter((one) => !one.installed);
 }
 

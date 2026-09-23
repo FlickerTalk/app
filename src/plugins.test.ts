@@ -6,7 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
-import { fromFrame, frameUrl, installedPlugins } from "./plugins";
+import { fromFrame, frameUrl, installed, refreshPlugins } from "./plugins";
 
 const CODE = {
   id: "com.flickertalk.code",
@@ -26,7 +26,18 @@ describe("plugins in the app", () => {
   // there.
   it("offers every app that is installed", async () => {
     tauri.invoke.mockResolvedValue([CODE, LOCKED]);
-    expect((await installedPlugins()).map((plugin) => plugin.id)).toEqual([CODE.id, LOCKED.id]);
+    expect((await refreshPlugins()).map((plugin) => plugin.id)).toEqual([CODE.id, LOCKED.id]);
+  });
+
+  // One list for the whole app: what Settings installs or removes is what a conversation sees.
+  it("keeps the list where every screen reads it", async () => {
+    tauri.invoke.mockResolvedValue([CODE]);
+    await refreshPlugins();
+    expect(installed.value.map((plugin) => plugin.id)).toEqual([CODE.id]);
+
+    tauri.invoke.mockResolvedValue([]);
+    await refreshPlugins();
+    expect(installed.value).toEqual([]);
   });
 
   it("serves each plugin from its own place, never from the app's", () => {

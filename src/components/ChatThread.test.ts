@@ -4,7 +4,9 @@ import { IonTextarea } from "@ionic/vue";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
+import { installTauri } from "../__tests__/tauri";
 import { chat } from "../core";
+import { refreshPlugins } from "../plugins";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -182,6 +184,23 @@ describe("ChatThread", () => {
     // The way out is always there, with the name of the tool next to it.
     expect(wrapper.find("[data-test='close-app']").exists()).toBe(true);
     expect(wrapper.find(".ft-app__name").text()).toBe("Code block");
+  });
+
+  // The apps button follows what is installed. Adding or removing a tool in Settings has to show
+  // up in a conversation that is already open, not only the next time it is entered.
+  it("notices a tool added or removed while the conversation stays open", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    expect(wrapper.find("[data-test='apps']").exists()).toBe(true);
+
+    // The user removes it from Settings, without leaving the conversation.
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      return command === "core_plugins" ? [] : undefined;
+    });
+    await refreshPlugins();
+    await flushPromises();
+    expect(wrapper.find("[data-test='apps']").exists()).toBe(false);
   });
 
   it("puts in the composer the text a plugin proposes", async () => {
