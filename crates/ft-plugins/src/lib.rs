@@ -40,6 +40,9 @@ pub struct Manifest {
     /// What it asks the user for; nothing by default (§53).
     #[serde(default)]
     pub permissions: Permissions,
+    /// One line about what it does, for the catalogue. In English, like the rest of the code.
+    #[serde(default)]
+    pub summary: String,
 }
 
 /// What a plugin may do. Each one is asked for, granted and revoked on its own: installing grants
@@ -56,6 +59,9 @@ pub struct Permissions {
     /// Whether it may put text in the chat, and whether the user still presses send.
     #[serde(default)]
     pub send: Sending,
+    /// Whether it may ask the phone to print what it made. The user still picks the printer.
+    #[serde(default)]
+    pub print: bool,
 }
 
 /// How far a plugin goes when it writes in the chat.
@@ -457,6 +463,12 @@ mod tests {
         assert_eq!(ai.manifest.permissions.network, ["api.openai.com"]);
         assert_eq!(ai.manifest.permissions.send, Sending::Propose);
         assert!(ai.manifest.permissions.reads_given_messages);
+        assert!(!ai.manifest.permissions.print, "printing is asked for on its own");
+
+        let printer = manifest_with(r#"{"print":true}"#);
+        let opened = open(&package(&printer, b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert!(opened.manifest.permissions.print);
+        assert!(opened.manifest.permissions.network.is_empty());
     }
 
     // §55: the domains are hosts we can put in a CSP, not wildcards or URLs.
@@ -594,5 +606,91 @@ mod policy_shape {
             .content_security_policy();
         assert!(!policy.contains('\n') && !policy.contains("  "), "{policy}");
         assert!(policy.ends_with("frame-ancestors http://tauri.localhost tauri://localhost"), "{policy}");
+    }
+}
+
+/// What the tools that build the catalogue need: reading a folder and reading the catalogue's
+/// key. Only the machine that holds the private key runs this (§50).
+pub mod packing {
+    use std::path::{Path, PathBuf};
+
+    use anyhow::{Context, Result};
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
+    use base64::Engine;
+    use vodozemac::Ed25519SecretKey;
+
+    /// Every file under `dir`, with the path the package will carry (relative, with `/`). The
+    /// folder's own junk and the plugin's tests stay out: they are not part of what is signed.
+    pub fn files_of(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
+        let mut files = Vec::new();
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(folder) = pending.pop() {
+            for entry in std::fs::read_dir(&folder)? {
+                let path = entry?.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else if !path.file_name().is_some_and(|name| {
+                    let name = name.to_string_lossy();
+                    name.starts_with('.') || name.ends_with(".test.js")
+                }) {
+                    let name = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
+                    files.push((name, std::fs::read(&path)?));
+                }
+            }
+        }
+        files.sort();
+        Ok(files)
+    }
+
+    /// The catalogue's private key as `infra` keeps it: the 32-byte Ed25519 seed in base64.
+    pub fn key_from(path: &Path) -> Result<Ed25519SecretKey> {
+        let text = std::fs::read_to_string(path).context("cannot read the key file")?;
+        let bytes = STANDARD_NO_PAD.decode(text.trim().trim_end_matches('=')).context("the key is not base64")?;
+        let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| anyhow::anyhow!("the key is not 32 bytes"))?;
+        Ok(Ed25519SecretKey::from_slice(&seed))
+    }
+
+    /// Every folder of `dir` that holds a `module.json`, in a stable order.
+    pub fn plugin_folders(dir: &Path) -> Result<Vec<PathBuf>> {
+        let mut folders: Vec<PathBuf> = std::fs::read_dir(dir)?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.join("module.json").is_file())
+            .collect();
+        folders.sort();
+        Ok(folders)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn takes_every_file_of_the_folder_in_a_stable_order() {
+            let dir = std::env::temp_dir().join(format!("ftpack-{}", blake3::hash(b"files").to_hex()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("one/dist")).unwrap();
+            std::fs::write(dir.join("one/module.json"), b"{}").unwrap();
+            std::fs::write(dir.join("one/dist/index.js"), b"code").unwrap();
+            std::fs::write(dir.join("one/.DS_Store"), b"junk").unwrap();
+            std::fs::write(dir.join("one/index.test.js"), b"tests").unwrap();
+
+            let files = files_of(&dir.join("one")).unwrap();
+            assert_eq!(
+                files.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+                ["dist/index.js", "module.json"],
+                "the folder's own junk, and its tests, stay out"
+            );
+            assert_eq!(plugin_folders(&dir).unwrap(), vec![dir.join("one")]);
+        }
+
+        #[test]
+        fn reads_the_key_as_infra_keeps_it() {
+            let dir = std::env::temp_dir().join(format!("ftpack-key-{}", blake3::hash(b"key").to_hex()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("catalogue.key");
+            let secret = Ed25519SecretKey::new();
+            std::fs::write(&path, secret.to_base64()).unwrap();
+            assert_eq!(key_from(&path).unwrap().public_key(), secret.public_key());
+        }
     }
 }

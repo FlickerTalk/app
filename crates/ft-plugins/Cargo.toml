@@ -9,6 +9,10 @@ license = "AGPL-3.0-only"
 name = "ftplugin"
 path = "src/bin/ftplugin.rs"
 
+[[bin]]
+name = "ftcatalogue"
+path = "src/bin/ftcatalogue.rs"
+
 [dependencies]
 base64 = "0.22"
 anyhow = "1"

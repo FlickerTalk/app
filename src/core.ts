@@ -368,15 +368,48 @@ export interface OfferedPlugin {
   id: string;
   name: string;
   version: string;
+  summary: string;
+  size: number;
   installed: boolean;
 }
 
 export async function offeredPlugins(): Promise<OfferedPlugin[]> {
-  return invoke<OfferedPlugin[]>("core_offered_plugins");
+  return invoke<OfferedPlugin[]>("core_catalogue");
 }
 
 export async function installPlugin(plugin: string): Promise<void> {
-  await invoke("core_plugin_install", { plugin });
+  await invoke("core_plugin_add", { plugin });
+}
+
+/** What the core does for a plugin, and only after checking what the user granted it (§53). */
+export async function pluginSave(name: string, mime: string, data: string): Promise<void> {
+  await invoke("core_plugin_save", { name, mime, data });
+}
+
+export async function pluginPrint(plugin: string, name: string, mime: string, data: string): Promise<void> {
+  await invoke("core_plugin_print", { plugin, name, mime, data });
+}
+
+export async function pluginFetch(
+  plugin: string,
+  url: string,
+  method: string,
+  headers: [string, string][],
+  body: string | null,
+): Promise<{ status: number; body: string }> {
+  return invoke("core_plugin_fetch", { plugin, url, method, headers, body });
+}
+
+export async function pluginRead(plugin: string, key: string): Promise<string | null> {
+  return invoke<string | null>("core_plugin_read", { plugin, key });
+}
+
+export async function pluginWrite(plugin: string, key: string, value: string): Promise<void> {
+  await invoke("core_plugin_write", { plugin, key, value });
+}
+
+export async function pluginForget(plugin: string, key: string): Promise<void> {
+  await invoke("core_plugin_forget", { plugin, key });
 }
 
 /** What the user allows a plugin to do; never more than it asked for (§53). */

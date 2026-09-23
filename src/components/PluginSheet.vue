@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { pickFiles, readPicked, sendMade } from "../core";
-import { frameUrl, fromFrame } from "../plugins";
+import {
+  pickFiles,
+  pluginFetch,
+  pluginForget,
+  pluginPrint,
+  pluginRead,
+  pluginSave,
+  pluginWrite,
+  readPicked,
+  sendMade,
+} from "../core";
+import { frameUrl, fromFrame, type FrameMessage } from "../plugins";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
 // permissions allow. It never sees the app's window, the chat or the keys. It can be handed a text,
@@ -23,32 +33,65 @@ async function onMessage(event: MessageEvent) {
   if (!said) return;
 
   if (said.type === "ft.ready") {
-    tell({ type: "ft.open", text: props.text ?? "" });
+    tell({ type: "ft.open", text: props.text ?? "", dark: dark() });
   } else if (said.type === "ft.height") {
     height.value = Math.min(Math.max(said.height, 160), 4000);
   } else if (said.type === "ft.pickFile") {
     // The plugin never opens the picker: it asks, and the app asks the user (§53).
-    working.value = true;
-    try {
-      const [file] = await pickFiles();
-      if (file) tell({ type: "ft.file", name: file.name, mime: file.mime, data: await readPicked(file.path) });
-      else tell({ type: "ft.file", name: "", mime: "", data: "" });
-    } catch {
-      tell({ type: "ft.file", name: "", mime: "", data: "" });
-    } finally {
-      working.value = false;
-    }
+    await busy(async () => {
+      try {
+        const [file] = await pickFiles();
+        const data = file ? await readPicked(file.path) : "";
+        tell({ type: "ft.file", id: said.id, name: file?.name ?? "", mime: file?.mime ?? "", data });
+      } catch {
+        tell({ type: "ft.file", id: said.id, name: "", mime: "", data: "" });
+      }
+    });
   } else if (said.type === "ft.made") {
-    working.value = true;
-    try {
+    await busy(async () => {
       await sendMade(props.contact, said.name, said.mime, said.data);
       emit("done");
-    } finally {
-      working.value = false;
-    }
+    });
   } else if (said.type === "ft.text") {
     emit("text", said.text);
+  } else if (said.type === "ft.close") {
+    emit("done");
+  } else {
+    await answer(said);
   }
+}
+
+/** The questions the core answers for a plugin, each with the id it was asked with (§53). */
+async function answer(said: Extract<FrameMessage, { id: string }>) {
+  await busy(async () => {
+    try {
+      let value: unknown = true;
+      if (said.type === "ft.save") await pluginSave(said.name, said.mime, said.data);
+      else if (said.type === "ft.print") await pluginPrint(props.plugin.id, said.name, said.mime, said.data);
+      else if (said.type === "ft.fetch")
+        value = await pluginFetch(props.plugin.id, said.url, said.method, said.headers, said.body);
+      else if (said.type === "ft.read") value = await pluginRead(props.plugin.id, said.key);
+      else if (said.type === "ft.write") await pluginWrite(props.plugin.id, said.key, said.value);
+      else if (said.type === "ft.forget") await pluginForget(props.plugin.id, said.key);
+      tell({ type: "ft.done", id: said.id, answer: value ?? null });
+    } catch {
+      tell({ type: "ft.done", id: said.id, answer: false });
+    }
+  });
+}
+
+async function busy(work: () => Promise<void>) {
+  working.value = true;
+  try {
+    await work();
+  } finally {
+    working.value = false;
+  }
+}
+
+/** Whether the app is showing dark, so the plugin can paint like the rest of the app. */
+function dark(): boolean {
+  return document.documentElement.classList.contains("ion-palette-dark");
 }
 
 onMounted(() => window.addEventListener("message", onMessage));

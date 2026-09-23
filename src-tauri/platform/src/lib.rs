@@ -126,6 +126,11 @@ impl<R: Runtime> Platform<R> {
         self.run("saveToDownloads", SaveFile { path, name, mime })
     }
 
+    /// Hands a file to the phone's print service; the user picks the printer (§53).
+    pub fn print_file(&self, path: &str, name: &str, mime: &str) -> Result<()> {
+        self.run("printFile", SaveFile { path, name, mime })
+    }
+
     /// Opens the system share sheet with `text`.
     pub fn share_text(&self, text: &str) -> Result<()> {
         self.run("shareText", ShareText { text })
@@ -294,5 +299,8 @@ mod tests {
         assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true }));
         let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();
         assert_eq!(share, serde_json::json!({ "text": "Add me: https://flickertalk.com/add#card" }));
+        // Printing is the phone's: the app hands it a file and the user picks the printer (§53).
+        let print = serde_json::to_value(SaveFile { path: "/files/a.pdf", name: "a.pdf", mime: "application/pdf" }).unwrap();
+        assert_eq!(print, serde_json::json!({ "path": "/files/a.pdf", "name": "a.pdf", "mime": "application/pdf" }));
     }
 }

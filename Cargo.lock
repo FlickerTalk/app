@@ -1732,6 +1732,7 @@ dependencies = [
  "ft-push",
  "ft-storage",
  "ft-webrtc",
+ "reqwest",
  "serde_json",
  "tokio",
  "vodozemac",

@@ -5,10 +5,28 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, ensure, Context, Result};
-use ft_plugins::{installed, Manifest, Permissions, Plugin, Sending};
+use ft_plugins::{installed, CatalogueEntry, Manifest, Permissions, Plugin, Sending};
 use vodozemac::Ed25519PublicKey;
 
+use crate::web::{host_of, Fetch, WebAnswer, WebRequest};
 use crate::{Core, Event};
+
+/// Where the catalogue lives (§56): a signed index, and the packages next to it. Nothing travels
+/// inside the app; the user picks what to install and the phone downloads it from here.
+pub const CATALOGUE_HOME: &str = "https://flickertalk.com/plugins";
+
+/// The most a package may weigh.
+const PACKAGE_LIMIT: u64 = 8 * 1024 * 1024;
+/// The most the index may weigh.
+const INDEX_LIMIT: u64 = 512 * 1024;
+
+/// The most a plugin may bring back from the network in one call.
+const FETCH_LIMIT: u64 = 8 * 1024 * 1024;
+
+/// How much a plugin may remember: enough for its settings, never a store of its own (§53).
+const MEMORY_KEY: usize = 64;
+const MEMORY_VALUE: usize = 64 * 1024;
+const MEMORY_KEYS: usize = 64;
 
 /// A plugin as the app shows it: what it is, and what it may do here.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +62,74 @@ impl Core {
         self.store.install_plugin(&plugin.manifest.id, &plugin.manifest.version, &keep).await?;
         let _ = self.events.send(Event::PluginsChanged);
         Ok(plugin.manifest)
+    }
+
+    /// What a plugin remembers between two openings. Its frame has no origin of its own, so the
+    /// browser gives it no storage: the core keeps it, apart from every other plugin (§53).
+    pub async fn plugin_remembers(&self, id: &str, key: &str) -> Result<Option<String>> {
+        self.store.plugin_value(id, key).await
+    }
+
+    /// Keeps one value for a plugin. Small, few, and only for a plugin that is installed here.
+    pub async fn plugin_remember(&self, id: &str, key: &str, value: &str) -> Result<()> {
+        ensure!(!key.is_empty() && key.len() <= MEMORY_KEY, "that key is too long");
+        ensure!(value.len() <= MEMORY_VALUE, "a plugin may not keep that much");
+        ensure!(self.store.plugin(id).await?.is_some(), "{id} is not installed here");
+        let keys = self.store.plugin_keys(id).await?;
+        ensure!(
+            keys.len() < MEMORY_KEYS || keys.iter().any(|known| known == key),
+            "a plugin may not keep that many things"
+        );
+        self.store.set_plugin_value(id, key, value).await
+    }
+
+    pub async fn plugin_forget(&self, id: &str, key: &str) -> Result<()> {
+        self.store.forget_plugin_value(id, key).await
+    }
+
+    pub async fn plugin_memory_keys(&self, id: &str) -> Result<Vec<String>> {
+        self.store.plugin_keys(id).await
+    }
+
+    /// What the catalogue offers, read only if the catalogue signed the index (§56). Reading it
+    /// installs nothing.
+    pub async fn catalogue(&self, fetch: &dyn Fetch, catalogue: &Ed25519PublicKey) -> Result<Vec<CatalogueEntry>> {
+        let index = fetch.get(&format!("{CATALOGUE_HOME}/index.json"), INDEX_LIMIT).await?;
+        let signature = fetch.get(&format!("{CATALOGUE_HOME}/index.json.sig"), 1024).await?;
+        let index = String::from_utf8(index).context("the index is not text")?;
+        let signature = String::from_utf8(signature).context("the signature is not text")?;
+        ft_plugins::catalogue_entries(&index, signature.trim(), catalogue)
+    }
+
+    /// Downloads what the catalogue listed and installs it. Installing grants nothing (§53), and
+    /// a package that is not byte for byte what was listed is never opened (§50).
+    pub async fn add_plugin(
+        &self,
+        entry: &CatalogueEntry,
+        fetch: &dyn Fetch,
+        catalogue: &Ed25519PublicKey,
+    ) -> Result<Manifest> {
+        ensure!(entry.url.starts_with(&format!("{CATALOGUE_HOME}/")), "that plugin is not in our catalogue");
+        ensure!(entry.size <= PACKAGE_LIMIT, "that plugin is too big");
+        let package = fetch.get(&entry.url, PACKAGE_LIMIT).await?;
+        ft_plugins::download(entry, &package, catalogue)?;
+        self.install_plugin(&package, catalogue, Permissions::default()).await
+    }
+
+    /// A call a plugin asked the core to make for it (§55). The core checks the host against what
+    /// the user granted **this** plugin: the policy of the frame is a second lock, never the only
+    /// one. Nothing of the phone —no identity, no key, no cookie— travels with it.
+    pub async fn plugin_fetch(&self, id: &str, request: WebRequest, fetch: &dyn Fetch) -> Result<WebAnswer> {
+        let host = host_of(&request.url)?;
+        let granted = self.granted_to(id).await?;
+        ensure!(granted.network.iter().any(|allowed| allowed.eq_ignore_ascii_case(&host)), "{id} may not reach {host}");
+        fetch.call(&request, FETCH_LIMIT).await
+    }
+
+    /// What the user granted a plugin that is installed here.
+    async fn granted_to(&self, id: &str) -> Result<Permissions> {
+        let row = self.store.plugin(id).await?.with_context(|| format!("{id} is not installed here"))?;
+        Ok(serde_json::from_str(&row.granted).unwrap_or_default())
     }
 
     /// What the user grants or takes back, at any time. Never more than the plugin asked for.
@@ -99,6 +185,7 @@ fn allowed(asked: &Permissions, granted: &Permissions) -> Result<()> {
     if reach(granted.send) > reach(asked.send) {
         bail!("the plugin never asked to write in the chat that way");
     }
+    ensure!(!granted.print || asked.print, "the plugin never asked to print");
     Ok(())
 }
 
@@ -125,6 +212,7 @@ mod tests {
             network: vec!["api.openai.com".to_owned()],
             reads_given_messages: true,
             send: Sending::Propose,
+            print: false,
         };
         assert!(allowed(&asked, &Permissions::default()).is_ok(), "granting nothing is always fine");
         assert!(allowed(&asked, &asked).is_ok());
@@ -132,5 +220,8 @@ mod tests {
         assert!(allowed(&asked, &Permissions { send: Sending::Auto, ..asked.clone() }).is_err());
         let elsewhere = Permissions { network: vec!["evil.example".to_owned()], ..Permissions::default() };
         assert!(allowed(&asked, &elsewhere).is_err());
+        let printing = Permissions { print: true, ..asked.clone() };
+        assert!(allowed(&asked, &printing).is_err(), "it never asked to print");
+        assert!(allowed(&printing, &printing).is_ok());
     }
 }

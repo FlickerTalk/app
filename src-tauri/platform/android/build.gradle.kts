@@ -29,6 +29,8 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    // Printing a picture: the print service takes a PDF, this one makes it (§53).
+    implementation("androidx.print:print:1.0.0")
     implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")

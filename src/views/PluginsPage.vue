@@ -168,7 +168,8 @@ async function remove(id: string) {
 
       <p v-if="!installed.length" class="ft-plugins__hint">{{ $t("plugins.none") }}</p>
 
-      <!-- The tools that travel with the app and this phone does not have yet (§52). -->
+      <!-- What the catalogue offers and this phone does not have yet; nothing travels inside the
+           app, so this list is a download (§56). -->
       <template v-if="offered.length">
         <h2 class="ft-plugins__title">{{ $t("plugins.available") }}</h2>
         <ion-list inset class="ft-group">
@@ -176,7 +177,7 @@ async function remove(id: string) {
             <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
             <ion-label>
               {{ one.name }}
-              <p class="ft-muted">{{ one.version }}</p>
+              <p class="ft-muted">{{ one.summary }}</p>
             </ion-label>
             <button
               slot="end"
