@@ -24,10 +24,10 @@ const AI = {
   installedAt: 1_800_000_000_000,
 };
 
-/** What the app carries: the tools of the phone, installed only if the user says so (§53). */
+/** What the catalogue offers this phone; nothing travels inside the app (§56). */
 const OFFERED = [
-  { id: "com.flickertalk.code", name: "Code block", version: "1.0.0", installed: true },
-  { id: "com.flickertalk.sketch", name: "Sketch", version: "1.0.0", installed: false },
+  { id: "com.flickertalk.code", name: "Code block", version: "1.0.0", summary: "Shows code.", size: 2048, installed: true },
+  { id: "com.flickertalk.sketch", name: "Sketch", version: "1.0.0", summary: "Draw with a finger.", size: 3072, installed: false },
 ];
 
 describe("PluginsPage", () => {
@@ -37,7 +37,7 @@ describe("PluginsPage", () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_plugins") return [CODE, AI];
-      if (command === "core_offered_plugins") return OFFERED;
+      if (command === "core_catalogue") return OFFERED;
       return undefined;
     });
   });
@@ -90,6 +90,7 @@ describe("PluginsPage", () => {
     const wrapper = mount(PluginsPage, { shallow: true });
     await flushPromises();
     expect(wrapper.text()).toContain("Sketch");
+    expect(wrapper.text()).toContain("Draw with a finger.");
     expect(wrapper.find("[data-test='install-com.flickertalk.sketch']").exists()).toBe(true);
     expect(wrapper.find("[data-test='install-com.flickertalk.code']").exists()).toBe(false);
   });
@@ -99,7 +100,7 @@ describe("PluginsPage", () => {
     await flushPromises();
     await wrapper.find("[data-test='install-com.flickertalk.sketch']").trigger("click");
     await flushPromises();
-    expect(calls).toContainEqual(["core_plugin_install", { plugin: "com.flickertalk.sketch" }]);
+    expect(calls).toContainEqual(["core_plugin_add", { plugin: "com.flickertalk.sketch" }]);
     expect(calls.filter(([command]) => command === "core_plugins").length).toBeGreaterThan(1);
   });
 });

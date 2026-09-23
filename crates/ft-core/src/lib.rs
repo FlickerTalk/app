@@ -18,6 +18,10 @@ pub mod moving;
 pub mod plugins;
 pub mod net;
 pub mod online;
+pub mod web;
+
+pub use plugins::CATALOGUE_HOME;
+pub use web::{Fetch, Web, WebAnswer, WebRequest};
 
 use std::collections::HashMap;
 use std::path::PathBuf;

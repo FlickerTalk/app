@@ -56,7 +56,11 @@ describe("plugins in the app", () => {
       fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
 
     expect(said({ type: "ft.ready" })).toEqual({ type: "ft.ready" });
-    expect(said({ type: "ft.pickFile", accept: "image/*" })).toEqual({ type: "ft.pickFile", accept: "image/*" });
+    expect(said({ type: "ft.pickFile", id: "q1", accept: "image/*" })).toEqual({
+      type: "ft.pickFile",
+      id: "q1",
+      accept: "image/*",
+    });
     expect(said({ type: "ft.made", name: "a.pdf", mime: "application/pdf", data: "AAA" })).toEqual({
       type: "ft.made",
       name: "a.pdf",
@@ -66,5 +70,45 @@ describe("plugins in the app", () => {
     expect(said({ type: "ft.text", text: "hello" })).toEqual({ type: "ft.text", text: "hello" });
     expect(said({ type: "ft.readEverything" })).toBeNull();
     expect(said({ type: "ft.made" })).toBeNull();
+  });
+
+  // The rest of what the core exposes (issue app#4): the phone, the network and a memory of its
+  // own. Every one of them is a question with an answer, so each carries the question's id.
+  it("understands the questions a plugin asks the core", () => {
+    const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+    const said = (data: unknown) =>
+      fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
+
+    expect(said({ type: "ft.save", id: "q1", name: "a.pdf", mime: "application/pdf", data: "AAA" })).toEqual({
+      type: "ft.save",
+      id: "q1",
+      name: "a.pdf",
+      mime: "application/pdf",
+      data: "AAA",
+    });
+    expect(said({ type: "ft.print", id: "q2", name: "a.pdf", mime: "application/pdf", data: "AAA" })).toMatchObject({
+      type: "ft.print",
+      id: "q2",
+    });
+    expect(said({ type: "ft.fetch", id: "q3", url: "https://api.openai.com/v1", method: "POST", headers: [], body: null })).toMatchObject({
+      type: "ft.fetch",
+      id: "q3",
+      url: "https://api.openai.com/v1",
+      method: "POST",
+    });
+    expect(said({ type: "ft.read", id: "q4", key: "pen" })).toEqual({ type: "ft.read", id: "q4", key: "pen" });
+    expect(said({ type: "ft.write", id: "q5", key: "pen", value: "black" })).toEqual({
+      type: "ft.write",
+      id: "q5",
+      key: "pen",
+      value: "black",
+    });
+    expect(said({ type: "ft.forget", id: "q6", key: "pen" })).toEqual({ type: "ft.forget", id: "q6", key: "pen" });
+    expect(said({ type: "ft.close" })).toEqual({ type: "ft.close" });
+
+    // A question with no id could never be answered, and a fetch to nowhere is not a fetch.
+    expect(said({ type: "ft.read", key: "pen" })).toBeNull();
+    expect(said({ type: "ft.fetch", id: "q7" })).toBeNull();
+    expect(said({ type: "ft.save", id: "q8", name: "a.pdf" })).toBeNull();
   });
 });

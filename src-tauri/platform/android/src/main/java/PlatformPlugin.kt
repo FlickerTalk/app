@@ -17,6 +17,15 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.graphics.BitmapFactory
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.ParcelFileDescriptor
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.print.PrintManager
 import android.provider.MediaStore
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -30,6 +39,7 @@ import android.webkit.WebView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.content.ContextCompat
+import androidx.print.PrintHelper
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -549,6 +559,66 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot save the file")
+        }
+    }
+
+    /// Hands a file to the phone's print service. The user picks the printer; nothing is printed
+    /// on its own, and the file stays in the app's folder until the service has read it (§53).
+    @Command
+    fun printFile(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(SaveFileArgs::class.java)
+            val file = File(args.path)
+            if (!file.exists()) throw IllegalStateException("there is nothing to print")
+            activity.runOnUiThread {
+                if (args.mime.startsWith("image/")) {
+                    PrintHelper(activity).apply { scaleMode = PrintHelper.SCALE_MODE_FIT }
+                        .printBitmap(args.name, BitmapFactory.decodeFile(file.path))
+                } else {
+                    val manager = activity.getSystemService(Context.PRINT_SERVICE) as PrintManager
+                    manager.print(args.name, FileToPrint(args.name, file), null)
+                }
+            }
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot print the file")
+        }
+    }
+}
+
+/// A file of the app handed to the print service as it is (a PDF, as the plugins make them).
+private class FileToPrint(private val name: String, private val file: File) : PrintDocumentAdapter() {
+    override fun onLayout(
+        old: PrintAttributes?,
+        new: PrintAttributes?,
+        signal: CancellationSignal?,
+        callback: LayoutResultCallback,
+        extras: Bundle?,
+    ) {
+        if (signal?.isCanceled == true) {
+            callback.onLayoutCancelled()
+            return
+        }
+        val info = PrintDocumentInfo.Builder(name)
+            .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+            .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+            .build()
+        callback.onLayoutFinished(info, true)
+    }
+
+    override fun onWrite(
+        pages: Array<out PageRange>?,
+        destination: ParcelFileDescriptor,
+        signal: CancellationSignal?,
+        callback: WriteResultCallback,
+    ) {
+        try {
+            file.inputStream().use { input ->
+                java.io.FileOutputStream(destination.fileDescriptor).use { output -> input.copyTo(output) }
+            }
+            callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+        } catch (error: Exception) {
+            callback.onWriteFailed(error.message)
         }
     }
 }

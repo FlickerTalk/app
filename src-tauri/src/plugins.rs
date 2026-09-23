@@ -55,24 +55,31 @@ pub fn frame_html(component: &str) -> String {
 /// What the frame does: load the plugin, hand it the text the app sends, and say how tall it is.
 /// It talks to the app only through `postMessage`; it never sees the app's window.
 pub fn frame_js() -> &'static str {
-    r#"// The API a plugin has (plugin-sdk): it is opened with a text, it may ask the app for a file
-// the user picks, and it may hand back a file or a text. Nothing else reaches the app, and the
-// app is the only one that sends anything to the chat (§53).
+    r#"// The API a plugin has (plugin-sdk, §53). It is the only way out of the frame: the plugin
+// never sees the app, the chat, the keys or another plugin. Everything here is asked for, and the
+// core checks what the user granted before doing any of it.
 const post = (message) => parent.postMessage(message, "*");
 const opened = [];
-let waiting = null;
+const waiting = new Map();
+let asked = 0;
+
+/** Asks the app for something and waits for its answer, one call at a time. */
+const ask = (type, message) => {
+  const id = `q${(asked += 1)}`;
+  return new Promise((resolve) => {
+    waiting.set(id, resolve);
+    post({ ...message, type, id });
+  });
+};
 
 globalThis.ft = {
-  /** Called when the app opens the plugin, with the text the user handed it (may be empty). */
+  /** Called when the app opens the plugin: the text the user handed it, and the app's colours. */
   onOpen(handler) {
     opened.push(handler);
   },
   /** Asks the app to ask the user for a file. Resolves with {name, mime, data} or null. */
   pickFile(accept) {
-    post({ type: "ft.pickFile", accept: accept ?? "" });
-    return new Promise((resolve) => {
-      waiting = resolve;
-    });
+    return ask("ft.pickFile", { accept: accept ?? "" });
   },
   /** Hands a file to the chat; the app sends it. `data` is base64. */
   send(name, mime, data) {
@@ -81,6 +88,33 @@ globalThis.ft = {
   /** Puts a text in the composer, for the user to look at before sending it. */
   say(text) {
     post({ type: "ft.text", text: String(text) });
+  },
+  /** Saves a file on the phone instead of sending it. */
+  save(name, mime, data) {
+    return ask("ft.save", { name: String(name), mime: String(mime), data: String(data) });
+  },
+  /** Prints a file, if the user granted this plugin printing. The printer is the user's. */
+  print(name, mime, data) {
+    return ask("ft.print", { name: String(name), mime: String(mime), data: String(data) });
+  },
+  /** A call the core makes for the plugin, only to a host the user granted it. */
+  fetch(url, options = {}) {
+    return ask("ft.fetch", {
+      url: String(url),
+      method: String(options.method ?? "GET"),
+      headers: Object.entries(options.headers ?? {}).map(([name, value]) => [String(name), String(value)]),
+      body: options.body ?? null,
+    });
+  },
+  /** What this plugin remembers. Its frame has no storage of its own (§53). */
+  store: {
+    get: (key) => ask("ft.read", { key: String(key) }),
+    set: (key, value) => ask("ft.write", { key: String(key), value: String(value) }),
+    forget: (key) => ask("ft.forget", { key: String(key) }),
+  },
+  /** Closes the plugin's window. */
+  close() {
+    post({ type: "ft.close" });
   },
 };
 
@@ -98,12 +132,17 @@ addEventListener("message", (event) => {
   if (said.type === "ft.open") {
     const text = String(said.text ?? "");
     if (view) view.setAttribute("text", text);
-    for (const handler of opened) handler({ text });
+    if (said.dark) document.documentElement.dataset.dark = "1";
+    for (const handler of opened) handler({ text, dark: Boolean(said.dark) });
     requestAnimationFrame(tell);
   } else if (said.type === "ft.file") {
-    const resolve = waiting;
-    waiting = null;
-    if (resolve) resolve(said.name ? { name: said.name, mime: said.mime, data: said.data } : null);
+    const answer = waiting.get(said.id);
+    waiting.delete(said.id);
+    if (answer) answer(said.name ? { name: said.name, mime: said.mime, data: said.data } : null);
+  } else if (said.type === "ft.done") {
+    const answer = waiting.get(said.id);
+    waiting.delete(said.id);
+    if (answer) answer(said.answer ?? null);
   }
 });
 
@@ -225,6 +264,11 @@ mod tests {
         assert!(script.contains("ft.open"), "the app opens it, with the text the user handed it");
         assert!(script.contains("ft.file"), "the app answers the file the plugin asked for");
         assert!(script.contains("ft.ready"), "the plugin says when it is up");
+        // The whole surface a plugin has: everything else it might try is not there (§53).
+        for call in ["pickFile", "send", "say", "save", "print", "fetch", "store", "close"] {
+            assert!(script.contains(call), "a plugin cannot {call}");
+        }
+        assert!(!script.contains("__TAURI"), "a plugin never reaches the app's own bridge");
     }
 
     // §55: a plugin without the network permission cannot reach anything.

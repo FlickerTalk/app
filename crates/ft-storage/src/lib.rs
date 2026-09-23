@@ -635,6 +635,48 @@ impl Store {
 
     pub async fn remove_plugin(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM plugins WHERE id = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM plugin_memory WHERE plugin = ?").bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// What a plugin left under that key, if anything (§53).
+    pub async fn plugin_value(&self, plugin: &str, key: &str) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT value FROM plugin_memory WHERE plugin = ? AND key = ?")
+            .bind(plugin)
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|row| row.get::<String, _>("value")))
+    }
+
+    pub async fn set_plugin_value(&self, plugin: &str, key: &str, value: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO plugin_memory (plugin, key, value) VALUES (?, ?, ?)
+             ON CONFLICT (plugin, key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(plugin)
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Everything that plugin remembers, by key, in a stable order.
+    pub async fn plugin_keys(&self, plugin: &str) -> Result<Vec<String>> {
+        let rows = sqlx::query("SELECT key FROM plugin_memory WHERE plugin = ? ORDER BY key")
+            .bind(plugin)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.iter().map(|row| row.get::<String, _>("key")).collect())
+    }
+
+    pub async fn forget_plugin_value(&self, plugin: &str, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM plugin_memory WHERE plugin = ? AND key = ?")
+            .bind(plugin)
+            .bind(key)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -1196,5 +1238,28 @@ mod tests {
 
         store.remove_plugin("com.example.ai").await.unwrap();
         assert_eq!(store.plugins().await.unwrap().len(), 1);
+    }
+
+    // A plugin runs in a frame with no origin of its own, so it has no storage of its own either:
+    // what it wants to remember it leaves here, apart from every other plugin (§53).
+    #[tokio::test]
+    async fn keeps_what_each_plugin_remembers_apart_from_the_others() {
+        let store = store().await;
+        assert_eq!(store.plugin_value("com.example.code", "pen").await.unwrap(), None);
+
+        store.set_plugin_value("com.example.code", "pen", "black").await.unwrap();
+        store.set_plugin_value("com.example.ai", "pen", "blue").await.unwrap();
+        assert_eq!(store.plugin_value("com.example.code", "pen").await.unwrap().as_deref(), Some("black"));
+        assert_eq!(store.plugin_value("com.example.ai", "pen").await.unwrap().as_deref(), Some("blue"));
+
+        store.set_plugin_value("com.example.code", "pen", "red").await.unwrap();
+        store.set_plugin_value("com.example.code", "size", "3").await.unwrap();
+        assert_eq!(store.plugin_value("com.example.code", "pen").await.unwrap().as_deref(), Some("red"));
+        assert_eq!(store.plugin_keys("com.example.code").await.unwrap(), ["pen", "size"]);
+
+        // Taking a plugin out takes what it remembered with it.
+        store.install_plugin("com.example.code", "1.0.0", "{}").await.unwrap();
+        store.remove_plugin("com.example.code").await.unwrap();
+        assert_eq!(store.plugin_keys("com.example.code").await.unwrap(), Vec::<String>::new());
     }
 }

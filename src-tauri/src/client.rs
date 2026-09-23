@@ -395,6 +395,15 @@ pub struct Client {
     app: OnceLock<AppHandle>,
     /// The OS key store on phones; none on desktop.
     vault: OnceLock<Box<dyn KeyVault + Send + Sync>>,
+    /// The web the core uses on someone else's behalf: the catalogue, and what a plugin is
+    /// allowed to reach (§55–§56).
+    web: ft_core::Web,
+}
+
+impl Client {
+    pub fn web(&self) -> &ft_core::Web {
+        &self.web
+    }
 }
 
 /// The key store through the native bridge (Android Keystore, iOS Keychain).
@@ -442,7 +451,6 @@ impl Client {
         online.core.set_files_dir(dir.join("files"));
         online.core.set_move_dir(dir.join(MOVE_DIR));
         online.core.set_plugins_dir(dir.join("plugins"));
-        update_installed_plugins(&online.core).await;
         if let Some(app) = self.app.get() {
             refresh_served_plugins(app, &online.core, dir).await;
         }
@@ -494,17 +502,6 @@ impl Client {
     }
 }
 
-/// The tools that travel with the app (§52). They live in the binary: on Android the resources
-/// sit inside the APK, where there is no file to read. Code blocks are drawn by the app itself
-/// now, so the one that did it is only an example for others (app/plugins/code-block).
-const BUNDLED_PLUGINS: &[&[u8]] = &[
-    include_bytes!("../resources/plugins/markdown.ftplugin"),
-    include_bytes!("../resources/plugins/images.ftplugin"),
-    include_bytes!("../resources/plugins/pdf.ftplugin"),
-    include_bytes!("../resources/plugins/redact.ftplugin"),
-    include_bytes!("../resources/plugins/sketch.ftplugin"),
-];
-
 /// What the WebView may serve of each plugin right now: kept in step with what is installed and
 /// what the user granted (§53, §55).
 pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, dir: &Path) {
@@ -521,71 +518,6 @@ pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, 
         );
     }
     app.state::<crate::plugins::Plugins>().set(served);
-}
-
-/// Keeps the tools the user installed up to date with the ones the app now carries. Nothing is
-/// installed on its own: a tool the user never asked for is only offered (§53).
-async fn update_installed_plugins(core: &Arc<ft_core::Core>) {
-    let installed = core.plugins().await.unwrap_or_default();
-    for package in BUNDLED_PLUGINS {
-        let Ok(plugin) = ft_plugins::open(package, &ft_plugins::catalogue()) else { continue };
-        let Some(known) = installed.iter().find(|one| one.manifest.id == plugin.manifest.id) else { continue };
-        if known.manifest.version == plugin.manifest.version {
-            continue;
-        }
-        let _ = core.install_plugin(package, &ft_plugins::catalogue(), known.granted.clone()).await;
-    }
-}
-
-/// A tool the app carries, and whether this phone already has it (§52).
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OfferedPlugin {
-    id: String,
-    name: String,
-    version: String,
-    installed: bool,
-}
-
-/// Everything the app carries, in the order it carries it.
-fn offered_plugins(installed: &[String]) -> Vec<OfferedPlugin> {
-    BUNDLED_PLUGINS
-        .iter()
-        .filter_map(|package| {
-            let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).ok()?;
-            Some(OfferedPlugin {
-                installed: installed.contains(&plugin.manifest.id),
-                id: plugin.manifest.id,
-                name: plugin.manifest.name,
-                version: plugin.manifest.version,
-            })
-        })
-        .collect()
-}
-
-/// The tools the user may install, and the ones they already did (§53).
-#[tauri::command]
-pub async fn core_offered_plugins(client: State<'_, Client>) -> Result<Vec<OfferedPlugin>, String> {
-    let core = client.core().await?;
-    let installed: Vec<String> =
-        core.plugins().await.map_err(failed)?.into_iter().map(|plugin| plugin.manifest.id).collect();
-    Ok(offered_plugins(&installed))
-}
-
-/// Installs one of the tools the app carries. Installing grants it nothing (§53).
-#[tauri::command]
-pub async fn core_plugin_install(plugin: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
-    let core = client.core().await?;
-    for package in BUNDLED_PLUGINS {
-        let Ok(one) = ft_plugins::open(package, &ft_plugins::catalogue()) else { continue };
-        if one.manifest.id != plugin {
-            continue;
-        }
-        core.install_plugin(package, &ft_plugins::catalogue(), ft_plugins::Permissions::default()).await.map_err(failed)?;
-        refresh_served_plugins(&app, &core, client.dir()?).await;
-        return Ok(());
-    }
-    Err(format!("{plugin} does not travel with this app"))
 }
 
 /// After a move (§60): the new phone forgets its temporary identity on the router and starts
@@ -787,6 +719,8 @@ pub struct PermissionsView {
     network: Vec<String>,
     messages: bool,
     send: String,
+    #[serde(default)]
+    print: bool,
 }
 
 impl From<&ft_plugins::Permissions> for PermissionsView {
@@ -800,6 +734,7 @@ impl From<&ft_plugins::Permissions> for PermissionsView {
                 ft_plugins::Sending::Auto => "auto",
             }
             .to_owned(),
+            print: permissions.print,
         }
     }
 }
@@ -840,6 +775,7 @@ pub async fn core_plugin_grant(
             "auto" => ft_plugins::Sending::Auto,
             _ => ft_plugins::Sending::Nothing,
         },
+        print: granted.print,
     };
     let core = client.core().await?;
     core.grant_plugin(&plugin, permissions).await.map_err(failed)?;
@@ -854,6 +790,169 @@ pub async fn core_plugin_remove(plugin: String, app: AppHandle, client: State<'_
     core.remove_plugin(&plugin).await.map_err(failed)?;
     refresh_served_plugins(&app, &core, client.dir()?).await;
     Ok(())
+}
+
+/// What the catalogue offers this phone (§56): nothing travels inside the app, so this is a
+/// download. Reading it installs nothing.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogueView {
+    id: String,
+    name: String,
+    version: String,
+    summary: String,
+    size: u64,
+    installed: bool,
+}
+
+#[tauri::command]
+pub async fn core_catalogue(client: State<'_, Client>) -> Result<Vec<CatalogueView>, String> {
+    let core = client.core().await?;
+    let here: Vec<String> =
+        core.plugins().await.map_err(failed)?.into_iter().map(|plugin| plugin.manifest.id).collect();
+    let offered = core.catalogue(client.web(), &ft_plugins::catalogue()).await.map_err(failed)?;
+    Ok(offered
+        .into_iter()
+        .map(|entry| CatalogueView {
+            installed: here.contains(&entry.id),
+            id: entry.id,
+            name: entry.name,
+            version: entry.version,
+            summary: entry.summary,
+            size: entry.size,
+        })
+        .collect())
+}
+
+/// Downloads and installs one of them. Installing grants nothing (§53).
+#[tauri::command]
+pub async fn core_plugin_add(plugin: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    let offered = core.catalogue(client.web(), &ft_plugins::catalogue()).await.map_err(failed)?;
+    let entry = offered.into_iter().find(|entry| entry.id == plugin).ok_or("the catalogue does not list it")?;
+    core.add_plugin(&entry, client.web(), &ft_plugins::catalogue()).await.map_err(failed)?;
+    refresh_served_plugins(&app, &core, client.dir()?).await;
+    Ok(())
+}
+
+/// What a plugin remembers between two openings; its frame has no storage of its own (§53).
+#[tauri::command]
+pub async fn core_plugin_read(plugin: String, key: String, client: State<'_, Client>) -> Result<Option<String>, String> {
+    client.core().await?.plugin_remembers(&plugin, &key).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_plugin_write(
+    plugin: String,
+    key: String,
+    value: String,
+    client: State<'_, Client>,
+) -> Result<(), String> {
+    client.core().await?.plugin_remember(&plugin, &key, &value).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_plugin_forget(plugin: String, key: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.plugin_forget(&plugin, &key).await.map_err(failed)
+}
+
+/// What came back from a call the core made for a plugin.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchView {
+    status: u16,
+    /// The body as base64: the core never looks inside it.
+    body: String,
+}
+
+/// A call a plugin asked for, made by the core and only to a host the user granted it (§55).
+#[tauri::command]
+pub async fn core_plugin_fetch(
+    plugin: String,
+    url: String,
+    method: String,
+    headers: Vec<(String, String)>,
+    body: Option<String>,
+    client: State<'_, Client>,
+) -> Result<FetchView, String> {
+    let body = match body {
+        Some(body) => Some(BASE64.decode(body.as_bytes()).map_err(|_| "that body is not base64".to_owned())?),
+        None => None,
+    };
+    let request = ft_core::WebRequest { url, method, headers, body };
+    let answer = client.core().await?.plugin_fetch(&plugin, request, client.web()).await.map_err(failed)?;
+    Ok(FetchView { status: answer.status, body: BASE64.encode(answer.body) })
+}
+
+/// Writes what a plugin made where the phone keeps it for a moment, ready to be saved or printed.
+fn made_file(client: &State<'_, Client>, name: &str, data: &str, folder: &str) -> Result<(PathBuf, String), String> {
+    let bytes = BASE64.decode(data.as_bytes()).map_err(|_| "that is not a file".to_owned())?;
+    if bytes.len() as u64 > PLUGIN_FILE_LIMIT {
+        return Err("that file is too big".to_owned());
+    }
+    let safe = name.replace(['/', '\\'], "_");
+    let dir = client.dir()?.join("files").join(folder);
+    std::fs::create_dir_all(&dir).map_err(failed)?;
+    let path = dir.join(&safe);
+    std::fs::write(&path, bytes).map_err(failed)?;
+    Ok((path, safe))
+}
+
+/// Saves what a plugin made to the phone (§62). The user picks where, in the system's own sheet.
+#[tauri::command]
+pub async fn core_plugin_save(
+    name: String,
+    mime: String,
+    data: String,
+    app: AppHandle,
+    client: State<'_, Client>,
+) -> Result<(), String> {
+    let (path, safe) = made_file(&client, &name, &data, "outgoing")?;
+    let saved = app.platform().save_to_downloads(&path.to_string_lossy(), &safe, &mime).map_err(failed);
+    let _ = std::fs::remove_file(&path);
+    saved
+}
+
+/// Prints what a plugin made, if the user granted it printing (§53). The printer is the phone's.
+#[tauri::command]
+pub async fn core_plugin_print(
+    plugin: String,
+    name: String,
+    mime: String,
+    data: String,
+    app: AppHandle,
+    client: State<'_, Client>,
+) -> Result<(), String> {
+    let core = client.core().await?;
+    let granted = core.plugins().await.map_err(failed)?;
+    let may = granted.iter().find(|one| one.manifest.id == plugin).is_some_and(|one| one.granted.print);
+    if !may {
+        return Err("that plugin was not allowed to print".to_owned());
+    }
+    // The print service reads the file later, on its own time: it cannot be deleted right away.
+    // What was printed before is cleaned up instead.
+    let (path, safe) = made_file(&client, &name, &data, "printing")?;
+    forget_old_prints(path.parent().unwrap_or(&path), &path);
+    app.platform().print_file(&path.to_string_lossy(), &safe, &mime).map_err(failed)
+}
+
+/// Deletes what was left for the printer before, an hour old or more; never the one going now.
+fn forget_old_prints(dir: &Path, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == keep {
+            continue;
+        }
+        let old = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .map(|when| when.elapsed().unwrap_or_default() > std::time::Duration::from_secs(3600))
+            .unwrap_or(false);
+        if old {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /// What the user pressed on the incoming call notification: "answer", "decline" or nothing (§66).
@@ -1111,38 +1210,6 @@ mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
 
     use super::*;
-
-    // Nothing is installed behind the user's back (§53): what travels with the app is offered,
-    // and the user decides.
-    #[test]
-    fn what_travels_with_the_app_is_offered_not_installed() {
-        let offered = offered_plugins(&[]);
-        assert!(offered.iter().all(|one| !one.installed), "a tool cannot arrive installed");
-        assert!(offered.iter().any(|one| one.id == "com.flickertalk.images"));
-
-        let with_one = offered_plugins(&["com.flickertalk.images".to_owned()]);
-        let images = with_one.iter().find(|one| one.id == "com.flickertalk.images").expect("images is offered");
-        assert!(images.installed, "what is installed shows as installed");
-        assert!(!images.name.is_empty() && !images.version.is_empty());
-    }
-
-    // The tools the app ships with (§52): every one of them opens with the catalogue's key and
-    // names the element the frame shows, or the phone would install nothing and say nothing.
-    #[test]
-    fn every_plugin_that_travels_with_the_app_opens_and_has_a_component() {
-        let ids: Vec<String> = BUNDLED_PLUGINS
-            .iter()
-            .map(|package| {
-                let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a bundled plugin is not signed for us");
-                assert!(!plugin.manifest.components.is_empty(), "{} shows nothing", plugin.manifest.id);
-                assert!(plugin.file("dist/index.js").is_some(), "{} has no code", plugin.manifest.id);
-                plugin.manifest.id
-            })
-            .collect();
-        for wanted in ["markdown", "images", "pdf", "redact", "sketch"] {
-            assert!(ids.contains(&format!("com.flickertalk.{wanted}")), "{wanted} does not travel with the app: {ids:?}");
-        }
-    }
 
     fn message(state: MessageState, outgoing: bool) -> Message {
         Message { message_id: "m1".to_owned(), contact: "ft_bob".to_owned(), outgoing, body: "hi".to_owned(), sent_at: 42, state }
