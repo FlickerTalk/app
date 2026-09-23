@@ -159,7 +159,11 @@ const content = ref<Scrollable | null>(null);
 
 async function scrollToEnd() {
   await nextTick();
-  await content.value?.$el?.scrollToBottom?.(0);
+  try {
+    await content.value?.$el?.scrollToBottom?.(0);
+  } catch {
+    // A view that cannot scroll yet is not a problem: the conversation shows all the same.
+  }
 }
 
 onMounted(async () => {
