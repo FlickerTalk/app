@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Кто-то</string>
+    <string name="ft_incoming_call">Входящий звонок</string>
+    <string name="ft_incoming_video_call">Входящий видеозвонок</string>
+    <string name="ft_channel_calls">Звонки</string>
+    <string name="ft_channel_messages">Сообщения и звонки</string>
+    <string name="ft_something_new">Вас ждёт что-то новое</string>
+</resources>

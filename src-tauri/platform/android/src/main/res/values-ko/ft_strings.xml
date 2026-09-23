@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">누군가</string>
+    <string name="ft_incoming_call">수신 전화</string>
+    <string name="ft_incoming_video_call">수신 영상 통화</string>
+    <string name="ft_channel_calls">통화</string>
+    <string name="ft_channel_messages">메시지 및 통화</string>
+    <string name="ft_something_new">새로운 소식이 기다리고 있어요</string>
+</resources>

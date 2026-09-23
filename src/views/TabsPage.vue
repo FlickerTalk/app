@@ -56,7 +56,7 @@ const tabs = [
 /* Wide screens: the bottom tab bar becomes the navigation rail. */
 @media (min-width: 768px) {
   .ft-tabs-frame {
-    left: var(--ft-rail-width);
+    inset-inline-start: var(--ft-rail-width);
   }
   .ft-tab-bar {
     display: none;

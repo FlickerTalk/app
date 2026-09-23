@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">だれか</string>
+    <string name="ft_incoming_call">着信</string>
+    <string name="ft_incoming_video_call">ビデオ通話の着信</string>
+    <string name="ft_channel_calls">通話</string>
+    <string name="ft_channel_messages">メッセージと通話</string>
+    <string name="ft_something_new">新しいお知らせがあります</string>
+</resources>

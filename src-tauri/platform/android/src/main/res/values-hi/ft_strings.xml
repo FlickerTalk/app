@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">कोई</string>
+    <string name="ft_incoming_call">इनकमिंग कॉल</string>
+    <string name="ft_incoming_video_call">इनकमिंग वीडियो कॉल</string>
+    <string name="ft_channel_calls">कॉल</string>
+    <string name="ft_channel_messages">मैसेज और कॉल</string>
+    <string name="ft_something_new">आपके लिए कुछ नया इंतज़ार कर रहा है</string>
+</resources>

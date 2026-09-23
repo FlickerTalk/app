@@ -4,7 +4,11 @@ import android.app.ActivityManager
 import android.media.AudioManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.w3c.dom.Element
+import java.io.File
+import javax.xml.parsers.DocumentBuilderFactory
 
 class PlatformPluginTest {
     // Must match `android:authorities` in the plugin's AndroidManifest.xml.
@@ -92,9 +96,36 @@ class PlatformPluginTest {
     @Test
     fun theCallNotificationSaysWhoIsCallingAndWhatKind() {
         assertEquals("Ioan", callTitle("Ioan"))
-        assertEquals("a contact with no name is still a caller", "Someone", callTitle("  "))
-        assertEquals("Incoming video call", callText(true))
-        assertEquals("Incoming call", callText(false))
+        // A contact with no name is still a caller: the notification says "Someone" in the phone's language.
+        assertNull(callTitle("  "))
+        assertEquals(R.string.ft_incoming_video_call, callText(true))
+        assertEquals(R.string.ft_incoming_call, callText(false))
+    }
+
+    // Notifications speak the phone's language, like the app (the same languages as
+    // src/i18n/*.json). Every translation has every text of the English one, and none is empty.
+    @Test
+    fun notificationTextsExistInEveryLanguage() {
+        val res = File("src/main/res")
+        fun texts(dir: String): Map<String, String> {
+            val file = File(res, "$dir/ft_strings.xml")
+            assertTrue("missing $file", file.isFile)
+            val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+                .getElementsByTagName("string")
+            return (0 until nodes.length).map { nodes.item(it) as Element }
+                .associate { it.getAttribute("name") to it.textContent.trim() }
+        }
+        val english = texts("values")
+        assertTrue(english.isNotEmpty())
+        val languages = listOf(
+            "es", "pt", "fr", "de", "it", "ro", "ru", "uk", "pl", "tr", "ar",
+            "hi", "bn", "in", "vi", "th", "ja", "ko", "zh-rCN", "zh-rTW",
+        )
+        for (language in languages) {
+            val translated = texts("values-$language")
+            assertEquals(language, english.keys, translated.keys)
+            translated.forEach { (name, text) -> assertTrue("$language/$name", text.isNotEmpty()) }
+        }
     }
 
     // The notification's buttons come back as an extra on the intent that opens the app; anything

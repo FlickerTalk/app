@@ -114,10 +114,10 @@ const val CALL_ACTION = "ft.call.action"
 /** What the user pressed on the call notification, if it was one of ours. */
 fun callAction(value: String?): String = if (value == "answer" || value == "decline") value else ""
 
-/** Who is calling; a contact with no name is still a caller. */
-fun callTitle(name: String): String = name.trim().ifEmpty { "Someone" }
+/** Who is calling; null for a contact with no name, who is still a caller ("Someone"). */
+fun callTitle(name: String): String? = name.trim().ifEmpty { null }
 
-fun callText(video: Boolean): String = if (video) "Incoming video call" else "Incoming call"
+fun callText(video: Boolean): Int = if (video) R.string.ft_incoming_video_call else R.string.ft_incoming_call
 
 /**
  * FCM wake-ups (M4). The push carries nothing to read: when the app is not on screen, a plain
@@ -161,7 +161,7 @@ private fun showCall(context: Context, title: String, text: String) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         manager.createNotificationChannel(
-            NotificationChannel(CALL_CHANNEL, "Calls", NotificationManager.IMPORTANCE_HIGH).apply {
+            NotificationChannel(CALL_CHANNEL, context.getString(R.string.ft_channel_calls), NotificationManager.IMPORTANCE_HIGH).apply {
                 setSound(null, null) // the ringtone is ours, so the notification stays quiet
                 enableVibration(false)
             }
@@ -196,7 +196,7 @@ private fun showActivityNotification(context: Context) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Messages and calls", NotificationManager.IMPORTANCE_HIGH)
+            NotificationChannel(CHANNEL, context.getString(R.string.ft_channel_messages), NotificationManager.IMPORTANCE_HIGH)
         )
     }
     val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
@@ -206,7 +206,7 @@ private fun showActivityNotification(context: Context) {
     val notification = NotificationCompat.Builder(context, CHANNEL)
         .setSmallIcon(R.drawable.ft_notification)
         .setContentTitle("FlickerTalk")
-        .setContentText("Something new is waiting for you")
+        .setContentText(context.getString(R.string.ft_something_new))
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .setAutoCancel(true)
@@ -415,7 +415,11 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         try {
             val args = invoke.parseArgs(RingingArgs::class.java)
             silence()
-            showCall(activity, callTitle(args.caller), callText(args.video))
+            showCall(
+                activity,
+                callTitle(args.caller) ?: activity.getString(R.string.ft_someone),
+                activity.getString(callText(args.video)),
+            )
             val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val ringing = ringingFor(audio.ringerMode, quiet = args.muted || !mayDisturbNow(activity))
             if (ringing.sound) {

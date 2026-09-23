@@ -14,7 +14,7 @@ import "@ionic/vue/css/display.css";
 import "./theme/variables.css";
 import "./theme/base.css";
 import { initTheme } from "./theme";
-import { i18n } from "./i18n";
+import { i18n, pickLocale, setLocale } from "./i18n";
 import { enablePush, start } from "./core";
 import { isOnboarded } from "./preferences";
 import { loadHistory, startCalls } from "./calls";
@@ -33,6 +33,8 @@ const ready = start().then(async () => {
   if (isOnboarded()) void enablePush();
   await loadHistory();
 });
-Promise.allSettled([ready, router.isReady()]).then(() => {
+// The texts follow the phone's language; the catalogue loads before the first screen.
+const language = setLocale(pickLocale(navigator.languages ?? [navigator.language]));
+Promise.allSettled([ready, language, router.isReady()]).then(() => {
   app.mount("#app");
 });

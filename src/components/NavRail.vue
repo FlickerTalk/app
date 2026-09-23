@@ -74,7 +74,7 @@ const isActive = (path: string) => route.path.startsWith(path);
   width: var(--ft-rail-width);
   padding: calc(env(safe-area-inset-top) + var(--ft-space-5)) 0 var(--ft-space-5);
   background: var(--ft-surface);
-  border-right: 1px solid var(--ft-border);
+  border-inline-end: 1px solid var(--ft-border);
 }
 @media (min-width: 768px) {
   .ft-rail {

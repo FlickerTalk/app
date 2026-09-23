@@ -284,7 +284,7 @@ const STATUS_ICON: Record<string, string> = {
 }
 .ft-chats.is-wide .ft-chats__list {
   flex: 0 0 360px;
-  border-right: 1px solid var(--ft-border);
+  border-inline-end: 1px solid var(--ft-border);
 }
 .ft-chats__detail {
   position: relative;
@@ -304,7 +304,7 @@ const STATUS_ICON: Record<string, string> = {
   background: transparent;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -413,7 +413,7 @@ const STATUS_ICON: Record<string, string> = {
   background: transparent;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 .ft-session__toggle:hover {

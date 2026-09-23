@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">কেউ একজন</string>
+    <string name="ft_incoming_call">ইনকামিং কল</string>
+    <string name="ft_incoming_video_call">ইনকামিং ভিডিও কল</string>
+    <string name="ft_channel_calls">কল</string>
+    <string name="ft_channel_messages">মেসেজ ও কল</string>
+    <string name="ft_something_new">আপনার জন্য নতুন কিছু অপেক্ষা করছে</string>
+</resources>

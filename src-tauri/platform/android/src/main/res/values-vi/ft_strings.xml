@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Ai đó</string>
+    <string name="ft_incoming_call">Cuộc gọi đến</string>
+    <string name="ft_incoming_video_call">Cuộc gọi video đến</string>
+    <string name="ft_channel_calls">Cuộc gọi</string>
+    <string name="ft_channel_messages">Tin nhắn và cuộc gọi</string>
+    <string name="ft_something_new">Có điều mới đang chờ bạn</string>
+</resources>

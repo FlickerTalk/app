@@ -47,7 +47,7 @@ const style = computed(() => ({
 
 .ft-avatar__spark {
   position: absolute;
-  right: 0;
+  inset-inline-end: 0;
   bottom: 0;
 }
 </style>

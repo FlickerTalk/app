@@ -31,3 +31,4 @@ dist-ssr
 
 # Rust workspace build output
 /target/
+src-tauri/platform/android/.gradle/
