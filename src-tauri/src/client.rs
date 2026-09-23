@@ -1408,6 +1408,13 @@ pub async fn core_pick_files(accept: Option<String>, app: AppHandle) -> Result<V
         .collect())
 }
 
+/// A photo taken right now with the camera app; it waits in the app's folder like a picked file.
+#[tauri::command]
+pub async fn core_take_photo(app: AppHandle) -> Result<Vec<PickedView>, String> {
+    let taken = tauri::async_runtime::spawn_blocking(move || app.platform().take_photo()).await.map_err(failed)?.map_err(failed)?;
+    Ok(taken.into_iter().map(|file| PickedView { path: file.path, name: file.name, mime: file.mime, size: file.size }).collect())
+}
+
 /// A file the user picked, waiting in the app's folder.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PickedView {

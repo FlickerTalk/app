@@ -241,6 +241,19 @@ impl<R: Runtime> Platform<R> {
         }
     }
 
+    /// A photo taken now with the camera app, copied into the app's folder like a picked file;
+    /// nothing if the user backed out (or the camera is not allowed yet).
+    pub fn take_photo(&self) -> Result<Vec<PickedFile>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Picked>("takePhoto", ())?.files)
+        }
+        #[cfg(not(mobile))]
+        {
+            Err(Error::Unsupported)
+        }
+    }
+
     /// What the user pressed on the call notification ("answer", "decline" or nothing), once.
     pub fn pending_call(&self) -> Result<String> {
         #[cfg(mobile)]

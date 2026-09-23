@@ -2,4 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
   <external-path name="my_images" path="." />
   <cache-path name="my_cache_images" path="." />
+  <!-- The app's own files: what the camera writes, what a message opens or shares. -->
+  <files-path name="files" path="." />
 </paths>

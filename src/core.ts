@@ -309,6 +309,12 @@ export async function pickFiles(accept = ""): Promise<PickedFile[]> {
   return invoke<PickedFile[]>("core_pick_files", { accept });
 }
 
+/** A photo taken right now with the phone's camera app, waiting in the app's folder like a
+ * picked file; nothing if the user backed out. */
+export async function takePhoto(): Promise<PickedFile[]> {
+  return invoke<PickedFile[]>("core_take_photo");
+}
+
 /** The bytes of a file the user picked, for a plugin that asked for one (issue app#3). */
 export async function readPicked(path: string): Promise<string> {
   return invoke<string>("core_read_picked", { path });

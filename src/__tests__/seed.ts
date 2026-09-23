@@ -55,6 +55,7 @@ export function seed(): void {
     // A hidden session: the same PIN gives the same session; here, always an empty one.
     if (command === "core_session_open") return { id: "s1", conversations: [] };
     if (command === "core_upload_start") return "up1";
+    if (command === "core_take_photo") return [{ path: "/data/uploads/photo.jpg", name: "photo-20260923-201530.jpg", mime: "image/jpeg", size: 1234 }];
     if (command === "core_contact") {
       return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false, keepFor: 0, burnAfterRead: 0, rules: { muted: false, acceptsChat: true, acceptsCalls: true, receipts: true } };
     }
