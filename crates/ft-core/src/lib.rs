@@ -23,7 +23,7 @@ pub mod web;
 pub use plugins::CATALOGUE_HOME;
 pub use web::{Fetch, Web, WebAnswer, WebRequest};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -128,13 +128,17 @@ pub struct Core {
     /// Where a move to a new phone writes its copies (set by the app).
     move_dir: OnceLock<PathBuf>,
     moving: std::sync::Mutex<moving::MoveState>,
-    /// The hidden sessions open right now. Only in memory: the app starts with all of them closed.
-    open_sessions: std::sync::Mutex<HashSet<String>>,
+    /// The hidden sessions open right now, with their slot. Only in memory: the app starts with
+    /// all of them closed.
+    open_sessions: std::sync::Mutex<HashMap<String, u8>>,
 }
 
 /// What a session's PIN is hashed with, so the hash is bound to this phone's key.
 const SESSION_PIN_CONTEXT: &str = "flickertalk 2026-09-23 hidden session pin";
 const SESSION_PIN_LENGTH: usize = 6;
+/// Route capabilities besides the device's own (app#9): the router always sees eight, so at most
+/// seven hidden sessions.
+const SPARE_SLOTS: u8 = 7;
 /// Settings keys: whether new contacts get receipts (app#6), and the weekly hours (app#7).
 const RECEIPTS_DEFAULT: &str = "receipts_default";
 const QUIET_HOURS: &str = "quiet_hours";
@@ -153,6 +157,12 @@ impl Core {
         };
         // A call cannot survive the app stopping.
         store.finish_open_calls(now()).await?;
+        // Seven spare route capabilities besides our own, made once (app#9).
+        if store.spare_capabilities().await?.is_empty() {
+            for slot in 1..=SPARE_SLOTS {
+                store.add_spare_capability(slot, RouteCapability::generate().as_bytes()).await?;
+            }
+        }
         if store.setting(INSTALLED_AT).await?.is_none() {
             store.set_setting(INSTALLED_AT, &now().to_string()).await?;
         }
@@ -266,9 +276,16 @@ impl Core {
 
     /// This device's Contact Card, to show as a QR code or share as a link.
     pub async fn my_card(&self) -> Result<ContactCard> {
+        self.my_card_in(None).await
+    }
+
+    /// Our card as a hidden session hands it out: with the session's own route capability, so
+    /// what its contacts send is known to be for it (app#9).
+    pub async fn my_card_in(&self, session: Option<&str>) -> Result<ContactCard> {
+        let capability = self.capability_of(session).await?;
         let (name, mailbox) = (self.name().await?, self.mailbox().await?);
         let mut identity = self.identity.lock().await;
-        let card = ContactCard::create(&mut identity, name, self.capability, mailbox);
+        let card = ContactCard::create(&mut identity, name, capability, mailbox);
         // Creating the first card adds the Olm fallback key to the account.
         self.store.save_identity(&identity.seal(&self.key), self.capability.as_bytes()).await?;
         Ok(card)
@@ -283,7 +300,7 @@ impl Core {
     /// already known stays where they were.
     pub async fn add_contact_in(&self, link: &str, name: Option<String>, session: Option<&str>) -> Result<Contact> {
         if let Some(session) = session {
-            ensure!(self.open_sessions.lock().expect("sessions poisoned").contains(session), "that session is not open");
+            ensure!(self.open_sessions.lock().expect("sessions poisoned").contains_key(session), "that session is not open");
         }
         let card = ContactCard::from_link(link)?;
         let device_id = card.device_id();
@@ -323,16 +340,34 @@ impl Core {
     pub async fn open_session(&self, pin: &str) -> Result<String> {
         ensure!(pin.len() == SESSION_PIN_LENGTH && pin.bytes().all(|byte| byte.is_ascii_digit()), "a PIN is six digits");
         let hash = *blake3::keyed_hash(&blake3::derive_key(SESSION_PIN_CONTEXT, &self.key), pin.as_bytes()).as_bytes();
-        let id = match self.store.session_by_pin(&hash).await? {
-            Some(id) => id,
+        let (id, slot) = match self.store.session_by_pin(&hash).await? {
+            Some(id) => match self.store.session_slot(&id).await? {
+                Some(slot) => (id, slot),
+                None => {
+                    // Made before slots: it gets one now and tells its contacts the new way in.
+                    let slot = self.free_slot().await?;
+                    self.store.set_session_slot(&id, slot).await?;
+                    self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
+                    for contact in self.store.session_contacts(&id).await? {
+                        let _ = self.introduce(&contact).await;
+                    }
+                    (id, slot)
+                }
+            },
             None => {
+                let slot = self.free_slot().await?;
                 let id = MessageId::new().to_string();
-                self.store.add_session(&id, &hash).await?;
-                id
+                self.store.add_session(&id, &hash, slot).await?;
+                (id, slot)
             }
         };
-        self.open_sessions.lock().expect("sessions poisoned").insert(id.clone());
+        self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
         Ok(id)
+    }
+
+    async fn free_slot(&self) -> Result<u8> {
+        let used = self.store.used_slots().await?;
+        (1..=SPARE_SLOTS).find(|slot| !used.contains(slot)).ok_or_else(|| anyhow!("no room for another session"))
     }
 
     /// Leaves the session: from now on it receives in silence, until its PIN opens it again.
@@ -342,14 +377,47 @@ impl Core {
 
     /// The sessions open right now, oldest first.
     pub fn open_sessions(&self) -> Vec<String> {
-        let mut open: Vec<String> = self.open_sessions.lock().expect("sessions poisoned").iter().cloned().collect();
+        let mut open: Vec<String> = self.open_sessions.lock().expect("sessions poisoned").keys().cloned().collect();
         open.sort();
         open
     }
 
+    /// The slots of the sessions open right now: a wake-up for any other slot stays quiet.
+    pub fn open_slots(&self) -> Vec<u8> {
+        let mut slots: Vec<u8> = self.open_sessions.lock().expect("sessions poisoned").values().copied().collect();
+        slots.sort();
+        slots
+    }
+
+    /// The hashes the router gets (app#9): our own capability first, then the seven spares,
+    /// used or not. Always the same eight.
+    pub async fn route_capability_hashes(&self) -> Result<[[u8; 32]; 8]> {
+        let mut hashes = [self.capability.hash(); 8];
+        for (slot, capability) in self.store.spare_capabilities().await? {
+            hashes[slot as usize] = RouteCapability::from_bytes(capability).hash();
+        }
+        Ok(hashes)
+    }
+
+    /// The route capability a session hands out, or our own for the main list.
+    async fn capability_of(&self, session: Option<&str>) -> Result<RouteCapability> {
+        let Some(session) = session else { return Ok(self.capability) };
+        let slot = self.store.session_slot(session).await?.ok_or_else(|| anyhow!("the session has no slot"))?;
+        let spare = self.store.spare_capabilities().await?.into_iter().find(|(spare, _)| *spare == slot);
+        spare.map(|(_, capability)| RouteCapability::from_bytes(capability)).ok_or_else(|| anyhow!("no capability for the slot"))
+    }
+
+    /// The session a sender belongs to, from the hash of our capability they used.
+    async fn session_via(&self, via: Option<&[u8]>) -> Result<Option<String>> {
+        let Some(via) = via else { return Ok(None) };
+        let hashes = self.route_capability_hashes().await?;
+        let Some(slot) = (1..8).find(|slot| hashes[*slot].as_slice() == via) else { return Ok(None) };
+        self.store.session_with_slot(slot as u8).await
+    }
+
     /// Whether what this contact sends must make no noise: they belong to a closed session.
     pub(crate) fn silent(&self, contact: &Contact) -> bool {
-        contact.session.as_deref().is_some_and(|session| !self.open_sessions.lock().expect("sessions poisoned").contains(session))
+        contact.session.as_deref().is_some_and(|session| !self.open_sessions.lock().expect("sessions poisoned").contains_key(session))
     }
 
     /// The call history the screen may show: the main list's calls and those of open sessions.
@@ -646,10 +714,14 @@ impl Core {
                 None => {
                     let (channel, plaintext, sender_key) = accept_first_contact(&mut identity, &sealed)?;
                     let packet = Packet::decode(&plaintext)?;
-                    let card = match &packet.body {
-                        Body::ContactCard { card } | Body::Offer { card: Some(card), .. } => ContactCard::decode(card)?,
+                    let (card, via) = match &packet.body {
+                        Body::ContactCard { card, via } | Body::Offer { card: Some(card), via, .. } => {
+                            (ContactCard::decode(card)?, via.clone())
+                        }
                         _ => bail!("a first contact must introduce itself with its contact card"),
                     };
+                    // Scanned from a hidden session's card: they belong to that session (app#9).
+                    let session = self.session_via(via.as_deref()).await?;
                     if card.device_id() != from || card.contact_keys().exchange_key != sender_key {
                         bail!("the contact card does not match its sender");
                     }
@@ -660,7 +732,7 @@ impl Core {
                             name,
                             card: card.encode(),
                             mailbox: card.mailbox(),
-                            session: None,
+                            session,
                             receipts: self.receipts_default().await?,
                         })
                         .await?;
@@ -701,7 +773,7 @@ impl Core {
             Body::Delivered { ids } => self.receipt(id, ids, MessageState::Delivered).await?,
             Body::Received { ids } => self.receipt(id, ids, MessageState::Sent).await?,
             Body::Read { ids } => self.receipt(id, ids, MessageState::Read).await?,
-            Body::ContactCard { card } => {
+            Body::ContactCard { card, .. } => {
                 let card = ContactCard::decode(&card)?;
                 if card.device_id().as_str() != id {
                     bail!("a contact sent someone else's card");
@@ -790,9 +862,15 @@ impl Core {
 
     /// Sends our Contact Card, so the contact can read us and reach us.
     async fn introduce(&self, contact: &Contact) -> Result<()> {
-        let card = self.my_card().await?;
-        self.transmit(contact, &Packet::new(Body::ContactCard { card: card.encode() })).await?;
+        let card = self.my_card_in(contact.session.as_deref()).await?;
+        let via = self.via(contact)?;
+        self.transmit(contact, &Packet::new(Body::ContactCard { card: card.encode(), via })).await?;
         Ok(())
+    }
+
+    /// The hash of the contact's capability we use, so they know where we belong (app#9).
+    pub(crate) fn via(&self, contact: &Contact) -> Result<Option<Vec<u8>>> {
+        Ok(Some(ContactCard::decode(&contact.card)?.route_capability().hash().to_vec()))
     }
 
     /// Control packets (receipts, cards, preferences) are sent once, by whichever way works.

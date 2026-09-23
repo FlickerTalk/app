@@ -30,7 +30,7 @@ const pasted = ref("");
 const error = ref("");
 
 onMounted(async () => {
-  link.value = await myCardLink();
+  link.value = await myCardLink(session);
 });
 
 // The share sheet (WhatsApp, Signal, mail…) sends the link; only where there is none is it copied.

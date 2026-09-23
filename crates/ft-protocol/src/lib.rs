@@ -75,6 +75,11 @@ pub enum Body {
     ContactCard {
         #[serde(with = "serde_bytes")]
         card: Vec<u8>,
+        /// The hash of the recipient's route capability the sender uses (app#9): it tells the
+        /// recipient which of its hidden sessions, if any, the sender belongs to. Absent from
+        /// versions before, which means the main list.
+        #[serde(default, with = "serde_bytes")]
+        via: Option<Vec<u8>>,
     },
     /// Whether the sender uses the mailbox (§19); travels only between the two devices.
     MailboxPreference { enabled: bool },
@@ -85,6 +90,9 @@ pub enum Body {
         sdp: String,
         #[serde(default, with = "serde_bytes")]
         card: Option<Vec<u8>>,
+        /// As in `ContactCard`: which of the recipient's capabilities the sender uses.
+        #[serde(default, with = "serde_bytes")]
+        via: Option<Vec<u8>>,
     },
     /// WebRTC answer, the plaintext of a `Signal`.
     Answer { sdp: String },
@@ -279,11 +287,12 @@ mod tests {
         round_trip(Body::Typing);
         round_trip(Body::Ping);
         round_trip(Body::Pong);
-        round_trip(Body::ContactCard { card: vec![1, 2, 3] });
+        round_trip(Body::ContactCard { card: vec![1, 2, 3], via: None });
+        round_trip(Body::ContactCard { card: vec![1, 2, 3], via: Some(vec![9; 32]) });
         round_trip(Body::MailboxPreference { enabled: false });
         round_trip(Body::Block);
-        round_trip(Body::Offer { sdp: "v=0".to_owned(), card: Some(vec![1]) });
-        round_trip(Body::Offer { sdp: "v=0".to_owned(), card: None });
+        round_trip(Body::Offer { sdp: "v=0".to_owned(), card: Some(vec![1]), via: Some(vec![9; 32]) });
+        round_trip(Body::Offer { sdp: "v=0".to_owned(), card: None, via: None });
         round_trip(Body::Answer { sdp: "v=0".to_owned() });
         round_trip(Body::File {
             name: "photo.jpg".to_owned(),

@@ -60,12 +60,13 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
     let _ = slot.set(core.clone());
     network.attach(&core);
 
-    let capability = core.route_capability().hash();
-    if router.register(&capability).await.is_err() {
+    // Always eight capabilities: our own and seven for hidden sessions, used or not (app#9).
+    let capabilities = core.route_capability_hashes().await?;
+    if router.register(&capabilities).await.is_err() {
         let later = router.clone();
         tokio::spawn(async move {
             let mut wait = Duration::from_secs(2);
-            while later.register(&capability).await.is_err() {
+            while later.register(&capabilities).await.is_err() {
                 tokio::time::sleep(wait).await;
                 wait = (wait * 2).min(Duration::from_secs(60));
             }

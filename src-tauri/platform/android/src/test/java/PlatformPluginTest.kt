@@ -160,4 +160,20 @@ class PlatformPluginTest {
         assertEquals(Ringing(sound = false, vibrate = false), ringingFor(AudioManager.RINGER_MODE_NORMAL, quiet = true))
         assertEquals(Ringing(sound = true, vibrate = true), ringingFor(AudioManager.RINGER_MODE_NORMAL, quiet = false))
     }
+
+    // Issue app#9: a wake says which of the eight capabilities was used. The device's own (0, or
+    // none from an older router) always tells; a hidden session's only while it is open.
+    @Test
+    fun aWakeForTheMainListIsAlwaysHeard() {
+        assertEquals(true, wakeIsHeard(null, emptySet()))
+        assertEquals(true, wakeIsHeard("0", emptySet()))
+    }
+
+    @Test
+    fun aWakeForAHiddenSessionIsHeardOnlyWhileItIsOpen() {
+        assertEquals(false, wakeIsHeard("3", emptySet()))
+        assertEquals(false, wakeIsHeard("3", setOf(1, 2)))
+        assertEquals(true, wakeIsHeard("3", setOf(3)))
+        assertEquals(false, wakeIsHeard("nonsense", setOf(3)))
+    }
 }

@@ -1019,3 +1019,70 @@ async fn quiet_hours_are_kept_and_checked() {
     bob.set_quiet_hours(None).await.expect("turns off");
     assert_eq!(bob.quiet_hours().await.unwrap(), None);
 }
+
+// app#9: the router always gets eight capability hashes, the first the device's own, the same
+// on every start, so it cannot tell how many hidden sessions there are.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_router_always_gets_eight_capabilities() {
+    let net = Net::new();
+    let bob = device(&net, "Bob").await;
+    let hashes = bob.route_capability_hashes().await.expect("hashes");
+    assert_eq!(hashes[0], bob.route_capability().hash());
+    let distinct: std::collections::HashSet<_> = hashes.iter().collect();
+    assert_eq!(distinct.len(), 8);
+    bob.open_session("246810").await.expect("opens");
+    assert_eq!(bob.route_capability_hashes().await.expect("hashes"), hashes, "sessions change nothing the router sees");
+}
+
+// Each session takes a slot of its own, at most seven; the phone knows which are open.
+#[tokio::test(flavor = "multi_thread")]
+async fn sessions_take_a_slot_each_up_to_seven() {
+    let net = Net::new();
+    let bob = device(&net, "Bob").await;
+    let mut slots = Vec::new();
+    for pin in 0..7 {
+        let session = bob.open_session(&format!("10000{pin}")).await.expect("opens");
+        slots.push(bob.store().session_slot(&session).await.unwrap().expect("a slot"));
+    }
+    slots.sort();
+    assert_eq!(slots, vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(bob.open_slots(), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert!(bob.open_session("999999").await.is_err(), "an eighth has no room");
+    bob.close_session(&bob.open_sessions()[0]);
+    assert_eq!(bob.open_slots().len(), 6);
+}
+
+// A contact added in a session learns the session's capability, never the device's own: a wake
+// for them says it is for that session.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_contact_in_a_session_gets_the_sessions_capability() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    pair(&carol, &bob).await;
+    let friends = bob.open_session("246810").await.expect("opens");
+    let link = alice.my_card().await.expect("card").to_link();
+    bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
+    until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+
+    let at_alice = alice.peer(&id(&bob)).await.expect("peer").capability;
+    let at_carol = carol.peer(&id(&bob)).await.expect("peer").capability;
+    assert_eq!(at_carol.as_bytes(), bob.route_capability().as_bytes(), "the main list keeps the device's own");
+    assert_ne!(at_alice.as_bytes(), bob.route_capability().as_bytes());
+    let slot = bob.store().session_slot(&friends).await.unwrap().expect("slot") as usize;
+    assert_eq!(at_alice.hash(), bob.route_capability_hashes().await.unwrap()[slot]);
+}
+
+// The other way round: the session shows its own QR and someone scans it. They land in that
+// session, because what they send says which capability they used.
+#[tokio::test(flavor = "multi_thread")]
+async fn scanning_a_sessions_card_puts_you_in_that_session() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let friends = bob.open_session("246810").await.expect("opens");
+    let link = bob.my_card_in(Some(&friends)).await.expect("card").to_link();
+    alice.add_contact(&link, None).await.expect("alice scans");
+    until("bob knows alice", || async { bob.store().contact(&id(&alice)).await.unwrap().is_some() }).await;
+
+    assert_eq!(bob.store().contact(&id(&alice)).await.unwrap().unwrap().session.as_deref(), Some(friends.as_str()));
+    assert!(bob.store().conversations().await.unwrap().is_empty(), "not in the main list");
+}
