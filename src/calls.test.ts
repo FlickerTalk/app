@@ -6,6 +6,9 @@ const tauri = vi.hoisted(() => ({
   handlers: {} as Record<string, (event: { payload: unknown }) => void>,
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
+// Answering from the notification must open the call screen, as the in-app button does.
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("./router", () => ({ router: { push: navigation.push } }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, handler: (event: { payload: unknown }) => void) => {
     tauri.handlers[name] = handler;
@@ -260,9 +263,12 @@ describe("calls", () => {
       ),
     );
 
+    navigation.push.mockClear();
     await calls.applyCallNotification();
     await flushPromises();
     expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer", expect.objectContaining({ call: "call-1" }));
+    // Without the call screen there is no way to hang up.
+    expect(navigation.push).toHaveBeenCalledWith(`/call/${calls.call.contact}`);
   });
 
   it("ends the call the user declined on the notification", async () => {

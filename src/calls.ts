@@ -7,6 +7,7 @@ import { markRaw, reactive } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { storedCallRouting } from "./preferences";
+import { router } from "./router";
 
 export type CallPhase = "idle" | "calling" | "ringing" | "connecting" | "active" | "ended";
 export type CallOutcome = "answered" | "missed" | "declined" | "busy" | "cancelled" | "unreachable" | "failed";
@@ -229,8 +230,12 @@ export async function acceptCall(): Promise<void> {
  */
 export async function applyCallNotification(): Promise<void> {
   const action = await invoke<string>("core_pending_call").catch(() => "");
-  if (action === "answer") await acceptCall();
-  else if (action === "decline") await hangUp();
+  if (action === "answer" && call.phase === "ringing") {
+    // Like the in-app button: the call screen is where the call is seen and hung up.
+    const accepting = acceptCall();
+    await router.push(`/call/${call.contact}`);
+    await accepting;
+  } else if (action === "decline") await hangUp();
 }
 
 /** Hangs up, declines or gives up, whichever it is by now. */
