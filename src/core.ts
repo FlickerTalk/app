@@ -363,6 +363,22 @@ export async function plugins(): Promise<PluginView[]> {
   return invoke<PluginView[]>("core_plugins");
 }
 
+/** A tool the app carries; it is only installed if the user says so (§53). */
+export interface OfferedPlugin {
+  id: string;
+  name: string;
+  version: string;
+  installed: boolean;
+}
+
+export async function offeredPlugins(): Promise<OfferedPlugin[]> {
+  return invoke<OfferedPlugin[]>("core_offered_plugins");
+}
+
+export async function installPlugin(plugin: string): Promise<void> {
+  await invoke("core_plugin_install", { plugin });
+}
+
 /** What the user allows a plugin to do; never more than it asked for (§53). */
 export async function grantPlugin(plugin: string, granted: PluginPermissions): Promise<void> {
   await invoke("core_plugin_grant", { plugin, granted });

@@ -24,13 +24,21 @@ const AI = {
   installedAt: 1_800_000_000_000,
 };
 
+/** What the app carries: the tools of the phone, installed only if the user says so (§53). */
+const OFFERED = [
+  { id: "com.flickertalk.code", name: "Code block", version: "1.0.0", installed: true },
+  { id: "com.flickertalk.sketch", name: "Sketch", version: "1.0.0", installed: false },
+];
+
 describe("PluginsPage", () => {
   beforeEach(() => {
     seed();
     // The seeded bridge is replaced, so the calls are recorded here.
     installTauri((command, args) => {
       calls.push([command, args]);
-      return command === "core_plugins" ? [CODE, AI] : undefined;
+      if (command === "core_plugins") return [CODE, AI];
+      if (command === "core_offered_plugins") return OFFERED;
+      return undefined;
     });
   });
 
@@ -75,5 +83,23 @@ describe("PluginsPage", () => {
     await wrapper.find("[data-test='remove-confirm']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_plugin_remove", { plugin: "com.flickertalk.code" }]);
+  });
+
+  // A tool that travels with the app is offered, never installed behind the user's back (§53).
+  it("offers the tools the app carries that are not installed yet", async () => {
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Sketch");
+    expect(wrapper.find("[data-test='install-com.flickertalk.sketch']").exists()).toBe(true);
+    expect(wrapper.find("[data-test='install-com.flickertalk.code']").exists()).toBe(false);
+  });
+
+  it("installs one when the user asks for it", async () => {
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[data-test='install-com.flickertalk.sketch']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_plugin_install", { plugin: "com.flickertalk.sketch" }]);
+    expect(calls.filter(([command]) => command === "core_plugins").length).toBeGreaterThan(1);
   });
 });
