@@ -24,6 +24,7 @@ import {
   trashOutline,
 } from "ionicons/icons";
 import {
+  formatSize,
   grantPlugin,
   installPlugin,
   offeredPlugins,
@@ -46,6 +47,11 @@ onMounted(refresh);
 async function refresh() {
   installed.value = await plugins();
   offered.value = (await offeredPlugins().catch(() => [])).filter((one) => !one.installed);
+}
+
+/** What a tool costs to bring in. The app already carries some of them: those cost nothing. */
+function weight(one: OfferedPlugin): string {
+  return one.carried ? "" : formatSize(one.size);
 }
 
 /** Nothing arrives installed: the user picks the tool, and it starts with no permission (§53). */
@@ -177,7 +183,7 @@ async function remove(id: string) {
             <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
             <ion-label>
               {{ one.name }}
-              <p class="ft-muted">{{ one.summary }}</p>
+              <p class="ft-muted">{{ one.summary }}<span v-if="weight(one)"> · {{ weight(one) }}</span></p>
             </ion-label>
             <button
               slot="end"

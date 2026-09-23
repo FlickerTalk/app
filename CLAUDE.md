@@ -11,10 +11,21 @@ Todo el **cliente** de FlickerTalk. Es un proyecto Tauri 2 generado con `create-
 | `packages/`   | `ui` (TypeScript)                                                            |
 
 Los plugins **no** viven aquí: cada uno tiene su repo (`FlickerTalk/plugin-images`, `plugin-pdf`,
-`plugin-redact`, `plugin-sketch`, `plugin-markdown`) y **ninguno viaja dentro de la app**: se
-descargan del catálogo firmado de `flickertalk.com/plugins`. Aquí está solo el runtime que los
-instala y ejecuta (`crates/ft-plugins`) y la API que el núcleo les expone; el contrato para
-terceros vive en `plugin-sdk/` (MIT).
+`plugin-redact`, `plugin-sketch`, `plugin-markdown`). Aquí está el runtime que los instala y
+ejecuta (`crates/ft-plugins`) y la API que el núcleo les expone; el contrato para terceros vive
+en `plugin-sdk/` (MIT).
+
+**Semillas** (`src-tauri/resources/plugins/`): la app lleva dentro los paquetes **pequeños**
+(hoy los cinco, 17,5 KB en total), para que un teléfono sin red los tenga y para que en iOS la
+primera versión no descargue nada (App Store 4.7). Se copian tal cual del catálogo construido:
+
+```sh
+for d in ../web/site/plugins/com.flickertalk.*; do cp $d/*.ftplugin src-tauri/resources/plugins/$(basename $d | sed 's/com.flickertalk.//').ftplugin; done
+```
+
+Un test impide que una semilla pase de 32 KB (128 KB entre todas): **lo pesado no viaja, se
+descarga**. La lista de Ajustes junta semillas y catálogo y se queda con la versión más nueva de
+las dos; en iOS solo enseña las semillas.
 
 La plataforma objetivo del MVP es **Android e iOS** (`§85`); escritorio compila pero no se publica.
 

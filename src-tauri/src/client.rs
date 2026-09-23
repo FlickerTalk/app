@@ -451,6 +451,8 @@ impl Client {
         online.core.set_files_dir(dir.join("files"));
         online.core.set_move_dir(dir.join(MOVE_DIR));
         online.core.set_plugins_dir(dir.join("plugins"));
+        // A new version of the app brings a fixed tool to whoever had installed it (§53).
+        update_installed_plugins(&online.core).await;
         if let Some(app) = self.app.get() {
             refresh_served_plugins(app, &online.core, dir).await;
         }
@@ -792,47 +794,164 @@ pub async fn core_plugin_remove(plugin: String, app: AppHandle, client: State<'_
     Ok(())
 }
 
-/// What the catalogue offers this phone (§56): nothing travels inside the app, so this is a
-/// download. Reading it installs nothing.
-#[derive(Serialize, Deserialize)]
+/// The tools the app carries: a **seed**, not a store (§52). They weigh almost nothing, so a
+/// phone with no network —and an iPhone, where nothing is downloaded in v1— still has them. What
+/// is heavy never travels here: it is a download, and only for whoever wants it.
+const BUNDLED_PLUGINS: &[&[u8]] = &[
+    include_bytes!("../resources/plugins/markdown.ftplugin"),
+    include_bytes!("../resources/plugins/images.ftplugin"),
+    include_bytes!("../resources/plugins/pdf.ftplugin"),
+    include_bytes!("../resources/plugins/redact.ftplugin"),
+    include_bytes!("../resources/plugins/sketch.ftplugin"),
+];
+
+/// What a seed may weigh, and what all of them may weigh together. Past this, a tool is a
+/// download: the app does not grow because the catalogue does. The test is what holds the line,
+/// so a heavy tool never reaches a release.
+#[cfg(test)]
+const SEED_LIMIT: u64 = 32 * 1024;
+#[cfg(test)]
+const SEEDS_LIMIT: u64 = 128 * 1024;
+
+/// A tool the user may add, from the app itself or from the catalogue (§56).
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct CatalogueView {
+pub struct OfferedPlugin {
     id: String,
     name: String,
     version: String,
     summary: String,
     size: u64,
     installed: bool,
+    /// Whether it is already inside the app; if not, adding it downloads it.
+    carried: bool,
 }
 
+/// Whether `version` is newer than `than`, both as `1.2.3`.
+fn newer(version: &str, than: &str) -> bool {
+    let parts = |version: &str| version.split('.').map(|part| part.parse().unwrap_or(0)).collect::<Vec<u32>>();
+    parts(version) > parts(than)
+}
+
+/// The tools the app carries, read from the packages themselves.
+fn seeds() -> Vec<OfferedPlugin> {
+    BUNDLED_PLUGINS
+        .iter()
+        .filter_map(|package| {
+            let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).ok()?;
+            Some(OfferedPlugin {
+                id: plugin.manifest.id,
+                name: plugin.manifest.name,
+                version: plugin.manifest.version,
+                summary: plugin.manifest.summary,
+                size: package.len() as u64,
+                installed: false,
+                carried: true,
+            })
+        })
+        .collect()
+}
+
+/// One list for the user: what the app carries and what the catalogue adds, the newer of the two
+/// when both have it, and marked with what is already installed here.
+fn merged(carried: Vec<OfferedPlugin>, listed: &[ft_plugins::CatalogueEntry], here: &[String]) -> Vec<OfferedPlugin> {
+    let mut offered = carried;
+    for entry in listed {
+        let listed = OfferedPlugin {
+            id: entry.id.clone(),
+            name: entry.name.clone(),
+            version: entry.version.clone(),
+            summary: entry.summary.clone(),
+            size: entry.size,
+            installed: false,
+            carried: false,
+        };
+        match offered.iter_mut().find(|one| one.id == entry.id) {
+            Some(seed) if newer(&entry.version, &seed.version) => *seed = listed,
+            Some(_) => {}
+            None => offered.push(listed),
+        }
+    }
+    for one in &mut offered {
+        one.installed = here.contains(&one.id);
+    }
+    offered.sort_by(|a, b| a.name.cmp(&b.name));
+    offered
+}
+
+/// The package of a tool the app carries, if it is one of them.
+fn seed_package(id: &str) -> Option<&'static [u8]> {
+    BUNDLED_PLUGINS
+        .iter()
+        .find(|package| {
+            ft_plugins::open(package, &ft_plugins::catalogue()).is_ok_and(|plugin| plugin.manifest.id == id)
+        })
+        .copied()
+}
+
+/// Whether this phone downloads plugins at all. On iOS the first version of the app carries its
+/// tools and asks the catalogue for nothing (App Store 4.7, §52); everywhere else it downloads.
+fn downloads() -> bool {
+    !cfg!(target_os = "ios")
+}
+
+/// The tools the user may add: what the app carries, plus the catalogue where it is read (§56).
+/// A catalogue that cannot be reached is not an error: what the app carries is still offered.
 #[tauri::command]
-pub async fn core_catalogue(client: State<'_, Client>) -> Result<Vec<CatalogueView>, String> {
+pub async fn core_catalogue(client: State<'_, Client>) -> Result<Vec<OfferedPlugin>, String> {
     let core = client.core().await?;
     let here: Vec<String> =
         core.plugins().await.map_err(failed)?.into_iter().map(|plugin| plugin.manifest.id).collect();
-    let offered = core.catalogue(client.web(), &ft_plugins::catalogue()).await.map_err(failed)?;
-    Ok(offered
-        .into_iter()
-        .map(|entry| CatalogueView {
-            installed: here.contains(&entry.id),
-            id: entry.id,
-            name: entry.name,
-            version: entry.version,
-            summary: entry.summary,
-            size: entry.size,
-        })
-        .collect())
+    let listed = match downloads() {
+        true => core.catalogue(client.web(), &ft_plugins::catalogue()).await.unwrap_or_default(),
+        false => Vec::new(),
+    };
+    Ok(merged(seeds(), &listed, &here))
 }
 
-/// Downloads and installs one of them. Installing grants nothing (§53).
+/// Adds a tool: the one the app carries, or the one the catalogue lists when it is newer.
+/// Installing grants nothing (§53).
 #[tauri::command]
 pub async fn core_plugin_add(plugin: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let core = client.core().await?;
-    let offered = core.catalogue(client.web(), &ft_plugins::catalogue()).await.map_err(failed)?;
-    let entry = offered.into_iter().find(|entry| entry.id == plugin).ok_or("the catalogue does not list it")?;
-    core.add_plugin(&entry, client.web(), &ft_plugins::catalogue()).await.map_err(failed)?;
+    let seed = seed_package(&plugin);
+    let listed = match downloads() {
+        true => core.catalogue(client.web(), &ft_plugins::catalogue()).await.unwrap_or_default(),
+        false => Vec::new(),
+    };
+    let wanted = listed.iter().find(|entry| entry.id == plugin);
+    let carried_version = seed.and_then(|package| ft_plugins::open(package, &ft_plugins::catalogue()).ok());
+
+    match (wanted, seed) {
+        // The catalogue has it, and the app either does not carry it or carries an older one.
+        (Some(entry), _)
+            if carried_version.as_ref().is_none_or(|carried| newer(&entry.version, &carried.manifest.version)) =>
+        {
+            core.add_plugin(entry, client.web(), &ft_plugins::catalogue()).await.map_err(failed)?;
+        }
+        (_, Some(package)) => {
+            core.install_plugin(package, &ft_plugins::catalogue(), ft_plugins::Permissions::default())
+                .await
+                .map_err(failed)?;
+        }
+        _ => return Err("that tool is not offered here".to_owned()),
+    }
     refresh_served_plugins(&app, &core, client.dir()?).await;
     Ok(())
+}
+
+/// Keeps what the user installed in step with what the app now carries: a new version of the app
+/// brings a fixed tool even where nothing is downloaded. It never installs one by itself (§53).
+async fn update_installed_plugins(core: &Arc<ft_core::Core>) {
+    let installed = core.plugins().await.unwrap_or_default();
+    for package in BUNDLED_PLUGINS {
+        let Ok(plugin) = ft_plugins::open(package, &ft_plugins::catalogue()) else { continue };
+        let Some(known) = installed.iter().find(|one| one.manifest.id == plugin.manifest.id) else { continue };
+        if !newer(&plugin.manifest.version, &known.manifest.version) {
+            continue;
+        }
+        let _ = core.install_plugin(package, &ft_plugins::catalogue(), known.granted.clone()).await;
+    }
 }
 
 /// What a plugin remembers between two openings; its frame has no storage of its own (§53).
@@ -1210,6 +1329,86 @@ mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
 
     use super::*;
+
+    /// The tools the app carries are a seed, not a store: what is heavy is a download and only
+    /// for whoever wants it. The app stays small, whatever the catalogue grows to (§52).
+    #[test]
+    fn what_travels_inside_the_app_stays_tiny() {
+        let mut total = 0;
+        for package in BUNDLED_PLUGINS {
+            assert!(
+                package.len() as u64 <= SEED_LIMIT,
+                "a tool of {} bytes is a download, not a seed",
+                package.len()
+            );
+            let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is not signed for us");
+            assert!(!plugin.manifest.components.is_empty(), "{} shows nothing", plugin.manifest.id);
+            assert!(plugin.file("dist/index.js").is_some(), "{} has no code", plugin.manifest.id);
+            total += package.len() as u64;
+        }
+        assert!(total <= SEEDS_LIMIT, "the seeds weigh {total} bytes, which is no longer little");
+    }
+
+    fn entry(id: &str, version: &str) -> ft_plugins::CatalogueEntry {
+        ft_plugins::CatalogueEntry {
+            id: id.to_owned(),
+            name: "Tool".to_owned(),
+            version: version.to_owned(),
+            min_core_version: "0.1.0".to_owned(),
+            size: 10,
+            hash: "ab".repeat(32),
+            url: format!("{}/{id}/{version}.ftplugin", ft_core::CATALOGUE_HOME),
+            summary: "Does a thing.".to_owned(),
+        }
+    }
+
+    fn carried(id: &str, version: &str) -> OfferedPlugin {
+        OfferedPlugin {
+            id: id.to_owned(),
+            name: "Tool".to_owned(),
+            version: version.to_owned(),
+            summary: "Does a thing.".to_owned(),
+            size: 4096,
+            installed: false,
+            carried: true,
+        }
+    }
+
+    // What the user sees is one list: what the app already carries and what the catalogue adds.
+    // When both have the same tool, the newer one wins, so an app that sat in a store for months
+    // still installs the version that was fixed since.
+    #[test]
+    fn the_list_joins_what_is_carried_and_what_is_offered_keeping_the_newer() {
+        let seeds = vec![carried("com.flickertalk.sketch", "1.0.0"), carried("com.flickertalk.pdf", "2.0.0")];
+        let listed = vec![entry("com.flickertalk.sketch", "1.1.0"), entry("com.flickertalk.ocr", "1.0.0")];
+
+        let offered = merged(seeds, &listed, &[]);
+        let by_id = |id: &str| offered.iter().find(|one| one.id == id).expect("listed").clone();
+
+        assert_eq!(by_id("com.flickertalk.sketch").version, "1.1.0", "the catalogue has a newer one");
+        assert!(!by_id("com.flickertalk.sketch").carried, "so it is a download");
+        assert_eq!(by_id("com.flickertalk.pdf").version, "2.0.0", "nothing newer is offered");
+        assert!(by_id("com.flickertalk.pdf").carried);
+        assert_eq!(by_id("com.flickertalk.ocr").size, 10, "what is only in the catalogue is a download");
+        assert!(!by_id("com.flickertalk.ocr").carried);
+        assert_eq!(offered.len(), 3);
+    }
+
+    #[test]
+    fn a_tool_already_here_shows_as_installed() {
+        let here = ["com.flickertalk.sketch".to_owned()];
+        let offered = merged(vec![carried("com.flickertalk.sketch", "1.0.0")], &[], &here);
+        assert!(offered[0].installed);
+    }
+
+    #[test]
+    fn a_version_is_newer_only_when_it_really_is() {
+        assert!(newer("1.1.0", "1.0.9"));
+        assert!(newer("1.0.10", "1.0.9"));
+        assert!(newer("2.0.0", "1.9.9"));
+        assert!(!newer("1.0.0", "1.0.0"));
+        assert!(!newer("1.0.0", "1.0.1"));
+    }
 
     fn message(state: MessageState, outgoing: bool) -> Message {
         Message { message_id: "m1".to_owned(), contact: "ft_bob".to_owned(), outgoing, body: "hi".to_owned(), sent_at: 42, state }

@@ -371,6 +371,8 @@ export interface OfferedPlugin {
   summary: string;
   size: number;
   installed: boolean;
+  /** Whether the app already carries it; if not, adding it downloads it (§52). */
+  carried: boolean;
 }
 
 export async function offeredPlugins(): Promise<OfferedPlugin[]> {
