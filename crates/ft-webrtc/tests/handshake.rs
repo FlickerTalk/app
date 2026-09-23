@@ -150,3 +150,27 @@ async fn two_peers_connect_through_the_turn_relay_alone() {
     let received = timeout(LIMIT, callee_inbox.next_text()).await.expect("received in time");
     assert_eq!(received.as_deref(), Some("hello"));
 }
+
+/// A peer that disappears without closing (its app killed, the phone reinstalled) must not look
+/// open for ever: the channel's close never comes, so the connection's own state has to end it.
+/// Otherwise everything sent to it vanishes and nothing falls back to the mailbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_that_vanishes_stops_being_open() {
+    let (caller_out, caller_signals) = mpsc::channel(32);
+    let (callee_out, callee_signals) = mpsc::channel(32);
+    let (caller, _) = Session::start(SessionConfig::offline(), Role::Caller, caller_out).await.expect("starts");
+    let (callee, _) = Session::start(SessionConfig::offline(), Role::Callee, callee_out).await.expect("starts");
+    pipe(caller_signals, callee.clone());
+    pipe(callee_signals, caller.clone());
+    caller.invite().await.expect("offers");
+    timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
+    timeout(LIMIT, callee.wait_open()).await.expect("opens in time").expect("opens");
+
+    callee.vanish().await;
+    let mut waited = Duration::ZERO;
+    while caller.is_open() && waited < Duration::from_secs(40) {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        waited += Duration::from_millis(250);
+    }
+    assert!(!caller.is_open(), "the caller still thinks a vanished peer is there");
+}
