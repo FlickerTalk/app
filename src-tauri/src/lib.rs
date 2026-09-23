@@ -74,6 +74,8 @@ pub fn run() {
             client::core_plugins,
             client::core_plugin_grant,
             client::core_plugin_remove,
+            client::core_offered_plugins,
+            client::core_plugin_install,
             client::core_erase,
             client::core_save_file,
             client::core_call_ice,

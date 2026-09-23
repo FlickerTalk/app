@@ -442,7 +442,7 @@ impl Client {
         online.core.set_files_dir(dir.join("files"));
         online.core.set_move_dir(dir.join(MOVE_DIR));
         online.core.set_plugins_dir(dir.join("plugins"));
-        install_bundled_plugins(&online.core).await;
+        update_installed_plugins(&online.core).await;
         if let Some(app) = self.app.get() {
             refresh_served_plugins(app, &online.core, dir).await;
         }
@@ -523,18 +523,69 @@ pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, 
     app.state::<crate::plugins::Plugins>().set(served);
 }
 
-/// Installs them the first time they are seen, and updates them when the app brings a newer one.
-/// Installing grants nothing (§53).
-async fn install_bundled_plugins(core: &Arc<ft_core::Core>) {
+/// Keeps the tools the user installed up to date with the ones the app now carries. Nothing is
+/// installed on its own: a tool the user never asked for is only offered (§53).
+async fn update_installed_plugins(core: &Arc<ft_core::Core>) {
     let installed = core.plugins().await.unwrap_or_default();
     for package in BUNDLED_PLUGINS {
         let Ok(plugin) = ft_plugins::open(package, &ft_plugins::catalogue()) else { continue };
-        let known = installed.iter().find(|one| one.manifest.id == plugin.manifest.id);
-        if known.is_some_and(|one| one.manifest.version == plugin.manifest.version) {
+        let Some(known) = installed.iter().find(|one| one.manifest.id == plugin.manifest.id) else { continue };
+        if known.manifest.version == plugin.manifest.version {
             continue;
         }
-        let _ = core.install_plugin(package, &ft_plugins::catalogue(), ft_plugins::Permissions::default()).await;
+        let _ = core.install_plugin(package, &ft_plugins::catalogue(), known.granted.clone()).await;
     }
+}
+
+/// A tool the app carries, and whether this phone already has it (§52).
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfferedPlugin {
+    id: String,
+    name: String,
+    version: String,
+    installed: bool,
+}
+
+/// Everything the app carries, in the order it carries it.
+fn offered_plugins(installed: &[String]) -> Vec<OfferedPlugin> {
+    BUNDLED_PLUGINS
+        .iter()
+        .filter_map(|package| {
+            let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).ok()?;
+            Some(OfferedPlugin {
+                installed: installed.contains(&plugin.manifest.id),
+                id: plugin.manifest.id,
+                name: plugin.manifest.name,
+                version: plugin.manifest.version,
+            })
+        })
+        .collect()
+}
+
+/// The tools the user may install, and the ones they already did (§53).
+#[tauri::command]
+pub async fn core_offered_plugins(client: State<'_, Client>) -> Result<Vec<OfferedPlugin>, String> {
+    let core = client.core().await?;
+    let installed: Vec<String> =
+        core.plugins().await.map_err(failed)?.into_iter().map(|plugin| plugin.manifest.id).collect();
+    Ok(offered_plugins(&installed))
+}
+
+/// Installs one of the tools the app carries. Installing grants it nothing (§53).
+#[tauri::command]
+pub async fn core_plugin_install(plugin: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    for package in BUNDLED_PLUGINS {
+        let Ok(one) = ft_plugins::open(package, &ft_plugins::catalogue()) else { continue };
+        if one.manifest.id != plugin {
+            continue;
+        }
+        core.install_plugin(package, &ft_plugins::catalogue(), ft_plugins::Permissions::default()).await.map_err(failed)?;
+        refresh_served_plugins(&app, &core, client.dir()?).await;
+        return Ok(());
+    }
+    Err(format!("{plugin} does not travel with this app"))
 }
 
 /// After a move (§60): the new phone forgets its temporary identity on the router and starts
@@ -1060,6 +1111,20 @@ mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
 
     use super::*;
+
+    // Nothing is installed behind the user's back (§53): what travels with the app is offered,
+    // and the user decides.
+    #[test]
+    fn what_travels_with_the_app_is_offered_not_installed() {
+        let offered = offered_plugins(&[]);
+        assert!(offered.iter().all(|one| !one.installed), "a tool cannot arrive installed");
+        assert!(offered.iter().any(|one| one.id == "com.flickertalk.images"));
+
+        let with_one = offered_plugins(&["com.flickertalk.images".to_owned()]);
+        let images = with_one.iter().find(|one| one.id == "com.flickertalk.images").expect("images is offered");
+        assert!(images.installed, "what is installed shows as installed");
+        assert!(!images.name.is_empty() && !images.version.is_empty());
+    }
 
     // The tools the app ships with (§52): every one of them opens with the catalogue's key and
     // names the element the frame shows, or the phone would install nothing and say nothing.

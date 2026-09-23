@@ -15,19 +15,43 @@ import {
   IonToggle,
   IonToolbar,
 } from "@ionic/vue";
-import { extensionPuzzleOutline, globeOutline, chatbubbleEllipsesOutline, createOutline, trashOutline } from "ionicons/icons";
-import { grantPlugin, plugins, removePlugin, type PluginPermissions, type PluginView } from "../core";
+import {
+  extensionPuzzleOutline,
+  globeOutline,
+  chatbubbleEllipsesOutline,
+  createOutline,
+  downloadOutline,
+  trashOutline,
+} from "ionicons/icons";
+import {
+  grantPlugin,
+  installPlugin,
+  offeredPlugins,
+  plugins,
+  removePlugin,
+  type OfferedPlugin,
+  type PluginPermissions,
+  type PluginView,
+} from "../core";
 import { t } from "../i18n";
 
 // Plan §53: a plugin is granted nothing by installing. Every permission it asked for is shown on
 // its own, with a switch, and can be taken back at any time.
 const installed = ref<PluginView[]>([]);
+const offered = ref<OfferedPlugin[]>([]);
 const asksToRemove = ref("");
 
 onMounted(refresh);
 
 async function refresh() {
   installed.value = await plugins();
+  offered.value = (await offeredPlugins().catch(() => [])).filter((one) => !one.installed);
+}
+
+/** Nothing arrives installed: the user picks the tool, and it starts with no permission (§53). */
+async function install(id: string) {
+  await installPlugin(id);
+  await refresh();
 }
 
 /** What a plugin asks for, one line per permission. */
@@ -143,6 +167,30 @@ async function remove(id: string) {
       </ion-list>
 
       <p v-if="!installed.length" class="ft-plugins__hint">{{ $t("plugins.none") }}</p>
+
+      <!-- The tools that travel with the app and this phone does not have yet (§52). -->
+      <template v-if="offered.length">
+        <h2 class="ft-plugins__title">{{ $t("plugins.available") }}</h2>
+        <ion-list inset class="ft-group">
+          <ion-item v-for="one in offered" :key="one.id" lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
+            <ion-label>
+              {{ one.name }}
+              <p class="ft-muted">{{ one.version }}</p>
+            </ion-label>
+            <button
+              slot="end"
+              type="button"
+              class="ft-plugins__install"
+              :data-test="`install-${one.id}`"
+              :aria-label="$t('plugins.install')"
+              @click="install(one.id)"
+            >
+              <ion-icon :icon="downloadOutline" aria-hidden="true" />
+            </button>
+          </ion-item>
+        </ion-list>
+      </template>
     </ion-content>
   </ion-page>
 </template>
@@ -153,6 +201,20 @@ async function remove(id: string) {
   color: var(--ft-muted);
   font-size: 14px;
   line-height: 1.4;
+}
+.ft-plugins__title {
+  margin: var(--ft-space-5) var(--ft-space-4) 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ft-muted);
+}
+.ft-plugins__install {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ft-accent);
+  font-size: 20px;
+  cursor: pointer;
 }
 .ft-plugins__remove,
 .ft-plugins__confirm {

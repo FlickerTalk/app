@@ -195,7 +195,9 @@
     "sendsAlone": "Send messages by itself",
     "asksNothing": "Asks for nothing",
     "remove": "Remove",
-    "none": "No plugins yet"
+    "none": "No plugins yet",
+    "available": "Tools you can add",
+    "install": "Install"
   },
   "emoji": {
     "open": "Emoji",
