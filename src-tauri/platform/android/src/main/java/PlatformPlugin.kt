@@ -317,6 +317,16 @@ class OpenSlotsArgs {
 /** Where a picked file is copied, inside the app's own folder. */
 const val PICKED_FOLDER = "uploads"
 
+/** A photo taken with the camera is named by when it was taken, like a voice note. */
+fun photoName(now: Long, zone: java.util.TimeZone = java.util.TimeZone.getDefault()): String {
+    val format = java.text.SimpleDateFormat("'photo-'yyyyMMdd-HHmmss'.jpg'", java.util.Locale.ROOT)
+    format.timeZone = zone
+    return format.format(java.util.Date(now))
+}
+
+/** A photo is kept only if the camera app came back with one that has bytes. */
+fun keepsPhoto(resultCode: Int, size: Long): Boolean = resultCode == Activity.RESULT_OK && size > 0
+
 /** The name to show for a picked file; something with no name is still a file. */
 fun pickedName(name: String?): String = name?.trim()?.takeIf { it.isNotEmpty() } ?: "file"
 
@@ -593,6 +603,48 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             }
         }
         startActivityForResult(invoke, intent, "picked")
+    }
+
+    /** The camera app takes a photo straight into the app's folder (Ioan, 2026-09-23). Without
+     *  the camera permission (the app declares it for calls) the capture intent is refused, so
+     *  it is asked for first and nothing is taken this time. */
+    @Command
+    fun takePhoto(invoke: Invoke) {
+        if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            activity.requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 4243)
+            invoke.resolve(JSObject().apply { put("files", JSArray()) })
+            return
+        }
+        val folder = File(activity.filesDir, PICKED_FOLDER).apply { mkdirs() }
+        val target = File(folder, photoName(System.currentTimeMillis()))
+        pendingPhoto = target
+        val uri = FileProvider.getUriForFile(activity, fileProviderAuthority(activity.packageName), target)
+        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            .putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivityForResult(invoke, intent, "photoTaken")
+    }
+
+    private var pendingPhoto: File? = null
+
+    @ActivityCallback
+    fun photoTaken(invoke: Invoke, result: ActivityResult) {
+        val target = pendingPhoto
+        pendingPhoto = null
+        val files = JSArray()
+        if (target != null) {
+            if (keepsPhoto(result.resultCode, target.length())) {
+                files.put(JSObject().apply {
+                    put("path", target.absolutePath)
+                    put("name", target.name)
+                    put("mime", "image/jpeg")
+                    put("size", target.length())
+                })
+            } else {
+                target.delete()
+            }
+        }
+        invoke.resolve(JSObject().apply { put("files", files) })
     }
 
     @ActivityCallback

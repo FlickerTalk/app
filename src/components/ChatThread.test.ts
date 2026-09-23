@@ -180,6 +180,19 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_pick_files", { accept: "" }]);
   });
 
+  // The third thing the «+» unfolds (Ioan, 2026-09-23): a photo taken right now with the phone's
+  // camera app, sent like any picked file.
+  it("takes a photo with the camera from the attach button", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await wrapper.find("[aria-label='Take a photo']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_take_photo", {}]);
+    expect(calls).toContainEqual([
+      "core_send_picked",
+      { contact: "c1", file: { path: "/data/uploads/photo.jpg", name: "photo-20260923-201530.jpg", mime: "image/jpeg", size: 1234 } },
+    ]);
+  });
+
   // Issue app#3: the plugins live behind the apps button of the header, and each one does its
   // thing inside its own window.
   it("opens a plugin from the apps button", async () => {

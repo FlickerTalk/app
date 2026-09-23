@@ -132,6 +132,23 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).toContain("1:03");
   });
 
+  // The player draws a waveform (the sketch Ioan approved, 2026-09-23): the bars up to where the
+  // message has played are lit. The bars come from the message itself, the same every time.
+  it("lights the bars of a voice message as far as it has played", async () => {
+    const wrapper = mount(MessageBubble, { props: { message: voice }, shallow: true });
+    const bars = wrapper.findAll("[data-test='bar']");
+    expect(bars.length).toBeGreaterThanOrEqual(20);
+    expect(bars.filter((bar) => bar.classes("is-on"))).toHaveLength(0);
+    const audio = wrapper.find("audio").element as HTMLAudioElement;
+    Object.defineProperty(audio, "duration", { value: 10, configurable: true });
+    Object.defineProperty(audio, "currentTime", { value: 5, configurable: true });
+    await wrapper.find("audio").trigger("loadedmetadata");
+    await wrapper.find("audio").trigger("timeupdate");
+    expect(bars.filter((bar) => bar.classes("is-on"))).toHaveLength(Math.round(bars.length / 2));
+    const again = mount(MessageBubble, { props: { message: voice }, shallow: true });
+    expect(again.findAll("[data-test='bar']").map((bar) => bar.attributes("style"))).toEqual(bars.map((bar) => bar.attributes("style")));
+  });
+
   it("keeps the name of a document but not its size", () => {
     const wrapper = mount(MessageBubble, { props: { message: arrived }, shallow: true });
     expect(wrapper.text()).toContain("menu.pdf");

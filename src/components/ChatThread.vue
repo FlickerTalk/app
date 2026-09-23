@@ -5,7 +5,6 @@ import {
   IonButton,
   IonButtons,
   IonContent,
-  IonFab,
   IonFabButton,
   IonFabList,
   IonFooter,
@@ -21,6 +20,7 @@ import {
   callOutline,
   contractOutline,
   expandOutline,
+  cameraOutline,
   closeOutline,
   documentOutline,
   happyOutline,
@@ -45,6 +45,7 @@ import {
   markRead,
   openFile,
   pickFiles,
+  takePhoto,
   saveFile,
   sendFile,
   sendPicked,
@@ -102,13 +103,28 @@ async function attach(event: Event) {
  * of the app with no way back unless they pick something. On a desktop there is no such picker,
  * so the hidden input is used.
  */
+const attaching = ref(false);
+
 async function pick(accept: string) {
+  attaching.value = false;
   try {
     for (const file of await pickFiles(accept)) {
       await sendPicked(props.chatId, file);
     }
   } catch {
     picker.value?.click();
+  }
+}
+
+/** A photo taken now with the camera app; nothing happens if the user backs out of it. */
+async function snap() {
+  attaching.value = false;
+  try {
+    for (const file of await takePhoto()) {
+      await sendPicked(props.chatId, file);
+    }
+  } catch {
+    // No camera, or not allowed: the option simply does nothing this time.
   }
 }
 
@@ -390,19 +406,31 @@ watch(
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
       <div class="ft-composer">
         <div class="ft-composer__row">
-          <ion-fab class="ft-attach">
-            <ion-fab-button size="small" class="ft-attach__button" :aria-label="$t('chat.attach')">
+          <div class="ft-attach">
+            <button
+              type="button"
+              class="ft-round ft-round--ghost"
+              :class="{ 'is-open': attaching }"
+              :aria-label="$t('chat.attach')"
+              :aria-expanded="attaching"
+              @click="attaching = !attaching"
+            >
               <ion-icon :icon="add" aria-hidden="true" />
-            </ion-fab-button>
-            <ion-fab-list side="top">
+            </button>
+            <!-- Only what unfolds is a fab list: the «+» itself is the app's own round button. No
+                 ion-fab around it, because that one would take the first option for its main button. -->
+            <ion-fab-list side="top" class="ft-attach__list" :activated="attaching">
               <ion-fab-button :aria-label="$t('chat.attachMedia')" @click="pick('image/*,video/*')">
                 <ion-icon :icon="imageOutline" aria-hidden="true" />
+              </ion-fab-button>
+              <ion-fab-button :aria-label="$t('chat.attachCamera')" @click="snap">
+                <ion-icon :icon="cameraOutline" aria-hidden="true" />
               </ion-fab-button>
               <ion-fab-button :aria-label="$t('chat.attachFile')" @click="pick('')">
                 <ion-icon :icon="documentOutline" aria-hidden="true" />
               </ion-fab-button>
             </ion-fab-list>
-          </ion-fab>
+          </div>
           <input ref="picker" type="file" multiple hidden @change="attach" />
           <button
             v-if="!recording.active"
@@ -660,19 +688,14 @@ watch(
   align-items: flex-end;
   gap: 8px;
 }
-/* The «+» stays in the row; what it unfolds rises above the composer, over the thread. */
+/* The «+» is the row's own button; what it unfolds rises above the composer, over the thread. */
 .ft-attach {
   position: relative;
   flex-shrink: 0;
 }
-.ft-attach__button {
-  --background: transparent;
-  --background-activated: var(--ft-surface-2);
-  --box-shadow: none;
-  --color: var(--ft-muted);
-  width: 44px;
-  height: 44px;
-  font-size: 24px;
+.ft-attach__list {
+  left: 0;
+  z-index: 3;
 }
 .ft-attach ion-fab-list ion-fab-button {
   --background: var(--ft-surface-2);

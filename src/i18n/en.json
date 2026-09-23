@@ -40,6 +40,7 @@
     "attach": "Attach",
     "attachMedia": "Attach photo or video",
     "attachFile": "Attach file",
+    "attachCamera": "Take a photo",
     "voiceCall": "Voice call",
     "videoCall": "Video call",
     "contactSettings": "Contact settings",

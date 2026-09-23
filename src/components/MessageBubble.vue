@@ -79,6 +79,11 @@ const playing = ref(false);
 const duration = ref(0);
 const position = ref(0);
 const played = computed(() => (duration.value > 0 ? Math.min(100, (position.value / duration.value) * 100) : 0));
+// The waveform is drawn, not measured: bars whose heights come from the message id, so the same
+// message always looks the same. The bars up to where it has played are lit.
+const BARS = 28;
+const bars = computed(() => waveform(props.message.id, BARS));
+const lit = computed(() => Math.round((played.value / 100) * BARS));
 const clock = computed(() => formatClock(playing.value || position.value > 0 ? position.value : duration.value));
 
 function onMetadata(event: Event) {
@@ -95,6 +100,16 @@ function toggle() {
   if (!audio) return;
   if (playing.value) audio.pause();
   else void Promise.resolve(audio.play()).catch(() => undefined);
+}
+
+/** `count` bar heights (20–100 %) drawn from `seed`, always the same for the same seed. */
+function waveform(seed: string, count: number): number[] {
+  let state = 0;
+  for (const char of seed) state = (state * 31 + char.charCodeAt(0)) >>> 0;
+  return Array.from({ length: count }, () => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return 20 + (state % 81);
+  });
 }
 
 /** Seconds as m:ss, the way a player shows them. */
@@ -177,7 +192,14 @@ function open() {
           <ion-icon :icon="playing ? pause : play" aria-hidden="true" />
         </button>
         <span class="ft-voice__wave" :class="{ 'is-dim': moving || failed }" aria-hidden="true">
-          <span class="ft-voice__played" :style="{ width: `${played}%` }" />
+          <i
+            v-for="(height, index) in bars"
+            :key="index"
+            data-test="bar"
+            class="ft-voice__bar"
+            :class="{ 'is-on': index < lit }"
+            :style="{ height: `${height}%` }"
+          />
         </span>
         <span
           v-if="moving"
@@ -496,21 +518,25 @@ function open() {
   background: var(--ft-surface);
 }
 .ft-voice__wave {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  overflow: hidden;
-  background: color-mix(in srgb, currentColor 22%, transparent);
+  height: 26px;
 }
 .ft-voice__wave.is-dim {
   opacity: 0.4;
 }
-.ft-voice__played {
+.ft-voice__bar {
   display: block;
-  height: 100%;
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px;
   background: currentColor;
-  transition: width 0.2s linear;
+  opacity: 0.35;
+}
+.ft-voice__bar.is-on {
+  opacity: 1;
 }
 .ft-voice__meta {
   min-width: 34px;
