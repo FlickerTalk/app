@@ -136,6 +136,11 @@ impl<R: Runtime> Platform<R> {
         self.run("shareText", ShareText { text })
     }
 
+    /// Opens the system share sheet with a file of the app (§62).
+    pub fn share_file(&self, path: &str, name: &str, mime: &str) -> Result<()> {
+        self.run("shareFile", SaveFile { path, name, mime })
+    }
+
     /// Rings and shows the incoming call on the screen (§66).
     pub fn start_ringing(&self, caller: &str, video: bool) -> Result<()> {
         self.run("startRinging", Ringing { caller, video })

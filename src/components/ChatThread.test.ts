@@ -221,4 +221,86 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_send", { contact: "c1", text: "🎉" }]);
   });
 
+  // A long press on a message opens what can be done with it (Ioan, 2026-09-23): fold it, send it
+  // on, hand it to another app, or erase it here.
+  // Real time, not fake: Vue stamps its listeners with the clock, and a handler attached under a
+  // fake clock ignores a click that comes after (its own guard against events from a past patch).
+  async function pressed(wrapper: ReturnType<typeof mount>) {
+    await wrapper.findAll("[data-test='bubble']")[0].trigger("pointerdown");
+    await new Promise((wake) => setTimeout(wake, 550));
+    await flushPromises();
+    return wrapper;
+  }
+
+  it("offers four things to do with a message, on a long press", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+
+    await pressed(wrapper);
+    const actions = wrapper.find("[data-test='actions']");
+    expect(actions.exists()).toBe(true);
+    for (const what of ["fold", "forward", "share", "delete"]) {
+      expect(actions.find(`[data-test='${what}']`).exists()).toBe(true);
+    }
+  });
+
+  it("folds and unfolds the message it was asked about", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await pressed(wrapper);
+
+    await wrapper.find("[data-test='fold']").trigger("click");
+    expect(wrapper.findAllComponents(MessageBubble)[0].props("folded")).toBe(true);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+
+    await pressed(wrapper);
+    await wrapper.find("[data-test='fold']").trigger("click");
+    expect(wrapper.findAllComponents(MessageBubble)[0].props("folded")).toBe(false);
+  });
+
+  it("hands a message to another app", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await pressed(wrapper);
+    const id = fixture.chats[0].messages[0].id;
+
+    await wrapper.find("[data-test='share']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_share_message", { message: id }]);
+  });
+
+  // Erasing is for good and only here: it asks once before doing it.
+  it("erases a message only after asking", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await pressed(wrapper);
+    const id = fixture.chats[0].messages[0].id;
+
+    await wrapper.find("[data-test='delete']").trigger("click");
+    expect(calls.map(([command]) => command)).not.toContain("core_forget_message");
+
+    await wrapper.find("[data-test='delete-sure']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_forget_message", { message: id }]);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+  });
+
+  it("sends a message on to another contact", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await pressed(wrapper);
+    const id = fixture.chats[0].messages[0].id;
+
+    await wrapper.find("[data-test='forward']").trigger("click");
+    const other = fixture.chats[1].id;
+    expect(wrapper.find(`[data-test='to-${other}']`).exists()).toBe(true);
+    // Never to the conversation it is already in.
+    expect(wrapper.find(`[data-test='to-c1']`).exists()).toBe(false);
+
+    await wrapper.find(`[data-test='to-${other}']`).trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_forward", { message: id, contact: other }]);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+  });
 });

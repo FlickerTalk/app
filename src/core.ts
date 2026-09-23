@@ -383,6 +383,19 @@ export async function installPlugin(plugin: string): Promise<void> {
   await invoke("core_plugin_add", { plugin });
 }
 
+/** What the user does with one message of theirs (§61). */
+export async function forgetMessage(message: string): Promise<void> {
+  await invoke("core_forget_message", { message });
+}
+
+export async function forwardMessage(message: string, contact: string): Promise<void> {
+  await invoke("core_forward", { message, contact });
+}
+
+export async function shareMessage(message: string): Promise<void> {
+  await invoke("core_share_message", { message });
+}
+
 /** What the core does for a plugin, and only after checking what the user granted it (§53). */
 export async function pluginSave(name: string, mime: string, data: string): Promise<void> {
   await invoke("core_plugin_save", { name, mime, data });

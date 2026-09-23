@@ -11,7 +11,21 @@ import {
   IonTextarea,
   IonToolbar,
 } from "@ionic/vue";
-import { add, appsOutline, arrowUp, callOutline, closeOutline, happyOutline, micOutline, trashOutline, videocamOutline } from "ionicons/icons";
+import {
+  add,
+  appsOutline,
+  arrowUp,
+  callOutline,
+  chevronCollapseOutline,
+  chevronExpandOutline,
+  closeOutline,
+  happyOutline,
+  micOutline,
+  shareOutline,
+  arrowRedoOutline,
+  trashOutline,
+  videocamOutline,
+} from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
@@ -19,7 +33,21 @@ import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import { installedPlugins } from "../plugins";
 import type { PluginView } from "../core";
-import { chat as chatOf, loadMessages, markRead, openFile, pickFiles, saveFile, sendFile, sendPicked, sendText } from "../core";
+import {
+  chat as chatOf,
+  forgetMessage,
+  forwardMessage,
+  loadMessages,
+  markRead,
+  openFile,
+  pickFiles,
+  saveFile,
+  sendFile,
+  sendPicked,
+  sendText,
+  shareMessage,
+  store,
+} from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { t } from "../i18n";
 
@@ -115,6 +143,55 @@ onUnmounted(() => {
 });
 
 const saved = reactive(new Set<string>());
+
+// A long press asks what to do with a message (Ioan, 2026-09-23): fold it, send it on, hand it to
+// another app, or erase it here. Erasing is for good, so it asks once.
+const acting = ref("");
+const folded = reactive(new Set<string>());
+const forwarding = ref(false);
+const erasing = ref(false);
+
+/** The other conversations, to send a message on to one of them. */
+const others = computed(() => store.chats.filter((one) => one.id !== props.chatId));
+
+function act(id: string) {
+  acting.value = id;
+  forwarding.value = false;
+  erasing.value = false;
+}
+
+function closeActions() {
+  acting.value = "";
+  forwarding.value = false;
+  erasing.value = false;
+}
+
+function fold() {
+  const id = acting.value;
+  if (folded.has(id)) folded.delete(id);
+  else folded.add(id);
+  closeActions();
+}
+
+async function share() {
+  const id = acting.value;
+  closeActions();
+  await shareMessage(id).catch(() => {});
+}
+
+async function erase() {
+  const id = acting.value;
+  closeActions();
+  folded.delete(id);
+  await forgetMessage(id).catch(() => {});
+  await loadMessages(props.chatId);
+}
+
+async function forwardTo(contact: string) {
+  const id = acting.value;
+  closeActions();
+  await forwardMessage(id, contact).catch(() => {});
+}
 
 // Issue app#3: the apps of this phone, each in its own window.
 const installed = ref<PluginView[]>([]);
@@ -252,12 +329,56 @@ watch(
         :key="message.id"
         :message="message"
         :saved="saved.has(message.id)"
+        :folded="folded.has(message.id)"
         @open="openFile"
         @save="save"
+        @actions="act"
       />
 
       <div class="ft-thread__end" />
     </ion-content>
+
+    <!-- What can be done with the message that was pressed (§61). -->
+    <div v-if="acting" class="ft-actions" data-test="actions" @click.self="closeActions">
+      <div v-if="forwarding" class="ft-actions__bar">
+        <span class="ft-actions__title">{{ $t("chat.forwardTo") }}</span>
+        <button
+          v-for="one in others"
+          :key="one.id"
+          type="button"
+          class="ft-actions__to"
+          :data-test="`to-${one.id}`"
+          @click="forwardTo(one.id)"
+        >
+          {{ one.name }}
+        </button>
+        <span v-if="!others.length" class="ft-actions__title">—</span>
+      </div>
+      <div v-else class="ft-actions__bar">
+        <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
+          <ion-icon :icon="folded.has(acting) ? chevronExpandOutline : chevronCollapseOutline" aria-hidden="true" />
+        </button>
+        <button type="button" class="ft-round ft-round--ghost" data-test="forward" :aria-label="$t('chat.forward')" @click="forwarding = true">
+          <ion-icon :icon="arrowRedoOutline" aria-hidden="true" />
+        </button>
+        <button type="button" class="ft-round ft-round--ghost" data-test="share" :aria-label="$t('chat.share')" @click="share">
+          <ion-icon :icon="shareOutline" aria-hidden="true" />
+        </button>
+        <button
+          v-if="!erasing"
+          type="button"
+          class="ft-round ft-round--ghost ft-actions__danger"
+          data-test="delete"
+          :aria-label="$t('chat.delete')"
+          @click="erasing = true"
+        >
+          <ion-icon :icon="trashOutline" aria-hidden="true" />
+        </button>
+        <button v-else type="button" class="ft-actions__sure" data-test="delete-sure" @click="erase">
+          {{ $t("chat.deleteSure") }}
+        </button>
+      </div>
+    </div>
 
     <ion-footer class="ion-no-border">
       <p v-if="voiceError" class="ft-composer__error" role="alert">{{ voiceError }}</p>
@@ -318,6 +439,55 @@ watch(
 </template>
 
 <style scoped>
+.ft-actions {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: end center;
+  padding: var(--ft-space-4);
+  padding-bottom: calc(var(--ft-space-4) + 72px);
+  background: rgba(0, 0, 0, 0.25);
+}
+.ft-actions__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 18px;
+  background: var(--ft-surface);
+  box-shadow: 0 18px 40px -20px rgba(0, 0, 0, 0.5);
+}
+.ft-actions__title {
+  padding: 0 8px;
+  color: var(--ft-muted);
+  font-size: 13px;
+}
+.ft-actions__to {
+  appearance: none;
+  border: 1px solid var(--ft-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  border-radius: 14px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.ft-actions__danger {
+  color: var(--ion-color-danger);
+}
+.ft-actions__sure {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ion-color-danger);
+  font: inherit;
+  font-weight: 600;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
 .ft-round--ghost.is-open {
   color: var(--ft-accent);
 }

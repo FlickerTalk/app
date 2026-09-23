@@ -771,3 +771,59 @@ async fn a_contact_can_have_their_history_expire() {
     assert!(!kept.exists(), "and so are the bytes it kept");
     assert!(!texts(&alice, &id(&bob)).await.is_empty(), "only this phone forgets");
 }
+
+// The user erases one message on this phone (§61). It is our copy: the other side keeps theirs,
+// and nothing is sent to say it. Its file goes with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn erasing_a_message_takes_its_file_with_it() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let (path, _) = some_file(1_000);
+
+    let sent = alice.send_file(&id(&bob), &path, "holiday.jpg", "image/jpeg").await.expect("offers");
+    assert_eq!(texts(&alice, &id(&bob)).await.len(), 1);
+
+    alice.forget_message(&sent).await.expect("erases");
+    assert!(texts(&alice, &id(&bob)).await.is_empty());
+    assert!(!path.exists(), "the bytes go too");
+    assert!(alice.store().outbox().await.unwrap().is_empty(), "and it stops being sent");
+
+    // Erasing one that is not there says so instead of pretending.
+    assert!(alice.forget_message(&sent).await.is_err());
+}
+
+// Forwarding is sending again to someone else (§61): the same text, or the same file from the
+// bytes this phone already has. Nothing of the first conversation travels with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_can_be_sent_on_to_someone_else() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    pair(&alice, &bob).await;
+    pair(&alice, &carol).await;
+
+    let sent = alice.send_text(&id(&bob), "look at this").await.expect("sends");
+    let again = alice.forward(&sent, &id(&carol)).await.expect("forwards");
+    assert_ne!(again, sent, "it is a message of its own");
+    assert_eq!(texts(&alice, &id(&carol)).await, ["look at this"]);
+    until("carol has it", || async { texts(&carol, &id(&alice)).await == ["look at this"] }).await;
+
+    // A file is forwarded from the bytes that are already here.
+    let (path, bytes) = some_file(2_000);
+    let file = alice.send_file(&id(&bob), &path, "note.bin", "application/octet-stream").await.expect("offers");
+    until("bob has the whole file", || async {
+        bob.store().file(&file).await.unwrap().is_some_and(|one| one.complete)
+    })
+    .await;
+    let on = alice.forward(&file, &id(&carol)).await.expect("forwards the file");
+    until("carol has the whole file", || async {
+        carol.store().file(&on).await.unwrap().is_some_and(|one| one.complete)
+    })
+    .await;
+    let arrived = file_of(&carol, &on).await;
+    assert_eq!(std::fs::read(carol.file_path(&arrived)).expect("reads"), bytes);
+    assert_eq!(arrived.name, "note.bin");
+
+    // A file that never finished has no bytes to send on.
+    assert!(alice.forward("not a message", &id(&carol)).await.is_err());
+}

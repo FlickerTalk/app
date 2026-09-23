@@ -536,6 +536,23 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /** Hands a file of the app to another app through the share sheet; the lending is read-only. */
+    @Command
+    fun shareFile(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(SaveFileArgs::class.java)
+            val uri = FileProvider.getUriForFile(activity, fileProviderAuthority(activity.packageName), File(args.path))
+            val send = Intent(Intent.ACTION_SEND)
+                .setType(args.mime)
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            activity.startActivity(Intent.createChooser(send, null))
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot share the file")
+        }
+    }
+
     @Command
     fun saveToDownloads(invoke: Invoke) {
         if (!canSaveToDownloads(Build.VERSION.SDK_INT)) {
