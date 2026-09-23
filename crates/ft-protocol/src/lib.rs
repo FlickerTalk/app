@@ -119,6 +119,10 @@ pub enum Body {
     },
     /// The receiver has the whole file and its hash matches.
     FileDone { file: MessageId },
+    /// The sender no longer has the file's bytes (it was deleted before the transfer ended): the
+    /// receiver marks it failed and stops asking. A version that does not know it keeps asking,
+    /// which is what happened before.
+    FileFailed { file: MessageId },
     /// A voice or video call (§66). The media is the WebView's WebRTC; its descriptions travel
     /// here, directly and encrypted, never through the mailbox.
     CallOffer { call: MessageId, sdp: String, video: bool },
@@ -305,6 +309,7 @@ mod tests {
         round_trip(Body::FileRequest { file, from: 3, count: 16 });
         round_trip(Body::FileChunk { file, index: 3, data: vec![1, 2, 3] });
         round_trip(Body::FileDone { file });
+        round_trip(Body::FileFailed { file });
         let call = MessageId::new();
         round_trip(Body::CallOffer { call, sdp: "v=0".to_owned(), video: true });
         round_trip(Body::CallAnswer { call, sdp: "v=0".to_owned() });

@@ -1385,9 +1385,10 @@ pub async fn core_send_made(
     std::fs::write(&path, bytes).map_err(failed)?;
 
     let core = client.core().await?;
+    // `send_file` returns once the offer is out, not once the bytes are pulled: the file must
+    // stay, like any other sent file, until its message is erased.
     tauri::async_runtime::spawn(async move {
         let _ = core.send_file(&contact, &path, &safe, &mime).await;
-        let _ = std::fs::remove_file(&path);
     });
     Ok(())
 }
@@ -1416,7 +1417,9 @@ pub struct PickedView {
     pub size: u64,
 }
 
-/// Sends a file the user picked; the bytes never go through the WebView.
+/// Sends a file the user picked; the bytes never go through the WebView. The copy the picker
+/// made stays in the app: the contact pulls its chunks after `send_file` has returned, and the
+/// message shows it afterwards. It goes when the message is erased, like a voice note.
 #[tauri::command]
 pub async fn core_send_picked(contact: String, file: PickedView, client: State<'_, Client>) -> Result<(), String> {
     let path = PathBuf::from(&file.path);
@@ -1426,7 +1429,6 @@ pub async fn core_send_picked(contact: String, file: PickedView, client: State<'
     let core = client.core().await?;
     tauri::async_runtime::spawn(async move {
         let _ = core.send_file(&contact, &path, &file.name, &file.mime).await;
-        let _ = std::fs::remove_file(&path);
     });
     Ok(())
 }
