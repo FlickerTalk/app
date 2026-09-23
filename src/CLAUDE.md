@@ -9,11 +9,12 @@ Diseño aprobado el 2026-09-21 (`§84`). Estructura:
 | Ruta                     | Contenido                                                                |
 | ------------------------ | ------------------------------------------------------------------------ |
 | `router.ts`              | `/welcome`, pestañas `/tabs/{chats,calls,settings}`, `/chat/:id`, `/add-contact`, `/contact/:id`, `/call/:id`; `onboardingGuard` manda la primera ejecución a `/welcome` |
-| `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage` |
-| `components/`            | `NavRail`, `ChatThread`, `MessageBubble`, `Avatar`, `QrCode`             |
+| `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage`, `BlockedPage`, `MovePage`, `PluginsPage`, `PlanPage`, `SessionPage`, `HoursPage` |
+| `components/`            | `NavRail`, `ChatThread`, `MessageBubble`, `Avatar`, `QrCode`, `ScannerOverlay`, `EmojiPicker`, `IncomingCall`, `PluginSheet` |
 | `theme/`                 | `variables.css` (tokens de Ember, Aurora y Mono, claro y oscuro), `base.css` |
 | `theme.ts`               | color y apariencia elegidos en Ajustes                                    |
 | `core.ts`                | puente con el núcleo Rust: almacén reactivo (`me`, `chats`, mensajes) alimentado por los comandos `core_*` y el evento `ft://changed` |
+| `plugins.ts`             | herramientas instaladas: **una sola lista** (`installed` + `refreshPlugins()`) para toda la app, la URL del marco de cada plugin y lo único que el marco puede decir (`fromFrame`) |
 | `preferences.ts`         | enrutado de llamadas y si ya se vio la bienvenida                         |
 | `i18n.ts`, `i18n/en.json`| catálogo de textos; inglés como fuente, sin traducciones en la fase 1     |
 
@@ -43,6 +44,26 @@ salir de ella cuelga; `CallsPage` es el historial del núcleo. En el emulador la
 sintética, el micrófono no capta sin «host audio input» y QEMU puede colgarse con vídeo: las
 llamadas se prueban en dispositivos reales. Pendiente: el resto del MVP (M7).
 
+Estado (2026-09-23): herramientas, acciones del mensaje y plan.
+
+- **Herramientas** (`§53`, issue app#3): el botón de apps de la cabecera del hilo abre una hoja con
+  lo instalado y cada una se abre en su propia ventana (`PluginSheet`), con cabecera propia (✕ y el
+  nombre, bajo `env(safe-area-inset-top)`) porque el marco del plugin ocupa toda la pantalla. Lo
+  que un plugin propone entra en el compositor: lo envía el usuario, nunca el plugin. La tienda
+  está en Ajustes → Plugins (`PluginsPage`): junta semillas y catálogo, enseña el peso de cada una
+  y concede permisos uno a uno. **La lista es única** (`plugins.ts`): instalar o quitar en Ajustes
+  se ve en el hilo sin salir de la conversación (probado en un Samsung real, 2026-09-23). El botón
+  no está cuando no hay ninguna instalada.
+- **Iconos del marco**: un plugin no trae imágenes ni fuentes; pide los iconos al núcleo
+  (`./icon/<nombre>.svg`, los mismos Ionicons de la app) y el marco lleva
+  `color-scheme: light dark` para que no salga blanco en modo oscuro.
+- **Acciones del mensaje** (decisión de Ioan, 2026-09-23): una pulsación larga sobre una burbuja
+  ofrece cuatro cosas —plegar (acordeón), reenviar a otra conversación, compartir con otra app
+  (hoja del sistema) y borrar de este teléfono, que pregunta una vez porque es para siempre.
+- **Plan** (`§40–47`): `PlanPage` (Ajustes → Plan) dice cuánto queda del año gratis, ofrece el euro
+  y pregunta la edad (nunca la fecha de nacimiento). La compra todavía contesta «todavía no»:
+  falta el producto en las tiendas.
+
 ## Reglas
 
 - El frontend **no tiene secretos ni habla con el servidor**: clave privada, push token y claves
@@ -55,9 +76,13 @@ llamadas se prueban en dispositivos reales. Pendiente: el resto del MVP (M7).
 - **Iconos primero** (`§84`): emoji e iconos estándar en lugar de texto; texto solo si es
   imprescindible, en inglés y desde el catálogo i18n. Sin traducciones en la fase 1. Cada icono
   lleva `aria-label` en inglés.
-- `<ft-plugin-host>` es el único punto donde se montan plugins (ver `app/crates/ft-plugins`). Los
-  plugins son web components: Vue tiene que tratarlos como elementos personalizados
-  (`compilerOptions.isCustomElement`), no como componentes suyos.
+- `PluginSheet` es el **único** punto donde se monta un plugin (ver `app/crates/ft-plugins`): un
+  iframe servido por el esquema `ftplugin://`, sin origen y con su propia CSP. El frontend no
+  habla con el plugin más que por `postMessage`, y solo acepta de él lo que `fromFrame` reconoce;
+  todo lo demás lo resuelve el núcleo tras comprobar lo concedido. Nunca se hace `invoke` desde
+  dentro del marco.
+- La lista de herramientas se lee de `plugins.ts`, **no** de un `ref` por componente: si una
+  pantalla instala o quita, las demás tienen que verlo sin remontarse.
 - Ajustes incluye el interruptor del buzón (`§19`), **activado por defecto**: si se desactiva,
   no se guarda nada del usuario en el servidor. También el enrutado de llamadas (`§17`: solo
   directa, relay cuando haga falta —por defecto— o siempre relay, que oculta la IP al contacto),

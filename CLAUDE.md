@@ -65,6 +65,17 @@ npm run tauri android build -- --apk --target aarch64   # APK firmado, minificad
 npm run tauri android build -- --aab                     # para Google Play
 ```
 
+**Estado (2026-09-23): la 1.0.0 está en revisión en Google Play.** El AAB (29,5 MB; 8,45 MB de
+descarga) se subió a mano —la primera subida lo exige— desde la cuenta de organización ERPlora,
+con la ficha, las capturas y el «Data safety» de `infra/store/play/` y del runbook
+`infra/runbooks/ficha-google-play.md`. A partir de aquí las sube CI. Lo que falta para cobrar (el
+perfil de pagos y la suscripción de 1 €) está en `infra/TAREAS.md`. iOS espera a la cuenta de pago
+de Apple.
+
+Compilar para Android necesita el NDK **que hay instalado**: hoy
+`~/Library/Android/sdk/ndk/27.1.12297006`. Con otro número, el build falla con «Android NDK
+invalid» y, si se encadena un `adb install`, se instala el APK **viejo** sin avisar.
+
 **CI/CD** (`.github/workflows/app.yml`, Plan `§105`): una sola rama, `main`, y tags de versión.
 
 - Cada PR pasa typecheck, Vitest, clippy, los tests de Rust, un build de Android sin firmar y los

@@ -1,7 +1,8 @@
 # app/crates/ft-plugins
 
-Runtime de plugins: manifest, instalación, verificación y permisos (`§48–58`). Es la **fase 6**
-(`§95`) y **no entra en el MVP** (`§86`).
+Runtime de plugins: manifest, instalación, verificación y permisos (`§48–58`). Era la **fase 6**
+(`§95`) y estaba fuera del MVP (`§86`); **se adelantó** y va dentro de la 1.0.0 (decisión de Ioan,
+2026-09-23): el núcleo es un puente y las herramientas se descargan.
 
 ## Formato
 
@@ -64,5 +65,15 @@ El núcleo es un **puente**, no un contenedor: **ninguna herramienta viaja dentr
   la memoria del plugin, porque su marco no tiene origen y el navegador no le da ninguna.
 - **Permiso nuevo**: `print`. Se pide en el manifiesto y se concede aparte, como los demás.
 - El contrato para terceros vive en `FlickerTalk/plugin-sdk` (tipos + esquema del manifiesto).
+- **Semillas**: la app lleva dentro los paquetes pequeños (hoy los cinco, 17,5 KB) para que un
+  teléfono sin red los tenga y para que iOS no descargue nada en la primera versión (App Store
+  4.7). La lista de Ajustes junta semillas y catálogo y se queda con **la versión más nueva** de
+  las dos; en iOS solo enseña las semillas (`downloads()` es falso). Un test impide que una
+  semilla pase de 32 KB, y todas juntas de 128 KB: **lo pesado no viaja, se descarga**.
+- **Las cinco herramientas** (MIT, un repo público cada una): `plugin-images` (encoger y
+  recortar), `plugin-pdf` (fotos a PDF), `plugin-redact` (tapar una cara o un número),
+  `plugin-sketch` (dibujar con el dedo) y `plugin-markdown` (escribir, ver, abrir y guardar).
+  Probadas en dispositivos reales: instaladas desde el catálogo en vivo, y lo que hacen entra en
+  la conversación como un fichero o como texto en el compositor.
 
 Falta: el modo desarrollador (cargar una carpeta sin firmar) y la revocación desde el catálogo.
