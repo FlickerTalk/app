@@ -40,7 +40,7 @@ async function onMessage(event: MessageEvent) {
     // The plugin never opens the picker: it asks, and the app asks the user (§53).
     await busy(async () => {
       try {
-        const [file] = await pickFiles();
+        const [file] = await pickFiles(said.accept ?? "");
         const data = file ? await readPicked(file.path) : "";
         tell({ type: "ft.file", id: said.id, name: file?.name ?? "", mime: file?.mime ?? "", data });
       } catch {

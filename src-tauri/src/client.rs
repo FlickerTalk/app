@@ -1262,8 +1262,9 @@ pub async fn core_send_made(
 /// The system file picker. What it gives back is already in the app's folder, so sending it is
 /// only a matter of naming it (§62). The WebView's own file input leaves the user outside the app.
 #[tauri::command]
-pub async fn core_pick_files(app: AppHandle) -> Result<Vec<PickedView>, String> {
-    let picked = tauri::async_runtime::spawn_blocking(move || app.platform().pick_files())
+pub async fn core_pick_files(accept: Option<String>, app: AppHandle) -> Result<Vec<PickedView>, String> {
+    let accept = accept.unwrap_or_default();
+    let picked = tauri::async_runtime::spawn_blocking(move || app.platform().pick_files(&accept))
         .await
         .map_err(failed)?
         .map_err(failed)?;

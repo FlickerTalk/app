@@ -43,6 +43,13 @@ struct OpenFile<'a> {
     mime: &'a str,
 }
 
+/// Arguments of the Kotlin `pickFiles` command: what kind of file is wanted, if it matters.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Pick<'a> {
+    accept: &'a str,
+}
+
 /// Arguments of the Kotlin `saveToDownloads` command.
 #[derive(Serialize)]
 struct SaveFile<'a> {
@@ -163,12 +170,15 @@ impl<R: Runtime> Platform<R> {
     }
 
     /// Files picked with the system picker, copied into the app's folder. The WebView's own file
-    /// input leaves the user outside the app with no way back unless they pick something.
-    pub fn pick_files(&self) -> Result<Vec<PickedFile>> {
+    /// input leaves the user outside the app with no way back unless they pick something. Asking
+    /// for `image/*` opens the photo picker, which is a sheet over the app (§62).
+    pub fn pick_files(&self, accept: &str) -> Result<Vec<PickedFile>> {
         #[cfg(mobile)]
         {
-            Ok(self.handle.run_mobile_plugin::<Picked>("pickFiles", ())?.files)
+            Ok(self.handle.run_mobile_plugin::<Picked>("pickFiles", Pick { accept })?.files)
         }
+        #[cfg(not(mobile))]
+        let _ = accept;
         #[cfg(not(mobile))]
         {
             Err(Error::Unsupported)
@@ -305,6 +315,8 @@ mod tests {
         let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();
         assert_eq!(share, serde_json::json!({ "text": "Add me: https://flickertalk.com/add#card" }));
         // Printing is the phone's: the app hands it a file and the user picks the printer (§53).
+        let pick = serde_json::to_value(Pick { accept: "image/*" }).unwrap();
+        assert_eq!(pick, serde_json::json!({ "accept": "image/*" }));
         let print = serde_json::to_value(SaveFile { path: "/files/a.pdf", name: "a.pdf", mime: "application/pdf" }).unwrap();
         assert_eq!(print, serde_json::json!({ "path": "/files/a.pdf", "name": "a.pdf", "mime": "application/pdf" }));
     }

@@ -60,7 +60,9 @@ describe("PluginSheet", () => {
 
     says({ type: "ft.pickFile", id: "q1", accept: "image/*" });
     await flushPromises();
-    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_files");
+    // What the plugin asked for reaches the phone: pictures open the photo picker, a sheet over
+    // the app, instead of taking the user out of it (§62).
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_files", { accept: "image/*" });
     expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "a.jpg", mime: "image/jpeg", data: "QUJD" }, "*");
   });
 

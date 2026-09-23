@@ -61,10 +61,24 @@ import java.io.File
  */
 class FtFileProvider : FileProvider()
 
+/** The most pictures the photo picker takes at once. */
+const val PICK_LIMIT = 20
+
 /** The FileProvider declared in this plugin's manifest. */
 fun fileProviderAuthority(packageName: String): String = "$packageName.ft.files"
 
 fun canSaveToDownloads(sdk: Int): Boolean = sdk >= Build.VERSION_CODES.Q
+
+/**
+ * Whether a request for pictures can use the photo picker: a sheet that opens over the app, closes
+ * with a swipe and asks for no permission. Android 13 and up (§62).
+ */
+fun usesPhotoPicker(accept: String, sdk: Int): Boolean =
+    accept.startsWith("image/") && sdk >= Build.VERSION_CODES.TIRAMISU
+
+/** What the system's document picker is told to show. Anything we do not understand means all. */
+fun documentType(accept: String): String =
+    if (Regex("^[a-z]+/([a-z0-9.+-]+|\\*)$").matches(accept)) accept else "*/*"
 
 /** The router's push only ever says "wake" (Plan §12): no sender, no content. */
 fun isWake(data: Map<String, String>): Boolean = data["t"] == "wake"
@@ -249,6 +263,12 @@ fun shareableText(text: String): String? = text.trim().ifEmpty { null }
 @InvokeArg
 class ShareTextArgs {
     lateinit var text: String
+}
+
+/** What kind of file the app is asking the user for; empty means anything. */
+@InvokeArg
+class PickArgs {
+    var accept: String = ""
 }
 
 @InvokeArg
@@ -469,10 +489,23 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
      */
     @Command
     fun pickFiles(invoke: Invoke) {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        val accept = try {
+            invoke.parseArgs(PickArgs::class.java).accept
+        } catch (_: Exception) {
+            ""
+        }
+        val intent = if (usesPhotoPicker(accept, Build.VERSION.SDK_INT)) {
+            // A sheet over the app: the user closes it and is still here, with nothing picked.
+            Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+                type = accept
+                putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, PICK_LIMIT)
+            }
+        } else {
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = documentType(accept)
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
         }
         startActivityForResult(invoke, intent, "picked")
     }
