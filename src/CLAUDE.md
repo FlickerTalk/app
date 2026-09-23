@@ -71,8 +71,11 @@ Estado (2026-09-23): herramientas, acciones del mensaje y plan.
   con la hora y el icono de guardar superpuestos; la nota de voz es solo su reproductor (play/pausa,
   progreso y duración; `chat.play`/`chat.pause`). Los demás ficheros conservan icono y nombre, sin
   tamaño. El estado sigue a la vista (`§84`): anillo con el porcentaje sobre la foto, porcentaje en la
-  nota de voz y «Failed» cuando falla. La onda de la nota de voz es dibujada, no medida: barras cuya
-  altura sale del id del mensaje, encendidas hasta donde se ha reproducido.
+  nota de voz y «Failed» cuando falla. La onda de la nota de voz es dibujada, no medida: 18 barras
+  (de 3 px como mínimo, con 3 px de aire) cuya altura sale del id del mensaje, encendidas hasta
+  donde se ha reproducido. El paseo que las genera tira hacia el 60 %, así que sube y baja suave y
+  no se aplasta contra los topes: con más barras o sin ese freno se veía como estática, no como una
+  onda (Ioan, 2026-09-23).
 - **Plan** (`§40–47`): `PlanPage` (Ajustes → Plan) dice cuánto queda del año gratis, ofrece el euro
   y pregunta la edad (nunca la fecha de nacimiento). La compra todavía contesta «todavía no»:
   falta el producto en las tiendas.

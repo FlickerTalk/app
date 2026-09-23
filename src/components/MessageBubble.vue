@@ -81,7 +81,7 @@ const position = ref(0);
 const played = computed(() => (duration.value > 0 ? Math.min(100, (position.value / duration.value) * 100) : 0));
 // The waveform is drawn, not measured: bars whose heights come from the message id, so the same
 // message always looks the same. The bars up to where it has played are lit.
-const BARS = 28;
+const BARS = 18;
 const bars = computed(() => waveform(props.message.id, BARS));
 const lit = computed(() => Math.round((played.value / 100) * BARS));
 const clock = computed(() => formatClock(playing.value || position.value > 0 ? position.value : duration.value));
@@ -102,13 +102,21 @@ function toggle() {
   else void Promise.resolve(audio.play()).catch(() => undefined);
 }
 
-/** `count` bar heights (20–100 %) drawn from `seed`, always the same for the same seed. */
+/** `count` bar heights (20–100 %) drawn from `seed`, always the same for the same seed. Each bar
+ *  stays near the one before it, so the shape reads as a voice and not as static. */
 function waveform(seed: string, count: number): number[] {
   let state = 0;
   for (const char of seed) state = (state * 31 + char.charCodeAt(0)) >>> 0;
-  return Array.from({ length: count }, () => {
+  const next = () => {
     state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
-    return 20 + (state % 81);
+    return state / 4_294_967_296;
+  };
+  // A walk that is pulled back towards the middle, so it never flattens against 20 % or 100 %.
+  const MIDDLE = 60;
+  let height = MIDDLE;
+  return Array.from({ length: count }, () => {
+    height += (next() - 0.5) * 44 + (MIDDLE - height) * 0.3;
+    return Math.round(Math.min(100, Math.max(20, height)));
   });
 }
 
@@ -520,7 +528,7 @@ function open() {
 .ft-voice__wave {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
   height: 26px;
 }
@@ -530,10 +538,10 @@ function open() {
 .ft-voice__bar {
   display: block;
   flex: 1;
-  min-width: 2px;
+  min-width: 3px;
   border-radius: 2px;
   background: currentColor;
-  opacity: 0.35;
+  opacity: 0.45;
 }
 .ft-voice__bar.is-on {
   opacity: 1;
