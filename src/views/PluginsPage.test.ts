@@ -26,8 +26,9 @@ const AI = {
 
 /** What the catalogue offers this phone; nothing travels inside the app (§56). */
 const OFFERED = [
-  { id: "com.flickertalk.code", name: "Code block", version: "1.0.0", summary: "Shows code.", size: 2048, installed: true },
-  { id: "com.flickertalk.sketch", name: "Sketch", version: "1.0.0", summary: "Draw with a finger.", size: 3072, installed: false },
+  { id: "com.flickertalk.code", name: "Code block", version: "1.0.0", summary: "Shows code.", size: 2048, installed: true, carried: true },
+  { id: "com.flickertalk.sketch", name: "Sketch", version: "1.0.0", summary: "Draw with a finger.", size: 3072, installed: false, carried: true },
+  { id: "com.flickertalk.ocr", name: "Read text", version: "1.0.0", summary: "Reads the text of a picture.", size: 5_400_000, installed: false, carried: false },
 ];
 
 describe("PluginsPage", () => {
@@ -102,5 +103,16 @@ describe("PluginsPage", () => {
     await flushPromises();
     expect(calls).toContainEqual(["core_plugin_add", { plugin: "com.flickertalk.sketch" }]);
     expect(calls.filter(([command]) => command === "core_plugins").length).toBeGreaterThan(1);
+  });
+
+  // What is downloaded says what it will cost; what the app already carries costs nothing and
+  // says nothing (§52).
+  it("says what a tool weighs before it is downloaded", async () => {
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    const text = wrapper.text();
+    expect(text).toContain("5.4 MB");
+    expect(wrapper.find("[data-test='install-com.flickertalk.sketch']").exists()).toBe(true);
+    expect(text).not.toContain("3 KB");
   });
 });
