@@ -619,20 +619,18 @@ pub mod packing {
     use base64::Engine;
     use vodozemac::Ed25519SecretKey;
 
-    /// Every file under `dir`, with the path the package will carry (relative, with `/`). The
-    /// folder's own junk and the plugin's tests stay out: they are not part of what is signed.
+    /// What a package carries: the manifest and everything under `dist/`, and nothing else. The
+    /// repository of a plugin holds its tests, its licence and its own tools; none of that runs on
+    /// the phone, so none of it is packed or signed.
     pub fn files_of(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
-        let mut files = Vec::new();
-        let mut pending = vec![dir.to_path_buf()];
+        let mut files = vec![("module.json".to_owned(), std::fs::read(dir.join("module.json"))?)];
+        let mut pending = vec![dir.join("dist")];
         while let Some(folder) = pending.pop() {
             for entry in std::fs::read_dir(&folder)? {
                 let path = entry?.path();
                 if path.is_dir() {
                     pending.push(path);
-                } else if !path.file_name().is_some_and(|name| {
-                    let name = name.to_string_lossy();
-                    name.starts_with('.') || name.ends_with(".test.js")
-                }) {
+                } else if !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.')) {
                     let name = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
                     files.push((name, std::fs::read(&path)?));
                 }
@@ -669,16 +667,19 @@ pub mod packing {
             let dir = std::env::temp_dir().join(format!("ftpack-{}", blake3::hash(b"files").to_hex()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(dir.join("one/dist")).unwrap();
+            std::fs::create_dir_all(dir.join("one/node_modules/vitest")).unwrap();
             std::fs::write(dir.join("one/module.json"), b"{}").unwrap();
             std::fs::write(dir.join("one/dist/index.js"), b"code").unwrap();
-            std::fs::write(dir.join("one/.DS_Store"), b"junk").unwrap();
+            std::fs::write(dir.join("one/dist/.DS_Store"), b"junk").unwrap();
             std::fs::write(dir.join("one/index.test.js"), b"tests").unwrap();
+            std::fs::write(dir.join("one/package.json"), b"{}").unwrap();
+            std::fs::write(dir.join("one/node_modules/vitest/huge.js"), b"x".repeat(1000)).unwrap();
 
             let files = files_of(&dir.join("one")).unwrap();
             assert_eq!(
                 files.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
                 ["dist/index.js", "module.json"],
-                "the folder's own junk, and its tests, stay out"
+                "only what runs on the phone is packed"
             );
             assert_eq!(plugin_folders(&dir).unwrap(), vec![dir.join("one")]);
         }
