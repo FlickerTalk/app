@@ -17,7 +17,7 @@ use tokio::sync::{mpsc, watch, Mutex};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::peer_connection::{
     PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-    RTCIceCandidateInit, RTCIceGatheringState, RTCIceServer, RTCIceTransportPolicy, RTCSdpType,
+    RTCIceCandidateInit, RTCIceGatheringState, RTCIceServer, RTCPeerConnectionState, RTCIceTransportPolicy, RTCSdpType,
     RTCSessionDescription,
 };
 use webrtc::runtime::{default_runtime, Runtime};
@@ -164,6 +164,15 @@ impl PeerConnectionEventHandler for Events {
         }
     }
 
+    // A peer that vanishes (its app killed, the phone reinstalled) never closes the channel; the
+    // connection notices it stopped answering. From then on the session is not open, so what is
+    // sent next opens a new connection or goes to the mailbox instead of vanishing too.
+    async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        if matches!(state, RTCPeerConnectionState::Disconnected | RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
+            let _ = self.open.send(false);
+        }
+    }
+
     // The callee receives the caller's channel here.
     async fn on_data_channel(&self, channel: Arc<dyn DataChannel>) {
         let Some(messages) = self.messages.lock().expect("messages poisoned").take() else { return };
@@ -283,6 +292,14 @@ impl Session {
     /// Whether the data channel is open right now.
     pub fn is_open(&self) -> bool {
         *self.opened.borrow()
+    }
+
+    /// Stops without telling the other side, as a process that is killed does. For tests of what
+    /// the other side sees then.
+    #[doc(hidden)]
+    pub async fn vanish(&self) {
+        let _ = self.open.send(false);
+        let _ = self.connection.close().await;
     }
 
     /// Ends the session. The data channel is closed first: that is what tells the other side,
