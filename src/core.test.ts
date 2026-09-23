@@ -104,6 +104,29 @@ describe("core bridge", () => {
     expect(core.store.me.mailbox).toBe(false);
   });
 
+  // Issues app#4–#6: what this phone takes from a contact and tells them, only in the core.
+  it("sets a contact's rules and the receipts default through the core", async () => {
+    const rules = { muted: true, acceptsChat: true, acceptsCalls: false, receipts: false };
+    await core.setRules("ft_bob", rules);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_set_rules", { contact: "ft_bob", rules });
+    await core.setReceipts(false);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_set_receipts", { enabled: false });
+    expect(core.store.me.receipts).toBe(false);
+  });
+
+  // Issue app#7: the weekly hours travel as JSON and are off when there are none.
+  it("reads and saves the weekly hours", async () => {
+    tauri.invoke.mockResolvedValueOnce(null);
+    expect(await core.quietHours()).toBeNull();
+    const week = { days: ["all", "all", "all", "all", { from: "15:00", to: "22:00" }, "none", "none"] as core.Day[] };
+    tauri.invoke.mockResolvedValueOnce(JSON.stringify(week));
+    expect(await core.quietHours()).toEqual(week);
+    await core.setQuietHours(week);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_set_quiet_hours", { hours: JSON.stringify(week) });
+    await core.setQuietHours(null);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_set_quiet_hours", { hours: null });
+  });
+
   it("adds a contact from a pasted link", async () => {
     expect(await core.addContact("  https://flickertalk.com/add#x  ")).toBe("ft_dave");
     expect(tauri.invoke).toHaveBeenCalledWith("core_add_contact", { link: "https://flickertalk.com/add#x" });

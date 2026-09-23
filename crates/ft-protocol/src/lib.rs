@@ -64,6 +64,10 @@ pub enum Body {
     /// Receipts (§38): the receiver stored these messages.
     Delivered { ids: Vec<MessageId> },
     Read { ids: Vec<MessageId> },
+    /// The receiver has these messages but tells nothing more (issue app#5, app#6): the sender
+    /// stops retrying and leaves them as sent, never as delivered (§84). A version that does not
+    /// know it ignores it and keeps retrying, which is still correct.
+    Received { ids: Vec<MessageId> },
     Typing,
     Ping,
     Pong,
@@ -270,6 +274,7 @@ mod tests {
     fn every_packet_type_survives_the_wire() {
         round_trip(Body::Message { text: "hello".to_owned() });
         round_trip(Body::Delivered { ids: vec![MessageId::new(), MessageId::new()] });
+        round_trip(Body::Received { ids: vec![MessageId::new()] });
         round_trip(Body::Read { ids: vec![MessageId::new()] });
         round_trip(Body::Typing);
         round_trip(Body::Ping);

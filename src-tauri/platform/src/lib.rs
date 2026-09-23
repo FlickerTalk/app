@@ -63,6 +63,14 @@ struct SaveFile<'a> {
 struct Ringing<'a> {
     caller: &'a str,
     video: bool,
+    /// A muted contact (app#4): the call shows but makes no noise.
+    muted: bool,
+}
+
+/// Arguments of the native `setQuietHours` command (app#7): the week in the core's compact form.
+#[derive(Serialize)]
+struct QuietHours<'a> {
+    week: &'a str,
 }
 
 /// Arguments of the native `shareText` command.
@@ -181,8 +189,13 @@ impl<R: Runtime> Platform<R> {
     }
 
     /// Rings and shows the incoming call on the screen (§66).
-    pub fn start_ringing(&self, caller: &str, video: bool) -> Result<()> {
-        self.run("startRinging", Ringing { caller, video })
+    pub fn start_ringing(&self, caller: &str, video: bool, muted: bool) -> Result<()> {
+        self.run("startRinging", Ringing { caller, video, muted })
+    }
+
+    /// Hands the weekly hours to the native side, which checks them even with the app closed.
+    pub fn set_quiet_hours(&self, week: &str) -> Result<()> {
+        self.run("setQuietHours", QuietHours { week })
     }
 
     pub fn stop_ringing(&self) -> Result<()> {
@@ -342,8 +355,10 @@ mod tests {
         assert_eq!(picked.files[0].size, 12);
         let pending: PendingCall = serde_json::from_value(serde_json::json!({ "action": "answer" })).unwrap();
         assert_eq!(pending.action, "answer");
-        let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true }).unwrap();
-        assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true }));
+        let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true, muted: true }).unwrap();
+        assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true, "muted": true }));
+        let hours = serde_json::to_value(QuietHours { week: "all;all;all;all;all;none;none" }).unwrap();
+        assert_eq!(hours, serde_json::json!({ "week": "all;all;all;all;all;none;none" }));
         let share = serde_json::to_value(ShareText { text: "Add me: https://flickertalk.com/add#card" }).unwrap();
         assert_eq!(share, serde_json::json!({ "text": "Add me: https://flickertalk.com/add#card" }));
         // Printing is the phone's: the app hands it a file and the user picks the printer (§53).

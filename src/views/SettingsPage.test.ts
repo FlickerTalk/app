@@ -137,4 +137,21 @@ describe("SettingsPage", () => {
     await mount(SettingsPage, { shallow: true }).find("[data-test='session']").trigger("click");
     expect(push).toHaveBeenCalledWith("/session");
   });
+
+  // Issue app#6: the default for contacts added later; each contact can differ.
+  it("turns receipts off for new contacts through the core", async () => {
+    const toggle = mount(SettingsPage, { shallow: true })
+      .findAllComponents(IonToggle)
+      .find((one) => one.attributes("data-test") === "receipts")!;
+    expect(toggle.attributes("checked")).toBe("true");
+    toggle.vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_receipts", { enabled: false }]);
+  });
+
+  // Issue app#7: the weekly hours have their own page.
+  it("goes to the weekly hours from a row", async () => {
+    await mount(SettingsPage, { shallow: true }).find("[data-test='hours']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/hours");
+  });
 });

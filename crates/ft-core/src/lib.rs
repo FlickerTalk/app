@@ -35,7 +35,7 @@ use ft_contacts::{ContactCard, RouteCapability};
 use ft_crypto::{accept_first_contact, Channel};
 use ft_identity::{DeviceId, Identity};
 use ft_protocol::{Body, MessageId, Packet, Sealed};
-use ft_storage::{Contact, Message, MessageState, NewContact, OutboxEntry, Store};
+use ft_storage::{Contact, ContactRules, Message, MessageState, NewContact, OutboxEntry, Store};
 use tokio::sync::{broadcast, Mutex};
 
 /// Unreachable contacts are retried after 5 s, 10 s, 20 s… up to this.
@@ -135,6 +135,9 @@ pub struct Core {
 /// What a session's PIN is hashed with, so the hash is bound to this phone's key.
 const SESSION_PIN_CONTEXT: &str = "flickertalk 2026-09-23 hidden session pin";
 const SESSION_PIN_LENGTH: usize = 6;
+/// Settings keys: whether new contacts get receipts (app#6), and the weekly hours (app#7).
+const RECEIPTS_DEFAULT: &str = "receipts_default";
+const QUIET_HOURS: &str = "quiet_hours";
 
 impl Core {
     /// Opens the device's core; the first run creates the identity and route capability.
@@ -298,6 +301,7 @@ impl Core {
                 card: card.encode(),
                 mailbox: card.mailbox(),
                 session: session.map(str::to_owned),
+                receipts: self.receipts_default().await?,
             })
             .await?;
         {
@@ -364,11 +368,64 @@ impl Core {
         Ok(visible)
     }
 
+    /// How a stored packet is acknowledged: delivered, or only received when this phone tells
+    /// the contact nothing (app#6). Either way the sender stops retrying (§27).
+    pub(crate) fn acknowledgement(&self, contact: &Contact, id: MessageId) -> Body {
+        if contact.rules.receipts {
+            Body::Delivered { ids: vec![id] }
+        } else {
+            Body::Received { ids: vec![id] }
+        }
+    }
+
     /// Tells the UI the conversation changed, unless the contact's session is closed.
     pub(crate) fn announce_messages(&self, contact: &Contact) {
         if !self.silent(contact) {
             let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
         }
+    }
+
+    /// What this phone takes from a contact and tells them (issues app#4–#6). Only here.
+    pub async fn set_rules(&self, contact: &str, rules: ContactRules) -> Result<()> {
+        self.contact(contact).await?;
+        self.store.set_rules(contact, &rules).await?;
+        let _ = self.events.send(Event::ContactsChanged);
+        Ok(())
+    }
+
+    /// Whether contacts added from now on are told their messages arrived and were read.
+    pub async fn receipts_default(&self) -> Result<bool> {
+        Ok(self.store.setting(RECEIPTS_DEFAULT).await?.as_deref() != Some("0"))
+    }
+
+    pub async fn set_receipts_default(&self, receipts: bool) -> Result<()> {
+        self.store.set_setting(RECEIPTS_DEFAULT, if receipts { "1" } else { "0" }).await
+    }
+
+    /// The weekly hours when this phone may make noise (app#7), as JSON; `None` when off.
+    pub async fn quiet_hours(&self) -> Result<Option<String>> {
+        Ok(self.store.setting(QUIET_HOURS).await?.filter(|hours| !hours.is_empty()))
+    }
+
+    /// The weekly hours as the native side reads them; empty when off.
+    pub async fn quiet_week(&self) -> Result<String> {
+        Ok(match self.quiet_hours().await? {
+            Some(json) => serde_json::from_str::<Week>(&json)?.compact(),
+            None => String::new(),
+        })
+    }
+
+    /// Keeps the weekly hours after checking them, or turns them off with `None`.
+    pub async fn set_quiet_hours(&self, hours: Option<&str>) -> Result<()> {
+        let kept = match hours {
+            Some(json) => {
+                let week: Week = serde_json::from_str(json).context("unreadable hours")?;
+                week.check()?;
+                serde_json::to_string(&week)?
+            }
+            None => String::new(),
+        };
+        self.store.set_setting(QUIET_HOURS, &kept).await
     }
 
     /// Safety number with a contact (§29), the same on both phones.
@@ -524,7 +581,9 @@ impl Core {
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
         let ids = unread.iter().filter_map(|id| MessageId::parse(id).ok()).collect();
         let contact = self.contact(contact).await?;
-        let _ = self.send_control(&contact, Body::Read { ids }).await;
+        if contact.rules.receipts {
+            let _ = self.send_control(&contact, Body::Read { ids }).await;
+        }
         Ok(())
     }
 
@@ -596,7 +655,14 @@ impl Core {
                     }
                     let name = card.name().map(str::to_owned).unwrap_or_else(|| short_name(&from));
                     self.store
-                        .add_contact(&NewContact { device_id: from.to_string(), name, card: card.encode(), mailbox: card.mailbox(), session: None })
+                        .add_contact(&NewContact {
+                            device_id: from.to_string(),
+                            name,
+                            card: card.encode(),
+                            mailbox: card.mailbox(),
+                            session: None,
+                            receipts: self.receipts_default().await?,
+                        })
                         .await?;
                     self.store.save_channel(from.as_str(), &channel.seal(&self.key)).await?;
                     (packet, true)
@@ -610,6 +676,10 @@ impl Core {
     async fn handle(&self, contact: &Contact, packet: Packet, first_contact: bool) -> Result<()> {
         let id = contact.device_id.as_str();
         match packet.body {
+            Body::Message { .. } if !contact.rules.accepts_chat => {
+                // Chat off (app#5): nothing is kept; they stop retrying and see only sent.
+                let _ = self.send_control(contact, Body::Received { ids: vec![packet.id] }).await;
+            }
             Body::Message { text } => {
                 let stored = self
                     .store
@@ -626,9 +696,10 @@ impl Core {
                     self.announce_messages(contact);
                 }
                 // Always acknowledged, even a duplicate: the sender is waiting for it (§27).
-                let _ = self.send_control(contact, Body::Delivered { ids: vec![packet.id] }).await;
+                let _ = self.send_control(contact, self.acknowledgement(contact, packet.id)).await;
             }
             Body::Delivered { ids } => self.receipt(id, ids, MessageState::Delivered).await?,
+            Body::Received { ids } => self.receipt(id, ids, MessageState::Sent).await?,
             Body::Read { ids } => self.receipt(id, ids, MessageState::Read).await?,
             Body::ContactCard { card } => {
                 let card = ContactCard::decode(&card)?;
@@ -642,6 +713,7 @@ impl Core {
                         card: card.encode(),
                         mailbox: card.mailbox(),
                         session: None,
+                        receipts: contact.rules.receipts,
                     })
                     .await?;
                 if first_contact {
@@ -798,8 +870,64 @@ fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// The weekly hours when the phone may make noise (app#7): Monday first, seven days. Outside
+/// them messages still arrive and calls still show, but nothing sounds, vibrates or notifies.
+/// Evaluated on the phone's own clock and time zone by the native side.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Week {
+    pub days: Vec<Day>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum Day {
+    /// `"all"` (the whole day) or `"none"` (never).
+    Whole(String),
+    /// A stretch, `"HH:MM"` to `"HH:MM"`; past midnight when `to` comes before `from`.
+    Hours { from: String, to: String },
+}
+
+impl Week {
+    /// What the native side reads (app#7): seven `;`-separated days, Monday first, each `all`,
+    /// `none` or `FROM-TO` in minutes of the day.
+    pub fn compact(&self) -> String {
+        let day = |day: &Day| match day {
+            Day::Whole(which) => which.clone(),
+            Day::Hours { from, to } => format!("{}-{}", minutes(from).unwrap_or(0), minutes(to).unwrap_or(0)),
+        };
+        self.days.iter().map(day).collect::<Vec<_>>().join(";")
+    }
+
+    fn check(&self) -> Result<()> {
+        ensure!(self.days.len() == 7, "a week has seven days");
+        for day in &self.days {
+            match day {
+                Day::Whole(which) => ensure!(which == "all" || which == "none", "a day is all, none or hours"),
+                Day::Hours { from, to } => ensure!(minutes(from).is_some() && minutes(to).is_some(), "hours are HH:MM"),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn minutes(time: &str) -> Option<u32> {
+    let (hours, minutes) = time.split_once(':')?;
+    let (hours, minutes): (u32, u32) = (hours.parse().ok()?, minutes.parse().ok()?);
+    (hours < 24 && minutes < 60 && time.len() == 5).then_some(hours * 60 + minutes)
+}
+
 #[cfg(test)]
 mod tests {
+    // app#7: what the native side reads, Monday first, minutes of the day.
+    #[test]
+    fn the_week_is_handed_to_the_phone_in_minutes() {
+        let week: Week = serde_json::from_str(
+            r#"{"days":[{"from":"18:00","to":"22:00"},"none",{"from":"22:00","to":"02:00"},"all","all","all","all"]}"#,
+        )
+        .unwrap();
+        assert_eq!(week.compact(), "1080-1320;none;1320-120;all;all;all;all");
+    }
+
     use super::*;
 
     #[test]

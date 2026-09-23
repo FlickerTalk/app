@@ -122,4 +122,42 @@ class PlatformPluginTest {
     fun aPickedFileIsWrittenWhereOnlyTheAppCanRead() {
         assertEquals("uploads", PICKED_FOLDER)
     }
+
+    // Issue app#7: the weekly hours, Monday first, as the core hands them over.
+    private val week = "1080-1320;1080-1320;1080-1320;1080-1320;900-1320;all;all"
+
+    @Test
+    fun noHoursMeansTheOldBehaviour() {
+        assertEquals(true, mayDisturb("", 0, 3 * 60))
+    }
+
+    @Test
+    fun insideItsStretchADayMayMakeNoise() {
+        assertEquals(true, mayDisturb(week, 0, 19 * 60))
+        assertEquals(true, mayDisturb(week, 4, 15 * 60))
+        assertEquals(true, mayDisturb(week, 6, 3 * 60))
+    }
+
+    @Test
+    fun outsideItsStretchADayIsQuiet() {
+        assertEquals(false, mayDisturb(week, 0, 9 * 60))
+        assertEquals(false, mayDisturb(week, 0, 22 * 60))
+        assertEquals(false, mayDisturb(week, 3, 14 * 60))
+        assertEquals(false, mayDisturb("none;none;none;none;none;none;none", 2, 12 * 60))
+    }
+
+    @Test
+    fun aStretchCanGoPastMidnight() {
+        val nights = "1320-120;all;all;all;all;all;all"
+        assertEquals(true, mayDisturb(nights, 0, 23 * 60))
+        assertEquals(true, mayDisturb(nights, 0, 60))
+        assertEquals(false, mayDisturb(nights, 0, 12 * 60))
+    }
+
+    // Issue app#4 and app#7: a muted contact, or quiet hours, show the call but make no noise.
+    @Test
+    fun aQuietCallNeitherRingsNorVibrates() {
+        assertEquals(Ringing(sound = false, vibrate = false), ringingFor(AudioManager.RINGER_MODE_NORMAL, quiet = true))
+        assertEquals(Ringing(sound = true, vibrate = true), ringingFor(AudioManager.RINGER_MODE_NORMAL, quiet = false))
+    }
 }

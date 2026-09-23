@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonSelect } from "@ionic/vue";
+import { IonSelect, IonToggle } from "@ionic/vue";
 import ContactPage from "./ContactPage.vue";
 import { calls, seed } from "../__tests__/seed";
 
@@ -68,5 +68,24 @@ describe("ContactPage", () => {
     burn.vm.$emit("ionChange", { detail: { value: 300 } });
     await flushPromises();
     expect(calls).toContainEqual(["core_set_history", { contact: "c1", keepFor: 604800, burnAfterRead: 300 }]);
+  });
+
+  // Issues app#4–#6: mute, what is accepted from them and whether they get receipts. Each switch
+  // saves at once, the others kept.
+  it("changes what this phone takes from the contact", async () => {
+    const wrapper = mount(ContactPage, { shallow: true });
+    await flushPromises();
+    const toggle = (name: string) =>
+      wrapper.findAllComponents(IonToggle).find((one) => one.attributes("data-test") === name)!;
+    for (const name of ["mute", "chat", "calls", "receipts"]) expect(toggle(name).exists()).toBe(true);
+    expect(toggle("mute").attributes("checked")).toBe("false");
+    expect(toggle("calls").attributes("checked")).toBe("true");
+
+    toggle("mute").vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: true } }));
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: true, receipts: true } }]);
+    toggle("calls").vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: false, receipts: true } }]);
   });
 });
