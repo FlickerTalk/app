@@ -159,12 +159,25 @@ describe("ChatThread", () => {
   // With nothing written the round button records a voice message; with text, it sends.
   it("has a composer to attach, record and send", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
-    expect(wrapper.find("[aria-label='Attach file']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Attach']").exists()).toBe(true);
     expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(true);
     wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hi");
     await flushPromises();
     expect(wrapper.find("[aria-label='Send']").exists()).toBe(true);
     expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(false);
+  });
+
+  // The «+» unfolds two ways to attach (Ioan, 2026-09-23): a photo or video, through the system's
+  // sheet over the chat, or any other file, through the document picker. Neither goes through the
+  // WebView's own file input.
+  it("unfolds photo-or-video and file from the attach button", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await wrapper.find("[aria-label='Attach photo or video']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_pick_files", { accept: "image/*,video/*" }]);
+    await wrapper.find("[aria-label='Attach file']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_pick_files", { accept: "" }]);
   });
 
   // Issue app#3: the plugins live behind the apps button of the header, and each one does its

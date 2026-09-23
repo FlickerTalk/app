@@ -74,7 +74,11 @@ fun canSaveToDownloads(sdk: Int): Boolean = sdk >= Build.VERSION_CODES.Q
  * with a swipe and asks for no permission. Android 13 and up (§62).
  */
 fun usesPhotoPicker(accept: String, sdk: Int): Boolean =
-    accept.startsWith("image/") && sdk >= Build.VERSION_CODES.TIRAMISU
+    (accept.startsWith("image/") || accept.startsWith("video/")) && sdk >= Build.VERSION_CODES.TIRAMISU
+
+/** What the photo picker is told to show: pictures, videos, or (with no type) both. */
+fun photoPickerType(accept: String): String? =
+    accept.takeIf { it == "image/*" || it == "video/*" || Regex("^(image|video)/[a-z0-9.+-]+$").matches(it) }
 
 /** What the system's document picker is told to show. Anything we do not understand means all. */
 fun documentType(accept: String): String =
@@ -578,7 +582,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         val intent = if (usesPhotoPicker(accept, Build.VERSION.SDK_INT)) {
             // A sheet over the app: the user closes it and is still here, with nothing picked.
             Intent(MediaStore.ACTION_PICK_IMAGES).apply {
-                type = accept
+                photoPickerType(accept)?.let { type = it }
                 putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, PICK_LIMIT)
             }
         } else {
