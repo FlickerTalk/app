@@ -54,6 +54,12 @@ producto— y App Store Connect necesita la cuenta de pago de Apple.
 
 - Edad, entitlement y paywall (fase 4, `§93`) no bloquean el lanzamiento, pero deben estar listos
   antes de que acabe el primer año gratuito de los primeros usuarios.
+- **Decidido (Ioan, 2026-09-24): `Unknown` cuenta como adulto.** Si no consta la edad, se pide el
+  euro igual que a un adulto: lo contrario —desconocido gratis— haría el euro opcional para todo
+  el mundo, porque el estado por defecto **es** `Unknown` y nadie está obligado a declarar nada.
+  El menor no queda atrapado: el paywall enseña a la vez el euro y el «tengo menos de 21», y en
+  una cuenta infantil de verdad la tienda pide permiso al adulto (Ask to Buy → `pending_approval`).
+  Fijado en `Access::of` y en su test.
 - **Decidido (Ioan, 2026-09-23):** un adulto sin suscripción **sigue recibiendo y respondiendo**;
   lo que no puede es **empezar** una conversación nueva, llamar ni enviar ficheros. Nadie pierde
   un mensaje por no pagar (`§1`).
