@@ -21,6 +21,19 @@ describe("App", () => {
     expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r%201");
   });
 
+  // Found on a real phone (2026-09-27): with the app in the background, tapping the reminder
+  // brings it back without mounting it again, so the app asks once more when it is visible.
+  it("opens the plugin of a reminder tapped while the app was in the background", async () => {
+    mount(App, { shallow: true });
+    await flushPromises();
+    expect(push).not.toHaveBeenCalled();
+
+    installTauri((command) => (command === "core_pending_reminder" ? "com.flickertalk.notes\nr1" : undefined));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r1");
+  });
+
   it("goes nowhere special when no reminder was tapped", async () => {
     mount(App, { shallow: true });
     await flushPromises();
