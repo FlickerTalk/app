@@ -100,7 +100,7 @@ Lenovo real con la app cerrada: notificación a los ~10 s y mensaje entregado al
 - **A2, plugins**: `plugin_sending`, `plugin_may_propose` y `plugin_send_file` (solo con `auto`).
 - **A3, sesiones** (decisión 2026-09-27: todo PIN es válido): `open_session` abre la sesión del
   PIN o crea una vacía, sin retardo ni «fallos»; `None` solo si los siete huecos están ocupados.
-  `close_session` borra la sesión si está vacía (sin contactos ni solicitudes) y devuelve si se
+  `close_session` borra la sesión si está vacía (sin contactos, solicitudes ni círculos) y devuelve si se
   fue; al arrancar se borran las vacías que quedaran. `remove_session` borra todo. Una sesión que
   se va se lleva su enlace (`forget_session` rota la capability del hueco; la app vuelve a
   registrar los ocho hashes), y un primer contacto con un `via` que ya no es nuestro no llega a

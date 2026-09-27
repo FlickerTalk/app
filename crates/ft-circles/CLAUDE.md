@@ -12,7 +12,10 @@ identidad (`ft-identity`) y las Contact Cards de `ft-contacts`.
   puede abrir un canal Olm con cada miembro **sin escanear a nadie**.
 - **Cadena de revisiones**: un teléfono sustituye la tarjeta que tiene solo por una `revision`
   mayor firmada por un administrador **de la tarjeta que tiene** (`judge`). Así un miembro no
-  puede añadirse a sí mismo, nombrarse administrador ni echar a nadie. Una tarjeta de un círculo
+  puede añadirse a sí mismo, nombrarse administrador ni echar a nadie. La revisión nueva puede
+  adelantar como mucho `MAX_REVISION_STEP` (1000) a la que se tiene (revisión del 2026-09-27): un
+  administrador no puede apoderarse de un número inalcanzable ni acercarse a `u64::MAX`, y
+  `revise` nunca da la vuelta. Todo administrador tiene el mismo poder: puede quitar a los demás. Una tarjeta de un círculo
   desconocido se acepta solo si la firma uno de sus propios administradores (`stands_alone`).
 - **Empate**: dos administradores que firman la misma revisión a la vez se resuelven por el id
   de dispositivo más bajo, igual en todos los teléfonos.
