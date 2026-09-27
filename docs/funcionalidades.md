@@ -109,7 +109,7 @@ oficina y no molesta hasta el día siguiente.
 - Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se crea una sesión
   **nueva y vacía**. Todo PIN es válido: no existe «PIN incorrecto» ni espera entre intentos, y
   nada dice cuál de las dos cosas ha pasado, así que nadie puede saber si hay sesiones.
-- Una sesión **vacía** (sin contactos ni solicitudes) se borra al salir de ella, o al arrancar si
+- Una sesión **vacía** (sin contactos, solicitudes ni círculos) se borra al salir de ella, o al arrancar si
   la app se cerró con ella abierta: teclear PIN nunca llena los siete huecos. Con algo dentro, se
   queda.
 - Una sesión que se borra se lleva su enlace: quien guardara su QR ya no llega a nadie, ni a la

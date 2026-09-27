@@ -24,6 +24,9 @@ pub const CIRCLE_VERSION: u16 = 1;
 pub const MAX_MEMBERS: usize = 32;
 /// The most a circle's name may run to, in characters.
 pub const NAME_LIMIT: usize = 40;
+/// How far ahead of the card a phone holds the next revision may be: enough for a member who
+/// missed some to catch up, never enough to squat a revision out of reach or near `u64::MAX`.
+pub const MAX_REVISION_STEP: u64 = 1000;
 
 /// One member of a circle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,7 +130,7 @@ impl CircleCard {
         let body = Body {
             version: CIRCLE_VERSION,
             id: self.body.id.clone(),
-            revision: self.body.revision + 1,
+            revision: self.body.revision.checked_add(1).context("the circle has no revisions left")?,
             name: draft.name,
             admins: draft.admins,
             members: draft.members,
@@ -230,12 +233,13 @@ impl CircleCard {
     }
 
     /// Whether `next` may replace this card: the same circle, signed by an admin of **this**
-    /// card, and a later revision. Two admins who change the same revision at once are told
+    /// card, and a later revision, at most `MAX_REVISION_STEP` ahead. Two admins who change the same revision at once are told
     /// apart by their device id, the lower one winning, the same on every phone.
     pub fn judge(&self, next: &CircleCard) -> Result<Standing> {
         ensure!(next.body.id == self.body.id, "a card of another circle");
         let signer = next.signer();
         ensure!(self.is_admin(signer.as_str()), "signed by someone who is not an admin of the circle");
+        ensure!(next.body.revision <= self.body.revision.saturating_add(MAX_REVISION_STEP), "a revision too far ahead");
         if next.body.revision > self.body.revision {
             return Ok(Standing::Newer);
         }
@@ -416,6 +420,23 @@ mod tests {
         // Whoever got one first: the other one wins only if its signer is the lower id.
         assert_eq!(by_alice.judge(&by_bob).unwrap(), if lower_is_alice { Standing::Older } else { Standing::Newer });
         assert_eq!(by_bob.judge(&by_alice).unwrap(), if lower_is_alice { Standing::Newer } else { Standing::Older });
+    }
+
+    // Review of 2026-09-27: an admin cannot squat a revision far ahead. It would win every race
+    // on that phone from then on and, near `u64::MAX`, freeze the circle for good.
+    #[test]
+    fn a_revision_cannot_leap_far_ahead() {
+        let (alice, bob) = (person("Alice"), person("Bob"));
+        let held = circle(&alice, &[&bob]);
+        let leap = |revision: u64| {
+            let mut body = held.body.clone();
+            body.revision = revision;
+            CircleCard::sign(body, &alice.identity).expect("signs")
+        };
+        assert_eq!(held.judge(&leap(1 + MAX_REVISION_STEP)).unwrap(), Standing::Newer, "a member who missed some catches up");
+        assert!(held.judge(&leap(2 + MAX_REVISION_STEP)).is_err());
+        assert!(held.judge(&leap(u64::MAX)).is_err());
+        assert!(leap(u64::MAX).revise(&alice.identity, |_| {}).is_err(), "and never wraps round");
     }
 
     #[test]

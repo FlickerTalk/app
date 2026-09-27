@@ -530,10 +530,14 @@ impl Store {
         Ok(())
     }
 
-    /// The sessions with nobody in them, not even a stranger waiting for a yes (A3).
+    /// The sessions with nothing in them (A3): no contact, not even a stranger waiting for a
+    /// yes, and no circle.
     pub async fn empty_sessions(&self) -> Result<Vec<String>> {
         let rows = sqlx::query(
-            "SELECT id FROM sessions WHERE id NOT IN (SELECT session FROM contacts WHERE session IS NOT NULL) ORDER BY id",
+            "SELECT id FROM sessions
+             WHERE id NOT IN (SELECT session FROM contacts WHERE session IS NOT NULL)
+               AND id NOT IN (SELECT session FROM circles WHERE session IS NOT NULL)
+             ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -1480,6 +1484,22 @@ mod tests {
             .expect("a request inside");
         store.add_contact(&contact("ft_carol")).await.expect("adds to the main list");
         assert_eq!(store.empty_sessions().await.expect("lists"), vec!["s1".to_owned()]);
+
+        // A circle is something in the session too, even with nobody else in it any more.
+        store
+            .save_circle(&CircleRecord {
+                id: "c1".to_owned(),
+                name: "Friends".to_owned(),
+                card: vec![1],
+                revision: 1,
+                admins_only: false,
+                session: Some("s1".to_owned()),
+                left: false,
+                created_at: 1,
+            })
+            .await
+            .expect("saves");
+        assert!(store.empty_sessions().await.expect("lists").is_empty());
     }
 
     // M5: what the sender's clock says is kept, but the order and the age are this phone's.
