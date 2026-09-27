@@ -310,6 +310,10 @@ impl Core {
         allowed(&manifest.permissions, &granted)?;
         self.store.grant_plugin(id, &serde_json::to_string(&granted)?).await?;
         let _ = self.events.send(Event::PluginsChanged);
+        // Without `remind`, what it had set must not ring: the alarm clock is told again.
+        if !granted.remind && self.store.forget_reminders(id).await? {
+            let _ = self.events.send(Event::RemindersChanged);
+        }
         Ok(())
     }
 
@@ -334,6 +338,8 @@ impl Core {
         ft_plugins::remove(id, self.plugins_home()?)?;
         self.store.remove_plugin(id).await?;
         let _ = self.events.send(Event::PluginsChanged);
+        // Its reminders went with it; the alarm clock still holds them until it is told.
+        let _ = self.events.send(Event::RemindersChanged);
         Ok(())
     }
 
