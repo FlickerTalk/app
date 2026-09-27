@@ -28,6 +28,8 @@ export const routes: RouteRecordRaw[] = [
   { path: "/session", component: () => import("./views/SessionPage.vue") },
   { path: "/hours", component: () => import("./views/HoursPage.vue") },
   { path: "/plugins", component: () => import("./views/PluginsPage.vue") },
+  // A plugin on its own (2026-09-27): from Settings, or from a reminder it set.
+  { path: "/plugin/:id", component: () => import("./views/PluginPage.vue") },
   { path: "/plan", component: () => import("./views/PlanPage.vue") },
   { path: "/move", component: () => import("./views/MovePage.vue") },
   { path: "/call/:id", component: () => import("./views/CallPage.vue") },

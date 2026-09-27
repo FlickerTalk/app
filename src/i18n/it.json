@@ -259,7 +259,13 @@
     "remove": "Rimuovi",
     "none": "Ancora nessun plugin",
     "available": "Strumenti che puoi aggiungere",
-    "install": "Installa"
+    "install": "Installa",
+    "live": "Parlare con lo stesso plugin dall'altra parte della chat",
+    "remind": "Impostare promemoria su questo telefono",
+    "drive": "Tenere file nel tuo cloud",
+    "storageLarge": "Tenere molti dati su questo telefono (fino a 256 MB)",
+    "opens": "Apre: {kinds}",
+    "open": "Apri"
   },
   "emoji": {
     "open": "Emoji",

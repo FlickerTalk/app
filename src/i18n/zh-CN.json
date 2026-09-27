@@ -259,7 +259,13 @@
     "remove": "移除",
     "none": "还没有插件",
     "available": "可添加的工具",
-    "install": "安装"
+    "install": "安装",
+    "live": "Talk to the same plugin on the other side of the chat",
+    "remind": "Set reminders on this phone",
+    "drive": "Keep files in your own cloud",
+    "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
+    "opens": "Opens: {kinds}",
+    "open": "Open"
   },
   "emoji": {
     "open": "表情",

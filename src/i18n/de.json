@@ -259,7 +259,13 @@
     "remove": "Entfernen",
     "none": "Noch keine Plugins",
     "available": "Tools zum Hinzufügen",
-    "install": "Installieren"
+    "install": "Installieren",
+    "live": "Mit demselben Plugin auf der anderen Seite des Chats sprechen",
+    "remind": "Erinnerungen auf diesem Telefon setzen",
+    "drive": "Dateien in deiner eigenen Cloud ablegen",
+    "storageLarge": "Viele Daten auf diesem Telefon behalten (bis 256 MB)",
+    "opens": "Öffnet: {kinds}",
+    "open": "Öffnen"
   },
   "emoji": {
     "open": "Emoji",

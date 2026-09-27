@@ -712,6 +712,16 @@ export interface PluginPermissions {
   messages: boolean;
   /** "nothing", "propose" (fills the composer) or "auto" (sends by itself). */
   send: Sending;
+  /** Whether it may print what it made. */
+  print?: boolean;
+  /** Whether it may talk to the same plugin on the other side of a conversation (2026-09-27). */
+  live?: boolean;
+  /** Whether it may set reminders on this phone. */
+  remind?: boolean;
+  /** Whether it may keep files in the user's own cloud, through the core. */
+  drive?: boolean;
+  /** How much it may keep in its records: "small" (settings, notes) or "large" (boards). */
+  storage?: "small" | "large";
 }
 
 export interface PluginView {
@@ -721,6 +731,8 @@ export interface PluginView {
   asks: PluginPermissions;
   granted: PluginPermissions;
   installedAt: number;
+  /** The kinds of file it opens: media types, or "*\/*" for any (2026-09-27). */
+  opens?: string[];
 }
 
 export async function plugins(): Promise<PluginView[]> {
@@ -827,6 +839,105 @@ export async function pluginForget(plugin: string, key: string): Promise<void> {
 /** What the user allows a plugin to do; never more than it asked for (§53). */
 export async function grantPlugin(plugin: string, granted: PluginPermissions): Promise<void> {
   await invoke("core_plugin_grant", { plugin, granted });
+}
+
+// ---- Records, refs, reminders, the live channel and "open with" (2026-09-27) ----
+
+/** Sent by the core on `ft://plugin`: what a plugin on the other side said to its twin here. */
+export const PLUGIN_EVENT = "ft://plugin";
+
+export interface PluginEvent {
+  plugin: string;
+  contact: string;
+  /** Base64. */
+  data: string;
+}
+
+/** A record's value, as the plugin wrote it (a string), or null. */
+export async function pluginRecordGet(plugin: string, key: string): Promise<string | null> {
+  const value = await invoke<string | null>("core_plugin_record_get", { plugin, key });
+  return value === null ? null : fromBase64(value);
+}
+
+export async function pluginRecordSet(plugin: string, key: string, value: string): Promise<void> {
+  await invoke("core_plugin_record_set", { plugin, key, value: toBase64Text(value) });
+}
+
+export async function pluginRecordForget(plugin: string, key: string): Promise<void> {
+  await invoke("core_plugin_record_forget", { plugin, key });
+}
+
+export async function pluginRecordKeys(plugin: string, prefix: string): Promise<string[]> {
+  return invoke<string[]>("core_plugin_record_keys", { plugin, prefix });
+}
+
+/** How much of its room a plugin uses and how much it has, in bytes. */
+export async function pluginRecordUsage(plugin: string): Promise<{ used: number; quota: number }> {
+  const [used, quota] = await invoke<[number, number]>("core_plugin_record_usage", { plugin });
+  return { used, quota };
+}
+
+/** An opaque handle for the message the user hands a plugin; nothing of the contact in it. */
+export async function pluginRef(plugin: string, message: string): Promise<string> {
+  return invoke<string>("core_plugin_ref", { plugin, message });
+}
+
+/** Where a plugin's ref leads, or null if the message or the contact is gone. */
+export async function pluginOpenChat(plugin: string, reference: string): Promise<{ contact: string; message: string } | null> {
+  return invoke<{ contact: string; message: string } | null>("core_plugin_open_chat", { plugin, reference });
+}
+
+export interface Reminder {
+  plugin: string;
+  id: string;
+  at: number;
+  text: string;
+}
+
+export async function remindSet(plugin: string, id: string, at: number, text: string): Promise<void> {
+  await invoke("core_remind_set", { plugin, id, at, text });
+}
+
+export async function remindCancel(plugin: string, id: string): Promise<boolean> {
+  return invoke<boolean>("core_remind_cancel", { plugin, id });
+}
+
+export async function remindList(plugin: string): Promise<Reminder[]> {
+  return invoke<Reminder[]>("core_remind_list", { plugin });
+}
+
+/** The reminder the user tapped to open the app, once: `{ plugin, id }` or null. */
+export async function pendingReminder(): Promise<{ plugin: string; id: string } | null> {
+  const key = String((await invoke<string>("core_pending_reminder").catch(() => "")) ?? "");
+  const at = key.indexOf("\n");
+  return at > 0 ? { plugin: key.slice(0, at), id: key.slice(at + 1) } : null;
+}
+
+/** What a plugin says to its twin on the contact's phone; false if it cannot be reached now. */
+export async function pluginLiveSend(plugin: string, contact: string, data: string): Promise<boolean> {
+  return invoke<boolean>("core_plugin_live_send", { plugin, contact, data });
+}
+
+/** The file of a message, for a plugin to open it: name, kind and bytes as base64. */
+export async function readMessageFile(message: string): Promise<{ name: string; mime: string; data: string }> {
+  return invoke("core_read_message_file", { message });
+}
+
+/** UTF-8 text as base64, for the bytes the core keeps for a plugin. */
+export function toBase64Text(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+export function fromBase64(value: string): string {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new TextDecoder().decode(bytes);
 }
 
 export async function removePlugin(plugin: string): Promise<void> {

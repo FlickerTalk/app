@@ -105,6 +105,10 @@ pub enum Event {
     CirclesChanged,
     /// Something was said or happened in the circle.
     CircleMessagesChanged { circle: String },
+    /// A plugin on the other side said something to its twin here (2026-09-27, `ft.live`).
+    PluginEvent { plugin: String, contact: String, data: Vec<u8> },
+    /// A plugin set or cancelled a reminder: the phone's alarm clock is told again.
+    RemindersChanged,
 }
 
 pub(crate) enum Route {
@@ -1066,6 +1070,7 @@ impl Core {
             Body::CircleCard { card } => self.circle_card_received(contact, packet.id, &card).await?,
             Body::CircleMessage { circle, text } => self.circle_text_received(contact, packet.id, packet.sent_at, &circle, text).await?,
             Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
+            Body::PluginEvent { plugin, data } => self.plugin_event_received(contact, plugin, data).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
             Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }

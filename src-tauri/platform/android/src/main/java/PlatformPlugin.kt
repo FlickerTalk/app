@@ -2,12 +2,18 @@ package com.flickertalk.platform
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
+import org.json.JSONArray
+import org.json.JSONObject
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioManager
@@ -232,6 +238,174 @@ private fun showActivityNotification(context: Context) {
     }
 }
 
+// ---- Local reminders (2026-09-27): a plugin's alarm, shown by this phone alone ----
+
+/** The channel reminders go to, apart from messages and calls, so the user can silence it alone. */
+const val REMINDER_CHANNEL = "ft.reminders"
+/** Where the reminder list is kept for the boot receiver: the core is the truth, this is a copy. */
+private const val REMINDERS = "reminders"
+/** The extra that carries `plugin\nid` when a reminder notification opens the app. */
+const val REMINDER_ACTION = "ft.reminder"
+/** The extra that carries the URL a login sent the user back with. */
+const val AUTH_RESULT = "ft.auth.result"
+/** Notification ids for reminders start here; messages and calls use the first few. */
+private const val REMINDER_NOTIFICATION_BASE = 1000
+
+/** One reminder as the core wrote it. */
+data class ReminderEntry(val plugin: String, val id: String, val at: Long, val text: String)
+
+/** What the core sends: `[{plugin, id, at, text}]`. Anything malformed is skipped, not fatal. */
+fun parseReminders(json: String): List<ReminderEntry> {
+    val entries = mutableListOf<ReminderEntry>()
+    val array = try { JSONArray(json) } catch (_: Exception) { return entries }
+    for (index in 0 until array.length()) {
+        val item = array.optJSONObject(index) ?: continue
+        val plugin = item.optString("plugin")
+        val id = item.optString("id")
+        val at = item.optLong("at", 0)
+        if (plugin.isEmpty() || id.isEmpty() || at <= 0) continue
+        entries.add(ReminderEntry(plugin, id, at, item.optString("text")))
+    }
+    return entries
+}
+
+/** A stable request code per reminder, so the same reminder replaces its own alarm. */
+fun reminderRequestCode(plugin: String, id: String): Int =
+    REMINDER_NOTIFICATION_BASE + ((plugin + "\n" + id).hashCode() and 0x7fffffff) % 1_000_000
+
+/** `plugin\nid`, what the app is opened with when a reminder is tapped. */
+fun reminderKey(plugin: String, id: String): String = plugin + "\n" + id
+
+/** The reminder key an intent carries, or nothing. */
+fun pendingReminderOf(value: String?): String = value?.takeIf { it.contains('\n') } ?: ""
+
+/** Whether exact alarms are allowed on this phone (Android 12 asks; 14 denies by default). */
+fun exactAlarmsAllowed(sdk: Int, canSchedule: () -> Boolean): Boolean =
+    sdk < Build.VERSION_CODES.S || canSchedule()
+
+/** Whether a login's redirect is the one we wait for: our scheme, not some other link. */
+fun isAuthRedirect(uri: String?, scheme: String): Boolean =
+    uri != null && scheme.isNotEmpty() && uri.startsWith("$scheme:")
+
+/** Reminders whose time has not passed: the boot receiver schedules only these. */
+fun remindersStillDue(entries: List<ReminderEntry>, now: Long): List<ReminderEntry> = entries.filter { it.at > now }
+
+private fun reminderChannel(context: Context) {
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        manager.createNotificationChannel(
+            NotificationChannel(REMINDER_CHANNEL, context.getString(R.string.ft_channel_reminders), NotificationManager.IMPORTANCE_HIGH)
+        )
+    }
+}
+
+private fun reminderIntent(context: Context, entry: ReminderEntry): PendingIntent =
+    PendingIntent.getBroadcast(
+        context,
+        reminderRequestCode(entry.plugin, entry.id),
+        Intent(context, ReminderReceiver::class.java).apply {
+            putExtra("plugin", entry.plugin)
+            putExtra("id", entry.id)
+            putExtra("text", entry.text)
+        },
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+/** Cancels every alarm of the copy kept in preferences, then schedules `entries` and keeps them. */
+fun scheduleReminders(context: Context, entries: List<ReminderEntry>) {
+    val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+    val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    for (old in parseReminders(preferences.getString(REMINDERS, "[]") ?: "[]")) {
+        alarms.cancel(reminderIntent(context, old))
+    }
+    val exact = exactAlarmsAllowed(Build.VERSION.SDK_INT) {
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms()
+    }
+    val now = System.currentTimeMillis()
+    for (entry in remindersStillDue(entries, now)) {
+        val intent = reminderIntent(context, entry)
+        try {
+            if (exact) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.at, intent)
+            else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.at, intent)
+        } catch (_: SecurityException) {
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.at, intent)
+        }
+    }
+    val kept = JSONArray()
+    for (entry in entries) {
+        kept.put(JSONObject().put("plugin", entry.plugin).put("id", entry.id).put("at", entry.at).put("text", entry.text))
+    }
+    preferences.edit().putString(REMINDERS, kept.toString()).apply()
+}
+
+/** The alarm rang: a notification that opens the app on that reminder. Says nothing of the
+ *  note unless the core sent a text (the user allowed content on the lock screen). */
+class ReminderReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val plugin = intent.getStringExtra("plugin") ?: return
+        val id = intent.getStringExtra("id") ?: return
+        val text = intent.getStringExtra("text").orEmpty()
+        reminderChannel(context)
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra(REMINDER_ACTION, reminderKey(plugin, id))
+        } ?: return
+        val open = PendingIntent.getActivity(
+            context,
+            reminderRequestCode(plugin, id),
+            launch,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL)
+            .setSmallIcon(R.drawable.ft_notification)
+            .setContentTitle(context.getString(R.string.ft_reminder))
+            .setContentText(text.ifEmpty { context.getString(R.string.ft_reminder_generic) })
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        try {
+            context.getSystemService(NotificationManager::class.java)?.notify(reminderRequestCode(plugin, id), notification)
+        } catch (_: SecurityException) {
+            // Notifications not allowed: the plugin shows the reminder as due when the app opens.
+        }
+    }
+}
+
+/** Alarms do not survive a reboot: they are set again from the copy in preferences. */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        val kept = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(REMINDERS, "[]") ?: "[]"
+        scheduleReminders(context, parseReminders(kept))
+    }
+}
+
+/** The provider sent the user back after a login (drive, 2026-09-27): hand the URL to the app. */
+class AuthRedirectActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra(AUTH_RESULT, intent?.dataString ?: "")
+        }
+        if (launch != null) startActivity(launch)
+        finish()
+    }
+}
+
+@InvokeArg
+class RemindersArgs {
+    lateinit var reminders: String
+}
+
+@InvokeArg
+class AuthorizeArgs {
+    lateinit var url: String
+    lateinit var scheme: String
+}
+
 private const val KEY_ALIAS = "ft.storage"
 private const val IV_BYTES = 12
 
@@ -406,12 +580,21 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /** What the user pressed on the call notification, until the app asks for it. */
     private var pendingCall: String = ""
 
+    /** The reminder the user tapped, until the app asks for it (2026-09-27). */
+    private var pendingReminder: String = ""
+
+    /** A login waiting for the provider to send the user back, and the scheme it comes with. */
+    private var authWaiting: Invoke? = null
+    private var authScheme: String = ""
+
     /** The app is open: the "something new" notification has done its job. */
     override fun load(webView: WebView) {
         super.load(webView)
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
         pendingCall = callAction(activity.intent?.getStringExtra(CALL_ACTION))
         activity.intent?.removeExtra(CALL_ACTION)
+        pendingReminder = pendingReminderOf(activity.intent?.getStringExtra(REMINDER_ACTION))
+        activity.intent?.removeExtra(REMINDER_ACTION)
     }
 
     /** The app was already open when the notification's button was pressed. */
@@ -420,6 +603,55 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         val action = callAction(intent.getStringExtra(CALL_ACTION))
         if (action.isNotEmpty()) pendingCall = action
         intent.removeExtra(CALL_ACTION)
+        val reminder = pendingReminderOf(intent.getStringExtra(REMINDER_ACTION))
+        if (reminder.isNotEmpty()) pendingReminder = reminder
+        intent.removeExtra(REMINDER_ACTION)
+        // A login came back (drive): the command that opened it gets the URL.
+        val result = intent.getStringExtra(AUTH_RESULT)
+        intent.removeExtra(AUTH_RESULT)
+        val waiting = authWaiting
+        if (waiting != null && isAuthRedirect(result, authScheme)) {
+            authWaiting = null
+            waiting.resolve(JSObject().apply { put("url", result) })
+        }
+    }
+
+    /** The reminder the user tapped to open the app, once (2026-09-27). */
+    @Command
+    fun pendingReminder(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("reminder", pendingReminder) })
+        pendingReminder = ""
+    }
+
+    /** Every reminder there is, from the core: the alarm clock is set again from scratch. */
+    @Command
+    fun setReminders(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(RemindersArgs::class.java)
+            scheduleReminders(activity, parseReminders(args.reminders))
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot set the reminders")
+        }
+    }
+
+    /**
+     * A login in the system's browser sheet (drive, 2026-09-27): Custom Tabs shows the provider's
+     * page, the provider sends the user back to our scheme, `AuthRedirectActivity` brings the URL
+     * here and the command resolves with it. The WebView sees none of it.
+     */
+    @Command
+    fun authorize(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(AuthorizeArgs::class.java)
+            authWaiting?.reject("another login started")
+            authWaiting = invoke
+            authScheme = args.scheme
+            CustomTabsIntent.Builder().build().launchUrl(activity, Uri.parse(args.url))
+        } catch (error: Exception) {
+            authWaiting = null
+            invoke.reject(error.message ?: "cannot open the login")
+        }
     }
 
     /** Answer or decline, once, if the user pressed it on the notification. */

@@ -339,6 +339,47 @@ describe("ChatThread", () => {
     }
   });
 
+  // 2026-09-27: "open with": a message goes to a plugin that opens its kind, with a way back.
+  it("opens a message with a plugin that says it opens its kind", async () => {
+    // The seed's bridge answers everything else (the messages, above all).
+    const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const fallback = bridge.invoke;
+    bridge.invoke = (command, args) => {
+      if (command === "core_plugins") {
+        return Promise.resolve([
+          {
+            id: "com.flickertalk.notes",
+            name: "Notes",
+            version: "1.0.0",
+            asks: { network: [], messages: true, send: "nothing" },
+            granted: { network: [], messages: true, send: "nothing" },
+            installedAt: 1,
+            opens: ["text/plain"],
+          },
+        ]);
+      }
+      if (command === "core_plugin_ref") {
+        calls.push([command, args]);
+        return Promise.resolve("ref_1");
+      }
+      return fallback(command, args);
+    };
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await pressed(wrapper);
+    await wrapper.find("[data-test='open-with']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='open-with-com.flickertalk.notes']").text()).toBe("Notes");
+    await wrapper.find("[data-test='open-with-com.flickertalk.notes']").trigger("click");
+    await flushPromises();
+    const sheet = wrapper.findComponent({ name: "PluginSheet" });
+    expect(sheet.exists()).toBe(true);
+    expect(sheet.props("text")).toBe(fixture.chats[0].messages[0].text);
+    expect(sheet.props("reference")).toBe("ref_1");
+    expect(calls).toContainEqual(["core_plugin_ref", { plugin: "com.flickertalk.notes", message: "m1" }]);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+  });
+
   it("folds and unfolds the message it was asked about", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
     await flushPromises();

@@ -94,7 +94,7 @@ async fn never_grants_more_than_the_plugin_asked_for() {
     core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
 
     // The user grants the network it asked for: fine.
-    let granted = Permissions { network: vec!["api.openai.com".to_owned()], reads_given_messages: true, send: Sending::Nothing, print: false };
+    let granted = Permissions { network: vec!["api.openai.com".to_owned()], reads_given_messages: true, send: Sending::Nothing, ..Permissions::default() };
     core.grant_plugin("com.example.ai", granted.clone()).await.expect("grants");
     assert_eq!(core.plugins().await.unwrap()[0].granted, granted);
 
@@ -158,6 +158,60 @@ async fn a_plugin_cannot_fill_the_phone_nor_write_for_another() {
     assert!(core.plugin_remember("com.example.code", "one-more", "v").await.is_err(), "too many keys");
     // What it already remembers it can still change.
     core.plugin_remember("com.example.code", "key0", "w").await.expect("remembers");
+}
+
+// 2026-09-27: a plugin's records are bigger than its settings and fit the room the user granted.
+#[tokio::test]
+async fn a_plugin_keeps_records_within_the_room_it_was_granted() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"storage":"large"}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+
+    // Installed with nothing granted: the small room, and a value beyond a setting still fits.
+    let (used, quota) = core.plugin_records_usage("com.example.notes").await.unwrap();
+    assert_eq!((used, quota), (0, ft_plugins::Storage::Small.quota()));
+    core.plugin_record_set("com.example.notes", "note/1", &vec![7u8; 100_000]).await.expect("keeps");
+    assert_eq!(core.plugin_record("com.example.notes", "note/1").await.unwrap().map(|v| v.len()), Some(100_000));
+    assert_eq!(core.plugin_record_keys("com.example.notes", "note/").await.unwrap(), ["note/1"]);
+    // The small room is 4 MB: one more of 4 MB does not fit; with the large room it does.
+    let big = vec![1u8; 4 * 1024 * 1024];
+    assert!(core.plugin_record_set("com.example.notes", "board", &big).await.is_err(), "no room");
+    core.grant_plugin("com.example.notes", Permissions { storage: ft_plugins::Storage::Large, ..Permissions::default() }).await.unwrap();
+    core.plugin_record_set("com.example.notes", "board", &big).await.expect("now it fits");
+    let (used, quota) = core.plugin_records_usage("com.example.notes").await.unwrap();
+    assert_eq!((used, quota), (100_000 + big.len() as u64, ft_plugins::Storage::Large.quota()));
+    // Replacing a record counts the new size, not both.
+    core.plugin_record_set("com.example.notes", "board", &big[..10]).await.expect("smaller");
+    assert_eq!(core.plugin_records_usage("com.example.notes").await.unwrap().0, 100_010);
+    assert!(core.plugin_record_set("com.example.notes", "huge", &vec![0u8; ft_core::plugins::RECORD_VALUE + 1]).await.is_err());
+    assert!(core.plugin_record_set("com.example.never", "x", b"y").await.is_err(), "not installed");
+    core.plugin_record_forget("com.example.notes", "board").await.unwrap();
+    assert_eq!(core.plugin_record("com.example.notes", "board").await.unwrap(), None);
+}
+
+// 2026-09-27: reminders are a permission of their own; the phone's alarm clock is told.
+#[tokio::test]
+async fn a_plugin_sets_reminders_only_if_granted_and_the_app_hears_of_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    assert!(core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.is_err(), "not granted yet");
+
+    core.grant_plugin("com.example.notes", Permissions { remind: true, ..Permissions::default() }).await.unwrap();
+    let mut events = core.events();
+    core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.expect("sets");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::RemindersChanged));
+    core.set_reminder("com.example.notes", "r2", 1_000, &"x".repeat(500)).await.expect("sets");
+    let reminders = core.plugin_reminders("com.example.notes").await.unwrap();
+    assert_eq!(reminders.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r2", "r1"], "soonest first");
+    assert_eq!(reminders[0].text.chars().count(), 200, "the text is cut");
+    assert_eq!(core.due_reminders(2_000).await.unwrap().len(), 1);
+    assert_eq!(core.reminders().await.unwrap().len(), 2);
+    assert!(core.cancel_reminder("com.example.notes", "r1").await.unwrap());
+    assert!(!core.cancel_reminder("com.example.notes", "r1").await.unwrap());
+    assert!(core.set_reminder("com.example.notes", "", 5_000, "").await.is_err());
 }
 
 /// A web that answers whatever is asked, and writes down what it was asked.

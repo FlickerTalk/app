@@ -142,11 +142,39 @@ globalThis.ft = {
     set: (key, value) => ask("ft.write", { key: String(key), value: String(value) }),
     forget: (key) => ask("ft.forget", { key: String(key) }),
   },
+  /** What this plugin keeps beyond its settings (2026-09-27): notes, boards; within the room the
+   *  user granted it. Values are strings (JSON, or base64 for bytes). */
+  records: {
+    get: (key) => ask("ft.recordGet", { key: String(key) }),
+    set: (key, value) => ask("ft.recordSet", { key: String(key), value: String(value) }),
+    forget: (key) => ask("ft.recordForget", { key: String(key) }),
+    keys: (prefix) => ask("ft.recordKeys", { prefix: String(prefix ?? "") }),
+    usage: () => ask("ft.recordUsage", {}),
+  },
+  /** A notification on this phone at a time this plugin picks (2026-09-27). Needs `remind`. */
+  remind: {
+    set: (id, at, text) => ask("ft.remindSet", { reminder: String(id), at: Number(at), text: String(text ?? "") }),
+    cancel: (id) => ask("ft.remindCancel", { reminder: String(id) }),
+    list: () => ask("ft.remindList", {}),
+  },
+  /** What this plugin says to its twin on the other side of the conversation (2026-09-27), over
+   *  the direct connection only. Needs `live`. `data` is base64; what arrives is base64 too. */
+  live: {
+    send: (data) => ask("ft.liveSend", { data: String(data) }),
+    onMessage(handler) {
+      heard.push(handler);
+    },
+  },
+  /** Goes back to the conversation a `ref` came from. Resolves false if it is gone. */
+  openChat(ref) {
+    return ask("ft.openChat", { ref: String(ref) });
+  },
   /** Closes the plugin's window. */
   close() {
     post({ type: "ft.close" });
   },
 };
+const heard = [];
 
 await import("./dist/index.js");
 
@@ -163,8 +191,22 @@ addEventListener("message", (event) => {
     const text = String(said.text ?? "");
     if (view) view.setAttribute("text", text);
     if (said.dark) document.documentElement.dataset.dark = "1";
-    for (const handler of opened) handler({ text, dark: Boolean(said.dark) });
+    const lang = String(said.lang ?? "en");
+    document.documentElement.lang = lang;
+    const file = said.file && said.file.name ? { name: String(said.file.name), mime: String(said.file.mime), data: String(said.file.data) } : null;
+    const opening = {
+      text,
+      dark: Boolean(said.dark),
+      lang,
+      file,
+      ref: said.ref ? String(said.ref) : null,
+      reminder: said.reminder ? String(said.reminder) : null,
+      live: Boolean(said.live),
+    };
+    for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);
+  } else if (said.type === "ft.live") {
+    for (const handler of heard) handler(String(said.data ?? ""));
   } else if (said.type === "ft.file") {
     const answer = waiting.get(said.id);
     waiting.delete(said.id);
@@ -297,9 +339,15 @@ mod tests {
         assert!(script.contains("ft.file"), "the app answers the file the plugin asked for");
         assert!(script.contains("ft.ready"), "the plugin says when it is up");
         // The whole surface a plugin has: everything else it might try is not there (§53).
-        for call in ["pickFile", "send", "say", "save", "print", "fetch", "store", "close"] {
+        for call in ["pickFile", "send", "say", "save", "print", "fetch", "store", "close", "records", "remind", "live", "openChat"] {
             assert!(script.contains(call), "a plugin cannot {call}");
         }
+        // 2026-09-27: what the plugin is opened with says the language, a file, a ref and
+        // whether the live channel is there; what the other side says comes as `ft.live`.
+        for given in ["lang", "file", "ref", "reminder", "live"] {
+            assert!(script.contains(given), "onOpen says nothing of {given}");
+        }
+        assert!(script.contains(r#"said.type === "ft.live""#));
         assert!(!script.contains("__TAURI"), "a plugin never reaches the app's own bridge");
     }
 

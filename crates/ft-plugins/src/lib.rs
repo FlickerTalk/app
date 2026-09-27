@@ -43,6 +43,10 @@ pub struct Manifest {
     /// One line about what it does, for the catalogue. In English, like the rest of the code.
     #[serde(default)]
     pub summary: String,
+    /// The kinds of file it opens (2026-09-27): media types, or `*/*` for any. The app offers
+    /// "open with" for a message whose file matches; the plugin gets the bytes in `onOpen`.
+    #[serde(default)]
+    pub opens: Vec<String>,
 }
 
 /// What a plugin may do. Each one is asked for, granted and revoked on its own: installing grants
@@ -62,6 +66,41 @@ pub struct Permissions {
     /// Whether it may ask the phone to print what it made. The user still picks the printer.
     #[serde(default)]
     pub print: bool,
+    /// Whether it may talk to the same plugin on the other side of a conversation, over the
+    /// direct connection the two phones have, encrypted like everything else (2026-09-27). It
+    /// never goes through the mailbox or the server.
+    #[serde(default)]
+    pub live: bool,
+    /// Whether it may set local reminders: a notification on this phone, at a time it picks.
+    #[serde(default)]
+    pub remind: bool,
+    /// Whether it may use the user's own cloud through the core's vault: files it keeps there,
+    /// encrypted on the phone, in the user's Google Drive or Dropbox. Never our server.
+    #[serde(default)]
+    pub drive: bool,
+    /// How much it may keep in its records: `small` for settings and notes, `large` for boards
+    /// and pictures.
+    #[serde(default)]
+    pub storage: Storage,
+}
+
+/// How much a plugin may keep in its records (2026-09-27), asked for like any permission.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Storage {
+    #[default]
+    Small,
+    Large,
+}
+
+impl Storage {
+    /// The most a plugin may keep in its records, in bytes.
+    pub fn quota(self) -> u64 {
+        match self {
+            Self::Small => 4 * 1024 * 1024,
+            Self::Large => 256 * 1024 * 1024,
+        }
+    }
 }
 
 /// How far a plugin goes when it writes in the chat.
@@ -238,7 +277,35 @@ fn check(manifest: &Manifest) -> Result<()> {
     for host in &manifest.permissions.network {
         ensure!(is_host(host), "'{host}' is not a host a plugin may talk to");
     }
+    ensure!(manifest.opens.len() <= 16, "a plugin may not open that many kinds of file");
+    for kind in &manifest.opens {
+        ensure!(is_media_type(kind), "'{kind}' is not a kind of file a plugin may open");
+    }
     Ok(())
+}
+
+/// A media type a plugin may say it opens: `type/subtype`, `type/*` or `*/*`.
+fn is_media_type(kind: &str) -> bool {
+    let Some((kind, subtype)) = kind.split_once('/') else { return false };
+    let token = |part: &str| {
+        !part.is_empty()
+            && part.len() <= 64
+            && part.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
+            && part.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '.' | '+' | '_'))
+    };
+    (kind == "*" && subtype == "*") || (token(kind) && (subtype == "*" || token(subtype)))
+}
+
+impl Manifest {
+    /// Whether this plugin says it opens a file of this media type.
+    pub fn opens_kind(&self, mime: &str) -> bool {
+        let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        self.opens.iter().any(|kind| {
+            kind == "*/*"
+                || kind == &mime
+                || kind.strip_suffix("/*").is_some_and(|prefix| mime.split_once('/').is_some_and(|(top, _)| top == prefix))
+        })
+    }
 }
 
 /// A host we can put in a content security policy: a name, lowercase, without scheme, port, path
@@ -482,6 +549,37 @@ mod tests {
         let opened = open(&package(&printer, b"", &catalogue), &catalogue.public_key()).unwrap();
         assert!(opened.manifest.permissions.print);
         assert!(opened.manifest.permissions.network.is_empty());
+    }
+
+    // 2026-09-27: the permissions the board, the notes and the drive need are asked for one by
+    // one, and a plugin says which kinds of file it opens.
+    #[test]
+    fn a_plugin_asks_for_the_live_channel_reminders_the_drive_and_room_on_their_own() {
+        let catalogue = Ed25519SecretKey::new();
+        let asking = manifest_with(r#"{"live":true,"remind":true,"drive":true,"storage":"large"}"#);
+        let opened = open(&package(&asking, b"", &catalogue), &catalogue.public_key()).unwrap();
+        let permissions = &opened.manifest.permissions;
+        assert!(permissions.live && permissions.remind && permissions.drive);
+        assert_eq!(permissions.storage, Storage::Large);
+        assert!(Storage::Large.quota() > Storage::Small.quota());
+        let plain = open(&package(&manifest_of("com.example.code"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert!(!plain.manifest.permissions.live && !plain.manifest.permissions.remind && !plain.manifest.permissions.drive);
+        assert_eq!(plain.manifest.permissions.storage, Storage::Small);
+        assert!(open(&package(&manifest_with(r#"{"storage":"huge"}"#), b"", &catalogue), &catalogue.public_key()).is_err());
+
+        let opens = r#"{"id":"com.example.board","name":"Board","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-board"],"opens":["application/x-ftboard","image/*"]}"#;
+        let board = open(&package(opens, b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert!(board.manifest.opens_kind("application/x-ftboard"));
+        assert!(board.manifest.opens_kind("image/png"));
+        assert!(board.manifest.opens_kind("IMAGE/JPEG; charset=x"));
+        assert!(!board.manifest.opens_kind("video/mp4"));
+        assert!(!plain.manifest.opens_kind("image/png"), "it opens nothing unless it says so");
+        let any = r#"{"id":"com.example.drive","name":"Drive","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-drive"],"opens":["*/*"]}"#;
+        assert!(open(&package(any, b"", &catalogue), &catalogue.public_key()).unwrap().manifest.opens_kind("video/mp4"));
+        for wrong in ["png", "image/", "*/png", "image/*; q=1", "../x"] {
+            let bad = format!(r#"{{"id":"com.example.x","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"opens":["{wrong}"]}}"#);
+            assert!(open(&package(&bad, b"", &catalogue), &catalogue.public_key()).is_err(), "{wrong} should be refused");
+        }
     }
 
     // §55: the domains are hosts we can put in a CSP, not wildcards or URLs.

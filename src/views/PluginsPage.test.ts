@@ -115,4 +115,43 @@ describe("PluginsPage", () => {
     expect(wrapper.find("[data-test='install-com.flickertalk.sketch']").exists()).toBe(true);
     expect(text).not.toContain("3 KB");
   });
+
+  // 2026-09-27: the live channel, reminders, the cloud and the room are switches of their own.
+  it("shows a switch for each of the new permissions a plugin asks for", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_plugins") {
+        return [
+          {
+            id: "com.flickertalk.board",
+            name: "Board",
+            version: "1.0.0",
+            asks: { network: [], messages: false, send: "propose", live: true, remind: true, drive: true, storage: "large" },
+            granted: { network: [], messages: false, send: "nothing", live: false, remind: false, drive: false, storage: "small" },
+            installedAt: 1,
+            opens: ["application/x-ftboard"],
+          },
+        ];
+      }
+      return command === "core_catalogue" ? [] : undefined;
+    });
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    const text = wrapper.text();
+    for (const label of [
+      "Talk to the same plugin on the other side of the chat",
+      "Set reminders on this phone",
+      "Keep files in your own cloud",
+      "Keep a lot of data on this phone (up to 256 MB)",
+    ]) {
+      expect(text).toContain(label);
+    }
+    // Writing, the channel, reminders, the cloud and the room: the room is the last switch.
+    const toggles = wrapper.findAllComponents(IonToggle);
+    expect(toggles).toHaveLength(5);
+    toggles[4].vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: true } }));
+    await flushPromises();
+    const granted = calls.find(([command]) => command === "core_plugin_grant");
+    expect(granted?.[1]).toMatchObject({ plugin: "com.flickertalk.board", granted: { storage: "large", live: false } });
+  });
 });

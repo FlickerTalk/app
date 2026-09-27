@@ -28,6 +28,7 @@ import {
   micOutline,
   shareOutline,
   arrowRedoOutline,
+  extensionPuzzleOutline,
   trashOutline,
   videocamOutline,
 } from "ionicons/icons";
@@ -36,7 +37,7 @@ import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
-import { installed, refreshPlugins } from "../plugins";
+import { installed, openersOf, refreshPlugins, type HandedFile } from "../plugins";
 import {
   acceptFile,
   chat as chatOf,
@@ -46,6 +47,8 @@ import {
   markRead,
   openFile,
   pickFiles,
+  pluginRef,
+  readMessageFile,
   takePhoto,
   saveFile,
   sendFile,
@@ -183,12 +186,14 @@ function act(id: string) {
   acting.value = id;
   forwarding.value = false;
   erasing.value = false;
+  openingWith.value = false;
 }
 
 function closeActions() {
   acting.value = "";
   forwarding.value = false;
   erasing.value = false;
+  openingWith.value = false;
 }
 
 function fold() {
@@ -221,13 +226,45 @@ async function forwardTo(contact: string) {
 // Issue app#3: the apps of this phone, each in its own window. The list is the app's, not this
 // component's: what Settings installs or removes shows up here without leaving the conversation.
 const showApps = ref(false);
-const plugin = ref<{ id: string; name: string; sending: Sending } | null>(null);
+/** The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back. */
+const plugin = ref<{ id: string; name: string; sending: Sending; live: boolean; text?: string; file?: HandedFile; reference?: string } | null>(null);
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   if (!chosen) return;
   showApps.value = false;
-  plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send };
+  plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send, live: Boolean(chosen.granted.live) };
+}
+
+// 2026-09-27: "open with": a message goes to a plugin that says it opens its kind. A text only
+// to one granted to read what it is handed; a file with its bytes, once it is here whole. The
+// plugin also gets a way back to the message (`ref`) that says nothing of the contact.
+const openingWith = ref(false);
+const openers = computed(() => {
+  const message = messages.value.find((one) => one.id === acting.value);
+  return message ? openersOf(installed.value, message) : [];
+});
+
+async function openWith(id: string) {
+  const message = messages.value.find((one) => one.id === acting.value);
+  const chosen = installed.value.find((one) => one.id === id);
+  closeActions();
+  if (!message || !chosen) return;
+  try {
+    const file = message.kind === "file" ? await readMessageFile(message.id) : undefined;
+    const reference = await pluginRef(chosen.id, message.id).catch(() => undefined);
+    plugin.value = {
+      id: chosen.id,
+      name: chosen.name,
+      sending: chosen.granted.send,
+      live: Boolean(chosen.granted.live),
+      text: message.kind === "file" ? undefined : message.text,
+      file,
+      reference,
+    };
+  } catch {
+    // A file not here whole, or too big for a plugin: nothing opens.
+  }
 }
 
 /** A plugin proposes; the user sends (§53). */
@@ -352,7 +389,19 @@ watch(
         </button>
         <span class="ft-app__name">{{ plugin.name }}</span>
       </div>
-      <PluginSheet :plugin="plugin" :contact="chatId" :sending="plugin.sending" @text="fromPlugin" @attach="stage" @done="plugin = null" />
+      <PluginSheet
+        :plugin="plugin"
+        :contact="chatId"
+        :sending="plugin.sending"
+        :live="plugin.live"
+        :text="plugin.text"
+        :file="plugin.file"
+        :reference="plugin.reference"
+        @text="fromPlugin"
+        @attach="stage"
+        @open-chat="(contact) => router.push(`/chat/${contact}`)"
+        @done="plugin = null"
+      />
     </div>
 
     <!-- The apps of this phone; each opens its own window. -->
@@ -400,6 +449,19 @@ watch(
         </button>
         <span v-if="!others.length" class="ft-actions__title">—</span>
       </div>
+      <div v-else-if="openingWith" class="ft-actions__bar">
+        <span class="ft-actions__title">{{ $t("chat.openWithPlugin") }}</span>
+        <button
+          v-for="one in openers"
+          :key="one.id"
+          type="button"
+          class="ft-actions__to"
+          :data-test="`open-with-${one.id}`"
+          @click="openWith(one.id)"
+        >
+          {{ one.name }}
+        </button>
+      </div>
       <div v-else class="ft-actions__bar">
         <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
           <ion-icon :icon="folded.has(acting) ? expandOutline : contractOutline" aria-hidden="true" />
@@ -409,6 +471,16 @@ watch(
         </button>
         <button type="button" class="ft-round ft-round--ghost" data-test="share" :aria-label="$t('chat.share')" @click="share">
           <ion-icon :icon="shareOutline" aria-hidden="true" />
+        </button>
+        <button
+          v-if="openers.length"
+          type="button"
+          class="ft-round ft-round--ghost"
+          data-test="open-with"
+          :aria-label="$t('chat.openWithPlugin')"
+          @click="openingWith = true"
+        >
+          <ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" />
         </button>
         <button
           v-if="!erasing"

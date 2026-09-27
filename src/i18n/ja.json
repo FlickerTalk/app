@@ -259,7 +259,13 @@
     "remove": "削除",
     "none": "まだプラグインはありません",
     "available": "追加できるツール",
-    "install": "インストール"
+    "install": "インストール",
+    "live": "Talk to the same plugin on the other side of the chat",
+    "remind": "Set reminders on this phone",
+    "drive": "Keep files in your own cloud",
+    "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
+    "opens": "Opens: {kinds}",
+    "open": "Open"
   },
   "emoji": {
     "open": "絵文字",
