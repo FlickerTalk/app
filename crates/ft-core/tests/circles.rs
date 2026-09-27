@@ -430,6 +430,71 @@ async fn whoever_may_not_write_is_told_before_sending() {
     assert!(alice.circle_writable("no such circle").await.is_err());
 }
 
+// A member renews their link (A5): the next revision an admin signs carries their new card, so
+// whoever joins later reaches them, instead of getting the card as it was when they joined.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_newcomer_gets_the_members_renewed_cards() {
+    let net = Net::new();
+    let (alice, bob, carol) = three(&net).await;
+    let circle = alice.create_circle("Friends", &[id(&bob)], None).await.expect("creates");
+    until("bob has it", || async { circle_of(&bob, &circle).await == Some((2, false)) }).await;
+
+    let old = bob.my_card().await.expect("card").route_capability();
+    bob.renew_link(None).await.expect("renews");
+    let renewed = bob.my_card().await.expect("card").route_capability();
+    assert_ne!(old.as_bytes(), renewed.as_bytes());
+    until("alice holds bob's new card", || async {
+        let card = alice.store().contact(&id(&bob)).await.expect("reads").expect("there").card;
+        ft_contacts::ContactCard::decode(&card).expect("decodes").route_capability().as_bytes() == renewed.as_bytes()
+    })
+    .await;
+
+    alice.invite_to_circle(&circle, &id(&carol)).await.expect("invites carol");
+    until("carol knows bob", || async { carol.store().contact(&id(&bob)).await.expect("reads").is_some() }).await;
+    let at_carol = carol.store().contact(&id(&bob)).await.expect("reads").expect("there").card;
+    assert_eq!(
+        ft_contacts::ContactCard::decode(&at_carol).expect("decodes").route_capability().as_bytes(),
+        renewed.as_bytes(),
+        "carol got bob's card as it is now, not as it was"
+    );
+}
+
+// The other half: Carol knows Bob through the circle alone. When Bob renews his link, she must
+// get his new card too, or what she writes to him goes to a retired link until he writes first.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_known_through_the_circle_gets_the_renewed_card() {
+    let net = Net::new();
+    let (alice, bob, carol) = three(&net).await;
+    friends(&alice, &bob, &carol).await;
+    until("carol knows bob", || async { carol.store().contact(&id(&bob)).await.expect("reads").is_some() }).await;
+
+    bob.renew_link(None).await.expect("renews");
+    let renewed = bob.my_card().await.expect("card").route_capability();
+    until("carol holds bob's new card", || async {
+        let card = carol.store().contact(&id(&bob)).await.expect("reads").expect("there").card;
+        ft_contacts::ContactCard::decode(&card).expect("decodes").route_capability().as_bytes() == renewed.as_bytes()
+    })
+    .await;
+}
+
+// The admin who signs is a member too, and not a contact of their own phone: the revision
+// carries their own card as it is now.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revision_carries_the_signers_own_card_as_it_is_now() {
+    let net = Net::new();
+    let (alice, bob, _carol) = three(&net).await;
+    let circle = alice.create_circle("Friends", &[id(&bob)], None).await.expect("creates");
+    alice.renew_link(None).await.expect("renews");
+    alice.rename_circle(&circle, "Renamed").await.expect("renames");
+
+    let card = ft_circles::CircleCard::decode(&alice.store().circle(&circle).await.expect("reads").expect("there").card).expect("decodes");
+    let mine = card.member(&id(&alice)).expect("alice is in it");
+    assert_eq!(
+        ft_contacts::ContactCard::decode(&mine.card).expect("decodes").route_capability().as_bytes(),
+        alice.route_capability().as_bytes()
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Who may put this phone in a circle, and where the circle lives.
 // ---------------------------------------------------------------------------------------------

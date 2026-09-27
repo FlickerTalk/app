@@ -145,5 +145,13 @@ cada miembro limpia su entrada de `circle_outbox` (`circle_receipt`), y el mensa
   (`circles.session`); borrar la sesión se lo lleva. En una sesión cerrada no hace ruido.
 - La tarjeta y el «me voy» viajan por el mismo `circle_outbox` como mensajes de tipo `card` y
   `leave` que nunca se enseñan; un reintento de `card` manda siempre la tarjeta **actual**.
+- Cada revisión que firma este teléfono (`revise`) lleva la Contact Card **que este teléfono
+  tiene** de cada miembro, no la que traía la tarjeta, y la suya propia tal como es ahora: si un
+  miembro renovó su enlace (A5), quien entra después le alcanza. Si un administrador tuviera una
+  tarjeta más vieja que la de la revisión anterior, la del miembro se corrige sola con el
+  `ContactCard` que este manda al presentarse (`introduce`), como antes.
+- `renew_link` reparte la tarjeta nueva también a los miembros de los círculos de esa lista que
+  solo nos conocen por el círculo (no a las solicitudes: retirar el enlace viejo es la idea). Sin
+  esto, lo que nos escribían iba a un enlace retirado hasta que les escribiéramos nosotros.
 - Sin ficheros ni llamadas en círculos en esta versión (`docs/circulos.md`).
 

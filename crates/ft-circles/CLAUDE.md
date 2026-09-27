@@ -15,7 +15,11 @@ identidad (`ft-identity`) y las Contact Cards de `ft-contacts`.
   puede añadirse a sí mismo, nombrarse administrador ni echar a nadie. La revisión nueva puede
   adelantar como mucho `MAX_REVISION_STEP` (1000) a la que se tiene (revisión del 2026-09-27): un
   administrador no puede apoderarse de un número inalcanzable ni acercarse a `u64::MAX`, y
-  `revise` nunca da la vuelta. Todo administrador tiene el mismo poder: puede quitar a los demás. Una tarjeta de un círculo
+  `revise` nunca da la vuelta. Todo administrador tiene el mismo poder: puede quitar a los demás.
+  Un teléfono que se perdiera más de 1000 revisiones seguidas se quedaría atascado sin salida
+  automática (salir, borrar el círculo y que lo vuelvan a invitar). Es muy difícil llegar ahí: un
+  reintento de la tarjeta manda siempre la **actual**, así que quien vuelve tras mucho tiempo
+  recibe la última directamente; solo se atasca si se firman más de 1000 mientras está fuera. Una tarjeta de un círculo
   desconocido se acepta solo si la firma uno de sus propios administradores (`stands_alone`).
 - **Empate**: dos administradores que firman la misma revisión a la vez se resuelven por el id
   de dispositivo más bajo, igual en todos los teléfonos.
