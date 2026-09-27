@@ -47,8 +47,8 @@ struct VaultFile {
     format: String,
     version: u32,
     id: String,
-    /// The phone that made the drive; a hint for "this drive is from another phone".
-    made_by: String,
+    // Nothing about the phone that made it (2026-09-27): a device id here would tie the Google
+    // account to the FlickerTalk identity. Old files that still carry `made_by` read fine.
 }
 
 /// An upload that did not get through yet (plan-drive §5): the sealed file waits on the phone.
@@ -123,7 +123,7 @@ impl Vault {
         let key: [u8; 32] = rand::random();
         let code = recovery::new_code();
         let id = index::new_id();
-        let file = VaultFile { format: "ftvault".to_owned(), version: FORMAT_VERSION, id: id.clone(), made_by: writer.to_owned() };
+        let file = VaultFile { format: "ftvault".to_owned(), version: FORMAT_VERSION, id: id.clone() };
         provider.write(VAULT_FILE, serde_json::to_vec(&file)?).await?;
         provider.write(KEY_FILE, cipher::seal(&recovery::wrap_key(&code)?, "key", &key)?).await?;
         let vault = Self::assemble(provider, dir, writer, key, id, Index::new(writer)).await?;

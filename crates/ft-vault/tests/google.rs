@@ -281,6 +281,22 @@ async fn the_login_gives_tokens_and_the_drive_keeps_its_files_in_the_apps_folder
     let _ = response_ok;
 }
 
+// Found on a real Drive (2026-09-27): two calls at once each looked for the app's folder, found
+// none and made one, and a later start could pick the empty one. There is one folder, always.
+#[tokio::test]
+async fn calls_at_once_make_one_folder() {
+    let (base, drive) = fake_drive().await;
+    let keeper = Arc::new(MemoryTokens::default());
+    keeper.keep(&Tokens { access_token: "good-1".into(), refresh_token: Some("refresh-1".into()), expires_at: i64::MAX }).await.unwrap();
+    let google = GoogleDrive::at(&base, &format!("{base}/token"), "client", keeper).unwrap();
+    let (a, b, c) = tokio::join!(google.read("vault.json"), google.read("key.ftv"), google.list());
+    a.unwrap();
+    b.unwrap();
+    c.unwrap();
+    let folders = drive.files.lock().unwrap().values().filter(|file| file.mime == "application/vnd.google-apps.folder").count();
+    assert_eq!(folders, 1);
+}
+
 #[tokio::test]
 async fn a_whole_drive_lives_on_google() {
     let (base, _drive) = fake_drive().await;
