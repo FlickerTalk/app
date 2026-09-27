@@ -39,5 +39,7 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
+    // android.jar only carries stubs of org.json: the JVM unit tests need the real one.
+    testImplementation("org.json:json:20240303")
     implementation(project(":tauri-android"))
 }

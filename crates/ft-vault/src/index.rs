@@ -143,8 +143,8 @@ impl Index {
     pub fn list(&self, parent: Option<&str>) -> (Vec<&Folder>, Vec<&File>) {
         let mut folders: Vec<&Folder> = self.folders.iter().filter(|one| one.parent.as_deref() == parent).collect();
         let mut files: Vec<&File> = self.files.iter().filter(|one| one.parent.as_deref() == parent).collect();
-        folders.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        folders.sort_by_key(|folder| folder.name.to_lowercase());
+        files.sort_by_key(|file| file.name.to_lowercase());
         (folders, files)
     }
 
