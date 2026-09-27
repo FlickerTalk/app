@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { reactive } from "vue";
 
 const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({
@@ -67,6 +68,36 @@ describe("PluginSheet", () => {
     lone.says({ type: "ft.ready" });
     await flushPromises();
     expect(lone.post).toHaveBeenCalledWith(expect.objectContaining({ live: false, reminder: "r1" }), "*");
+  });
+
+  // Found on a real phone (2026-09-27): a reminder tapped while its plugin is already on screen
+  // only changes the reminder; the plugin has to hear it to open that note.
+  it("opens the plugin again on a new reminder", async () => {
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    says({ type: "ft.ready" });
+    await flushPromises();
+    post.mockClear();
+    await wrapper.setProps({ reminder: "r2" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", reminder: "r2" }), "*");
+  });
+
+  // Found on a real phone (2026-09-27): ChatThread keeps what it opens in a deep ref, so the file
+  // arrives as a reactive proxy, and a real postMessage cannot clone a proxy (DataCloneError): the
+  // plugin never heard `ft.open` and opened empty. What crosses to the frame is plain data.
+  it("hands over a file it was given as reactive state", async () => {
+    const file = reactive({ name: "class.ftboard", mime: "application/x-ftboard", data: "QUJD" });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", file }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    post.mockImplementation((message: unknown) => structuredClone(message));
+    says({ type: "ft.ready" });
+    await flushPromises();
+    expect(post).toHaveReturnedWith(
+      expect.objectContaining({ type: "ft.open", file: { name: "class.ftboard", mime: "application/x-ftboard", data: "QUJD" } }),
+    );
   });
 
   // 2026-09-27: records are the plugin's bytes, kept by the core as base64 and handed back as
