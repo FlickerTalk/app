@@ -55,7 +55,8 @@
     "deleteSure": "ลบ",
     "forwardTo": "ส่งต่อถึง",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "แอปอื่น"
   },
   "status": {
     "pending": "รออุปกรณ์",

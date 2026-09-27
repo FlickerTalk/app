@@ -380,6 +380,90 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // Document viewer (2026-09-27): a tap on a file shows it in its viewer when there is one, and
+  // goes to another app otherwise, or when the bytes cannot be handed over.
+  function withPlugins(plugins: unknown[], answers: Record<string, unknown> = {}) {
+    const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const fallback = bridge.invoke;
+    bridge.invoke = (command, args) => {
+      if (command === "core_plugins") return Promise.resolve(plugins);
+      if (command in answers) {
+        calls.push([command, args]);
+        const answer = answers[command];
+        return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
+      }
+      return fallback(command, args);
+    };
+  }
+  const VIEWER = {
+    id: "com.flickertalk.pdfviewer",
+    name: "PDF viewer",
+    version: "1.0.0",
+    asks: { network: [], messages: false, send: "nothing" },
+    granted: { network: [], messages: false, send: "nothing" },
+    installedAt: 2,
+    opens: ["application/pdf"],
+    views: ["application/pdf"],
+  };
+  const DRIVE = { ...VIEWER, id: "com.flickertalk.drive", name: "My drive", opens: ["*/*"], views: [] };
+  const tapped = async (wrapper: ReturnType<typeof mount>, id: string) => {
+    const bubble = wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === id);
+    bubble?.vm.$emit("open", id);
+    await flushPromises();
+  };
+
+  it("shows a tapped file in its viewer, with the bytes and the way back", async () => {
+    withPlugins([DRIVE, VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await tapped(wrapper, "m4");
+    const sheet = wrapper.findComponent({ name: "PluginSheet" });
+    expect(sheet.exists()).toBe(true);
+    expect(sheet.props("plugin").id).toBe("com.flickertalk.pdfviewer");
+    expect(sheet.props("file")).toEqual({ name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" });
+    expect(sheet.props("reference")).toBe("ref_4");
+    expect(calls.some(([command]) => command === "core_open_file")).toBe(false);
+  });
+
+  it("sends a tapped file to another app when there is no viewer, or the bytes cannot be handed over", async () => {
+    withPlugins([DRIVE], {});
+    let wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await tapped(wrapper, "m4");
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+
+    calls.length = 0;
+    withPlugins([VIEWER], { core_read_message_file: new Error("that file is too big for a plugin") });
+    wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await tapped(wrapper, "m4");
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+  });
+
+  it("offers another app from «open with» only when a viewer takes the tap", async () => {
+    withPlugins([VIEWER], {});
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    // The text message: no file, no viewer, no «another app».
+    await pressed(wrapper);
+    expect(wrapper.find("[data-test='open-with']").exists()).toBe(false);
+    await wrapper.find("[data-test='actions']").trigger("click");
+    // The PDF: its viewer, and the way out to another app.
+    const bubble = wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === "m4");
+    bubble?.vm.$emit("actions", "m4");
+    await flushPromises();
+    await wrapper.find("[data-test='open-with']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='open-with-com.flickertalk.pdfviewer']").exists()).toBe(true);
+    expect(wrapper.find("[data-test='open-elsewhere']").text()).toContain("Another app");
+    await wrapper.find("[data-test='open-elsewhere']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+  });
+
   it("folds and unfolds the message it was asked about", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
     await flushPromises();

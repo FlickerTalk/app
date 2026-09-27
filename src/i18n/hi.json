@@ -55,7 +55,8 @@
     "deleteSure": "हटाएँ",
     "forwardTo": "किसे फ़ॉरवर्ड करें",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "दूसरा ऐप"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",

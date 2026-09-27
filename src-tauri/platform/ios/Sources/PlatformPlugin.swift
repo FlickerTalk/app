@@ -1,5 +1,6 @@
 import AuthenticationServices
 import Foundation
+import QuickLook
 import Security
 import StoreKit
 import SwiftRs
@@ -153,6 +154,35 @@ final class ReminderTaps: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
+/// Arguments of `openFile`, the same as Kotlin's: a path inside the app and its kind.
+struct OpenFileArgs: Decodable {
+    let path: String
+    let mime: String
+}
+
+/// The one item Quick Look shows: the file, as it is on this phone (document viewer, 2026-09-27).
+final class PreviewItem: NSObject, QLPreviewControllerDataSource, QLPreviewItem {
+    let previewItemURL: URL?
+    let previewItemTitle: String?
+
+    init(url: URL) {
+        previewItemURL = url
+        previewItemTitle = url.lastPathComponent
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { self }
+}
+
+/// The file a tap wants shown, if it is there and Quick Look can show it; nil otherwise. Pure,
+/// so a test can check it without a screen.
+func previewable(path: String) -> PreviewItem? {
+    guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return nil }
+    let item = PreviewItem(url: URL(fileURLWithPath: path))
+    return QLPreviewController.canPreview(item) ? item : nil
+}
+
 class PlatformPlugin: Plugin {
     /// A login sheet waiting for the provider to send the user back (drive, 2026-09-27).
     private var authSession: ASWebAuthenticationSession?
@@ -216,6 +246,29 @@ class PlatformPlugin: Plugin {
             session.prefersEphemeralWebBrowserSession = false
             self.authSession = session
             session.start()
+        }
+    }
+
+    /// Shows a file of the app inside the app, with the system's Quick Look (document viewer,
+    /// 2026-09-27): PDF, Office, Pages, text and pictures. Its share button hands the file to
+    /// another app, as Android's `openFile` does directly.
+    @objc public func openFile(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OpenFileArgs.self)
+        guard let item = previewable(path: args.path) else {
+            invoke.reject("that file cannot be shown here")
+            return
+        }
+        DispatchQueue.main.async { [manager] in
+            guard let screen = manager.viewController else {
+                invoke.reject("no screen to show it on")
+                return
+            }
+            let preview = QLPreviewController()
+            preview.dataSource = item
+            // The data source is held only weakly by the controller: keep it as long as it shows.
+            objc_setAssociatedObject(preview, "ft.preview.item", item, .OBJC_ASSOCIATION_RETAIN)
+            screen.present(preview, animated: true)
+            invoke.resolve()
         }
     }
 

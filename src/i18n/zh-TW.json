@@ -55,7 +55,8 @@
     "deleteSure": "刪除",
     "forwardTo": "轉傳給",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "其他應用程式"
   },
   "status": {
     "pending": "等待對方裝置",

@@ -55,7 +55,8 @@
     "deleteSure": "Supprimer",
     "forwardTo": "Transférer à",
     "download": "Télécharger",
-    "discardAttachment": "Retirer la pièce jointe"
+    "discardAttachment": "Retirer la pièce jointe",
+    "otherApp": "Une autre app"
   },
   "status": {
     "pending": "En attente de l’appareil",

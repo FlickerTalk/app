@@ -169,3 +169,15 @@ export function openersOf(plugins: PluginView[], message: { kind?: string; text?
   }
   return plugins.filter((one) => one.granted.messages && opensKind(one.opens, "text/plain"));
 }
+
+/**
+ * The viewer of a file of this kind (2026-09-27): the plugin whose manifest `views` the exact
+ * type. Opening (`opens`) is not viewing: the drive opens anything and the board opens pictures,
+ * and neither is what a tap should show. Between two viewers, the one installed last.
+ */
+export function viewerOf(plugins: PluginView[], mime: string): PluginView | undefined {
+  const kind = mime.split(";")[0].trim().toLowerCase();
+  return plugins
+    .filter((one) => (one.views ?? []).includes(kind))
+    .sort((a, b) => b.installedAt - a.installedAt)[0];
+}

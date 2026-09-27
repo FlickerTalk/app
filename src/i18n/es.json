@@ -55,7 +55,8 @@
     "deleteSure": "Borrar",
     "forwardTo": "Reenviar a",
     "download": "Descargar",
-    "discardAttachment": "Descartar el adjunto"
+    "discardAttachment": "Descartar el adjunto",
+    "otherApp": "Otra app"
   },
   "status": {
     "pending": "Esperando al dispositivo",

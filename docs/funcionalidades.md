@@ -1,6 +1,6 @@
 # FlickerTalk: qué hace la app hoy
 
-Estado a 2026-09-27 (versión 1.1.0 sin publicar; la 1.0.0 en revisión en Google Play; iOS
+Estado a 2026-09-27 (versión 1.2.0 sin publicar; la 1.0.0 en revisión en Google Play; iOS
 pendiente de la cuenta de Apple; incluye el paquete de endurecimiento de la revisión del
 2026-09-24, los círculos, los plugins de fase 3 y la nube del usuario). Describe la app tal como funciona, pantalla a pantalla. Las decisiones de diseño y el porqué
 de cada una están en el plan del proyecto; aquí solo lo que el usuario ve y lo que pasa por debajo.
@@ -185,6 +185,11 @@ imágenes, PDF, tapar datos, dibujo y markdown. El resto se instala desde un cat
   otro lado y se reproduce trazo a trazo. **En directo**: en una conversación donde los dos tienen
   el plugin abierto, lo que dibuja uno aparece en el otro al momento, por la conexión directa.
 - **Mi drive**: ver «Copia de seguridad y Mi drive».
+- **Visor de PDF** (versión 1.2.0): con el plugin instalado, tocar un PDF en el chat lo abre
+  **dentro de la app** (páginas en columna, zoom con dos dedos o doble toque, contador, ✕); un PDF
+  roto o con contraseña lo dice. «Abrir con» ofrece además **«Otra app»**. Sin el plugin, tocar
+  sigue mandando el fichero a otra app. En iPhone no hace falta plugin: el toque abre el visor
+  del sistema (Quick Look), que también enseña Word, Excel, PowerPoint y Pages.
 
 ## Copia de seguridad y Mi drive
 

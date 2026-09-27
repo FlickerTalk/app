@@ -1,3 +1,4 @@
+import QuickLook
 import XCTest
 @testable import tauri_plugin_ft_platform
 
@@ -94,5 +95,18 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertTrue(isAuthRedirect(URL(string: "com.flickertalk.app:/oauth?code=abc"), scheme: "com.flickertalk.app"))
         XCTAssertFalse(isAuthRedirect(URL(string: "https://evil.example/?code=abc"), scheme: "com.flickertalk.app"))
         XCTAssertFalse(isAuthRedirect(nil, scheme: "com.flickertalk.app"))
+    }
+
+    // Document viewer (2026-09-27): a tap shows the file with Quick Look, if it is there.
+    func testOnlyAFileThatIsThereCanBePreviewed() throws {
+        XCTAssertNil(previewable(path: ""))
+        XCTAssertNil(previewable(path: "/nowhere/missing.pdf"))
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ft-preview-\(UUID().uuidString).txt")
+        try "hello".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let item = try XCTUnwrap(previewable(path: file.path))
+        XCTAssertEqual(item.previewItemURL, file)
+        XCTAssertEqual(item.previewItemTitle, file.lastPathComponent)
+        XCTAssertEqual(item.numberOfPreviewItems(in: QLPreviewController()), 1)
     }
 }

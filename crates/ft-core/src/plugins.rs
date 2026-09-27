@@ -39,8 +39,9 @@ pub const RECORD_VALUE: usize = 16 * 1024 * 1024;
 pub const LIVE_LIMIT: usize = 48 * 1024;
 /// What this FlickerTalk is, for a plugin's `minCoreVersion` (§51): every new capability of the
 /// Plugin API bumps it, with the app's version. 1.1.0 (2026-09-27): records, reminders, the live
-/// channel, "open with", refs and the user's cloud.
-pub const CORE_VERSION: &str = "1.1.0";
+/// channel, "open with", refs and the user's cloud. 1.2.0 (2026-09-27): `views`, the tap that
+/// shows a file in its viewer, and Quick Look on iOS.
+pub const CORE_VERSION: &str = "1.2.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 

@@ -55,7 +55,8 @@
     "deleteSure": "মুছুন",
     "forwardTo": "ফরওয়ার্ড করুন",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "অন্য অ্যাপ"
   },
   "status": {
     "pending": "ডিভাইসের অপেক্ষায়",

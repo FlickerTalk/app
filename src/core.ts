@@ -733,6 +733,8 @@ export interface PluginView {
   installedAt: number;
   /** The kinds of file it opens: media types, or "*\/*" for any (2026-09-27). */
   opens?: string[];
+  /** The kinds of file it is the viewer of: exact media types; a tap opens them here. */
+  views?: string[];
 }
 
 export async function plugins(): Promise<PluginView[]> {

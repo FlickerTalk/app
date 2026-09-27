@@ -55,7 +55,8 @@
     "deleteSure": "Elimina",
     "forwardTo": "Inoltra a",
     "download": "Scarica",
-    "discardAttachment": "Scarta l'allegato"
+    "discardAttachment": "Scarta l'allegato",
+    "otherApp": "Un'altra app"
   },
   "status": {
     "pending": "In attesa del dispositivo",

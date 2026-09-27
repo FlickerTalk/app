@@ -47,6 +47,11 @@ pub struct Manifest {
     /// "open with" for a message whose file matches; the plugin gets the bytes in `onOpen`.
     #[serde(default)]
     pub opens: Vec<String>,
+    /// The kinds of file it is the viewer of (2026-09-27, plan of the document viewer): exact
+    /// media types only, each also in `opens`. A tap on such a file in the chat opens it here,
+    /// without the user choosing, so a viewer may not ask for the network.
+    #[serde(default)]
+    pub views: Vec<String>,
 }
 
 /// What a plugin may do. Each one is asked for, granted and revoked on its own: installing grants
@@ -281,6 +286,15 @@ fn check(manifest: &Manifest) -> Result<()> {
     for kind in &manifest.opens {
         ensure!(is_media_type(kind), "'{kind}' is not a kind of file a plugin may open");
     }
+    ensure!(manifest.views.len() <= 16, "a plugin may not be the viewer of that many kinds of file");
+    for kind in &manifest.views {
+        ensure!(is_media_type(kind) && !kind.contains('*'), "'{kind}' is not an exact kind of file a plugin may view");
+        ensure!(manifest.opens.contains(kind), "a viewer of '{kind}' must open it too");
+    }
+    ensure!(
+        manifest.views.is_empty() || manifest.permissions.network.is_empty(),
+        "a viewer is handed files without the user choosing, so it may not ask for the network"
+    );
     Ok(())
 }
 
@@ -297,6 +311,12 @@ fn is_media_type(kind: &str) -> bool {
 }
 
 impl Manifest {
+    /// Whether this plugin is the viewer of a file of this media type: a tap opens it here.
+    pub fn views_kind(&self, mime: &str) -> bool {
+        let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        self.views.iter().any(|kind| kind == &mime)
+    }
+
     /// Whether this plugin says it opens a file of this media type.
     pub fn opens_kind(&self, mime: &str) -> bool {
         let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
@@ -579,6 +599,22 @@ mod tests {
         assert!(board.manifest.opens_kind("IMAGE/JPEG; charset=x"));
         assert!(!board.manifest.opens_kind("video/mp4"));
         assert!(!plain.manifest.opens_kind("image/png"), "it opens nothing unless it says so");
+        // A viewer (2026-09-27): exact kinds, each also opened, and never with the network.
+        let viewer = r#"{"id":"com.example.pdf","name":"PDF","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-pdf"],"opens":["application/pdf"],"views":["application/pdf"]}"#;
+        let pdf = open(&package(viewer, b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert!(pdf.manifest.views_kind("application/pdf"));
+        assert!(pdf.manifest.views_kind("Application/PDF; charset=x"));
+        assert!(!pdf.manifest.views_kind("image/png"));
+        assert!(!board.manifest.views_kind("image/png"), "opening is not viewing");
+        for wrong in [
+            r#""opens":["application/pdf"],"views":["application/*"]"#,
+            r#""opens":["application/pdf"],"views":["*/*"]"#,
+            r#""opens":["image/*"],"views":["application/pdf"]"#,
+            r#""opens":["application/pdf"],"views":["application/pdf"],"permissions":{"network":["api.example.com"]}"#,
+        ] {
+            let bad = format!(r#"{{"id":"com.example.x","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],{wrong}}}"#);
+            assert!(open(&package(&bad, b"", &catalogue), &catalogue.public_key()).is_err(), "{wrong}");
+        }
         let any = r#"{"id":"com.example.drive","name":"Drive","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-drive"],"opens":["*/*"]}"#;
         assert!(open(&package(any, b"", &catalogue), &catalogue.public_key()).unwrap().manifest.opens_kind("video/mp4"));
         for wrong in ["png", "image/", "*/png", "image/*; q=1", "../x"] {
