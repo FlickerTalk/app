@@ -295,5 +295,39 @@
     "hint": "Sie haben deinen Link. Nichts von ihnen wird geladen und sie können nicht anrufen, bis du annimmst.",
     "accept": "Annehmen",
     "decline": "Ablehnen und blockieren"
+  },
+  "circle": {
+    "title": "Kreis",
+    "new": "Neuer Kreis",
+    "newHint": "Eine kleine, geschlossene Gruppe deiner Kontakte. Niemand außerhalb, nicht einmal unser Server, weiß, dass es ihn gibt. Vorerst nur Nachrichten.",
+    "name": "Name des Kreises",
+    "pick": "Wer dabei ist",
+    "create": "Erstellen",
+    "members": "Mitglieder: {count}",
+    "you": "Du",
+    "admin": "Admin",
+    "adminsOnly": "Nur Admins schreiben",
+    "adminsOnlyHint": "Alle anderen lesen",
+    "readOnly": "Hier schreiben nur die Admins",
+    "left": "Du bist nicht mehr in diesem Kreis",
+    "invite": "Mitglied hinzufügen",
+    "noOneToInvite": "Alle deine Kontakte sind schon dabei",
+    "remove": "Aus dem Kreis entfernen",
+    "makeAdmin": "Zum Admin machen",
+    "dropAdmin": "Als Admin entfernen",
+    "leave": "Kreis verlassen",
+    "leaveSure": "Verlassen",
+    "forget": "Diesen Kreis hier löschen",
+    "forgetSure": "Löschen",
+    "settings": "Einstellungen des Kreises",
+    "message": "Nachricht an den Kreis",
+    "noHistory": "Wer später dazukommt, sieht nicht, was vorher gesagt wurde",
+    "events": {
+      "created": "{who} hat den Kreis „{what}“ erstellt",
+      "joined": "{who} hat {what} hinzugefügt",
+      "left": "{what} hat den Kreis verlassen",
+      "removed": "{who} hat {what} entfernt",
+      "renamed": "{who} hat den Kreis in „{what}“ umbenannt"
+    }
   }
 }

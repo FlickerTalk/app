@@ -20,6 +20,7 @@ import {
   ellipsisVerticalOutline,
   logOutOutline,
   micOutline,
+  peopleOutline,
   qrCodeOutline,
   timeOutline,
   trashOutline,
@@ -27,7 +28,8 @@ import {
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
-import { acceptContact, closeSession, declineContact, removeSession, store, type Chat, type Session } from "../core";
+import CircleThread from "../components/CircleThread.vue";
+import { acceptContact, closeSession, declineContact, removeSession, store, type Chat, type Circle, type Session } from "../core";
 
 const router = useRouter();
 
@@ -40,13 +42,35 @@ onMounted(() => wideQuery.addEventListener("change", onWidthChange));
 onBeforeUnmount(() => wideQuery.removeEventListener("change", onWidthChange));
 
 const selectedId = ref(store.chats[0]?.id ?? "");
+// Circles (2026-09-27) sit in the same list; on a wide screen one opens next to it like a chat.
+const selectedCircle = ref("");
 
 function open(id: string) {
   if (wide.value) {
     selectedId.value = id;
+    selectedCircle.value = "";
   } else {
     router.push(`/chat/${id}`);
   }
+}
+
+function openCircle(id: string) {
+  if (wide.value) {
+    selectedCircle.value = id;
+  } else {
+    router.push(`/circle/${id}`);
+  }
+}
+
+/** What the list says a circle's last line was: who said it, then the text. */
+function circlePreview(circle: Circle): string {
+  return circle.lastSender ? `${circle.lastSender}: ${circle.preview}` : circle.preview;
+}
+
+/** A new circle of the main list, or of a session that exists in the core. */
+function newCircle(session?: Session) {
+  if (session && !session.id) return;
+  router.push(session ? `/new-circle?session=${session.id}` : "/new-circle");
 }
 
 // Hidden sessions fold like the panels of a sidebar; each remembers whether it is open.
@@ -91,6 +115,9 @@ const STATUS_ICON: Record<string, string> = {
           <ion-toolbar>
             <ion-title>{{ $t("tabs.chats") }}</ion-title>
             <ion-buttons slot="end">
+              <ion-button v-if="store.chats.length" data-test="new-circle" :aria-label="$t('circle.new')" @click="newCircle()">
+                <ion-icon slot="icon-only" :icon="peopleOutline" aria-hidden="true" />
+              </ion-button>
               <ion-button :aria-label="$t('addContact.title')" @click="router.push('/add-contact')">
                 <ion-icon slot="icon-only" :icon="qrCodeOutline" aria-hidden="true" />
               </ion-button>
@@ -105,7 +132,7 @@ const STATUS_ICON: Record<string, string> = {
             </ion-toolbar>
           </ion-header>
 
-          <div v-if="!store.chats.length && !store.requests.length" class="ft-empty" data-test="empty">
+          <div v-if="!store.chats.length && !store.requests.length && !store.circles.length" class="ft-empty" data-test="empty">
             <p class="ft-empty__title">{{ $t("chats.empty") }}</p>
             <p class="ft-empty__hint">{{ $t("chats.emptyHint") }}</p>
             <button type="button" class="ft-empty__action" @click="router.push('/add-contact')">
@@ -141,6 +168,48 @@ const STATUS_ICON: Record<string, string> = {
               </li>
             </ul>
           </section>
+
+          <!-- Circles (2026-09-27): the same rows, with who said the last thing. -->
+          <ul v-if="store.circles.length" class="ft-rows">
+            <li v-for="one in store.circles" :key="one.id">
+              <button
+                type="button"
+                class="ft-row"
+                :class="{ 'is-selected': wide && one.id === selectedCircle }"
+                data-test="circle-row"
+                @click="openCircle(one.id)"
+              >
+                <Avatar :name="one.name" :hue="one.hue" />
+                <span class="ft-row__body">
+                  <span class="ft-row__line">
+                    <span class="ft-row__name">{{ one.name }}</span>
+                    <span class="ft-row__time" :class="{ 'is-unread': one.unread }">{{ one.time }}</span>
+                  </span>
+                  <span class="ft-row__line">
+                    <ion-icon :icon="peopleOutline" class="ft-row__kind" role="img" :aria-label="$t('circle.title')" />
+                    <ion-icon
+                      v-if="one.lastMine && one.status"
+                      :icon="STATUS_ICON[one.status]"
+                      class="ft-row__status"
+                      :class="`is-${one.status}`"
+                      aria-hidden="true"
+                    />
+                    <span class="ft-row__preview">{{ circlePreview(one) }}</span>
+                    <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ one.unread }}</span>
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="ft-row__more"
+                data-test="circle-more"
+                :aria-label="$t('circle.settings')"
+                @click="router.push(`/circle/${one.id}/info`)"
+              >
+                <ion-icon :icon="ellipsisVerticalOutline" aria-hidden="true" />
+              </button>
+            </li>
+          </ul>
 
           <ul v-if="store.chats.length" class="ft-rows">
             <li v-for="chat in store.chats" :key="chat.id">
@@ -220,6 +289,17 @@ const STATUS_ICON: Record<string, string> = {
               >
                 <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
               </button>
+              <button
+                v-if="session.chats.length"
+                type="button"
+                class="ft-session__action"
+                data-test="session-new-circle"
+                :aria-label="$t('circle.new')"
+                :title="$t('circle.new')"
+                @click="newCircle(session)"
+              >
+                <ion-icon :icon="peopleOutline" aria-hidden="true" />
+              </button>
               <!-- A3: a session can go for good; the trash asks once by turning into a check. -->
               <button
                 v-if="removing !== keyOf(session)"
@@ -277,7 +357,40 @@ const STATUS_ICON: Record<string, string> = {
                   </button>
                 </li>
               </ul>
-              <p v-if="!session.chats.length" class="ft-session__empty">{{ $t("session.empty") }}</p>
+              <ul v-if="session.circles.length" class="ft-rows">
+                <li v-for="one in session.circles" :key="one.id">
+                  <button
+                    type="button"
+                    class="ft-row"
+                    :class="{ 'is-selected': wide && one.id === selectedCircle }"
+                    data-test="circle-row"
+                    @click="openCircle(one.id)"
+                  >
+                    <Avatar :name="one.name" :hue="one.hue" />
+                    <span class="ft-row__body">
+                      <span class="ft-row__line">
+                        <span class="ft-row__name">{{ one.name }}</span>
+                        <span class="ft-row__time" :class="{ 'is-unread': one.unread }">{{ one.time }}</span>
+                      </span>
+                      <span class="ft-row__line">
+                        <ion-icon :icon="peopleOutline" class="ft-row__kind" role="img" :aria-label="$t('circle.title')" />
+                        <span class="ft-row__preview">{{ circlePreview(one) }}</span>
+                        <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ one.unread }}</span>
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="ft-row__more"
+                    data-test="circle-more"
+                    :aria-label="$t('circle.settings')"
+                    @click="router.push(`/circle/${one.id}/info`)"
+                  >
+                    <ion-icon :icon="ellipsisVerticalOutline" aria-hidden="true" />
+                  </button>
+                </li>
+              </ul>
+              <p v-if="!session.chats.length && !session.circles.length" class="ft-session__empty">{{ $t("session.empty") }}</p>
               <ul v-else class="ft-rows">
                 <li v-for="chat in session.chats" :key="chat.id">
                   <button
@@ -322,7 +435,10 @@ const STATUS_ICON: Record<string, string> = {
         </ion-content>
       </section>
 
-      <section v-if="wide && selectedId" class="ft-chats__detail">
+      <section v-if="wide && selectedCircle" class="ft-chats__detail">
+        <CircleThread :circle-id="selectedCircle" />
+      </section>
+      <section v-else-if="wide && selectedId" class="ft-chats__detail">
         <ChatThread :chat-id="selectedId" />
       </section>
     </div>

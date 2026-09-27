@@ -326,6 +326,87 @@ describe("core bridge", () => {
   });
 });
 
+// Circles (2026-09-27): the core lists them with the conversations; their messages say who said
+// what, and a change in one reloads it if it is on screen.
+describe("circles", () => {
+  const circles = [
+    {
+      id: "circle1",
+      name: "Friends",
+      members: [
+        { id: "ft_me", name: "Me", admin: true, me: true },
+        { id: "ft_bob", name: "Bob", admin: false, me: false },
+      ],
+      admin: true,
+      adminsOnly: false,
+      left: false,
+      unread: 2,
+      last: { id: "m1", outgoing: false, sender: "ft_bob", senderName: "Bob", kind: "text", text: "dinner?", sentAt: at(10, 2), state: "delivered" },
+    },
+  ];
+
+  beforeEach(() => {
+    core.store.circles = [];
+    core.store.sessions = [];
+    tauri.invoke.mockReset();
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_circles") return Promise.resolve(circles);
+      if (command === "core_circle_messages") {
+        return Promise.resolve([
+          { id: "e1", outgoing: true, sender: "ft_me", senderName: "Me", kind: "created", text: "Friends", sentAt: at(10, 0), state: "read" },
+          { id: "m1", outgoing: false, sender: "ft_bob", senderName: "Bob", kind: "text", text: "dinner?", sentAt: at(10, 2), state: "delivered" },
+        ]);
+      }
+      if (command === "core_circle_create") return Promise.resolve("circle2");
+      return Promise.resolve(answers[command]);
+    });
+  });
+
+  it("lists the circles with the conversations", async () => {
+    await core.refreshChats();
+    expect(core.store.circles).toHaveLength(1);
+    expect(core.store.circles[0]).toMatchObject({ id: "circle1", name: "Friends", unread: 2, preview: "dinner?", time: "10:02", lastMine: false, admin: true });
+    expect(core.circle("circle1")?.members.map((member) => member.name)).toEqual(["Me", "Bob"]);
+  });
+
+  it("loads a circle's messages, with who said each", async () => {
+    await core.refreshChats();
+    await core.loadCircleMessages("circle1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_circle_messages", { circle: "circle1", limit: 200 });
+    expect(core.circle("circle1")?.messages).toEqual([
+      { id: "e1", mine: true, text: "Friends", time: "10:00", status: "read", kind: "created", sender: "ft_me", senderName: "Me" },
+      { id: "m1", mine: false, text: "dinner?", time: "10:02", status: "delivered", kind: "text", sender: "ft_bob", senderName: "Bob" },
+    ]);
+  });
+
+  it("reloads an open circle when the core says it changed", async () => {
+    await core.start();
+    await core.loadCircleMessages("circle1");
+    tauri.invoke.mockClear();
+    tauri.handlers[core.CHANGED_EVENT]({ payload: { contact: null, circle: "circle1" } });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_circle_messages", { circle: "circle1", limit: 200 });
+  });
+
+  it("hands the core what the user does with a circle", async () => {
+    expect(await core.createCircle(" Friends ", ["ft_bob"])).toBe("circle2");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_circle_create", { name: "Friends", members: ["ft_bob"], session: undefined });
+    await core.sendCircleText("circle1", "yes");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_circle_send", { circle: "circle1", text: "yes" });
+    await core.inviteToCircle("circle1", "ft_carol");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_circle_invite", { circle: "circle1", contact: "ft_carol" });
+    await core.leaveCircle("circle1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_circle_leave", { circle: "circle1" });
+  });
+
+  it("knows which list a circle lives in, to add people from it", async () => {
+    await core.refreshChats();
+    expect(core.circleHome("circle1")).toEqual({ contacts: core.store.chats });
+    core.store.sessions = [{ id: "s1", chats: [], requests: [], circles: [{ ...core.store.circles[0], id: "circle3" }] }];
+    expect(core.circleHome("circle3").session).toBe("s1");
+  });
+});
+
 // Hidden sessions (Plan, 2026-09-23): a 6-digit PIN opens a session of its own, with its own
 // contacts and no name. The core answers with its conversations; the same PIN always opens the same one.
 describe("hidden sessions", () => {
@@ -354,14 +435,14 @@ describe("hidden sessions", () => {
     tauri.invoke.mockResolvedValue(null);
     await core.openSession("000000");
     expect(tauri.invoke).toHaveBeenCalledWith("core_session_open", { pin: "000000" });
-    expect(core.store.sessions).toEqual([{ id: "", pin: "000000", chats: [], requests: [] }]);
+    expect(core.store.sessions).toEqual([{ id: "", pin: "000000", chats: [], requests: [], circles: [] }]);
     tauri.invoke.mockImplementation((command: string) => Promise.resolve(command === "core_sessions" ? [] : command === "core_conversations" ? [] : undefined));
     await core.refreshChats();
     expect(core.store.sessions).toHaveLength(1);
   });
 
   it("closes a session that is only on the screen without telling the core", async () => {
-    core.store.sessions = [{ id: "", pin: "000000", chats: [], requests: [] }];
+    core.store.sessions = [{ id: "", pin: "000000", chats: [], requests: [], circles: [] }];
     await core.closeSession("");
     expect(tauri.invoke).not.toHaveBeenCalled();
     expect(core.store.sessions).toHaveLength(0);

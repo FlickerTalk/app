@@ -295,5 +295,39 @@
     "hint": "Hanno il tuo link. Nulla di loro viene scaricato e non possono chiamare finché non accetti.",
     "accept": "Accetta",
     "decline": "Rifiuta e blocca"
+  },
+  "circle": {
+    "title": "Cerchio",
+    "new": "Nuovo cerchio",
+    "newHint": "Un gruppo piccolo e chiuso dei tuoi contatti. Nessuno fuori, nemmeno il nostro server, sa che esiste. Per ora, solo messaggi.",
+    "name": "Nome del cerchio",
+    "pick": "Chi ne fa parte",
+    "create": "Crea",
+    "members": "Membri: {count}",
+    "you": "Tu",
+    "admin": "Admin",
+    "adminsOnly": "Scrivono solo gli admin",
+    "adminsOnlyHint": "Gli altri leggono",
+    "readOnly": "Qui scrivono solo gli admin",
+    "left": "Non sei più in questo cerchio",
+    "invite": "Aggiungi un membro",
+    "noOneToInvite": "Tutti i tuoi contatti ne fanno già parte",
+    "remove": "Togli dal cerchio",
+    "makeAdmin": "Rendi admin",
+    "dropAdmin": "Togli come admin",
+    "leave": "Esci dal cerchio",
+    "leaveSure": "Esci",
+    "forget": "Elimina questo cerchio qui",
+    "forgetSure": "Elimina",
+    "settings": "Impostazioni del cerchio",
+    "message": "Messaggio al cerchio",
+    "noHistory": "Chi entra dopo non vede ciò che è stato detto prima",
+    "events": {
+      "created": "{who} ha creato il cerchio «{what}»",
+      "joined": "{who} ha aggiunto {what}",
+      "left": "{what} è uscito",
+      "removed": "{who} ha tolto {what}",
+      "renamed": "{who} ha rinominato il cerchio in «{what}»"
+    }
   }
 }

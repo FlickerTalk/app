@@ -52,6 +52,53 @@ export interface Chat {
   messages: ChatMessage[];
 }
 
+/** Someone in a circle, as this phone names them. */
+export interface CircleMember {
+  id: string;
+  name: string;
+  admin: boolean;
+  /** Whether it is this phone. */
+  me: boolean;
+}
+
+/** What a circle message is: a text, or something that happened, named in `text`. */
+export type CircleKind = "text" | "created" | "joined" | "left" | "removed" | "renamed";
+
+export interface CircleMessage {
+  id: string;
+  mine: boolean;
+  text: string;
+  time: string;
+  status?: Status;
+  kind: CircleKind;
+  sender: string;
+  senderName: string;
+}
+
+/**
+ * A circle (2026-09-27): a small closed group of contacts, no server knowing it exists. Every
+ * message goes to each member through the channel this phone already has with them.
+ */
+export interface Circle {
+  id: string;
+  name: string;
+  hue: number;
+  members: CircleMember[];
+  /** Whether this phone may change it now. */
+  admin: boolean;
+  adminsOnly: boolean;
+  /** This phone left, or was taken out: what was said stays, read only. */
+  left: boolean;
+  unread: number;
+  time: string;
+  preview: string;
+  lastMine: boolean;
+  /** Who said the last thing, when it was a text of someone else's; empty otherwise. */
+  lastSender: string;
+  status: Status | "";
+  messages: CircleMessage[];
+}
+
 export interface Me {
   id: string;
   name: string;
@@ -123,6 +170,28 @@ interface ConversationView {
   last: MessageView | null;
 }
 
+interface CircleMessageView {
+  id: string;
+  outgoing: boolean;
+  sender: string;
+  senderName: string;
+  kind: CircleKind;
+  text: string;
+  sentAt: number;
+  state: Status;
+}
+
+interface CircleView {
+  id: string;
+  name: string;
+  members: CircleMember[];
+  admin: boolean;
+  adminsOnly: boolean;
+  left: boolean;
+  unread: number;
+  last: CircleMessageView | null;
+}
+
 /**
  * A hidden session: its own contacts and conversations, opened with a 6-digit PIN and nothing
  * else, not even a name. Only the person who created it knows it exists; while it is closed it
@@ -134,6 +203,8 @@ export interface Session {
   chats: Chat[];
   /** Strangers who wrote to this session with its link and wait for a yes (A5). */
   requests: Chat[];
+  /** The circles made in this session, of its contacts. */
+  circles: Circle[];
   /** Only for a session that is only on the screen: its PIN, kept in memory, to tell it apart. */
   pin?: string;
 }
@@ -142,6 +213,7 @@ interface SessionView {
   id: string;
   conversations: ConversationView[];
   requests: ConversationView[];
+  circles?: CircleView[];
 }
 
 export const CHANGED_EVENT = "ft://changed";
@@ -157,10 +229,14 @@ export const store = reactive({
   requests: [] as Chat[],
   /** The hidden sessions open right now; an empty list looks exactly like having none. */
   sessions: [] as Session[],
+  /** The circles of the main list (2026-09-27). */
+  circles: [] as Circle[],
 });
 
 /** Conversations whose messages are shown, so a change reloads them. */
 const loaded = new Set<string>();
+/** Circles whose messages are shown. */
+const loadedCircles = new Set<string>();
 
 /** A stable colour per contact, from its id. */
 export function hueOf(id: string): number {
@@ -238,13 +314,66 @@ export function chat(id: string): Chat | undefined {
   return allChats().find((candidate) => candidate.id === id);
 }
 
+function toCircleMessage(view: CircleMessageView): CircleMessage {
+  return {
+    id: view.id,
+    mine: view.outgoing,
+    text: view.text,
+    time: clock(view.sentAt),
+    status: view.state,
+    kind: view.kind,
+    sender: view.sender,
+    senderName: view.senderName,
+  };
+}
+
+function toCircle(view: CircleView): Circle {
+  return {
+    id: view.id,
+    name: view.name,
+    hue: hueOf(view.id),
+    members: view.members,
+    admin: view.admin,
+    adminsOnly: view.adminsOnly,
+    left: view.left,
+    unread: view.unread,
+    time: clock(view.last?.sentAt ?? 0),
+    preview: view.last?.text ?? "",
+    lastMine: view.last?.outgoing ?? false,
+    lastSender: view.last && !view.last.outgoing && view.last.kind === "text" ? view.last.senderName : "",
+    status: view.last?.state ?? "",
+    messages: circle(view.id)?.messages ?? [],
+  };
+}
+
+/**
+ * The contacts a circle may take: those of the list it lives in, the main one or an open
+ * session's, and the session itself when it is one.
+ */
+export function circleHome(id: string): { session?: string; contacts: Chat[] } {
+  for (const session of store.sessions) {
+    if (session.circles.some((candidate) => candidate.id === id)) return { session: session.id, contacts: session.chats };
+  }
+  return { contacts: store.chats };
+}
+
+/** A circle of the main list or of any open session. */
+export function circle(id: string): Circle | undefined {
+  return store.circles.concat(...store.sessions.map((session) => session.circles)).find((candidate) => candidate.id === id);
+}
+
 /** The main list, the requests and every open session's conversations. */
 function allChats(): Chat[] {
   return store.chats.concat(store.requests, ...store.sessions.flatMap((session) => session.chats.concat(session.requests)));
 }
 
 function toSession(view: SessionView): Session {
-  return { id: view.id, chats: view.conversations.map(toChat), requests: view.requests.map(toChat) };
+  return {
+    id: view.id,
+    chats: view.conversations.map(toChat),
+    requests: view.requests.map(toChat),
+    circles: (view.circles ?? []).map(toCircle),
+  };
 }
 
 function showSession(session: Session) {
@@ -260,7 +389,7 @@ function showSession(session: Session) {
  */
 export async function openSession(pin: string): Promise<void> {
   const view = await invoke<SessionView | null>("core_session_open", { pin });
-  showSession(view ? toSession(view) : { id: "", pin, chats: [], requests: [] });
+  showSession(view ? toSession(view) : { id: "", pin, chats: [], requests: [], circles: [] });
 }
 
 /**
@@ -313,11 +442,14 @@ export async function start(): Promise<void> {
   const me = await invoke<Omit<Me, "hue">>("core_me");
   store.me = { ...me, hue: hueOf(me.id) };
   await refreshChats();
-  await listen<{ contact: string | null }>(CHANGED_EVENT, ({ payload }) => {
+  await listen<{ contact: string | null; circle?: string | null }>(CHANGED_EVENT, ({ payload }) => {
     // The list first: an open conversation's files depend on the connection it reports.
     void refreshChats().then(() => {
       if (payload.contact && loaded.has(payload.contact)) {
         return loadMessages(payload.contact);
+      }
+      if (payload.circle && loadedCircles.has(payload.circle)) {
+        return loadCircleMessages(payload.circle);
       }
     });
   });
@@ -329,6 +461,8 @@ export async function refreshChats(): Promise<void> {
   store.chats = views.map(toChat);
   const requests = (await invoke<ConversationView[] | undefined>("core_requests", {})) ?? [];
   store.requests = requests.map(toChat);
+  const circles = (await invoke<CircleView[] | undefined>("core_circles", undefined)) ?? [];
+  store.circles = circles.map(toCircle);
   // The open sessions follow: their unread counts change with the same events. A session that
   // is only on the screen (A3) stays as it is.
   const sessions = (await invoke<SessionView[] | undefined>("core_sessions", undefined)) ?? [];
@@ -347,6 +481,69 @@ export async function loadMessages(contact: string): Promise<void> {
 
 export async function sendText(contact: string, text: string): Promise<void> {
   await invoke("core_send", { contact, text });
+}
+
+// ---- Circles (2026-09-27) ----
+
+export async function loadCircleMessages(id: string): Promise<void> {
+  loadedCircles.add(id);
+  const views = await invoke<CircleMessageView[]>("core_circle_messages", { circle: id, limit: MESSAGE_LIMIT });
+  const target = circle(id);
+  if (target) target.messages = views.map(toCircleMessage);
+}
+
+export async function sendCircleText(id: string, text: string): Promise<void> {
+  await invoke("core_circle_send", { circle: id, text });
+}
+
+/** What others said has been shown. Nothing travels: a circle tells nobody when you read. */
+export async function markCircleRead(id: string): Promise<void> {
+  await invoke("core_circle_mark_read", { circle: id });
+}
+
+/** Makes a circle of these contacts, of the main list or of an open session; returns its id. */
+export async function createCircle(name: string, members: string[], session?: string): Promise<string> {
+  const id = await invoke<string>("core_circle_create", { name: name.trim(), members, session });
+  await refreshChats();
+  return id;
+}
+
+export async function inviteToCircle(id: string, contact: string): Promise<void> {
+  await invoke("core_circle_invite", { circle: id, contact });
+  await refreshChats();
+}
+
+export async function removeFromCircle(id: string, contact: string): Promise<void> {
+  await invoke("core_circle_remove", { circle: id, contact });
+  await refreshChats();
+}
+
+export async function setCircleAdmin(id: string, contact: string, admin: boolean): Promise<void> {
+  await invoke("core_circle_set_admin", { circle: id, contact, admin });
+  await refreshChats();
+}
+
+export async function renameCircle(id: string, name: string): Promise<void> {
+  await invoke("core_circle_rename", { circle: id, name: name.trim() });
+  await refreshChats();
+}
+
+/** Whether only the admins write; everyone else reads. */
+export async function setCircleAdminsOnly(id: string, adminsOnly: boolean): Promise<void> {
+  await invoke("core_circle_admins_only", { circle: id, adminsOnly });
+  await refreshChats();
+}
+
+/** Leaves the circle: every member is told; what was said stays here, read only. */
+export async function leaveCircle(id: string): Promise<void> {
+  await invoke("core_circle_leave", { circle: id });
+  await refreshChats();
+}
+
+/** Erases a circle this phone is no longer in, with everything said in it. */
+export async function forgetCircle(id: string): Promise<void> {
+  await invoke("core_circle_forget", { circle: id });
+  await refreshChats();
 }
 
 async function toBase64(blob: Blob): Promise<string> {

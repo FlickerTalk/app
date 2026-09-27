@@ -58,6 +58,29 @@ export function installFakeCore() {
       },
     ],
     nextSession: 1,
+    // Circles (2026-09-27): one of Bob and me, made by me.
+    circles: [
+      {
+        id: "circle1",
+        name: "Friends",
+        members: [
+          { id: "ft_me", name: "Me", admin: true, me: true },
+          { id: "ft_bob123456789", name: "Bob", admin: false, me: false },
+        ],
+        admin: true,
+        adminsOnly: false,
+        left: false,
+        unread: 1,
+        last: { id: "cm1", outgoing: false, sender: "ft_bob123456789", senderName: "Bob", kind: "text", text: "dinner on friday?", sentAt: Date.now(), state: "delivered" },
+      },
+    ] as Array<Record<string, unknown> & { id: string; name: string; members: Array<{ id: string; name: string; admin: boolean; me: boolean }>; left: boolean; adminsOnly: boolean }>,
+    circleMessages: {
+      circle1: [
+        { id: "ce1", outgoing: true, sender: "ft_me", senderName: "Me", kind: "created", text: "Friends", sentAt: Date.now() - 120_000, state: "read" },
+        { id: "cm1", outgoing: false, sender: "ft_bob123456789", senderName: "Bob", kind: "text", text: "dinner on friday?", sentAt: Date.now() - 60_000, state: "delivered" },
+      ],
+    } as Record<string, unknown[]>,
+    nextCircle: 2,
   };
 
   const handlers = new Map<number, Handler>();
@@ -65,7 +88,7 @@ export function installFakeCore() {
   let nextCallback = 1;
   const calls: Array<[string, Args]> = [];
 
-  const sessionView = (id: string) => ({ id, conversations: [], requests: [] });
+  const sessionView = (id: string) => ({ id, conversations: [], requests: [], circles: [] });
 
   const answer = (command: string, args: Args): unknown => {
     const a = (args ?? {}) as Record<string, string | number | undefined>;
@@ -154,6 +177,69 @@ export function installFakeCore() {
         if (!plugin || plugin.granted.send === "nothing") throw new Error("that plugin may not write in the chat");
         if (plugin.granted.send === "auto") return { sent: true };
         return { sent: false, staged: { path: `/data/files/outgoing/1-${a.name}`, name: a.name, mime: a.mime, size: 3 } };
+      }
+      case "core_circles":
+        return state.circles;
+      case "core_circle_messages":
+        return state.circleMessages[String(a.circle)] ?? [];
+      case "core_circle_create": {
+        const id = `circle${state.nextCircle++}`;
+        const members = (args?.members as string[]).map((member) => ({
+          id: member,
+          name: state.conversations.find((c) => c.id === member)?.name ?? member,
+          admin: false,
+          me: false,
+        }));
+        state.circles.push({
+          id,
+          name: String(a.name),
+          members: [{ id: "ft_me", name: "Me", admin: true, me: true }, ...members],
+          admin: true,
+          adminsOnly: false,
+          left: false,
+          unread: 0,
+          last: null,
+        });
+        state.circleMessages[id] = [{ id: `${id}-e1`, outgoing: true, sender: "ft_me", senderName: "Me", kind: "created", text: String(a.name), sentAt: Date.now(), state: "read" }];
+        return id;
+      }
+      case "core_circle_send": {
+        const id = String(a.circle);
+        const message = { id: `${id}-${Date.now()}`, outgoing: true, sender: "ft_me", senderName: "Me", kind: "text", text: String(a.text), sentAt: Date.now(), state: "sent" };
+        state.circleMessages[id] = [...(state.circleMessages[id] ?? []), message];
+        const circle = state.circles.find((c) => c.id === id);
+        if (circle) circle.last = message;
+        setTimeout(() => emit("ft://changed", { contact: null, circle: id }), 10);
+        return undefined;
+      }
+      case "core_circle_leave": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.left = true;
+        return undefined;
+      }
+      case "core_circle_forget":
+        state.circles = state.circles.filter((c) => c.id !== a.circle);
+        return undefined;
+      case "core_circle_admins_only": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.adminsOnly = Boolean(a.adminsOnly);
+        return undefined;
+      }
+      case "core_circle_invite": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        const contact = state.conversations.find((c) => c.id === a.contact);
+        if (circle && contact) circle.members.push({ id: contact.id, name: contact.name, admin: false, me: false });
+        return undefined;
+      }
+      case "core_circle_remove": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.members = circle.members.filter((member) => member.id !== a.contact);
+        return undefined;
+      }
+      case "core_circle_mark_read": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.unread = 0;
+        return undefined;
       }
       case "core_send_picked":
       case "core_send":

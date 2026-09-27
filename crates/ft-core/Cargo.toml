@@ -10,6 +10,7 @@ anyhow = "1"
 async-trait = "0.1"
 blake3 = "1"
 ft-billing = { path = "../ft-billing" }
+ft-circles = { path = "../ft-circles" }
 ft-contacts = { path = "../ft-contacts" }
 ft-crypto = { path = "../ft-crypto" }
 ft-identity = { path = "../ft-identity" }

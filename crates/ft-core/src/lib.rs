@@ -13,6 +13,7 @@
 //!   contacts are dropped (§35).
 
 pub mod calls;
+pub mod circles;
 pub mod files;
 pub mod moving;
 pub mod plugins;
@@ -41,9 +42,9 @@ use tokio::sync::{broadcast, Mutex};
 /// Unreachable contacts are retried after 5 s, 10 s, 20 s… up to this.
 pub const MAX_RETRY_DELAY: Duration = Duration::from_secs(300);
 /// After a direct send, how long to wait for the receipt before trying again.
-const RECEIPT_WAIT: Duration = Duration::from_secs(30);
+pub(crate) const RECEIPT_WAIT: Duration = Duration::from_secs(30);
 /// After leaving it in the mailbox, how long before trying again.
-const MAILBOX_WAIT: Duration = Duration::from_secs(600);
+pub(crate) const MAILBOX_WAIT: Duration = Duration::from_secs(600);
 
 const NAME: &str = "name";
 const MAILBOX: &str = "mailbox";
@@ -100,9 +101,13 @@ pub enum Event {
     Move(moving::MoveUpdate),
     /// A plugin was installed, granted something, or removed (issue app#3).
     PluginsChanged,
+    /// A circle was made, changed, joined or left (2026-09-27).
+    CirclesChanged,
+    /// Something was said or happened in the circle.
+    CircleMessagesChanged { circle: String },
 }
 
-enum Route {
+pub(crate) enum Route {
     Direct,
     Mailbox,
     Unreachable,
@@ -842,10 +847,13 @@ impl Core {
         Ok(())
     }
 
-    /// Retries the outbox entries that are due.
+    /// Retries the outbox entries that are due, of contacts and of circles.
     pub async fn retry_due(&self) -> Result<()> {
         for entry in self.store.due(now()).await? {
             self.deliver(&entry).await?;
+        }
+        for entry in self.store.circle_due(now()).await? {
+            let _ = self.deliver_circle(&entry).await;
         }
         Ok(())
     }
@@ -855,6 +863,7 @@ impl Core {
         for entry in self.store.outbox().await? {
             self.deliver(&entry).await?;
         }
+        self.deliver_circle_queue().await;
         Ok(())
     }
 
@@ -1041,6 +1050,9 @@ impl Core {
             Body::MoveRequest { from, count } => self.move_requested(contact, from, count).await?,
             Body::MoveChunk { index, data } => self.move_chunk(contact, index, data).await?,
             Body::MoveDone => self.move_finished(contact).await?,
+            Body::CircleCard { card } => self.circle_card_received(contact, packet.id, &card).await?,
+            Body::CircleMessage { circle, text } => self.circle_text_received(contact, packet.id, packet.sent_at, &circle, text).await?,
+            Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
             Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
@@ -1048,9 +1060,18 @@ impl Core {
     }
 
     async fn receipt(&self, contact: &str, ids: Vec<MessageId>, state: MessageState) -> Result<()> {
-        let ids: Vec<String> = ids.iter().map(ToString::to_string).collect();
-        self.store.advance(&ids, state).await?;
-        for id in &ids {
+        let mut ours = Vec::new();
+        for id in ids.iter().map(ToString::to_string) {
+            // A circle packet's receipt clears that member's entry alone (2026-09-27).
+            if !self.circle_receipt(contact, &id, state).await? {
+                ours.push(id);
+            }
+        }
+        if ours.is_empty() {
+            return Ok(());
+        }
+        self.store.advance(&ours, state).await?;
+        for id in &ours {
             self.store.dequeue(id).await?;
         }
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });

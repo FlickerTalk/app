@@ -52,6 +52,7 @@ export function seed(): void {
       }));
     }
     if (command === "core_conversations") return [];
+    if (command === "core_circle_messages") return (store.circles.find((one) => one.id === args?.circle)?.messages ?? []).map((m) => ({ id: m.id, outgoing: m.mine, sender: m.sender, senderName: m.senderName, kind: m.kind, text: m.text, sentAt: at(m.time), state: m.status ?? "delivered" }));
     if (command === "core_card") return "https://flickertalk.com/add#card";
     // A hidden session: the same PIN gives the same session; here, always an empty one.
     if (command === "core_session_open") return { id: "s1", conversations: [], requests: [] };

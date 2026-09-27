@@ -1793,6 +1793,19 @@ name = "ft-billing"
 version = "0.1.0"
 
 [[package]]
+name = "ft-circles"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ciborium",
+ "ft-contacts",
+ "ft-identity",
+ "rand 0.9.5",
+ "serde",
+ "serde_bytes",
+]
+
+[[package]]
 name = "ft-contacts"
 version = "0.1.0"
 dependencies = [
@@ -1815,6 +1828,7 @@ dependencies = [
  "async-trait",
  "blake3",
  "ft-billing",
+ "ft-circles",
  "ft-contacts",
  "ft-crypto",
  "ft-identity",
