@@ -247,8 +247,9 @@ impl Core {
     /// What the catalogue offers, read only if the catalogue signed the index (§56). Reading it
     /// installs nothing.
     pub async fn catalogue(&self, fetch: &dyn Fetch, catalogue: &Ed25519PublicKey) -> Result<Vec<CatalogueEntry>> {
-        let index = fetch.get(&format!("{CATALOGUE_HOME}/index.json"), INDEX_LIMIT).await?;
-        let signature = fetch.get(&format!("{CATALOGUE_HOME}/index.json.sig"), 1024).await?;
+        // The index for cores from 1.1.0 on (index.json is the app 1.0.0's, cut down for it).
+        let index = fetch.get(&format!("{CATALOGUE_HOME}/{}", ft_plugins::INDEX), INDEX_LIMIT).await?;
+        let signature = fetch.get(&format!("{CATALOGUE_HOME}/{}.sig", ft_plugins::INDEX), 1024).await?;
         let index = String::from_utf8(index).context("the index is not text")?;
         let signature = String::from_utf8(signature).context("the signature is not text")?;
         // What needs a newer FlickerTalk is not offered: it would not install (§51).

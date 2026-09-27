@@ -337,17 +337,25 @@ fn shop(package: &[u8], catalogue: &Ed25519SecretKey) -> (Shop, String) {
         blake3::hash(package).to_hex()
     );
     let mut files = std::collections::HashMap::new();
-    files.insert(format!("{}/index.json", ft_core::CATALOGUE_HOME), index.clone().into_bytes());
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
     files.insert(
-        format!("{}/index.json.sig", ft_core::CATALOGUE_HOME),
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
         catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+    // What the app 1.0.0 reads lists nothing here: this core must not read it.
+    let legacy = r#"{"plugins":[]}"#;
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::LEGACY_INDEX), legacy.as_bytes().to_vec());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::LEGACY_INDEX),
+        catalogue.sign(legacy.as_bytes()).to_base64().into_bytes(),
     );
     files.insert(url.clone(), package.to_vec());
     (Shop { files }, url)
 }
 
 // §56: nothing travels inside the app. The phone reads a signed index, and only then downloads a
-// package, which has to be exactly the bytes the index listed.
+// package, which has to be exactly the bytes the index listed. Since 2026-09-28 it is the index
+// for cores from 1.1.0 on, not the one the app 1.0.0 reads (that one lists only what runs there).
 #[tokio::test]
 async fn installs_from_the_catalogue_only_what_the_catalogue_signed() {
     let (core, dir) = core().await;
