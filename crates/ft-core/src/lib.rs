@@ -294,10 +294,23 @@ impl Core {
                 self.store.set_spare_capability(slot, fresh.as_bytes()).await?;
             }
         }
-        let contacts = match session {
+        let mut contacts = match session {
             None => self.store.contacts().await?,
             Some(session) => self.store.session_contacts(session).await?,
         };
+        // Whoever knows us through a circle of that list holds the old link too. The strangers
+        // waiting in the requests do not get the new one: retiring the old is the point.
+        let mut known: std::collections::HashSet<String> = contacts.iter().map(|contact| contact.device_id.clone()).collect();
+        for circle in self.store.circles(session).await?.into_iter().filter(|circle| !circle.left) {
+            for member in self.store.circle_members(&circle.id).await? {
+                if member.device_id == self.device_id.as_str() || !known.insert(member.device_id.clone()) {
+                    continue;
+                }
+                if let Some(contact) = self.store.contact(&member.device_id).await?.filter(|contact| !contact.blocked) {
+                    contacts.push(contact);
+                }
+            }
+        }
         for contact in contacts {
             let _ = self.introduce(&contact).await;
         }

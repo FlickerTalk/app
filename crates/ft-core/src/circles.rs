@@ -423,13 +423,31 @@ impl Core {
     }
 
     /// Signs the next revision. Members who left since the card was signed are consolidated
-    /// out of it, and out of the admins, first.
+    /// out of it, and out of the admins, first; and every member's Contact Card is refreshed
+    /// to the one this phone holds, so a newcomer gets a member's renewed link (A5) and not
+    /// the card as it was when they joined.
     async fn revise(&self, held: &CircleCard, circle: &str, change: impl FnOnce(&mut ft_circles::Draft)) -> Result<CircleCard> {
         let present: Vec<String> = self.store.circle_members(circle).await?.into_iter().map(|member| member.device_id).collect();
+        let mut fresh = std::collections::HashMap::new();
+        for member in &present {
+            if let Some(contact) = self.store.contact(member).await? {
+                fresh.insert(member.clone(), contact.card);
+            }
+        }
+        // This phone is a member too, and not a contact of itself: its own card as it is now.
+        let session = self.store.circle(circle).await?.and_then(|record| record.session);
+        fresh.insert(self.device_id.to_string(), self.my_card_in(session.as_deref()).await?.encode());
         let identity = self.identity.lock().await;
         held.revise(&identity, |draft| {
             draft.members.retain(|member| present.contains(&member.device_id));
             draft.admins.retain(|admin| present.contains(admin));
+            for member in &mut draft.members {
+                if let Some(card) = fresh.get(&member.device_id) {
+                    if let Ok(decoded) = ContactCard::decode(card) {
+                        *member = Member::from_card(&decoded);
+                    }
+                }
+            }
             change(draft);
         })
     }
