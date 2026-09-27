@@ -262,7 +262,7 @@
     "install": "Instalar",
     "live": "Falar com o mesmo plugin do outro lado da conversa",
     "remind": "Pôr lembretes neste telemóvel",
-    "drive": "Guardar ficheiros na tua própria nuvem",
+    "drive": "Guardar ficheiros na sua própria nuvem",
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
     "opens": "Abre: {kinds}",
     "open": "Abrir"
@@ -335,5 +335,38 @@
       "removed": "{who} tirou {what}",
       "renamed": "{who} mudou o nome do círculo para «{what}»"
     }
+  },
+  "backup": {
+    "title": "Cópia de segurança",
+    "none": "Nenhuma nuvem ligada",
+    "noneHint": "Guarde uma cópia selada deste telemóvel no seu próprio Google Drive. Tudo é cifrado aqui antes de sair; a Google vê ficheiros selados e nós não vemos nada.",
+    "connectGoogle": "Ligar o Google Drive",
+    "empty": "A sua nuvem ainda não tem um drive FlickerTalk",
+    "emptyHint": "Ao criá-lo gera-se uma chave neste telemóvel e mostra-se um código de recuperação.",
+    "setUp": "Criar",
+    "codeTitle": "O seu código de recuperação",
+    "codeHint": "Anote-o e guarde-o bem: abre o seu drive num telemóvel novo. Mostra-se uma só vez e ninguém o pode recuperar por si.",
+    "codeDone": "Já o anotei",
+    "locked": "Esta nuvem tem um drive de outro telemóvel",
+    "unlockHint": "Escreva o seu código de recuperação para o abrir aqui.",
+    "codePlaceholder": "Código de recuperação",
+    "unlockNow": "Abrir",
+    "ready": "O seu drive está pronto",
+    "backupNow": "Fazer cópia agora",
+    "lastBackup": "Última cópia: {when}",
+    "noBackup": "Ainda não há cópia",
+    "done": "Cópia feita",
+    "restore": "Restaurar a partir da cópia",
+    "restoreAsk": "Substituir tudo neste telemóvel pela cópia? A app reinicia.",
+    "restoreConfirm": "Restaurar",
+    "restored": "A cópia já está aqui",
+    "forget": "Esquecer esta nuvem neste telemóvel",
+    "forgetHint": "Os seus ficheiros ficam na sua nuvem, selados. Vai precisar do código de recuperação para os abrir de novo.",
+    "forgetConfirm": "Esquecer",
+    "used": "No drive: {size}",
+    "pending": "À espera de envio: {count}",
+    "working": "A trabalhar…",
+    "failed": "Algo correu mal: {error}",
+    "sees": "A sua nuvem vê quantos ficheiros selados há, o seu tamanho e as datas. Nunca os nomes nem o conteúdo."
   }
 }

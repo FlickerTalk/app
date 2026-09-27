@@ -56,7 +56,16 @@ export type FrameMessage =
   | { type: "ft.remindCancel"; id: string; reminder: string }
   | { type: "ft.remindList"; id: string }
   | { type: "ft.liveSend"; id: string; data: string }
-  | { type: "ft.openChat"; id: string; ref: string };
+  | { type: "ft.openChat"; id: string; ref: string }
+  // The user's cloud (plan-drive): one question with an operation and up to two strings.
+  | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string };
+
+/** What a plugin may ask of the drive. Anything else is ignored. */
+export const DRIVE_OPS = [
+  "status", "connect", "setup", "unlock", "disconnect", "list", "mkdir", "rename", "move", "remove",
+  "upload", "keep", "open", "save", "send", "retry", "cancel", "backup", "backupInfo", "restore",
+] as const;
+export type DriveOp = (typeof DRIVE_OPS)[number];
 
 const text = (value: unknown): value is string => typeof value === "string";
 
@@ -126,6 +135,10 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       return text(id) && text(said.data) ? { type: "ft.liveSend", id, data: said.data } : null;
     case "ft.openChat":
       return text(id) && text(said.ref) ? { type: "ft.openChat", id, ref: said.ref } : null;
+    case "ft.drive": {
+      const op = DRIVE_OPS.find((one) => one === said.op);
+      return text(id) && op ? { type: "ft.drive", id, op, a: text(said.a) ? said.a : "", b: text(said.b) ? said.b : "" } : null;
+    }
     default:
       return null;
   }
@@ -149,7 +162,7 @@ export function opensKind(opens: string[] | undefined, mime: string): boolean {
  * The plugins that can open a message (2026-09-27): a text goes to those that open `text/plain`
  * and were granted reading what they are handed; a file, to those that open its kind.
  */
-export function openersOf(plugins: PluginView[], message: { kind?: string; file?: { mime?: string } }): PluginView[] {
+export function openersOf(plugins: PluginView[], message: { kind?: string; text?: string; file?: { mime?: string } }): PluginView[] {
   if (message.kind === "file") {
     const mime = message.file?.mime || "application/octet-stream";
     return plugins.filter((one) => opensKind(one.opens, mime));

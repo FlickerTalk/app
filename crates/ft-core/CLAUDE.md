@@ -155,3 +155,35 @@ cada miembro limpia su entrada de `circle_outbox` (`circle_receipt`), y el mensa
   esto, lo que nos escribían iba a un enlace retirado hasta que les escribiéramos nosotros.
 - Sin ficheros ni llamadas en círculos en esta versión (`docs/circulos.md`).
 
+
+## Estado (2026-09-27, plugins fase 3; `plugins.rs`, `tests/plugins.rs`, `tests/plugin_live.rs`)
+
+Capacidades generales que pedían las notas, la pizarra y el drive:
+
+- **Registros** (`plugin_record*`, tabla `plugin_records`): lo que un plugin guarda más allá de
+  sus ajustes, dentro de la cuota concedida (`storage`: 4 MB o 256 MB; un valor 16 MB como mucho).
+  Se van con el plugin.
+- **Avisos locales** (`set_reminder`, `cancel_reminder`, `reminders`, `due_reminders`; tabla
+  `reminders`; permiso `remind`): el núcleo es la verdad y el SO solo el despertador
+  (`Event::RemindersChanged` → la app le pasa la lista entera al puente nativo).
+- **Refs** (`plugin_ref`, `plugin_ref_target`; tabla `plugin_refs`): un asa opaca al mensaje con
+  el que se abrió el plugin; el mismo mensaje da el mismo ref, otro plugin no lo entiende y no
+  dice nada del contacto.
+- **Canal en directo** (`plugin_live_send`, `Body::PluginEvent`, `Event::PluginEvent`; permiso
+  `live` en los dos teléfonos): solo por conexión directa (`transmit_direct`), nunca por el buzón,
+  nada se guarda; 48 KiB por mensaje. Lo que llega de un contacto no aceptado o para un plugin no
+  instalado o sin el permiso se descarta.
+- **Abrir con** (`plugins_opening(mime)`) y `CORE_VERSION` (1.1.0): `install_plugin` rechaza lo
+  que pide una versión mayor y `catalogue` no lo ofrece.
+
+## Estado (2026-09-27, la nube del usuario; `vault.rs`, `tests/vault.rs`, `docs/drive.md`)
+
+`Core` lleva el drive de `ft-vault`: `vault_connect(provider, authorizer)` (login por el navegador
+que abre la app; los tokens se guardan en `settings` sellados con la clave de almacenamiento),
+`vault_reopen` (al arrancar, desde lo que el teléfono guarda), `vault_setup` (devuelve el código
+de recuperación, una vez), `vault_unlock(code)`, `vault_disconnect`, `vault_list/mkdir/rename/
+move/remove/upload/run_queue/cancel_pending/download/send`, `vault_backup` (instantánea de la base
+de datos + clave + carpeta de ficheros), `vault_restore` (a la carpeta de mudanza: la app la cambia
+al arrancar), `plugin_may_use_drive`. `trait Cloud` abstrae el proveedor (`GoogleCloud` en la
+app, una memoria en los tests) y `trait Authorizer` el navegador. `Event::VaultChanged` y
+`Event::VaultProgress`.

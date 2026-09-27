@@ -973,3 +973,167 @@ export async function block(contact: string, blocked: boolean): Promise<void> {
   await invoke("core_block", { contact, blocked });
   await refreshChats();
 }
+
+// ---------------------------------------------------------------------------------------------
+// The user's own cloud (plan-drive, 2026-09-27): the drive and the backup. Tokens, the vault key
+// and the recovery code live in the core; here only names, sizes and states.
+// ---------------------------------------------------------------------------------------------
+
+/** Sent by the core when the drive changes, and while bytes move. */
+export const VAULT_EVENT = "ft://vault";
+export const VAULT_PROGRESS_EVENT = "ft://vault-progress";
+
+export interface VaultQuota {
+  used: number;
+  total: number;
+}
+
+export interface DriveStatus {
+  files: number;
+  folders: number;
+  used: number;
+  pending: number;
+  quota: VaultQuota | null;
+  backupAt: number | null;
+}
+
+/** `none`: no cloud; `empty`: logged in, no drive yet; `locked`: a drive from another phone; `ready`. */
+export type VaultState = "none" | "empty" | "locked" | "ready";
+
+export interface VaultStatus {
+  state: VaultState;
+  provider: string | null;
+  drive: DriveStatus | null;
+  problem: string | null;
+}
+
+export interface DriveFolder {
+  id: string;
+  name: string;
+  parent: string | null;
+  modified: number;
+}
+
+export interface DriveFile {
+  id: string;
+  name: string;
+  parent: string | null;
+  size: number;
+  mime: string;
+  modified: number;
+}
+
+export interface DrivePending {
+  blob: string;
+  name: string;
+  parent: string | null;
+  size: number;
+  mime: string;
+  error: string;
+}
+
+export interface DriveListing {
+  folders: DriveFolder[];
+  files: DriveFile[];
+  pending: DrivePending[];
+}
+
+export interface BackupInfo {
+  at: number;
+  files: number;
+  dbSize: number;
+}
+
+export async function vaultStatus(): Promise<VaultStatus> {
+  return invoke<VaultStatus>("core_vault_status");
+}
+
+/** Logs in through the system browser; the app never sees the tokens. */
+export async function vaultConnect(provider = "google"): Promise<VaultStatus> {
+  return invoke<VaultStatus>("core_vault_connect", { provider });
+}
+
+/** Makes the drive; the recovery code comes back once. */
+export async function vaultSetup(): Promise<string> {
+  return invoke<string>("core_vault_setup");
+}
+
+export async function vaultUnlock(code: string): Promise<void> {
+  await invoke("core_vault_unlock", { code });
+}
+
+export async function vaultDisconnect(): Promise<void> {
+  await invoke("core_vault_disconnect");
+}
+
+export async function vaultList(parent: string | null): Promise<DriveListing> {
+  return invoke<DriveListing>("core_vault_list", { parent });
+}
+
+export async function vaultMkdir(name: string, parent: string | null): Promise<string> {
+  return invoke<string>("core_vault_mkdir", { name, parent });
+}
+
+export async function vaultRename(id: string, name: string): Promise<void> {
+  await invoke("core_vault_rename", { id, name });
+}
+
+export async function vaultMove(id: string, parent: string | null): Promise<void> {
+  await invoke("core_vault_move", { id, parent });
+}
+
+export async function vaultRemove(id: string): Promise<void> {
+  await invoke("core_vault_remove", { id });
+}
+
+/** Puts a picked file in the drive; null when it waits for the network. */
+export async function vaultUpload(file: PickedFile, parent: string | null): Promise<string | null> {
+  return invoke<string | null>("core_vault_upload", { file, parent });
+}
+
+/** Keeps the file of a message in the drive, from the bubble or a plugin's `ref`. */
+export async function vaultUploadMessage(message: string, parent: string | null): Promise<string | null> {
+  return invoke<string | null>("core_vault_upload_message", { message, parent });
+}
+
+export async function vaultRetry(): Promise<number> {
+  return invoke<number>("core_vault_retry");
+}
+
+export async function vaultCancelPending(blob: string): Promise<void> {
+  await invoke("core_vault_cancel_pending", { blob });
+}
+
+/** Brings a file down, opened, ready for the composer. */
+export async function vaultDownload(id: string): Promise<PickedFile> {
+  return invoke<PickedFile>("core_vault_download", { id });
+}
+
+export async function vaultOpen(id: string): Promise<void> {
+  await invoke("core_vault_open", { id });
+}
+
+export async function vaultSave(id: string): Promise<void> {
+  await invoke("core_vault_save", { id });
+}
+
+export async function vaultSend(id: string, contact: string): Promise<string> {
+  return invoke<string>("core_vault_send", { id, contact });
+}
+
+export async function vaultBackup(): Promise<BackupInfo> {
+  return invoke<BackupInfo>("core_vault_backup");
+}
+
+export async function vaultBackupInfo(): Promise<BackupInfo | null> {
+  return invoke<BackupInfo | null>("core_vault_backup_info");
+}
+
+/** Brings the backup down; the app restarts and swaps it in. */
+export async function vaultRestore(): Promise<BackupInfo> {
+  return invoke<BackupInfo>("core_vault_restore");
+}
+
+export async function pluginMayUseDrive(plugin: string): Promise<boolean> {
+  return invoke<boolean>("core_plugin_may_use_drive", { plugin }).catch(() => false);
+}

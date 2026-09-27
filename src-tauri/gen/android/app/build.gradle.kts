@@ -30,6 +30,14 @@ android {
     namespace = "com.flickertalk.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
+        // The user's cloud (plan-drive): Google sends the login back to the OAuth client id,
+        // reversed. The same FT_GOOGLE_CLIENT_ID goes into the Rust core at build time; without
+        // it the scheme is a placeholder and Google Drive cannot be connected.
+        val googleClientId = System.getenv("FT_GOOGLE_CLIENT_ID") ?: (project.findProperty("googleClientId") as String? ?: "")
+        manifestPlaceholders["googleRedirectScheme"] =
+            if (googleClientId.endsWith(".apps.googleusercontent.com"))
+                "com.googleusercontent.apps." + googleClientId.removeSuffix(".apps.googleusercontent.com")
+            else "com.flickertalk.app.oauth"
         applicationId = "com.flickertalk.app"
         minSdk = 24
         targetSdk = 36

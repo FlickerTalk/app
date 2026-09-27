@@ -260,12 +260,12 @@
     "none": "まだプラグインはありません",
     "available": "追加できるツール",
     "install": "インストール",
-    "live": "Talk to the same plugin on the other side of the chat",
-    "remind": "Set reminders on this phone",
-    "drive": "Keep files in your own cloud",
-    "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
-    "opens": "Opens: {kinds}",
-    "open": "Open"
+    "live": "会話の相手側にある同じプラグインと通信する",
+    "remind": "この端末にリマインダーを設定する",
+    "drive": "自分のクラウドにファイルを保管する",
+    "storageLarge": "この端末に大量のデータを保管する（最大 256 MB）",
+    "opens": "開ける形式：{kinds}",
+    "open": "開く"
   },
   "emoji": {
     "open": "絵文字",
@@ -335,5 +335,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "バックアップ",
+    "none": "クラウドが接続されていません",
+    "noneHint": "この端末の封印されたコピーを自分の Google ドライブに保管します。すべては端末を出る前にここで暗号化されます。Google には封印されたファイルしか見えず、私たちには何も見えません。",
+    "connectGoogle": "Google ドライブを接続",
+    "empty": "あなたのクラウドにはまだ FlickerTalk のドライブがありません",
+    "emptyHint": "設定するとこの端末に鍵が作られ、復元コードが表示されます。",
+    "setUp": "設定する",
+    "codeTitle": "あなたの復元コード",
+    "codeHint": "書き留めて安全に保管してください。新しい端末でドライブを開くのに使います。表示は一度きりで、誰も取り戻せません。",
+    "codeDone": "書き留めました",
+    "locked": "このクラウドには別の端末のドライブがあります",
+    "unlockHint": "ここで開くには、その復元コードを入力してください。",
+    "codePlaceholder": "復元コード",
+    "unlockNow": "開く",
+    "ready": "ドライブの準備ができました",
+    "backupNow": "今すぐバックアップ",
+    "lastBackup": "前回のバックアップ：{when}",
+    "noBackup": "バックアップはまだありません",
+    "done": "バックアップしました",
+    "restore": "バックアップから復元",
+    "restoreAsk": "この端末のすべてをバックアップで置き換えますか？アプリは再起動します。",
+    "restoreConfirm": "復元",
+    "restored": "バックアップが届きました",
+    "forget": "この端末でこのクラウドを忘れる",
+    "forgetHint": "ファイルは封印されたままクラウドに残ります。再び開くには復元コードが必要です。",
+    "forgetConfirm": "忘れる",
+    "used": "ドライブ内：{size}",
+    "pending": "アップロード待ち：{count}",
+    "working": "処理中…",
+    "failed": "問題が起きました：{error}",
+    "sees": "クラウドには封印されたファイルの数、サイズ、日付だけが見えます。名前や内容は決して見えません。"
   }
 }

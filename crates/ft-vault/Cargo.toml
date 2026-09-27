@@ -1,0 +1,24 @@
+[package]
+name = "ft-vault"
+version = "0.1.0"
+edition = "2021"
+description = "The user's own cloud, encrypted on the phone: a drive of files and a backup of the history"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+blake3 = "1"
+chacha20poly1305 = "0.10"
+ft-push = { path = "../ft-push" }
+rand = "0.9"
+ring = "0.17"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
+
+[dev-dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net"] }

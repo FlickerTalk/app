@@ -260,12 +260,12 @@
     "none": "还没有插件",
     "available": "可添加的工具",
     "install": "安装",
-    "live": "Talk to the same plugin on the other side of the chat",
-    "remind": "Set reminders on this phone",
-    "drive": "Keep files in your own cloud",
-    "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
-    "opens": "Opens: {kinds}",
-    "open": "Open"
+    "live": "与对话另一端的同一插件通信",
+    "remind": "在这部手机上设置提醒",
+    "drive": "把文件保存在你自己的云端",
+    "storageLarge": "在这部手机上保存大量数据（最多 256 MB）",
+    "opens": "可打开：{kinds}",
+    "open": "打开"
   },
   "emoji": {
     "open": "表情",
@@ -335,5 +335,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "备份",
+    "none": "未连接云端",
+    "noneHint": "把这部手机的密封副本保存在你自己的 Google 云端硬盘。一切在离开手机前就已加密；Google 只看到密封文件，我们什么也看不到。",
+    "connectGoogle": "连接 Google 云端硬盘",
+    "empty": "你的云端还没有 FlickerTalk 云盘",
+    "emptyHint": "设置时会在这部手机上生成密钥，并显示一个恢复码。",
+    "setUp": "设置",
+    "codeTitle": "你的恢复码",
+    "codeHint": "请写下并妥善保管：它用于在新手机上打开你的云盘。只显示一次，没有人能替你找回。",
+    "codeDone": "我已写下",
+    "locked": "此云端有来自另一部手机的云盘",
+    "unlockHint": "输入它的恢复码以在此打开。",
+    "codePlaceholder": "恢复码",
+    "unlockNow": "打开",
+    "ready": "你的云盘已就绪",
+    "backupNow": "立即备份",
+    "lastBackup": "上次备份：{when}",
+    "noBackup": "还没有备份",
+    "done": "已备份",
+    "restore": "从备份恢复",
+    "restoreAsk": "用备份替换这部手机上的全部内容？应用将重新启动。",
+    "restoreConfirm": "恢复",
+    "restored": "备份已就位",
+    "forget": "在这部手机上忘记此云端",
+    "forgetHint": "你的文件仍密封保存在云端。再次打开需要恢复码。",
+    "forgetConfirm": "忘记",
+    "used": "云盘中：{size}",
+    "pending": "等待上传：{count}",
+    "working": "处理中…",
+    "failed": "出了点问题：{error}",
+    "sees": "你的云端只看到密封文件的数量、大小和日期，永远看不到名称或内容。"
   }
 }

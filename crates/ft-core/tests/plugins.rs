@@ -52,6 +52,22 @@ fn signed(id: &str, version: &str, permissions: &str, catalogue: &Ed25519SecretK
     )
 }
 
+// §51: a capability the plugin needs and this FlickerTalk lacks is a plugin that does not install.
+#[tokio::test]
+async fn a_plugin_that_needs_a_newer_core_does_not_install() {
+    let (core, _) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.example.future","name":"Future","version":"1.0.0","minCoreVersion":"99.0.0","components":["ft-future"]}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    let refused = core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await;
+    assert!(refused.unwrap_err().to_string().contains("99.0.0"));
+    assert!(core.plugins().await.unwrap().is_empty());
+    // What is new enough, and what this very version brought, installs.
+    let manifest = format!(r#"{{"id":"com.example.now","name":"Now","version":"1.0.0","minCoreVersion":"{}","components":["ft-now"]}}"#, ft_core::plugins::CORE_VERSION);
+    let package = sign_package(&[("module.json".to_owned(), manifest.into_bytes()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+}
+
 #[tokio::test]
 async fn installs_a_signed_plugin_and_grants_it_only_what_the_user_said() {
     let (core, dir) = core().await;

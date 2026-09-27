@@ -412,13 +412,18 @@ pub struct CatalogueEntry {
     pub summary: String,
 }
 
+/// Whether a FlickerTalk of `core_version` is new enough for something that needs `min` (§51).
+pub fn version_at_least(core_version: &str, min: &str) -> bool {
+    fn parts(version: &str) -> Vec<u32> {
+        version.split('.').map(|part| part.parse().unwrap_or(0)).collect()
+    }
+    parts(core_version) >= parts(min)
+}
+
 impl CatalogueEntry {
     /// Whether this FlickerTalk is new enough for it (§51).
     pub fn runs_on(&self, core_version: &str) -> bool {
-        fn parts(version: &str) -> Vec<u32> {
-            version.split('.').map(|part| part.parse().unwrap_or(0)).collect()
-        }
-        parts(core_version) >= parts(&self.min_core_version)
+        version_at_least(core_version, &self.min_core_version)
     }
 }
 

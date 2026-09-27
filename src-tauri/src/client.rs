@@ -470,7 +470,7 @@ pub fn storage_key(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<[
 pub fn picked_path(dir: &Path, path: &str) -> Result<PathBuf, String> {
     let candidate = Path::new(path);
     let real = candidate.canonicalize().map_err(|_| "that file is no longer there".to_owned())?;
-    let allowed = [dir.join("uploads"), dir.join("files").join("uploads"), dir.join("files").join("outgoing")];
+    let allowed = [dir.join("uploads"), dir.join("files").join("uploads"), dir.join("files").join("outgoing"), dir.join("files").join("drive")];
     let inside = allowed.iter().filter_map(|root| root.canonicalize().ok()).any(|root| real.starts_with(&root));
     if inside && real.is_file() {
         Ok(real)
@@ -567,6 +567,16 @@ impl Client {
         online.core.set_files_dir(dir.join("files"));
         online.core.set_move_dir(dir.join(MOVE_DIR));
         online.core.set_plugins_dir(dir.join("plugins"));
+        // The user's cloud (plan-drive): what waits to go up lives here; the drive opens in the
+        // background from what the phone keeps, and tries what waited.
+        online.core.set_vault_dir(dir.join("vault"));
+        online.core.set_cloud(Arc::new(ft_core::vault::GoogleCloud));
+        let core_for_vault = online.core.clone();
+        tauri::async_runtime::spawn(async move {
+            if core_for_vault.vault_reopen().await.is_ok() {
+                let _ = core_for_vault.vault_run_queue().await;
+            }
+        });
         // A new version of the app brings a fixed tool to whoever had installed it (§53).
         update_installed_plugins(&online.core).await;
         // What the Store says about the subscription, every time the app opens (§45): a renewal
@@ -605,6 +615,14 @@ impl Client {
                         }
                         Event::RemindersChanged => {
                             sync_reminders(&app, &core_for_events).await;
+                            continue;
+                        }
+                        Event::VaultChanged => {
+                            let _ = app.emit(VAULT_EVENT, ());
+                            continue;
+                        }
+                        Event::VaultProgress { done, total } => {
+                            let _ = app.emit(VAULT_PROGRESS_EVENT, VaultProgressView { done, total });
                             continue;
                         }
                         Event::Move(update) => {
@@ -2059,6 +2077,306 @@ pub async fn core_rename(contact: String, name: String, client: State<'_, Client
     client.core().await?.rename_contact(&contact, &name).await.map_err(failed)
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// The user's cloud (plan-drive, 2026-09-27): the login through the system browser, the drive and
+// the backup. Tokens, the vault key and the recovery code stay in the core; the WebView sees
+// names, sizes and states.
+// ---------------------------------------------------------------------------------------------
+
+/// Sent to the UI on `ft://vault` when the drive changes, and on `ft://vault-progress` while
+/// bytes move.
+pub const VAULT_EVENT: &str = "ft://vault";
+pub const VAULT_PROGRESS_EVENT: &str = "ft://vault-progress";
+
+#[derive(Serialize, Clone)]
+pub struct VaultProgressView {
+    pub done: u64,
+    pub total: u64,
+}
+
+/// The system browser, for a login: the platform bridge opens the address and brings back the
+/// redirect to the app's scheme.
+struct PlatformAuthorizer(AppHandle);
+
+#[async_trait::async_trait]
+impl ft_core::vault::Authorizer for PlatformAuthorizer {
+    async fn authorize(&self, url: &str, scheme: &str) -> anyhow::Result<String> {
+        let (app, url, scheme) = (self.0.clone(), url.to_owned(), scheme.to_owned());
+        tauri::async_runtime::spawn_blocking(move || app.platform().authorize(&url, &scheme).map_err(anyhow::Error::from)).await?
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaView {
+    pub used: u64,
+    pub total: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveStatusView {
+    pub files: usize,
+    pub folders: usize,
+    pub used: u64,
+    pub pending: usize,
+    pub quota: Option<QuotaView>,
+    pub backup_at: Option<i64>,
+}
+
+/// Where the drive stands: `none`, `empty` (logged in, no drive yet), `locked` (a drive from
+/// another phone: needs the code) or `ready`.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultStatusView {
+    pub state: String,
+    pub provider: Option<String>,
+    pub drive: Option<DriveStatusView>,
+    pub problem: Option<String>,
+}
+
+impl From<ft_core::vault::VaultStatus> for VaultStatusView {
+    fn from(status: ft_core::vault::VaultStatus) -> Self {
+        use ft_core::vault::VaultState;
+        Self {
+            state: match status.state {
+                VaultState::None => "none",
+                VaultState::Empty => "empty",
+                VaultState::Locked => "locked",
+                VaultState::Ready => "ready",
+            }
+            .to_owned(),
+            provider: status.provider,
+            drive: status.drive.map(|drive| DriveStatusView {
+                files: drive.files,
+                folders: drive.folders,
+                used: drive.used,
+                pending: drive.pending,
+                quota: drive.quota.map(|quota| QuotaView { used: quota.used, total: quota.total }),
+                backup_at: drive.backup_at,
+            }),
+            problem: status.problem,
+        }
+    }
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveFolderView {
+    pub id: String,
+    pub name: String,
+    pub parent: Option<String>,
+    pub modified: i64,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveFileView {
+    pub id: String,
+    pub name: String,
+    pub parent: Option<String>,
+    pub size: u64,
+    pub mime: String,
+    pub modified: i64,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DrivePendingView {
+    pub blob: String,
+    pub name: String,
+    pub parent: Option<String>,
+    pub size: u64,
+    pub mime: String,
+    pub error: String,
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveListingView {
+    pub folders: Vec<DriveFolderView>,
+    pub files: Vec<DriveFileView>,
+    pub pending: Vec<DrivePendingView>,
+}
+
+impl From<ft_vault::Listing> for DriveListingView {
+    fn from(listing: ft_vault::Listing) -> Self {
+        Self {
+            folders: listing.folders.into_iter().map(|one| DriveFolderView { id: one.id, name: one.name, parent: one.parent, modified: one.modified }).collect(),
+            files: listing
+                .files
+                .into_iter()
+                .map(|one| DriveFileView { id: one.id, name: one.name, parent: one.parent, size: one.size, mime: one.mime, modified: one.modified })
+                .collect(),
+            pending: listing
+                .pending
+                .into_iter()
+                .map(|one| DrivePendingView { blob: one.blob, name: one.name, parent: one.parent, size: one.size, mime: one.mime, error: one.error })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupView {
+    pub at: i64,
+    pub files: usize,
+    pub db_size: u64,
+}
+
+impl From<ft_vault::Backup> for BackupView {
+    fn from(backup: ft_vault::Backup) -> Self {
+        Self { at: backup.at, files: backup.files.len(), db_size: backup.db_size }
+    }
+}
+
+/// Where the drive stands; the plugin and Settings ask this first.
+#[tauri::command]
+pub async fn core_vault_status(client: State<'_, Client>) -> Result<VaultStatusView, String> {
+    Ok(client.core().await?.vault_status().await.map_err(failed)?.into())
+}
+
+/// Logs in to a cloud through the system browser; the WebView never sees the tokens.
+#[tauri::command]
+pub async fn core_vault_connect(provider: String, app: AppHandle, client: State<'_, Client>) -> Result<VaultStatusView, String> {
+    let core = client.core().await?;
+    Ok(core.vault_connect(&provider, &PlatformAuthorizer(app)).await.map_err(failed)?.into())
+}
+
+/// Makes the drive; the recovery code comes back once, for the user to write down.
+#[tauri::command]
+pub async fn core_vault_setup(client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.vault_setup().await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_unlock(code: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_unlock(&code).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_disconnect(client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_disconnect().await.map_err(failed)
+}
+
+/// A development build without a client id baked in sets one here.
+#[tauri::command]
+pub async fn core_vault_set_client_id(id: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_google_client_id(&id).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_list(parent: Option<String>, client: State<'_, Client>) -> Result<DriveListingView, String> {
+    Ok(client.core().await?.vault_list(parent.as_deref()).await.map_err(failed)?.into())
+}
+
+#[tauri::command]
+pub async fn core_vault_mkdir(name: String, parent: Option<String>, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.vault_mkdir(&name, parent.as_deref()).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_rename(id: String, name: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_rename(&id, &name).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_move(id: String, parent: Option<String>, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_move(&id, parent.as_deref()).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_remove(id: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_remove(&id).await.map_err(failed)
+}
+
+/// Puts a file the user picked in the drive; `null` when it waits for the network.
+#[tauri::command]
+pub async fn core_vault_upload(file: PickedView, parent: Option<String>, client: State<'_, Client>) -> Result<Option<String>, String> {
+    let core = client.core().await?;
+    let path = picked_path(client.dir()?, &file.path)?;
+    core.vault_upload(&path, &file.name, &file.mime, parent.as_deref()).await.map_err(failed)
+}
+
+/// Puts the file of a message in the drive: what "keep in my drive" does from a bubble.
+#[tauri::command]
+pub async fn core_vault_upload_message(message: String, parent: Option<String>, client: State<'_, Client>) -> Result<Option<String>, String> {
+    let file = file_of(&client, &message).await?;
+    let core = client.core().await?;
+    core.vault_upload(Path::new(&file.path), &file.name, &file.mime, parent.as_deref()).await.map_err(failed)
+}
+
+/// Tries again what waits; how many still wait.
+#[tauri::command]
+pub async fn core_vault_retry(client: State<'_, Client>) -> Result<usize, String> {
+    client.core().await?.vault_run_queue().await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_cancel_pending(blob: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_cancel_pending(&blob).await.map_err(failed)
+}
+
+/// Brings a file down, opened, into the app's folder; what the composer or a viewer needs.
+#[tauri::command]
+pub async fn core_vault_download(id: String, client: State<'_, Client>) -> Result<PickedView, String> {
+    let (path, file) = client.core().await?.vault_download(&id).await.map_err(failed)?;
+    Ok(PickedView { path: path.to_string_lossy().into_owned(), name: file.name, mime: file.mime, size: file.size })
+}
+
+/// Opens a file of the drive in the viewer the user picks.
+#[tauri::command]
+pub async fn core_vault_open(id: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let (path, file) = client.core().await?.vault_download(&id).await.map_err(failed)?;
+    app.platform().open_file(&path.to_string_lossy(), &file.mime).map_err(failed)
+}
+
+/// Copies a file of the drive to the phone's Downloads.
+#[tauri::command]
+pub async fn core_vault_save(id: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let (path, file) = client.core().await?.vault_download(&id).await.map_err(failed)?;
+    app.platform().save_to_downloads(&path.to_string_lossy(), &file.name, &file.mime).map_err(failed)
+}
+
+/// Sends a file of the drive to a contact, as any file (§62).
+#[tauri::command]
+pub async fn core_vault_send(id: String, contact: String, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.vault_send(&id, &contact).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_vault_backup(client: State<'_, Client>) -> Result<BackupView, String> {
+    Ok(client.core().await?.vault_backup().await.map_err(failed)?.into())
+}
+
+#[tauri::command]
+pub async fn core_vault_backup_info(client: State<'_, Client>) -> Result<Option<BackupView>, String> {
+    Ok(client.core().await?.vault_backup_info().await.map_err(failed)?.map(Into::into))
+}
+
+/// Brings the backup down and restarts the app, which swaps it in as after a move (§60).
+#[tauri::command]
+pub async fn core_vault_restore(app: AppHandle, client: State<'_, Client>) -> Result<BackupView, String> {
+    let core = client.core().await?;
+    let backup = core.vault_restore().await.map_err(failed)?;
+    if let Ok(online) = client.online().await {
+        let _ = online.router.forget().await;
+    }
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(RESTART_PAUSE).await;
+        restart(&app);
+    });
+    Ok(backup.into())
+}
+
+/// Whether a plugin was granted the drive; the sheet asks before answering any `ft.drive.*`.
+#[tauri::command]
+pub async fn core_plugin_may_use_drive(plugin: String, client: State<'_, Client>) -> Result<bool, String> {
+    client.core().await?.plugin_may_use_drive(&plugin).await.map_err(failed)
+}
+
 #[cfg(test)]
 mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
@@ -2320,6 +2638,10 @@ mod tests {
 
         assert!(picked_path(&dir, &dir.join("uploads").join("photo.jpg").to_string_lossy()).is_ok());
         assert!(picked_path(&dir, &dir.join("files").join("outgoing").join("made.pdf").to_string_lossy()).is_ok());
+        // What came down from the drive (2026-09-27) can be sent too.
+        std::fs::create_dir_all(dir.join("files").join("drive").join("f1")).unwrap();
+        std::fs::write(dir.join("files").join("drive").join("f1").join("doc.pdf"), b"pdf").unwrap();
+        assert!(picked_path(&dir, &dir.join("files").join("drive").join("f1").join("doc.pdf").to_string_lossy()).is_ok());
         for refused in [
             dir.join("flickertalk.db"),
             dir.join("storage.key.sealed"),

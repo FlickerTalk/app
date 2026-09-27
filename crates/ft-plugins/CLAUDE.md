@@ -86,3 +86,25 @@ Falta: el modo desarrollador (cargar una carpeta sin firmar) y la revocación de
   `ft.text` ni `ft.send`). `Propose`: lo que hace queda en el compositor y lo manda el usuario.
   `Auto`: el núcleo lo envía (`Core::plugin_send_file`). El marco lo comprueba y el núcleo lo
   vuelve a comprobar (`core_plugin_made`).
+
+## Estado (2026-09-27, plugins fase 3: notas, pizarra y drive)
+
+Lo que pedían los planes de la pizarra, las notas y el drive, como capacidades **generales** de la
+Plugin API (una capacidad, varios plugins):
+
+- **Permisos nuevos** en `Permissions`: `live` (canal en directo con el mismo plugin al otro lado
+  de la conversación), `remind` (avisos locales), `drive` (la nube del usuario) y `storage`
+  (`small`, 4 MB, o `large`, 256 MB, para los registros). `Manifest.opens`: los tipos de fichero
+  que el plugin abre (`image/*`, `*/*`…, 16 como mucho); `opens_kind(mime)`.
+- **`minCoreVersion` se aplica** (`§51`): `version_at_least`; el núcleo no instala lo que pide
+  una versión mayor que `ft_core::plugins::CORE_VERSION` (1.1.0 desde hoy) y el catálogo no lo
+  ofrece. Los tres plugins nuevos piden 1.1.0.
+- La Plugin API (`app/src-tauri/src/plugins.rs`) suma `ft.records`, `ft.remind`, `ft.live`,
+  `ft.openChat` y `ft.drive`, y `onOpen` trae `lang`, `file`, `ref`, `reminder` y `live`. El
+  contrato está en `plugin-sdk` (`index.d.ts`, `module.schema.json`).
+- **Tres plugins nuevos**, cada uno en su repo: `plugin-notes` (notas con aviso; 21 idiomas;
+  `messages: given` + `remind`; abre `text/plain`), `plugin-board` (pizarra: Yjs +
+  perfect-freehand + KaTeX, el **primero con build** (esbuild) y ~770 KB, no es semilla; `live`,
+  `storage: large`, `send: propose`; abre `application/x-ftboard` e `image/*`) y `plugin-drive`
+  (Mi drive; `drive` + `send: propose`; abre `*/*`). Se descargan del catálogo; ninguno viaja en la
+  app.

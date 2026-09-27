@@ -7,8 +7,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { fromFrame, frameUrl, installed, openersOf, opensKind, refreshPlugins } from "./plugins";
+import type { PluginView } from "./core";
 
-const CODE = {
+const CODE: PluginView = {
   id: "com.flickertalk.code",
   name: "Code block",
   version: "1.0.0",
@@ -16,7 +17,7 @@ const CODE = {
   granted: { network: [], messages: true, send: "nothing" },
   installedAt: 1,
 };
-const LOCKED = { ...CODE, id: "com.example.locked", granted: { network: [], messages: false, send: "nothing" } };
+const LOCKED: PluginView = { ...CODE, id: "com.example.locked", granted: { network: [], messages: false, send: "nothing" } };
 
 describe("plugins in the app", () => {
   beforeEach(() => tauri.invoke.mockReset());
@@ -133,6 +134,11 @@ describe("plugins in the app", () => {
     expect(said({ type: "ft.liveSend", id: "r8", data: "AQ==" })).toEqual({ type: "ft.liveSend", id: "r8", data: "AQ==" });
     expect(said({ type: "ft.liveSend", id: "r9", data: 7 })).toBeNull();
     expect(said({ type: "ft.openChat", id: "r10", ref: "ref_1" })).toEqual({ type: "ft.openChat", id: "r10", ref: "ref_1" });
+    // The drive: an operation it knows and up to two strings; anything else is not a question.
+    expect(said({ type: "ft.drive", id: "r11", op: "mkdir", a: "Docs", b: "" })).toEqual({ type: "ft.drive", id: "r11", op: "mkdir", a: "Docs", b: "" });
+    expect(said({ type: "ft.drive", id: "r12", op: "status" })).toEqual({ type: "ft.drive", id: "r12", op: "status", a: "", b: "" });
+    expect(said({ type: "ft.drive", id: "r13", op: "format" })).toBeNull();
+    expect(said({ type: "ft.drive", op: "list" })).toBeNull();
   });
 
   // 2026-09-27: "open with": a plugin says which kinds of file it opens; a text goes only to

@@ -1,7 +1,8 @@
 # FlickerTalk: qué hace la app hoy
 
-Estado a 2026-09-27 (versión 1.0.0 en revisión en Google Play; iOS pendiente de la cuenta de
-Apple; incluye el paquete de endurecimiento de la revisión del 2026-09-24). Describe la app tal como funciona, pantalla a pantalla. Las decisiones de diseño y el porqué
+Estado a 2026-09-27 (versión 1.1.0 sin publicar; la 1.0.0 en revisión en Google Play; iOS
+pendiente de la cuenta de Apple; incluye el paquete de endurecimiento de la revisión del
+2026-09-24, los círculos, los plugins de fase 3 y la nube del usuario). Describe la app tal como funciona, pantalla a pantalla. Las decisiones de diseño y el porqué
 de cada una están en el plan del proyecto; aquí solo lo que el usuario ve y lo que pasa por debajo.
 
 ## Qué es
@@ -170,6 +171,37 @@ imágenes, PDF, tapar datos, dibujo y markdown. El resto se instala desde un cat
   texto o un fichero) queda en el compositor y lo envías tú; solo con «enviar por su cuenta» sale
   solo.
 - Un plugin nunca ve tu identidad, tus claves, tu agenda ni el historial.
+- **Desde el 2026-09-27** (versión 1.1.0): un plugin puede pedir, y tú conceder aparte, **hablar
+  con el mismo plugin al otro lado** de la conversación (solo por la conexión directa, nunca por
+  el servidor), **poner avisos** en tu teléfono, **usar tu nube** y **guardar muchos datos** en el
+  teléfono (256 MB). En la pulsación larga de una burbuja aparece **«Abrir con»** para los plugins
+  que abren ese tipo de fichero o un texto. Un plugin se puede abrir solo desde Ajustes → Plugins.
+- **Notas**: notas personales con un aviso (una notificación en tu teléfono a la hora que
+  elijas, una sola vez). Nacen desde un mensaje («Abrir con» → Notas: llega el texto y un camino
+  de vuelta a la conversación, nunca el contacto) o desde cero. Por defecto la notificación solo
+  dice que tienes un aviso; el texto de la nota se enseña si lo activas.
+- **Pizarra**: lienzo infinito con trazo a mano, texto, fórmulas (LaTeX o con paleta de símbolos)
+  e imágenes; deshacer y rehacer; se guarda o se envía como `.ftboard`, se abre en solo lectura al
+  otro lado y se reproduce trazo a trazo. **En directo**: en una conversación donde los dos tienen
+  el plugin abierto, lo que dibuja uno aparece en el otro al momento, por la conexión directa.
+- **Mi drive**: ver «Copia de seguridad y Mi drive».
+
+## Copia de seguridad y Mi drive
+
+Desde el 2026-09-27 (`docs/drive.md`). Una copia sellada de tu teléfono, y tus ficheros, en **tu
+propio Google Drive**. Todo se cifra en el teléfono antes de salir: Google ve ficheros sellados con
+nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
+
+- **Ajustes → Copia de seguridad**: conectar Google Drive (el login se abre en el navegador del
+  sistema; la app no ve los tokens), crear el drive (se enseña **una sola vez** un código de
+  recuperación de 30 símbolos: apúntalo), hacer copia (historial, clave y ficheros), restaurar en
+  un teléfono nuevo (conectar la misma nube + código; la app reinicia con la copia, como tras una
+  mudanza) y olvidar la nube en este teléfono (los ficheros siguen en tu nube, sellados).
+- **Mi drive** (plugin, permiso «usar tu nube»): carpetas, subir del selector, guardar cualquier
+  fichero de una burbuja («Abrir con» → Mi drive; del tamaño que sea, los bytes no pasan por el
+  plugin), abrir, guardar en Descargas y enviar a la conversación. Lo que espera red se ve con su
+  motivo; nunca se marca como guardado lo que no subió.
+- Pendiente para usarlo de verdad: el cliente OAuth de Google de la app (`docs/drive.md`).
 
 ## Ajustes
 
@@ -179,8 +211,8 @@ imágenes, PDF, tapar datos, dibujo y markdown. El resto se instala desde un cat
 - **Delivered and read receipts:** valor por defecto para los contactos nuevos.
 - **Hours**, **Calls**, **Blocked**, **Session** (arriba).
 - **Color** (Mono, Ember, Aurora) y **Appearance** (sistema, oscuro, claro).
-- **Plugins**, **Move to a new phone**, **Erase this phone** (quita el dispositivo del servidor y
-  borra todo el teléfono, con confirmación).
+- **Plugins**, **Move to a new phone**, **Backup** (la nube del usuario), **Erase this phone**
+  (quita el dispositivo del servidor y borra todo el teléfono, con confirmación).
 - **Plan** y **Version**.
 
 ## Plan y precio

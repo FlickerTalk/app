@@ -37,6 +37,10 @@ const RECORD_KEY: usize = 128;
 pub const RECORD_VALUE: usize = 16 * 1024 * 1024;
 /// The most a plugin may say to its twin in one go over `ft.live`: a chunk of a data channel.
 pub const LIVE_LIMIT: usize = 48 * 1024;
+/// What this FlickerTalk is, for a plugin's `minCoreVersion` (§51): every new capability of the
+/// Plugin API bumps it, with the app's version. 1.1.0 (2026-09-27): records, reminders, the live
+/// channel, "open with", refs and the user's cloud.
+pub const CORE_VERSION: &str = "1.1.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 
@@ -63,6 +67,12 @@ impl Core {
     /// (§50), and what the user granted before is kept.
     pub async fn install_plugin(&self, package: &[u8], catalogue: &Ed25519PublicKey, granted: Permissions) -> Result<Manifest> {
         let plugin = ft_plugins::open(package, catalogue)?;
+        ensure!(
+            ft_plugins::version_at_least(CORE_VERSION, &plugin.manifest.min_core_version),
+            "{} needs FlickerTalk {} or newer",
+            plugin.manifest.id,
+            plugin.manifest.min_core_version
+        );
         allowed(&plugin.manifest.permissions, &granted)?;
         let home = self.plugins_home()?;
         ft_plugins::install(&plugin, home)?;
@@ -240,7 +250,8 @@ impl Core {
         let signature = fetch.get(&format!("{CATALOGUE_HOME}/index.json.sig"), 1024).await?;
         let index = String::from_utf8(index).context("the index is not text")?;
         let signature = String::from_utf8(signature).context("the signature is not text")?;
-        ft_plugins::catalogue_entries(&index, signature.trim(), catalogue)
+        // What needs a newer FlickerTalk is not offered: it would not install (§51).
+        Ok(ft_plugins::catalogue_entries(&index, signature.trim(), catalogue)?.into_iter().filter(|entry| entry.runs_on(CORE_VERSION)).collect())
     }
 
     /// Downloads what the catalogue listed and installs it. Installing grants nothing (§53), and
@@ -288,7 +299,7 @@ impl Core {
     }
 
     /// What the user granted a plugin that is installed here.
-    async fn granted_to(&self, id: &str) -> Result<Permissions> {
+    pub(crate) async fn granted_to(&self, id: &str) -> Result<Permissions> {
         let row = self.store.plugin(id).await?.with_context(|| format!("{id} is not installed here"))?;
         Ok(serde_json::from_str(&row.granted).unwrap_or_default())
     }
