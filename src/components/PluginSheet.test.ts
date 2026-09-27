@@ -66,25 +66,58 @@ describe("PluginSheet", () => {
     expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "a.jpg", mime: "image/jpeg", data: "QUJD" }, "*");
   });
 
-  it("sends what the plugin made, as a file of the chat", async () => {
-    tauri.invoke.mockResolvedValue(undefined);
-    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+  // A2: what a plugin made goes as far as the user allowed. With `auto` the core sends it.
+  it("hands what the plugin made to the core, which sends it with the auto permission", async () => {
+    tauri.invoke.mockResolvedValue({ sent: true });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", sending: "auto" }, shallow: true });
     await flushPromises();
     const { says } = framed(wrapper);
 
     says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
     await flushPromises();
-    expect(tauri.invoke).toHaveBeenCalledWith("core_send_made", {
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", {
+      plugin: plugin.id,
       contact: "ft_bob",
       name: "clean.jpg",
       mime: "image/jpeg",
       data: "QUJD",
     });
+    expect(wrapper.emitted("attach")).toBeUndefined();
     expect(wrapper.emitted("done")).toBeTruthy();
   });
 
-  it("offers the text a plugin proposes, without sending it", async () => {
+  // With `propose` the file lands in the composer: the user sends it, never the plugin.
+  it("stages what the plugin made for the user to send, with the propose permission", async () => {
+    const staged = { path: "/data/files/outgoing/1-clean.jpg", name: "clean.jpg", mime: "image/jpeg", size: 3 };
+    tauri.invoke.mockResolvedValue({ sent: false, staged });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", sending: "propose" }, shallow: true });
+    await flushPromises();
+    const { says } = framed(wrapper);
+
+    says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", expect.objectContaining({ plugin: plugin.id }));
+    expect(wrapper.emitted("attach")).toEqual([[staged]]);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_send_picked", expect.anything());
+  });
+
+  // With nothing granted, nothing leaves: not a file, not a text, not even a call to the core.
+  it("lets nothing of a plugin without the permission reach the chat", async () => {
+    tauri.invoke.mockResolvedValue({ sent: true });
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { says } = framed(wrapper);
+
+    says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+    says({ type: "ft.text", text: "# Title" });
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_plugin_made", expect.anything());
+    expect(wrapper.emitted("text")).toBeUndefined();
+    expect(wrapper.emitted("attach")).toBeUndefined();
+  });
+
+  it("offers the text a plugin proposes, without sending it", async () => {
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", sending: "propose" }, shallow: true });
     await flushPromises();
     const { says } = framed(wrapper);
 

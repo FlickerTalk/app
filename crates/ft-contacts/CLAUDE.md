@@ -26,3 +26,8 @@ Contactos, emparejamiento y moderación **local** (`§29–36`).
 preferencia de buzón, en CBOR y firmada con la identidad. Viaja como
 `https://flickertalk.com/add#<base64url>` (el fragmento no llega a ningún servidor), menos de 600
 caracteres para el QR. `RouteCapability`: 256 bits aleatorios; el router solo verá su BLAKE3.
+
+Desde el 2026-09-27 (A1) la tarjeta lleva además la **clave de sobre** (`envelope_key`, opcional:
+una tarjeta antigua no la trae y sigue leyéndose, y una app antigua ignora el campo sin que la
+firma se resienta). El enlace puede **renovarse** (A5): `Core::renew_link` cambia la capability y
+reparte la tarjeta nueva; quien guardó la antigua ya no llega.

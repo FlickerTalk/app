@@ -53,7 +53,9 @@
     "share": "Distribuie",
     "delete": "Șterge aici",
     "deleteSure": "Șterge",
-    "forwardTo": "Redirecționează către"
+    "forwardTo": "Redirecționează către",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
@@ -62,7 +64,8 @@
     "read": "Citit",
     "connected": "Conectat direct",
     "paused": "În pauză",
-    "failed": "Eșuat"
+    "failed": "Eșuat",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "Sună înapoi",
@@ -199,7 +202,15 @@
     "receipts": "Confirmări de livrare și citire",
     "receiptsNote": "Pentru contactele noi",
     "hours": "Program",
-    "hoursOff": "Oprit"
+    "hoursOff": "Oprit",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "Program",
@@ -226,7 +237,9 @@
     "toggle": "Sesiune",
     "addContact": "Adaugă un contact în această sesiune",
     "close": "Ieși din această sesiune",
-    "empty": "Încă nu sunt contacte aici. Adaugă unul cu butonul QR: aparține doar acestei sesiuni."
+    "empty": "Încă nu sunt contacte aici. Adaugă unul cu butonul QR: aparține doar acestei sesiuni.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "Jar",
@@ -276,5 +289,11 @@
       "pending_approval": "Achiziția așteaptă aprobarea.",
       "failed": "Magazinul nu a putut încasa plata."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

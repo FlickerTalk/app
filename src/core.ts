@@ -9,8 +9,11 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type Status = "pending" | "sent" | "delivered" | "read";
 
-/** `paused`: the transfer cannot move without a direct connection (§62). */
-export type FileState = "sending" | "receiving" | "paused" | "done" | "failed";
+/**
+ * `paused`: the transfer cannot move without a direct connection (§62). `waiting`: bigger than
+ * what this phone downloads on its own; it waits for a tap (A4).
+ */
+export type FileState = "sending" | "receiving" | "paused" | "waiting" | "done" | "failed";
 
 export interface ChatFile {
   name: string;
@@ -58,6 +61,8 @@ export interface Me {
   receipts: boolean;
   /** Until when (ms) the app is free: a year from the install, counted on this phone (§41). */
   freeUntil: number;
+  /** Files up to this many bytes are downloaded as they arrive; bigger ones wait (A4). */
+  autoDownload: number;
 }
 
 /** What this phone takes from a contact and tells them (issues app#4–#6). */
@@ -96,7 +101,7 @@ interface FileView {
   size: number;
   mime: string;
   progress: number;
-  state: "transferring" | "done" | "failed";
+  state: "transferring" | "waiting" | "done" | "failed";
   path: string;
 }
 
@@ -124,13 +129,19 @@ interface ConversationView {
  * receives texts and files in silence, with no notification and no calls.
  */
 export interface Session {
+  /** Empty for a session that is only on the screen: no room for another, shown all the same (A3). */
   id: string;
   chats: Chat[];
+  /** Strangers who wrote to this session with its link and wait for a yes (A5). */
+  requests: Chat[];
+  /** Only for a session that is only on the screen: its PIN, kept in memory, to tell it apart. */
+  pin?: string;
 }
 
 interface SessionView {
   id: string;
   conversations: ConversationView[];
+  requests: ConversationView[];
 }
 
 export const CHANGED_EVENT = "ft://changed";
@@ -140,8 +151,10 @@ const UPLOAD_SLICE = 512 * 1024;
 
 export const store = reactive({
   ready: false,
-  me: { id: "", name: "", hue: 0, mailbox: true, receipts: true, freeUntil: 0 } as Me,
+  me: { id: "", name: "", hue: 0, mailbox: true, receipts: true, freeUntil: 0, autoDownload: 0 } as Me,
   chats: [] as Chat[],
+  /** Strangers who wrote first with this phone's link and wait for a yes (A5). */
+  requests: [] as Chat[],
   /** The hidden sessions open right now; an empty list looks exactly like having none. */
   sessions: [] as Session[],
 });
@@ -180,7 +193,7 @@ export function formatSize(bytes: number): string {
 
 function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
   let state: FileState;
-  if (view.state === "done" || view.state === "failed") state = view.state;
+  if (view.state === "done" || view.state === "failed" || view.state === "waiting") state = view.state;
   else if (!connected) state = "paused";
   else state = mine ? "sending" : "receiving";
   const playable = view.mime.startsWith("image/") || view.mime.startsWith("audio/");
@@ -225,27 +238,75 @@ export function chat(id: string): Chat | undefined {
   return allChats().find((candidate) => candidate.id === id);
 }
 
-/** The main list plus every open session's conversations. */
+/** The main list, the requests and every open session's conversations. */
 function allChats(): Chat[] {
-  return store.chats.concat(...store.sessions.map((session) => session.chats));
+  return store.chats.concat(store.requests, ...store.sessions.flatMap((session) => session.chats.concat(session.requests)));
 }
 
-/**
- * Opens the session that has this PIN or, if none has it, a new empty one. The core never says
- * which of the two happened, so nothing reveals whether a session existed.
- */
-export async function openSession(pin: string): Promise<void> {
-  const view = await invoke<SessionView>("core_session_open", { pin });
-  const session: Session = { id: view.id, chats: view.conversations.map(toChat) };
-  const index = store.sessions.findIndex((candidate) => candidate.id === session.id);
+function toSession(view: SessionView): Session {
+  return { id: view.id, chats: view.conversations.map(toChat), requests: view.requests.map(toChat) };
+}
+
+function showSession(session: Session) {
+  const index = store.sessions.findIndex((candidate) => candidate.id === session.id && candidate.pin === session.pin);
   if (index >= 0) store.sessions[index] = session;
   else store.sessions.push(session);
 }
 
-/** Leaves the session: it disappears from the screen and keeps receiving in silence. */
+/**
+ * Opens the session that has this PIN or, if none has it, a new empty one (A3): every PIN is
+ * valid, and nothing reveals whether a session existed. Only with the seven slots taken does the
+ * core open nothing; the screen shows an empty session all the same.
+ */
+export async function openSession(pin: string): Promise<void> {
+  const view = await invoke<SessionView | null>("core_session_open", { pin });
+  showSession(view ? toSession(view) : { id: "", pin, chats: [], requests: [] });
+}
+
+/**
+ * Leaves the session: it disappears from the screen and keeps receiving in silence. One with
+ * nobody in it goes for good, in the core (A3).
+ */
 export async function closeSession(session: string): Promise<void> {
-  await invoke("core_session_close", { session });
+  if (session) await invoke("core_session_close", { session });
   store.sessions = store.sessions.filter((candidate) => candidate.id !== session);
+}
+
+/** Takes a session away for good, with its contacts and history (A3). */
+export async function removeSession(session: string): Promise<void> {
+  await invoke("core_session_remove", { session });
+  store.sessions = store.sessions.filter((candidate) => candidate.id !== session);
+}
+
+/** Yes to a stranger who wrote first (A5): they join the list. */
+export async function acceptContact(contact: string): Promise<void> {
+  await invoke("core_accept_contact", { contact });
+  await refreshChats();
+}
+
+/** No to a stranger (A5): blocked, and out of the requests. */
+export async function declineContact(contact: string): Promise<void> {
+  await invoke("core_decline_contact", { contact });
+  await refreshChats();
+}
+
+/**
+ * Retires this phone's link and makes a new one (A5): whoever kept the old one can no longer
+ * reach it. Of the main list, or of an open session. Returns the new link.
+ */
+export async function renewLink(session?: string): Promise<string> {
+  return invoke<string>("core_renew_link", session ? { session } : {});
+}
+
+/** The user asks for a file that was waiting for them (A4). */
+export async function acceptFile(message: string): Promise<void> {
+  await invoke("core_accept_file", { message });
+}
+
+/** Files up to this many bytes come on their own; 0 means always ask (A4). */
+export async function setAutoDownload(bytes: number): Promise<void> {
+  await invoke("core_set_auto_download", { bytes });
+  store.me.autoDownload = bytes;
 }
 
 export async function start(): Promise<void> {
@@ -266,9 +327,13 @@ export async function start(): Promise<void> {
 export async function refreshChats(): Promise<void> {
   const views = await invoke<ConversationView[]>("core_conversations", undefined);
   store.chats = views.map(toChat);
-  // The open sessions follow: their unread counts change with the same events.
+  const requests = (await invoke<ConversationView[] | undefined>("core_requests", {})) ?? [];
+  store.requests = requests.map(toChat);
+  // The open sessions follow: their unread counts change with the same events. A session that
+  // is only on the screen (A3) stays as it is.
   const sessions = (await invoke<SessionView[] | undefined>("core_sessions", undefined)) ?? [];
-  store.sessions = sessions.map((session) => ({ id: session.id, chats: session.conversations.map(toChat) }));
+  const shown = store.sessions.filter((session) => session.id === "");
+  store.sessions = sessions.map(toSession).concat(shown);
 }
 
 export async function loadMessages(contact: string): Promise<void> {
@@ -320,9 +385,18 @@ export async function readPicked(path: string): Promise<string> {
   return invoke<string>("core_read_picked", { path });
 }
 
-/** Sends what a plugin made: the app writes the bytes and sends them as a file. */
-export async function sendMade(contact: string, name: string, mime: string, data: string): Promise<void> {
-  await invoke("core_send_made", { contact, name, mime, data });
+/** What became of a file a plugin made (A2): sent by itself, or left for the user to send. */
+export interface Made {
+  sent: boolean;
+  staged?: PickedFile;
+}
+
+/**
+ * Hands the app what a plugin made (A2). The core decides by what the user granted the plugin:
+ * `auto` sends it, `propose` leaves it in the composer as a picked file, nothing refuses it.
+ */
+export async function pluginMade(plugin: string, contact: string, name: string, mime: string, data: string): Promise<Made> {
+  return invoke<Made>("core_plugin_made", { plugin, contact, name, mime, data });
 }
 
 /** Sends a picked file: its bytes never travel through the WebView. */
@@ -431,13 +505,16 @@ export function reportLink(contact: string, reason: string, evidence: string[]):
 }
 
 /** A plugin on this phone, with what it asks for and what it may do (issue app#3). */
+/** How far a plugin may write in the chat (A2). */
+export type Sending = "nothing" | "propose" | "auto";
+
 export interface PluginPermissions {
   /** Hosts it may talk to; empty is no network at all. */
   network: string[];
   /** Whether it may read the message the user hands it. */
   messages: boolean;
   /** "nothing", "propose" (fills the composer) or "auto" (sends by itself). */
-  send: string;
+  send: Sending;
 }
 
 export interface PluginView {

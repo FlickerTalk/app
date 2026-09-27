@@ -13,6 +13,11 @@ Wire protocol de FlickerTalk: tipos y (de)serialización. Sin I/O, sin red, sin 
 - **`Signal`** (`§14`): señalización de WebRTC entre dos dispositivos (`wake`, `offer`, `answer`,
   `cancel`, `session`, `from`, `to` y el `Sealed` con la descripción). El router solo mueve bytes.
 - La **Contact Card** (`§32`) tiene su propio formato firmado en `ft-contacts`.
+- **`Envelope`** (2026-09-27, A1): un `Sealed` o un `Signal` sellados otra vez para el destinatario
+  (caja sellada NaCl, la hace `ft-identity`), que es lo que ve el router: ni `from` ni clave del
+  emisor. Se distingue de un `Sealed` o `Signal` a secas por su campo `envelope`.
+- **Relleno** (M9): `Packet::encode` rellena a múltiplos de `PAD_BUCKET` (160 bytes) con un campo
+  `pad` que el receptor ignora, para que el tamaño no delate el mensaje.
 
 ## Reglas
 

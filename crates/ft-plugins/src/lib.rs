@@ -289,17 +289,30 @@ fn safe_path(path: &str) -> Result<PathBuf> {
     Ok(candidate.to_path_buf())
 }
 
+/// The most a package may hold once unpacked (M2 of the 2026-09-24 review): a zip that inflates
+/// beyond this is a bomb, not a plugin, whoever signed it.
+pub const UNPACKED_LIMIT: u64 = 32 * 1024 * 1024;
+pub const ENTRY_LIMIT: usize = 256;
+
 fn unpack(package: &[u8]) -> Result<BTreeMap<String, Vec<u8>>> {
     let mut archive = ZipArchive::new(Cursor::new(package)).context("the package is not a .ftplugin")?;
+    ensure!(archive.len() <= ENTRY_LIMIT, "the package holds too many files");
     let mut files = BTreeMap::new();
+    let mut total: u64 = 0;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
         if entry.is_dir() {
             continue;
         }
+        // What the header claims, and then what really comes out: neither may pass the limit.
+        total = total.saturating_add(entry.size());
+        ensure!(total <= UNPACKED_LIMIT, "the package inflates beyond what a plugin may weigh");
         let name = entry.name().to_owned();
         let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes)?;
+        let allowed = UNPACKED_LIMIT - (total - entry.size());
+        std::io::Read::take(&mut entry, allowed + 1).read_to_end(&mut bytes)?;
+        ensure!(bytes.len() as u64 <= allowed, "the package inflates beyond what a plugin may weigh");
+        ensure!(bytes.len() as u64 == entry.size(), "an entry is not the size its header says");
         files.insert(name, bytes);
     }
     Ok(files)
@@ -562,6 +575,22 @@ mod tests {
         let bad_id = r#"{"id":"../../etc","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"]}"#;
         let bytes = package(bad_id, b"", &catalogue);
         assert!(open(&bytes, &catalogue.public_key()).is_err(), "the id is not a plugin id");
+    }
+
+    // M2: a signed package that inflates beyond the limit is refused before anything is read.
+    #[test]
+    fn a_package_that_inflates_beyond_the_limit_is_refused() {
+        let catalogue = Ed25519SecretKey::new();
+        let bomb = vec![0u8; UNPACKED_LIMIT as usize + 1];
+        let files = vec![
+            ("module.json".to_owned(), manifest_of("com.example.bomb").into_bytes()),
+            ("dist/index.js".to_owned(), bomb),
+        ];
+        let bytes = sign_package(&files, &catalogue);
+        assert!(bytes.len() < 1024 * 1024, "zeros compress well: {} bytes", bytes.len());
+        assert!(open(&bytes, &catalogue.public_key()).is_err(), "a bomb is not a plugin");
+        let ok = package(&manifest_of("com.example.fine"), &[1u8; 100_000], &catalogue);
+        assert!(open(&ok, &catalogue.public_key()).is_ok());
     }
 
     #[test]

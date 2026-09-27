@@ -19,6 +19,11 @@ use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
+/// Encoded packets are padded to a multiple of this (M9 of the 2026-09-24 review): whoever sees
+/// the sizes of what travels, the router included, cannot tell "ok" from a paragraph. The same
+/// bucket Signal uses. Files and chunks are bigger anyway and pad to their own boundary.
+pub const PAD_BUCKET: usize = 160;
+
 /// Bytes of a file per chunk (§63): one chunk, sealed, fits a single DataChannel message.
 pub const FILE_CHUNK: u32 = 48 * 1024;
 
@@ -181,12 +186,33 @@ impl Packet {
         Self { version: PROTOCOL_VERSION, id, sent_at, body }
     }
 
+    /// The packet as it is encrypted: padded to a bucket, so its size says nothing (M9). A
+    /// version before the padding ignores the extra field, as it ignores any it does not know.
     pub fn encode(&self) -> Vec<u8> {
-        encode(self)
+        #[derive(Serialize)]
+        struct Padded<'a> {
+            version: u16,
+            id: MessageId,
+            sent_at: u64,
+            body: &'a Body,
+            #[serde(with = "serde_bytes")]
+            pad: Vec<u8>,
+        }
+        let bare = encode(&Padded { version: self.version, id: self.id, sent_at: self.sent_at, body: &self.body, pad: Vec::new() });
+        // The length prefix of the pad grows with the pad: settle on a size that lands exactly.
+        let mut missing = (PAD_BUCKET - bare.len() % PAD_BUCKET) % PAD_BUCKET;
+        loop {
+            let padded = encode(&Padded { version: self.version, id: self.id, sent_at: self.sent_at, body: &self.body, pad: vec![0; missing] });
+            if padded.len().is_multiple_of(PAD_BUCKET) {
+                return padded;
+            }
+            missing += PAD_BUCKET - padded.len() % PAD_BUCKET;
+        }
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        // The body is read in two steps so that an unknown type is not an error.
+        // The body is read in two steps so that an unknown type is not an error. The pad, if
+        // any, is an unknown field to this struct and is dropped.
         #[derive(Deserialize)]
         struct Raw {
             version: u16,
@@ -259,6 +285,36 @@ impl Signal {
 
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         decode(bytes)
+    }
+}
+
+/// What goes through the router since the 2026-09-24 review (A1, "sealed sender"): a `Sealed` or
+/// a `Signal`, sealed once more for the recipient alone, so the router sees neither who sends
+/// nor the Olm identity key a pre-key message carries. `ft-crypto` makes and opens the box; this
+/// is only its shape on the wire, told apart from a bare `Sealed` or `Signal` by its `envelope`
+/// field. A device that knows no envelopes gets bare packets, as before.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Envelope {
+    /// The envelope format: 1 is a NaCl sealed box (X25519 + XSalsa20-Poly1305).
+    pub envelope: u16,
+    #[serde(with = "serde_bytes")]
+    pub sealed: Vec<u8>,
+}
+
+pub const ENVELOPE_VERSION: u16 = 1;
+
+impl Envelope {
+    pub fn encode(&self) -> Vec<u8> {
+        encode(self)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        decode(bytes)
+    }
+
+    /// Whether these bytes are an envelope at all, before trying to open it.
+    pub fn is_envelope(bytes: &[u8]) -> bool {
+        Self::decode(bytes).is_ok()
     }
 }
 
@@ -373,6 +429,31 @@ mod tests {
         let decoded = Packet::decode(&bytes).expect("still decodes");
         assert_eq!(decoded.body, Body::Unknown);
         assert_eq!(decoded.version, 9);
+    }
+
+    // M9: every packet leaves the phone as a multiple of the bucket, whatever it says.
+    #[test]
+    fn packets_are_padded_to_the_bucket() {
+        for text in ["ok", "a somewhat longer answer, say", &"x".repeat(1000)] {
+            let packet = Packet::new(Body::Message { text: text.to_owned() });
+            let bytes = packet.encode();
+            assert_eq!(bytes.len() % PAD_BUCKET, 0, "{} bytes for {} chars", bytes.len(), text.len());
+            assert_eq!(Packet::decode(&bytes).expect("decodes"), packet, "the pad is dropped on the way in");
+        }
+        let short = Packet::new(Body::Message { text: "ok".to_owned() }).encode().len();
+        let longer = Packet::new(Body::Message { text: "a somewhat longer answer, say".to_owned() }).encode().len();
+        assert_eq!(short, longer, "two short texts weigh the same");
+    }
+
+    // A1: an envelope is told apart from what it wraps, and from garbage.
+    #[test]
+    fn envelopes_survive_the_wire_and_are_recognised() {
+        let envelope = Envelope { envelope: ENVELOPE_VERSION, sealed: vec![7; 48] };
+        assert_eq!(Envelope::decode(&envelope.encode()).expect("decodes"), envelope);
+        assert!(Envelope::is_envelope(&envelope.encode()));
+        let bare = Sealed { version: PROTOCOL_VERSION, from: "ft_x".to_owned(), kind: SealedKind::Normal, ciphertext: vec![1] };
+        assert!(!Envelope::is_envelope(&bare.encode()));
+        assert!(!Envelope::is_envelope(b"\xff\x00"));
     }
 
     #[test]

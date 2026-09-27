@@ -24,6 +24,12 @@ identidad **es** la clave.
 
 La identidad es una cuenta Olm de `vodozemac`: Ed25519 para firmar y Curve25519 para el
 intercambio de claves de `ft-crypto`. `DeviceId` = `ft_` + base58(BLAKE3(Ed25519)). `seal`/`unseal`
-cifran la cuenta con una clave de 32 bytes que aporta la plataforma. Pendiente: guardar esa clave
-en Android Keystore / Keychain (hoy la custodia la app en su almacenamiento privado, `§94`) y el
-export/import cifrado.
+cifran la cuenta con una clave de 32 bytes que aporta la plataforma; en el teléfono esa clave la
+sella Android Keystore / iOS Keychain (`app/src-tauri`, `§94`). Pendiente: el export/import cifrado.
+
+## Estado (2026-09-27, endurecimiento A1)
+
+`EnvelopeKey`: una clave X25519 propia («sobre»), aparte de la cuenta Olm, que viaja en la Contact
+Card y con la que los demás sellan lo que mandan por el router (`crypto_box`, caja sellada de
+NaCl: nada casero). En reposo va cifrada con XChaCha20-Poly1305 bajo la misma clave de 32 bytes
+(`seal_at_rest`/`unseal_at_rest`).

@@ -66,10 +66,37 @@ describe("SettingsPage", () => {
 
   it("lets the user choose how calls are routed", () => {
     const wrapper = mount(SettingsPage, { shallow: true });
-    const select = wrapper.findComponent(IonSelect);
-    expect(select.attributes("aria-label")).toBe("Calls");
-    expect(select.attributes("value")).toBe("auto");
-    expect(wrapper.findAllComponents(IonSelectOption)).toHaveLength(3);
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Calls");
+    expect(select?.attributes("value")).toBe("auto");
+    expect(select?.findAllComponents(IonSelectOption)).toHaveLength(3);
+  });
+
+  // A4: up to what size a file comes on its own is this phone's choice.
+  it("lets the user choose up to what size files download on their own", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Auto-download files");
+    expect(select?.attributes("value")).toBe(String(10 * 1024 * 1024));
+    expect(select?.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual([
+      "Always ask",
+      "Up to 10 MB",
+      "Up to 105 MB",
+      "Up to 1.1 GB",
+      "Always",
+    ]);
+    select?.vm.$emit("ionChange", { detail: { value: 0 } });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_auto_download", { bytes: 0 }]);
+  });
+
+  // A5: renewing the link cuts off whoever kept the old one, so it asks once.
+  it("renews the link after asking once", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='renew-link']").trigger("click");
+    expect(calls.some(([command]) => command === "core_renew_link")).toBe(false);
+    await wrapper.find("[data-test='renew-confirm']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_renew_link", {}]);
+    expect(wrapper.text()).toContain("Link renewed");
   });
 
   // PoC 0 is over (§87): no test screen in the app, not even in development builds.

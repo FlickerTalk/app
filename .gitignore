@@ -29,6 +29,10 @@ dist-ssr
 # Secrets
 .env
 
+# Playwright
+test-results
+playwright-report
+
 # Rust workspace build output
 /target/
 src-tauri/platform/android/.gradle/

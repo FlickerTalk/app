@@ -25,7 +25,7 @@ pub use web::{Fetch, Web, WebAnswer, WebRequest};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
@@ -33,9 +33,9 @@ use async_trait::async_trait;
 use ft_billing::{Access, AgeClass, Doing, Plan};
 use ft_contacts::{ContactCard, RouteCapability};
 use ft_crypto::{accept_first_contact, Channel};
-use ft_identity::{DeviceId, Identity};
-use ft_protocol::{Body, MessageId, Packet, Sealed};
-use ft_storage::{Contact, ContactRules, Message, MessageState, NewContact, OutboxEntry, Store};
+use ft_identity::{DeviceId, EnvelopeKey, Identity};
+use ft_protocol::{Body, Envelope, MessageId, Packet, Sealed, ENVELOPE_VERSION};
+use ft_storage::{Contact, ContactRules, Conversation, Message, MessageState, NewContact, OutboxEntry, Store};
 use tokio::sync::{broadcast, Mutex};
 
 /// Unreachable contacts are retried after 5 s, 10 s, 20 s… up to this.
@@ -84,6 +84,7 @@ pub trait Transport: Send + Sync {
 }
 
 pub use calls::CallUpdate;
+pub use files::MAX_FILE_SIZE;
 pub use ft_push::{RouterClient, TurnGrant};
 
 /// What the UI listens to, to refresh itself.
@@ -114,7 +115,11 @@ pub struct Core {
     /// Olm work runs one at a time: a channel is loaded, used and saved back under this lock.
     identity: Mutex<Identity>,
     device_id: DeviceId,
-    capability: RouteCapability,
+    /// The device's own route capability; a renewed link replaces it (A5).
+    capability: RwLock<RouteCapability>,
+    /// Opens what the router carried for this device (A1): mail and signals sealed for it.
+    envelope: EnvelopeKey,
+    /// Wrong PINs in a row (A3): each one makes the next try wait longer.
     transport: Arc<dyn Transport>,
     events: broadcast::Sender<Event>,
     /// Where received files are written (set by the app).
@@ -142,17 +147,36 @@ const SPARE_SLOTS: u8 = 7;
 /// Settings keys: whether new contacts get receipts (app#6), and the weekly hours (app#7).
 const RECEIPTS_DEFAULT: &str = "receipts_default";
 const QUIET_HOURS: &str = "quiet_hours";
+/// Set when the card changed under every contact (a new envelope key, A1): they all get it again.
+const CARD_STALE: &str = "card_stale";
 
 impl Core {
     /// Opens the device's core; the first run creates the identity and route capability.
     pub async fn open(store: Store, key: [u8; 32], transport: Arc<dyn Transport>) -> Result<Arc<Self>> {
-        let (identity, capability) = match store.identity().await? {
-            Some(saved) => (Identity::unseal(&saved.sealed, &key)?, RouteCapability::from_bytes(saved.route_capability)),
+        let (identity, capability, envelope) = match store.identity().await? {
+            Some(saved) => {
+                let identity = Identity::unseal(&saved.sealed, &key)?;
+                // An install from before the envelope gets one now; its contacts learn it with
+                // the next card they get (A1).
+                let envelope = match saved.envelope {
+                    Some(sealed) => EnvelopeKey::unseal_at_rest(&sealed, &key)?,
+                    None => {
+                        let envelope = EnvelopeKey::generate();
+                        store.save_envelope(&envelope.seal_at_rest(&key)).await?;
+                        // Every contact holds a card without it: they get the new one once online.
+                        store.set_setting(CARD_STALE, "1").await?;
+                        envelope
+                    }
+                };
+                (identity, RouteCapability::from_bytes(saved.route_capability), envelope)
+            }
             None => {
                 let identity = Identity::generate();
                 let capability = RouteCapability::generate();
+                let envelope = EnvelopeKey::generate();
                 store.save_identity(&identity.seal(&key), capability.as_bytes()).await?;
-                (identity, capability)
+                store.save_envelope(&envelope.seal_at_rest(&key)).await?;
+                (identity, capability, envelope)
             }
         };
         // A call cannot survive the app stopping.
@@ -163,6 +187,10 @@ impl Core {
                 store.add_spare_capability(slot, RouteCapability::generate().as_bytes()).await?;
             }
         }
+        // A session left empty when the app stopped (killed, a crash) goes now, as if closed (A3).
+        for session in store.empty_sessions().await? {
+            forget_session(&store, &session).await?;
+        }
         if store.setting(INSTALLED_AT).await?.is_none() {
             store.set_setting(INSTALLED_AT, &now().to_string()).await?;
         }
@@ -172,7 +200,8 @@ impl Core {
             identity: Mutex::new(identity),
             store,
             key,
-            capability,
+            capability: RwLock::new(capability),
+            envelope,
             transport,
             events,
             files_dir: OnceLock::new(),
@@ -190,7 +219,85 @@ impl Core {
     }
 
     pub fn route_capability(&self) -> RouteCapability {
-        self.capability
+        *self.capability.read().expect("capability poisoned")
+    }
+
+    /// The Olm identity key, raw and as base64: what a pre-key message carries in the clear.
+    /// For the tests that check nothing of it reaches the router (A1).
+    pub async fn exchange_key_bytes(&self) -> [u8; 32] {
+        self.identity.lock().await.exchange_key().to_bytes()
+    }
+
+    pub async fn exchange_key_base64(&self) -> String {
+        self.identity.lock().await.exchange_key().to_base64()
+    }
+
+    /// Seals `bytes` for the contact's eyes only, if their card carries an envelope key (A1):
+    /// what goes through the router then names nobody. A contact without one gets the bytes
+    /// as they are, as an older app would send them.
+    pub async fn wrap_for(&self, contact: &str, bytes: Vec<u8>) -> Result<Vec<u8>> {
+        let card = ContactCard::decode(&self.contact(contact).await?.card)?;
+        match card.envelope_key() {
+            Some(key) => Ok(Envelope { envelope: ENVELOPE_VERSION, sealed: key.seal(&bytes)? }.encode()),
+            None => Ok(bytes),
+        }
+    }
+
+    /// Opens what the router brought: an envelope sealed for this device, or bare bytes from an
+    /// older app. An envelope that is not for us is an error, never something to read.
+    pub async fn unwrap(&self, bytes: &[u8]) -> Result<Vec<u8>> {
+        match Envelope::decode(bytes) {
+            Ok(envelope) => {
+                ensure!(envelope.envelope == ENVELOPE_VERSION, "an envelope of a kind this app does not know");
+                self.envelope.open(&envelope.sealed)
+            }
+            Err(_) => Ok(bytes.to_vec()),
+        }
+    }
+
+    /// Whether the card every contact holds is out of date (A1): after an upgrade that made the
+    /// envelope key, the contacts keep sending bare mail until they get the new card.
+    pub async fn card_stale(&self) -> Result<bool> {
+        Ok(self.store.setting(CARD_STALE).await?.as_deref() == Some("1"))
+    }
+
+    /// Hands every contact the current card, once, and forgets that it was needed. A contact who
+    /// cannot be reached now gets it with the next message anyway.
+    pub async fn reintroduce(&self) -> Result<()> {
+        for contact in self.store.all_contacts().await? {
+            if contact.blocked {
+                continue;
+            }
+            let _ = self.introduce(&contact).await;
+        }
+        self.store.set_setting(CARD_STALE, "0").await
+    }
+
+    /// Retires the link of the main list (or of a hidden session) and makes a new one (A5):
+    /// whoever kept the old one can no longer reach this phone, and every contact of that list
+    /// gets the new card at once, or with their next message. Returns the eight hashes the
+    /// router must be told; the app re-registers with them.
+    pub async fn renew_link(&self, session: Option<&str>) -> Result<[[u8; 32]; 8]> {
+        let fresh = RouteCapability::generate();
+        match session {
+            None => {
+                self.store.set_route_capability(fresh.as_bytes()).await?;
+                *self.capability.write().expect("capability poisoned") = fresh;
+            }
+            Some(session) => {
+                let slot = self.store.session_slot(session).await?.ok_or_else(|| anyhow!("the session has no slot"))?;
+                self.store.set_spare_capability(slot, fresh.as_bytes()).await?;
+            }
+        }
+        let contacts = match session {
+            None => self.store.contacts().await?,
+            Some(session) => self.store.session_contacts(session).await?,
+        };
+        for contact in contacts {
+            let _ = self.introduce(&contact).await;
+        }
+        let _ = self.events.send(Event::ContactsChanged);
+        self.route_capability_hashes().await
     }
 
     pub fn store(&self) -> &Store {
@@ -268,7 +375,7 @@ impl Core {
     /// Stores the preference and tells every contact, who need it to decide where to send.
     pub async fn set_mailbox(&self, enabled: bool) -> Result<()> {
         self.store.set_setting(MAILBOX, if enabled { "1" } else { "0" }).await?;
-        for contact in self.store.contacts().await? {
+        for contact in self.store.all_contacts().await? {
             let _ = self.send_control(&contact, Body::MailboxPreference { enabled }).await;
         }
         Ok(())
@@ -282,12 +389,23 @@ impl Core {
     /// Our card as a hidden session hands it out: with the session's own route capability, so
     /// what its contacts send is known to be for it (app#9).
     pub async fn my_card_in(&self, session: Option<&str>) -> Result<ContactCard> {
+        self.card_in(session, true).await
+    }
+
+    /// Our card as an app from before the envelope would make it: for the tests of the
+    /// compatibility with such contacts (A1).
+    pub async fn my_card_without_envelope(&self) -> Result<ContactCard> {
+        self.card_in(None, false).await
+    }
+
+    async fn card_in(&self, session: Option<&str>, with_envelope: bool) -> Result<ContactCard> {
         let capability = self.capability_of(session).await?;
         let (name, mailbox) = (self.name().await?, self.mailbox().await?);
+        let envelope = with_envelope.then(|| self.envelope.public_key());
         let mut identity = self.identity.lock().await;
-        let card = ContactCard::create(&mut identity, name, capability, mailbox);
+        let card = ContactCard::create(&mut identity, name, capability, mailbox, envelope);
         // Creating the first card adds the Olm fallback key to the account.
-        self.store.save_identity(&identity.seal(&self.key), self.capability.as_bytes()).await?;
+        self.store.save_identity(&identity.seal(&self.key), self.route_capability().as_bytes()).await?;
         Ok(card)
     }
 
@@ -308,9 +426,11 @@ impl Core {
             bail!("that is your own contact card");
         }
         let name = name
-            .filter(|name| !name.trim().is_empty())
-            .or_else(|| card.name().map(str::to_owned))
+            .map(|name| clean_name(&name))
+            .filter(|name| !name.is_empty())
+            .or_else(|| card.name().map(clean_name).filter(|name| !name.is_empty()))
             .unwrap_or_else(|| short_name(&device_id));
+        // Scanning someone is choosing them: a stranger waiting in the requests is accepted.
         self.store
             .add_contact(&NewContact {
                 device_id: device_id.to_string(),
@@ -319,6 +439,7 @@ impl Core {
                 mailbox: card.mailbox(),
                 session: session.map(str::to_owned),
                 receipts: self.receipts_default().await?,
+                accepted: true,
             })
             .await?;
         {
@@ -335,44 +456,80 @@ impl Core {
         Ok(contact)
     }
 
-    /// Opens the hidden session whose PIN this is or, if none has it, a new empty one, and
-    /// returns its id. Nothing tells the two apart: that is what keeps a session unknowable.
-    pub async fn open_session(&self, pin: &str) -> Result<String> {
+    fn pin_hash(&self, pin: &str) -> Result<[u8; 32]> {
         ensure!(pin.len() == SESSION_PIN_LENGTH && pin.bytes().all(|byte| byte.is_ascii_digit()), "a PIN is six digits");
-        let hash = *blake3::keyed_hash(&blake3::derive_key(SESSION_PIN_CONTEXT, &self.key), pin.as_bytes()).as_bytes();
-        let (id, slot) = match self.store.session_by_pin(&hash).await? {
-            Some(id) => match self.store.session_slot(&id).await? {
-                Some(slot) => (id, slot),
-                None => {
-                    // Made before slots: it gets one now and tells its contacts the new way in.
-                    let slot = self.free_slot().await?;
-                    self.store.set_session_slot(&id, slot).await?;
-                    self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
-                    for contact in self.store.session_contacts(&id).await? {
-                        let _ = self.introduce(&contact).await;
-                    }
-                    (id, slot)
-                }
-            },
+        Ok(*blake3::keyed_hash(&blake3::derive_key(SESSION_PIN_CONTEXT, &self.key), pin.as_bytes()).as_bytes())
+    }
+
+    /// Opens the hidden session whose PIN this is or, if none has it, a new empty one, and
+    /// returns its id: every PIN is valid and nothing tells the two apart (A3). An empty one goes
+    /// when it is closed. `None` only when the seven slots are all taken: the screen shows an
+    /// empty session all the same.
+    pub async fn open_session(&self, pin: &str) -> Result<Option<String>> {
+        let hash = self.pin_hash(pin)?;
+        if let Some(id) = self.open_session_with(&hash).await? {
+            return Ok(Some(id));
+        }
+        let Some(slot) = self.free_slot().await? else { return Ok(None) };
+        let id = MessageId::new().to_string();
+        self.store.add_session(&id, &hash, slot).await?;
+        self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
+        Ok(Some(id))
+    }
+
+    async fn open_session_with(&self, hash: &[u8; 32]) -> Result<Option<String>> {
+        let Some(id) = self.store.session_by_pin(hash).await? else { return Ok(None) };
+        let slot = match self.store.session_slot(&id).await? {
+            Some(slot) => slot,
             None => {
-                let slot = self.free_slot().await?;
-                let id = MessageId::new().to_string();
-                self.store.add_session(&id, &hash, slot).await?;
-                (id, slot)
+                // Made before slots: it gets one now and tells its contacts the new way in.
+                let slot = self.free_slot().await?.ok_or_else(|| anyhow!("no room for another session"))?;
+                self.store.set_session_slot(&id, slot).await?;
+                self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
+                for contact in self.store.session_contacts(&id).await? {
+                    let _ = self.introduce(&contact).await;
+                }
+                slot
             }
         };
         self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
-        Ok(id)
+        Ok(Some(id))
     }
 
-    async fn free_slot(&self) -> Result<u8> {
-        let used = self.store.used_slots().await?;
-        (1..=SPARE_SLOTS).find(|slot| !used.contains(slot)).ok_or_else(|| anyhow!("no room for another session"))
-    }
-
-    /// Leaves the session: from now on it receives in silence, until its PIN opens it again.
-    pub fn close_session(&self, session: &str) {
+    /// Takes a hidden session away for good (A3): its contacts, their history and files, and
+    /// its slot, which a new session may use again with a new link. The router must get the new
+    /// hashes.
+    pub async fn remove_session(&self, session: &str) -> Result<()> {
+        ensure!(self.open_sessions.lock().expect("sessions poisoned").contains_key(session), "that session is not open");
+        let mut files = Vec::new();
+        for contact in self.store.session_contacts(session).await? {
+            files.extend(self.store.files(&contact.device_id).await?);
+            self.transport.disconnect(&contact.device_id).await;
+        }
+        forget_session(&self.store, session).await?;
+        for file in files {
+            let _ = std::fs::remove_file(self.file_path(&file));
+        }
         self.open_sessions.lock().expect("sessions poisoned").remove(session);
+        let _ = self.events.send(Event::ContactsChanged);
+        Ok(())
+    }
+
+    async fn free_slot(&self) -> Result<Option<u8>> {
+        let used = self.store.used_slots().await?;
+        Ok((1..=SPARE_SLOTS).find(|slot| !used.contains(slot)))
+    }
+
+    /// Leaves the session: from now on it receives in silence, until its PIN opens it again. One
+    /// with nobody in it goes for good, with its link, so that PINs never fill the slots (A3).
+    /// Returns whether it went: then the router must get the new hashes.
+    pub async fn close_session(&self, session: &str) -> Result<bool> {
+        self.open_sessions.lock().expect("sessions poisoned").remove(session);
+        if !self.store.empty_sessions().await?.iter().any(|empty| empty == session) {
+            return Ok(false);
+        }
+        forget_session(&self.store, session).await?;
+        Ok(true)
     }
 
     /// The sessions open right now, oldest first.
@@ -392,7 +549,7 @@ impl Core {
     /// The hashes the router gets (app#9): our own capability first, then the seven spares,
     /// used or not. Always the same eight.
     pub async fn route_capability_hashes(&self) -> Result<[[u8; 32]; 8]> {
-        let mut hashes = [self.capability.hash(); 8];
+        let mut hashes = [self.route_capability().hash(); 8];
         for (slot, capability) in self.store.spare_capabilities().await? {
             hashes[slot as usize] = RouteCapability::from_bytes(capability).hash();
         }
@@ -401,23 +558,76 @@ impl Core {
 
     /// The route capability a session hands out, or our own for the main list.
     async fn capability_of(&self, session: Option<&str>) -> Result<RouteCapability> {
-        let Some(session) = session else { return Ok(self.capability) };
+        let Some(session) = session else { return Ok(self.route_capability()) };
         let slot = self.store.session_slot(session).await?.ok_or_else(|| anyhow!("the session has no slot"))?;
         let spare = self.store.spare_capabilities().await?.into_iter().find(|(spare, _)| *spare == slot);
         spare.map(|(_, capability)| RouteCapability::from_bytes(capability)).ok_or_else(|| anyhow!("no capability for the slot"))
     }
 
-    /// The session a sender belongs to, from the hash of our capability they used.
+    /// The session a sender belongs to, from the hash of our capability they used. A hash of
+    /// no link of ours (a session gone, a link renewed) reaches nobody (A3, A5): not the session
+    /// that takes the slot next, and not the main list.
     async fn session_via(&self, via: Option<&[u8]>) -> Result<Option<String>> {
         let Some(via) = via else { return Ok(None) };
         let hashes = self.route_capability_hashes().await?;
-        let Some(slot) = (1..8).find(|slot| hashes[*slot].as_slice() == via) else { return Ok(None) };
-        self.store.session_with_slot(slot as u8).await
+        if hashes[0].as_slice() == via {
+            return Ok(None);
+        }
+        let Some(slot) = (1..8).find(|slot| hashes[*slot].as_slice() == via) else { bail!("that link is retired") };
+        match self.store.session_with_slot(slot as u8).await? {
+            Some(session) => Ok(Some(session)),
+            None => bail!("that link is retired"),
+        }
     }
 
-    /// Whether what this contact sends must make no noise: they belong to a closed session.
+    /// Whether what this contact sends must make no noise: they belong to a closed session, or
+    /// they are a stranger waiting in the requests (A5).
     pub(crate) fn silent(&self, contact: &Contact) -> bool {
-        contact.session.as_deref().is_some_and(|session| !self.open_sessions.lock().expect("sessions poisoned").contains_key(session))
+        !contact.accepted
+            || contact.session.as_deref().is_some_and(|session| !self.open_sessions.lock().expect("sessions poisoned").contains_key(session))
+    }
+
+    /// The strangers who wrote first and wait for a yes (A5), with what they said, newest first.
+    pub async fn requests(&self) -> Result<Vec<Conversation>> {
+        self.store.request_conversations(None).await
+    }
+
+    /// The same, for a hidden session.
+    pub async fn session_requests(&self, session: &str) -> Result<Vec<Conversation>> {
+        self.store.request_conversations(Some(session)).await
+    }
+
+    /// Yes to a stranger (A5): they join the list, get our card, and what they sent that waited
+    /// (a file, say) is pulled like anyone else's.
+    pub async fn accept_contact(&self, contact: &str) -> Result<()> {
+        let stored = self.contact(contact).await?;
+        if stored.accepted {
+            return Ok(());
+        }
+        self.store.set_accepted(contact, true).await?;
+        let _ = self.events.send(Event::ContactsChanged);
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
+        let accepted = self.contact(contact).await?;
+        let _ = self.introduce(&accepted).await;
+        let _ = self.resume_files_from(contact, Duration::ZERO).await;
+        Ok(())
+    }
+
+    /// No to a stranger (A5): blocked, so nothing more of theirs reaches this phone, and out of
+    /// the requests. What they sent stays with the block, for a report.
+    pub async fn decline_contact(&self, contact: &str) -> Result<()> {
+        self.contact(contact).await?;
+        self.block(contact, true).await
+    }
+
+    /// Writing to someone is choosing them: a stranger in the requests is accepted by an answer.
+    async fn chosen(&self, contact: &str) -> Result<Contact> {
+        let stored = self.contact(contact).await?;
+        if !stored.accepted {
+            self.accept_contact(contact).await?;
+            return self.contact(contact).await;
+        }
+        Ok(stored)
     }
 
     /// The call history the screen may show: the main list's calls and those of open sessions.
@@ -598,7 +808,7 @@ impl Core {
         if text.is_empty() {
             bail!("nothing to send");
         }
-        self.contact(contact).await?;
+        self.chosen(contact).await?;
         // Answering is always allowed; writing to someone for the first time is starting (§42).
         let started = !self.store.messages(contact, 1).await?.is_empty();
         self.allowed(if started { Doing::Reply } else { Doing::Start }).await?;
@@ -611,6 +821,7 @@ impl Core {
                 outgoing: true,
                 body: text.to_owned(),
                 sent_at: packet.sent_at as i64,
+                received_at: packet.sent_at as i64,
                 state: MessageState::Pending,
             })
             .await?;
@@ -621,6 +832,14 @@ impl Core {
             self.deliver(&entry).await?;
         }
         Ok(message_id)
+    }
+
+    /// Sends one packet as it is, once, by whichever way works. For tests and tools that need
+    /// to put a given packet on the wire (an offer with an impossible size, an old clock).
+    pub async fn send_raw_to(&self, contact: &str, packet: &Packet) -> Result<()> {
+        let contact = self.contact(contact).await?;
+        self.transmit(&contact, packet).await?;
+        Ok(())
     }
 
     /// Retries the outbox entries that are due.
@@ -655,9 +874,11 @@ impl Core {
         Ok(())
     }
 
-    /// A packet from the network: the DataChannel or the mailbox.
+    /// A packet from the network: the DataChannel or the mailbox. Mail comes in an envelope
+    /// sealed for this device (A1); what a direct connection brings is bare.
     pub async fn receive(&self, bytes: &[u8]) -> Result<()> {
-        let Some((contact, packet, first_contact)) = self.open_sealed(bytes).await? else {
+        let bytes = self.unwrap(bytes).await?;
+        let Some((contact, packet, first_contact)) = self.open_sealed(&bytes).await? else {
             return Ok(());
         };
         self.handle(&contact, packet, first_contact).await
@@ -725,7 +946,9 @@ impl Core {
                     if card.device_id() != from || card.contact_keys().exchange_key != sender_key {
                         bail!("the contact card does not match its sender");
                     }
-                    let name = card.name().map(str::to_owned).unwrap_or_else(|| short_name(&from));
+                    let name = card.name().map(clean_name).filter(|name| !name.is_empty()).unwrap_or_else(|| short_name(&from));
+                    // They wrote first with our link: they wait in the requests until the user
+                    // says yes (A5). Unless the user scanned them already, which is a yes.
                     self.store
                         .add_contact(&NewContact {
                             device_id: from.to_string(),
@@ -734,6 +957,7 @@ impl Core {
                             mailbox: card.mailbox(),
                             session,
                             receipts: self.receipts_default().await?,
+                            accepted: false,
                         })
                         .await?;
                     self.store.save_channel(from.as_str(), &channel.seal(&self.key)).await?;
@@ -761,6 +985,7 @@ impl Core {
                         outgoing: false,
                         body: text,
                         sent_at: packet.sent_at as i64,
+                        received_at: now(),
                         state: MessageState::Delivered,
                     })
                     .await?;
@@ -786,6 +1011,7 @@ impl Core {
                         mailbox: card.mailbox(),
                         session: None,
                         receipts: contact.rules.receipts,
+                        accepted: contact.accepted,
                     })
                     .await?;
                 if first_contact {
@@ -906,7 +1132,9 @@ impl Core {
             return Ok(Route::Direct);
         }
         if contact.mailbox && self.mailbox().await? {
-            self.transport.send_mailbox(&peer, bytes).await.context("the mailbox is not reachable")?;
+            // Through the router it goes in an envelope (A1): the router sees only who it is for.
+            let mail = self.wrap_for(&contact.device_id, bytes).await?;
+            self.transport.send_mailbox(&peer, mail).await.context("the mailbox is not reachable")?;
             return Ok(Route::Mailbox);
         }
         Ok(Route::Unreachable)
@@ -941,8 +1169,32 @@ impl ft_push::Signer for Core {
 }
 
 /// A readable default name for a contact whose card has none.
+/// Takes a hidden session away and gives its slot a new link (A3): whoever kept the old QR
+/// reaches nobody, not even the session that takes the slot next. What was in it is the caller's.
+async fn forget_session(store: &Store, session: &str) -> Result<()> {
+    if let Some(slot) = store.session_slot(session).await? {
+        store.set_spare_capability(slot, RouteCapability::generate().as_bytes()).await?;
+    }
+    store.remove_session(session).await
+}
+
 fn short_name(device_id: &DeviceId) -> String {
     device_id.as_str().chars().take(9).collect()
+}
+
+/// The most a contact's name may run to on this phone.
+pub const NAME_LIMIT: usize = 40;
+
+/// A name as a card brings it, tamed before it is shown (B6): no control characters, no
+/// bidirectional overrides that could turn "Mamá" into something else, one space between words,
+/// and no more than `NAME_LIMIT` characters. Empty if nothing readable is left.
+pub fn clean_name(name: &str) -> String {
+    let readable = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .filter(|c| !matches!(*c, '\u{200e}' | '\u{200f}' | '\u{061c}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'))
+        .collect::<String>();
+    readable.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(NAME_LIMIT).collect::<String>().trim_end().to_owned()
 }
 
 fn now() -> i64 {
@@ -1008,6 +1260,16 @@ mod tests {
     }
 
     use super::*;
+
+    // B6: what a card calls its owner is tamed before it is shown.
+    #[test]
+    fn names_are_tamed() {
+        assert_eq!(clean_name("  Bob   Smith "), "Bob Smith");
+        assert_eq!(clean_name("Mam\u{202e}á\u{0000}"), "Mamá");
+        assert_eq!(clean_name(&"x".repeat(100)).chars().count(), NAME_LIMIT);
+        assert_eq!(clean_name("\t\n"), "");
+        assert_eq!(clean_name("Zoë 😀"), "Zoë 😀");
+    }
 
     #[test]
     fn unreachable_contacts_are_retried_ever_more_slowly_up_to_a_limit() {

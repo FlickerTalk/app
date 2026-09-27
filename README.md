@@ -31,6 +31,7 @@ desktop builds but is not published.
 ```sh
 npm install
 npm test            # frontend tests (Vitest)
+npm run test:e2e    # end-to-end tests of the UI (Playwright; `npx playwright install chromium` once)
 npm run typecheck
 cargo test --workspace   # Rust tests, no network
 npm run tauri android dev
@@ -43,3 +44,8 @@ prerelease, and every `vX.Y.Z` tag a release.
 
 [AGPL-3.0](LICENSE). The server is in [FlickerTalk/server](https://github.com/FlickerTalk/server).
 Security issues: see [SECURITY.md](SECURITY.md).
+
+The FlickerTalk name and logo are not licensed under the AGPL (section 7(e)): forks are welcome,
+but must use their own name and icon. The public router at `api.flickertalk.com` serves the
+official FlickerTalk apps only; a fork should run its own router from
+[FlickerTalk/server](https://github.com/FlickerTalk/server).

@@ -53,7 +53,9 @@
     "share": "Chia sẻ",
     "delete": "Xóa ở đây",
     "deleteSure": "Xóa",
-    "forwardTo": "Chuyển tiếp đến"
+    "forwardTo": "Chuyển tiếp đến",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "Đang chờ thiết bị",
@@ -62,7 +64,8 @@
     "read": "Đã xem",
     "connected": "Kết nối trực tiếp",
     "paused": "Tạm dừng",
-    "failed": "Thất bại"
+    "failed": "Thất bại",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "Gọi lại",
@@ -199,7 +202,15 @@
     "receipts": "Báo đã nhận và đã xem",
     "receiptsNote": "Cho liên hệ mới",
     "hours": "Giờ nhận",
-    "hoursOff": "Tắt"
+    "hoursOff": "Tắt",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "Giờ nhận",
@@ -226,7 +237,9 @@
     "toggle": "Phiên",
     "addContact": "Thêm liên hệ vào phiên này",
     "close": "Rời phiên này",
-    "empty": "Chưa có liên hệ nào ở đây. Thêm bằng nút QR: liên hệ đó chỉ thuộc phiên này."
+    "empty": "Chưa có liên hệ nào ở đây. Thêm bằng nút QR: liên hệ đó chỉ thuộc phiên này.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "Ember",
@@ -276,5 +289,11 @@
       "pending_approval": "Giao dịch đang chờ phê duyệt.",
       "failed": "Cửa hàng không thể nhận thanh toán."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

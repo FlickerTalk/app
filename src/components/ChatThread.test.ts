@@ -241,6 +241,52 @@ describe("ChatThread", () => {
     expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("# Title");
   });
 
+  // A2: a file a plugin made with the `propose` permission waits in the composer; the user sends
+  // it, or throws it away. The plugin's window closes either way.
+  it("stages what a plugin made and sends it only when the user says so", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await wrapper.find("[data-test='apps']").trigger("click");
+    await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
+    await flushPromises();
+    const sheet = wrapper.findComponent({ name: "PluginSheet" });
+    expect(sheet.props("sending")).toBe("nothing");
+
+    const staged = { path: "/data/files/outgoing/1-clean.jpg", name: "clean.jpg", mime: "image/jpeg", size: 3 };
+    sheet.vm.$emit("attach", staged);
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    expect(wrapper.find("[data-test='staged']").text()).toContain("clean.jpg");
+    expect(calls.some(([command]) => command === "core_send_picked")).toBe(false);
+
+    await wrapper.find("[data-test='staged-send']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_send_picked", { contact: "c1", file: staged }]);
+    expect(wrapper.find("[data-test='staged']").exists()).toBe(false);
+  });
+
+  it("throws away what a plugin made if the user does not want it", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await wrapper.find("[data-test='apps']").trigger("click");
+    await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
+    await flushPromises();
+    wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("attach", { path: "/p", name: "x.pdf", mime: "application/pdf", size: 1 });
+    await flushPromises();
+    await wrapper.find("[data-test='staged-discard']").trigger("click");
+    expect(wrapper.find("[data-test='staged']").exists()).toBe(false);
+    expect(calls.some(([command]) => command === "core_send_picked")).toBe(false);
+  });
+
+  // A4: a file that waited for a tap is asked for through the core.
+  it("asks for a waiting file when its bubble says so", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await flushPromises();
+    wrapper.findAllComponents(MessageBubble)[0].vm.$emit("download", "m1");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_accept_file", { message: "m1" }]);
+  });
+
   // Issue app#4: the emoji live in the core, in the composer, not in a plugin.
   it("puts the emoji that was picked at the end of what is being written", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });

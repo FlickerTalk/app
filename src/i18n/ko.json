@@ -53,7 +53,9 @@
     "share": "공유",
     "delete": "이 기기에서 삭제",
     "deleteSure": "삭제",
-    "forwardTo": "전달할 대상"
+    "forwardTo": "전달할 대상",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "상대 기기 대기 중",
@@ -62,7 +64,8 @@
     "read": "읽음",
     "connected": "직접 연결됨",
     "paused": "일시 중지됨",
-    "failed": "실패"
+    "failed": "실패",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "다시 걸기",
@@ -199,7 +202,15 @@
     "receipts": "전달 및 읽음 확인",
     "receiptsNote": "새 연락처에 적용",
     "hours": "수신 시간",
-    "hoursOff": "꺼짐"
+    "hoursOff": "꺼짐",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "수신 시간",
@@ -226,7 +237,9 @@
     "toggle": "세션",
     "addContact": "이 세션에 연락처 추가",
     "close": "이 세션 나가기",
-    "empty": "아직 연락처가 없습니다. QR 버튼으로 추가하세요. 추가한 연락처는 이 세션에만 속합니다."
+    "empty": "아직 연락처가 없습니다. QR 버튼으로 추가하세요. 추가한 연락처는 이 세션에만 속합니다.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "엠버",
@@ -276,5 +289,11 @@
       "pending_approval": "구매가 승인을 기다리고 있습니다.",
       "failed": "스토어가 결제를 처리하지 못했습니다."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ft_crypto::{contact_keys, ContactKeys};
-use ft_identity::{verify, Curve25519PublicKey, DeviceId, Ed25519PublicKey, Identity, Signature};
+use ft_identity::{verify, Curve25519PublicKey, DeviceId, Ed25519PublicKey, EnvelopePublicKey, Identity, Signature};
 use serde::{Deserialize, Serialize};
 
 pub const CARD_VERSION: u16 = 1;
@@ -72,6 +72,11 @@ struct Body {
     route_capability: Vec<u8>,
     /// Whether the owner uses the mailbox (§19).
     mailbox: bool,
+    /// The owner's envelope key (2026-09-24 review, A1): whoever has it seals what goes through
+    /// the router for the owner alone. Absent from cards made before it; a reader that does not
+    /// know the field ignores it, and the signature covers the raw bytes either way.
+    #[serde(default, with = "serde_bytes")]
+    envelope_key: Option<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -89,11 +94,19 @@ pub struct ContactCard {
     exchange_key: Curve25519PublicKey,
     fallback_key: Curve25519PublicKey,
     route_capability: RouteCapability,
+    envelope_key: Option<EnvelopePublicKey>,
     signature: Vec<u8>,
 }
 
 impl ContactCard {
-    pub fn create(identity: &mut Identity, name: Option<String>, route_capability: RouteCapability, mailbox: bool) -> Self {
+    /// `envelope` is the owner's envelope key (A1); `None` makes a card an older app would make.
+    pub fn create(
+        identity: &mut Identity,
+        name: Option<String>,
+        route_capability: RouteCapability,
+        mailbox: bool,
+        envelope: Option<EnvelopePublicKey>,
+    ) -> Self {
         let keys = contact_keys(identity);
         let body = Body {
             version: CARD_VERSION,
@@ -103,6 +116,7 @@ impl ContactCard {
             fallback_key: keys.fallback_key.to_bytes().to_vec(),
             route_capability: route_capability.as_bytes().to_vec(),
             mailbox,
+            envelope_key: envelope.map(|key| key.as_bytes().to_vec()),
         };
         let signature = identity.sign(&cbor(&body)).to_bytes().to_vec();
         Self {
@@ -111,8 +125,14 @@ impl ContactCard {
             exchange_key: keys.exchange_key,
             fallback_key: keys.fallback_key,
             route_capability,
+            envelope_key: envelope,
             signature,
         }
+    }
+
+    /// The owner's envelope key, if the card carries one: what to seal their mail with.
+    pub fn envelope_key(&self) -> Option<EnvelopePublicKey> {
+        self.envelope_key
     }
 
     pub fn device_id(&self) -> DeviceId {
@@ -153,11 +173,16 @@ impl ContactCard {
         let signing_key = Ed25519PublicKey::from_slice(&key_bytes(&body.signing_key)?).context("invalid identity key")?;
         let signature = Signature::from_slice(&wire.signature).map_err(|_| anyhow!("invalid signature"))?;
         verify(&signing_key, &wire.body, &signature).context("the contact card was changed or forged")?;
+        let envelope_key = match &body.envelope_key {
+            Some(bytes) => Some(EnvelopePublicKey::from_bytes(key_bytes(bytes)?)),
+            None => None,
+        };
         Ok(Self {
             signing_key,
             exchange_key: Curve25519PublicKey::from_bytes(key_bytes(&body.exchange_key)?),
             fallback_key: Curve25519PublicKey::from_bytes(key_bytes(&body.fallback_key)?),
             route_capability: RouteCapability::from_bytes(key_bytes(&body.route_capability)?),
+            envelope_key,
             signature: wire.signature,
             body,
         })
@@ -290,7 +315,21 @@ mod tests {
     }
 
     fn card_of(identity: &mut Identity) -> ContactCard {
-        ContactCard::create(identity, Some("Bob".to_owned()), RouteCapability::generate(), true)
+        let envelope = ft_identity::EnvelopeKey::generate().public_key();
+        ContactCard::create(identity, Some("Bob".to_owned()), RouteCapability::generate(), true, Some(envelope))
+    }
+
+    // A1: the card carries the envelope key; an older card without it still reads, and reads the
+    // same to an older app (the field is optional and the signature covers the raw bytes).
+    #[test]
+    fn a_card_carries_its_envelope_key_or_none() {
+        let mut bob = Identity::generate();
+        let with = card_of(&mut bob);
+        assert!(with.envelope_key().is_some());
+        assert_eq!(ContactCard::decode(&with.encode()).expect("decodes").envelope_key(), with.envelope_key());
+        let without = ContactCard::create(&mut bob, None, RouteCapability::generate(), true, None);
+        assert_eq!(ContactCard::decode(&without.encode()).expect("decodes").envelope_key(), None);
+        assert!(with.to_link().len() < 600, "{} characters", with.to_link().len());
     }
 
     #[test]
@@ -347,7 +386,7 @@ mod tests {
     fn a_card_signed_by_someone_else_is_rejected() {
         let mut bob = Identity::generate();
         let mallory = Identity::generate();
-        let forged = ContactCard::create(&mut bob, None, RouteCapability::generate(), true).signed_by(&mallory);
+        let forged = ContactCard::create(&mut bob, None, RouteCapability::generate(), true, None).signed_by(&mallory);
         assert!(ContactCard::decode(&forged.encode()).is_err());
     }
 

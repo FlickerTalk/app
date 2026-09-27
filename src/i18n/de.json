@@ -53,7 +53,9 @@
     "share": "Teilen",
     "delete": "Hier löschen",
     "deleteSure": "Löschen",
-    "forwardTo": "Weiterleiten an"
+    "forwardTo": "Weiterleiten an",
+    "download": "Herunterladen",
+    "discardAttachment": "Anhang verwerfen"
   },
   "status": {
     "pending": "Warte auf Gerät",
@@ -62,7 +64,8 @@
     "read": "Gelesen",
     "connected": "Direkt verbunden",
     "paused": "Pausiert",
-    "failed": "Fehlgeschlagen"
+    "failed": "Fehlgeschlagen",
+    "waiting": "Zum Herunterladen tippen"
   },
   "calls": {
     "callBack": "Zurückrufen",
@@ -199,7 +202,15 @@
     "receipts": "Zustell- und Lesebestätigungen",
     "receiptsNote": "Für neue Kontakte",
     "hours": "Zeiten",
-    "hoursOff": "Aus"
+    "hoursOff": "Aus",
+    "autoDownload": "Dateien automatisch laden",
+    "autoDownloadAsk": "Immer fragen",
+    "autoDownloadUpTo": "Bis {size}",
+    "autoDownloadAlways": "Immer",
+    "renewLink": "Meinen Link erneuern",
+    "renewLinkHint": "Wer deinen alten Link hat, erreicht dich nicht mehr; deine Kontakte bekommen den neuen",
+    "renewLinkConfirm": "Erneuern",
+    "renewed": "Link erneuert"
   },
   "hours": {
     "title": "Zeiten",
@@ -226,7 +237,9 @@
     "toggle": "Sitzung",
     "addContact": "Kontakt zu dieser Sitzung hinzufügen",
     "close": "Diese Sitzung verlassen",
-    "empty": "Noch keine Kontakte hier. Füge einen mit der QR-Taste hinzu: Er gehört nur zu dieser Sitzung."
+    "empty": "Noch keine Kontakte hier. Füge einen mit der QR-Taste hinzu: Er gehört nur zu dieser Sitzung.",
+    "remove": "Diese Sitzung löschen",
+    "removeSure": "Löschen"
   },
   "colors": {
     "ember": "Glut",
@@ -276,5 +289,11 @@
       "pending_approval": "Der Kauf wartet auf Freigabe.",
       "failed": "Der Store konnte die Zahlung nicht einziehen."
     }
+  },
+  "requests": {
+    "title": "Anfragen",
+    "hint": "Sie haben deinen Link. Nichts von ihnen wird geladen und sie können nicht anrufen, bis du annimmst.",
+    "accept": "Annehmen",
+    "decline": "Ablehnen und blockieren"
   }
 }

@@ -53,7 +53,9 @@
     "share": "Поділитися",
     "delete": "Видалити в себе",
     "deleteSure": "Видалити",
-    "forwardTo": "Переслати в"
+    "forwardTo": "Переслати в",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "Очікування пристрою",
@@ -62,7 +64,8 @@
     "read": "Прочитано",
     "connected": "Пряме з’єднання",
     "paused": "Призупинено",
-    "failed": "Помилка"
+    "failed": "Помилка",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "Передзвонити",
@@ -199,7 +202,15 @@
     "receipts": "Звіти про доставку й прочитання",
     "receiptsNote": "Для нових контактів",
     "hours": "Розклад",
-    "hoursOff": "Вимк."
+    "hoursOff": "Вимк.",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "Розклад",
@@ -226,7 +237,9 @@
     "toggle": "Сесія",
     "addContact": "Додати контакт до цієї сесії",
     "close": "Вийти з цієї сесії",
-    "empty": "Тут ще немає контактів. Додайте контакт кнопкою QR: він буде лише в цій сесії."
+    "empty": "Тут ще немає контактів. Додайте контакт кнопкою QR: він буде лише в цій сесії.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "Жарина",
@@ -276,5 +289,11 @@
       "pending_approval": "Покупка чекає на підтвердження.",
       "failed": "Магазин не зміг прийняти оплату."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

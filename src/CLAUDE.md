@@ -24,6 +24,12 @@ simula con `__tests__/tauri.ts` (el código real de `@tauri-apps/api` se ejecuta
 (`__tests__/seed.ts`) llena el almacén con `__tests__/chats.fixture.json`, que solo existe para los
 tests. Comandos: `npm test`, `npm run typecheck`.
 
+**E2E** (`e2e/`, Playwright, `npm run test:e2e`): la app real en Chromium contra el servidor de
+Vite, con un núcleo falso en memoria (`e2e/fake-core.ts`) detrás de `window.__TAURI_INTERNALS__`.
+Cubren solicitudes, sesiones (entrar ≠ crear, borrar), ficheros que esperan y permisos de plugins.
+`PW_CHROMIUM=/ruta/a/chrome` usa un Chromium ya instalado. La app marca lo que los tests buscan
+con `data-test` (`testIdAttribute` en `playwright.config.ts`).
+
 Estado (2026-09-22, `§106` M3): los datos son reales. La identidad nace en el núcleo; la
 bienvenida pide un nombre opcional (viaja en la Contact Card). «Añadir contacto» muestra el QR de
 la tarjeta firmada, copia el enlace, escanea con la cámara (`@tauri-apps/plugin-barcode-scanner`,
@@ -97,6 +103,15 @@ Estado (2026-09-23): herramientas, acciones del mensaje y plan.
   Nada de `left`/`right` en CSS: propiedades lógicas (`inset-inline-start`, `padding-inline-end`,
   `text-align: start`) para que el árabe (RTL) se vea bien. Los textos de notificación de Android
   viven en `src-tauri/platform/android/src/main/res/values*/ft_strings.xml`, con los mismos idiomas.
+- **Solicitudes (A5)**: `store.requests` y `session.requests` son los desconocidos que escribieron
+  primero; `ChatsPage` los enseña aparte con su id corto, aceptar y rechazar. **Sesiones (A3)**:
+  todo PIN abre su sesión o una nueva vacía (`openSession`, un solo gesto); `closeSession` deja
+  que el núcleo borre la vacía y `removeSession` borra la que sea. Solo con los siete huecos
+  ocupados queda en `store.sessions` una sesión `id: ""` que solo existe en pantalla: se ve igual
+  (papelera incluida), no deja añadir a nadie y se va sin avisar al núcleo. **Ficheros (A4)**: estado `waiting` en la burbuja con tamaño y botón de descarga
+  (`acceptFile`); el límite se elige en Ajustes (`setAutoDownload`). **Plugins (A2)**:
+  `PluginSheet` recibe `sending`; con `propose`, `ft.send` acaba en un adjunto en el compositor
+  (`attach` → `staged` en `ChatThread`) que envía el usuario.
 - `PluginSheet` es el **único** punto donde se monta un plugin (ver `app/crates/ft-plugins`): un
   iframe servido por el esquema `ftplugin://`, sin origen y con su propia CSP. El frontend no
   habla con el plugin más que por `postMessage`, y solo acepta de él lo que `fromFrame` reconoce;

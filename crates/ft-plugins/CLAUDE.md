@@ -77,3 +77,12 @@ El núcleo es un **puente**, no un contenedor: **ninguna herramienta viaja dentr
   la conversación como un fichero o como texto en el compositor.
 
 Falta: el modo desarrollador (cargar una carpeta sin firmar) y la revocación desde el catálogo.
+
+## Estado (2026-09-27, endurecimiento)
+
+- **M2**: `unpack` limita lo que un paquete puede ocupar descomprimido (`UNPACKED_LIMIT`, 32 MB)
+  y en ficheros (`ENTRY_LIMIT`, 256), y comprueba que cada entrada mide lo que su cabecera dice.
+- **A2**: el permiso `send` se aplica de verdad. `Nothing`: nada del plugin llega al chat (ni
+  `ft.text` ni `ft.send`). `Propose`: lo que hace queda en el compositor y lo manda el usuario.
+  `Auto`: el núcleo lo envía (`Core::plugin_send_file`). El marco lo comprueba y el núcleo lo
+  vuelve a comprobar (`core_plugin_made`).

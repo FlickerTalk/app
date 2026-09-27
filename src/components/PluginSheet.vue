@@ -4,21 +4,28 @@ import {
   pickFiles,
   pluginFetch,
   pluginForget,
+  pluginMade,
   pluginPrint,
   pluginRead,
   pluginSave,
   pluginWrite,
   readPicked,
-  sendMade,
+  type PickedFile,
+  type Sending,
 } from "../core";
 import { frameUrl, fromFrame, type FrameMessage } from "../plugins";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
 // permissions allow. It never sees the app's window, the chat or the keys. It can be handed a text,
-// it can ask the app for a file the user picks, and it can hand back a file or a text; the app does
-// the sending, never the plugin.
-const props = defineProps<{ plugin: { id: string; name: string }; contact: string; text?: string }>();
-const emit = defineEmits<{ text: [text: string]; done: [] }>();
+// it can ask the app for a file the user picks, and it can hand back a file or a text. How far
+// that goes is what the user granted it (A2 of the 2026-09-24 review): with `propose` what it
+// hands back lands in the composer and the user sends it; only with `auto` does it go out by
+// itself; with nothing, nothing.
+const props = withDefaults(
+  defineProps<{ plugin: { id: string; name: string }; contact: string; text?: string; sending?: Sending }>(),
+  { text: undefined, sending: "nothing" },
+);
+const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: [] }>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
 const height = ref(320);
@@ -48,12 +55,19 @@ async function onMessage(event: MessageEvent) {
       }
     });
   } else if (said.type === "ft.made") {
+    // Nothing leaves without the permission: the core checks it again on its side (A2).
+    if (props.sending === "nothing") return;
     await busy(async () => {
-      await sendMade(props.contact, said.name, said.mime, said.data);
-      emit("done");
+      try {
+        const made = await pluginMade(props.plugin.id, props.contact, said.name, said.mime, said.data);
+        if (made.staged) emit("attach", made.staged);
+        emit("done");
+      } catch {
+        // Refused by the core: the plugin's window stays, nothing was sent.
+      }
     });
   } else if (said.type === "ft.text") {
-    emit("text", said.text);
+    if (props.sending !== "nothing") emit("text", said.text);
   } else if (said.type === "ft.close") {
     emit("done");
   } else {

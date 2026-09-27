@@ -241,7 +241,10 @@ impl Network {
         };
 
         self.pending.lock().await.insert(session_id.clone(), session.clone());
-        let delivered = self.relay.signal(&peer.device_id, peer.capability.as_bytes(), signal.encode()).await;
+        // Through the router the signal goes in an envelope (A1): it names its sender to the
+        // recipient alone.
+        let wrapped = core.wrap_for(&peer.device_id, signal.encode()).await?;
+        let delivered = self.relay.signal(&peer.device_id, peer.capability.as_bytes(), wrapped).await;
         let opened = match delivered {
             Ok(true) => tokio::time::timeout(CONNECT_WAIT, session.wait_open()).await.is_ok_and(|open| open.is_ok()),
             _ => false,
@@ -258,8 +261,9 @@ impl Network {
     }
 
     async fn on_signal(&self, bytes: &[u8]) -> Result<()> {
-        let signal = Signal::decode(bytes)?;
         let core = self.core()?;
+        let bytes = core.unwrap(bytes).await?;
+        let signal = Signal::decode(&bytes)?;
         let Some((from, body)) = core.open_signal(&signal.sealed).await? else {
             return Ok(());
         };
@@ -296,7 +300,8 @@ impl Network {
             to: from.to_owned(),
             sealed,
         };
-        self.relay.signal(from, peer.capability.as_bytes(), signal.encode()).await?;
+        let wrapped = core.wrap_for(from, signal.encode()).await?;
+        self.relay.signal(from, peer.capability.as_bytes(), wrapped).await?;
 
         let network = self.this.get().and_then(Weak::upgrade).ok_or_else(|| anyhow!("the network is gone"))?;
         let contact = from.to_owned();

@@ -53,7 +53,9 @@
     "share": "Paylaş",
     "delete": "Buradan sil",
     "deleteSure": "Sil",
-    "forwardTo": "Şuna ilet"
+    "forwardTo": "Şuna ilet",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "Cihaz bekleniyor",
@@ -62,7 +64,8 @@
     "read": "Okundu",
     "connected": "Doğrudan bağlı",
     "paused": "Duraklatıldı",
-    "failed": "Başarısız"
+    "failed": "Başarısız",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "Geri ara",
@@ -199,7 +202,15 @@
     "receipts": "İletildi ve okundu bilgisi",
     "receiptsNote": "Yeni kişiler için",
     "hours": "Saatler",
-    "hoursOff": "Kapalı"
+    "hoursOff": "Kapalı",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "Saatler",
@@ -226,7 +237,9 @@
     "toggle": "Oturum",
     "addContact": "Bu oturuma kişi ekle",
     "close": "Bu oturumdan çık",
-    "empty": "Burada henüz kişi yok. QR düğmesiyle ekleyin: yalnızca bu oturuma ait olur."
+    "empty": "Burada henüz kişi yok. QR düğmesiyle ekleyin: yalnızca bu oturuma ait olur.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "Köz",
@@ -276,5 +289,11 @@
       "pending_approval": "Satın alma onay bekliyor.",
       "failed": "Mağaza ödemeyi alamadı."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

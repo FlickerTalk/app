@@ -14,7 +14,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use ft_protocol::{Body, MessageId, Packet, FILE_CHUNK};
 use ft_storage::{Contact, FileRecord, Message, MessageState, OutboxEntry};
 
@@ -26,6 +26,12 @@ pub const FILE_WINDOW: u32 = 16;
 pub const FILE_STALL: Duration = Duration::from_secs(15);
 /// The largest chunk accepted from an offer.
 const MAX_CHUNK: u32 = 256 * 1024;
+/// The largest file an offer may announce (A4 of the 2026-09-24 review): beyond it the offer is
+/// refused outright, whoever sends it.
+pub const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+/// Files up to this size are pulled as they are offered; bigger ones wait for the user (A4).
+pub const DEFAULT_AUTO_DOWNLOAD: i64 = 10 * 1024 * 1024;
+const AUTO_DOWNLOAD: &str = "auto_download";
 /// The UI hears about a transfer's progress every so many chunks.
 const PROGRESS_EVERY: i64 = 8;
 
@@ -69,10 +75,31 @@ impl Core {
         }
     }
 
+    /// Up to how many bytes an offered file is pulled without asking (A4); 0 means always ask.
+    pub async fn auto_download_limit(&self) -> Result<i64> {
+        Ok(self.store.setting(AUTO_DOWNLOAD).await?.and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_AUTO_DOWNLOAD))
+    }
+
+    pub async fn set_auto_download_limit(&self, bytes: i64) -> Result<()> {
+        self.store.set_setting(AUTO_DOWNLOAD, &bytes.max(0).to_string()).await
+    }
+
+    /// The user asks for a file that was waiting (A4): from now on it is pulled like any other.
+    pub async fn accept_file(&self, message_id: &str) -> Result<()> {
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        let contact = self.chosen(&message.contact).await?;
+        let file = self.store.file(message_id).await?.context("that message is not a file")?;
+        ensure!(!message.outgoing && !file.complete && !file.failed, "there is nothing to download");
+        self.store.set_file_waiting(message_id, false).await?;
+        let file = FileRecord { waiting: false, ..file };
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        self.request_chunks(&contact, &file).await
+    }
+
     /// Offers the file at `path` to the contact and returns its message id. The file must stay
     /// there: its chunks are read from it when the contact asks for them.
     pub async fn send_file(&self, contact: &str, path: &Path, name: &str, mime: &str) -> Result<String> {
-        self.contact(contact).await?;
+        self.chosen(contact).await?;
         self.allowed(ft_billing::Doing::SendFile).await?;
         let name = safe_file_name(name);
         let source = path.to_owned();
@@ -86,6 +113,7 @@ impl Core {
                 outgoing: true,
                 body: name.clone(),
                 sent_at: packet.sent_at as i64,
+                received_at: packet.sent_at as i64,
                 state: MessageState::Pending,
             })
             .await?;
@@ -101,6 +129,7 @@ impl Core {
                 chunks_done: 0,
                 complete: false,
                 failed: false,
+                waiting: false,
             })
             .await?;
         self.store.enqueue(&message_id, contact, now()).await?;
@@ -184,7 +213,9 @@ impl Core {
         hash: [u8; 32],
         chunk: u32,
     ) -> Result<()> {
-        if chunk == 0 || chunk > MAX_CHUNK || size > i64::MAX as u64 {
+        if chunk == 0 || chunk > MAX_CHUNK || size > MAX_FILE_SIZE {
+            // Beyond what this phone would ever take (A4): the sender is told, nothing is kept.
+            let _ = self.send_control(contact, Body::FileFailed { file: id }).await;
             bail!("an offer with an impossible size");
         }
         if !contact.rules.accepts_chat {
@@ -196,6 +227,8 @@ impl Core {
         let name = safe_file_name(&name);
         let dir = self.files_dir()?.join(&message_id);
         tokio::fs::create_dir_all(&dir).await.context("cannot create the file's directory")?;
+        // Bigger than the user downloads on their own: it waits for them (A4).
+        let waiting = size as i64 > self.auto_download_limit().await?;
         let stored = self
             .store
             .insert_message(&Message {
@@ -204,6 +237,7 @@ impl Core {
                 outgoing: false,
                 body: name.clone(),
                 sent_at: sent_at as i64,
+                received_at: now(),
                 state: MessageState::Delivered,
             })
             .await?;
@@ -219,6 +253,7 @@ impl Core {
                 chunks_done: 0,
                 complete: false,
                 failed: false,
+                waiting,
             })
             .await?;
         if stored {
@@ -229,7 +264,8 @@ impl Core {
 
         let Some(file) = self.incoming_file(contact, &message_id).await? else { return Ok(()) };
         let busy = self.transfers.lock().expect("transfers poisoned").get(&message_id).is_some_and(|t| t.in_flight);
-        if !file.complete && !file.failed && !busy {
+        // Not a byte of a stranger's file (A5), nor of one that waits for the user (A4).
+        if !file.complete && !file.failed && !file.waiting && contact.accepted && !busy {
             self.request_chunks(contact, &file).await?;
         }
         Ok(())
@@ -299,7 +335,7 @@ impl Core {
     pub(crate) async fn take_chunk(&self, contact: &Contact, file: MessageId, index: u64, data: Vec<u8>) -> Result<()> {
         let message_id = file.to_string();
         let Some(record) = self.incoming_file(contact, &message_id).await? else { return Ok(()) };
-        if record.complete || record.failed || index as i64 != record.chunks_done {
+        if record.complete || record.failed || record.waiting || !contact.accepted || index as i64 != record.chunks_done {
             return Ok(());
         }
         if data.len() as u64 != chunk_length(&record, index) as u64 {
@@ -524,6 +560,7 @@ mod tests {
             chunks_done: 0,
             complete: false,
             failed: false,
+            waiting: false,
         };
         assert_eq!([0, 1, 2].map(|index| chunk_length(&file, index)), [48, 48, 4]);
     }

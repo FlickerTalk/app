@@ -148,6 +148,8 @@ async fn pair(alice: &Core, bob: &Core) {
     alice.add_contact(&link, None).await.expect("alice adds bob");
     let (alice_id, bob_id) = (alice.device_id().as_str().to_owned(), bob.device_id().as_str().to_owned());
     until("bob knows alice", || async { bob.store().contact(&alice_id).await.unwrap().is_some() }).await;
+    // Alice wrote first: she waits in Bob's requests until he says yes (A5). He does.
+    bob.accept_contact(&alice_id).await.expect("bob accepts alice");
     until("bob's card came back", || async {
         alice.store().contact(&bob_id).await.unwrap().is_some_and(|contact| contact.introduced)
     })
@@ -851,21 +853,21 @@ async fn a_message_can_be_sent_on_to_someone_else() {
     assert!(alice.forward("not a message", &id(&carol)).await.is_err());
 }
 
-// Hidden sessions (Plan, 2026-09-23): a 6-digit PIN opens a space of its own. The same PIN always
-// opens the same session; a new PIN makes a new one, and nothing says which happened.
+// Hidden sessions (Plan, 2026-09-23): a 6-digit PIN opens a space of its own. Every PIN opens
+// one, the same way: the one that has it, or a new empty one, and nothing says which.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pin_opens_a_session_and_the_same_pin_opens_the_same_one() {
     let net = Net::new();
     let bob = device(&net, "Bob").await;
 
-    let friends = bob.open_session("246810").await.expect("opens");
-    assert_eq!(bob.open_session("246810").await.expect("opens again"), friends);
+    let friends = bob.open_session("246810").await.expect("opens").expect("a session");
+    assert_eq!(bob.open_session("246810").await.expect("opens again"), Some(friends.clone()));
     assert_eq!(bob.open_sessions(), vec![friends.clone()]);
-    let work = bob.open_session("111222").await.expect("opens another");
+    let work = bob.open_session("111222").await.expect("opens another").expect("a session");
     assert_ne!(work, friends);
     assert_eq!(bob.open_sessions().len(), 2);
 
-    bob.close_session(&friends);
+    bob.close_session(&friends).await.expect("closes");
     assert_eq!(bob.open_sessions(), vec![work]);
     assert!(bob.open_session("12345").await.is_err(), "six digits, nothing else");
     assert!(bob.open_session("12345a").await.is_err());
@@ -876,7 +878,7 @@ async fn a_pin_opens_a_session_and_the_same_pin_opens_the_same_one() {
 async fn a_contact_added_inside_a_session_stays_out_of_the_main_list() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
-    let friends = bob.open_session("246810").await.expect("opens");
+    let friends = bob.open_session("246810").await.expect("opens").expect("a session");
     let link = alice.my_card().await.expect("card").to_link();
     bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds alice in friends");
     until("alice knows bob", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some() }).await;
@@ -894,11 +896,11 @@ async fn a_contact_added_inside_a_session_stays_out_of_the_main_list() {
 async fn a_closed_session_receives_in_silence() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
-    let friends = bob.open_session("246810").await.expect("opens");
+    let friends = bob.open_session("246810").await.expect("opens").expect("a session");
     let link = alice.my_card().await.expect("card").to_link();
     bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
     until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
-    bob.close_session(&friends);
+    bob.close_session(&friends).await.expect("closes");
     let mut at_bob = bob.events();
 
     let message = alice.send_text(&id(&bob), "poker on friday?").await.expect("sends");
@@ -909,7 +911,7 @@ async fn a_closed_session_receives_in_silence() {
         assert_ne!(event, Event::MessagesChanged { contact: id(&alice) }, "a closed session makes no noise");
     }
 
-    bob.open_session("246810").await.expect("opens again");
+    bob.open_session("246810").await.expect("opens again").expect("it exists");
     let hidden = bob.store().session_conversations(&friends).await.unwrap();
     assert_eq!((hidden.len(), hidden[0].unread), (1, 1));
 }
@@ -919,11 +921,11 @@ async fn a_closed_session_receives_in_silence() {
 async fn a_closed_session_answers_calls_as_busy_and_an_open_one_rings() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
-    let friends = bob.open_session("246810").await.expect("opens");
+    let friends = bob.open_session("246810").await.expect("opens").expect("a session");
     let link = alice.my_card().await.expect("card").to_link();
     bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
     until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
-    bob.close_session(&friends);
+    bob.close_session(&friends).await.expect("closes");
     let (mut at_alice, mut at_bob) = (alice.events(), bob.events());
 
     let call = alice.place_call(&id(&bob), false).await.expect("places");
@@ -934,7 +936,7 @@ async fn a_closed_session_answers_calls_as_busy_and_an_open_one_rings() {
         assert!(!matches!(event, Event::Call { .. }), "a closed session never rings");
     }
 
-    bob.open_session("246810").await.expect("opens again");
+    bob.open_session("246810").await.expect("opens again").expect("it exists");
     let second = alice.place_call(&id(&bob), false).await.expect("places");
     alice.offer_call(&second, "offer-sdp").await.expect("offers");
     assert!(matches!(next_call(&mut at_bob).await.2, CallUpdate::Incoming { .. }), "an open session rings");
@@ -945,11 +947,11 @@ async fn a_closed_session_answers_calls_as_busy_and_an_open_one_rings() {
 async fn a_closed_session_leaves_no_calls_in_the_history() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
-    let friends = bob.open_session("246810").await.expect("opens");
+    let friends = bob.open_session("246810").await.expect("opens").expect("a session");
     let link = alice.my_card().await.expect("card").to_link();
     bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
     until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
-    bob.close_session(&friends);
+    bob.close_session(&friends).await.expect("closes");
     let mut at_alice = alice.events();
 
     let call = alice.place_call(&id(&bob), false).await.expect("places");
@@ -958,7 +960,7 @@ async fn a_closed_session_leaves_no_calls_in_the_history() {
     until("bob logged it", || async { outcome_of(&bob, &call).await == Some(CallOutcome::Missed) }).await;
 
     assert!(bob.visible_calls(100).await.expect("lists").is_empty(), "nothing shows while the session is closed");
-    bob.open_session("246810").await.expect("opens again");
+    bob.open_session("246810").await.expect("opens again").expect("it exists");
     assert_eq!(bob.visible_calls(100).await.expect("lists").len(), 1, "the session's history is back");
 }
 
@@ -1062,14 +1064,14 @@ async fn sessions_take_a_slot_each_up_to_seven() {
     let bob = device(&net, "Bob").await;
     let mut slots = Vec::new();
     for pin in 0..7 {
-        let session = bob.open_session(&format!("10000{pin}")).await.expect("opens");
+        let session = bob.open_session(&format!("10000{pin}")).await.expect("opens").expect("a session");
         slots.push(bob.store().session_slot(&session).await.unwrap().expect("a slot"));
     }
     slots.sort();
     assert_eq!(slots, vec![1, 2, 3, 4, 5, 6, 7]);
     assert_eq!(bob.open_slots(), vec![1, 2, 3, 4, 5, 6, 7]);
-    assert!(bob.open_session("999999").await.is_err(), "an eighth has no room");
-    bob.close_session(&bob.open_sessions()[0]);
+    assert_eq!(bob.open_session("999999").await.expect("asks"), None, "an eighth has no room");
+    bob.close_session(&bob.open_sessions()[0]).await.expect("closes");
     assert_eq!(bob.open_slots().len(), 6);
 }
 
@@ -1080,7 +1082,7 @@ async fn a_contact_in_a_session_gets_the_sessions_capability() {
     let net = Net::new();
     let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
     pair(&carol, &bob).await;
-    let friends = bob.open_session("246810").await.expect("opens");
+    let friends = bob.open_session("246810").await.expect("opens").expect("a session");
     let link = alice.my_card().await.expect("card").to_link();
     bob.add_contact_in(&link, None, Some(&friends)).await.expect("adds");
     until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
@@ -1099,7 +1101,7 @@ async fn a_contact_in_a_session_gets_the_sessions_capability() {
 async fn scanning_a_sessions_card_puts_you_in_that_session() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
-    let friends = bob.open_session("246810").await.expect("opens");
+    let friends = bob.open_session("246810").await.expect("opens").expect("a session");
     let link = bob.my_card_in(Some(&friends)).await.expect("card").to_link();
     alice.add_contact(&link, None).await.expect("alice scans");
     until("bob knows alice", || async { bob.store().contact(&id(&alice)).await.unwrap().is_some() }).await;

@@ -53,7 +53,9 @@
     "share": "শেয়ার",
     "delete": "এখান থেকে মুছুন",
     "deleteSure": "মুছুন",
-    "forwardTo": "ফরওয়ার্ড করুন"
+    "forwardTo": "ফরওয়ার্ড করুন",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "ডিভাইসের অপেক্ষায়",
@@ -62,7 +64,8 @@
     "read": "পড়া হয়েছে",
     "connected": "সরাসরি সংযুক্ত",
     "paused": "থেমে আছে",
-    "failed": "ব্যর্থ"
+    "failed": "ব্যর্থ",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "কল ব্যাক",
@@ -199,7 +202,15 @@
     "receipts": "পৌঁছানো ও পড়ার রসিদ",
     "receiptsNote": "নতুন কন্টাক্টদের জন্য",
     "hours": "সময়",
-    "hoursOff": "বন্ধ"
+    "hoursOff": "বন্ধ",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "সময়",
@@ -226,7 +237,9 @@
     "toggle": "সেশন",
     "addContact": "এই সেশনে একটি কন্টাক্ট যোগ করুন",
     "close": "এই সেশন থেকে বের হন",
-    "empty": "এখানে এখনও কোনো কন্টাক্ট নেই। QR বোতাম দিয়ে যোগ করুন: কন্টাক্টটি শুধু এই সেশনের।"
+    "empty": "এখানে এখনও কোনো কন্টাক্ট নেই। QR বোতাম দিয়ে যোগ করুন: কন্টাক্টটি শুধু এই সেশনের।",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "এম্বার",
@@ -276,5 +289,11 @@
       "pending_approval": "কেনাকাটা অনুমোদনের অপেক্ষায় আছে।",
       "failed": "স্টোর পেমেন্ট নিতে পারেনি।"
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

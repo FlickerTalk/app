@@ -88,3 +88,27 @@ sigue intentándolo hasta 40 s (`CALL_REACH`) mientras el otro teléfono despier
 Lenovo real con la app cerrada: notificación a los ~10 s y mensaje entregado al abrirla
 (`tests/live.rs`, `writes_to_a_real_phone`). iOS (APNs) espera a la cuenta de pago de Apple.
 
+## Estado (2026-09-27, paquete de endurecimiento; `tests/hardening.rs`)
+
+- **A1, sobre sellado**: lo que va al router (`send_mailbox` y las señales de `net.rs`) se mete en
+  un `Envelope` sellado para la clave de sobre del destinatario (`wrap_for`); `receive` y
+  `on_signal` lo abren (`unwrap`). Un contacto cuya tarjeta no trae clave de sobre (app antigua)
+  recibe los bytes tal cual. Al arrancar por primera vez con clave de sobre, `card_stale` hace que
+  `online::start` reparta la tarjeta nueva (`reintroduce`).
+- **M9, relleno**: `Packet::encode` rellena a bloques de 160 bytes.
+- **A2, plugins**: `plugin_sending`, `plugin_may_propose` y `plugin_send_file` (solo con `auto`).
+- **A3, sesiones** (decisión 2026-09-27: todo PIN es válido): `open_session` abre la sesión del
+  PIN o crea una vacía, sin retardo ni «fallos»; `None` solo si los siete huecos están ocupados.
+  `close_session` borra la sesión si está vacía (sin contactos ni solicitudes) y devuelve si se
+  fue; al arrancar se borran las vacías que quedaran. `remove_session` borra todo. Una sesión que
+  se va se lleva su enlace (`forget_session` rota la capability del hueco; la app vuelve a
+  registrar los ocho hashes), y un primer contacto con un `via` que ya no es nuestro no llega a
+  nadie (`session_via`).
+- **A4, ficheros**: `auto_download_limit` (10 MB por defecto); por encima, `waiting` hasta
+  `accept_file`; una oferta mayor que `MAX_FILE_SIZE` (2 GB) se rechaza con `FileFailed`.
+- **A5, solicitudes y enlace**: un desconocido que escribe primero queda `accepted = 0`
+  (`requests`, `accept_contact`, `decline_contact`; escribirle o escanearlo acepta). Sin aceptar:
+  sin ruido, sin trozos de fichero, llamadas «busy». `renew_link` rota la capability (principal o
+  de una sesión) y reparte la tarjeta.
+- **M5/M6**: `received_at` manda en orden y retención; el barrido respeta el `pending_outbox`.
+- **B6**: `clean_name` doma el nombre que trae una tarjeta (40 caracteres, sin control ni bidi).

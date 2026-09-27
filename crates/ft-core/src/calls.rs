@@ -42,7 +42,7 @@ impl Core {
     pub async fn place_call(&self, contact: &str, video: bool) -> Result<String> {
         // A call is something new: it needs the subscription once the free year is over (§42).
         self.allowed(ft_billing::Doing::Call).await?;
-        let stored = self.contact(contact).await?;
+        let stored = self.chosen(contact).await?;
         if stored.blocked {
             bail!("the contact is blocked");
         }
@@ -151,8 +151,9 @@ impl Core {
     /// The contact calls us.
     pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool) -> Result<()> {
         let call_id = call.to_string();
-        if !contact.rules.accepts_calls {
-            // Calls off (app#5): busy for them, and not a trace on this phone.
+        if !contact.rules.accepts_calls || !contact.accepted {
+            // Calls off (app#5), or a stranger still in the requests (A5): busy for them, and not
+            // a trace on this phone.
             let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
             return Ok(());
         }

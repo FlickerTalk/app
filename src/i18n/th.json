@@ -53,7 +53,9 @@
     "share": "แชร์",
     "delete": "ลบที่นี่",
     "deleteSure": "ลบ",
-    "forwardTo": "ส่งต่อถึง"
+    "forwardTo": "ส่งต่อถึง",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "รออุปกรณ์",
@@ -62,7 +64,8 @@
     "read": "อ่านแล้ว",
     "connected": "เชื่อมต่อโดยตรง",
     "paused": "หยุดชั่วคราว",
-    "failed": "ล้มเหลว"
+    "failed": "ล้มเหลว",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "โทรกลับ",
@@ -199,7 +202,15 @@
     "receipts": "แจ้งถึงแล้วและอ่านแล้ว",
     "receiptsNote": "สำหรับผู้ติดต่อใหม่",
     "hours": "ช่วงเวลา",
-    "hoursOff": "ปิด"
+    "hoursOff": "ปิด",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "ช่วงเวลา",
@@ -226,7 +237,9 @@
     "toggle": "เซสชัน",
     "addContact": "เพิ่มผู้ติดต่อในเซสชันนี้",
     "close": "ออกจากเซสชันนี้",
-    "empty": "ยังไม่มีผู้ติดต่อที่นี่ เพิ่มด้วยปุ่ม QR: ผู้ติดต่อนั้นจะอยู่ในเซสชันนี้เท่านั้น"
+    "empty": "ยังไม่มีผู้ติดต่อที่นี่ เพิ่มด้วยปุ่ม QR: ผู้ติดต่อนั้นจะอยู่ในเซสชันนี้เท่านั้น",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "เอมเบอร์",
@@ -276,5 +289,11 @@
       "pending_approval": "การซื้อกำลังรอการอนุมัติ",
       "failed": "สโตร์เรียกเก็บเงินไม่สำเร็จ"
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

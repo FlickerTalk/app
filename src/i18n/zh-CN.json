@@ -53,7 +53,9 @@
     "share": "分享",
     "delete": "从本机删除",
     "deleteSure": "删除",
-    "forwardTo": "转发给"
+    "forwardTo": "转发给",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "等待对方设备",
@@ -62,7 +64,8 @@
     "read": "已读",
     "connected": "已直连",
     "paused": "已暂停",
-    "failed": "失败"
+    "failed": "失败",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "回拨",
@@ -199,7 +202,15 @@
     "receipts": "送达和已读回执",
     "receiptsNote": "适用于新联系人",
     "hours": "时段",
-    "hoursOff": "关闭"
+    "hoursOff": "关闭",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "时段",
@@ -226,7 +237,9 @@
     "toggle": "会话",
     "addContact": "向此会话添加联系人",
     "close": "退出此会话",
-    "empty": "这里还没有联系人。用二维码按钮添加：添加的联系人只属于此会话。"
+    "empty": "这里还没有联系人。用二维码按钮添加：添加的联系人只属于此会话。",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "余烬",
@@ -276,5 +289,11 @@
       "pending_approval": "购买正在等待批准。",
       "failed": "商店无法完成付款。"
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

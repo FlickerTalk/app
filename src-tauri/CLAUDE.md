@@ -37,8 +37,15 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   externo, sin `eval`, sin frames. Comprobada recorriendo el bundle de producción bajo la misma
   cabecera en Chromium.
 - `withGlobalTauri: false`: el WebView no tiene `window.__TAURI__`.
-- **Permisos** (`capabilities/`): del núcleo solo eventos y la versión; `opener` solo `mailto:`
-  (reportes, `§36`); en móvil, el escáner. Todo lo demás pasa por los comandos `core_*`.
+- **Permisos** (`capabilities/`): del núcleo solo eventos y la versión; `opener` para `mailto:`
+  (reportes, `§36`) y para abrir los enlaces `http(s)` de un mensaje en el navegador; en móvil, el
+  escáner. Todo lo demás pasa por los comandos `core_*`.
+- **Rutas que nombra la WebView** (M1, 2026-09-27): `core_read_picked` y `core_send_picked` solo
+  aceptan ficheros dentro de `uploads/` (lo que deja el selector nativo), `files/uploads/` y
+  `files/outgoing/` (lo que hace un plugin), canonicalizados (`picked_path`). En Android
+  `app_data_dir()` es `dataDir`, y el selector escribe en `filesDir/uploads` = `files/uploads`.
+- **Plugins** (A2): `core_plugin_made` recibe el id del plugin y decide por lo concedido: `auto`
+  envía, `propose` devuelve un `PickedView` para el compositor, nada rechaza.
 - El PoC 0 ya no está en la app (pantalla, comandos ni dependencia); `crates/ft-poc` sigue como
   herramienta de desarrollo.
 

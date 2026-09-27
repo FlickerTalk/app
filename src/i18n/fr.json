@@ -53,7 +53,9 @@
     "share": "Partager",
     "delete": "Supprimer ici",
     "deleteSure": "Supprimer",
-    "forwardTo": "Transférer à"
+    "forwardTo": "Transférer à",
+    "download": "Télécharger",
+    "discardAttachment": "Retirer la pièce jointe"
   },
   "status": {
     "pending": "En attente de l’appareil",
@@ -62,7 +64,8 @@
     "read": "Lu",
     "connected": "Connecté en direct",
     "paused": "En pause",
-    "failed": "Échec"
+    "failed": "Échec",
+    "waiting": "Touchez pour télécharger"
   },
   "calls": {
     "callBack": "Rappeler",
@@ -199,7 +202,15 @@
     "receipts": "Accusés de réception et de lecture",
     "receiptsNote": "Pour les nouveaux contacts",
     "hours": "Horaires",
-    "hoursOff": "Désactivé"
+    "hoursOff": "Désactivé",
+    "autoDownload": "Télécharger les fichiers automatiquement",
+    "autoDownloadAsk": "Toujours demander",
+    "autoDownloadUpTo": "Jusqu'à {size}",
+    "autoDownloadAlways": "Toujours",
+    "renewLink": "Renouveler mon lien",
+    "renewLinkHint": "Qui a votre ancien lien ne peut plus vous joindre ; vos contacts reçoivent le nouveau",
+    "renewLinkConfirm": "Renouveler",
+    "renewed": "Lien renouvelé"
   },
   "hours": {
     "title": "Horaires",
@@ -226,7 +237,9 @@
     "toggle": "Session",
     "addContact": "Ajouter un contact à cette session",
     "close": "Quitter cette session",
-    "empty": "Aucun contact ici pour l’instant. Ajoutez-en un avec le bouton QR : il n’appartient qu’à cette session."
+    "empty": "Aucun contact ici pour l’instant. Ajoutez-en un avec le bouton QR : il n’appartient qu’à cette session.",
+    "remove": "Supprimer cette session",
+    "removeSure": "Supprimer"
   },
   "colors": {
     "ember": "Braise",
@@ -276,5 +289,11 @@
       "pending_approval": "L'achat attend une approbation.",
       "failed": "La boutique n'a pas pu encaisser le paiement."
     }
+  },
+  "requests": {
+    "title": "Demandes",
+    "hint": "Ils ont votre lien. Rien de leur part n'est téléchargé et ils ne peuvent pas appeler tant que vous n'acceptez pas.",
+    "accept": "Accepter",
+    "decline": "Refuser et bloquer"
   }
 }

@@ -49,4 +49,10 @@ describe("SessionPage", () => {
     expect(calls).toContainEqual(["core_session_open", { pin: "246810" }]);
     expect(push).toHaveBeenCalledWith("/tabs/chats");
   });
+
+  // A3: every PIN is valid and takes the same path; there is no second gesture to make one.
+  it("has no way to make a session other than typing its pin", () => {
+    const wrapper = mount(SessionPage, { shallow: true });
+    expect(wrapper.find("[data-test='session-new']").exists()).toBe(false);
+  });
 });

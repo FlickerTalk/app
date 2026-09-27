@@ -27,7 +27,7 @@ export interface Message {
 }
 
 const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean }>();
-const emit = defineEmits<{ open: [id: string]; save: [id: string]; actions: [id: string] }>();
+const emit = defineEmits<{ open: [id: string]; save: [id: string]; download: [id: string]; actions: [id: string] }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
   pending: { icon: timeOutline, label: t("status.pending") },
@@ -68,9 +68,12 @@ const percent = computed(() => Math.round((file.value?.progress ?? 0) * 100));
 const fileState = computed(() => {
   if (!file.value || file.value.state === "done") return "";
   if (file.value.state === "failed") return t("status.failed");
+  if (file.value.state === "waiting") return `${t("status.waiting")} · ${file.value.size}`;
   return file.value.state === "paused" ? t("status.paused") : `${percent.value}%`;
 });
-const moving = computed(() => file.value && file.value.state !== "done" && file.value.state !== "failed");
+// A4: bigger than what this phone downloads on its own; nothing comes until the user taps.
+const waiting = computed(() => file.value?.state === "waiting");
+const moving = computed(() => file.value && !["done", "failed", "waiting"].includes(file.value.state));
 const failed = computed(() => file.value?.state === "failed");
 
 // A voice message is its own small player: play or pause, how far it is, how long it lasts.
@@ -168,6 +171,17 @@ function open() {
         </span>
         <span v-else-if="failed" class="ft-media__failed">{{ t("status.failed") }}</span>
         <button
+          v-else-if="waiting"
+          type="button"
+          class="ft-download"
+          data-test="download"
+          :aria-label="t('chat.download')"
+          @click.stop="emit('download', message.id)"
+        >
+          <ion-icon :icon="downloadOutline" aria-hidden="true" />
+          <span>{{ file.size }}</span>
+        </button>
+        <button
           v-if="usable"
           type="button"
           class="ft-media__save"
@@ -220,6 +234,17 @@ function open() {
           >{{ percent }}%</span
         >
         <span v-else-if="failed" class="ft-voice__meta ft-voice__failed">{{ t("status.failed") }}</span>
+        <button
+          v-else-if="waiting"
+          type="button"
+          class="ft-download ft-download--inline"
+          data-test="download"
+          :aria-label="t('chat.download')"
+          @click.stop="emit('download', message.id)"
+        >
+          <ion-icon :icon="downloadOutline" aria-hidden="true" />
+          <span>{{ file.size }}</span>
+        </button>
         <span v-else class="ft-voice__meta">{{ clock }}</span>
         <button
           v-if="usable"
@@ -257,6 +282,16 @@ function open() {
           @click.stop="emit('save', message.id)"
         >
           <ion-icon :icon="saved ? checkmark : downloadOutline" aria-hidden="true" />
+        </button>
+        <button
+          v-else-if="waiting"
+          type="button"
+          class="ft-file__save"
+          data-test="download"
+          :aria-label="t('chat.download')"
+          @click.stop="emit('download', message.id)"
+        >
+          <ion-icon :icon="downloadOutline" aria-hidden="true" />
         </button>
       </div>
       <div v-else-if="code" class="ft-code" data-test="code">
@@ -473,6 +508,36 @@ function open() {
 .ft-media__failed {
   left: 10px;
   color: #ffb4a8;
+}
+/* A4: a file that waits for the user shows its size and a way to ask for it. */
+.ft-download {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ft-download ion-icon {
+  font-size: 28px;
+}
+.ft-download--inline {
+  position: static;
+  flex-direction: row;
+  padding: 0 8px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ft-accent);
+}
+.ft-download--inline ion-icon {
+  font-size: 18px;
 }
 .ft-bubble.is-media .ft-bubble__meta {
   right: 10px;

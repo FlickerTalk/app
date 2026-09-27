@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import ChatsPage from "./ChatsPage.vue";
 import ChatThread from "../components/ChatThread.vue";
 import { fixture, seed } from "../__tests__/seed";
@@ -91,7 +91,7 @@ describe("ChatsPage", () => {
   describe("with an open session", () => {
     beforeEach(() => {
       store.sessions = [
-        { id: "s1", chats: [{ ...store.chats[0], id: "ft_pablo", name: "Pablo", unread: 0 }] },
+        { id: "s1", chats: [{ ...store.chats[0], id: "ft_pablo", name: "Pablo", unread: 0 }], requests: [] },
       ];
     });
 
@@ -134,6 +134,99 @@ describe("ChatsPage", () => {
       const wrapper = mount(ChatsPage, { shallow: true });
       await wrapper.find("[data-test='session-section'] [data-test='chat-row']").trigger("click");
       expect(push).toHaveBeenCalledWith("/chat/ft_pablo");
+    });
+
+    // A3: a session can go for good; the trash asks once and only then the core is told.
+    it("deletes the session after asking once", async () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.find("[data-test='session-remove']").trigger("click");
+      expect(calls.some(([command]) => command === "core_session_remove")).toBe(false);
+      await wrapper.find("[data-test='session-remove-sure']").trigger("click");
+      expect(calls).toContainEqual(["core_session_remove", { session: "s1" }]);
+      expect(store.sessions).toHaveLength(0);
+    });
+
+    // A5: whoever scanned the session's QR waits in its own requests.
+    it("shows the session's requests with a yes and a no", async () => {
+      screen(false);
+      store.sessions[0].requests = [{ ...store.chats[1], id: "ft_stranger", name: "Someone", unread: 1 }];
+      const wrapper = mount(ChatsPage, { shallow: true });
+      const rows = wrapper.findAll("[data-test='session-requests'] [data-test='request-row']");
+      expect(rows).toHaveLength(1);
+      await rows[0].find("[data-test='request-accept']").trigger("click");
+      expect(calls).toContainEqual(["core_accept_contact", { contact: "ft_stranger" }]);
+    });
+  });
+
+  // A3: with the seven slots taken, a new PIN shows an empty session that is only on the screen.
+  // It looks like any other, trash included; it adds nobody, and it goes without telling the core.
+  describe("with a session that is only on the screen", () => {
+    beforeEach(() => {
+      store.sessions = [{ id: "", pin: "135790", chats: [], requests: [] }];
+    });
+
+    it("looks like any other session, trash included", () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      expect(wrapper.find("[data-test='session-add']").exists()).toBe(true);
+      expect(wrapper.find("[data-test='session-remove']").exists()).toBe(true);
+    });
+
+    it("adds nobody, as there is no room", async () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.find("[data-test='session-add']").trigger("click");
+      await flushPromises();
+      expect(push).not.toHaveBeenCalled();
+      expect(calls.some(([command]) => command.startsWith("core_session"))).toBe(false);
+    });
+
+    it("goes with the trash without telling the core", async () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.find("[data-test='session-remove']").trigger("click");
+      await wrapper.find("[data-test='session-remove-sure']").trigger("click");
+      await flushPromises();
+      expect(calls.some(([command]) => command.startsWith("core_session"))).toBe(false);
+      expect(store.sessions).toHaveLength(0);
+    });
+  });
+
+  // A5: strangers who wrote first with this phone's link wait apart from the list.
+  describe("with requests", () => {
+    beforeEach(() => {
+      store.requests = [{ ...store.chats[1], id: "ft_stranger12345", name: "Mamá", unread: 1, preview: "hey" }];
+    });
+
+    it("shows them apart, with a short id next to the name", () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      const panel = wrapper.find("[data-test='requests']");
+      expect(panel.exists()).toBe(true);
+      expect(panel.findAll("[data-test='request-row']")).toHaveLength(1);
+      expect(panel.text()).toContain("Mamá");
+      expect(panel.text()).toContain("ft_strang");
+      expect(panel.text()).toContain("hey");
+      // The main list is the main list: the request is not among its rows.
+      expect(wrapper.findAll("[data-test='chat-row']")).toHaveLength(fixture.chats.length);
+    });
+
+    it("accepts or declines through the core", async () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.find("[data-test='request-accept']").trigger("click");
+      expect(calls).toContainEqual(["core_accept_contact", { contact: "ft_stranger12345" }]);
+      await wrapper.find("[data-test='request-decline']").trigger("click");
+      expect(calls).toContainEqual(["core_decline_contact", { contact: "ft_stranger12345" }]);
+    });
+
+    it("is not an empty phone while a request waits", () => {
+      screen(false);
+      store.chats = [];
+      const wrapper = mount(ChatsPage, { shallow: true });
+      expect(wrapper.find("[data-test='empty']").exists()).toBe(false);
+      expect(wrapper.find("[data-test='requests']").exists()).toBe(true);
     });
   });
 });

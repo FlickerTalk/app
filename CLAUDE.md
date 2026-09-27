@@ -34,6 +34,7 @@ La plataforma objetivo del MVP es **Android e iOS** (`§85`); escritorio compila
 ```sh
 npm install                                        # registry público vía app/.npmrc
 npm test                                           # tests (Vitest)
+npm run test:e2e                                   # e2e (Playwright + Chromium, núcleo falso; PW_CHROMIUM=… para uno propio)
 npm run typecheck                                  # vue-tsc
 npm run build                                      # vue-tsc + vite build → dist/
 npm run tauri dev                                  # escritorio en modo desarrollo
