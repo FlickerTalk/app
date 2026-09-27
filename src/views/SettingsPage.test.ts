@@ -34,10 +34,11 @@ describe("SettingsPage", () => {
   });
 
   // §61: the encrypted backup comes after the MVP; nothing is shown before it works.
-  it("offers moving the identity to a new phone, and nothing that does not work yet", () => {
+  it("offers moving the identity to a new phone and the backup, and nothing that does not work yet", () => {
     const text = mount(SettingsPage, { shallow: true }).text();
     expect(text).toContain("Move to a new phone");
-    expect(text).not.toContain("Backup");
+    // 2026-09-27: a sealed copy of the phone in the user's own cloud (§61).
+    expect(text).toContain("Backup");
     expect(text).not.toContain("Privacy");
     expect(text).not.toContain("Export identity");
   });

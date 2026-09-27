@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import {
   pickFiles,
+  pluginMayUseDrive,
   pluginFetch,
   pluginForget,
   pluginLiveSend,
@@ -21,6 +22,27 @@ import {
   remindCancel,
   remindList,
   remindSet,
+  sendPicked,
+  vaultBackup,
+  vaultBackupInfo,
+  vaultCancelPending,
+  vaultConnect,
+  vaultDisconnect,
+  vaultDownload,
+  vaultList,
+  vaultMkdir,
+  vaultMove,
+  vaultOpen,
+  vaultRemove,
+  vaultRename,
+  vaultRestore,
+  vaultRetry,
+  vaultSave,
+  vaultSetup,
+  vaultStatus,
+  vaultUnlock,
+  vaultUpload,
+  vaultUploadMessage,
   PLUGIN_EVENT,
   type PickedFile,
   type PluginEvent,
@@ -141,12 +163,95 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
         const target = await pluginOpenChat(id, said.ref);
         if (target) emit("openChat", target.contact);
         value = Boolean(target);
-      }
+      } else if (said.type === "ft.drive") value = await drive(said);
       tell({ type: "ft.done", id: said.id, answer: value ?? null });
     } catch {
       tell({ type: "ft.done", id: said.id, answer: false });
     }
   });
+}
+
+/**
+ * The user's cloud, for a plugin granted it (plan-drive): the core does everything; the plugin
+ * sees names and sizes, never bytes, tokens or the code. `false` when it may not, or it failed.
+ */
+async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise<unknown> {
+  const id = props.plugin.id;
+  if (!(await pluginMayUseDrive(id))) return false;
+  const parent = (value: string) => value || null;
+  switch (said.op) {
+    case "status":
+      return vaultStatus();
+    case "connect":
+      return vaultConnect(said.a || "google");
+    case "setup":
+      return vaultSetup();
+    case "unlock":
+      await vaultUnlock(said.a);
+      return true;
+    case "disconnect":
+      await vaultDisconnect();
+      return true;
+    case "list":
+      return vaultList(parent(said.a));
+    case "mkdir":
+      return vaultMkdir(said.a, parent(said.b));
+    case "rename":
+      await vaultRename(said.a, said.b);
+      return true;
+    case "move":
+      await vaultMove(said.a, parent(said.b));
+      return true;
+    case "remove":
+      await vaultRemove(said.a);
+      return true;
+    case "upload": {
+      // The plugin never opens the picker: the app asks the user, and the core seals what they chose.
+      const picked = await pickFiles("");
+      let went = 0;
+      for (const file of picked) {
+        await vaultUpload(file, parent(said.a));
+        went += 1;
+      }
+      return went;
+    }
+    case "keep": {
+      // The file this plugin was opened with, by its ref: the bytes never pass through the frame.
+      if (!props.reference) return false;
+      const target = await pluginOpenChat(id, props.reference);
+      if (!target) return false;
+      await vaultUploadMessage(target.message, parent(said.a));
+      return true;
+    }
+    case "open":
+      await vaultOpen(said.a);
+      return true;
+    case "save":
+      await vaultSave(said.a);
+      return true;
+    case "send": {
+      // As any file a plugin makes (A2): sent with `auto`, staged for the user with `propose`.
+      if (props.sending === "nothing" || !props.contact) return false;
+      const file = await vaultDownload(said.a);
+      if (props.sending === "auto") await sendPicked(props.contact, file);
+      else emit("attach", file);
+      emit("done");
+      return true;
+    }
+    case "retry":
+      return vaultRetry();
+    case "cancel":
+      await vaultCancelPending(said.a);
+      return true;
+    case "backup":
+      return vaultBackup();
+    case "backupInfo":
+      return vaultBackupInfo();
+    case "restore":
+      return vaultRestore();
+    default:
+      return false;
+  }
 }
 
 /** What the twin on the other side said, for this plugin and this conversation only. */

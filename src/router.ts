@@ -32,6 +32,8 @@ export const routes: RouteRecordRaw[] = [
   { path: "/plugin/:id", component: () => import("./views/PluginPage.vue") },
   { path: "/plan", component: () => import("./views/PlanPage.vue") },
   { path: "/move", component: () => import("./views/MovePage.vue") },
+  // The user's own cloud (2026-09-27): the backup of this phone, and the drive behind it.
+  { path: "/backup", component: () => import("./views/BackupPage.vue") },
   { path: "/call/:id", component: () => import("./views/CallPage.vue") },
 ];
 

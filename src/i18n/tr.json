@@ -260,12 +260,12 @@
     "none": "Henüz eklenti yok",
     "available": "Ekleyebileceğiniz araçlar",
     "install": "Yükle",
-    "live": "Talk to the same plugin on the other side of the chat",
-    "remind": "Set reminders on this phone",
-    "drive": "Keep files in your own cloud",
-    "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
-    "opens": "Opens: {kinds}",
-    "open": "Open"
+    "live": "Sohbetin öbür ucundaki aynı eklentiyle konuşmak",
+    "remind": "Bu telefonda hatırlatıcı kurmak",
+    "drive": "Dosyaları kendi bulutunda saklamak",
+    "storageLarge": "Bu telefonda çok veri saklamak (256 MB'a kadar)",
+    "opens": "Açar: {kinds}",
+    "open": "Aç"
   },
   "emoji": {
     "open": "Emoji",
@@ -335,5 +335,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "Yedek",
+    "none": "Bağlı bulut yok",
+    "noneHint": "Bu telefonun mühürlü bir kopyasını kendi Google Drive'ında sakla. Her şey çıkmadan önce burada şifrelenir; Google mühürlü dosyalar görür, biz hiçbir şey görmeyiz.",
+    "connectGoogle": "Google Drive'ı bağla",
+    "empty": "Bulutunda henüz bir FlickerTalk sürücüsü yok",
+    "emptyHint": "Kurulum bu telefonda bir anahtar oluşturur ve sana bir kurtarma kodu gösterir.",
+    "setUp": "Kur",
+    "codeTitle": "Kurtarma kodun",
+    "codeHint": "Yaz ve güvenli bir yerde sakla: yeni bir telefonda sürücünü açar. Yalnızca bir kez gösterilir ve kimse onu senin için geri getiremez.",
+    "codeDone": "Yazdım",
+    "locked": "Bu bulutta başka bir telefonun sürücüsü var",
+    "unlockHint": "Burada açmak için kurtarma kodunu yaz.",
+    "codePlaceholder": "Kurtarma kodu",
+    "unlockNow": "Aç",
+    "ready": "Sürücün hazır",
+    "backupNow": "Şimdi yedekle",
+    "lastBackup": "Son yedek: {when}",
+    "noBackup": "Henüz yedek yok",
+    "done": "Yedeklendi",
+    "restore": "Yedekten geri yükle",
+    "restoreAsk": "Bu telefondaki her şey yedekle değiştirilsin mi? Uygulama yeniden başlar.",
+    "restoreConfirm": "Geri yükle",
+    "restored": "Yedek burada",
+    "forget": "Bu bulutu bu telefonda unut",
+    "forgetHint": "Dosyaların bulutunda mühürlü kalır. Yeniden açmak için kurtarma kodu gerekir.",
+    "forgetConfirm": "Unut",
+    "used": "Sürücüde: {size}",
+    "pending": "Yüklenmeyi bekleyen: {count}",
+    "working": "Çalışıyor…",
+    "failed": "Bir şeyler ters gitti: {error}",
+    "sees": "Bulutun kaç mühürlü dosya olduğunu, boyutlarını ve tarihlerini görür. Adlarını ya da içeriklerini asla."
   }
 }

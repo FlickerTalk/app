@@ -192,6 +192,60 @@ describe("PluginSheet", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_send_picked", expect.anything());
   });
 
+  // Plan-drive (2026-09-27): the drive is the core's; the plugin asks with an operation and gets
+  // names and sizes back, never bytes, tokens or the code, and only when it was granted it.
+  it("answers the drive for a plugin granted it, never bytes, and stages what it sends", async () => {
+    const listing = { folders: [{ id: "f1", name: "Docs", parent: null, modified: 1 }], files: [], pending: [] };
+    const down = { path: "/data/files/drive/x1/tax.pdf", name: "tax.pdf", mime: "application/pdf", size: 9 };
+    let granted = false;
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_plugin_may_use_drive") return Promise.resolve(granted);
+      if (command === "core_vault_list") return Promise.resolve(listing);
+      if (command === "core_vault_status") return Promise.resolve({ state: "ready", provider: "google", drive: null, problem: null });
+      if (command === "core_vault_download") return Promise.resolve(down);
+      if (command === "core_pick_files") return Promise.resolve([down]);
+      if (command === "core_plugin_open_chat") return Promise.resolve({ contact: "ft_bob", message: "m9" });
+      if (command === "core_vault_upload_message") return Promise.resolve("x2");
+      return Promise.resolve(undefined);
+    });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", sending: "propose", reference: "ref_9" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.drive", id: "d1", op: "list", a: "" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d1", answer: false }, "*");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_vault_list", expect.anything());
+
+    granted = true;
+    says({ type: "ft.drive", id: "d2", op: "list", a: "" });
+    says({ type: "ft.drive", id: "d3", op: "status" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_list", { parent: null });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d2", answer: listing }, "*");
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d3", answer: expect.objectContaining({ state: "ready" }) }, "*");
+
+    // Uploading: the app opens the picker, the core seals what was picked; the frame sees a count.
+    says({ type: "ft.drive", id: "d4", op: "upload", a: "f1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload", { file: down, parent: "f1" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d4", answer: 1 }, "*");
+
+    // Keeping the file it was opened with goes by its ref: no bytes cross the frame.
+    says({ type: "ft.drive", id: "d5", op: "keep", a: "" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload_message", { message: "m9", parent: null });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d5", answer: true }, "*");
+
+    // Sending a file of the drive: down from the cloud, then staged for the user (propose).
+    says({ type: "ft.drive", id: "d6", op: "send", a: "x1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_download", { id: "x1" });
+    expect(wrapper.emitted("attach")).toEqual([[down]]);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_send_picked", expect.anything());
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d6", answer: true }, "*");
+  });
+
   // With nothing granted, nothing leaves: not a file, not a text, not even a call to the core.
   it("lets nothing of a plugin without the permission reach the chat", async () => {
     tauri.invoke.mockResolvedValue({ sent: true });

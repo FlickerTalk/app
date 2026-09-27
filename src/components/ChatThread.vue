@@ -251,7 +251,14 @@ async function openWith(id: string) {
   closeActions();
   if (!message || !chosen) return;
   try {
-    const file = message.kind === "file" ? await readMessageFile(message.id) : undefined;
+    // A plugin granted the drive keeps the file by its ref (plan-drive): the bytes never cross the
+    // frame, so a file of any size opens with it; the rest are handed the bytes.
+    const file =
+      message.kind !== "file"
+        ? undefined
+        : chosen.granted.drive
+          ? { name: message.file?.name ?? "", mime: message.file?.mime ?? "application/octet-stream", data: "" }
+          : await readMessageFile(message.id);
     const reference = await pluginRef(chosen.id, message.id).catch(() => undefined);
     plugin.value = {
       id: chosen.id,

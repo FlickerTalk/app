@@ -297,6 +297,8 @@ pub struct CircleConversation {
 }
 
 
+/// The pool is shared: a clone is the same database.
+#[derive(Clone)]
 pub struct Store {
     pool: SqlitePool,
 }
@@ -1149,6 +1151,11 @@ impl Store {
     pub async fn setting(&self, key: &str) -> Result<Option<String>> {
         let row = sqlx::query("SELECT value FROM settings WHERE key = ?").bind(key).fetch_optional(&self.pool).await?;
         Ok(row.map(|row| row.get("value")))
+    }
+
+    pub async fn forget_setting(&self, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM settings WHERE key = ?").bind(key).execute(&self.pool).await?;
+        Ok(())
     }
 
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<()> {

@@ -260,12 +260,12 @@
     "none": "아직 플러그인이 없습니다",
     "available": "추가할 수 있는 도구",
     "install": "설치",
-    "live": "Talk to the same plugin on the other side of the chat",
-    "remind": "Set reminders on this phone",
-    "drive": "Keep files in your own cloud",
-    "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
-    "opens": "Opens: {kinds}",
-    "open": "Open"
+    "live": "대화 상대편의 같은 플러그인과 통신",
+    "remind": "이 휴대폰에 알림 설정",
+    "drive": "내 클라우드에 파일 보관",
+    "storageLarge": "이 휴대폰에 많은 데이터 보관 (최대 256 MB)",
+    "opens": "여는 형식: {kinds}",
+    "open": "열기"
   },
   "emoji": {
     "open": "이모지",
@@ -335,5 +335,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "백업",
+    "none": "연결된 클라우드가 없습니다",
+    "noneHint": "이 휴대폰의 봉인된 사본을 내 Google 드라이브에 보관하세요. 모든 것은 나가기 전에 여기서 암호화됩니다. Google에는 봉인된 파일만 보이고, 우리는 아무것도 보지 못합니다.",
+    "connectGoogle": "Google 드라이브 연결",
+    "empty": "클라우드에 아직 FlickerTalk 드라이브가 없습니다",
+    "emptyHint": "설정하면 이 휴대폰에 키가 만들어지고 복구 코드가 표시됩니다.",
+    "setUp": "설정",
+    "codeTitle": "복구 코드",
+    "codeHint": "적어서 안전하게 보관하세요. 새 휴대폰에서 드라이브를 여는 데 필요합니다. 한 번만 표시되며 아무도 대신 찾아줄 수 없습니다.",
+    "codeDone": "적어 두었습니다",
+    "locked": "이 클라우드에는 다른 휴대폰의 드라이브가 있습니다",
+    "unlockHint": "여기서 열려면 복구 코드를 입력하세요.",
+    "codePlaceholder": "복구 코드",
+    "unlockNow": "열기",
+    "ready": "드라이브가 준비되었습니다",
+    "backupNow": "지금 백업",
+    "lastBackup": "마지막 백업: {when}",
+    "noBackup": "아직 백업이 없습니다",
+    "done": "백업 완료",
+    "restore": "백업에서 복원",
+    "restoreAsk": "이 휴대폰의 모든 것을 백업으로 바꿀까요? 앱이 다시 시작됩니다.",
+    "restoreConfirm": "복원",
+    "restored": "백업을 가져왔습니다",
+    "forget": "이 휴대폰에서 이 클라우드 잊기",
+    "forgetHint": "파일은 봉인된 채 클라우드에 남습니다. 다시 열려면 복구 코드가 필요합니다.",
+    "forgetConfirm": "잊기",
+    "used": "드라이브 사용량: {size}",
+    "pending": "업로드 대기: {count}",
+    "working": "작업 중…",
+    "failed": "문제가 발생했습니다: {error}",
+    "sees": "클라우드는 봉인된 파일의 개수, 크기, 날짜만 봅니다. 이름이나 내용은 절대 보지 못합니다."
   }
 }

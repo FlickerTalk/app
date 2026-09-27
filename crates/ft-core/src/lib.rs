@@ -18,6 +18,7 @@ pub mod files;
 pub mod moving;
 pub mod plugins;
 pub mod net;
+pub mod vault;
 pub mod online;
 pub mod web;
 
@@ -109,6 +110,10 @@ pub enum Event {
     PluginEvent { plugin: String, contact: String, data: Vec<u8> },
     /// A plugin set or cancelled a reminder: the phone's alarm clock is told again.
     RemindersChanged,
+    /// The user's cloud (plan-drive): connected, set up, changed, backed up or forgotten.
+    VaultChanged,
+    /// How far a transfer with the cloud is: (done, total) bytes.
+    VaultProgress { done: u64, total: u64 },
 }
 
 pub(crate) enum Route {
@@ -145,6 +150,12 @@ pub struct Core {
     /// The hidden sessions open right now, with their slot. Only in memory: the app starts with
     /// all of them closed.
     open_sessions: std::sync::Mutex<HashMap<String, u8>>,
+    /// The user's cloud (plan-drive), once connected and open.
+    vault: Mutex<Option<Arc<ft_vault::Vault>>>,
+    /// How clouds are reached: Google Drive in the app, a memory in the tests.
+    cloud: OnceLock<Arc<dyn vault::Cloud>>,
+    /// Where the vault keeps what waits to go up (set by the app).
+    vault_dir: OnceLock<PathBuf>,
 }
 
 /// What a session's PIN is hashed with, so the hash is bound to this phone's key.
@@ -220,6 +231,9 @@ impl Core {
             move_dir: OnceLock::new(),
             moving: std::sync::Mutex::default(),
             open_sessions: std::sync::Mutex::default(),
+            vault: Mutex::new(None),
+            cloud: OnceLock::new(),
+            vault_dir: OnceLock::new(),
         }))
     }
 
