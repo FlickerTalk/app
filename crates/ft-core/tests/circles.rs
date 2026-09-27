@@ -408,7 +408,8 @@ async fn a_member_leaving_refreshes_the_thread_of_the_others() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(told, "bob's open thread hears of it");
-    assert!(happened(&bob, &circle).await.contains(&"left:Carol".to_owned()));
+    // The event may come from the circle being set up, before the leave is stored: wait for it.
+    until("bob sees carol leave", || async { happened(&bob, &circle).await.contains(&"left:Carol".to_owned()) }).await;
 }
 
 // The app sends in the background, so it must be able to ask first: an error from the send
