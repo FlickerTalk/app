@@ -51,8 +51,11 @@ Primer trozo del runtime, todo en seco y con tests:
 
 El núcleo es un **puente**, no un contenedor: **ninguna herramienta viaja dentro de la app**.
 
-- **Catálogo servido**: `https://flickertalk.com/plugins/index.json` + `index.json.sig` + los
-  paquetes. Lo construye y firma `ftcatalogue` (bin de este crate) desde los repos de los plugins;
+- **Catálogo servido**: `https://flickertalk.com/plugins/catalogue.json` + `catalogue.json.sig` +
+  los paquetes. **Dos índices** (2026-09-28): `catalogue.json` (`INDEX`) lo lista todo y es el que
+  lee el núcleo desde la 1.1.0; `index.json` (`LEGACY_INDEX`) es el que lee la app 1.0.0, que no
+  mira `minCoreVersion`, y solo lista lo que corre en `LEGACY_CORE` (1.0.0): si no, la 1.0.0
+  ofrecería plugins que en ella se rompen. Los dos van firmados con la misma clave. Lo construye y firma `ftcatalogue` (bin de este crate) desde los repos de los plugins;
   la clave privada nunca sale de `infra/secrets/plugin-catalogue.key`. La app lo lee con
   `Core::catalogue()` y solo instala con `Core::add_plugin()`, que exige que el paquete sea byte a
   byte el que el índice listaba y que la URL sea del propio catálogo.

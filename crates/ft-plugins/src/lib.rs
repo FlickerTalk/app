@@ -16,6 +16,13 @@ use zip::{ZipArchive, ZipWriter};
 /// index (§50). Its private half never leaves `infra/secrets/plugin-catalogue.key`.
 pub const CATALOGUE_KEY: &str = "4XXrMhV2sRZSK/RpFoheNAposE119EfQE8bqdRP8JcA";
 
+/// The index every core from 1.1.0 on reads: every plugin, each with the core it needs (2026-09-28).
+pub const INDEX: &str = "catalogue.json";
+/// The index the app 1.0.0 reads. That app does not look at `minCoreVersion`, so this one lists
+/// only what runs on `LEGACY_CORE`: anything else would be offered there and break.
+pub const LEGACY_INDEX: &str = "index.json";
+pub const LEGACY_CORE: &str = "1.0.0";
+
 /// The catalogue's key, ready to verify with.
 pub fn catalogue() -> Ed25519PublicKey {
     Ed25519PublicKey::from_base64(CATALOGUE_KEY).expect("the catalogue key is built in")
