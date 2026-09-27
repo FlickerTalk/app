@@ -951,10 +951,7 @@ pub async fn core_circle_send(circle: String, text: String, client: State<'_, Cl
     }
     let core = client.core().await?;
     // What stops a text (admins only, no longer in it) is said at once; delivery runs behind.
-    let record = core.store().circle(&circle).await.map_err(failed)?.ok_or("unknown circle")?;
-    if record.left {
-        return Err("you are not in that circle".to_owned());
-    }
+    core.circle_writable(&circle).await.map_err(failed)?;
     tauri::async_runtime::spawn(async move {
         let _ = core.send_circle_text(&circle, &text).await;
     });

@@ -156,15 +156,22 @@ impl Core {
         Ok(())
     }
 
+    /// Whether this phone may write in the circle right now: it is in it, and it is an admin if
+    /// only the admins write. The app asks before sending, which then runs in the background.
+    pub async fn circle_writable(&self, circle: &str) -> Result<()> {
+        let record = self.store.circle(circle).await?.ok_or_else(|| anyhow!("unknown circle"))?;
+        ensure!(!record.left, "you are not in that circle");
+        let card = CircleCard::decode(&record.card)?;
+        ensure!(!card.admins_only() || card.is_admin(self.device_id.as_str()), "only the admins write in this circle");
+        Ok(())
+    }
+
     /// Says something in the circle: stored once, queued once per member, and delivered to each
     /// by whichever way works, like a message to one contact.
     pub async fn send_circle_text(&self, circle: &str, text: &str) -> Result<String> {
         let text = text.trim();
         ensure!(!text.is_empty(), "nothing to send");
-        let record = self.store.circle(circle).await?.ok_or_else(|| anyhow!("unknown circle"))?;
-        ensure!(!record.left, "you are not in that circle");
-        let card = CircleCard::decode(&record.card)?;
-        ensure!(!card.admins_only() || card.is_admin(self.device_id.as_str()), "only the admins write in this circle");
+        self.circle_writable(circle).await?;
         self.allowed(Doing::Reply).await?;
         let others = self.other_members(circle).await?;
         let packet = Packet::new(Body::CircleMessage { circle: circle.to_owned(), text: text.to_owned() });
@@ -312,7 +319,9 @@ impl Core {
         self.note(circle, "left", &from.device_id, &name).await?;
         self.prune_circle_contact(&from.device_id).await?;
         if !self.circle_silent(&record) {
+            // The members changed, and the thread has a new line: "X left".
             let _ = self.events.send(Event::CirclesChanged);
+            let _ = self.events.send(Event::CircleMessagesChanged { circle: circle.to_owned() });
         }
         Ok(())
     }

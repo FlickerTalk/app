@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use ft_core::{Core, Peer, Transport};
+use ft_core::{Core, Event, Peer, Transport};
 use ft_storage::{MessageState, Store};
 use tokio::sync::mpsc;
 
@@ -383,6 +383,51 @@ async fn with_admins_only_the_others_read() {
     assert!(bob.send_circle_text(&circle, "may I?").await.is_err());
     alice.send_circle_text(&circle, "news").await.expect("alice may");
     until("bob and carol read it", || async { said(&bob, &circle).await == ["news"] && said(&carol, &circle).await == ["news"] }).await;
+}
+
+// Tried on two phones (2026-09-27): with the circle open on screen, "Carol left" only showed
+// after leaving the thread and coming back. The thread listens for its messages, so a leave
+// has to say its messages changed, not only the members.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_leaving_refreshes_the_thread_of_the_others() {
+    let net = Net::new();
+    let (alice, bob, carol) = three(&net).await;
+    let circle = friends(&alice, &bob, &carol).await;
+    let mut at_bob = bob.events();
+
+    carol.leave_circle(&circle).await.expect("carol leaves");
+    let expected = Event::CircleMessagesChanged { circle: circle.clone() };
+    let mut told = false;
+    for _ in 0..250 {
+        while let Ok(event) = at_bob.try_recv() {
+            told |= event == expected;
+        }
+        if told {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(told, "bob's open thread hears of it");
+    assert!(happened(&bob, &circle).await.contains(&"left:Carol".to_owned()));
+}
+
+// The app sends in the background, so it must be able to ask first: an error from the send
+// itself would be lost (tried on two phones, 2026-09-27).
+#[tokio::test(flavor = "multi_thread")]
+async fn whoever_may_not_write_is_told_before_sending() {
+    let net = Net::new();
+    let (alice, bob, carol) = three(&net).await;
+    let circle = friends(&alice, &bob, &carol).await;
+    assert!(bob.circle_writable(&circle).await.is_ok());
+
+    alice.set_circle_admins_only(&circle, true).await.expect("sets");
+    until("bob knows", || async { bob.store().circle(&circle).await.expect("reads").is_some_and(|c| c.admins_only) }).await;
+    assert!(bob.circle_writable(&circle).await.is_err(), "only the admins write");
+    assert!(alice.circle_writable(&circle).await.is_ok());
+
+    carol.leave_circle(&circle).await.expect("carol leaves");
+    assert!(carol.circle_writable(&circle).await.is_err(), "she is not in it");
+    assert!(alice.circle_writable("no such circle").await.is_err());
 }
 
 // ---------------------------------------------------------------------------------------------
