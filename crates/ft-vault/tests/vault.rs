@@ -47,6 +47,9 @@ async fn a_drive_is_made_filled_and_read_back_and_the_cloud_sees_nothing_of_it()
     for name in &names {
         let bytes = cloud.bytes_of(name).unwrap();
         assert!(!contains(&bytes, b"tax 2026"), "{name} carries a name");
+        // Found on a real Drive (2026-09-27): vault.json named the phone that made it, which ties
+        // the Google account to the FlickerTalk identity. It says nothing of who wrote it.
+        assert!(!contains(&bytes, b"phone-a"), "{name} names the phone");
         assert!(!contains(&bytes, b"jpeg bytes"), "{name} carries content");
         assert!(!contains(&bytes, &big[1000..1100]), "{name} carries content");
     }

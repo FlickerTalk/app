@@ -302,7 +302,9 @@ impl GoogleDrive {
 
     /// The app's folder, made if it is not there.
     async fn folder(&self) -> Result<String> {
-        if let Some(id) = self.folder.lock().await.clone() {
+        // Held while looking and making: two calls at once would otherwise make two folders.
+        let mut known = self.folder.lock().await;
+        if let Some(id) = known.clone() {
             return Ok(id);
         }
         let found = self.find(&format!("name = '{FOLDER}' and mimeType = '{FOLDER_MIME}' and trashed = false")).await?;
@@ -322,7 +324,7 @@ impl GoogleDrive {
                 made.id
             }
         };
-        *self.folder.lock().await = Some(id.clone());
+        *known = Some(id.clone());
         Ok(id)
     }
 
