@@ -42,16 +42,27 @@ vemos nada, porque nuestro servidor no participa (`§100`).
 | El plugin | nombres, tamaños y estados; nunca bytes, tokens ni el código. |
 | La WebView de la app | lo mismo que el plugin, más el código de recuperación **una vez**, en pantalla. |
 
+## Probado en un Google Drive de verdad (2026-09-27)
+
+En el Lenovo, con la cuenta de Ioan: conectar (Custom Tab → consentimiento `drive.file` → vuelta a
+la app), crear el drive, copia de seguridad, y en «Mi drive» guardar un PDF recibido por el chat
+(«abrir con»), subir otro desde el selector de Android, bajarlo a Descargas y enviarlo al chat. Lo
+bajado y lo recibido en el Samsung es idéntico al original (mismo SHA-256). Los ficheros de la
+carpeta de la app, bajados desde el Drive: todos empiezan por `FTV1`, con ~8 bits/byte de
+entropía, y ninguno lleva ni el nombre ni un byte del documento.
+
 ## Lo que falta y lo que está sin probar en dispositivo
 
-- **Cliente OAuth de Google**: hay que darlo de alta (tipo Android, con la SHA-1 de la clave de
-  subida y otra de desarrollo) y pasarlo en `FT_GOOGLE_CLIENT_ID` al compilar (va al núcleo con
-  `option_env!` y al `AndroidManifest` como esquema de redirección invertido). Sin él, «Conectar
-  Google Drive» dice que no hay cliente configurado. También la pantalla de consentimiento
-  (verificación de Google, días o semanas).
-- **Kotlin/Swift** (`authorize`) sin compilar ni probar aquí: no hay SDK en este entorno. Los
-  tests de Rust cubren el flujo con un navegador falso.
+- **Cliente OAuth de Google** (2026-09-27): cliente de tipo Android en el proyecto de Firebase, con
+  «Enable custom URI scheme» activado (Google lo marca como no recomendado en Android; así un solo
+  cliente vale para cualquier firma), redirección `com.googleusercontent.apps.<id>:/oauth2redirect`.
+  Se pasa en `FT_GOOGLE_CLIENT_ID` al compilar. La pantalla de consentimiento está **en pruebas**:
+  solo entran los usuarios de prueba dados de alta; falta la verificación de Google para publicar.
+  Pasar Android a `AuthorizationClient` de Play Services y el cliente de iOS van después de
+  producción (decisión de Ioan).
+- **Swift** (`authorize` en iOS) sin compilar: no hay Xcode aquí. El Kotlin está probado.
+- Restaurar una copia en otro teléfono, sin probar en dispositivo.
 - **Subidas largas en segundo plano** (servicio en primer plano en Android): pendiente; hoy una
   subida grande necesita la app en pantalla y, si Android la mata, queda pendiente y se reintenta.
 - **Pago** (producto `drive`, fase 6 del plan), Dropbox, iCloud: fuera de esta entrega.
-- Pruebas contra Google real (`tests/live_*`): pendientes del cliente.
+- Pruebas automáticas contra Google real (`tests/live_*`): pendientes.
