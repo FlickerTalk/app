@@ -537,8 +537,11 @@ async fn a_circle_made_in_a_hidden_session_belongs_to_it() {
         bob.circles(None).await.expect("lists").len() == 1 && carol.circles(None).await.expect("lists").len() == 1
     })
     .await;
-    // Bob met Carol through a circle of Alice's session: she is a contact of that session.
-    assert_eq!(bob.store().contact(&id(&carol)).await.expect("reads").expect("there").session, None);
+    // Bob met Carol through a circle of Alice's session: she is a contact of that session. The
+    // circle is saved before its members are met, so on a slow machine (CI) this has to wait too.
+    let carol_id = id(&carol);
+    until("bob has met carol", || async { bob.store().contact(&carol_id).await.expect("reads").is_some() }).await;
+    assert_eq!(bob.store().contact(&carol_id).await.expect("reads").expect("there").session, None);
     assert_eq!(alice.store().circle(&circle).await.expect("reads").expect("there").session.as_deref(), Some(session.as_str()));
 
     // The session goes: the circle goes with it, and Bob's copy is simply frozen without news.
