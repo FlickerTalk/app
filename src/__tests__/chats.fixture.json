@@ -21,7 +21,7 @@
           "kind": "file",
           "time": "09:38",
           "status": "read",
-          "file": { "name": "menu.pdf", "size": "1.2 MB", "progress": 1, "state": "done" }
+          "file": { "name": "menu.pdf", "size": "1.2 MB", "mime": "application/pdf", "progress": 1, "state": "done" }
         },
         { "id": "m5", "mine": true, "text": "That's the menu, the pasta looks amazing", "time": "09:40", "status": "read" },
         { "id": "m6", "mine": false, "text": "See you at 6 then ✨", "time": "09:41" }

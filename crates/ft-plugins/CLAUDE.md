@@ -108,3 +108,15 @@ Plugin API (una capacidad, varios plugins):
   `storage: large`, `send: propose`; abre `application/x-ftboard` e `image/*`) y `plugin-drive`
   (Mi drive; `drive` + `send: propose`; abre `*/*`). Se descargan del catálogo; ninguno viaja en la
   app.
+
+## Estado (2026-09-27, visor de documentos)
+
+- **`views`** en el manifiesto: los tipos de fichero de los que el plugin es **el visor**. Distinto
+  de `opens` («Abrir con»): tocar una foto no debe abrir la pizarra, ni cualquier fichero el drive.
+  Al abrir el paquete se exige que cada entrada sea un tipo exacto (`*/*` y `type/*` se rechazan),
+  que esté también en `opens`, y que un plugin con `views` **no pida `network`**: el toque le
+  entrega los bytes sin que el usuario lo haya elegido en ese momento. `Manifest::views_kind(mime)`
+  ignora mayúsculas y parámetros, como `opens_kind`. Un manifiesto sin `views` sigue valiendo.
+- `CORE_VERSION` pasa a **1.2.0**; `plugin-pdf-viewer` (pdf.js legacy sin worker, sin `eval`, sin
+  `fetch`, sin wasm, dentro de la CSP de los plugins tal cual) pide esa versión y es el visor de
+  `application/pdf`. Pesa ~3 MB: no es semilla.

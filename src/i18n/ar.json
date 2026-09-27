@@ -55,7 +55,8 @@
     "deleteSure": "حذف",
     "forwardTo": "إعادة توجيه إلى",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "تطبيق آخر"
   },
   "status": {
     "pending": "بانتظار الجهاز",

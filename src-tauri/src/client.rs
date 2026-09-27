@@ -1250,6 +1250,9 @@ pub struct PluginView {
     /// The kinds of file it opens (2026-09-27), for the "open with" of a message.
     #[serde(default)]
     opens: Vec<String>,
+    /// The kinds of file it is the viewer of: a tap on such a file opens it here.
+    #[serde(default)]
+    views: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -1317,6 +1320,7 @@ pub async fn core_plugins(client: State<'_, Client>) -> Result<Vec<PluginView>, 
             version: plugin.manifest.version,
             installed_at: plugin.installed_at,
             opens: plugin.manifest.opens,
+            views: plugin.manifest.views,
         })
         .collect())
 }
@@ -1643,6 +1647,7 @@ pub async fn core_plugins_opening(mime: String, client: State<'_, Client>) -> Re
             version: plugin.manifest.version,
             installed_at: plugin.installed_at,
             opens: plugin.manifest.opens,
+            views: plugin.manifest.views,
         })
         .collect())
 }

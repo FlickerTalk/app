@@ -12,7 +12,8 @@ Todo el **cliente** de FlickerTalk. Es un proyecto Tauri 2 generado con `create-
 
 Los plugins **no** viven aquí: cada uno tiene su repo (`FlickerTalk/plugin-images`, `plugin-pdf`,
 `plugin-redact`, `plugin-sketch`, `plugin-markdown` y, desde el 2026-09-27, `plugin-notes`,
-`plugin-board` y `plugin-drive`, que piden el núcleo 1.1.0). Aquí está el runtime que los instala y
+`plugin-board` y `plugin-drive`, que piden el núcleo 1.1.0, y `plugin-pdf-viewer`, que pide el
+1.2.0). Aquí está el runtime que los instala y
 ejecuta (`crates/ft-plugins`) y la API que el núcleo les expone; el contrato para terceros vive
 en `plugin-sdk/` (MIT).
 
@@ -67,9 +68,11 @@ npm run tauri android build -- --apk --target aarch64   # APK firmado, minificad
 npm run tauri android build -- --aab                     # para Google Play
 ```
 
-**Versión 1.1.0 (2026-09-27, sin publicar)**: plugins fase 3 (registros, avisos, canal en directo,
-«abrir con»), la nube del usuario (copia de seguridad y «Mi drive», `docs/drive.md`) y los tres
-plugins nuevos. `version` de `tauri.conf.json` y `CORE_VERSION` de `ft-core` van a la par.
+**Versión 1.2.0 (2026-09-27, sin publicar)**: plugins fase 3 (registros, avisos, canal en directo,
+«abrir con»), la nube del usuario (copia de seguridad y «Mi drive», `docs/drive.md`), los tres
+plugins nuevos, y el visor de documentos (`views` en el manifiesto, el toque en el chat abre el
+PDF en `plugin-pdf-viewer`; en iOS, Quick Look). `version` de `tauri.conf.json` y `CORE_VERSION`
+de `ft-core` van a la par.
 
 **Estado (2026-09-23): la 1.0.0 está en revisión en Google Play.** El AAB (29,5 MB; 8,45 MB de
 descarga) se subió a mano —la primera subida lo exige— desde la cuenta de organización ERPlora,

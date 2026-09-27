@@ -55,7 +55,8 @@
     "deleteSure": "삭제",
     "forwardTo": "전달할 대상",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "다른 앱"
   },
   "status": {
     "pending": "상대 기기 대기 중",

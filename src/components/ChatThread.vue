@@ -29,6 +29,7 @@ import {
   shareOutline,
   arrowRedoOutline,
   extensionPuzzleOutline,
+  openOutline,
   trashOutline,
   videocamOutline,
 } from "ionicons/icons";
@@ -37,7 +38,7 @@ import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
-import { installed, openersOf, refreshPlugins, type HandedFile } from "../plugins";
+import { installed, openersOf, refreshPlugins, viewerOf, type HandedFile } from "../plugins";
 import {
   acceptFile,
   chat as chatOf,
@@ -56,7 +57,9 @@ import {
   sendText,
   shareMessage,
   store,
+  type ChatMessage,
   type PickedFile,
+  type PluginView,
   type Sending,
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
@@ -250,6 +253,36 @@ async function openWith(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   closeActions();
   if (!message || !chosen) return;
+  await openIn(chosen, message);
+}
+
+/** Whether a tap on this file shows it inside the app: the plugin that `views` its kind. */
+function viewerFor(message: ChatMessage | undefined): PluginView | undefined {
+  return message?.kind === "file" ? viewerOf(installed.value, message.file?.mime || "application/octet-stream") : undefined;
+}
+const viewable = computed(() => Boolean(viewerFor(messages.value.find((one) => one.id === acting.value))));
+
+/**
+ * A tap on a file (document viewer, 2026-09-27): shown here by its viewer when there is one and
+ * the bytes can be handed over; otherwise, or when that fails, it goes to another app as before,
+ * so the user always gets something.
+ */
+async function tapFile(id: string) {
+  const message = messages.value.find((one) => one.id === id);
+  const viewer = viewerFor(message);
+  if (message && viewer && (await openIn(viewer, message))) return;
+  await openFile(id);
+}
+
+/** «Another app» from "open with": the system's viewer, as a tap without a viewer does. */
+async function openElsewhere() {
+  const id = acting.value;
+  closeActions();
+  await openFile(id);
+}
+
+/** Puts a message in a plugin's window. False when the file could not be handed over. */
+async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean> {
   try {
     // A plugin granted the drive keeps the file by its ref (plan-drive): the bytes never cross the
     // frame, so a file of any size opens with it; the rest are handed the bytes.
@@ -269,8 +302,10 @@ async function openWith(id: string) {
       file,
       reference,
     };
+    return true;
   } catch {
-    // A file not here whole, or too big for a plugin: nothing opens.
+    // A file not here whole, or too big for a plugin: nothing opens here.
+    return false;
   }
 }
 
@@ -431,7 +466,7 @@ watch(
         :message="message"
         :saved="saved.has(message.id)"
         :folded="folded.has(message.id)"
-        @open="openFile"
+        @open="tapFile"
         @save="save"
         @download="download"
         @actions="act"
@@ -467,6 +502,10 @@ watch(
           @click="openWith(one.id)"
         >
           {{ one.name }}
+        </button>
+        <!-- With a viewer, a tap no longer leaves the app: the other apps are still one press away. -->
+        <button v-if="viewable" type="button" class="ft-actions__to" data-test="open-elsewhere" @click="openElsewhere">
+          <ion-icon :icon="openOutline" aria-hidden="true" /> {{ $t("chat.otherApp") }}
         </button>
       </div>
       <div v-else class="ft-actions__bar">

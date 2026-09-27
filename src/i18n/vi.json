@@ -55,7 +55,8 @@
     "deleteSure": "Xóa",
     "forwardTo": "Chuyển tiếp đến",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Ứng dụng khác"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

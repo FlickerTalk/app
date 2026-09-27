@@ -55,7 +55,8 @@
     "deleteSure": "Удалить",
     "forwardTo": "Переслать в",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Другое приложение"
   },
   "status": {
     "pending": "Ожидание устройства",

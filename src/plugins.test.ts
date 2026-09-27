@@ -6,7 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
-import { fromFrame, frameUrl, installed, openersOf, opensKind, refreshPlugins } from "./plugins";
+import { fromFrame, frameUrl, installed, openersOf, opensKind, refreshPlugins, viewerOf } from "./plugins";
 import type { PluginView } from "./core";
 
 const CODE: PluginView = {
@@ -160,5 +160,17 @@ describe("plugins in the app", () => {
     expect(ids(openersOf([board, notes, deaf, drive], { kind: "file", file: { mime: "image/png" } }))).toEqual([board.id, drive.id]);
     expect(ids(openersOf([board, notes, deaf, drive], { kind: "file", file: { mime: "application/x-ftboard" } }))).toEqual([board.id, drive.id]);
     expect(ids(openersOf([board, notes], { kind: "file", file: {} }))).toEqual([]);
+  });
+
+  // 2026-09-27: a tap shows a file in its viewer; opening is not viewing.
+  it("finds the viewer of a file, never a plugin that merely opens it, the latest first", () => {
+    const drive = { ...CODE, id: "com.flickertalk.drive", opens: ["*/*"], installedAt: 9 };
+    const board = { ...CODE, id: "com.flickertalk.board", opens: ["image/*", "application/pdf"], installedAt: 9 };
+    const older = { ...CODE, id: "com.example.pdf-old", opens: ["application/pdf"], views: ["application/pdf"], installedAt: 1 };
+    const newer = { ...CODE, id: "com.flickertalk.pdfviewer", opens: ["application/pdf"], views: ["application/pdf"], installedAt: 5 };
+    expect(viewerOf([drive, board], "application/pdf")).toBeUndefined();
+    expect(viewerOf([drive, board, older, newer], "application/pdf")?.id).toBe(newer.id);
+    expect(viewerOf([drive, board, older, newer], "APPLICATION/PDF; charset=x")?.id).toBe(newer.id);
+    expect(viewerOf([newer], "image/png")).toBeUndefined();
   });
 });

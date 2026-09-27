@@ -55,7 +55,8 @@
     "deleteSure": "Șterge",
     "forwardTo": "Redirecționează către",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Altă aplicație"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

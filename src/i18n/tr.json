@@ -55,7 +55,8 @@
     "deleteSure": "Sil",
     "forwardTo": "Şuna ilet",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Başka bir uygulama"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

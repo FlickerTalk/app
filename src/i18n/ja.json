@@ -55,7 +55,8 @@
     "deleteSure": "削除",
     "forwardTo": "転送先",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "別のアプリ"
   },
   "status": {
     "pending": "相手の端末を待っています",

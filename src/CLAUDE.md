@@ -103,6 +103,13 @@ Estado (2026-09-27, plugins fase 3 y la nube del usuario; `docs/drive.md`):
   `ft://plugin` y se reenvía al marco como `ft.live`.
 - `PluginsPage` tiene un interruptor por permiso nuevo (`live`, `remind`, `drive`, `storage`
   grande) y enseña qué abre cada plugin.
+- **Visor de documentos** (2026-09-27): tocar un fichero (`tapFile` en `ChatThread`) lo abre en
+  el plugin que `views` su tipo (`viewerOf` en `plugins.ts`: tipo exacto; entre dos, el instalado
+  más tarde), con los bytes y el `ref`; sin visor, o si los bytes no se pueden entregar (no está
+  entero, pasa de 32 MB), va a otra app (`openFile`) como antes. `openIn(plugin, message)` es lo
+  común entre el toque y «Abrir con», que con visor ofrece además **«Otra app»**
+  (`open-elsewhere`, `chat.otherApp`). En iOS no hay plugins descargados: el toque va siempre a
+  Quick Look.
 - **Copia de seguridad** (`BackupPage`, Ajustes → Copia de seguridad): conectar Google Drive
   (login en el navegador del sistema, por el núcleo), crear el drive y enseñar el **código de
   recuperación una sola vez**, abrir el drive de otro teléfono con el código, hacer copia,

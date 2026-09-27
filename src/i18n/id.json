@@ -55,7 +55,8 @@
     "deleteSure": "Hapus",
     "forwardTo": "Teruskan ke",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Aplikasi lain"
   },
   "status": {
     "pending": "Menunggu perangkat",

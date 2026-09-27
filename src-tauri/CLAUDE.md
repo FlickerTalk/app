@@ -78,6 +78,11 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   preguntar por `pendingReminder` cada vez que la app pasa a visible). **Sin probar**: el Swift
   (no hay Xcode aquí), `authorize` contra Google (falta el cliente OAuth), avisos tras reinicio y
   en Doze.
+- **Visor de documentos en iOS** (2026-09-27): `openFile(path, mime)` en `PlatformPlugin.swift`
+  presenta un `QLPreviewController` (Quick Look: PDF, Office, Pages, texto e imágenes, dentro de
+  la app; su botón de compartir manda el fichero a otra app) sobre `manager.viewController`;
+  rechaza si el fichero no está o Quick Look no puede con él (`previewable`, con test). En Rust no
+  cambia nada: `Platform::open_file` ya llamaba a `openFile` en móvil.
 
 ## Reglas
 

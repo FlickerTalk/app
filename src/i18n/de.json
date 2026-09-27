@@ -55,7 +55,8 @@
     "deleteSure": "Löschen",
     "forwardTo": "Weiterleiten an",
     "download": "Herunterladen",
-    "discardAttachment": "Anhang verwerfen"
+    "discardAttachment": "Anhang verwerfen",
+    "otherApp": "Andere App"
   },
   "status": {
     "pending": "Warte auf Gerät",
