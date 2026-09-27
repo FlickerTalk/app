@@ -77,6 +77,65 @@ describe("ChatsPage", () => {
     expect(push).toHaveBeenCalledWith("/add-contact");
   });
 
+  // Circles (2026-09-27): a row like any other, with who said the last thing, and a button to
+  // make a new one, which needs someone to put in it.
+  describe("with a circle", () => {
+    beforeEach(() => {
+      store.circles = [
+        {
+          id: "circle1",
+          name: "Friends",
+          hue: 120,
+          members: [
+            { id: "ft_me", name: "Me", admin: true, me: true },
+            { id: "c1", name: "Maria López", admin: false, me: false },
+          ],
+          admin: true,
+          adminsOnly: false,
+          left: false,
+          unread: 3,
+          time: "10:02",
+          preview: "dinner on friday?",
+          lastMine: false,
+          lastSender: "Maria López",
+          status: "delivered",
+          messages: [{ id: "m1", mine: false, text: "dinner on friday?", time: "10:02", kind: "text", sender: "c1", senderName: "Maria López" }],
+        },
+      ];
+    });
+
+    it("lists the circle with who said the last thing and how much is unread", () => {
+      screen(false);
+      const row = mount(ChatsPage, { shallow: true }).find("[data-test='circle-row']");
+      expect(row.text()).toContain("Friends");
+      expect(row.text()).toContain("Maria López: dinner on friday?");
+      expect(row.find("[data-test='unread']").text()).toBe("3");
+    });
+
+    it("opens the circle full screen on phones and next to the list on wide screens", async () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.find("[data-test='circle-row']").trigger("click");
+      expect(push).toHaveBeenCalledWith("/circle/circle1");
+      await wrapper.find("[data-test='circle-more']").trigger("click");
+      expect(push).toHaveBeenCalledWith("/circle/circle1/info");
+
+      screen(true);
+      const wide = mount(ChatsPage, { shallow: true });
+      await wide.find("[data-test='circle-row']").trigger("click");
+      expect(wide.findComponent({ name: "CircleThread" }).exists()).toBe(true);
+    });
+
+    it("offers a new circle only when there is someone to put in it", async () => {
+      screen(false);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.find("[data-test='new-circle']").trigger("click");
+      expect(push).toHaveBeenCalledWith("/new-circle");
+      store.chats = [];
+      expect(mount(ChatsPage, { shallow: true }).find("[data-test='new-circle']").exists()).toBe(false);
+    });
+  });
+
   // Issue app#1: every row opens its contact's own settings.
   it("opens the settings of a contact from its row", async () => {
     const wrapper = mount(ChatsPage, { shallow: true });
@@ -91,7 +150,7 @@ describe("ChatsPage", () => {
   describe("with an open session", () => {
     beforeEach(() => {
       store.sessions = [
-        { id: "s1", chats: [{ ...store.chats[0], id: "ft_pablo", name: "Pablo", unread: 0 }], requests: [] },
+        { id: "s1", chats: [{ ...store.chats[0], id: "ft_pablo", name: "Pablo", unread: 0 }], requests: [], circles: [] },
       ];
     });
 
@@ -163,7 +222,7 @@ describe("ChatsPage", () => {
   // It looks like any other, trash included; it adds nobody, and it goes without telling the core.
   describe("with a session that is only on the screen", () => {
     beforeEach(() => {
-      store.sessions = [{ id: "", pin: "135790", chats: [], requests: [] }];
+      store.sessions = [{ id: "", pin: "135790", chats: [], requests: [], circles: [] }];
     });
 
     it("looks like any other session, trash included", () => {

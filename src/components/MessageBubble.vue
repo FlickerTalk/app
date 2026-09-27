@@ -26,7 +26,8 @@ export interface Message {
   file?: TransferredFile;
 }
 
-const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean }>();
+/** `sender`: in a circle, who said it; shown over a bubble that is not ours (2026-09-27). */
+const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string }>();
 const emit = defineEmits<{ open: [id: string]; save: [id: string]; download: [id: string]; actions: [id: string] }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
@@ -150,6 +151,7 @@ function open() {
       @pointercancel="endPress"
       @pointerleave="endPress"
     >
+      <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender">{{ sender }}</span>
       <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
       <span v-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
@@ -329,6 +331,15 @@ function open() {
 </template>
 
 <style scoped>
+/* In a circle, who said it, over the text; the colour of a name, not of a message. */
+.ft-bubble__sender {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ft-accent);
+}
+
 .ft-msg {
   display: flex;
   padding: 2px var(--ft-space-4);

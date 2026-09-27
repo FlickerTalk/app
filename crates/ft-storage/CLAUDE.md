@@ -13,6 +13,13 @@ sesiones Olm selladas, buzón, bloqueo, `introduced`, reglas, sesión y `accepte
 `conversations`. Migraciones en `migrations/`, incrustadas en el binario; la `0010_hardening.sql`
 trae las columnas del paquete de endurecimiento (2026-09-27).
 
+Círculos (`0011_circles.sql`, 2026-09-27): `circles` (tarjeta firmada actual, `revision`,
+`admins_only`, `session`, `left`), `circle_members`, `circle_messages` (`sender`, `kind`: `text`,
+eventos `created`/`joined`/`left`/`removed`/`renamed`, y los de control `card`/`leave` que no se
+enseñan) y `circle_outbox` con clave `(message_id, contact)`: una entrada por miembro que falta,
+que se va con su acuse. `contacts.via_circle` marca a quien solo se conoce por un círculo. Todo
+cae en cascada con el círculo, y el círculo con su sesión.
+
 ## Reglas
 
 - `messages.message_id` es **UNIQUE**: la inserción es idempotente para que los reintentos del

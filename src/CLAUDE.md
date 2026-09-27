@@ -8,9 +8,9 @@ Diseño aprobado el 2026-09-21 (`§84`). Estructura:
 
 | Ruta                     | Contenido                                                                |
 | ------------------------ | ------------------------------------------------------------------------ |
-| `router.ts`              | `/welcome`, pestañas `/tabs/{chats,calls,settings}`, `/chat/:id`, `/add-contact`, `/contact/:id`, `/call/:id`; `onboardingGuard` manda la primera ejecución a `/welcome` |
-| `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage`, `BlockedPage`, `MovePage`, `PluginsPage`, `PlanPage`, `SessionPage`, `HoursPage` |
-| `components/`            | `NavRail`, `ChatThread`, `MessageBubble`, `Avatar`, `QrCode`, `ScannerOverlay`, `EmojiPicker`, `IncomingCall`, `PluginSheet` |
+| `router.ts`              | `/welcome`, pestañas `/tabs/{chats,calls,settings}`, `/chat/:id`, `/add-contact`, `/contact/:id`, `/call/:id`, `/circle/:id`, `/circle/:id/info`, `/new-circle`; `onboardingGuard` manda la primera ejecución a `/welcome` |
+| `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage`, `BlockedPage`, `MovePage`, `PluginsPage`, `PlanPage`, `SessionPage`, `HoursPage`, `CirclePage`, `CircleInfoPage`, `NewCirclePage` |
+| `components/`            | `NavRail`, `ChatThread`, `CircleThread`, `MessageBubble`, `Avatar`, `QrCode`, `ScannerOverlay`, `EmojiPicker`, `IncomingCall`, `PluginSheet` |
 | `theme/`                 | `variables.css` (tokens de Ember, Aurora y Mono, claro y oscuro), `base.css` |
 | `theme.ts`               | color y apariencia elegidos en Ajustes                                    |
 | `core.ts`                | puente con el núcleo Rust: almacén reactivo (`me`, `chats`, mensajes) alimentado por los comandos `core_*` y el evento `ft://changed` |
@@ -26,7 +26,8 @@ tests. Comandos: `npm test`, `npm run typecheck`.
 
 **E2E** (`e2e/`, Playwright, `npm run test:e2e`): la app real en Chromium contra el servidor de
 Vite, con un núcleo falso en memoria (`e2e/fake-core.ts`) detrás de `window.__TAURI_INTERNALS__`.
-Cubren solicitudes, sesiones (entrar ≠ crear, borrar), ficheros que esperan y permisos de plugins.
+Cubren solicitudes, sesiones (entrar ≠ crear, borrar), ficheros que esperan, permisos de plugins y
+círculos (lista, crear, hilo, ajustes).
 `PW_CHROMIUM=/ruta/a/chrome` usa un Chromium ya instalado. La app marca lo que los tests buscan
 con `data-test` (`testIdAttribute` en `playwright.config.ts`).
 
@@ -112,6 +113,14 @@ Estado (2026-09-23): herramientas, acciones del mensaje y plan.
   (`acceptFile`); el límite se elige en Ajustes (`setAutoDownload`). **Plugins (A2)**:
   `PluginSheet` recibe `sending`; con `propose`, `ft.send` acaba en un adjunto en el compositor
   (`attach` → `staged` en `ChatThread`) que envía el usuario.
+- **Círculos** (2026-09-27): `store.circles` y `session.circles` (`Circle`, con `members`,
+  `admin`, `adminsOnly`, `left` y `lastSender` para la fila). `ChatsPage` los lista con sus propias
+  filas y un botón de «nuevo círculo» (solo si hay a quién meter); `NewCirclePage` pide nombre y
+  contactos de la lista donde se crea; `CircleThread` enseña quién dijo cada cosa (`sender` en
+  `MessageBubble`) y lo que pasó como una línea (`circle.events.*`), y no deja escribir si solo
+  escriben los administradores o ya no se está dentro; `CircleInfoPage` lleva miembros, invitar,
+  expulsar, administradores, «solo administradores escriben», salir y borrar, con las acciones
+  irreversibles preguntando una vez en el sitio. Solo texto: sin adjuntos ni llamadas.
 - `PluginSheet` es el **único** punto donde se monta un plugin (ver `app/crates/ft-plugins`): un
   iframe servido por el esquema `ftplugin://`, sin origen y con su propia CSP. El frontend no
   habla con el plugin más que por `postMessage`, y solo acepta de él lo que `fromFrame` reconoce;

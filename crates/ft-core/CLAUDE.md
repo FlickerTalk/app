@@ -3,7 +3,8 @@
 Orquestador del cliente (`§82`) y fachada que consume la app Tauri. Coordina identidad,
 almacenamiento, protocolo, WebRTC, push, contactos, billing y plugins.
 
-Funciones base (`§85`): texto, ficheros, llamada de voz y videollamada, siempre 1 a 1. Nada más.
+Funciones base (`§85`): texto, ficheros, llamada de voz y videollamada, 1 a 1. Desde el
+2026-09-27, también **círculos**: grupos pequeños y cerrados, solo de texto por ahora.
 
 ## Responsabilidades
 
@@ -112,3 +113,34 @@ Lenovo real con la app cerrada: notificación a los ~10 s y mensaje entregado al
   de una sesión) y reparte la tarjeta.
 - **M5/M6**: `received_at` manda en orden y retención; el barrido respeta el `pending_outbox`.
 - **B6**: `clean_name` doma el nombre que trae una tarjeta (40 caracteres, sin control ni bidi).
+
+## Estado (2026-09-27, círculos; `circles.rs`, `tests/circles.rs`)
+
+Un círculo es su tarjeta firmada (`ft-circles`). Todo lo dicho en él va a cada miembro por el canal
+Olm 1 a 1 que este teléfono ya tiene con él, directo o por su buzón, igual que un mensaje a un
+contacto: el router ve n sobres sellados y nada más (probado: ni el id del círculo, ni el emisor,
+ni el nombre aparecen en los blobs). El mismo `Packet`, con el mismo id, llega a todos; el acuse de
+cada miembro limpia su entrada de `circle_outbox` (`circle_receipt`), y el mensaje pasa a
+`delivered` cuando no queda nadie por alcanzar.
+
+- `create_circle`, `invite_to_circle`, `remove_from_circle`, `rename_circle`,
+  `set_circle_admins_only`, `set_circle_admin` (solo administradores; el último no puede dejar de
+  serlo), `leave_circle` (avisa a todos; lo dicho se queda en solo lectura), `forget_circle`,
+  `send_circle_text`, `mark_circle_read` (no viaja ningún acuse de lectura en círculos).
+- **Miembros como contactos de círculo** (`contacts.via_circle`): al adoptar una tarjeta, cada
+  miembro desconocido se guarda con `accepted = 0` y `via_circle = 1` y se le abre un canal Olm
+  desde su Contact Card. No sale en la lista ni en Solicitudes hasta que escribe 1 a 1 por su
+  cuenta (entonces es una solicitud, A5) o el usuario lo escanea. Si deja de estar en ningún
+  círculo y no ha escrito, se olvida (`prune_circle_contact`).
+- **Recepción**: `CircleCard` solo de su firmante, y solo si sigue la cadena de la tarjeta que se
+  tiene; un círculo nuevo solo de un contacto aceptado (la tarjeta de un desconocido espera sin
+  acuse hasta que se le acepte, y llega con el siguiente reintento). `CircleMessage` de quien no
+  es miembro según mi copia se ignora sin acuse (un reintento lo trae cuando ya tenga la tarjeta);
+  en un círculo del que salí, se contesta `Received` para que dejen de reintentar. `CircleLeave`
+  quita al miembro de la copia local; la siguiente revisión de un administrador lo consolida.
+- **Sesiones ocultas**: un círculo creado en una sesión es de sus contactos y vive con ella
+  (`circles.session`); borrar la sesión se lo lleva. En una sesión cerrada no hace ruido.
+- La tarjeta y el «me voy» viajan por el mismo `circle_outbox` como mensajes de tipo `card` y
+  `leave` que nunca se enseñan; un reintento de `card` manda siempre la tarjeta **actual**.
+- Sin ficheros ni llamadas en círculos en esta versión (`docs/circulos.md`).
+

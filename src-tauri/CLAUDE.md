@@ -46,6 +46,11 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   `app_data_dir()` es `dataDir`, y el selector escribe en `filesDir/uploads` = `files/uploads`.
 - **Plugins** (A2): `core_plugin_made` recibe el id del plugin y decide por lo concedido: `auto`
   envía, `propose` devuelve un `PickedView` para el compositor, nada rechaza.
+- **Círculos** (2026-09-27): `core_circles`, `core_circle`, `core_circle_create/invite/remove/
+  set_admin/rename/admins_only/leave/forget/send/messages/mark_read`; `CircleView` lleva los
+  miembros con el nombre que este teléfono usa para cada uno (el propio si es un contacto elegido,
+  el de su tarjeta si no) y `SessionView.circles` los de una sesión. El evento `ft://changed`
+  lleva `circle` cuando cambia una conversación de círculo.
 - El PoC 0 ya no está en la app (pantalla, comandos ni dependencia); `crates/ft-poc` sigue como
   herramienta de desarrollo.
 

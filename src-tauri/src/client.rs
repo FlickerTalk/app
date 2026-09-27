@@ -126,6 +126,64 @@ pub struct SessionView {
     id: String,
     conversations: Vec<ConversationView>,
     requests: Vec<ConversationView>,
+    circles: Vec<CircleView>,
+}
+
+/// A circle as the UI sees it (2026-09-27): its card spelled out, and what the list needs.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CircleView {
+    id: String,
+    name: String,
+    members: Vec<CircleMemberView>,
+    /// Whether this phone may change it now.
+    admin: bool,
+    admins_only: bool,
+    /// This phone left, or was taken out: what was said stays, read only.
+    left: bool,
+    unread: i64,
+    last: Option<CircleMessageView>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CircleMemberView {
+    id: String,
+    name: String,
+    admin: bool,
+    /// Whether it is this phone.
+    me: bool,
+}
+
+/// Something said or done in a circle. `kind` is `text`, or what happened (`created`, `joined`,
+/// `left`, `removed`, `renamed`), with `text` naming who or what.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CircleMessageView {
+    id: String,
+    outgoing: bool,
+    /// The device that said it, and the name this phone has for it.
+    sender: String,
+    sender_name: String,
+    kind: String,
+    text: String,
+    sent_at: i64,
+    state: &'static str,
+}
+
+impl CircleMessageView {
+    pub fn new(message: &ft_storage::CircleMessage, names: &HashMap<String, String>) -> Self {
+        Self {
+            id: message.message_id.clone(),
+            outgoing: message.outgoing,
+            sender: message.sender.clone(),
+            sender_name: names.get(&message.sender).cloned().unwrap_or_else(|| message.sender.chars().take(9).collect()),
+            kind: message.kind.clone(),
+            text: message.body.clone(),
+            sent_at: message.sent_at,
+            state: state_name(message.state),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -182,6 +240,9 @@ impl From<RulesView> for ft_storage::ContactRules {
 #[derive(Clone, Serialize)]
 struct Changed {
     contact: Option<String>,
+    /// The circle whose conversation changed (2026-09-27); `None` for a contact's, or a list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    circle: Option<String>,
 }
 
 /// Sent to the UI on `ft://call` (§66).
@@ -530,9 +591,10 @@ impl Client {
             let core_for_events = online.core.clone();
             tauri::async_runtime::spawn(async move {
                 while let Ok(event) = events.recv().await {
-                    let contact = match event {
-                        Event::MessagesChanged { contact } => Some(contact),
-                        Event::ContactsChanged | Event::ConnectionChanged { .. } | Event::PluginsChanged => None,
+                    let (contact, circle) = match event {
+                        Event::MessagesChanged { contact } => (Some(contact), None),
+                        Event::CircleMessagesChanged { circle } => (None, Some(circle)),
+                        Event::ContactsChanged | Event::ConnectionChanged { .. } | Event::PluginsChanged | Event::CirclesChanged => (None, None),
                         Event::Move(update) => {
                             let _ = app.emit(MOVE_EVENT, MoveEvent::from(update.clone()));
                             after_move(&app, &dir_for_events, &router_for_events, update);
@@ -558,7 +620,7 @@ impl Client {
                             continue;
                         }
                     };
-                    let _ = app.emit(CHANGED_EVENT, Changed { contact });
+                    let _ = app.emit(CHANGED_EVENT, Changed { contact, circle });
                 }
             });
         }
@@ -756,11 +818,164 @@ async fn conversation_views(online: &Online, conversations: Vec<Conversation>) -
 async fn session_view(online: &Online, session: String) -> Result<SessionView, String> {
     let conversations = online.core.store().session_conversations(&session).await.map_err(failed)?;
     let requests = online.core.session_requests(&session).await.map_err(failed)?;
+    let circles = circle_views(&online.core, Some(&session)).await?;
     Ok(SessionView {
         id: session,
         conversations: conversation_views(online, conversations).await?,
         requests: conversation_views(online, requests).await?,
+        circles,
     })
+}
+
+/// The names this phone shows for the people of a circle: its own name for a contact it chose,
+/// what their card says otherwise, and "You" is the UI's to say.
+async fn circle_names(core: &ft_core::Core, circle: &str) -> Result<HashMap<String, String>, String> {
+    let mut names = HashMap::new();
+    for member in core.circle_members(circle).await.map_err(failed)? {
+        let shown = match core.store().contact(&member.device_id).await.map_err(failed)? {
+            Some(contact) if contact.accepted => contact.name,
+            _ => member.name,
+        };
+        names.insert(member.device_id, shown);
+    }
+    if let Some(name) = core.name().await.map_err(failed)? {
+        names.insert(core.device_id().to_string(), name);
+    }
+    Ok(names)
+}
+
+async fn circle_view(core: &ft_core::Core, conversation: ft_storage::CircleConversation) -> Result<CircleView, String> {
+    let names = circle_names(core, &conversation.circle.id).await?;
+    let me = core.device_id().to_string();
+    let members = core
+        .circle_members(&conversation.circle.id)
+        .await
+        .map_err(failed)?
+        .into_iter()
+        .map(|member| CircleMemberView {
+            me: member.device_id == me,
+            name: names.get(&member.device_id).cloned().unwrap_or(member.name),
+            id: member.device_id,
+            admin: member.admin,
+        })
+        .collect();
+    Ok(CircleView {
+        admin: core.is_circle_admin(&conversation.circle.id).await.map_err(failed)?,
+        id: conversation.circle.id,
+        name: conversation.circle.name,
+        members,
+        admins_only: conversation.circle.admins_only,
+        left: conversation.circle.left,
+        unread: conversation.unread,
+        last: conversation.last.as_ref().map(|last| CircleMessageView::new(last, &names)),
+    })
+}
+
+/// The circles of the main list or of a session, newest first.
+async fn circle_views(core: &ft_core::Core, session: Option<&str>) -> Result<Vec<CircleView>, String> {
+    let mut views = Vec::new();
+    for conversation in core.store().circle_conversations(session).await.map_err(failed)? {
+        views.push(circle_view(core, conversation).await?);
+    }
+    Ok(views)
+}
+
+#[tauri::command]
+pub async fn core_circles(client: State<'_, Client>) -> Result<Vec<CircleView>, String> {
+    let core = client.core().await?;
+    circle_views(&core, None).await
+}
+
+#[tauri::command]
+pub async fn core_circle(circle: String, client: State<'_, Client>) -> Result<CircleView, String> {
+    let core = client.core().await?;
+    let record = core.store().circle(&circle).await.map_err(failed)?.ok_or("unknown circle")?;
+    let session = record.session.clone();
+    let conversation = core
+        .store()
+        .circle_conversations(session.as_deref())
+        .await
+        .map_err(failed)?
+        .into_iter()
+        .find(|conversation| conversation.circle.id == circle)
+        .ok_or("unknown circle")?;
+    circle_view(&core, conversation).await
+}
+
+/// Makes a circle of these contacts; in a hidden session, of its contacts. Returns its id.
+#[tauri::command]
+pub async fn core_circle_create(name: String, members: Vec<String>, session: Option<String>, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.create_circle(&name, &members, session.as_deref()).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_circle_invite(circle: String, contact: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.invite_to_circle(&circle, &contact).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_circle_remove(circle: String, contact: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.remove_from_circle(&circle, &contact).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_circle_set_admin(circle: String, contact: String, admin: bool, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_circle_admin(&circle, &contact, admin).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_circle_rename(circle: String, name: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.rename_circle(&circle, &name).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_circle_admins_only(circle: String, admins_only: bool, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_circle_admins_only(&circle, admins_only).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_circle_leave(circle: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.leave_circle(&circle).await.map_err(failed)
+}
+
+/// Erases a circle this phone is no longer in, with everything said in it.
+#[tauri::command]
+pub async fn core_circle_forget(circle: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.forget_circle(&circle).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_circle_send(circle: String, text: String, client: State<'_, Client>) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Err("nothing to send".to_owned());
+    }
+    let core = client.core().await?;
+    // What stops a text (admins only, no longer in it) is said at once; delivery runs behind.
+    let record = core.store().circle(&circle).await.map_err(failed)?.ok_or("unknown circle")?;
+    if record.left {
+        return Err("you are not in that circle".to_owned());
+    }
+    tauri::async_runtime::spawn(async move {
+        let _ = core.send_circle_text(&circle, &text).await;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn core_circle_messages(circle: String, limit: i64, client: State<'_, Client>) -> Result<Vec<CircleMessageView>, String> {
+    let core = client.core().await?;
+    let names = circle_names(&core, &circle).await?;
+    let messages = core.store().circle_messages(&circle, limit).await.map_err(failed)?;
+    Ok(messages.iter().map(|message| CircleMessageView::new(message, &names)).collect())
+}
+
+#[tauri::command]
+pub async fn core_circle_mark_read(circle: String, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.mark_circle_read(&circle).await;
+    });
+    Ok(())
 }
 
 /// Six digits open the hidden session that has them or a new empty one (A3): every PIN is
@@ -1766,6 +1981,7 @@ mod tests {
             session: None,
             rules: Default::default(),
             accepted: true,
+            via_circle: false,
         };
         let conversation = Conversation { contact, last: Some(message(MessageState::Pending, true)), unread: 2 };
         let view = serde_json::to_value(ConversationView::new(&conversation, true)).unwrap();
@@ -2077,8 +2293,8 @@ mod tests {
     // Hidden sessions: the UI gets an id and the conversations, and nothing else to show.
     #[test]
     fn a_session_view_is_its_id_and_its_conversations() {
-        let view = serde_json::to_value(SessionView { id: "s1".to_owned(), conversations: vec![], requests: vec![] }).unwrap();
-        assert_eq!(view, serde_json::json!({ "id": "s1", "conversations": [], "requests": [] }));
+        let view = serde_json::to_value(SessionView { id: "s1".to_owned(), conversations: vec![], requests: vec![], circles: vec![] }).unwrap();
+        assert_eq!(view, serde_json::json!({ "id": "s1", "conversations": [], "requests": [], "circles": [] }));
     }
 
     // Issues app#4–#6: the contact's page shows what this phone takes from them.

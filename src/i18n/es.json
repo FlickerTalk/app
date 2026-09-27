@@ -295,5 +295,39 @@
     "hint": "Tienen tu enlace. No se descarga nada suyo ni pueden llamarte hasta que aceptes.",
     "accept": "Aceptar",
     "decline": "Rechazar y bloquear"
+  },
+  "circle": {
+    "title": "Círculo",
+    "new": "Nuevo círculo",
+    "newHint": "Un grupo pequeño y cerrado de tus contactos. Nadie fuera de él, ni siquiera nuestro servidor, sabe que existe. De momento, solo mensajes.",
+    "name": "Nombre del círculo",
+    "pick": "Quién está dentro",
+    "create": "Crear",
+    "members": "Miembros: {count}",
+    "you": "Tú",
+    "admin": "Admin",
+    "adminsOnly": "Solo escriben los administradores",
+    "adminsOnlyHint": "Los demás leen",
+    "readOnly": "Aquí solo escriben los administradores",
+    "left": "Ya no estás en este círculo",
+    "invite": "Añadir un miembro",
+    "noOneToInvite": "Todos tus contactos están ya dentro",
+    "remove": "Sacar del círculo",
+    "makeAdmin": "Hacer administrador",
+    "dropAdmin": "Quitar como administrador",
+    "leave": "Salir del círculo",
+    "leaveSure": "Salir",
+    "forget": "Borrar este círculo de aquí",
+    "forgetSure": "Borrar",
+    "settings": "Ajustes del círculo",
+    "message": "Mensaje al círculo",
+    "noHistory": "Quien entra después no ve lo que se dijo antes",
+    "events": {
+      "created": "{who} creó el círculo «{what}»",
+      "joined": "{who} añadió a {what}",
+      "left": "{what} salió",
+      "removed": "{who} sacó a {what}",
+      "renamed": "{who} cambió el nombre del círculo a «{what}»"
+    }
   }
 }

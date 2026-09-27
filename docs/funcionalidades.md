@@ -7,7 +7,8 @@ de cada una están en el plan del proyecto; aquí solo lo que el usuario ve y lo
 ## Qué es
 
 Mensajería privada de teléfono a teléfono. Texto, ficheros, mensajes de voz y llamadas de voz y de
-vídeo, siempre entre dos personas. El historial vive **solo en los teléfonos**. Los mensajes viajan
+vídeo entre dos personas, y **círculos** de texto entre unas pocas. El historial vive **solo en
+los teléfonos**. Los mensajes viajan
 cifrados de extremo a extremo (Olm, la biblioteca `vodozemac`) por una conexión directa WebRTC
 entre los dos teléfonos. Si el otro teléfono no está disponible, el mensaje espera cifrado en un
 buzón del servidor hasta que lo recoge (como mucho 7 días). El servidor no puede leer nada y no
@@ -126,6 +127,30 @@ oficina y no molesta hasta el día siguiente.
 - Salir la cierra en el acto; al reiniciar la app todas están cerradas.
 - **Como mucho siete sesiones.** El teléfono registra siempre ocho direcciones en el servidor, se
   usen o no, para que el servidor no sepa cuántas sesiones hay.
+
+## Círculos
+
+Un círculo es un grupo **pequeño y cerrado** de tus contactos (hasta 32): los amigos, la familia,
+el trabajo. Nadie fuera de él, **ni siquiera el servidor**, sabe que existe: cada mensaje se cifra
+y se envía a cada miembro por el mismo canal que ya usas con él, directo o por su buzón, así que el
+servidor ve mensajes 1 a 1 y nada más.
+
+- **Crear:** el icono de personas en Chats (o en la cabecera de una sesión oculta) pide un nombre y
+  a quién meter, de entre tus contactos. Quien lo crea es su administrador.
+- **Conocer a los demás sin escanear a nadie:** la tarjeta del círculo lleva la tarjeta de contacto
+  de cada miembro, así que todos pueden escribirse dentro del círculo. Fuera de él, alguien a quien
+  solo conoces por un círculo **no** aparece en tu lista ni puede llamarte; si te escribe por su
+  cuenta, entra en Solicitudes como cualquier desconocido.
+- **Dentro:** cada mensaje dice quién lo dijo; lo que pasa (quién entró, quién salió, cambios de
+  nombre) sale como una línea. Quien entra después no ve lo dicho antes. Los estados son los de
+  siempre: «entregado» cuando ha llegado a todos. En círculos no se envían acuses de lectura.
+- **Ajustes del círculo** (⋮ en la fila o tocando la cabecera): miembros, añadir a otro contacto,
+  expulsar, nombrar o quitar administradores, cambiar el nombre y **«solo escriben los
+  administradores»** (un boletín: los demás leen). Solo los administradores cambian estas cosas;
+  todo lo irreversible pregunta una vez en el sitio.
+- **Salir** avisa a todos; lo dicho se queda en el teléfono en solo lectura hasta que borras el
+  círculo. Si te expulsan, te enteras y el círculo queda igual, en solo lectura.
+- Solo texto por ahora: ni ficheros, ni notas de voz, ni llamadas en círculos.
 
 ## Horario
 

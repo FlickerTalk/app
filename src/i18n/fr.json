@@ -295,5 +295,39 @@
     "hint": "Ils ont votre lien. Rien de leur part n'est téléchargé et ils ne peuvent pas appeler tant que vous n'acceptez pas.",
     "accept": "Accepter",
     "decline": "Refuser et bloquer"
+  },
+  "circle": {
+    "title": "Cercle",
+    "new": "Nouveau cercle",
+    "newHint": "Un petit groupe fermé de vos contacts. Personne en dehors, pas même notre serveur, ne sait qu'il existe. Pour l'instant, des messages seulement.",
+    "name": "Nom du cercle",
+    "pick": "Qui en fait partie",
+    "create": "Créer",
+    "members": "Membres : {count}",
+    "you": "Vous",
+    "admin": "Admin",
+    "adminsOnly": "Seuls les admins écrivent",
+    "adminsOnlyHint": "Les autres lisent",
+    "readOnly": "Ici, seuls les admins écrivent",
+    "left": "Vous n'êtes plus dans ce cercle",
+    "invite": "Ajouter un membre",
+    "noOneToInvite": "Tous vos contacts en font déjà partie",
+    "remove": "Retirer du cercle",
+    "makeAdmin": "Nommer admin",
+    "dropAdmin": "Retirer comme admin",
+    "leave": "Quitter le cercle",
+    "leaveSure": "Quitter",
+    "forget": "Supprimer ce cercle ici",
+    "forgetSure": "Supprimer",
+    "settings": "Réglages du cercle",
+    "message": "Message au cercle",
+    "noHistory": "Qui arrive plus tard ne voit pas ce qui a été dit avant",
+    "events": {
+      "created": "{who} a créé le cercle « {what} »",
+      "joined": "{who} a ajouté {what}",
+      "left": "{what} est parti",
+      "removed": "{who} a retiré {what}",
+      "renamed": "{who} a renommé le cercle « {what} »"
+    }
   }
 }

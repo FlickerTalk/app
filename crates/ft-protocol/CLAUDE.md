@@ -18,6 +18,9 @@ Wire protocol de FlickerTalk: tipos y (de)serialización. Sin I/O, sin red, sin 
   emisor. Se distingue de un `Sealed` o `Signal` a secas por su campo `envelope`.
 - **Relleno** (M9): `Packet::encode` rellena a múltiplos de `PAD_BUCKET` (160 bytes) con un campo
   `pad` que el receptor ignora, para que el tamaño no delate el mensaje.
+- **Círculos** (2026-09-27): `circle_card` (la tarjeta firmada de `ft-circles`), `circle_message`
+  (`circle`, `text`; el mismo paquete, con el mismo id, va a cada miembro por su canal Olm) y
+  `circle_leave`. Un peer anterior los ignora como `Unknown`.
 
 ## Reglas
 

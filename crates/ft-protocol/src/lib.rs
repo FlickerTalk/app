@@ -153,6 +153,17 @@ pub enum Body {
     },
     /// The new phone has the whole copy and its hash matches: the old one can let go.
     MoveDone,
+    /// A circle's signed card (ft-circles, 2026-09-27): made, changed, or handed to a new
+    /// member. Only from an admin; the receiver checks the chain of revisions.
+    CircleCard {
+        #[serde(with = "serde_bytes")]
+        card: Vec<u8>,
+    },
+    /// A text said in a circle: the same packet, with the same id, goes to every member. The
+    /// sender is the one of the Olm channel it came through.
+    CircleMessage { circle: String, text: String },
+    /// The sender leaves the circle; each member takes them out of their copy.
+    CircleLeave { circle: String },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -376,6 +387,9 @@ mod tests {
         round_trip(Body::MoveRequest { from: 4, count: 16 });
         round_trip(Body::MoveChunk { index: 4, data: vec![5; 10] });
         round_trip(Body::MoveDone);
+        round_trip(Body::CircleCard { card: vec![4, 5, 6] });
+        round_trip(Body::CircleMessage { circle: "ab".repeat(16), text: "hello all".to_owned() });
+        round_trip(Body::CircleLeave { circle: "ab".repeat(16) });
     }
 
     // §62–63: a whole chunk, once sealed with Olm (under 200 bytes more), fits a single

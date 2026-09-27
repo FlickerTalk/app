@@ -18,6 +18,10 @@ export const routes: RouteRecordRaw[] = [
   },
   // A conversation opens full screen, outside the tabs (phones). Wide screens show it next to the list.
   { path: "/chat/:id", component: () => import("./views/ChatPage.vue") },
+  // Circles (2026-09-27): a conversation of many, its settings, and making a new one.
+  { path: "/circle/:id", component: () => import("./views/CirclePage.vue") },
+  { path: "/circle/:id/info", component: () => import("./views/CircleInfoPage.vue") },
+  { path: "/new-circle", component: () => import("./views/NewCirclePage.vue") },
   { path: "/add-contact", component: () => import("./views/AddContactPage.vue") },
   { path: "/contact/:id", component: () => import("./views/ContactPage.vue") },
   { path: "/blocked", component: () => import("./views/BlockedPage.vue") },

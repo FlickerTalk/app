@@ -295,5 +295,39 @@
     "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
     "accept": "Accept",
     "decline": "Decline and block"
+  },
+  "circle": {
+    "title": "Circle",
+    "new": "New circle",
+    "newHint": "A small, closed group of your contacts. Nobody outside it, not even our server, knows it exists. Messages only, for now.",
+    "name": "Circle name",
+    "pick": "Who is in it",
+    "create": "Create",
+    "members": "Members: {count}",
+    "you": "You",
+    "admin": "Admin",
+    "adminsOnly": "Only admins write",
+    "adminsOnlyHint": "Everyone else reads",
+    "readOnly": "Only the admins write here",
+    "left": "You are no longer in this circle",
+    "invite": "Add a member",
+    "noOneToInvite": "Every contact of yours is in it already",
+    "remove": "Remove from the circle",
+    "makeAdmin": "Make admin",
+    "dropAdmin": "Remove as admin",
+    "leave": "Leave the circle",
+    "leaveSure": "Leave",
+    "forget": "Delete this circle here",
+    "forgetSure": "Delete",
+    "settings": "Circle settings",
+    "message": "Message the circle",
+    "noHistory": "Whoever joins later does not see what was said before",
+    "events": {
+      "created": "{who} created the circle «{what}»",
+      "joined": "{who} added {what}",
+      "left": "{what} left",
+      "removed": "{who} removed {what}",
+      "renamed": "{who} renamed the circle to «{what}»"
+    }
   }
 }
