@@ -53,7 +53,9 @@
     "share": "分享",
     "delete": "從本機刪除",
     "deleteSure": "刪除",
-    "forwardTo": "轉傳給"
+    "forwardTo": "轉傳給",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "等待對方裝置",
@@ -62,7 +64,8 @@
     "read": "已讀",
     "connected": "已直接連線",
     "paused": "已暫停",
-    "failed": "失敗"
+    "failed": "失敗",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "回撥",
@@ -199,7 +202,15 @@
     "receipts": "送達與已讀回條",
     "receiptsNote": "適用於新聯絡人",
     "hours": "時段",
-    "hoursOff": "關閉"
+    "hoursOff": "關閉",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "時段",
@@ -226,7 +237,9 @@
     "toggle": "工作階段",
     "addContact": "將聯絡人加入這個工作階段",
     "close": "離開這個工作階段",
-    "empty": "這裡還沒有聯絡人。用 QR 碼按鈕新增：新增的聯絡人只屬於這個工作階段。"
+    "empty": "這裡還沒有聯絡人。用 QR 碼按鈕新增：新增的聯絡人只屬於這個工作階段。",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "餘燼",
@@ -276,5 +289,11 @@
       "pending_approval": "購買正在等待核准。",
       "failed": "商店無法完成付款。"
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

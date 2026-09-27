@@ -53,7 +53,9 @@
     "share": "Share",
     "delete": "Delete here",
     "deleteSure": "Delete",
-    "forwardTo": "Forward to"
+    "forwardTo": "Forward to",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "Waiting for device",
@@ -62,7 +64,8 @@
     "read": "Read",
     "connected": "Directly connected",
     "paused": "Paused",
-    "failed": "Failed"
+    "failed": "Failed",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "Call back",
@@ -199,7 +202,15 @@
     "receipts": "Delivered and read receipts",
     "receiptsNote": "For new contacts",
     "hours": "Hours",
-    "hoursOff": "Off"
+    "hoursOff": "Off",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "Hours",
@@ -226,7 +237,9 @@
     "toggle": "Session",
     "addContact": "Add a contact to this session",
     "close": "Leave this session",
-    "empty": "No contacts here yet. Add one with the QR button: it belongs to this session only."
+    "empty": "No contacts here yet. Add one with the QR button: it belongs to this session only.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "Ember",
@@ -276,5 +289,11 @@
       "pending_approval": "The purchase is waiting to be approved.",
       "failed": "The Store could not take the payment."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

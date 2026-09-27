@@ -254,6 +254,59 @@ describe("core bridge", () => {
   });
 
   // §78: the user can take their device off our server and wipe this phone.
+  // A5: strangers who wrote first are listed apart, and a yes or a no goes through the core.
+  it("lists the requests apart and answers them through the core", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_requests"
+          ? [{ id: "ft_stranger", name: "Someone", unread: 1, blocked: false, connected: false, last: { id: "r1", outgoing: false, text: "hey", sentAt: at(10, 0), state: "delivered" } }]
+          : command === "core_conversations" || command === "core_sessions"
+            ? []
+            : undefined,
+      ),
+    );
+    await core.refreshChats();
+    expect(core.store.requests.map((chat) => chat.id)).toEqual(["ft_stranger"]);
+    expect(core.store.chats).toEqual([]);
+    expect(core.chat("ft_stranger")?.preview).toBe("hey");
+    await core.acceptContact("ft_stranger");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_accept_contact", { contact: "ft_stranger" });
+    await core.declineContact("ft_stranger");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_decline_contact", { contact: "ft_stranger" });
+  });
+
+  // A5: a new link retires the old one, in the core; A4: what a file that waits needs.
+  it("renews the link, asks for waiting files and sets the download limit through the core", async () => {
+    tauri.invoke.mockResolvedValue("https://flickertalk.com/add#new");
+    expect(await core.renewLink()).toBe("https://flickertalk.com/add#new");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_renew_link", {});
+    await core.renewLink("s1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_renew_link", { session: "s1" });
+    await core.acceptFile("m9");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_accept_file", { message: "m9" });
+    await core.setAutoDownload(0);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_set_auto_download", { bytes: 0 });
+    expect(core.store.me.autoDownload).toBe(0);
+  });
+
+  // A4: a file that waits for a tap is shown as such, whether or not the contact is connected.
+  it("shows a waiting file as waiting, never as paused", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [{ id: "f1", outgoing: false, text: "big.zip", sentAt: at(9, 30), state: "delivered", file: { name: "big.zip", size: 50_000_000, mime: "application/zip", progress: 0, state: "waiting", path: "/x" } }]
+          : command === "core_conversations"
+            ? [{ id: "ft_carol", name: "Carol", unread: 0, blocked: false, connected: false, last: null }]
+            : command === "core_sessions" || command === "core_requests"
+              ? []
+              : undefined,
+      ),
+    );
+    await core.refreshChats();
+    await core.loadMessages("ft_carol");
+    expect(core.chat("ft_carol")?.messages[0].file?.state).toBe("waiting");
+  });
+
   it("erases this phone through the core", async () => {
     await core.erasePhone();
     expect(tauri.invoke).toHaveBeenCalledWith("core_erase");
@@ -287,10 +340,38 @@ describe("hidden sessions", () => {
           conversations: [
             { id: "ft_pablo", name: "Pablo", unread: 1, blocked: false, connected: true, last: { id: "p1", outgoing: false, text: "Poker?", sentAt: at(13, 30), state: "delivered" } },
           ],
+          requests: [],
         });
       }
       return Promise.resolve(undefined);
     });
+  });
+
+  // A3: every PIN opens a session in the core, the one that has it or a new empty one. Only with
+  // the seven slots taken does the core open nothing: the screen shows an empty session all the
+  // same, and a refresh keeps it.
+  it("shows an empty session when the core has no room for another", async () => {
+    tauri.invoke.mockResolvedValue(null);
+    await core.openSession("000000");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_session_open", { pin: "000000" });
+    expect(core.store.sessions).toEqual([{ id: "", pin: "000000", chats: [], requests: [] }]);
+    tauri.invoke.mockImplementation((command: string) => Promise.resolve(command === "core_sessions" ? [] : command === "core_conversations" ? [] : undefined));
+    await core.refreshChats();
+    expect(core.store.sessions).toHaveLength(1);
+  });
+
+  it("closes a session that is only on the screen without telling the core", async () => {
+    core.store.sessions = [{ id: "", pin: "000000", chats: [], requests: [] }];
+    await core.closeSession("");
+    expect(tauri.invoke).not.toHaveBeenCalled();
+    expect(core.store.sessions).toHaveLength(0);
+  });
+
+  it("removes a session through the core", async () => {
+    await core.openSession("246810");
+    await core.removeSession("s1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_session_remove", { session: "s1" });
+    expect(core.store.sessions).toHaveLength(0);
   });
 
   it("opens a session through the core and lists its conversations", async () => {
@@ -313,7 +394,7 @@ describe("hidden sessions", () => {
       if (command === "core_conversations") return Promise.resolve(answers.core_conversations);
       if (command === "core_sessions") {
         return Promise.resolve([
-          { id: "s1", conversations: [{ id: "ft_pablo", name: "Pablo", unread: 3, blocked: false, connected: false, last: null }] },
+          { id: "s1", conversations: [{ id: "ft_pablo", name: "Pablo", unread: 3, blocked: false, connected: false, last: null }], requests: [] },
         ]);
       }
       return Promise.resolve(undefined);

@@ -1,7 +1,7 @@
 # FlickerTalk: qué hace la app hoy
 
-Estado a 2026-09-23 (versión 1.0.0 en revisión en Google Play; iOS pendiente de la cuenta de
-Apple). Describe la app tal como funciona, pantalla a pantalla. Las decisiones de diseño y el porqué
+Estado a 2026-09-27 (versión 1.0.0 en revisión en Google Play; iOS pendiente de la cuenta de
+Apple; incluye el paquete de endurecimiento de la revisión del 2026-09-24). Describe la app tal como funciona, pantalla a pantalla. Las decisiones de diseño y el porqué
 de cada una están en el plan del proyecto; aquí solo lo que el usuario ve y lo que pasa por debajo.
 
 ## Qué es
@@ -34,6 +34,15 @@ Pantalla **Add contact** (icono de QR en Chats):
 
 No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu código.
 
+- **Solicitudes:** quien te escribe primero con tu enlace, sin que tú lo hayas escaneado, aparece
+  en **Solicitudes**, encima de la lista, con su nombre, su identificador corto y lo que ha dicho.
+  Hasta que aceptes no se descarga ningún fichero suyo, sus llamadas reciben «busy» y no suena
+  nada. Aceptar lo pasa a la lista; rechazar lo bloquea. Escanearlo tú, o contestarle, también es
+  aceptar.
+- **Renovar mi enlace** (Ajustes): retira el enlace actual y hace uno nuevo. Quien guardara el
+  antiguo ya no puede llegar a ti; tus contactos reciben la tarjeta nueva solos. Cada sesión
+  oculta puede renovar el suyo por separado.
+
 ## Chats
 
 - Lista de conversaciones con avatar, último mensaje, hora, estado y número de no leídos. El punto
@@ -47,7 +56,9 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
 - **Texto y emoji** (selector propio con recientes y categorías).
 - **Ficheros** (clip): van solo por conexión directa, en trozos y con reanudación; nunca por el
   buzón. Imágenes y audio se ven dentro del chat; el resto se abre con otra app o se guarda en
-  Descargas.
+  Descargas. Los que superan el tamaño de **Descargar archivos solos** (Ajustes; 10 MB por
+  defecto) esperan con su tamaño y un botón: no llega ni un byte hasta que lo tocas. Una oferta
+  de más de 2 GB se rechaza sin más.
 - **Mensajes de voz:** mantener pulsado el micrófono, soltar para enviar o descartar. Viajan como
   un fichero.
 - **Estados de cada mensaje:** esperando al otro teléfono, enviado, entregado, leído. Nunca se marca
@@ -94,12 +105,18 @@ separar vidas: un chat con los amigos aparte, o uno de trabajo que se cierra al 
 oficina y no molesta hasta el día siguiente.
 
 - **Ajustes → Session** abre un teclado numérico con seis puntos. Sin nombre, sin título.
-- Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se **crea** una nueva
-  vacía. Nada dice cuál de las dos cosas ha pasado: no existe «PIN incorrecto», así que nadie puede
-  saber si hay sesiones.
+- Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se crea una sesión
+  **nueva y vacía**. Todo PIN es válido: no existe «PIN incorrecto» ni espera entre intentos, y
+  nada dice cuál de las dos cosas ha pasado, así que nadie puede saber si hay sesiones.
+- Una sesión **vacía** (sin contactos ni solicitudes) se borra al salir de ella, o al arrancar si
+  la app se cerró con ella abierta: teclear PIN nunca llena los siete huecos. Con algo dentro, se
+  queda.
+- Una sesión que se borra se lleva su enlace: quien guardara su QR ya no llega a nadie, ni a la
+  sesión que ocupe después ese hueco ni a la lista principal.
 - En **Chats**, cada sesión abierta es un panel plegable bajo la lista principal: una flecha a la
-  izquierda y, a la derecha, un botón de **QR** para añadir un contacto a esa sesión y otro para
-  **salir**. Ningún texto.
+  izquierda y, a la derecha, un botón de **QR** para añadir un contacto a esa sesión, una
+  **papelera** para borrarla (pide confirmación en el mismo sitio; borra sus contactos, historial
+  y ficheros, y libera su hueco) y otro para **salir**. Ningún texto.
 - Un contacto añadido dentro de una sesión pertenece a ella para siempre y nunca aparece en la
   lista principal. Funciona en los dos sentidos: escanear a alguien desde la sesión o que alguien
   escanee el QR que muestra la sesión.
@@ -124,6 +141,9 @@ imágenes, PDF, tapar datos, dibujo y markdown. El resto se instala desde un cat
 
 - Cada plugin corre aislado y empieza sin ningún permiso. El usuario decide qué puede hacer y lo
   puede quitar: leer lo que tú le entregas, escribir en el chat, enviar mensajes por su cuenta.
+  Sin «escribir en el chat», nada de lo que haga llega a la conversación; con él, lo que haga (un
+  texto o un fichero) queda en el compositor y lo envías tú; solo con «enviar por su cuenta» sale
+  solo.
 - Un plugin nunca ve tu identidad, tus claves, tu agenda ni el historial.
 
 ## Ajustes
@@ -158,7 +178,9 @@ enviados o recibidos no se mueven todavía.
 - Por dispositivo: su identificador, su clave pública, los hashes de sus ocho direcciones de
   entrega y dónde despertarlo (el token de push, cifrado con una clave que no está en la base de
   datos).
-- El buzón: solo mensajes cifrados, sin remitente, que se borran al recogerlos o a los 7 días.
+- El buzón: solo mensajes cifrados, metidos además en un sobre sellado para el destinatario
+  (sin remitente, sin clave del remitente y sin tamaño reconocible: van rellenados a bloques), que
+  se borran al recogerlos o a los 7 días. Las señales para conectar van en el mismo sobre.
 - Sin registros de acceso, sin analítica, sin cuentas.
 
 ## Plataformas

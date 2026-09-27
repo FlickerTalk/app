@@ -98,6 +98,89 @@ pub fn verify(key: &Ed25519PublicKey, message: &[u8], signature: &Signature) -> 
     key.verify(message, signature).map_err(|_| anyhow!("invalid signature"))
 }
 
+/// The "envelope" key (2026-09-24 review, A1): an X25519 key of its own, published in the Contact
+/// Card, so that what goes through the router can be sealed for this device alone. It is not the
+/// Olm identity key, which vodozemac keeps to itself, and it is stored sealed at rest like the
+/// Olm account. Sealed boxes are NaCl's (`crypto_box`): nothing home-made.
+pub struct EnvelopeKey {
+    secret: crypto_box::SecretKey,
+}
+
+/// The public half, as a card carries it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnvelopePublicKey([u8; 32]);
+
+impl EnvelopePublicKey {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Seals `plaintext` so that only the holder of the secret key opens it, and nothing in the
+    /// result says who sealed it (libsodium sealed box: ephemeral X25519 + XSalsa20-Poly1305).
+    pub fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+        crypto_box::PublicKey::from_bytes(self.0)
+            .seal(&mut crypto_box::aead::OsRng, plaintext)
+            .map_err(|_| anyhow!("cannot seal the envelope"))
+    }
+}
+
+impl EnvelopeKey {
+    pub fn generate() -> Self {
+        Self { secret: crypto_box::SecretKey::generate(&mut crypto_box::aead::OsRng) }
+    }
+
+    pub fn public_key(&self) -> EnvelopePublicKey {
+        EnvelopePublicKey(self.secret.public_key().to_bytes())
+    }
+
+    pub fn open(&self, sealed: &[u8]) -> Result<Vec<u8>> {
+        self.secret.unseal(sealed).map_err(|_| anyhow!("the envelope is not for this device"))
+    }
+
+    /// The encrypted form kept at rest, under the same 32-byte key that seals the Olm account:
+    /// XChaCha20-Poly1305 with a fresh nonce in front. Base64, like the Olm pickle.
+    pub fn seal_at_rest(&self, key: &[u8; 32]) -> String {
+        use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng};
+        let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
+        let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let mut out = nonce.to_vec();
+        out.extend(cipher.encrypt(&nonce, self.secret.to_bytes().as_slice()).expect("encrypting 32 bytes cannot fail"));
+        base64_encode(&out)
+    }
+
+    pub fn unseal_at_rest(sealed: &str, key: &[u8; 32]) -> Result<Self> {
+        use chacha20poly1305::aead::{Aead, KeyInit};
+        let bytes = base64_decode(sealed).ok_or_else(|| anyhow!("cannot open the envelope key"))?;
+        if bytes.len() <= 24 {
+            bail!("cannot open the envelope key");
+        }
+        let (nonce, ciphertext) = bytes.split_at(24);
+        let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
+        let secret = cipher.decrypt(nonce.into(), ciphertext).map_err(|_| anyhow!("cannot open the envelope key"))?;
+        let secret: [u8; 32] = secret.try_into().map_err(|_| anyhow!("cannot open the envelope key"))?;
+        Ok(Self { secret: crypto_box::SecretKey::from_bytes(secret) })
+    }
+}
+
+impl fmt::Debug for EnvelopeKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("EnvelopeKey(…)")
+    }
+}
+
+// The pickle uses the same alphabet: base64, no padding.
+fn base64_encode(bytes: &[u8]) -> String {
+    vodozemac::base64_encode(bytes)
+}
+
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    vodozemac::base64_decode(text).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +239,30 @@ mod tests {
     fn a_wrong_key_cannot_unseal_the_identity() {
         let sealed = Identity::generate().seal(&KEY);
         assert!(Identity::unseal(&sealed, &[8; 32]).is_err());
+    }
+
+    // A1: what is sealed for a device opens only there, and names nobody.
+    #[test]
+    fn an_envelope_opens_only_with_its_key() {
+        let (bob, carol) = (EnvelopeKey::generate(), EnvelopeKey::generate());
+        let sealed = bob.public_key().seal(b"for bob").expect("seals");
+        assert_eq!(bob.open(&sealed).expect("bob opens"), b"for bob");
+        assert!(carol.open(&sealed).is_err());
+        assert_ne!(sealed, bob.public_key().seal(b"for bob").expect("seals"), "a fresh ephemeral key each time");
+        let mut tampered = sealed.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        assert!(bob.open(&tampered).is_err());
+    }
+
+    #[test]
+    fn the_envelope_key_survives_sealing_at_rest_and_not_a_wrong_key() {
+        let key = EnvelopeKey::generate();
+        let sealed = key.seal_at_rest(&KEY);
+        let back = EnvelopeKey::unseal_at_rest(&sealed, &KEY).expect("opens");
+        assert_eq!(back.public_key(), key.public_key());
+        assert!(EnvelopeKey::unseal_at_rest(&sealed, &[8; 32]).is_err());
+        assert!(!sealed.contains(&base64_encode(&key.secret.to_bytes())), "the secret is not in the clear");
     }
 
     // The sealed form is what goes to disk: it must not contain the private keys in the clear.

@@ -9,4 +9,6 @@ license = "AGPL-3.0-only"
 anyhow = "1"
 blake3 = "1"
 bs58 = "0.5"
+chacha20poly1305 = "0.10"
+crypto_box = { version = "0.9", features = ["seal"] }
 vodozemac = "0.11"

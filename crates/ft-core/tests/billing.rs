@@ -115,6 +115,7 @@ async fn arrived(core: &Core, from: &str, text: &str) {
         outgoing: false,
         body: text.to_owned(),
         sent_at: now(),
+        received_at: now(),
         state: MessageState::Delivered,
     };
     core.store().insert_message(&message).await.expect("keeps it");

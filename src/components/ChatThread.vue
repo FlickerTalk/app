@@ -38,6 +38,7 @@ import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import { installed, refreshPlugins } from "../plugins";
 import {
+  acceptFile,
   chat as chatOf,
   forgetMessage,
   forwardMessage,
@@ -52,6 +53,8 @@ import {
   sendText,
   shareMessage,
   store,
+  type PickedFile,
+  type Sending,
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { t } from "../i18n";
@@ -218,19 +221,40 @@ async function forwardTo(contact: string) {
 // Issue app#3: the apps of this phone, each in its own window. The list is the app's, not this
 // component's: what Settings installs or removes shows up here without leaving the conversation.
 const showApps = ref(false);
-const plugin = ref<{ id: string; name: string } | null>(null);
+const plugin = ref<{ id: string; name: string; sending: Sending } | null>(null);
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   if (!chosen) return;
   showApps.value = false;
-  plugin.value = { id: chosen.id, name: chosen.name };
+  plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send };
 }
 
 /** A plugin proposes; the user sends (§53). */
 function fromPlugin(text: string) {
   draft.value = text;
   plugin.value = null;
+}
+
+// A2: a file a plugin made with the `propose` permission waits in the composer, like a text it
+// proposes: the user sends it, or throws it away.
+const staged = ref<PickedFile | null>(null);
+
+function stage(file: PickedFile) {
+  staged.value = file;
+  plugin.value = null;
+}
+
+async function sendStaged() {
+  const file = staged.value;
+  if (!file) return;
+  staged.value = null;
+  await sendPicked(props.chatId, file);
+}
+
+/** A4: a file that waited for the user is asked for. */
+async function download(id: string) {
+  await acceptFile(id).catch(() => {});
 }
 
 onMounted(() => {
@@ -328,7 +352,7 @@ watch(
         </button>
         <span class="ft-app__name">{{ plugin.name }}</span>
       </div>
-      <PluginSheet :plugin="plugin" :contact="chatId" @text="fromPlugin" @done="plugin = null" />
+      <PluginSheet :plugin="plugin" :contact="chatId" :sending="plugin.sending" @text="fromPlugin" @attach="stage" @done="plugin = null" />
     </div>
 
     <!-- The apps of this phone; each opens its own window. -->
@@ -353,6 +377,7 @@ watch(
         :folded="folded.has(message.id)"
         @open="openFile"
         @save="save"
+        @download="download"
         @actions="act"
       />
 
@@ -403,6 +428,17 @@ watch(
 
     <ion-footer class="ion-no-border">
       <p v-if="voiceError" class="ft-composer__error" role="alert">{{ voiceError }}</p>
+      <!-- A2: what a plugin made, waiting for the user to send it or throw it away. -->
+      <div v-if="staged" class="ft-staged" data-test="staged">
+        <ion-icon :icon="documentOutline" aria-hidden="true" />
+        <span class="ft-staged__name">{{ staged.name }}</span>
+        <button type="button" class="ft-round ft-round--ghost" data-test="staged-discard" :aria-label="$t('chat.discardAttachment')" @click="staged = null">
+          <ion-icon :icon="trashOutline" aria-hidden="true" />
+        </button>
+        <button type="button" class="ft-round ft-round--send" data-test="staged-send" :aria-label="$t('chat.send')" @click="sendStaged">
+          <ion-icon :icon="arrowUp" aria-hidden="true" />
+        </button>
+      </div>
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
       <div class="ft-composer">
         <div class="ft-composer__row">
@@ -752,5 +788,22 @@ watch(
   color: var(--ion-color-danger);
   font-size: 13px;
   text-align: center;
+}
+.ft-staged {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 8px 0;
+  padding: 6px 6px 6px 14px;
+  border-radius: 22px;
+  background: var(--ft-surface-2);
+}
+.ft-staged__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
 }
 </style>

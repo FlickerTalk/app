@@ -27,6 +27,37 @@ describe("MessageBubble", () => {
     expect(wrapper.find("[aria-label='Read']").exists()).toBe(false);
   });
 
+  // A4: a file bigger than the phone downloads on its own waits for a tap, and says its size.
+  it("shows a waiting file with its size and a way to download it", async () => {
+    const message = {
+      ...base,
+      mine: false,
+      kind: "file",
+      file: { name: "photos.zip", size: "48 MB", progress: 0, state: "waiting" },
+    };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.text()).toContain("Tap to download");
+    expect(wrapper.text()).toContain("48 MB");
+    expect(wrapper.find("[role='progressbar']").exists()).toBe(false);
+    await wrapper.find("[data-test='download']").trigger("click");
+    expect(wrapper.emitted("download")).toEqual([["m1"]]);
+    expect(wrapper.emitted("open")).toBeUndefined();
+  });
+
+  it("shows a waiting picture as a way to download it, not as a picture", async () => {
+    const message = {
+      ...base,
+      mine: false,
+      kind: "file",
+      file: { name: "beach.jpg", size: "12 MB", progress: 0, state: "waiting", mime: "image/jpeg" },
+    };
+    const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+    expect(wrapper.find("img").exists()).toBe(false);
+    expect(wrapper.find("[data-test='download']").text()).toContain("12 MB");
+    await wrapper.find("[data-test='download']").trigger("click");
+    expect(wrapper.emitted("download")).toEqual([["m1"]]);
+  });
+
   it("shows the transfer progress of a file", () => {
     const message = {
       ...base,

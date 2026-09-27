@@ -53,7 +53,9 @@
     "share": "Bagikan",
     "delete": "Hapus di sini",
     "deleteSure": "Hapus",
-    "forwardTo": "Teruskan ke"
+    "forwardTo": "Teruskan ke",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "Menunggu perangkat",
@@ -62,7 +64,8 @@
     "read": "Dibaca",
     "connected": "Terhubung langsung",
     "paused": "Dijeda",
-    "failed": "Gagal"
+    "failed": "Gagal",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "Telepon balik",
@@ -199,7 +202,15 @@
     "receipts": "Tanda diterima dan dibaca",
     "receiptsNote": "Untuk kontak baru",
     "hours": "Jam aktif",
-    "hoursOff": "Nonaktif"
+    "hoursOff": "Nonaktif",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "Jam aktif",
@@ -226,7 +237,9 @@
     "toggle": "Sesi",
     "addContact": "Tambahkan kontak ke sesi ini",
     "close": "Keluar dari sesi ini",
-    "empty": "Belum ada kontak di sini. Tambahkan dengan tombol QR: kontak itu hanya milik sesi ini."
+    "empty": "Belum ada kontak di sini. Tambahkan dengan tombol QR: kontak itu hanya milik sesi ini.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "Ember",
@@ -276,5 +289,11 @@
       "pending_approval": "Pembelian menunggu persetujuan.",
       "failed": "Toko tidak dapat menerima pembayaran."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

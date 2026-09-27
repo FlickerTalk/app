@@ -53,7 +53,9 @@
     "share": "शेयर करें",
     "delete": "यहाँ से हटाएँ",
     "deleteSure": "हटाएँ",
-    "forwardTo": "किसे फ़ॉरवर्ड करें"
+    "forwardTo": "किसे फ़ॉरवर्ड करें",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",
@@ -62,7 +64,8 @@
     "read": "पढ़ा गया",
     "connected": "सीधे कनेक्टेड",
     "paused": "रुका हुआ",
-    "failed": "विफल"
+    "failed": "विफल",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "वापस कॉल करें",
@@ -199,7 +202,15 @@
     "receipts": "डिलीवरी और रीड रसीदें",
     "receiptsNote": "नए संपर्कों के लिए",
     "hours": "समय",
-    "hoursOff": "बंद"
+    "hoursOff": "बंद",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "समय",
@@ -226,7 +237,9 @@
     "toggle": "सेशन",
     "addContact": "इस सेशन में संपर्क जोड़ें",
     "close": "यह सेशन छोड़ें",
-    "empty": "यहाँ अभी कोई संपर्क नहीं। QR बटन से जोड़ें: वह सिर्फ़ इसी सेशन का होगा।"
+    "empty": "यहाँ अभी कोई संपर्क नहीं। QR बटन से जोड़ें: वह सिर्फ़ इसी सेशन का होगा।",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "अंगार",
@@ -276,5 +289,11 @@
       "pending_approval": "खरीद मंज़ूरी का इंतज़ार कर रही है।",
       "failed": "स्टोर भुगतान नहीं ले सका।"
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

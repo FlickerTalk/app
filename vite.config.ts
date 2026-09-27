@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
+import { configDefaults, defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
@@ -37,6 +37,8 @@ export default defineConfig(() => ({
   test: {
     environment: "happy-dom",
     setupFiles: ["src/__tests__/setup.ts"],
+    // The end-to-end specs are Playwright's (`npm run test:e2e`), not Vitest's.
+    exclude: [...configDefaults.exclude, "e2e/**"],
     // Theme tests read the design tokens as text.
     css: { include: [/theme\/variables\.css/] },
   },

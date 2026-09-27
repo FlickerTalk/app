@@ -53,7 +53,9 @@
     "share": "Condividi",
     "delete": "Elimina qui",
     "deleteSure": "Elimina",
-    "forwardTo": "Inoltra a"
+    "forwardTo": "Inoltra a",
+    "download": "Scarica",
+    "discardAttachment": "Scarta l'allegato"
   },
   "status": {
     "pending": "In attesa del dispositivo",
@@ -62,7 +64,8 @@
     "read": "Letto",
     "connected": "Connesso direttamente",
     "paused": "In pausa",
-    "failed": "Non riuscito"
+    "failed": "Non riuscito",
+    "waiting": "Tocca per scaricare"
   },
   "calls": {
     "callBack": "Richiama",
@@ -199,7 +202,15 @@
     "receipts": "Conferme di consegna e lettura",
     "receiptsNote": "Per i nuovi contatti",
     "hours": "Orari",
-    "hoursOff": "Disattivati"
+    "hoursOff": "Disattivati",
+    "autoDownload": "Scarica i file da solo",
+    "autoDownloadAsk": "Chiedi sempre",
+    "autoDownloadUpTo": "Fino a {size}",
+    "autoDownloadAlways": "Sempre",
+    "renewLink": "Rinnova il mio link",
+    "renewLinkHint": "Chi ha il tuo vecchio link non può più raggiungerti; i tuoi contatti ricevono quello nuovo",
+    "renewLinkConfirm": "Rinnova",
+    "renewed": "Link rinnovato"
   },
   "hours": {
     "title": "Orari",
@@ -226,7 +237,9 @@
     "toggle": "Sessione",
     "addContact": "Aggiungi un contatto a questa sessione",
     "close": "Esci da questa sessione",
-    "empty": "Ancora nessun contatto qui. Aggiungine uno con il pulsante QR: appartiene solo a questa sessione."
+    "empty": "Ancora nessun contatto qui. Aggiungine uno con il pulsante QR: appartiene solo a questa sessione.",
+    "remove": "Elimina questa sessione",
+    "removeSure": "Elimina"
   },
   "colors": {
     "ember": "Brace",
@@ -276,5 +289,11 @@
       "pending_approval": "L'acquisto è in attesa di approvazione.",
       "failed": "Lo store non è riuscito a incassare il pagamento."
     }
+  },
+  "requests": {
+    "title": "Richieste",
+    "hint": "Hanno il tuo link. Nulla di loro viene scaricato e non possono chiamare finché non accetti.",
+    "accept": "Accetta",
+    "decline": "Rifiuta e blocca"
   }
 }

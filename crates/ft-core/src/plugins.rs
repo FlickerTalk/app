@@ -2,7 +2,7 @@
 //! files of each plugin, under the plugins folder, and what the user granted it, in the database.
 //! Nothing is installed unless the catalogue signed it, and nothing is granted by installing.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, ensure, Context, Result};
 use ft_plugins::{installed, CatalogueEntry, Manifest, Permissions, Plugin, Sending};
@@ -124,6 +124,25 @@ impl Core {
         let granted = self.granted_to(id).await?;
         ensure!(granted.network.iter().any(|allowed| allowed.eq_ignore_ascii_case(&host)), "{id} may not reach {host}");
         fetch.call(&request, FETCH_LIMIT).await
+    }
+
+    /// How far a plugin may write in the chat (A2): what the user granted it, or nothing if it
+    /// is not installed here.
+    pub async fn plugin_sending(&self, id: &str) -> Result<Sending> {
+        Ok(self.granted_to(id).await?.send)
+    }
+
+    /// Whether a plugin may put something in the composer for the user to send (A2).
+    pub async fn plugin_may_propose(&self, id: &str) -> Result<bool> {
+        Ok(matches!(self.plugin_sending(id).await?, Sending::Propose | Sending::Auto))
+    }
+
+    /// A plugin sends a file to the contact by itself (A2): only with the `auto` permission,
+    /// which the user grants on its own and which is never the default. With `propose` the app
+    /// puts the file in the composer instead, and the user presses send; with nothing, nothing.
+    pub async fn plugin_send_file(&self, id: &str, contact: &str, path: &Path, name: &str, mime: &str) -> Result<String> {
+        ensure!(self.plugin_sending(id).await? == Sending::Auto, "{id} may not send by itself");
+        self.send_file(contact, path, name, mime).await
     }
 
     /// What the user granted a plugin that is installed here.

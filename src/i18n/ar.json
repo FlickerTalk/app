@@ -53,7 +53,9 @@
     "share": "مشاركة",
     "delete": "حذف من هنا",
     "deleteSure": "حذف",
-    "forwardTo": "إعادة توجيه إلى"
+    "forwardTo": "إعادة توجيه إلى",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "بانتظار الجهاز",
@@ -62,7 +64,8 @@
     "read": "تمت القراءة",
     "connected": "متصل مباشرة",
     "paused": "متوقف مؤقتًا",
-    "failed": "فشل"
+    "failed": "فشل",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "معاودة الاتصال",
@@ -199,7 +202,15 @@
     "receipts": "إشعارات التسليم والقراءة",
     "receiptsNote": "لجهات الاتصال الجديدة",
     "hours": "الساعات",
-    "hoursOff": "إيقاف"
+    "hoursOff": "إيقاف",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "الساعات",
@@ -226,7 +237,9 @@
     "toggle": "الجلسة",
     "addContact": "إضافة جهة اتصال إلى هذه الجلسة",
     "close": "مغادرة هذه الجلسة",
-    "empty": "لا توجد جهات اتصال هنا بعد. أضف واحدة بزر QR: ستكون لهذه الجلسة فقط."
+    "empty": "لا توجد جهات اتصال هنا بعد. أضف واحدة بزر QR: ستكون لهذه الجلسة فقط.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "جمر",
@@ -276,5 +289,11 @@
       "pending_approval": "عملية الشراء بانتظار الموافقة.",
       "failed": "تعذّر على المتجر تحصيل الدفعة."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

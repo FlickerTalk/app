@@ -74,6 +74,15 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
     }
     network.listen(router.listen());
 
+    // An upgrade that made the envelope key (A1): every contact gets the card with it, so that
+    // what they send through the router from now on names nobody.
+    if core.card_stale().await.unwrap_or(false) {
+        let stale = core.clone();
+        tokio::spawn(async move {
+            let _ = stale.reintroduce().await;
+        });
+    }
+
     let retrying = Arc::downgrade(&core);
     tokio::spawn(async move {
         let mut every = tokio::time::interval(RETRY_EVERY);

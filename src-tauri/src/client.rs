@@ -67,7 +67,8 @@ pub struct FileView {
     mime: String,
     /// From 0 to 1: chunks sent (outgoing) or received (incoming).
     progress: f64,
-    /// `transferring`, `done` (the receiver has it and the hash matches) or `failed`.
+    /// `transferring`, `waiting` (bigger than the user downloads on their own, A4), `done` (the
+    /// receiver has it and the hash matches) or `failed`.
     state: &'static str,
     path: String,
 }
@@ -83,6 +84,8 @@ impl From<&FileRecord> for FileView {
             "done"
         } else if file.failed {
             "failed"
+        } else if file.waiting {
+            "waiting"
         } else {
             "transferring"
         };
@@ -115,12 +118,14 @@ impl ConversationView {
     }
 }
 
-/// A hidden session as the UI sees it: an id and its conversations. No name, nothing to read.
+/// A hidden session as the UI sees it: an id, its conversations and the strangers waiting in
+/// its requests (A5). No name, nothing to read.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionView {
     id: String,
     conversations: Vec<ConversationView>,
+    requests: Vec<ConversationView>,
 }
 
 #[derive(Serialize)]
@@ -133,6 +138,8 @@ pub struct MeView {
     receipts: bool,
     /// Until when (ms) the app is free (§41).
     free_until: i64,
+    /// Files up to this many bytes are downloaded as they arrive; bigger ones wait (A4).
+    auto_download: i64,
 }
 
 #[derive(Serialize)]
@@ -396,6 +403,21 @@ pub fn storage_key(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<[
     Ok(key)
 }
 
+/// Where the phone's own picker and camera leave what the user chose (`PlatformPlugin.kt`) and
+/// where the WebView's uploads go: the only folders a picked path may point into (M1). Anything
+/// else the WebView names, however it came to name it, is refused.
+pub fn picked_path(dir: &Path, path: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(path);
+    let real = candidate.canonicalize().map_err(|_| "that file is no longer there".to_owned())?;
+    let allowed = [dir.join("uploads"), dir.join("files").join("uploads"), dir.join("files").join("outgoing")];
+    let inside = allowed.iter().filter_map(|root| root.canonicalize().ok()).any(|root| real.starts_with(&root));
+    if inside && real.is_file() {
+        Ok(real)
+    } else {
+        Err("that is not a file the user picked".to_owned())
+    }
+}
+
 /// A random name for a file being copied in from the WebView.
 pub fn new_upload_id() -> String {
     rand::random::<[u8; 16]>().iter().map(|byte| format!("{byte:02x}")).collect()
@@ -621,7 +643,55 @@ pub async fn core_me(client: State<'_, Client>) -> Result<MeView, String> {
         mailbox: core.mailbox().await.map_err(failed)?,
         receipts: core.receipts_default().await.map_err(failed)?,
         free_until: core.free_until().await.map_err(failed)?,
+        auto_download: core.auto_download_limit().await.map_err(failed)?,
     })
+}
+
+/// Files up to this many bytes are downloaded as they arrive; bigger ones wait for a tap (A4).
+#[tauri::command]
+pub async fn core_set_auto_download(bytes: i64, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_auto_download_limit(bytes).await.map_err(failed)
+}
+
+/// The user asks for a file that was waiting (A4).
+#[tauri::command]
+pub async fn core_accept_file(message: String, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.accept_file(&message).await;
+    });
+    Ok(())
+}
+
+/// Retires the current link and makes a new one (A5): the router learns the new addresses and
+/// the contacts get the new card. Of the main list, or of an open hidden session.
+#[tauri::command]
+pub async fn core_renew_link(session: Option<String>, client: State<'_, Client>) -> Result<String, String> {
+    let online = client.online().await?;
+    let hashes = online.core.renew_link(session.as_deref()).await.map_err(failed)?;
+    online.router.register(&hashes).await.map_err(failed)?;
+    Ok(online.core.my_card_in(session.as_deref()).await.map_err(failed)?.to_link())
+}
+
+/// The strangers who wrote first and wait for a yes (A5), of the main list or of a session.
+#[tauri::command]
+pub async fn core_requests(session: Option<String>, client: State<'_, Client>) -> Result<Vec<ConversationView>, String> {
+    let online = client.online().await?;
+    let requests = match session.as_deref() {
+        None => online.core.requests().await.map_err(failed)?,
+        Some(session) => online.core.session_requests(session).await.map_err(failed)?,
+    };
+    conversation_views(online, requests).await
+}
+
+#[tauri::command]
+pub async fn core_accept_contact(contact: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.accept_contact(&contact).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_decline_contact(contact: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.decline_contact(&contact).await.map_err(failed)
 }
 
 #[tauri::command]
@@ -685,25 +755,58 @@ async fn conversation_views(online: &Online, conversations: Vec<Conversation>) -
 
 async fn session_view(online: &Online, session: String) -> Result<SessionView, String> {
     let conversations = online.core.store().session_conversations(&session).await.map_err(failed)?;
-    Ok(SessionView { id: session, conversations: conversation_views(online, conversations).await? })
+    let requests = online.core.session_requests(&session).await.map_err(failed)?;
+    Ok(SessionView {
+        id: session,
+        conversations: conversation_views(online, conversations).await?,
+        requests: conversation_views(online, requests).await?,
+    })
 }
 
-/// Six digits open the hidden session that has them, or a new one; the answer never says which.
+/// Six digits open the hidden session that has them or a new empty one (A3): every PIN is
+/// valid, and nothing says whether a session existed. `None` only when all seven slots are
+/// taken; the screen shows an empty session all the same.
 #[tauri::command]
-pub async fn core_session_open(pin: String, app: AppHandle, client: State<'_, Client>) -> Result<SessionView, String> {
+pub async fn core_session_open(pin: String, app: AppHandle, client: State<'_, Client>) -> Result<Option<SessionView>, String> {
     let online = client.online().await?;
-    let session = online.core.open_session(&pin).await.map_err(failed)?;
+    let Some(session) = online.core.open_session(&pin).await.map_err(failed)? else { return Ok(None) };
     // Its wake-ups are heard from now on (app#9).
     let _ = app.platform().set_open_slots(&online.core.open_slots());
-    session_view(online, session).await
+    Ok(Some(session_view(online, session).await?))
 }
 
+/// Takes an open hidden session away for good, with its contacts and history (A3).
+#[tauri::command]
+pub async fn core_session_remove(session: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let online = client.online().await?;
+    online.core.remove_session(&session).await.map_err(failed)?;
+    let _ = app.platform().set_open_slots(&online.core.open_slots());
+    reregister(online);
+    Ok(())
+}
+
+/// Leaves a hidden session; one with nobody in it goes for good (A3).
 #[tauri::command]
 pub async fn core_session_close(session: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
-    let core = client.core().await?;
-    core.close_session(&session);
-    let _ = app.platform().set_open_slots(&core.open_slots());
+    let online = client.online().await?;
+    let gone = online.core.close_session(&session).await.map_err(failed)?;
+    let _ = app.platform().set_open_slots(&online.core.open_slots());
+    if gone {
+        reregister(online);
+    }
     Ok(())
+}
+
+/// A session went and its slot got a new link (A3): the router learns the eight hashes again,
+/// in the background, so no command waits for the network. If it cannot be reached, the next
+/// start registers them anyway.
+fn reregister(online: &Online) {
+    let (core, router) = (online.core.clone(), online.router.clone());
+    tauri::async_runtime::spawn(async move {
+        if let Ok(hashes) = core.route_capability_hashes().await {
+            let _ = router.register(&hashes).await;
+        }
+    });
 }
 
 /// The sessions open right now, with their conversations: what the chats list refreshes.
@@ -1160,12 +1263,13 @@ pub async fn core_plugin_fetch(
 }
 
 /// Writes what a plugin made where the phone keeps it for a moment, ready to be saved or printed.
+/// The name is tamed the way the core tames every file name (M11).
 fn made_file(client: &State<'_, Client>, name: &str, data: &str, folder: &str) -> Result<(PathBuf, String), String> {
     let bytes = BASE64.decode(data.as_bytes()).map_err(|_| "that is not a file".to_owned())?;
     if bytes.len() as u64 > PLUGIN_FILE_LIMIT {
         return Err("that file is too big".to_owned());
     }
-    let safe = name.replace(['/', '\\'], "_");
+    let safe = ft_core::files::safe_file_name(name);
     let dir = client.dir()?.join("files").join(folder);
     std::fs::create_dir_all(&dir).map_err(failed)?;
     let path = dir.join(&safe);
@@ -1352,10 +1456,10 @@ pub async fn core_send_file(contact: String, upload: String, name: String, mime:
 pub const PLUGIN_FILE_LIMIT: u64 = 32 * 1024 * 1024;
 
 /// Reads a file the user picked, for a plugin that asked for one. Only a file the user chose in
-/// the system picker, and only up to the limit.
+/// the system picker (so only from the picker's own folder, M1), and only up to the limit.
 #[tauri::command]
-pub async fn core_read_picked(path: String) -> Result<String, String> {
-    let path = PathBuf::from(path);
+pub async fn core_read_picked(path: String, client: State<'_, Client>) -> Result<String, String> {
+    let path = picked_path(client.dir()?, &path)?;
     let size = std::fs::metadata(&path).map_err(failed)?.len();
     if size > PLUGIN_FILE_LIMIT {
         return Err("that file is too big to hand over".to_owned());
@@ -1364,33 +1468,55 @@ pub async fn core_read_picked(path: String) -> Result<String, String> {
     Ok(BASE64.encode(bytes))
 }
 
-/// Sends what a plugin made: the bytes are written to the app's folder and sent as a file (§62).
+/// What became of a file a plugin made (A2): sent by itself (`auto`), or left in the composer
+/// for the user to send (`propose`), as a picked file.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MadeView {
+    sent: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    staged: Option<PickedView>,
+}
+
+/// A plugin hands the app a file (A2). What happens is what the user granted the plugin: with
+/// `auto` the core sends it, with `propose` it is put in the composer for the user to send, and
+/// with nothing the file goes nowhere. The bytes are written to the app's folder either way, like
+/// any other sent file, and stay until their message is erased.
 #[tauri::command]
-pub async fn core_send_made(
+pub async fn core_plugin_made(
+    plugin: String,
     contact: String,
     name: String,
     mime: String,
     data: String,
     client: State<'_, Client>,
-) -> Result<(), String> {
+) -> Result<MadeView, String> {
+    let core = client.core().await?;
+    let sending = core.plugin_sending(&plugin).await.map_err(failed)?;
+    if sending == ft_plugins::Sending::Nothing {
+        return Err("that plugin may not write in the chat".to_owned());
+    }
     let bytes = BASE64.decode(data.as_bytes()).map_err(|_| "that is not a file".to_owned())?;
     if bytes.len() as u64 > PLUGIN_FILE_LIMIT {
         return Err("that file is too big to send".to_owned());
     }
-    let safe = name.replace(['/', '\\'], "_");
+    let safe = ft_core::files::safe_file_name(&name);
     let dir = client.dir()?.join("files").join("outgoing");
     std::fs::create_dir_all(&dir).map_err(failed)?;
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_millis()).unwrap_or(0);
     let path = dir.join(format!("{stamp}-{safe}"));
-    std::fs::write(&path, bytes).map_err(failed)?;
+    std::fs::write(&path, &bytes).map_err(failed)?;
 
-    let core = client.core().await?;
-    // `send_file` returns once the offer is out, not once the bytes are pulled: the file must
-    // stay, like any other sent file, until its message is erased.
-    tauri::async_runtime::spawn(async move {
-        let _ = core.send_file(&contact, &path, &safe, &mime).await;
-    });
-    Ok(())
+    if sending == ft_plugins::Sending::Auto {
+        // `send_file` returns once the offer is out, not once the bytes are pulled.
+        let sent = path.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = core.plugin_send_file(&plugin, &contact, &sent, &safe, &mime).await;
+        });
+        return Ok(MadeView { sent: true, staged: None });
+    }
+    let staged = PickedView { path: path.to_string_lossy().into_owned(), name: safe, mime, size: bytes.len() as u64 };
+    Ok(MadeView { sent: false, staged: Some(staged) })
 }
 
 /// The system file picker. What it gives back is already in the app's folder, so sending it is
@@ -1429,10 +1555,8 @@ pub struct PickedView {
 /// message shows it afterwards. It goes when the message is erased, like a voice note.
 #[tauri::command]
 pub async fn core_send_picked(contact: String, file: PickedView, client: State<'_, Client>) -> Result<(), String> {
-    let path = PathBuf::from(&file.path);
-    if !path.exists() {
-        return Err("that file is no longer there".to_owned());
-    }
+    // Only what the picker or a plugin left in the app's own folders (M1).
+    let path = picked_path(client.dir()?, &file.path)?;
     let core = client.core().await?;
     tauri::async_runtime::spawn(async move {
         let _ = core.send_file(&contact, &path, &file.name, &file.mime).await;
@@ -1607,7 +1731,7 @@ mod tests {
     }
 
     fn message(state: MessageState, outgoing: bool) -> Message {
-        Message { message_id: "m1".to_owned(), contact: "ft_bob".to_owned(), outgoing, body: "hi".to_owned(), sent_at: 42, state }
+        Message { message_id: "m1".to_owned(), contact: "ft_bob".to_owned(), outgoing, body: "hi".to_owned(), sent_at: 42, received_at: 42, state }
     }
 
     #[test]
@@ -1641,6 +1765,7 @@ mod tests {
             burn_after_read: 0,
             session: None,
             rules: Default::default(),
+            accepted: true,
         };
         let conversation = Conversation { contact, last: Some(message(MessageState::Pending, true)), unread: 2 };
         let view = serde_json::to_value(ConversationView::new(&conversation, true)).unwrap();
@@ -1664,6 +1789,7 @@ mod tests {
             chunks_done,
             complete,
             failed,
+            waiting: false,
         }
     }
 
@@ -1678,6 +1804,8 @@ mod tests {
         let done = serde_json::to_value(FileView::from(&record(4, true, false))).unwrap();
         assert_eq!((done["state"].as_str(), done["progress"].as_f64()), (Some("done"), Some(1.0)));
         assert_eq!(serde_json::to_value(FileView::from(&record(0, false, true))).unwrap()["state"], "failed");
+        let waiting = ft_storage::FileRecord { waiting: true, ..record(0, false, false) };
+        assert_eq!(serde_json::to_value(FileView::from(&waiting)).unwrap()["state"], "waiting", "A4: it waits for a tap");
         let empty = ft_storage::FileRecord { size: 0, ..record(0, true, false) };
         assert_eq!(serde_json::to_value(FileView::from(&empty)).unwrap()["progress"], 1.0);
     }
@@ -1715,9 +1843,9 @@ mod tests {
     // §41: the free year shows in Settings, counted on this phone.
     #[test]
     fn me_carries_the_free_period() {
-        let me = MeView { id: "ft_me".to_owned(), name: "Ioan".to_owned(), mailbox: true, receipts: false, free_until: 42 };
+        let me = MeView { id: "ft_me".to_owned(), name: "Ioan".to_owned(), mailbox: true, receipts: false, free_until: 42, auto_download: 10 };
         assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
-            "id": "ft_me", "name": "Ioan", "mailbox": true, "receipts": false, "freeUntil": 42
+            "id": "ft_me", "name": "Ioan", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
         }));
     }
 
@@ -1761,6 +1889,42 @@ mod tests {
         }));
         let missed = ft_storage::CallRecord { answered_at: None, outcome: Some(CallOutcome::Missed), ..call };
         assert_eq!(serde_json::to_value(CallView::new(&missed, "Bob")).unwrap()["seconds"], 0);
+    }
+
+    // M1: what the WebView names as "picked" must be in the picker's folder, nothing else.
+    #[test]
+    fn picked_paths_stay_in_the_pickers_folders() {
+        let dir = scratch("picked");
+        std::fs::create_dir_all(dir.join("uploads")).unwrap();
+        std::fs::create_dir_all(dir.join("files").join("outgoing")).unwrap();
+        std::fs::write(dir.join("uploads").join("photo.jpg"), b"jpg").unwrap();
+        std::fs::write(dir.join("files").join("outgoing").join("made.pdf"), b"pdf").unwrap();
+        std::fs::write(dir.join("flickertalk.db"), b"secret").unwrap();
+        std::fs::write(dir.join("storage.key.sealed"), b"secret").unwrap();
+
+        assert!(picked_path(&dir, &dir.join("uploads").join("photo.jpg").to_string_lossy()).is_ok());
+        assert!(picked_path(&dir, &dir.join("files").join("outgoing").join("made.pdf").to_string_lossy()).is_ok());
+        for refused in [
+            dir.join("flickertalk.db"),
+            dir.join("storage.key.sealed"),
+            dir.join("uploads").join("..").join("flickertalk.db"),
+            dir.join("uploads"),
+            PathBuf::from("/etc/passwd"),
+            dir.join("uploads").join("missing.jpg"),
+        ] {
+            assert!(picked_path(&dir, &refused.to_string_lossy()).is_err(), "{}", refused.display());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A2: what a plugin made goes out only as far as the user let it.
+    #[test]
+    fn a_made_file_says_whether_it_was_sent_or_staged() {
+        let staged = serde_json::to_value(MadeView { sent: false, staged: Some(PickedView { path: "/p".into(), name: "a.pdf".into(), mime: "application/pdf".into(), size: 3 }) }).unwrap();
+        assert_eq!(staged["sent"], false);
+        assert_eq!(staged["staged"]["name"], "a.pdf");
+        let sent = serde_json::to_value(MadeView { sent: true, staged: None }).unwrap();
+        assert_eq!(sent, serde_json::json!({ "sent": true }));
     }
 
     // Uploads are named by the app, never by the WebView: no way out of their directory.
@@ -1913,8 +2077,8 @@ mod tests {
     // Hidden sessions: the UI gets an id and the conversations, and nothing else to show.
     #[test]
     fn a_session_view_is_its_id_and_its_conversations() {
-        let view = serde_json::to_value(SessionView { id: "s1".to_owned(), conversations: vec![] }).unwrap();
-        assert_eq!(view, serde_json::json!({ "id": "s1", "conversations": [] }));
+        let view = serde_json::to_value(SessionView { id: "s1".to_owned(), conversations: vec![], requests: vec![] }).unwrap();
+        assert_eq!(view, serde_json::json!({ "id": "s1", "conversations": [], "requests": [] }));
     }
 
     // Issues app#4–#6: the contact's page shows what this phone takes from them.

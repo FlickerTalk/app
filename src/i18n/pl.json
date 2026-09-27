@@ -53,7 +53,9 @@
     "share": "Udostępnij",
     "delete": "Usuń tutaj",
     "deleteSure": "Usuń",
-    "forwardTo": "Przekaż do"
+    "forwardTo": "Przekaż do",
+    "download": "Download",
+    "discardAttachment": "Discard attachment"
   },
   "status": {
     "pending": "Czeka na urządzenie",
@@ -62,7 +64,8 @@
     "read": "Przeczytano",
     "connected": "Połączono bezpośrednio",
     "paused": "Wstrzymano",
-    "failed": "Nie udało się"
+    "failed": "Nie udało się",
+    "waiting": "Tap to download"
   },
   "calls": {
     "callBack": "Oddzwoń",
@@ -199,7 +202,15 @@
     "receipts": "Potwierdzenia dostarczenia i odczytu",
     "receiptsNote": "Dla nowych kontaktów",
     "hours": "Godziny",
-    "hoursOff": "Wył."
+    "hoursOff": "Wył.",
+    "autoDownload": "Auto-download files",
+    "autoDownloadAsk": "Always ask",
+    "autoDownloadUpTo": "Up to {size}",
+    "autoDownloadAlways": "Always",
+    "renewLink": "Renew my link",
+    "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
+    "renewLinkConfirm": "Renew",
+    "renewed": "Link renewed"
   },
   "hours": {
     "title": "Godziny",
@@ -226,7 +237,9 @@
     "toggle": "Sesja",
     "addContact": "Dodaj kontakt do tej sesji",
     "close": "Opuść tę sesję",
-    "empty": "Brak kontaktów. Dodaj kontakt przyciskiem QR: będzie należał tylko do tej sesji."
+    "empty": "Brak kontaktów. Dodaj kontakt przyciskiem QR: będzie należał tylko do tej sesji.",
+    "remove": "Delete this session",
+    "removeSure": "Delete"
   },
   "colors": {
     "ember": "Żar",
@@ -276,5 +289,11 @@
       "pending_approval": "Zakup czeka na zatwierdzenie.",
       "failed": "Sklep nie mógł pobrać płatności."
     }
+  },
+  "requests": {
+    "title": "Requests",
+    "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
+    "accept": "Accept",
+    "decline": "Decline and block"
   }
 }

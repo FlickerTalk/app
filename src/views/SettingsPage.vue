@@ -36,9 +36,11 @@ import {
   extensionPuzzleOutline,
   swapHorizontalOutline,
   trashOutline,
+  cloudDownloadOutline,
+  refreshOutline,
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
-import { erasePhone, quietHours, setMailbox, setReceipts, store } from "../core";
+import { erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
 import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -97,6 +99,30 @@ const appearances: { id: Appearance; label: string; icon: string }[] = [
 
 const direction = ref(storedDirection());
 const asksToErase = ref(false);
+
+// A4: up to what size a file comes on its own; 0 asks every time, the last choice never asks.
+const MB = 1024 * 1024;
+const AUTO_DOWNLOAD_CHOICES = [0, 10 * MB, 100 * MB, 1024 * MB, Number.MAX_SAFE_INTEGER] as const;
+const autoDownloadLabel = (bytes: number) =>
+  bytes === 0
+    ? t("settings.autoDownloadAsk")
+    : bytes === Number.MAX_SAFE_INTEGER
+      ? t("settings.autoDownloadAlways")
+      : t("settings.autoDownloadUpTo", { size: formatSize(bytes) });
+
+async function onAutoDownloadChange(event: CustomEvent<{ value: number }>) {
+  await setAutoDownload(Number(event.detail.value));
+}
+
+// A5: a new link retires the old one; it asks once, because whoever kept it is cut off.
+const asksToRenew = ref(false);
+const renewed = ref(false);
+
+async function renew() {
+  asksToRenew.value = false;
+  await renewLink();
+  renewed.value = true;
+}
 
 // §78: it takes this device off the router and wipes the phone, so it asks first.
 async function erase() {
@@ -166,6 +192,40 @@ function chooseAppearance(id: Appearance) {
               <span class="ft-item__title">{{ $t("settings.receipts") }}</span>
               <span class="ft-item__note">{{ $t("settings.receiptsNote") }}</span>
             </ion-toggle>
+          </ion-item>
+          <!-- A4: bigger files wait for a tap; the size is this phone's choice. -->
+          <ion-item lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="cloudDownloadOutline" aria-hidden="true" /></span>
+            <ion-select
+              :value="store.me.autoDownload"
+              data-test="auto-download"
+              :aria-label="$t('settings.autoDownload')"
+              :label="$t('settings.autoDownload')"
+              interface="action-sheet"
+              @ion-change="onAutoDownloadChange"
+            >
+              <ion-select-option v-for="bytes in AUTO_DOWNLOAD_CHOICES" :key="bytes" :value="bytes">{{ autoDownloadLabel(bytes) }}</ion-select-option>
+            </ion-select>
+          </ion-item>
+          <!-- A5: whoever has the old link is cut off; the contacts get the new card by themselves. -->
+          <ion-item v-if="!asksToRenew" button lines="none" data-test="renew-link" @click="asksToRenew = true">
+            <span slot="start" class="ft-tile"><ion-icon :icon="refreshOutline" aria-hidden="true" /></span>
+            <ion-label>
+              {{ $t("settings.renewLink") }}
+              <p class="ft-muted">{{ renewed ? $t("settings.renewed") : $t("settings.renewLinkHint") }}</p>
+            </ion-label>
+          </ion-item>
+          <ion-item v-else lines="none" class="ft-erase">
+            <span slot="start" class="ft-tile"><ion-icon :icon="refreshOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.renewLinkHint") }}</ion-label>
+            <span slot="end" class="ft-choices">
+              <button type="button" class="ft-erase__cancel" data-test="renew-cancel" @click="asksToRenew = false">
+                {{ $t("common.cancel") }}
+              </button>
+              <button type="button" class="ft-erase__go" data-test="renew-confirm" @click="renew">
+                {{ $t("settings.renewLinkConfirm") }}
+              </button>
+            </span>
           </ion-item>
           <!-- Issue app#7: the weekly hours when the phone may make noise. -->
           <ion-item button detail lines="none" data-test="hours" @click="router.push('/hours')">

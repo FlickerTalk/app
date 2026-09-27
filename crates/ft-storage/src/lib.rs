@@ -34,6 +34,8 @@ impl MessageState {
 pub struct StoredIdentity {
     pub sealed: String,
     pub route_capability: [u8; 32],
+    /// The envelope key, sealed at rest (A1); `None` on a database from before it.
+    pub envelope: Option<String>,
 }
 
 pub struct NewContact {
@@ -45,6 +47,9 @@ pub struct NewContact {
     pub session: Option<String>,
     /// Whether they are told their messages arrived and were read (the Settings default).
     pub receipts: bool,
+    /// Whether the user chose them (scanned, or accepted a request). Someone who wrote first
+    /// with our link waits in the requests until then (A5).
+    pub accepted: bool,
 }
 
 /// What this phone takes from a contact and what it tells them (issues app#4–#6).
@@ -83,6 +88,8 @@ pub struct Contact {
     /// The hidden session this contact belongs to; `None` for the main list.
     pub session: Option<String>,
     pub rules: ContactRules,
+    /// `false` while they wait in the requests (A5): hidden, silent, no files, no calls.
+    pub accepted: bool,
 }
 
 /// A plugin installed on this phone, with what the user granted it (issue app#3).
@@ -101,7 +108,10 @@ pub struct Message {
     pub contact: String,
     pub outgoing: bool,
     pub body: String,
+    /// The sender's clock, as it said (M5): shown, never trusted for keeping or ordering.
     pub sent_at: i64,
+    /// This phone's clock when the message was stored: what history and order go by (M5).
+    pub received_at: i64,
     pub state: MessageState,
 }
 
@@ -134,6 +144,9 @@ pub struct FileRecord {
     pub complete: bool,
     /// The bytes did not match the hash: the transfer was given up.
     pub failed: bool,
+    /// Incoming and bigger than the user downloads on their own: not a byte is asked for until
+    /// they say so (A4).
+    pub waiting: bool,
 }
 
 impl FileRecord {
@@ -229,15 +242,48 @@ impl Store {
     }
 
     pub async fn identity(&self) -> Result<Option<StoredIdentity>> {
-        let row = sqlx::query("SELECT sealed, route_capability FROM identity WHERE id = 1").fetch_optional(&self.pool).await?;
+        let row = sqlx::query("SELECT sealed, route_capability, envelope FROM identity WHERE id = 1").fetch_optional(&self.pool).await?;
         row.map(|row| {
             let capability: Vec<u8> = row.get("route_capability");
             Ok(StoredIdentity {
                 sealed: row.get("sealed"),
                 route_capability: capability.try_into().map_err(|_| anyhow::anyhow!("corrupt route capability"))?,
+                envelope: row.get("envelope"),
             })
         })
         .transpose()
+    }
+
+    /// Keeps the envelope key, sealed (A1).
+    pub async fn save_envelope(&self, sealed: &str) -> Result<()> {
+        sqlx::query("UPDATE identity SET envelope = ? WHERE id = 1").bind(sealed).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Drops the envelope key, as a database from before it has none: for the tests of the
+    /// upgrade, which must hand every contact the new card.
+    pub async fn forget_envelope(&self) -> Result<()> {
+        sqlx::query("UPDATE identity SET envelope = NULL WHERE id = 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// A renewed link (A5): the device's own route capability changes.
+    pub async fn set_route_capability(&self, route_capability: &[u8; 32]) -> Result<()> {
+        sqlx::query("UPDATE identity SET route_capability = ? WHERE id = 1")
+            .bind(route_capability.as_slice())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// A renewed link of a hidden session (A5): its slot gets a fresh capability.
+    pub async fn set_spare_capability(&self, slot: u8, capability: &[u8; 32]) -> Result<()> {
+        sqlx::query("UPDATE spare_capabilities SET capability = ? WHERE slot = ?")
+            .bind(capability.as_slice())
+            .bind(slot)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn save_identity(&self, sealed: &str, route_capability: &[u8; 32]) -> Result<()> {
@@ -255,10 +301,12 @@ impl Store {
     /// Adds a contact or, if already known, refreshes its card (keys, capability, mailbox).
     /// Adds the contact, or refreshes the card of a known one. A known contact keeps its name and
     /// stays in the list or session where it was.
+    /// Accepting is one way: a known contact that the user chose stays chosen (A5).
     pub async fn add_contact(&self, contact: &NewContact) -> Result<()> {
         sqlx::query(
-            "INSERT INTO contacts (device_id, name, card, mailbox, added_at, session, receipts) VALUES (?, ?, ?, ?, unixepoch(), ?, ?)
-             ON CONFLICT (device_id) DO UPDATE SET card = excluded.card, mailbox = excluded.mailbox",
+            "INSERT INTO contacts (device_id, name, card, mailbox, added_at, session, receipts, accepted) VALUES (?, ?, ?, ?, unixepoch(), ?, ?, ?)
+             ON CONFLICT (device_id) DO UPDATE SET card = excluded.card, mailbox = excluded.mailbox,
+             accepted = MAX(contacts.accepted, excluded.accepted)",
         )
         .bind(&contact.device_id)
         .bind(&contact.name)
@@ -266,9 +314,40 @@ impl Store {
         .bind(contact.mailbox)
         .bind(&contact.session)
         .bind(contact.receipts)
+        .bind(contact.accepted)
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Only the card of a known contact, as they send it in a `ContactCard` packet.
+    pub async fn refresh_card(&self, device_id: &str, card: &[u8]) -> Result<()> {
+        sqlx::query("UPDATE contacts SET card = ? WHERE device_id = ?").bind(card).bind(device_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn set_accepted(&self, device_id: &str, accepted: bool) -> Result<()> {
+        sqlx::query("UPDATE contacts SET accepted = ? WHERE device_id = ?").bind(accepted).bind(device_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// The strangers who wrote first and wait for a yes (A5): of the main list, or of a session.
+    pub async fn requests(&self, session: Option<&str>) -> Result<Vec<Contact>> {
+        let rows = match session {
+            None => sqlx::query("SELECT * FROM contacts WHERE accepted = 0 AND blocked = 0 AND session IS NULL ORDER BY added_at DESC")
+                .fetch_all(&self.pool)
+                .await?,
+            Some(session) => sqlx::query("SELECT * FROM contacts WHERE accepted = 0 AND blocked = 0 AND session = ? ORDER BY added_at DESC")
+                .bind(session)
+                .fetch_all(&self.pool)
+                .await?,
+        };
+        Ok(rows.iter().map(contact_from).collect())
+    }
+
+    /// The conversations waiting in the requests, newest first.
+    pub async fn request_conversations(&self, session: Option<&str>) -> Result<Vec<Conversation>> {
+        self.conversations_of(self.requests(session).await?).await
     }
 
     pub async fn set_rules(&self, device_id: &str, rules: &ContactRules) -> Result<()> {
@@ -348,16 +427,48 @@ impl Store {
         Ok(row.as_ref().map(contact_from))
     }
 
-    /// The contacts of the main list: a session's contacts are listed through it.
+    /// The contacts of the main list: a session's contacts are listed through it, and the
+    /// strangers waiting in the requests through `requests`.
     pub async fn contacts(&self) -> Result<Vec<Contact>> {
-        let rows = sqlx::query("SELECT * FROM contacts WHERE session IS NULL ORDER BY name").fetch_all(&self.pool).await?;
+        let rows = sqlx::query("SELECT * FROM contacts WHERE session IS NULL AND accepted = 1 ORDER BY name").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(contact_from).collect())
+    }
+
+    /// Every contact there is, chosen or not, in every session: what a broadcast reaches.
+    pub async fn all_contacts(&self) -> Result<Vec<Contact>> {
+        let rows = sqlx::query("SELECT * FROM contacts ORDER BY name").fetch_all(&self.pool).await?;
         Ok(rows.iter().map(contact_from).collect())
     }
 
     /// The contacts of a hidden session.
     pub async fn session_contacts(&self, session: &str) -> Result<Vec<Contact>> {
-        let rows = sqlx::query("SELECT * FROM contacts WHERE session = ? ORDER BY name").bind(session).fetch_all(&self.pool).await?;
+        let rows = sqlx::query("SELECT * FROM contacts WHERE session = ? AND accepted = 1 ORDER BY name")
+            .bind(session)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows.iter().map(contact_from).collect())
+    }
+
+    /// Takes a hidden session away with everything in it: its contacts (and so their messages,
+    /// files and calls, which cascade) and its slot (A3). The bytes of the files are the caller's.
+    pub async fn remove_session(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM pending_outbox WHERE contact IN (SELECT device_id FROM contacts WHERE session = ?)")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM contacts WHERE session = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM sessions WHERE id = ?").bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// The sessions with nobody in them, not even a stranger waiting for a yes (A3).
+    pub async fn empty_sessions(&self) -> Result<Vec<String>> {
+        let rows = sqlx::query(
+            "SELECT id FROM sessions WHERE id NOT IN (SELECT session FROM contacts WHERE session IS NOT NULL) ORDER BY id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|row| row.get("id")).collect())
     }
 
     /// Removes the contact with its conversation, files, calls and pending messages.
@@ -413,9 +524,10 @@ impl Store {
     }
 
     /// Returns false when the message was already there (§27): acknowledge, do not store twice.
+    /// `received_at` is stamped by this phone's clock, now (M5).
     pub async fn insert_message(&self, message: &Message) -> Result<bool> {
         let result = sqlx::query(
-            "INSERT INTO messages (message_id, contact, outgoing, body, sent_at, state) VALUES (?, ?, ?, ?, ?, ?)
+            "INSERT INTO messages (message_id, contact, outgoing, body, sent_at, received_at, state) VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (message_id) DO NOTHING",
         )
         .bind(&message.message_id)
@@ -423,6 +535,7 @@ impl Store {
         .bind(message.outgoing)
         .bind(&message.body)
         .bind(message.sent_at)
+        .bind(if message.received_at > 0 { message.received_at } else { now() })
         .bind(message.state as i64)
         .execute(&self.pool)
         .await?;
@@ -434,11 +547,12 @@ impl Store {
         Ok(row.as_ref().map(message_from))
     }
 
-    /// The last `limit` messages with a contact, oldest first.
+    /// The last `limit` messages with a contact, oldest first, in the order they reached this
+    /// phone (M5): a sender's clock cannot push a message into the past.
     pub async fn messages(&self, contact: &str, limit: i64) -> Result<Vec<Message>> {
         let rows = sqlx::query(
-            "SELECT * FROM (SELECT * FROM messages WHERE contact = ? ORDER BY sent_at DESC, message_id DESC LIMIT ?)
-             ORDER BY sent_at, message_id",
+            "SELECT * FROM (SELECT * FROM messages WHERE contact = ? ORDER BY received_at DESC, message_id DESC LIMIT ?)
+             ORDER BY received_at, message_id",
         )
         .bind(contact)
         .bind(limit)
@@ -483,12 +597,14 @@ impl Store {
 
     /// Applies the history rules (issue app#1) and returns the contacts whose conversation
     /// changed. Files of the deleted messages go with them (their rows cascade); the bytes on
-    /// disk are the caller's to remove.
+    /// disk are the caller's to remove. Age counts from when the message reached this phone
+    /// (M5), and a message still waiting to be delivered is never swept (M6).
     pub async fn sweep(&self, now: i64) -> Result<Vec<String>> {
         let stale = sqlx::query(
             "SELECT DISTINCT m.contact FROM messages m JOIN contacts c ON c.device_id = m.contact
-             WHERE (c.keep_for > 0 AND m.sent_at < ? - c.keep_for * 1000)
-                OR (c.burn_after_read > 0 AND m.read_at IS NOT NULL AND m.read_at < ? - c.burn_after_read * 1000)",
+             WHERE m.message_id NOT IN (SELECT message_id FROM pending_outbox)
+               AND ((c.keep_for > 0 AND m.received_at < ? - c.keep_for * 1000)
+                OR (c.burn_after_read > 0 AND m.read_at IS NOT NULL AND m.read_at < ? - c.burn_after_read * 1000))",
         )
         .bind(now)
         .bind(now)
@@ -501,8 +617,9 @@ impl Store {
         sqlx::query(
             "DELETE FROM messages WHERE message_id IN (
                  SELECT m.message_id FROM messages m JOIN contacts c ON c.device_id = m.contact
-                 WHERE (c.keep_for > 0 AND m.sent_at < ? - c.keep_for * 1000)
-                    OR (c.burn_after_read > 0 AND m.read_at IS NOT NULL AND m.read_at < ? - c.burn_after_read * 1000)
+                 WHERE m.message_id NOT IN (SELECT message_id FROM pending_outbox)
+                   AND ((c.keep_for > 0 AND m.received_at < ? - c.keep_for * 1000)
+                    OR (c.burn_after_read > 0 AND m.read_at IS NOT NULL AND m.read_at < ? - c.burn_after_read * 1000))
              )",
         )
         .bind(now)
@@ -546,7 +663,7 @@ impl Store {
     async fn conversations_of(&self, contacts: Vec<Contact>) -> Result<Vec<Conversation>> {
         let mut conversations = Vec::new();
         for contact in contacts {
-            let last = sqlx::query("SELECT * FROM messages WHERE contact = ? ORDER BY sent_at DESC, message_id DESC LIMIT 1")
+            let last = sqlx::query("SELECT * FROM messages WHERE contact = ? ORDER BY received_at DESC, message_id DESC LIMIT 1")
                 .bind(&contact.device_id)
                 .fetch_optional(&self.pool)
                 .await?
@@ -559,7 +676,7 @@ impl Store {
                 .get("n");
             conversations.push(Conversation { contact, last, unread });
         }
-        conversations.sort_by_key(|c| std::cmp::Reverse(c.last.as_ref().map_or(i64::MIN, |m| m.sent_at)));
+        conversations.sort_by_key(|c| std::cmp::Reverse(c.last.as_ref().map_or(i64::MIN, |m| m.received_at)));
         Ok(conversations)
     }
 
@@ -605,8 +722,8 @@ impl Store {
     /// Returns false when the file was already there (a retried offer).
     pub async fn insert_file(&self, file: &FileRecord) -> Result<bool> {
         let result = sqlx::query(
-            "INSERT INTO files (message_id, name, size, mime, hash, chunk, path, chunks_done, complete)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message_id) DO NOTHING",
+            "INSERT INTO files (message_id, name, size, mime, hash, chunk, path, chunks_done, complete, waiting)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message_id) DO NOTHING",
         )
         .bind(&file.message_id)
         .bind(&file.name)
@@ -617,9 +734,16 @@ impl Store {
         .bind(&file.path)
         .bind(file.chunks_done)
         .bind(file.complete)
+        .bind(file.waiting)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    /// The user asked for a file that was waiting (A4): from now on it is pulled like any other.
+    pub async fn set_file_waiting(&self, message_id: &str, waiting: bool) -> Result<()> {
+        sqlx::query("UPDATE files SET waiting = ? WHERE message_id = ?").bind(waiting).bind(message_id).execute(&self.pool).await?;
+        Ok(())
     }
 
     pub async fn file(&self, message_id: &str) -> Result<Option<FileRecord>> {
@@ -655,11 +779,14 @@ impl Store {
         Ok(())
     }
 
-    /// Incoming files still missing chunks, with their sender: (contact, file).
+    /// Incoming files still missing chunks, with their sender: (contact, file). Not the ones
+    /// waiting for the user (A4), nor those of a stranger still in the requests (A5).
     pub async fn incomplete_incoming_files(&self) -> Result<Vec<(String, FileRecord)>> {
         let rows = sqlx::query(
             "SELECT files.*, messages.contact FROM files JOIN messages USING (message_id)
-             WHERE messages.outgoing = 0 AND files.complete = 0 AND files.failed = 0 ORDER BY sent_at",
+             JOIN contacts ON contacts.device_id = messages.contact
+             WHERE messages.outgoing = 0 AND files.complete = 0 AND files.failed = 0 AND files.waiting = 0
+               AND contacts.accepted = 1 ORDER BY received_at",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -869,6 +996,7 @@ fn contact_from(row: &SqliteRow) -> Contact {
             accepts_calls: row.get("accepts_calls"),
             receipts: row.get("receipts"),
         },
+        accepted: row.get("accepted"),
     }
 }
 
@@ -879,6 +1007,7 @@ fn message_from(row: &SqliteRow) -> Message {
         outgoing: row.get("outgoing"),
         body: row.get("body"),
         sent_at: row.get("sent_at"),
+        received_at: row.get("received_at"),
         state: MessageState::from_rank(row.get("state")),
     }
 }
@@ -896,6 +1025,7 @@ fn file_from(row: &SqliteRow) -> Result<FileRecord> {
         chunks_done: row.get("chunks_done"),
         complete: row.get("complete"),
         failed: row.get("failed"),
+        waiting: row.get("waiting"),
     })
 }
 
@@ -933,7 +1063,7 @@ mod tests {
     }
 
     fn contact(id: &str) -> NewContact {
-        NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true, session: None, receipts: true }
+        NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true, session: None, receipts: true, accepted: true }
     }
 
     fn message(id: &str, contact: &str, outgoing: bool, sent_at: i64) -> Message {
@@ -943,6 +1073,7 @@ mod tests {
             outgoing,
             body: format!("text {id}"),
             sent_at,
+            received_at: sent_at,
             state: if outgoing { MessageState::Pending } else { MessageState::Delivered },
         }
     }
@@ -959,7 +1090,100 @@ mod tests {
             chunks_done: 0,
             complete: false,
             failed: false,
+            waiting: false,
         }
+    }
+
+    // A5: a stranger who wrote first waits in the requests, out of the main list, until the user
+    // says yes; scanning them says yes too, and a yes is never taken back by a new card.
+    #[tokio::test]
+    async fn a_stranger_waits_in_the_requests_until_chosen() {
+        let store = store().await;
+        store.add_contact(&NewContact { accepted: false, ..contact("ft_mallory") }).await.expect("adds");
+        assert!(store.contacts().await.unwrap().is_empty());
+        assert_eq!(store.requests(None).await.unwrap().len(), 1);
+        store.set_accepted("ft_mallory", true).await.expect("accepts");
+        assert_eq!(store.contacts().await.unwrap().len(), 1);
+        assert!(store.requests(None).await.unwrap().is_empty());
+        store.add_contact(&NewContact { accepted: false, ..contact("ft_mallory") }).await.expect("a new card");
+        assert!(store.contact("ft_mallory").await.unwrap().unwrap().accepted, "still chosen");
+    }
+
+    // A3: a session goes with everything in it, and its slot is free again.
+    #[tokio::test]
+    async fn a_removed_session_leaves_nothing_behind() {
+        let store = store().await;
+        store.add_session("s1", &[1; 32], 3).await.expect("creates");
+        store.add_contact(&NewContact { session: Some("s1".to_owned()), ..contact("ft_bob") }).await.expect("adds inside");
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
+        store.enqueue("m1", "ft_bob", 1).await.expect("queues");
+        store.remove_session("s1").await.expect("removes");
+        assert!(store.session_by_pin(&[1; 32]).await.unwrap().is_none());
+        assert!(store.contact("ft_bob").await.unwrap().is_none());
+        assert!(store.message("m1").await.unwrap().is_none());
+        assert!(store.outbox().await.unwrap().is_empty());
+        assert!(store.used_slots().await.unwrap().is_empty());
+    }
+
+    // A3: a session with nobody in it, not even a stranger waiting for a yes, is empty.
+    #[tokio::test]
+    async fn only_sessions_with_nobody_in_them_are_empty() {
+        let store = store().await;
+        store.add_session("s1", &[1; 32], 1).await.expect("creates");
+        store.add_session("s2", &[2; 32], 2).await.expect("creates");
+        store.add_session("s3", &[3; 32], 3).await.expect("creates");
+        store.add_contact(&NewContact { session: Some("s2".to_owned()), ..contact("ft_bob") }).await.expect("adds inside");
+        store
+            .add_contact(&NewContact { session: Some("s3".to_owned()), accepted: false, ..contact("ft_eve") })
+            .await
+            .expect("a request inside");
+        store.add_contact(&contact("ft_carol")).await.expect("adds to the main list");
+        assert_eq!(store.empty_sessions().await.expect("lists"), vec!["s1".to_owned()]);
+    }
+
+    // M5: what the sender's clock says is kept, but the order and the age are this phone's.
+    #[tokio::test]
+    async fn messages_are_ordered_and_aged_by_arrival() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        // "late" says it was sent long ago and arrives first; "early" claims the far future.
+        store.insert_message(&Message { received_at: 1_000_000, ..message("late", "ft_bob", false, 1_000) }).await.unwrap();
+        store.insert_message(&Message { received_at: 2_000_000, ..message("early", "ft_bob", false, 999_999_999_999) }).await.unwrap();
+        let ids: Vec<_> = store.messages("ft_bob", 10).await.unwrap().into_iter().map(|m| m.message_id).collect();
+        assert_eq!(ids, ["late", "early"], "in the order they arrived, whatever their clocks said");
+        assert_eq!(store.message("late").await.unwrap().unwrap().sent_at, 1_000, "the sender's time is kept");
+        // Without an arrival time, the store stamps now.
+        store.insert_message(&Message { received_at: 0, ..message("now", "ft_bob", false, 5) }).await.unwrap();
+        let stamped = store.message("now").await.unwrap().unwrap();
+        assert!(stamped.received_at > 2_000_000, "stamped on arrival: {}", stamped.received_at);
+        assert_eq!(store.messages("ft_bob", 10).await.unwrap().last().unwrap().message_id, "now");
+    }
+
+    // M6: a message still waiting to go is never swept, however old.
+    #[tokio::test]
+    async fn the_sweep_spares_what_is_still_in_the_outbox() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.set_history("ft_bob", 1, 0).await.expect("keeps a second");
+        store.insert_message(&message("pending", "ft_bob", true, 1)).await.unwrap();
+        store.enqueue("pending", "ft_bob", 1).await.unwrap();
+        store.insert_message(&message("old", "ft_bob", true, 1)).await.unwrap();
+        let far_future = now() + 10 * 24 * 3600 * 1000;
+        store.sweep(far_future).await.expect("sweeps");
+        assert!(store.message("pending").await.unwrap().is_some(), "still to be delivered");
+        assert!(store.message("old").await.unwrap().is_none());
+    }
+
+    // A4: a waiting file is not among what the resume loop pulls.
+    #[tokio::test]
+    async fn a_waiting_file_is_not_resumed() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("big", "ft_bob", false, 1)).await.unwrap();
+        store.insert_file(&FileRecord { waiting: true, ..file("big") }).await.unwrap();
+        assert!(store.incomplete_incoming_files().await.unwrap().is_empty());
+        store.set_file_waiting("big", false).await.expect("the user asks for it");
+        assert_eq!(store.incomplete_incoming_files().await.unwrap().len(), 1);
     }
 
     // The user erases one message on this phone (§61): the row goes, and with it its file and

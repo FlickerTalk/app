@@ -53,7 +53,9 @@
     "share": "Compartilhar",
     "delete": "Apagar aqui",
     "deleteSure": "Apagar",
-    "forwardTo": "Encaminhar para"
+    "forwardTo": "Encaminhar para",
+    "download": "Transferir",
+    "discardAttachment": "Descartar o anexo"
   },
   "status": {
     "pending": "Aguardando o dispositivo",
@@ -62,7 +64,8 @@
     "read": "Lida",
     "connected": "Conectado diretamente",
     "paused": "Pausado",
-    "failed": "Falhou"
+    "failed": "Falhou",
+    "waiting": "Toque para transferir"
   },
   "calls": {
     "callBack": "Ligar de volta",
@@ -199,7 +202,15 @@
     "receipts": "Confirmações de entrega e leitura",
     "receiptsNote": "Para novos contatos",
     "hours": "Horário",
-    "hoursOff": "Desativado"
+    "hoursOff": "Desativado",
+    "autoDownload": "Transferir ficheiros sozinho",
+    "autoDownloadAsk": "Perguntar sempre",
+    "autoDownloadUpTo": "Até {size}",
+    "autoDownloadAlways": "Sempre",
+    "renewLink": "Renovar o meu link",
+    "renewLinkHint": "Quem tiver o teu link antigo já não te alcança; os teus contactos recebem o novo",
+    "renewLinkConfirm": "Renovar",
+    "renewed": "Link renovado"
   },
   "hours": {
     "title": "Horário",
@@ -226,7 +237,9 @@
     "toggle": "Sessão",
     "addContact": "Adicionar um contato a esta sessão",
     "close": "Sair desta sessão",
-    "empty": "Ainda não há contatos aqui. Adicione um com o botão QR: ele pertence só a esta sessão."
+    "empty": "Ainda não há contatos aqui. Adicione um com o botão QR: ele pertence só a esta sessão.",
+    "remove": "Apagar esta sessão",
+    "removeSure": "Apagar"
   },
   "colors": {
     "ember": "Brasa",
@@ -276,5 +289,11 @@
       "pending_approval": "A compra está à espera de aprovação.",
       "failed": "A loja não conseguiu cobrar o pagamento."
     }
+  },
+  "requests": {
+    "title": "Pedidos",
+    "hint": "Têm o teu link. Nada deles é transferido e não podem ligar até aceitares.",
+    "accept": "Aceitar",
+    "decline": "Recusar e bloquear"
   }
 }

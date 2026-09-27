@@ -133,6 +133,8 @@ async fn pair(alice: &Phone, bob: &Phone) {
     alice.core.add_contact(&link, None).await.expect("alice adds bob");
     let id = alice.id();
     until("bob knows alice", || async { bob.core.store().contact(&id).await.unwrap().is_some() }).await;
+    // Alice wrote first: Bob accepts her request (A5).
+    bob.core.accept_contact(&id).await.expect("bob accepts alice");
 }
 
 async fn texts(phone: &Phone, contact: &str) -> Vec<String> {

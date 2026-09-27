@@ -17,7 +17,7 @@ const at = (time: string) => {
 };
 
 export function seed(): void {
-  store.me = { ...fixture.me, mailbox: true, receipts: true, freeUntil: 0 };
+  store.me = { ...fixture.me, mailbox: true, receipts: true, freeUntil: 0, autoDownload: 10 * 1024 * 1024 };
   store.chats = fixture.chats.map(
     (chat): Chat => ({
       ...chat,
@@ -36,6 +36,7 @@ export function seed(): void {
     }),
   );
   store.sessions = [];
+  store.requests = [];
   store.ready = true;
   calls.length = 0;
   installTauri((command, args) => {
@@ -53,7 +54,10 @@ export function seed(): void {
     if (command === "core_conversations") return [];
     if (command === "core_card") return "https://flickertalk.com/add#card";
     // A hidden session: the same PIN gives the same session; here, always an empty one.
-    if (command === "core_session_open") return { id: "s1", conversations: [] };
+    if (command === "core_session_open") return { id: "s1", conversations: [], requests: [] };
+    if (command === "core_session_create") return { id: "s2", conversations: [], requests: [] };
+    if (command === "core_requests") return [];
+    if (command === "core_plugin_made") return { sent: false, staged: { path: "/data/files/outgoing/1-clean.jpg", name: "clean.jpg", mime: "image/jpeg", size: 3 } };
     if (command === "core_upload_start") return "up1";
     if (command === "core_take_photo") return [{ path: "/data/uploads/photo.jpg", name: "photo-20260923-201530.jpg", mime: "image/jpeg", size: 1234 }];
     if (command === "core_contact") {

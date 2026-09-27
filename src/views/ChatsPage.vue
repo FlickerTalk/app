@@ -12,19 +12,22 @@ import {
 } from "@ionic/vue";
 import {
   attachOutline,
+  banOutline,
   checkmark,
   checkmarkDone,
+  checkmarkOutline,
   chevronForwardOutline,
   ellipsisVerticalOutline,
   logOutOutline,
   micOutline,
   qrCodeOutline,
   timeOutline,
+  trashOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
-import { closeSession, store } from "../core";
+import { acceptContact, closeSession, declineContact, removeSession, store, type Chat, type Session } from "../core";
 
 const router = useRouter();
 
@@ -52,6 +55,25 @@ const isFolded = (id: string) => folded.value[id] === true;
 function fold(id: string) {
   folded.value = { ...folded.value, [id]: !isFolded(id) };
 }
+
+/** A session that is only on the screen (A3: the seven slots are taken) has no room for anyone. */
+function addTo(session: Session) {
+  if (session.id) router.push(`/add-contact?session=${session.id}`);
+}
+
+// A3: deleting a session is for good, so it asks once, in the header, with no words. Every
+// session has the trash; one that is only on the screen just goes from it.
+const removing = ref<string | undefined>();
+const keyOf = (session: Session) => session.id || `pin:${session.pin}`;
+
+async function remove(session: Session) {
+  removing.value = undefined;
+  if (session.id) await removeSession(session.id);
+  else await closeSession("");
+}
+
+// A5: strangers who wrote first wait here; a short id next to the name says who they really are.
+const shortId = (chat: Chat) => chat.id.slice(0, 9);
 
 const STATUS_ICON: Record<string, string> = {
   pending: timeOutline,
@@ -83,7 +105,7 @@ const STATUS_ICON: Record<string, string> = {
             </ion-toolbar>
           </ion-header>
 
-          <div v-if="!store.chats.length" class="ft-empty" data-test="empty">
+          <div v-if="!store.chats.length && !store.requests.length" class="ft-empty" data-test="empty">
             <p class="ft-empty__title">{{ $t("chats.empty") }}</p>
             <p class="ft-empty__hint">{{ $t("chats.emptyHint") }}</p>
             <button type="button" class="ft-empty__action" @click="router.push('/add-contact')">
@@ -92,7 +114,35 @@ const STATUS_ICON: Record<string, string> = {
             </button>
           </div>
 
-          <ul v-else class="ft-rows">
+          <!-- A5: the requests come first, apart from the list, with a yes and a no on each. -->
+          <section v-if="store.requests.length" class="ft-requests" data-test="requests">
+            <h2 class="ft-requests__title">{{ $t("requests.title") }}</h2>
+            <p class="ft-requests__hint">{{ $t("requests.hint") }}</p>
+            <ul class="ft-rows">
+              <li v-for="chat in store.requests" :key="chat.id" data-test="request-row">
+                <button type="button" class="ft-row" @click="open(chat.id)">
+                  <Avatar :name="chat.name" :hue="chat.hue" :connected="false" />
+                  <span class="ft-row__body">
+                    <span class="ft-row__line">
+                      <span class="ft-row__name">{{ chat.name }}</span>
+                      <span class="ft-row__time">{{ shortId(chat) }}</span>
+                    </span>
+                    <span class="ft-row__line">
+                      <span class="ft-row__preview">{{ chat.preview }}</span>
+                    </span>
+                  </span>
+                </button>
+                <button type="button" class="ft-row__more ft-row__yes" data-test="request-accept" :aria-label="$t('requests.accept')" @click="acceptContact(chat.id)">
+                  <ion-icon :icon="checkmarkOutline" aria-hidden="true" />
+                </button>
+                <button type="button" class="ft-row__more ft-row__no" data-test="request-decline" :aria-label="$t('requests.decline')" @click="declineContact(chat.id)">
+                  <ion-icon :icon="banOutline" aria-hidden="true" />
+                </button>
+              </li>
+            </ul>
+          </section>
+
+          <ul v-if="store.chats.length" class="ft-rows">
             <li v-for="chat in store.chats" :key="chat.id">
               <button
                 type="button"
@@ -144,7 +194,7 @@ const STATUS_ICON: Record<string, string> = {
                leave button, no name. Closed ones leave no trace. -->
           <section
             v-for="session in store.sessions"
-            :key="session.id"
+            :key="keyOf(session)"
             class="ft-session"
             :class="{ 'is-folded': isFolded(session.id) }"
             data-test="session-section"
@@ -166,9 +216,32 @@ const STATUS_ICON: Record<string, string> = {
                 data-test="session-add"
                 :aria-label="$t('session.addContact')"
                 :title="$t('session.addContact')"
-                @click="router.push(`/add-contact?session=${session.id}`)"
+                @click="addTo(session)"
               >
                 <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
+              </button>
+              <!-- A3: a session can go for good; the trash asks once by turning into a check. -->
+              <button
+                v-if="removing !== keyOf(session)"
+                type="button"
+                class="ft-session__action ft-session__action--leave"
+                data-test="session-remove"
+                :aria-label="$t('session.remove')"
+                :title="$t('session.remove')"
+                @click="removing = keyOf(session)"
+              >
+                <ion-icon :icon="trashOutline" aria-hidden="true" />
+              </button>
+              <button
+                v-else
+                type="button"
+                class="ft-session__action ft-session__action--danger"
+                data-test="session-remove-sure"
+                :aria-label="$t('session.removeSure')"
+                :title="$t('session.removeSure')"
+                @click="remove(session)"
+              >
+                <ion-icon :icon="checkmarkOutline" aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -183,6 +256,27 @@ const STATUS_ICON: Record<string, string> = {
             </header>
 
             <template v-if="!isFolded(session.id)">
+              <!-- A5: the session's own requests, from whoever scanned its QR. -->
+              <ul v-if="session.requests.length" class="ft-rows ft-requests__rows" data-test="session-requests">
+                <li v-for="chat in session.requests" :key="chat.id" data-test="request-row">
+                  <button type="button" class="ft-row" @click="open(chat.id)">
+                    <Avatar :name="chat.name" :hue="chat.hue" :connected="false" />
+                    <span class="ft-row__body">
+                      <span class="ft-row__line">
+                        <span class="ft-row__name">{{ chat.name }}</span>
+                        <span class="ft-row__time">{{ shortId(chat) }}</span>
+                      </span>
+                      <span class="ft-row__line"><span class="ft-row__preview">{{ chat.preview }}</span></span>
+                    </span>
+                  </button>
+                  <button type="button" class="ft-row__more ft-row__yes" data-test="request-accept" :aria-label="$t('requests.accept')" @click="acceptContact(chat.id)">
+                    <ion-icon :icon="checkmarkOutline" aria-hidden="true" />
+                  </button>
+                  <button type="button" class="ft-row__more ft-row__no" data-test="request-decline" :aria-label="$t('requests.decline')" @click="declineContact(chat.id)">
+                    <ion-icon :icon="banOutline" aria-hidden="true" />
+                  </button>
+                </li>
+              </ul>
               <p v-if="!session.chats.length" class="ft-session__empty">{{ $t("session.empty") }}</p>
               <ul v-else class="ft-rows">
                 <li v-for="chat in session.chats" :key="chat.id">
@@ -385,6 +479,33 @@ const STATUS_ICON: Record<string, string> = {
   color: var(--ft-muted);
   font-size: 18px;
   cursor: pointer;
+}
+
+/* A5: the requests, apart from the list and before it. */
+.ft-requests {
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--ft-border);
+}
+.ft-requests__title {
+  margin: 8px 18px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ft-accent);
+}
+.ft-requests__hint {
+  margin: 2px 18px 6px;
+  font-size: 12px;
+  color: var(--ft-muted);
+  line-height: 1.35;
+}
+.ft-row__yes {
+  color: var(--ft-accent);
+}
+.ft-row__no {
+  color: var(--ion-color-danger);
+}
+.ft-session__action--danger {
+  color: var(--ion-color-danger);
 }
 
 /* A hidden session's panel: a header that folds, then the same rows as the main list. */
