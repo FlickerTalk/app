@@ -1062,6 +1062,12 @@ impl Store {
         Ok(gone.rows_affected() > 0)
     }
 
+    /// Drops every reminder of a plugin: whether there was any.
+    pub async fn forget_reminders(&self, plugin: &str) -> Result<bool> {
+        let gone = sqlx::query("DELETE FROM reminders WHERE plugin = ?").bind(plugin).execute(&self.pool).await?;
+        Ok(gone.rows_affected() > 0)
+    }
+
     /// A plugin's reminders, soonest first; every plugin's when `plugin` is `None`.
     pub async fn reminders(&self, plugin: Option<&str>) -> Result<Vec<Reminder>> {
         let rows = match plugin {

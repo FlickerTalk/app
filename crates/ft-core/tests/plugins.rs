@@ -230,6 +230,32 @@ async fn a_plugin_sets_reminders_only_if_granted_and_the_app_hears_of_it() {
     assert!(core.set_reminder("com.example.notes", "", 5_000, "").await.is_err());
 }
 
+// A reminder already handed to the phone's alarm clock must not outlive the plugin, nor the
+// permission: the app hears of it and tells the alarm clock again.
+#[tokio::test]
+async fn removing_a_plugin_or_its_remind_permission_takes_its_reminders_off_the_alarm_clock() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let remind = Permissions { remind: true, ..Permissions::default() };
+    let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), remind.clone()).await.expect("installs");
+
+    core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.expect("sets");
+    let mut events = core.events();
+    core.grant_plugin("com.example.notes", Permissions::default()).await.unwrap();
+    assert!(core.reminders().await.unwrap().is_empty(), "revoking remind drops its reminders");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
+
+    core.grant_plugin("com.example.notes", remind).await.unwrap();
+    core.set_reminder("com.example.notes", "r2", 5_000, "bread").await.expect("sets");
+    let mut events = core.events();
+    core.remove_plugin("com.example.notes").await.unwrap();
+    assert!(core.reminders().await.unwrap().is_empty());
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
+}
+
 /// A web that answers whatever is asked, and writes down what it was asked.
 #[derive(Default)]
 struct FakeWeb {
