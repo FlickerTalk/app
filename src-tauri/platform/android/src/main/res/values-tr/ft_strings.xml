@@ -6,4 +6,7 @@
     <string name="ft_channel_calls">Aramalar</string>
     <string name="ft_channel_messages">Mesajlar ve aramalar</string>
     <string name="ft_something_new">Seni yeni bir şey bekliyor</string>
+    <string name="ft_channel_reminders">Reminders</string>
+    <string name="ft_reminder">Reminder</string>
+    <string name="ft_reminder_generic">You have a reminder</string>
 </resources>

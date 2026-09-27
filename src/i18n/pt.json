@@ -259,7 +259,13 @@
     "remove": "Remover",
     "none": "Nenhum plugin ainda",
     "available": "Ferramentas para adicionar",
-    "install": "Instalar"
+    "install": "Instalar",
+    "live": "Falar com o mesmo plugin do outro lado da conversa",
+    "remind": "Pôr lembretes neste telemóvel",
+    "drive": "Guardar ficheiros na tua própria nuvem",
+    "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
+    "opens": "Abre: {kinds}",
+    "open": "Abrir"
   },
   "emoji": {
     "open": "Emoji",

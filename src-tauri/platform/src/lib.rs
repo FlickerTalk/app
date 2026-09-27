@@ -79,6 +79,37 @@ struct QuietHours<'a> {
     week: &'a str,
 }
 
+/// Arguments of the native `setReminders` command (2026-09-27): every reminder of every plugin,
+/// as JSON `[{plugin, id, at, text}]`. The OS is only the alarm clock; the core keeps the truth.
+#[derive(Serialize)]
+struct Reminders<'a> {
+    reminders: &'a str,
+}
+
+/// What the native `pendingReminder` command answers: `plugin\nid` of the reminder the user
+/// tapped, or nothing.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct PendingReminder {
+    reminder: String,
+}
+
+/// Arguments of the native `authorize` command (drive, 2026-09-27): the login page to open in
+/// the system's browser sheet, and the scheme the provider sends the user back with.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Authorize<'a> {
+    url: &'a str,
+    scheme: &'a str,
+}
+
+/// What `authorize` answers: the URL the provider sent the user back with, code and all.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Authorized {
+    url: String,
+}
+
 /// Arguments of the native `shareText` command.
 #[derive(Serialize)]
 struct ShareText<'a> {
@@ -254,6 +285,39 @@ impl<R: Runtime> Platform<R> {
         }
     }
 
+    /// Tells the phone's alarm clock every reminder there is (2026-09-27): it cancels what it
+    /// had and schedules these. The list is JSON, as the core writes it.
+    pub fn set_reminders(&self, reminders: &str) -> Result<()> {
+        self.run("setReminders", Reminders { reminders })
+    }
+
+    /// The reminder the user tapped to open the app, as `plugin\nid`, once; empty otherwise.
+    pub fn pending_reminder(&self) -> Result<String> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<PendingReminder>("pendingReminder", ())?.reminder)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(String::new())
+        }
+    }
+
+    /// Opens a login page in the system's browser sheet (Custom Tabs, `ASWebAuthenticationSession`)
+    /// and waits for the provider to send the user back with `scheme`. Returns that URL. The
+    /// WebView never sees the page nor the tokens (§54).
+    pub fn authorize(&self, url: &str, scheme: &str) -> Result<String> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Authorized>("authorize", Authorize { url, scheme })?.url)
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = (url, scheme);
+            Err(Error::Unsupported)
+        }
+    }
+
     /// What the user pressed on the call notification ("answer", "decline" or nothing), once.
     pub fn pending_call(&self) -> Result<String> {
         #[cfg(mobile)]
@@ -379,6 +443,15 @@ mod tests {
         assert_eq!(picked.files[0].size, 12);
         let pending: PendingCall = serde_json::from_value(serde_json::json!({ "action": "answer" })).unwrap();
         assert_eq!(pending.action, "answer");
+        // 2026-09-27: reminders travel as one JSON list, and a login comes back as a URL.
+        let reminders = serde_json::to_value(Reminders { reminders: r#"[{"plugin":"p","id":"r1","at":5,"text":""}]"# }).unwrap();
+        assert_eq!(reminders["reminders"], r#"[{"plugin":"p","id":"r1","at":5,"text":""}]"#);
+        let tapped: PendingReminder = serde_json::from_value(serde_json::json!({ "reminder": "p\nr1" })).unwrap();
+        assert_eq!(tapped.reminder, "p\nr1");
+        let login = serde_json::to_value(Authorize { url: "https://accounts.example/auth", scheme: "com.flickertalk.app" }).unwrap();
+        assert_eq!(login["scheme"], "com.flickertalk.app");
+        let back: Authorized = serde_json::from_value(serde_json::json!({ "url": "com.flickertalk.app:/oauth?code=1" })).unwrap();
+        assert!(back.url.starts_with("com.flickertalk.app:"));
         let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true, muted: true }).unwrap();
         assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true, "muted": true }));
         let slots = serde_json::to_value(OpenSlots { slots: &[1, 3] }).unwrap();

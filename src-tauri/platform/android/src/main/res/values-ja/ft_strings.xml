@@ -6,4 +6,7 @@
     <string name="ft_channel_calls">通話</string>
     <string name="ft_channel_messages">メッセージと通話</string>
     <string name="ft_something_new">新しいお知らせがあります</string>
+    <string name="ft_channel_reminders">Reminders</string>
+    <string name="ft_reminder">Reminder</string>
+    <string name="ft_reminder_generic">You have a reminder</string>
 </resources>

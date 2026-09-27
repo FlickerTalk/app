@@ -164,6 +164,14 @@ pub enum Body {
     CircleMessage { circle: String, text: String },
     /// The sender leaves the circle; each member takes them out of their copy.
     CircleLeave { circle: String },
+    /// Something a plugin says to the same plugin on the other side (2026-09-27, `ft.live`):
+    /// bytes the core never reads, only over the direct connection, never through the mailbox.
+    /// Dropped if the plugin is not installed and granted the channel there.
+    PluginEvent {
+        plugin: String,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+    },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -390,6 +398,7 @@ mod tests {
         round_trip(Body::CircleCard { card: vec![4, 5, 6] });
         round_trip(Body::CircleMessage { circle: "ab".repeat(16), text: "hello all".to_owned() });
         round_trip(Body::CircleLeave { circle: "ab".repeat(16) });
+        round_trip(Body::PluginEvent { plugin: "com.example.board".to_owned(), data: vec![1, 2, 3] });
     }
 
     // §62–63: a whole chunk, once sealed with Olm (under 200 bytes more), fits a single

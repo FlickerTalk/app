@@ -16,11 +16,16 @@ import {
   IonToolbar,
 } from "@ionic/vue";
 import {
+  alarmOutline,
+  archiveOutline,
+  cloudOutline,
   extensionPuzzleOutline,
   globeOutline,
+  openOutline,
   chatbubbleEllipsesOutline,
   createOutline,
   downloadOutline,
+  swapHorizontalOutline,
   trashOutline,
 } from "ionicons/icons";
 import {
@@ -33,8 +38,11 @@ import {
   type PluginPermissions,
   type PluginView,
 } from "../core";
+import { useRouter } from "vue-router";
 import { refreshPlugins } from "../plugins";
 import { t } from "../i18n";
+
+const router = useRouter();
 
 // Plan §53: a plugin is granted nothing by installing. Every permission it asked for is shown on
 // its own, with a switch, and can be taken back at any time.
@@ -87,6 +95,13 @@ function permissionsOf(plugin: PluginView) {
       on: plugin.granted.send !== "nothing",
     });
   }
+  // 2026-09-27: what the board, the notes and the drive ask for, each on its own switch.
+  if (plugin.asks.live) lines.push({ key: "live", label: t("plugins.live"), icon: swapHorizontalOutline, on: !!plugin.granted.live });
+  if (plugin.asks.remind) lines.push({ key: "remind", label: t("plugins.remind"), icon: alarmOutline, on: !!plugin.granted.remind });
+  if (plugin.asks.drive) lines.push({ key: "drive", label: t("plugins.drive"), icon: cloudOutline, on: !!plugin.granted.drive });
+  if (plugin.asks.storage === "large") {
+    lines.push({ key: "storage", label: t("plugins.storageLarge"), icon: archiveOutline, on: plugin.granted.storage === "large" });
+  }
   return lines;
 }
 
@@ -95,9 +110,18 @@ async function toggle(plugin: PluginView, key: string, on: boolean) {
     network: [...plugin.granted.network],
     messages: plugin.granted.messages,
     send: plugin.granted.send,
+    print: plugin.granted.print,
+    live: plugin.granted.live,
+    remind: plugin.granted.remind,
+    drive: plugin.granted.drive,
+    storage: plugin.granted.storage,
   };
   if (key === "messages") granted.messages = on;
   else if (key === "send") granted.send = on ? plugin.asks.send : "nothing";
+  else if (key === "live") granted.live = on;
+  else if (key === "remind") granted.remind = on;
+  else if (key === "drive") granted.drive = on;
+  else if (key === "storage") granted.storage = on ? "large" : "small";
   else {
     const host = key.slice("network:".length);
     granted.network = on ? [...new Set([...granted.network, host])] : granted.network.filter((one) => one !== host);
@@ -134,6 +158,17 @@ async function remove(id: string) {
             {{ plugin.name }}
             <p class="ft-muted">{{ plugin.version }}</p>
           </ion-label>
+          <!-- 2026-09-27: a plugin can be opened on its own, with no chat behind it (notes, drive). -->
+          <button
+            slot="end"
+            type="button"
+            class="ft-plugins__remove ft-plugins__open"
+            :data-test="`open-${plugin.id}`"
+            :aria-label="$t('plugins.open')"
+            @click="router.push(`/plugin/${plugin.id}`)"
+          >
+            <ion-icon :icon="openOutline" aria-hidden="true" />
+          </button>
           <button
             v-if="asksToRemove !== plugin.id"
             slot="end"
@@ -203,6 +238,9 @@ async function remove(id: string) {
 </template>
 
 <style scoped>
+.ft-plugins__open {
+  color: var(--ft-accent);
+}
 .ft-plugins__hint {
   margin: var(--ft-space-4);
   color: var(--ft-muted);

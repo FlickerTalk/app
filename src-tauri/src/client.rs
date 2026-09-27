@@ -582,6 +582,9 @@ impl Client {
             if let Ok(week) = online.core.quiet_week().await {
                 let _ = app.platform().set_quiet_hours(&week);
             }
+            // The phone's alarm clock is told every reminder again (2026-09-27): the core is
+            // the truth, and an alarm lost to a reboot or an update comes back here.
+            sync_reminders(app, &online.core).await;
         }
 
         if let Some(app) = self.app.get().cloned() {
@@ -595,6 +598,15 @@ impl Client {
                         Event::MessagesChanged { contact } => (Some(contact), None),
                         Event::CircleMessagesChanged { circle } => (None, Some(circle)),
                         Event::ContactsChanged | Event::ConnectionChanged { .. } | Event::PluginsChanged | Event::CirclesChanged => (None, None),
+                        // A plugin on the other side said something to its twin here (2026-09-27).
+                        Event::PluginEvent { plugin, contact, data } => {
+                            let _ = app.emit(PLUGIN_EVENT, PluginEventView { plugin, contact, data: BASE64.encode(data) });
+                            continue;
+                        }
+                        Event::RemindersChanged => {
+                            sync_reminders(&app, &core_for_events).await;
+                            continue;
+                        }
                         Event::Move(update) => {
                             let _ = app.emit(MOVE_EVENT, MoveEvent::from(update.clone()));
                             after_move(&app, &dir_for_events, &router_for_events, update);
@@ -625,6 +637,39 @@ impl Client {
             });
         }
         Ok(online)
+    }
+}
+
+/// Sent to the UI on `ft://plugin` (2026-09-27): what a plugin on the other side said.
+pub const PLUGIN_EVENT: &str = "ft://plugin";
+
+#[derive(Clone, Serialize)]
+struct PluginEventView {
+    plugin: String,
+    contact: String,
+    /// The bytes as base64; the app hands them to the plugin's frame as they are.
+    data: String,
+}
+
+/// One reminder as the phone's alarm clock is told it (2026-09-27).
+#[derive(Serialize, Deserialize)]
+pub struct ReminderView {
+    pub plugin: String,
+    pub id: String,
+    pub at: i64,
+    pub text: String,
+}
+
+/// Hands every reminder to the native side, as one list; a phone without the bridge (desktop)
+/// keeps them in the core only.
+async fn sync_reminders(app: &AppHandle, core: &Arc<Core>) {
+    let Ok(reminders) = core.reminders().await else { return };
+    let views: Vec<ReminderView> = reminders
+        .into_iter()
+        .map(|reminder| ReminderView { plugin: reminder.plugin, id: reminder.id, at: reminder.at, text: reminder.text })
+        .collect();
+    if let Ok(json) = serde_json::to_string(&views) {
+        let _ = app.platform().set_reminders(&json);
     }
 }
 
@@ -1184,6 +1229,9 @@ pub struct PluginView {
     asks: PermissionsView,
     granted: PermissionsView,
     installed_at: i64,
+    /// The kinds of file it opens (2026-09-27), for the "open with" of a message.
+    #[serde(default)]
+    opens: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -1194,6 +1242,20 @@ pub struct PermissionsView {
     send: String,
     #[serde(default)]
     print: bool,
+    /// 2026-09-27: the live channel, local reminders, the user's cloud and the room it keeps.
+    #[serde(default)]
+    live: bool,
+    #[serde(default)]
+    remind: bool,
+    #[serde(default)]
+    drive: bool,
+    /// `small` or `large`.
+    #[serde(default = "small")]
+    storage: String,
+}
+
+fn small() -> String {
+    "small".to_owned()
 }
 
 impl From<&ft_plugins::Permissions> for PermissionsView {
@@ -1208,6 +1270,14 @@ impl From<&ft_plugins::Permissions> for PermissionsView {
             }
             .to_owned(),
             print: permissions.print,
+            live: permissions.live,
+            remind: permissions.remind,
+            drive: permissions.drive,
+            storage: match permissions.storage {
+                ft_plugins::Storage::Small => "small",
+                ft_plugins::Storage::Large => "large",
+            }
+            .to_owned(),
         }
     }
 }
@@ -1228,6 +1298,7 @@ pub async fn core_plugins(client: State<'_, Client>) -> Result<Vec<PluginView>, 
             name: plugin.manifest.name,
             version: plugin.manifest.version,
             installed_at: plugin.installed_at,
+            opens: plugin.manifest.opens,
         })
         .collect())
 }
@@ -1249,6 +1320,10 @@ pub async fn core_plugin_grant(
             _ => ft_plugins::Sending::Nothing,
         },
         print: granted.print,
+        live: granted.live,
+        remind: granted.remind,
+        drive: granted.drive,
+        storage: if granted.storage == "large" { ft_plugins::Storage::Large } else { ft_plugins::Storage::Small },
     };
     let core = client.core().await?;
     core.grant_plugin(&plugin, permissions).await.map_err(failed)?;
@@ -1444,6 +1519,134 @@ pub async fn core_plugin_write(
 #[tauri::command]
 pub async fn core_plugin_forget(plugin: String, key: String, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.plugin_forget(&plugin, &key).await.map_err(failed)
+}
+
+// ---- Records, refs, reminders, the live channel and "open with" (2026-09-27) ----
+
+/// A record of a plugin, as base64: bytes the core never reads.
+#[tauri::command]
+pub async fn core_plugin_record_get(plugin: String, key: String, client: State<'_, Client>) -> Result<Option<String>, String> {
+    let value = client.core().await?.plugin_record(&plugin, &key).await.map_err(failed)?;
+    Ok(value.map(|bytes| BASE64.encode(bytes)))
+}
+
+#[tauri::command]
+pub async fn core_plugin_record_set(plugin: String, key: String, value: String, client: State<'_, Client>) -> Result<(), String> {
+    let bytes = BASE64.decode(value.as_bytes()).map_err(|_| "that value is not base64".to_owned())?;
+    client.core().await?.plugin_record_set(&plugin, &key, &bytes).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_plugin_record_forget(plugin: String, key: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.plugin_record_forget(&plugin, &key).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_plugin_record_keys(plugin: String, prefix: String, client: State<'_, Client>) -> Result<Vec<String>, String> {
+    client.core().await?.plugin_record_keys(&plugin, &prefix).await.map_err(failed)
+}
+
+/// How much of its room a plugin uses and how much it has, in bytes.
+#[tauri::command]
+pub async fn core_plugin_record_usage(plugin: String, client: State<'_, Client>) -> Result<(u64, u64), String> {
+    client.core().await?.plugin_records_usage(&plugin).await.map_err(failed)
+}
+
+/// An opaque handle for the message the user hands a plugin (2026-09-27).
+#[tauri::command]
+pub async fn core_plugin_ref(plugin: String, message: String, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.plugin_ref(&plugin, &message).await.map_err(failed)
+}
+
+/// Where a plugin's ref leads: the conversation to open, or nothing.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefTargetView {
+    contact: String,
+    message: String,
+}
+
+#[tauri::command]
+pub async fn core_plugin_open_chat(plugin: String, reference: String, client: State<'_, Client>) -> Result<Option<RefTargetView>, String> {
+    let target = client.core().await?.plugin_ref_target(&plugin, &reference).await.map_err(failed)?;
+    Ok(target.map(|target| RefTargetView { contact: target.contact, message: target.message_id }))
+}
+
+/// A reminder a plugin sets or moves (2026-09-27); the phone's alarm clock is told through the event.
+#[tauri::command]
+pub async fn core_remind_set(plugin: String, id: String, at: i64, text: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.set_reminder(&plugin, &id, at, &text).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_remind_cancel(plugin: String, id: String, client: State<'_, Client>) -> Result<bool, String> {
+    client.core().await?.cancel_reminder(&plugin, &id).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_remind_list(plugin: String, client: State<'_, Client>) -> Result<Vec<ReminderView>, String> {
+    let reminders = client.core().await?.plugin_reminders(&plugin).await.map_err(failed)?;
+    Ok(reminders
+        .into_iter()
+        .map(|reminder| ReminderView { plugin: reminder.plugin, id: reminder.id, at: reminder.at, text: reminder.text })
+        .collect())
+}
+
+/// The reminder the user tapped to open the app, as `plugin\nid`, once.
+#[tauri::command]
+pub async fn core_pending_reminder(app: AppHandle) -> Result<String, String> {
+    Ok(app.platform().pending_reminder().unwrap_or_default())
+}
+
+/// What a plugin says to its twin on the contact's phone (2026-09-27, `ft.live`): only over
+/// the direct connection; `false` if the contact cannot be reached now.
+#[tauri::command]
+pub async fn core_plugin_live_send(plugin: String, contact: String, data: String, client: State<'_, Client>) -> Result<bool, String> {
+    let bytes = BASE64.decode(data.as_bytes()).map_err(|_| "that data is not base64".to_owned())?;
+    client.core().await?.plugin_live_send(&plugin, &contact, bytes).await.map_err(failed)
+}
+
+/// The plugins installed here that open a file of this kind, for "open with".
+#[tauri::command]
+pub async fn core_plugins_opening(mime: String, client: State<'_, Client>) -> Result<Vec<PluginView>, String> {
+    let core = client.core().await?;
+    let opening = core.plugins_opening(&mime).await.map_err(failed)?;
+    Ok(core
+        .plugins()
+        .await
+        .map_err(failed)?
+        .into_iter()
+        .filter(|plugin| opening.iter().any(|manifest| manifest.id == plugin.manifest.id))
+        .map(|plugin| PluginView {
+            asks: PermissionsView::from(&plugin.manifest.permissions),
+            granted: PermissionsView::from(&plugin.granted),
+            id: plugin.manifest.id,
+            name: plugin.manifest.name,
+            version: plugin.manifest.version,
+            installed_at: plugin.installed_at,
+            opens: plugin.manifest.opens,
+        })
+        .collect())
+}
+
+/// The file of a message, for a plugin to open it (2026-09-27): only one that is here whole,
+/// and no bigger than what a plugin's frame may hold.
+#[tauri::command]
+pub async fn core_read_message_file(message: String, client: State<'_, Client>) -> Result<HandedFile, String> {
+    let file = file_of(&client, &message).await?;
+    if file.size as u64 > PLUGIN_FILE_LIMIT {
+        return Err("that file is too big for a plugin".to_owned());
+    }
+    let bytes = tokio::fs::read(&file.path).await.map_err(|_| "the bytes of that file are no longer here".to_owned())?;
+    Ok(HandedFile { name: file.name, mime: file.mime, data: BASE64.encode(bytes) })
+}
+
+/// A file as a plugin gets it: name, kind and bytes as base64.
+#[derive(Serialize)]
+pub struct HandedFile {
+    pub name: String,
+    pub mime: String,
+    pub data: String,
 }
 
 /// What came back from a call the core made for a plugin.

@@ -40,7 +40,98 @@ describe("PluginSheet", () => {
     const { post, says } = framed(wrapper);
     says({ type: "ft.ready" });
     await flushPromises();
-    expect(post).toHaveBeenCalledWith({ type: "ft.open", text: "hello", dark: false }, "*");
+    expect(post).toHaveBeenCalledWith(
+      { type: "ft.open", text: "hello", dark: false, lang: "en", file: null, ref: null, reminder: null, live: false },
+      "*",
+    );
+  });
+
+  // 2026-09-27: opened with a file and a way back to its message, and with the live channel when
+  // it was granted and there is another side.
+  it("hands over the file, the ref and the channel it was opened with", async () => {
+    const file = { name: "class.ftboard", mime: "application/x-ftboard", data: "QUJD" };
+    const wrapper = mount(PluginSheet, {
+      props: { plugin, contact: "ft_bob", file, reference: "ref_1", live: true },
+      shallow: true,
+    });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    says({ type: "ft.ready" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", file, ref: "ref_1", live: true }), "*");
+
+    // On its own (no contact) there is no other side, whatever was granted.
+    const alone = mount(PluginSheet, { props: { plugin, contact: "", live: true, reminder: "r1" }, shallow: true });
+    await flushPromises();
+    const lone = framed(alone);
+    lone.says({ type: "ft.ready" });
+    await flushPromises();
+    expect(lone.post).toHaveBeenCalledWith(expect.objectContaining({ live: false, reminder: "r1" }), "*");
+  });
+
+  // 2026-09-27: records are the plugin's bytes, kept by the core as base64 and handed back as
+  // the string the plugin wrote; reminders and the way back go through the core too.
+  it("keeps records, sets reminders and finds the way back through the core", async () => {
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_plugin_record_get") return Promise.resolve(btoa(unescape(encodeURIComponent("milk ñ"))));
+      if (command === "core_plugin_record_keys") return Promise.resolve(["note/1"]);
+      if (command === "core_plugin_record_usage") return Promise.resolve([12, 4096]);
+      if (command === "core_remind_list") return Promise.resolve([{ plugin: plugin.id, id: "r1", at: 5, text: "" }]);
+      if (command === "core_remind_cancel") return Promise.resolve(true);
+      if (command === "core_plugin_open_chat") return Promise.resolve({ contact: "ft_bob", message: "m1" });
+      return Promise.resolve(undefined);
+    });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.recordSet", id: "q1", key: "note/1", value: "milk ñ" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_record_set", { plugin: plugin.id, key: "note/1", value: btoa(unescape(encodeURIComponent("milk ñ"))) });
+    says({ type: "ft.recordGet", id: "q2", key: "note/1" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: "milk ñ" }, "*");
+    says({ type: "ft.recordKeys", id: "q3", prefix: "note/" });
+    says({ type: "ft.recordUsage", id: "q4" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q3", answer: ["note/1"] }, "*");
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q4", answer: { used: 12, quota: 4096 } }, "*");
+
+    says({ type: "ft.remindSet", id: "q5", reminder: "r1", at: 5, text: "milk" });
+    says({ type: "ft.remindList", id: "q6" });
+    says({ type: "ft.remindCancel", id: "q7", reminder: "r1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_remind_set", { plugin: plugin.id, id: "r1", at: 5, text: "milk" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q6", answer: [{ plugin: plugin.id, id: "r1", at: 5, text: "" }] }, "*");
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q7", answer: true }, "*");
+
+    says({ type: "ft.openChat", id: "q8", ref: "ref_1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_open_chat", { plugin: plugin.id, reference: "ref_1" });
+    expect(wrapper.emitted("openChat")).toEqual([["ft_bob"]]);
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q8", answer: true }, "*");
+  });
+
+  // 2026-09-27: what the plugin says over the channel goes through the core, only with the
+  // grant and a contact; what the other side said is handed to the frame.
+  it("carries the live channel both ways, only when it may", async () => {
+    tauri.invoke.mockResolvedValue(true);
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: true }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    says({ type: "ft.liveSend", id: "q1", data: "AQID" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_live_send", { plugin: plugin.id, contact: "ft_bob", data: "AQID" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: true }, "*");
+
+    const locked = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: false }, shallow: true });
+    await flushPromises();
+    const other = framed(locked);
+    tauri.invoke.mockClear();
+    other.says({ type: "ft.liveSend", id: "q2", data: "AQID" });
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_plugin_live_send", expect.anything());
+    expect(other.post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: false }, "*");
   });
 
   // A plugin never opens the picker itself: it asks, and the app asks the user.
