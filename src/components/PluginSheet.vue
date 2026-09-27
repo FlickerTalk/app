@@ -131,7 +131,8 @@ function opening() {
     text: props.text ?? "",
     dark: dark(),
     lang: i18n.global.locale.value,
-    file: props.file ?? null,
+    // A plain copy: the prop may be reactive state, and postMessage cannot clone a proxy.
+    file: props.file ? { name: props.file.name, mime: props.file.mime, data: props.file.data } : null,
     ref: props.reference ?? null,
     reminder: props.reminder ?? null,
     live: Boolean(props.live && props.contact),
@@ -288,7 +289,7 @@ onBeforeUnmount(() => {
     .catch(() => undefined);
 });
 watch(
-  () => props.text,
+  () => [props.text, props.reminder],
   () => tell(opening()),
 );
 </script>
