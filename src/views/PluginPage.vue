@@ -11,7 +11,8 @@ import { installed, refreshPlugins } from "../plugins";
 const route = useRoute();
 const router = useRouter();
 const id = String(route.params.id);
-const reminder = typeof route.query.reminder === "string" ? route.query.reminder : undefined;
+// Read from the address each time: a reminder tapped while this page is on screen only changes it.
+const reminder = computed(() => (typeof route.query.reminder === "string" ? route.query.reminder : undefined));
 const plugin = computed(() => installed.value.find((one) => one.id === id));
 const ready = ref(false);
 
