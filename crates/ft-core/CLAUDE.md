@@ -127,6 +127,9 @@ cada miembro limpia su entrada de `circle_outbox` (`circle_receipt`), y el mensa
   `set_circle_admins_only`, `set_circle_admin` (solo administradores; el último no puede dejar de
   serlo), `leave_circle` (avisa a todos; lo dicho se queda en solo lectura), `forget_circle`,
   `send_circle_text`, `mark_circle_read` (no viaja ningún acuse de lectura en círculos).
+  `circle_writable` dice antes de enviar si este teléfono puede escribir (está dentro y, con «solo
+  administradores», lo es): la app envía en segundo plano y un error del envío se perdería. Una
+  salida emite `CirclesChanged` y `CircleMessagesChanged`, para que el hilo abierto enseñe «X salió».
 - **Miembros como contactos de círculo** (`contacts.via_circle`): al adoptar una tarjeta, cada
   miembro desconocido se guarda con `accepted = 0` y `via_circle = 1` y se le abre un canal Olm
   desde su Contact Card. No sale en la lista ni en Solicitudes hasta que escribe 1 a 1 por su
