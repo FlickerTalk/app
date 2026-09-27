@@ -106,7 +106,9 @@ irá por variables de entorno (`ANDROID_UPLOAD_KEYSTORE_FILE`, `ANDROID_UPLOAD_K
 - `app/.npmrc` fuerza el registry público de npm, para no depender de registries privados
   configurados de forma global en la máquina.
 - Android necesita `ANDROID_HOME` y `NDK_HOME`. Si no están exportadas, pásalas al comando
-  (`ANDROID_HOME=… NDK_HOME=… npm run tauri android …`).
+  (`ANDROID_HOME=… NDK_HOME=… npm run tauri android …`), y `JAVA_HOME` si el shell no carga
+  sdkman. Si Gradle dice «A problem occurred starting process 'command 'npm''», es un daemon de
+  Gradle arrancado con otro entorno: `GRADLE_OPTS=-Dorg.gradle.daemon=false`.
 - iOS: Xcode completo (`xcode-select -p` → `/Applications/Xcode.app/…`), CocoaPods y `xcodegen`
   (Homebrew). `src-tauri/gen/apple/` se versiona **sin** equipo de firma: compila e instala
   `APPLE_DEVELOPMENT_TEAM=<team> scripts/ios-build.sh [udid]`, que pone el equipo en el proyecto

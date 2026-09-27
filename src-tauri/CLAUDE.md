@@ -71,10 +71,13 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   drive se puede enviar). El esquema de redirección de Google va en el `AndroidManifest` del
   puente como `${googleRedirectScheme}`, que `build.gradle.kts` rellena desde
   `FT_GOOGLE_CLIENT_ID` (el mismo que lee el núcleo con `option_env!`).
-- **Puente nativo, sin compilar aquí** (no hay SDK de Android ni Xcode en el entorno de esta
-  entrega): `authorize`, `setReminders`/`pendingReminder`, `ReminderReceiver`, `BootReceiver` y
-  `AuthRedirectActivity` (Kotlin) y sus equivalentes en Swift tienen tests unitarios escritos pero
-  **hay que compilarlos y probarlos en dispositivo** (`docs/drive.md`).
+- **Puente nativo** (2026-09-27): el Kotlin compila y sus 33 tests pasan (los de avisos necesitan
+  `org.json` de verdad en `testImplementation`: `android.jar` solo trae stubs). Probado en el
+  Lenovo: el aviso llega al `AlarmManager` (`RTC_WAKEUP`, aproximado sin permiso de alarma exacta),
+  salta con la app en segundo plano y, al tocarlo, la app abre el plugin (`App.vue` vuelve a
+  preguntar por `pendingReminder` cada vez que la app pasa a visible). **Sin probar**: el Swift
+  (no hay Xcode aquí), `authorize` contra Google (falta el cliente OAuth), avisos tras reinicio y
+  en Doze.
 
 ## Reglas
 
