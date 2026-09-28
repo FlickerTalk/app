@@ -126,9 +126,26 @@ impl Core {
         };
         self.close_call(&record, outcome).await?;
         let contact = self.contact(&record.contact).await?;
-        let body = Body::CallEnd { call: MessageId::parse(call)?, reason };
-        let _ = self.transmit_direct(&contact, &Packet::new(body)).await;
+        let packet = Packet::new(Body::CallEnd { call: MessageId::parse(call)?, reason });
+        if !self.transmit_direct(&contact, &packet).await.unwrap_or(false) {
+            // The other phone may be asleep, its socket to the router gone (2026-09-28): the end
+            // keeps trying while a call would, so it stops ringing as soon as it is back.
+            if let Some(core) = self.this.upgrade() {
+                tokio::spawn(async move { core.deliver_call_end(&contact, &packet, CALL_REACH).await });
+            }
+        }
         Ok(())
+    }
+
+    /// Sends a call's end until it gets through or `reach` passes.
+    async fn deliver_call_end(&self, contact: &Contact, packet: &Packet, reach: Duration) {
+        let deadline = std::time::Instant::now() + reach;
+        while std::time::Instant::now() < deadline {
+            tokio::time::sleep(CALL_RETRY).await;
+            if self.transmit_direct(contact, packet).await.unwrap_or(false) {
+                return;
+            }
+        }
     }
 
     /// Ends the active call if it rang unanswered for too long.
@@ -212,6 +229,7 @@ impl Core {
         if fresh {
             self.remember_offer(&call_id, &sdp);
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
+            self.answer_if_answered_early(&call_id, video);
         }
         Ok(())
     }
