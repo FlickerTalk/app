@@ -7,5 +7,13 @@
 	<string>FlickerTalk uses the camera for video calls and to scan contact codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>FlickerTalk uses the microphone for calls.</string>
+	<!-- 2026-09-28: PushKit rings calls through CallKit (voip), a call keeps its audio in the
+	     background (audio), and the router's wake-ups arrive (remote-notification). -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>remote-notification</string>
+		<string>voip</string>
+	</array>
 </dict>
 </plist>

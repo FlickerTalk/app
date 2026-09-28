@@ -131,4 +131,25 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertFalse(isWakePush(["aps": ["alert": "x"]]))
         XCTAssertFalse(isWakePush([:]))
     }
+    // Calls (2026-09-28): with PushKit's token too, the router can ring the phone through CallKit.
+    func testThePushTargetCarriesPushKitsTokenWhenThereIsOne() {
+        let token = Data([0x0a, 0x0b])
+        XCTAssertEqual(pushTarget(gateway: "production", bundle: "com.flickertalk.app", token: token, voip: Data([0xff, 0x01])), "production:com.flickertalk.app:0a0b:ff01")
+        XCTAssertEqual(pushTarget(gateway: "production", bundle: "com.flickertalk.app", token: token, voip: nil), "production:com.flickertalk.app:0a0b")
+    }
+
+    // On the screen the app rings itself; in the background CallKit does, once per call.
+    func testCallKitRingsOnlyWhenTheAppIsNotOnTheScreen() {
+        XCTAssertEqual(ringWith(appActive: true, callKitCall: false), .app)
+        XCTAssertEqual(ringWith(appActive: false, callKitCall: false), .report)
+        XCTAssertEqual(ringWith(appActive: false, callKitCall: true), .update, "PushKit already reported it: say who it is")
+        XCTAssertEqual(ringWith(appActive: true, callKitCall: true), .update)
+    }
+
+    // A push that is not ours is not a call, and ours only when it says so.
+    func testOnlyOurCallPushIsACall() {
+        XCTAssertTrue(isCallPush(["t": "call", "s": 1]))
+        XCTAssertFalse(isCallPush(["t": "wake", "s": 1]))
+        XCTAssertFalse(isCallPush([:]))
+    }
 }
