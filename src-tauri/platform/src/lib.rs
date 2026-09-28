@@ -75,6 +75,10 @@ struct Ringing<'a> {
 /// notification on Android), with no WebView in between (2026-09-28).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeCallEvent {
+    /// A call push arrived (PushKit, or FCM's `t: call` with the process alive): the router
+    /// found this phone offline, so its socket is dead; the core reconnects at once to get the
+    /// offer, and later the caller's end.
+    Incoming,
     /// The user answered (CallKit's answer button, also from the lock screen).
     Answer,
     /// The user hung up or declined, or the system ended the call.
@@ -97,6 +101,7 @@ fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
     }
     let wire: Wire = body.deserialize().ok()?;
     match (wire.event.as_str(), wire.muted) {
+        ("incoming", _) => Some(NativeCallEvent::Incoming),
         ("answer", _) => Some(NativeCallEvent::Answer),
         ("end", _) => Some(NativeCallEvent::End),
         ("mute", Some(muted)) => Some(NativeCallEvent::Mute(muted)),
@@ -611,6 +616,7 @@ mod tests {
     fn native_call_events_are_read_from_their_wire_form() {
         let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
         assert_eq!(read(r#"{"event":"answer"}"#), Some(NativeCallEvent::Answer));
+        assert_eq!(read(r#"{"event":"incoming"}"#), Some(NativeCallEvent::Incoming));
         assert_eq!(read(r#"{"event":"end"}"#), Some(NativeCallEvent::End));
         assert_eq!(read(r#"{"event":"mute","muted":true}"#), Some(NativeCallEvent::Mute(true)));
         assert_eq!(read(r#"{"event":"mute","muted":false}"#), Some(NativeCallEvent::Mute(false)));
