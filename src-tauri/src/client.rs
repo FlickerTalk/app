@@ -872,7 +872,14 @@ async fn diagnose_call(app: &AppHandle, core: &Core, what: &str) {
     }
     let running = core.call_device_running().await;
     let app = app.clone();
-    let line = format!("{what}; device running={running}");
+    let counts = match ft_media::device_stats() {
+        Some(stats) => format!(
+            "; capture dropped={} playout underruns={} device errors={}",
+            stats.capture_dropped, stats.playout_underruns, stats.errors
+        ),
+        None => String::new(),
+    };
+    let line = format!("{what}; device running={running}{counts}");
     // Off the async workers: the bridge blocks until the native side answers.
     let _ = tauri::async_runtime::spawn_blocking(move || app.platform().diagnose(&line)).await;
 }
