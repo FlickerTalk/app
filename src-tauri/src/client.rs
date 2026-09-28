@@ -725,7 +725,17 @@ impl Client {
                                 }
                                 NativeScreen::Nothing => {}
                             }
+                            let name = update_name(&update);
                             let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
+                            diagnose_call(&app, &core_for_events, &format!("update {name}")).await;
+                            if CALL_DIAGNOSTICS && name == "connected" {
+                                // Whether the voice runs a moment later: on iOS it waits for CallKit.
+                                let (app, core) = (app.clone(), core_for_events.clone());
+                                tauri::async_runtime::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                                    diagnose_call(&app, &core, "3 s after connecting").await;
+                                });
+                            }
                             continue;
                         }
                     };
@@ -741,41 +751,130 @@ impl Client {
 /// notification on Android. It works with no WebView at all: a locked iPhone that PushKit woke
 /// answers here.
 fn listen_native_calls(app: &AppHandle, online: &Online) {
-    let (core, router, handle) = (online.core.clone(), online.router.clone(), app.clone());
-    // The handler runs on a native queue: it only hands the work over.
+    let (core, router, app_for_events) = (online.core.clone(), online.router.clone(), app.clone());
+    // The handler runs on a native queue: it only hands the event over. They are handled in the
+    // order they came (an audio deactivation and activation must not swap); what may take long
+    // (answering, hanging up) goes on in the background.
+    let (events, mut queue) = tokio::sync::mpsc::unbounded_channel::<NativeCallEvent>();
     app.platform().listen_calls(move |event| {
-        if reconnects_for(event) {
-            router.reconnect_unless_fresh(CALL_SOCKET_FRESH);
-        }
-        let (core, app) = (core.clone(), handle.clone());
-        tauri::async_runtime::spawn(async move {
-            let _ = match event {
-                NativeCallEvent::Incoming => Ok(()),
+        let _ = events.send(event);
+    });
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = queue.recv().await {
+            match reconnect_for(event) {
+                Reconnect::Now => router.reconnect_now(),
+                Reconnect::UnlessFresh => router.reconnect_unless_fresh(CALL_SOCKET_FRESH),
+                Reconnect::No => {}
+            }
+            let (core, app) = (core.clone(), app_for_events.clone());
+            match event {
+                NativeCallEvent::Incoming => diagnose_call(&app, &core, "event incoming").await,
                 NativeCallEvent::Answer => {
-                    if microphone(&app).await {
-                        core.answer_ringing_call().await.map(drop)
-                    } else {
-                        fail_current_call(&core).await
-                    }
+                    tauri::async_runtime::spawn(async move {
+                        let answered = if microphone(&app).await {
+                            core.answer_ringing_call().await.map(drop)
+                        } else {
+                            fail_current_call(&core).await
+                        };
+                        diagnose_outcome(&app, &core, "answer", &answered).await;
+                    });
                 }
-                NativeCallEvent::End => core.end_current_call().await,
-                NativeCallEvent::Mute(muted) => core.mute_current_call(muted).await,
-                NativeCallEvent::AudioActivated => core.set_call_audio_active(true).await,
-                NativeCallEvent::AudioDeactivated => core.set_call_audio_active(false).await,
-            };
-        });
+                NativeCallEvent::End => {
+                    tauri::async_runtime::spawn(async move {
+                        let ended = core.end_current_call().await;
+                        diagnose_outcome(&app, &core, "end", &ended).await;
+                    });
+                }
+                NativeCallEvent::Mute(muted) => {
+                    let _ = core.mute_current_call(muted).await;
+                }
+                NativeCallEvent::AudioActivated(generation) => {
+                    // A device that will not start is tried again, then fails the call (core).
+                    let started = core.set_call_audio_session(true, generation).await;
+                    diagnose_outcome(&app, &core, native_event_name(event), &started).await;
+                }
+                NativeCallEvent::AudioDeactivated(generation) => {
+                    let stopped = core.set_call_audio_session(false, generation).await;
+                    diagnose_outcome(&app, &core, native_event_name(event), &stopped).await;
+                }
+            }
+        }
     });
 }
 
 /// A socket to the router opened this recently is kept when a call event asks for one.
 const CALL_SOCKET_FRESH: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Whether a native call event asks for a fresh socket to the router (2026-09-28). A call push
-/// means the router found this phone offline; iOS drops the socket of a suspended app, and only
-/// the WebView (which does not run in the background) used to ask to reconnect. The answer and
-/// the audio activation ask too, in case the push's reconnection did not get through.
-fn reconnects_for(event: NativeCallEvent) -> bool {
-    matches!(event, NativeCallEvent::Incoming | NativeCallEvent::Answer | NativeCallEvent::AudioActivated)
+/// Whether a native call event asks for a fresh socket to the router.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reconnect {
+    Now,
+    UnlessFresh,
+    No,
+}
+
+/// A call push means the router found this phone offline (2026-09-28): iOS dropped the socket of
+/// the suspended app, whatever the app thinks, and only the WebView (which does not run in the
+/// background) used to ask to reconnect. CallKit's answer and the audio activation ask too, in
+/// case the push's reconnection did not get through, but keep a socket just opened: dropping it
+/// again could lose the call's offer in the gap.
+fn reconnect_for(event: NativeCallEvent) -> Reconnect {
+    match event {
+        NativeCallEvent::Incoming => Reconnect::Now,
+        NativeCallEvent::Answer | NativeCallEvent::AudioActivated(_) => Reconnect::UnlessFresh,
+        NativeCallEvent::End | NativeCallEvent::Mute(_) | NativeCallEvent::AudioDeactivated(_) => Reconnect::No,
+    }
+}
+
+/// Temporary call diagnostics (2026-09-28), to find why a native call's voice is one-way on the
+/// iPhone: state names go to the device log through the bridge (`os_log` subsystem
+/// `com.flickertalk.calls` on iOS, `Log` tag `FtCallDiag` on Android). To remove: set this to
+/// false, or delete it with `native_event_name`, `update_name`, `diagnose_call` and their calls,
+/// and the `diagnose` command of the bridge.
+const CALL_DIAGNOSTICS: bool = true;
+
+fn native_event_name(event: NativeCallEvent) -> &'static str {
+    match event {
+        NativeCallEvent::Incoming => "incoming",
+        NativeCallEvent::Answer => "answer",
+        NativeCallEvent::End => "end",
+        NativeCallEvent::Mute(_) => "mute",
+        NativeCallEvent::AudioActivated(_) => "audio activated",
+        NativeCallEvent::AudioDeactivated(_) => "audio deactivated",
+    }
+}
+
+fn update_name(update: &CallUpdate) -> &'static str {
+    match update {
+        CallUpdate::Incoming { .. } => "incoming",
+        CallUpdate::Answered { .. } => "answered",
+        CallUpdate::Ended { .. } => "ended",
+        CallUpdate::Connected => "connected",
+        CallUpdate::Muted { .. } => "muted",
+    }
+}
+
+/// How a native event went, for the device log. Only an audio device's error is written (an
+/// OSStatus, say): others may come from the network and name a device.
+async fn diagnose_outcome(app: &AppHandle, core: &Core, what: &str, outcome: &anyhow::Result<()>) {
+    let audio = what.starts_with("audio");
+    match outcome {
+        Ok(()) => diagnose_call(app, core, &format!("event {what} ok")).await,
+        Err(error) if audio => diagnose_call(app, core, &format!("event {what} failed: {error}")).await,
+        Err(_) => diagnose_call(app, core, &format!("event {what} failed")).await,
+    }
+}
+
+/// Writes a call state and whether the voice's device runs to the device log (diagnostics).
+async fn diagnose_call(app: &AppHandle, core: &Core, what: &str) {
+    if !CALL_DIAGNOSTICS {
+        return;
+    }
+    let running = core.call_device_running().await;
+    let app = app.clone();
+    let line = format!("{what}; device running={running}");
+    // Off the async workers: the bridge blocks until the native side answers.
+    let _ = tauri::async_runtime::spawn_blocking(move || app.platform().diagnose(&line)).await;
 }
 
 /// Whether the app may use the microphone, asking if it has not been asked yet. Off the main
@@ -2850,13 +2949,29 @@ mod tests {
     // the caller's end never came. The push, the answer and the audio activation reconnect now.
     #[test]
     fn a_call_push_the_answer_and_the_audio_activation_reconnect_to_the_router() {
-        assert!(reconnects_for(NativeCallEvent::Incoming));
-        assert!(reconnects_for(NativeCallEvent::Answer));
-        assert!(reconnects_for(NativeCallEvent::AudioActivated));
-        assert!(!reconnects_for(NativeCallEvent::End));
-        assert!(!reconnects_for(NativeCallEvent::Mute(true)));
-        assert!(!reconnects_for(NativeCallEvent::AudioDeactivated));
+        // The push means the router has no live socket for this phone: whatever this phone
+        // thinks, its socket is dead (iOS may suspend the app right after opening it).
+        assert_eq!(reconnect_for(NativeCallEvent::Incoming), Reconnect::Now);
+        assert_eq!(reconnect_for(NativeCallEvent::Answer), Reconnect::UnlessFresh);
+        assert_eq!(reconnect_for(NativeCallEvent::AudioActivated(1)), Reconnect::UnlessFresh);
+        assert_eq!(reconnect_for(NativeCallEvent::End), Reconnect::No);
+        assert_eq!(reconnect_for(NativeCallEvent::Mute(true)), Reconnect::No);
+        assert_eq!(reconnect_for(NativeCallEvent::AudioDeactivated(1)), Reconnect::No);
         assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
+    }
+
+    // Temporary call diagnostics (2026-09-28): state names only, nothing about who.
+    #[test]
+    fn call_diagnostics_name_states_only() {
+        assert_eq!(native_event_name(NativeCallEvent::Incoming), "incoming");
+        assert_eq!(native_event_name(NativeCallEvent::Answer), "answer");
+        assert_eq!(native_event_name(NativeCallEvent::End), "end");
+        assert_eq!(native_event_name(NativeCallEvent::Mute(true)), "mute");
+        assert_eq!(native_event_name(NativeCallEvent::AudioActivated(1)), "audio activated");
+        assert_eq!(native_event_name(NativeCallEvent::AudioDeactivated(1)), "audio deactivated");
+        assert_eq!(update_name(&CallUpdate::Connected), "connected");
+        assert_eq!(update_name(&CallUpdate::Ended { outcome: CallOutcome::Failed }), "ended");
+        assert_eq!(update_name(&CallUpdate::Incoming { video: false, sdp: "v=0 secret".to_owned() }), "incoming");
     }
 
     // A WebView that comes up after the call started (PushKit launched the app, CallKit answered)
