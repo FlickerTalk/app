@@ -218,70 +218,11 @@ mod tests {
         callee.close().await;
     }
 
-    // What a WebView (Chrome) offers for a video call, as an older app would send it.
-    fn webview_video_offer() -> String {
-        let fingerprint = (0..32).map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(":");
-        let transport = |mid: &str| {
-            vec![
-                "c=IN IP4 0.0.0.0".to_owned(),
-                "a=rtcp:9 IN IP4 0.0.0.0".to_owned(),
-                "a=candidate:1 1 udp 2122260223 127.0.0.1 50000 typ host generation 0".to_owned(),
-                "a=ice-ufrag:WbVw".to_owned(),
-                "a=ice-pwd:webviewwebviewwebview123".to_owned(),
-                format!("a=fingerprint:sha-256 {fingerprint}"),
-                "a=setup:actpass".to_owned(),
-                format!("a=mid:{mid}"),
-                "a=sendrecv".to_owned(),
-                "a=rtcp-mux".to_owned(),
-            ]
-        };
-        let mut lines = vec![
-            "v=0".to_owned(),
-            "o=- 4611731400430051336 2 IN IP4 127.0.0.1".to_owned(),
-            "s=-".to_owned(),
-            "t=0 0".to_owned(),
-            "a=group:BUNDLE 0 1".to_owned(),
-            "a=msid-semantic: WMS stream".to_owned(),
-            "m=audio 9 UDP/TLS/RTP/SAVPF 111 9 0 8 126".to_owned(),
-        ];
-        lines.extend(transport("0"));
-        lines.extend(
-            [
-                "a=msid:stream voice",
-                "a=rtpmap:111 opus/48000/2",
-                "a=fmtp:111 minptime=10;useinbandfec=1",
-                "a=rtpmap:9 G722/8000",
-                "a=rtpmap:0 PCMU/8000",
-                "a=rtpmap:8 PCMA/8000",
-                "a=rtpmap:126 telephone-event/8000",
-                "a=ssrc:1111 cname:webview",
-                "m=video 9 UDP/TLS/RTP/SAVPF 96 97",
-            ]
-            .map(str::to_owned),
-        );
-        lines.extend(transport("1"));
-        lines.extend(
-            [
-                "a=msid:stream camera",
-                "a=rtpmap:96 VP8/90000",
-                "a=rtcp-fb:96 nack",
-                "a=rtcp-fb:96 nack pli",
-                "a=rtpmap:97 rtx/90000",
-                "a=fmtp:97 apt=96",
-                "a=ssrc-group:FID 2222 3333",
-                "a=ssrc:2222 cname:webview",
-                "a=ssrc:3333 cname:webview",
-            ]
-            .map(str::to_owned),
-        );
-        lines.join("\r\n") + "\r\n"
-    }
-
     // Interop: an older app's WebView may offer video; the native side answers the voice only.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_webview_offer_with_video_is_answered_with_audio_only() {
         let callee = MediaSession::open(&MediaConfig::default()).await.expect("callee");
-        let answer = callee.answer(&webview_video_offer()).await.expect("answer");
+        let answer = callee.answer(&crate::testing::webview_video_offer()).await.expect("answer");
         let sections = sections(&answer);
 
         let audio = sections.iter().find(|section| section.starts_with("m=audio")).expect("an audio line");
