@@ -1,6 +1,7 @@
 package com.flickertalk.platform
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Notification
 import android.app.Service
@@ -274,6 +275,8 @@ fun modeAfterCall(previous: Int?): Int = when (previous) {
 const val RINGING_CALL_CHANNEL = "ft.call.ringing"
 
 /** The foreground service types of a call: phone call, and the microphone once it is allowed. */
+// The types are compile-time constants, used only past the `sdk` checks lint cannot follow.
+@SuppressLint("InlinedApi")
 fun callServiceTypes(sdk: Int, microphone: Boolean): Int = when {
     sdk < Build.VERSION_CODES.Q -> 0
     sdk < Build.VERSION_CODES.R || !microphone -> ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
