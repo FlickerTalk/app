@@ -1740,6 +1740,7 @@ dependencies = [
  "ft-billing",
  "ft-contacts",
  "ft-core",
+ "ft-media",
  "ft-plugins",
  "ft-storage",
  "ft-vault",
