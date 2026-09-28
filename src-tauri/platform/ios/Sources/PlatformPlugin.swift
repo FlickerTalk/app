@@ -1,5 +1,6 @@
 import AuthenticationServices
 import Foundation
+import ObjectiveC
 import QuickLook
 import Security
 import StoreKit
@@ -150,7 +151,73 @@ final class ReminderTaps: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .list]
+        // Our wake-up only matters when the app is not on the screen: here it already connects.
+        isWakePush(notification.request.content.userInfo) ? [] : [.banner, .sound, .list]
+    }
+}
+
+// ---- APNs (2026-09-28) ----
+
+/// Which APNs gateway this build's token is for: a build signed for development (Xcode) carries
+/// a provisioning profile that says `aps-environment` `development`; an App Store build carries
+/// none. Pure, for the tests.
+func apnsGateway(provisioning: String?) -> String {
+    guard let profile = provisioning else { return "production" }
+    let development = "<key>aps-environment</key>\\s*<string>development</string>"
+    return profile.range(of: development, options: .regularExpression) != nil ? "sandbox" : "production"
+}
+
+/// What the router is given: the gateway, the app and Apple's token, in hex.
+func pushTarget(gateway: String, bundle: String, token: Data) -> String {
+    "\(gateway):\(bundle):\(token.map { String(format: "%02x", $0) }.joined())"
+}
+
+/// Whether a notification is our router's wake-up (`t: wake`), which says nothing.
+func isWakePush(_ userInfo: [AnyHashable: Any]) -> Bool {
+    (userInfo["t"] as? String) == "wake"
+}
+
+/// Apple hands the device token to the app delegate, which Tauri owns: the two answers are added
+/// to its class once, and whoever asked for the token hears it here.
+final class RemoteToken {
+    static let shared = RemoteToken()
+    private var waiting: [Invoke] = []
+    private var installed = false
+
+    func ask(_ invoke: Invoke) {
+        waiting.append(invoke)
+        install()
+        UIApplication.shared.registerForRemoteNotifications()
+    }
+
+    private func install() {
+        guard !installed, let delegate = UIApplication.shared.delegate else { return }
+        installed = true
+        let cls: AnyClass = type(of: delegate)
+        let registered: @convention(block) (AnyObject, UIApplication, Data) -> Void = { _, _, token in
+            RemoteToken.shared.answer(token: token, error: nil)
+        }
+        let failed: @convention(block) (AnyObject, UIApplication, NSError) -> Void = { _, _, error in
+            RemoteToken.shared.answer(token: nil, error: error)
+        }
+        class_addMethod(cls, #selector(UIApplicationDelegate.application(_:didRegisterForRemoteNotificationsWithDeviceToken:)), imp_implementationWithBlock(registered), "v@:@@")
+        class_addMethod(cls, #selector(UIApplicationDelegate.application(_:didFailToRegisterForRemoteNotificationsWithError:)), imp_implementationWithBlock(failed), "v@:@@")
+    }
+
+    private func answer(token: Data?, error: Error?) {
+        let invokes = waiting
+        waiting = []
+        for invoke in invokes {
+            if let token {
+                let profile = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision")
+                    .flatMap { FileManager.default.contents(atPath: $0) }
+                    .map { String(decoding: $0, as: UTF8.self) }
+                let bundle = Bundle.main.bundleIdentifier ?? ""
+                invoke.resolve(["token": pushTarget(gateway: apnsGateway(provisioning: profile), bundle: bundle, token: token)])
+            } else {
+                invoke.reject(error?.localizedDescription ?? "no push token")
+            }
+        }
     }
 }
 
@@ -191,6 +258,18 @@ class PlatformPlugin: Plugin {
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = ReminderTaps.shared
+    }
+
+    /// Asks to show notifications: the router's wake-ups on iOS are visible ones (2026-09-28).
+    @objc public func requestNotifications(_ invoke: Invoke) throws {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+            invoke.resolve()
+        }
+    }
+
+    /// Apple's push token, as the router takes it: `gateway:bundle:hex` (2026-09-28).
+    @objc public func pushToken(_ invoke: Invoke) throws {
+        DispatchQueue.main.async { RemoteToken.shared.ask(invoke) }
     }
 
     /// The reminder the user tapped to open the app, once (2026-09-27).

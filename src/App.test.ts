@@ -34,6 +34,22 @@ describe("App", () => {
     expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r1");
   });
 
+  // iOS cuts the socket of a suspended app (2026-09-28): back on the screen, or opened from a
+  // push, the app reconnects at once and so fetches what waits, instead of waiting for it.
+  it("reconnects to the router at once when it comes back to the screen", async () => {
+    const asked: string[] = [];
+    installTauri((command) => {
+      asked.push(command);
+      return undefined;
+    });
+    mount(App, { shallow: true });
+    await flushPromises();
+    asked.length = 0;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(asked).toContain("core_resume");
+  });
+
   it("goes nowhere special when no reminder was tapped", async () => {
     mount(App, { shallow: true });
     await flushPromises();
