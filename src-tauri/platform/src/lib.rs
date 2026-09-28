@@ -134,6 +134,19 @@ struct CallEvents<'a> {
     channel: &'a tauri::ipc::Channel<serde_json::Value>,
 }
 
+/// Arguments of the native `setSpeaker` command.
+#[derive(Serialize)]
+struct Speaker {
+    on: bool,
+}
+
+/// What the native `answerCall` resolves with: whether CallKit took the answer.
+#[derive(Deserialize)]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+struct Answered {
+    answered: bool,
+}
+
 /// Arguments of the native `diagnose` command (temporary, 2026-09-28): a state name only, never a
 /// name or an identifier.
 #[derive(Serialize)]
@@ -361,6 +374,27 @@ impl<R: Runtime> Platform<R> {
     /// Android the call's audio and foreground service start if they had not.
     pub fn call_connected(&self) -> Result<()> {
         self.call("callConnected", ())
+    }
+
+    /// The app's answer button (2026-09-28): on iOS, CallKit is asked to answer the ringing call,
+    /// so the audio session comes as on the lock screen, and its `Answer` event reaches the core
+    /// through `listen_calls`. `false` when the OS has no call to answer (Android, desktop, or
+    /// CallKit never had it): the core answers by itself.
+    pub fn answer_call(&self) -> Result<bool> {
+        #[cfg(target_os = "ios")]
+        {
+            Ok(self.handle.run_mobile_plugin::<Answered>("answerCall", ())?.answered)
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            Ok(false)
+        }
+    }
+
+    /// The call's voice on the speaker (`true`) or the receiver (2026-09-28). A voice call starts
+    /// on the receiver, like a phone call.
+    pub fn set_speaker(&self, on: bool) -> Result<()> {
+        self.call("setSpeaker", Speaker { on })
     }
 
     /// Temporary call diagnostics (2026-09-28): writes a state name (never a name or an
@@ -666,6 +700,14 @@ mod tests {
         channel.send(serde_json::json!({ "event": "mute", "muted": true })).unwrap();
         channel.send(serde_json::json!({ "event": "nonsense" })).unwrap();
         assert_eq!(*heard.lock().unwrap(), vec![NativeCallEvent::Answer, NativeCallEvent::Mute(true)]);
+    }
+
+    // Speaker or receiver, and CallKit answering for the app's button (2026-09-28).
+    #[test]
+    fn the_speaker_and_the_answer_travel_as_swift_and_kotlin_read_them() {
+        assert_eq!(serde_json::to_value(Speaker { on: true }).unwrap(), serde_json::json!({ "on": true }));
+        let answered: Answered = serde_json::from_value(serde_json::json!({ "answered": true })).unwrap();
+        assert!(answered.answered);
     }
 
     // Temporary call diagnostics (2026-09-28): a state name, as Swift's and Kotlin's `diagnose` read it.

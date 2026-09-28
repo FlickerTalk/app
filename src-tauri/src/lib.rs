@@ -179,6 +179,7 @@ pub fn run() {
             client::core_call_start_native,
             client::core_call_answer_native,
             client::core_call_mute,
+            client::core_call_speaker,
             client::core_set_call_routing,
             client::core_current_call,
             client::core_calls,

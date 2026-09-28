@@ -1,11 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from "vue";
 import { IonContent, IonIcon, IonPage } from "@ionic/vue";
-import { callOutline, micOffOutline, micOutline, videocamOffOutline, videocamOutline } from "ionicons/icons";
+import {
+  callOutline,
+  micOffOutline,
+  micOutline,
+  phonePortraitOutline,
+  videocamOffOutline,
+  videocamOutline,
+  volumeHighOutline,
+} from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import { chat } from "../core";
-import { call, hangUp, startCall, toggleCamera, toggleMute } from "../calls";
+import { call, hangUp, startCall, toggleCamera, toggleMute, toggleSpeaker } from "../calls";
 import { t } from "../i18n";
 
 const route = useRoute();
@@ -109,6 +117,20 @@ watch(
             <ion-icon
               :key="call.muted ? 'mic-off' : 'mic-on'"
               :icon="call.muted ? micOffOutline : micOutline"
+              aria-hidden="true"
+            />
+          </button>
+          <button
+            type="button"
+            class="ft-round ft-round--ghost"
+            :class="{ 'is-on': call.speaker }"
+            :aria-label="$t('calls.speaker')"
+            :aria-pressed="call.speaker"
+            @click="toggleSpeaker"
+          >
+            <ion-icon
+              :key="call.speaker ? 'speaker-on' : 'speaker-off'"
+              :icon="call.speaker ? volumeHighOutline : phonePortraitOutline"
               aria-hidden="true"
             />
           </button>

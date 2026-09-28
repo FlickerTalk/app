@@ -2125,12 +2125,19 @@ pub async fn core_call_start_native(contact: String, routing: String, app: AppHa
     Ok(call)
 }
 
-/// Answers the ringing voice call with our voice in Rust.
+/// Answers the ringing voice call with our voice in Rust. On iOS CallKit answers it (2026-09-28):
+/// its `Answer` event answers in the core, so the in-app button and the lock screen take the same
+/// path and the system activates the audio session for both.
 #[tauri::command]
 pub async fn core_call_answer_native(call: String, routing: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let routing = call_routing(&routing)?;
-    let _ = app.platform().stop_ringing();
     let core = client.core().await?;
+    // The routing the core answers with, whoever answers.
+    core.set_call_routing(routing).await.map_err(failed)?;
+    if app.platform().answer_call().unwrap_or(false) {
+        return Ok(());
+    }
+    let _ = app.platform().stop_ringing();
     tauri::async_runtime::spawn(async move {
         if microphone(&app).await {
             let _ = core.answer_native_call(&call, routing).await;
@@ -2139,6 +2146,12 @@ pub async fn core_call_answer_native(call: String, routing: String, app: AppHand
         }
     });
     Ok(())
+}
+
+/// The call's voice on the speaker or the receiver (2026-09-28).
+#[tauri::command]
+pub async fn core_call_speaker(on: bool, app: AppHandle) -> Result<(), String> {
+    app.platform().set_speaker(on).map_err(|error| error.to_string())
 }
 
 /// Mutes or unmutes our voice in a native call.

@@ -70,6 +70,16 @@ describe("CallPage", () => {
     expect(actions.toggleCamera).toHaveBeenCalled();
   });
 
+  // Speaker or receiver (2026-09-28): an icon, named for screen readers.
+  it("switches the speaker", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", video: false, speaker: false });
+    const wrapper = mount(CallPage, { shallow: true });
+    const speaker = wrapper.find("[aria-label='Speaker']");
+    expect(speaker.attributes("aria-pressed")).toBe("false");
+    await speaker.trigger("click");
+    expect(actions.toggleSpeaker).toHaveBeenCalled();
+  });
+
   // Until the contact's video arrives there is no empty player (Android paints a grey poster):
   // their avatar shows instead.
   it("shows the contact's video only once it arrives", () => {

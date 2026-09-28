@@ -131,6 +131,7 @@ export function installFakeCore() {
       case "core_call_start_native":
       case "core_call_answer_native":
       case "core_call_mute":
+      case "core_call_speaker":
         return undefined;
       case "core_quiet_hours":
         return null;
