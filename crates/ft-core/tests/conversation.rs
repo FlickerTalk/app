@@ -1109,3 +1109,90 @@ async fn scanning_a_sessions_card_puts_you_in_that_session() {
     assert_eq!(bob.store().contact(&id(&alice)).await.unwrap().unwrap().session.as_deref(), Some(friends.as_str()));
     assert!(bob.store().conversations().await.unwrap().is_empty(), "not in the main list");
 }
+
+/// A cloud in memory and a login that always works, for the backup (plan-drive).
+struct MemoryCloud(Arc<ft_vault::Memory>);
+
+#[async_trait]
+impl ft_core::vault::Cloud for MemoryCloud {
+    async fn login(&self, _: &str, _: &str, _: &dyn ft_core::vault::Authorizer) -> anyhow::Result<ft_vault::google::Tokens> {
+        Ok(ft_vault::google::Tokens { access_token: "t".into(), refresh_token: None, expires_at: i64::MAX })
+    }
+
+    fn provider(&self, _: &str, _: &str, _: Arc<dyn ft_vault::google::TokenKeeper>) -> anyhow::Result<Arc<dyn ft_vault::Provider>> {
+        Ok(self.0.clone())
+    }
+}
+
+struct Browser;
+
+#[async_trait]
+impl ft_core::vault::Authorizer for Browser {
+    async fn authorize(&self, _: &str, scheme: &str) -> anyhow::Result<String> {
+        Ok(format!("{scheme}:/oauth2redirect?code=c"))
+    }
+}
+
+// Plan-recuperacion §5 (2026-09-28): Alice backs up, she and Bob keep talking, she loses the
+// phone and restores the backup on a new one. The sessions of the backup are behind Bob's; the
+// restored phone opens new ones from the cards and hands its card over them, and from then on
+// both sides read each other again. What was said after the backup is not there: it was only on
+// the lost phone.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_restore_both_sides_read_each_other_again() {
+    let net = Net::new();
+    let dir = scratch("restore");
+    let cloud = ft_vault::Memory::new();
+    let alice = device_with(&net, "Alice", Store::open(&dir.join("alice.db")).await.unwrap(), [1; 32]).await;
+    alice.set_vault_dir(dir.join("alice-vault"));
+    alice.set_cloud(Arc::new(MemoryCloud(cloud.clone())));
+    let bob = device(&net, "Bob").await;
+    let (alice_id, bob_id) = (id(&alice), id(&bob));
+    pair(&alice, &bob).await;
+    alice.send_text(&bob_id, "before the backup").await.unwrap();
+    bob.send_text(&alice_id, "hi").await.unwrap();
+    until("both have both", || async { texts(&alice, &bob_id).await.len() == 2 && texts(&bob, &alice_id).await.len() == 2 }).await;
+
+    alice.vault_connect("memory", &Browser).await.unwrap();
+    alice.vault_setup("a long phrase of mine").await.unwrap();
+    alice.vault_backup().await.unwrap();
+
+    for round in 0..2 {
+        alice.send_text(&bob_id, &format!("alice after the backup {round}")).await.unwrap();
+        bob.send_text(&alice_id, &format!("bob after the backup {round}")).await.unwrap();
+    }
+    until("the lost phone had it all", || async { texts(&alice, &bob_id).await.len() == 6 && texts(&bob, &alice_id).await.len() == 6 }).await;
+    drop(alice);
+
+    // The new phone: the cloud and the phrase, then the backup swapped in at the next start.
+    let fresh = device_with(&net, "", Store::open(&dir.join("fresh.db")).await.unwrap(), [2; 32]).await;
+    fresh.set_move_dir(dir.join("fresh-move"));
+    fresh.set_vault_dir(dir.join("fresh-vault"));
+    fresh.set_cloud(Arc::new(MemoryCloud(cloud.clone())));
+    fresh.vault_connect("memory", &Browser).await.unwrap();
+    fresh.vault_unlock("a long phrase of mine").await.unwrap();
+    fresh.vault_restore().await.unwrap();
+    drop(fresh);
+    let (copy, key) = received_move(&dir.join("fresh-move")).expect("the backup is ready to swap in");
+    let restored = device_with(&net, "Alice", Store::open(&copy).await.unwrap(), key).await;
+    assert_eq!(id(&restored), alice_id);
+    assert_eq!(texts(&restored, &bob_id).await.len(), 2, "the history as it was backed up");
+
+    // At start the app hands every contact the card again (online::start does this).
+    assert!(restored.card_stale().await.unwrap(), "a restored phone renews its sessions and says so");
+    restored.reintroduce().await.unwrap();
+
+    restored.send_text(&bob_id, "I am back").await.unwrap();
+    until("bob reads the restored phone", || async { texts(&bob, &alice_id).await.contains(&"I am back".to_owned()) }).await;
+    bob.send_text(&alice_id, "welcome back").await.unwrap();
+    until("the restored phone reads bob", || async { texts(&restored, &bob_id).await.contains(&"welcome back".to_owned()) }).await;
+    for round in 0..2 {
+        restored.send_text(&bob_id, &format!("again {round}")).await.unwrap();
+        bob.send_text(&alice_id, &format!("still {round}")).await.unwrap();
+    }
+    until("both ways, in step", || async {
+        let (at_bob, at_alice) = (texts(&bob, &alice_id).await, texts(&restored, &bob_id).await);
+        at_bob.contains(&"again 1".to_owned()) && at_alice.contains(&"still 1".to_owned())
+    })
+    .await;
+}
