@@ -1,19 +1,26 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
+import { nextTick } from "vue";
 import { IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import CallPage from "./CallPage.vue";
 
 const route = { params: { id: "c1" }, query: {} as Record<string, string> };
-vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => ({ back: vi.fn() }) }));
+const nav = { back: vi.fn(), replace: vi.fn() };
+vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => nav }));
 vi.mock("../calls", async () => (await import("../__tests__/calls-mock")).callsMock());
 
 describe("CallPage", () => {
+  // Every screen mounted here watches the same call: one left mounted would react to the next test.
+  enableAutoUnmount(afterEach);
   beforeEach(() => {
     seed();
     resetCalls();
     route.query = {};
+    nav.back.mockReset();
+    nav.replace.mockReset();
+    window.history.replaceState({ back: "/chat/c1" }, "");
   });
 
   it("calls the contact on the screen", () => {
@@ -92,5 +99,63 @@ describe("CallPage", () => {
     expect(mount(CallPage, { shallow: true }).find("[data-test='video']").exists()).toBe(false);
     call.video = true;
     expect(mount(CallPage, { shallow: true }).find("[data-test='video']").exists()).toBe(true);
+  });
+
+  // Found on the tablet (2026-09-28): a call nobody answered ended as "Unreachable" and the
+  // screen stayed there; hanging up did nothing, since there was no call left to end.
+  it("hanging up leaves the screen at once, even after the call ended", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "ended", outcome: "unreachable" });
+    const wrapper = mount(CallPage, { shallow: true });
+    await wrapper.find("[aria-label='Hang up']").trigger("click");
+    await flushPromises();
+    expect(nav.back).toHaveBeenCalledTimes(1);
+  });
+
+  // Opened with nothing behind it (from a notification, or the page itself reloaded), going
+  // back would do nothing: the conversation with the contact opens instead.
+  it("with nowhere to go back to, leaving opens the conversation", async () => {
+    window.history.replaceState({ back: null }, "");
+    Object.assign(call, { id: "x", contact: "c1", phase: "calling" });
+    const wrapper = mount(CallPage, { shallow: true });
+    await wrapper.find("[aria-label='Hang up']").trigger("click");
+    await flushPromises();
+    expect(nav.replace).toHaveBeenCalledWith("/chat/c1");
+    expect(nav.back).not.toHaveBeenCalled();
+  });
+
+  it("leaves only once when the call ends after hanging up", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "calling" });
+    const wrapper = mount(CallPage, { shallow: true });
+    await wrapper.find("[aria-label='Hang up']").trigger("click");
+    call.phase = "ended";
+    await nextTick();
+    vi.advanceTimersByTime(3000);
+    await flushPromises();
+    expect(nav.back).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("leaves by itself a moment after the call ended", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "calling" });
+    mount(CallPage, { shallow: true });
+    call.phase = "ended";
+    await nextTick();
+    vi.advanceTimersByTime(3000);
+    expect(nav.back).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("does not go back from elsewhere once the screen is gone", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "calling" });
+    const wrapper = mount(CallPage, { shallow: true });
+    call.phase = "ended";
+    await nextTick();
+    wrapper.unmount();
+    vi.advanceTimersByTime(3000);
+    expect(nav.back).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
