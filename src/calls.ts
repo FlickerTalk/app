@@ -27,6 +27,8 @@ export interface CallState {
   /** When the media connected (ms), for the call's clock. */
   since: number;
   muted: boolean;
+  /** The voice on the speaker; otherwise on the receiver, like a phone call. */
+  speaker: boolean;
   cameraOff: boolean;
   local: MediaStream | null;
   remote: MediaStream | null;
@@ -120,6 +122,7 @@ const idle = (): CallState => ({
   outcome: null,
   since: 0,
   muted: false,
+  speaker: false,
   cameraOff: false,
   local: null,
   remote: null,
@@ -138,6 +141,19 @@ let nativeVoice = false;
 let nativeCall = false;
 
 const runsNatively = (video: boolean) => nativeVoice && !video;
+
+/**
+ * Whether the WebView may play the ringback (2026-09-28). Not during a native call on the
+ * iPhone: WebKit may change the app's audio session, which CallKit and the native voice own.
+ */
+const webViewMayPlay = () => !(nativeCall && /iPhone|iPad/.test(navigator.userAgent));
+
+/** The call goes live: a video call's voice goes to the speaker (a voice call stays on the receiver). */
+function goLive() {
+  call.phase = "active";
+  call.since = Date.now();
+  if (call.speaker) void invoke("core_call_speaker", { on: true }).catch(() => undefined);
+}
 
 function busy(): boolean {
   return call.phase !== "idle" && call.phase !== "ended";
@@ -187,8 +203,7 @@ async function preparePeer(video: boolean): Promise<RTCPeerConnection> {
   };
   pc.onconnectionstatechange = () => {
     if (pc.connectionState === "connected" && call.phase !== "active") {
-      call.phase = "active";
-      call.since = Date.now();
+      goLive();
     } else if (pc.connectionState === "failed") {
       void fail();
     }
@@ -221,7 +236,7 @@ export function reset() {
 /** Calls the contact. If it cannot start (no camera or microphone, say), it ends as failed. */
 export async function startCall(contact: string, video: boolean): Promise<void> {
   if (busy()) throw new Error("already in a call");
-  Object.assign(call, idle(), { contact, video, outgoing: true, phase: "calling" });
+  Object.assign(call, idle(), { contact, video, outgoing: true, phase: "calling", speaker: video });
   nativeCall = runsNatively(video);
   try {
     if (nativeCall) {
@@ -233,7 +248,7 @@ export async function startCall(contact: string, video: boolean): Promise<void> 
     await fail();
     return;
   }
-  media.ringback.start();
+  if (webViewMayPlay()) media.ringback.start();
   giveUpUnanswered();
 }
 
@@ -305,6 +320,12 @@ export function toggleMute() {
   else call.local?.getAudioTracks().forEach((track) => (track.enabled = !call.muted));
 }
 
+/** Speaker or receiver: the phone moves the call's voice (2026-09-28). */
+export function toggleSpeaker() {
+  call.speaker = !call.speaker;
+  void invoke("core_call_speaker", { on: call.speaker }).catch(() => undefined);
+}
+
 export function toggleCamera() {
   call.cameraOff = !call.cameraOff;
   call.local?.getVideoTracks().forEach((track) => (track.enabled = !call.cameraOff));
@@ -316,7 +337,8 @@ export async function loadHistory(): Promise<void> {
 
 async function onEvent(event: CallEvent) {
   if (event.kind === "incoming" && !busy()) {
-    Object.assign(call, idle(), { id: event.call, contact: event.contact, video: Boolean(event.video), phase: "ringing" });
+    const video = Boolean(event.video);
+    Object.assign(call, idle(), { id: event.call, contact: event.contact, video, phase: "ringing", speaker: video });
     offer = event.sdp ?? "";
   } else if (event.call === call.id && event.kind === "answered" && (peer || nativeCall)) {
     clearTimeout(ringTimer);
@@ -325,8 +347,7 @@ async function onEvent(event: CallEvent) {
     // A native call took the answer in the core already.
     await peer?.setRemoteDescription({ type: "answer", sdp: event.sdp ?? "" });
   } else if (event.call === call.id && event.kind === "connected" && call.phase !== "active") {
-    call.phase = "active";
-    call.since = Date.now();
+    goLive();
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
   } else if (event.call === call.id && event.kind === "ended") {
@@ -356,6 +377,7 @@ async function restoreCall(): Promise<void> {
     outgoing: current.outgoing,
     phase: current.phase,
     muted: current.muted,
+    speaker: current.video,
     since: current.connectedAt ?? 0,
   });
   offer = current.offer ?? "";

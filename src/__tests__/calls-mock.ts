@@ -16,6 +16,7 @@ export function idleCall(): CallState {
     outcome: null,
     since: 0,
     muted: false,
+    speaker: false,
     cameraOff: false,
     local: null,
     remote: null,
@@ -29,6 +30,7 @@ export const actions = {
   acceptCall: vi.fn(),
   hangUp: vi.fn(),
   toggleMute: vi.fn(),
+  toggleSpeaker: vi.fn(),
   toggleCamera: vi.fn(),
   loadHistory: vi.fn(),
 };

@@ -385,6 +385,44 @@ describe("native voice calls", () => {
     expect(calls.call.muted).toBe(false);
   });
 
+  // Speaker or receiver (2026-09-28): a voice call starts on the receiver, like a phone call; a
+  // video call on the speaker, which the phone is told once the call is live.
+  it("starts a voice call on the receiver and switches to the speaker when asked", async () => {
+    await calls.startCall("ft_bob", false);
+    expect(calls.call.speaker).toBe(false);
+    calls.toggleSpeaker();
+    expect(calls.call.speaker).toBe(true);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: true });
+    calls.toggleSpeaker();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: false });
+  });
+
+  it("puts a video call on the speaker once it is live", async () => {
+    await calls.startCall("ft_bob", true);
+    expect(calls.call.speaker).toBe(true);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_speaker", expect.anything());
+    FakePeer.last.connect("connected");
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: true });
+  });
+
+  it("leaves a voice call on the receiver when it goes live", async () => {
+    await calls.startCall("ft_bob", false);
+    event({ kind: "answered", sdp: "their-answer" });
+    event({ kind: "connected" });
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_speaker", expect.anything());
+  });
+
+  // On the iPhone the WebView plays nothing during a native call (2026-09-28): WebKit may change
+  // the app's audio session, which CallKit and the native voice own.
+  it("plays no WebView ringback for a native call on the iPhone", async () => {
+    const agent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15");
+    await calls.startCall("ft_bob", false);
+    expect(calls.media.ringback.start).not.toHaveBeenCalled();
+    agent.mockRestore();
+  });
+
   it("hangs up through the core", async () => {
     await calls.startCall("ft_bob", false);
     await calls.hangUp();
