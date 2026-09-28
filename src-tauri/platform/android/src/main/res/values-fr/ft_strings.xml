@@ -9,4 +9,9 @@
     <string name="ft_channel_reminders">Rappels</string>
     <string name="ft_reminder">Rappel</string>
     <string name="ft_reminder_generic">Vous avez un rappel</string>
+    <string name="ft_channel_incoming_calls">Appels entrants</string>
+    <string name="ft_channel_ongoing_calls">Appels en cours</string>
+    <string name="ft_ongoing_call">Appel en cours</string>
+    <string name="ft_mute">Couper le micro</string>
+    <string name="ft_unmute">Réactiver le micro</string>
 </resources>

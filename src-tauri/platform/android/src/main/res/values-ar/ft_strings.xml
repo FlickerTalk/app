@@ -9,4 +9,9 @@
     <string name="ft_channel_reminders">Reminders</string>
     <string name="ft_reminder">Reminder</string>
     <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_incoming_calls">المكالمات الواردة</string>
+    <string name="ft_channel_ongoing_calls">المكالمات الجارية</string>
+    <string name="ft_ongoing_call">مكالمة جارية</string>
+    <string name="ft_mute">كتم الصوت</string>
+    <string name="ft_unmute">إلغاء الكتم</string>
 </resources>
