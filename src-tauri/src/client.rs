@@ -666,7 +666,7 @@ impl Client {
         }
 
         if let Some(app) = self.app.get().cloned() {
-            listen_native_calls(&app, &online.core);
+            listen_native_calls(&app, &online);
             let mut events = online.core.events();
             let dir_for_events = dir.to_owned();
             let router_for_events = online.router.clone();
@@ -740,13 +740,17 @@ impl Client {
 /// What the phone's own call screen says (2026-09-28): CallKit on iOS, the ongoing call
 /// notification on Android. It works with no WebView at all: a locked iPhone that PushKit woke
 /// answers here.
-fn listen_native_calls(app: &AppHandle, core: &Arc<Core>) {
-    let (core, handle) = (core.clone(), app.clone());
+fn listen_native_calls(app: &AppHandle, online: &Online) {
+    let (core, router, handle) = (online.core.clone(), online.router.clone(), app.clone());
     // The handler runs on a native queue: it only hands the work over.
     app.platform().listen_calls(move |event| {
+        if reconnects_for(event) {
+            router.reconnect_unless_fresh(CALL_SOCKET_FRESH);
+        }
         let (core, app) = (core.clone(), handle.clone());
         tauri::async_runtime::spawn(async move {
             let _ = match event {
+                NativeCallEvent::Incoming => Ok(()),
                 NativeCallEvent::Answer => {
                     if microphone(&app).await {
                         core.answer_ringing_call().await.map(drop)
@@ -761,6 +765,17 @@ fn listen_native_calls(app: &AppHandle, core: &Arc<Core>) {
             };
         });
     });
+}
+
+/// A socket to the router opened this recently is kept when a call event asks for one.
+const CALL_SOCKET_FRESH: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Whether a native call event asks for a fresh socket to the router (2026-09-28). A call push
+/// means the router found this phone offline; iOS drops the socket of a suspended app, and only
+/// the WebView (which does not run in the background) used to ask to reconnect. The answer and
+/// the audio activation ask too, in case the push's reconnection did not get through.
+fn reconnects_for(event: NativeCallEvent) -> bool {
+    matches!(event, NativeCallEvent::Incoming | NativeCallEvent::Answer | NativeCallEvent::AudioActivated)
 }
 
 /// Whether the app may use the microphone, asking if it has not been asked yet. Off the main
@@ -2828,6 +2843,20 @@ mod tests {
         assert_eq!(native_screen(&CallUpdate::Answered { sdp: String::new() }), NativeScreen::Nothing);
         assert_eq!(native_screen(&CallUpdate::Muted { muted: true }), NativeScreen::Nothing);
         assert_eq!(native_screen(&CallUpdate::Incoming { video: false, sdp: String::new() }), NativeScreen::Nothing);
+    }
+
+    // Bug of 2026-09-28: a suspended iPhone rang through PushKit and was answered, but its socket
+    // to the router was dead and only the WebView (not running) asked to reconnect: the offer and
+    // the caller's end never came. The push, the answer and the audio activation reconnect now.
+    #[test]
+    fn a_call_push_the_answer_and_the_audio_activation_reconnect_to_the_router() {
+        assert!(reconnects_for(NativeCallEvent::Incoming));
+        assert!(reconnects_for(NativeCallEvent::Answer));
+        assert!(reconnects_for(NativeCallEvent::AudioActivated));
+        assert!(!reconnects_for(NativeCallEvent::End));
+        assert!(!reconnects_for(NativeCallEvent::Mute(true)));
+        assert!(!reconnects_for(NativeCallEvent::AudioDeactivated));
+        assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
     }
 
     // A WebView that comes up after the call started (PushKit launched the app, CallKit answered)
