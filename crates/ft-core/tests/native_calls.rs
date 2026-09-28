@@ -9,8 +9,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
 use ft_core::{CallPhase, CallUpdate, Core, Event};
-use ft_media::testing::{mean_heard, rms, test_voice, webview_video_offer, DeviceProbe, ToneDevice};
-use ft_media::{Activation, AudioPlatform, CallRouting};
+use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, DeviceProbe, ToneDevice};
+use ft_media::{Activation, AudioPlatform, BackendFactory, CallRouting};
 use ft_push::RouterEvent;
 use ft_storage::{CallOutcome, Store};
 use ft_webrtc::SessionConfig;
@@ -211,10 +211,12 @@ async fn on_ios_the_device_starts_only_after_callkit_activates_the_audio_session
 
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(bob.probe.starts(), 0, "connected, but CallKit has not activated the session");
+    assert!(!bob.core.call_device_running().await, "the core says so too (diagnostics)");
     until("alice's device runs", || async { alice.probe.running() }).await;
 
     bob.core.set_call_audio_active(true).await.expect("activated");
     until("bob's device runs", || async { bob.probe.running() }).await;
+    assert!(bob.core.call_device_running().await);
     bob.core.set_call_audio_active(false).await.expect("deactivated");
     assert!(!bob.probe.running());
     bob.core.set_call_audio_active(true).await.expect("activated again");
@@ -354,4 +356,61 @@ async fn a_hang_up_reaches_the_other_phone_once_it_is_back() {
     until("bob's phone stops ringing", || async { bob.core.current_call().await.unwrap().is_none() }).await;
     let record = bob.core.store().call(&call).await.unwrap().expect("in the history");
     assert_eq!(record.outcome, Some(CallOutcome::Missed));
+}
+
+// Each CallKit call has its generation (2026-09-28): a late deactivation of the previous call
+// must not stop this call's voice.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_audio_event_of_an_older_call_changes_nothing() {
+    let (alice, bob) = two_phones(Activation::WhenSessionActive).await;
+    let mut bob_events = bob.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    ringing_call(&bob).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+
+    bob.core.set_call_audio_session(true, 2).await.expect("activated");
+    until("bob's device runs", || async { bob.probe.running() }).await;
+    bob.core.set_call_audio_session(false, 1).await.expect("an older call's event");
+    assert!(bob.probe.running(), "the older call's deactivation changes nothing");
+    bob.core.set_call_audio_session(false, 2).await.expect("deactivated");
+    assert!(!bob.probe.running());
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+/// A device that refuses its first `failures` starts, then speaks like the others.
+fn flaky(failures: usize, probe: DeviceProbe) -> BackendFactory {
+    let (broken, working) = (broken_device(), ToneDevice::factory(test_voice(VOICE_SECONDS, true), probe));
+    let tries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    Arc::new(move || if tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < failures { broken() } else { working() })
+}
+
+async fn activated_call_with(device: BackendFactory) -> (Phone, Phone, String) {
+    let (alice, bob) = two_phones(Activation::WhenSessionActive).await;
+    bob.core.set_call_audio(Some(AudioPlatform { backend: device, activation: Activation::WhenSessionActive }));
+    let mut bob_events = bob.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    ringing_call(&bob).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    (alice, bob, call)
+}
+
+// Bug of 2026-09-28: the audio unit that would not start on activation was ignored, and the call
+// went on in silence. It is tried once more; if it still will not start, the call fails.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_audio_device_that_fails_to_start_is_tried_again_once() {
+    let probe = DeviceProbe::default();
+    let (alice, bob, call) = activated_call_with(flaky(1, probe.clone())).await;
+    bob.core.set_call_audio_session(true, 1).await.expect("started on the second try");
+    assert!(probe.running());
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_whose_audio_device_never_starts_fails() {
+    let (alice, bob, call) = activated_call_with(broken_device()).await;
+    assert!(bob.core.set_call_audio_session(true, 1).await.is_err());
+    until("alice's call ends", || async { alice.core.current_call().await.unwrap().is_none() }).await;
+    assert_eq!(bob.core.store().call(&call).await.unwrap().expect("in the history").outcome, Some(CallOutcome::Failed));
 }

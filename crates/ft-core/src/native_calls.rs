@@ -69,6 +69,9 @@ impl NativeCall {
 /// How long the OS's answer waits for an offer that has not arrived yet.
 pub const EARLY_ANSWER: Duration = Duration::from_secs(30);
 
+/// Before an audio device that would not start is tried again.
+const AUDIO_RETRY: Duration = Duration::from_millis(300);
+
 /// Settings key: the call routing, as Settings writes it (`direct`, `auto`, `always`).
 const CALL_ROUTING: &str = "call_routing";
 
@@ -172,6 +175,17 @@ impl Core {
         Ok(true)
     }
 
+    /// The OS's audio session for the CallKit call of `generation`, which grows with each call
+    /// (2026-09-28): a late event of an older call (its `didDeactivate` after the new call's
+    /// `didActivate`) changes nothing.
+    pub async fn set_call_audio_session(&self, active: bool, generation: u64) -> Result<()> {
+        let newest = self.audio_generation.fetch_max(generation, Ordering::SeqCst);
+        if generation < newest {
+            return Ok(());
+        }
+        self.set_call_audio_active(active).await
+    }
+
     /// Mutes or unmutes our voice in the call.
     pub async fn mute_call(&self, call: &str, muted: bool) -> Result<()> {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
@@ -194,10 +208,28 @@ impl Core {
     pub async fn set_call_audio_active(&self, active: bool) -> Result<()> {
         self.call_audio_active.store(active, Ordering::SeqCst);
         let native = self.native_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        if let Some(native) = native {
-            native.voice.set_session_active(active).await?;
+        let Some(native) = native else { return Ok(()) };
+        let Err(error) = native.voice.set_session_active(active).await else { return Ok(()) };
+        if !active {
+            return Err(error);
+        }
+        // The audio unit would not start (2026-09-28): once more, then the call fails rather than
+        // going on in silence.
+        tokio::time::sleep(AUDIO_RETRY).await;
+        if let Err(error) = native.voice.set_session_active(true).await {
+            let _ = self.end_call(&native.call, true).await;
+            return Err(error);
         }
         Ok(())
+    }
+
+    /// Whether the voice of the call going on has its device running (temporary diagnostics).
+    pub async fn call_device_running(&self) -> bool {
+        let native = self.native_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        match native {
+            Some(native) => native.voice.is_running().await,
+            None => false,
+        }
     }
 
     /// Hangs up whatever call is going on (CallKit's end, or the notification's button). An answer
