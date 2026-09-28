@@ -277,3 +277,26 @@ async fn a_drive_of_the_first_version_asks_to_be_made_again() {
     core.vault_setup(PHRASE).await.unwrap();
     assert_eq!(core.vault_status().await.unwrap().state, VaultState::Ready);
 }
+
+// The Samsung of the tests (2026-09-28): it kept the key of a drive made with the first
+// version's code. At the next start the drive is not opened with it: it is to be made again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_that_kept_the_key_of_a_first_version_drive_is_asked_to_make_it_again() {
+    let cloud = Memory::new();
+    let browser = Browser { opened: Default::default(), refuses: false };
+    let (core, dir) = phone("kept", &cloud).await;
+    core.vault_connect("memory", &browser).await.unwrap();
+    core.vault_setup(PHRASE).await.unwrap();
+    drop(core);
+    // As the first version left it.
+    cloud.write("vault.json", br#"{"format":"ftvault","version":1,"id":"old"}"#.to_vec()).await.unwrap();
+    cloud.write("key.ftv", cipher::seal(&[9; 32], "key", &[1; 32]).unwrap()).await.unwrap();
+
+    let again = Core::open(Store::open(&dir.join("phone.db")).await.unwrap(), [4; 32], Arc::new(Offline)).await.unwrap();
+    again.set_vault_dir(dir.join("vault"));
+    again.set_cloud(Arc::new(MemoryCloud(cloud.clone())));
+    let status = again.vault_reopen().await.unwrap();
+    assert_eq!((status.state, status.problem), (VaultState::Outdated, None));
+    again.vault_setup(PHRASE).await.unwrap();
+    assert_eq!(again.vault_status().await.unwrap().state, VaultState::Ready);
+}
