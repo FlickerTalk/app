@@ -85,10 +85,12 @@ pub enum NativeCallEvent {
     End,
     /// The user muted (`true`) or unmuted the microphone.
     Mute(bool),
-    /// The system activated the audio session: the audio unit may start now (iOS).
-    AudioActivated,
+    /// The system activated the audio session: the audio unit may start now (iOS). With the
+    /// generation of the CallKit call it belongs to (it grows with each call), so that a late
+    /// event of an older call is told apart.
+    AudioActivated(u64),
     /// The system took the audio session away: the audio unit stops (iOS).
-    AudioDeactivated,
+    AudioDeactivated(u64),
 }
 
 /// One event as Swift and Kotlin send it: `{"event": "mute", "muted": true}`.
@@ -98,6 +100,8 @@ fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
     struct Wire {
         event: String,
         muted: Option<bool>,
+        #[serde(default)]
+        generation: u64,
     }
     let wire: Wire = body.deserialize().ok()?;
     match (wire.event.as_str(), wire.muted) {
@@ -105,8 +109,8 @@ fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
         ("answer", _) => Some(NativeCallEvent::Answer),
         ("end", _) => Some(NativeCallEvent::End),
         ("mute", Some(muted)) => Some(NativeCallEvent::Mute(muted)),
-        ("audioActivated", _) => Some(NativeCallEvent::AudioActivated),
-        ("audioDeactivated", _) => Some(NativeCallEvent::AudioDeactivated),
+        ("audioActivated", _) => Some(NativeCallEvent::AudioActivated(wire.generation)),
+        ("audioDeactivated", _) => Some(NativeCallEvent::AudioDeactivated(wire.generation)),
         _ => None,
     }
 }
@@ -128,6 +132,13 @@ fn call_channel(handler: impl Fn(NativeCallEvent) + Send + Sync + 'static) -> ta
 #[cfg_attr(not(mobile), allow(dead_code))]
 struct CallEvents<'a> {
     channel: &'a tauri::ipc::Channel<serde_json::Value>,
+}
+
+/// Arguments of the native `diagnose` command (temporary, 2026-09-28): a state name only, never a
+/// name or an identifier.
+#[derive(Serialize)]
+struct Diagnose<'a> {
+    what: &'a str,
 }
 
 /// Arguments of the native `callStartedOutgoing` command.
@@ -350,6 +361,12 @@ impl<R: Runtime> Platform<R> {
     /// Android the call's audio and foreground service start if they had not.
     pub fn call_connected(&self) -> Result<()> {
         self.call("callConnected", ())
+    }
+
+    /// Temporary call diagnostics (2026-09-28): writes a state name (never a name or an
+    /// identifier) to the device log, `os_log` on iOS and `Log` on Android. Nothing on desktop.
+    pub fn diagnose(&self, what: &str) {
+        let _ = self.call("diagnose", Diagnose { what });
     }
 
     /// The call is over, whoever ended it: CallKit lets go / the service stops and the audio mode
@@ -620,8 +637,10 @@ mod tests {
         assert_eq!(read(r#"{"event":"end"}"#), Some(NativeCallEvent::End));
         assert_eq!(read(r#"{"event":"mute","muted":true}"#), Some(NativeCallEvent::Mute(true)));
         assert_eq!(read(r#"{"event":"mute","muted":false}"#), Some(NativeCallEvent::Mute(false)));
-        assert_eq!(read(r#"{"event":"audioActivated"}"#), Some(NativeCallEvent::AudioActivated));
-        assert_eq!(read(r#"{"event":"audioDeactivated"}"#), Some(NativeCallEvent::AudioDeactivated));
+        // Each CallKit call has its generation: a late event of an older call is told apart.
+        assert_eq!(read(r#"{"event":"audioActivated","generation":3}"#), Some(NativeCallEvent::AudioActivated(3)));
+        assert_eq!(read(r#"{"event":"audioDeactivated","generation":2}"#), Some(NativeCallEvent::AudioDeactivated(2)));
+        assert_eq!(read(r#"{"event":"audioActivated"}"#), Some(NativeCallEvent::AudioActivated(0)));
     }
 
     // Anything else is ignored, never a panic on the phone's main thread.
@@ -647,6 +666,13 @@ mod tests {
         channel.send(serde_json::json!({ "event": "mute", "muted": true })).unwrap();
         channel.send(serde_json::json!({ "event": "nonsense" })).unwrap();
         assert_eq!(*heard.lock().unwrap(), vec![NativeCallEvent::Answer, NativeCallEvent::Mute(true)]);
+    }
+
+    // Temporary call diagnostics (2026-09-28): a state name, as Swift's and Kotlin's `diagnose` read it.
+    #[test]
+    fn a_diagnostic_is_a_state_name() {
+        let args = serde_json::to_value(Diagnose { what: "audio activated; device running" }).unwrap();
+        assert_eq!(args, serde_json::json!({ "what": "audio activated; device running" }));
     }
 
     #[test]
