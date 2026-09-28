@@ -196,7 +196,20 @@ impl RouterClient {
 
     /// `true` if the recipient is connected and got it; `false` if it is offline.
     pub async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
-        let request = self.http.post(format!("{}/v1/signal/{to}", self.base)).header("ft-capability", encode(capability));
+        self.signal_as(to, capability, bytes, false).await
+    }
+
+    /// The same, marked as a call's (2026-09-28): an offline iPhone is rung through CallKit. That
+    /// it is a call is all the router learns.
+    pub async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
+        self.signal_as(to, capability, bytes, true).await
+    }
+
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<bool> {
+        let mut request = self.http.post(format!("{}/v1/signal/{to}", self.base)).header("ft-capability", encode(capability));
+        if call {
+            request = request.header("ft-call", "1");
+        }
         match send(request.body(bytes)).await?.status() {
             StatusCode::ACCEPTED => Ok(true),
             StatusCode::NOT_FOUND => Ok(false),

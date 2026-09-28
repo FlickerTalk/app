@@ -37,6 +37,10 @@ pub const CONNECT_WAIT: Duration = Duration::from_secs(12);
 pub trait Relay: Send + Sync {
     /// `true` if the recipient is connected to the router and got the signal.
     async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool>;
+    /// The same, for a call (2026-09-28): an offline iPhone is rung through CallKit.
+    async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
+        self.signal(to, capability, bytes).await
+    }
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()>;
     /// This device's mail: (id, blob), oldest first.
     async fn collect(&self) -> Result<Vec<(String, Vec<u8>)>>;
@@ -47,6 +51,10 @@ pub trait Relay: Send + Sync {
 impl Relay for RouterClient {
     async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
         RouterClient::signal(self, to, capability, bytes).await
+    }
+
+    async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
+        RouterClient::signal_call(self, to, capability, bytes).await
     }
 
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()> {
@@ -214,7 +222,7 @@ impl Network {
     }
 
     /// Opens a data channel with the contact, or returns `None` if it cannot be reached now.
-    async fn connect(&self, peer: &Peer) -> Result<Option<Session>> {
+    async fn connect(&self, peer: &Peer, call: bool) -> Result<Option<Session>> {
         let core = self.core()?;
         let (signals, mut descriptions) = mpsc::channel(8);
         let (session, inbox) = Session::start(self.session_config(), Role::Caller, signals).await?;
@@ -244,7 +252,11 @@ impl Network {
         // Through the router the signal goes in an envelope (A1): it names its sender to the
         // recipient alone.
         let wrapped = core.wrap_for(&peer.device_id, signal.encode()).await?;
-        let delivered = self.relay.signal(&peer.device_id, peer.capability.as_bytes(), wrapped).await;
+        let delivered = if call {
+            self.relay.signal_call(&peer.device_id, peer.capability.as_bytes(), wrapped).await
+        } else {
+            self.relay.signal(&peer.device_id, peer.capability.as_bytes(), wrapped).await
+        };
         let opened = match delivered {
             Ok(true) => tokio::time::timeout(CONNECT_WAIT, session.wait_open()).await.is_ok_and(|open| open.is_ok()),
             _ => false,
@@ -351,6 +363,26 @@ impl Network {
 #[async_trait]
 impl Transport for Network {
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct_as(to, bytes, false).await
+    }
+
+    async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct_as(to, bytes, true).await
+    }
+
+    async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()> {
+        self.relay.deposit(&to.device_id, to.capability.as_bytes(), bytes).await
+    }
+
+    async fn disconnect(&self, device_id: &str) {
+        Network::disconnect(self, device_id).await;
+    }
+}
+
+impl Network {
+    /// Sends over the open link, or opens one first; `call` marks the signal that opens it as a
+    /// call's (2026-09-28), so an offline iPhone rings.
+    async fn send_direct_as(&self, to: &Peer, bytes: Vec<u8>, call: bool) -> Result<bool> {
         if let Some(session) = self.open_link(&to.device_id).await {
             if session.send_bytes(&bytes).await.is_ok() {
                 return Ok(true);
@@ -361,20 +393,12 @@ impl Transport for Network {
         // Another send may have connected while this one waited.
         let session = match self.open_link(&to.device_id).await {
             Some(session) => session,
-            None => match self.connect(to).await? {
+            None => match self.connect(to, call).await? {
                 Some(session) => session,
                 None => return Ok(false),
             },
         };
         Ok(session.send_bytes(&bytes).await.is_ok())
-    }
-
-    async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()> {
-        self.relay.deposit(&to.device_id, to.capability.as_bytes(), bytes).await
-    }
-
-    async fn disconnect(&self, device_id: &str) {
-        Network::disconnect(self, device_id).await;
     }
 }
 

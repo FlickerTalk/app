@@ -245,3 +245,28 @@ async fn the_socket_is_opened_again_at_once_when_asked() {
     assert!(again.is_ok(), "connected again at once, not after the socket died");
     assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
+
+// A call's signal says it is one, and nothing else does (2026-09-28): the router rings an
+// offline iPhone only for a call.
+#[tokio::test]
+async fn only_a_call_signal_says_it_is_a_call() {
+    let marked = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let seen = marked.clone();
+    let router = Router::new().route(
+        "/v1/signal/{to}",
+        post(move |headers: HeaderMap| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().unwrap().push(headers.get("ft-call").is_some_and(|value| value == "1"));
+                StatusCode::NOT_FOUND
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let client = RouterClient::new(&format!("http://{address}"), device()).unwrap();
+    assert!(!client.signal("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap());
+    assert!(!client.signal_call("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap());
+    assert_eq!(*marked.lock().unwrap(), [false, true]);
+}
