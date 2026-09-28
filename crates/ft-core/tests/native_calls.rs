@@ -264,8 +264,12 @@ async fn the_os_answers_the_ringing_voice_call_without_a_webview() {
     bob.core.set_call_routing(CallRouting::Direct).await.unwrap();
     let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.unwrap();
     ringing_call(&bob).await;
+    let mut bob_events = bob.core.events();
     assert!(bob.core.answer_ringing_call().await.unwrap());
     next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    // CallKit's mute button names no call: it is the one going on.
+    bob.core.mute_current_call(true).await.expect("mutes");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Muted { muted: true }).await;
     // The WebView may answer the same call once it is up: nothing changes.
     bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("answering twice is fine");
     alice.core.end_call(&call, false).await.unwrap();

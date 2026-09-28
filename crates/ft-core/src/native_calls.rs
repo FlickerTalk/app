@@ -162,6 +162,15 @@ impl Core {
         Ok(())
     }
 
+    /// Mutes or unmutes the call going on (CallKit's button names no call).
+    pub async fn mute_current_call(&self, muted: bool) -> Result<()> {
+        let native = self.native_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        match native {
+            Some(native) => self.mute_call(&native.call, muted).await,
+            None => Ok(()),
+        }
+    }
+
     /// The OS activated (or took back) the call's audio session: CallKit's `didActivate` on iOS.
     /// It may come before the call's connection exists: the voice learns it when it is made.
     pub async fn set_call_audio_active(&self, active: bool) -> Result<()> {
