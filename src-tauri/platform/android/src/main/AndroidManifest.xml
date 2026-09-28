@@ -10,6 +10,16 @@
          again after a reboot. USE_EXACT_ALARM is not asked for: Play keeps it for alarm apps. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Native calls (2026-09-28): the call's audio lives in Rust, not in the WebView. A foreground
+         service of type phoneCall|microphone keeps the microphone working with the app in the
+         background (Android 14); phoneCall needs MANAGE_OWN_CALLS (a normal permission, the one
+         self-managed calling apps hold). RECORD_AUDIO is asked for when a call starts (§30). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     <application>
         <receiver android:name="com.flickertalk.platform.ReminderReceiver" android:exported="false" />
         <receiver android:name="com.flickertalk.platform.BootReceiver" android:exported="true">
@@ -41,6 +51,13 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+        <!-- A native call in progress (2026-09-28): its ongoing notification, and its hang-up and
+             mute buttons, which go to the core through the call-event channel. -->
+        <service
+            android:name="com.flickertalk.platform.FtCallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone" />
+        <receiver android:name="com.flickertalk.platform.FtCallActionReceiver" android:exported="false" />
         <!-- Lends a file of the app to the viewer the user picks, only for that viewing (§62). -->
         <provider
             android:name="com.flickertalk.platform.FtFileProvider"
