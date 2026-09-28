@@ -12,7 +12,7 @@ pub mod session;
 pub mod testing;
 pub mod voice;
 
-pub use platform::platform_audio;
+pub use platform::{device_stats, platform_audio, DeviceStats};
 pub use session::{LinkState, MediaSession};
 pub use voice::{Activation, AudioPlatform, BackendFactory, Voice};
 
