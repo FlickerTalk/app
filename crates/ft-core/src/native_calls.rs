@@ -243,7 +243,6 @@ impl Core {
         config.routing = routing;
         let session = MediaSession::open(&config).await?;
         let voice = Voice::for_session(&session, platform);
-        voice.set_session_active(self.call_audio_active.load(Ordering::SeqCst)).await?;
         let native = Arc::new(NativeCall {
             call: call.to_owned(),
             contact: record.contact,
@@ -255,6 +254,8 @@ impl Core {
         if let Some(replaced) = replaced {
             replaced.shut().await;
         }
+        // Read after the call is in its place: an activation from now on reaches it directly.
+        native.voice.set_session_active(self.call_audio_active.load(Ordering::SeqCst)).await?;
         // Hung up while the connection was being made: close_call found nothing to stop then.
         if self.store.call(call).await?.is_none_or(|record| record.ended_at.is_some()) {
             self.drop_native(call).await;
