@@ -42,7 +42,9 @@ const tabs = [
 
 .ft-tab-bar {
   --border: 1px solid var(--ft-border);
-  height: calc(56px + env(safe-area-inset-bottom));
+  /* Ionic already pads the bar with the home indicator's space (content-box): adding it here
+     doubled the margin under the tabs on the iPhone (2026-09-28). */
+  height: 56px;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
