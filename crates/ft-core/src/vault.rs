@@ -439,6 +439,9 @@ impl Core {
         let move_dir = self.move_dir.get().cloned().context("no directory for moving")?;
         let files = self.files_dir()?.to_owned();
         let backup = vault.restore(&move_dir, &files, self.progress().await).await?;
+        // Its sessions are those of the day it was made: the first start with it renews them.
+        let (copy, _) = crate::moving::received_move(&move_dir).context("the backup did not come down whole")?;
+        Store::open(&copy).await?.set_setting(crate::SESSIONS_BEHIND, "1").await?;
         let _ = self.events.send(Event::VaultChanged);
         Ok(backup)
     }
