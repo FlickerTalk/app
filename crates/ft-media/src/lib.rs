@@ -6,6 +6,10 @@
 //!
 //! The descriptions stay standard SDP, so a native phone talks to a WebView phone (an older app).
 
+pub mod session;
+
+pub use session::{LinkState, MediaSession};
+
 use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
