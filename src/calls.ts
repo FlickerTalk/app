@@ -1,12 +1,17 @@
 /**
- * Voice and video calls (Plan §66, §106 M6), one to one. The media is the WebView's WebRTC; the
- * core carries the offer, the answer and the end of each call, encrypted and directly, and keeps
- * the history. Descriptions are sent whole, with their ICE candidates (no trickle).
+ * Voice and video calls (Plan §66, §106 M6), one to one. The core carries the offer, the answer
+ * and the end of each call, encrypted and directly, and keeps the history. Descriptions are sent
+ * whole, with their ICE candidates (no trickle).
+ *
+ * Where the media runs (2026-09-28): on the phones, a voice call's media runs in the Rust core
+ * (`core_call_*_native`), because CallKit answers on a locked iPhone with no WebView at all; this
+ * file only shows it, from the core's events. Video calls and the desktop keep the WebView's
+ * WebRTC (`getUserMedia` + `RTCPeerConnection`).
  */
 import { markRaw, reactive } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { storedCallRouting } from "./preferences";
+import { storedCallRouting, syncCallRouting } from "./preferences";
 import { router } from "./router";
 
 export type CallPhase = "idle" | "calling" | "ringing" | "connecting" | "active" | "ended";
@@ -41,10 +46,24 @@ export interface CallEntry {
 interface CallEvent {
   contact: string;
   call: string;
-  kind: "incoming" | "answered" | "ended";
+  kind: "incoming" | "answered" | "connected" | "muted" | "ended";
   video?: boolean;
   sdp?: string;
   outcome?: CallOutcome;
+  muted?: boolean;
+}
+
+/** The call the core has going on, for a WebView that comes up after it started. */
+interface CurrentCall {
+  call: string;
+  contact: string;
+  video: boolean;
+  outgoing: boolean;
+  phase: "calling" | "ringing" | "connecting" | "active";
+  offer?: string;
+  native: boolean;
+  muted: boolean;
+  connectedAt?: number;
 }
 
 export const CALL_EVENT = "ft://call";
@@ -113,6 +132,12 @@ let peer: RTCPeerConnection | null = null;
 let offer = "";
 let ringTimer: ReturnType<typeof setTimeout> | undefined;
 let listening = false;
+/** Whether this phone runs voice calls in the core (iOS and Android). */
+let nativeVoice = false;
+/** Whether the current call's media is the core's. */
+let nativeCall = false;
+
+const runsNatively = (video: boolean) => nativeVoice && !video;
 
 function busy(): boolean {
   return call.phase !== "idle" && call.phase !== "ended";
@@ -189,6 +214,7 @@ function finish() {
 export function reset() {
   release();
   offer = "";
+  nativeCall = false;
   Object.assign(call, idle());
 }
 
@@ -196,24 +222,45 @@ export function reset() {
 export async function startCall(contact: string, video: boolean): Promise<void> {
   if (busy()) throw new Error("already in a call");
   Object.assign(call, idle(), { contact, video, outgoing: true, phase: "calling" });
+  nativeCall = runsNatively(video);
   try {
-    const pc = await preparePeer(video);
-    await pc.setLocalDescription(await pc.createOffer());
-    call.id = await invoke<string>("core_call_start", { contact, video, sdp: await gathered(pc) });
+    if (nativeCall) {
+      call.id = await invoke<string>("core_call_start_native", { contact, routing: storedCallRouting() });
+    } else {
+      await startWebCall(contact, video);
+    }
   } catch {
     await fail();
     return;
   }
   media.ringback.start();
+  giveUpUnanswered();
+}
+
+/** The caller gives up when nobody answers. */
+function giveUpUnanswered() {
+  clearTimeout(ringTimer);
   ringTimer = setTimeout(() => {
     if (call.phase === "calling") void hangUp();
   }, RING_LIMIT);
 }
 
+/** The WebView's own media: camera and microphone, and its RTCPeerConnection's offer. */
+async function startWebCall(contact: string, video: boolean) {
+  const pc = await preparePeer(video);
+  await pc.setLocalDescription(await pc.createOffer());
+  call.id = await invoke<string>("core_call_start", { contact, video, sdp: await gathered(pc) });
+}
+
 export async function acceptCall(): Promise<void> {
   if (call.phase !== "ringing") return;
   call.phase = "connecting";
+  nativeCall = runsNatively(call.video);
   try {
+    if (nativeCall) {
+      await invoke("core_call_answer_native", { call: call.id, routing: storedCallRouting() });
+      return;
+    }
     const pc = await preparePeer(call.video);
     await pc.setRemoteDescription({ type: "offer", sdp: offer });
     await pc.setLocalDescription(await pc.createAnswer());
@@ -229,7 +276,7 @@ export async function acceptCall(): Promise<void> {
  * WebView was not even running.
  */
 export async function applyCallNotification(): Promise<void> {
-  const action = await invoke<string>("core_pending_call").catch(() => "");
+  const action = (await invoke<string>("core_pending_call").catch(() => "")) ?? "";
   if (action === "answer" && call.phase === "ringing") {
     // Like the in-app button: the call screen is where the call is seen and hung up.
     const accepting = acceptCall();
@@ -254,7 +301,8 @@ async function fail() {
 
 export function toggleMute() {
   call.muted = !call.muted;
-  call.local?.getAudioTracks().forEach((track) => (track.enabled = !call.muted));
+  if (nativeCall) void invoke("core_call_mute", { call: call.id, muted: call.muted }).catch(() => undefined);
+  else call.local?.getAudioTracks().forEach((track) => (track.enabled = !call.muted));
 }
 
 export function toggleCamera() {
@@ -270,26 +318,65 @@ async function onEvent(event: CallEvent) {
   if (event.kind === "incoming" && !busy()) {
     Object.assign(call, idle(), { id: event.call, contact: event.contact, video: Boolean(event.video), phase: "ringing" });
     offer = event.sdp ?? "";
-  } else if (event.call === call.id && event.kind === "answered" && peer) {
+  } else if (event.call === call.id && event.kind === "answered" && (peer || nativeCall)) {
     clearTimeout(ringTimer);
     media.ringback.stop();
     call.phase = "connecting";
-    await peer.setRemoteDescription({ type: "answer", sdp: event.sdp ?? "" });
+    // A native call took the answer in the core already.
+    await peer?.setRemoteDescription({ type: "answer", sdp: event.sdp ?? "" });
+  } else if (event.call === call.id && event.kind === "connected" && call.phase !== "active") {
+    call.phase = "active";
+    call.since = Date.now();
+  } else if (event.call === call.id && event.kind === "muted") {
+    call.muted = Boolean(event.muted);
   } else if (event.call === call.id && event.kind === "ended") {
     if (call.phase !== "ended") finish();
     call.outcome = event.outcome ?? null;
   }
-  if (event.kind !== "answered") await loadHistory();
+  if (event.kind === "incoming" || event.kind === "ended") await loadHistory();
 }
 
-/** Listens to the core's call events; once, at start. */
-export async function startCalls(): Promise<void> {
-  if (listening) return;
-  listening = true;
-  await listen<CallEvent>(CALL_EVENT, ({ payload }) => void onEvent(payload));
-  // The user may have answered from the notification before this WebView was even there (§66).
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") void applyCallNotification();
+/**
+ * The call the core has going on, shown again (2026-09-28): it may have rung, or CallKit may
+ * have answered it, before this WebView listened. A call the WebView carried and lost with it has
+ * no media left and ends as failed.
+ */
+async function restoreCall(): Promise<void> {
+  const current = await invoke<CurrentCall | null>("core_current_call").catch(() => null);
+  if (!current || busy()) return;
+  const live = current.phase === "connecting" || current.phase === "active";
+  if (!current.native && current.phase !== "ringing") {
+    await invoke("core_call_end", { call: current.call, failed: true }).catch(() => undefined);
+    return;
+  }
+  Object.assign(call, idle(), {
+    id: current.call,
+    contact: current.contact,
+    video: current.video,
+    outgoing: current.outgoing,
+    phase: current.phase,
+    muted: current.muted,
+    since: current.connectedAt ?? 0,
   });
+  offer = current.offer ?? "";
+  nativeCall = current.native;
+  if (current.phase === "calling") giveUpUnanswered();
+  // Without the call screen there is no way to hang up.
+  if (live) await router.push(`/call/${current.contact}`);
+}
+
+/** Listens to the core's call events and picks up the call it may already have; at start. */
+export async function startCalls(): Promise<void> {
+  nativeVoice = Boolean(await invoke<boolean>("core_native_calls").catch(() => false));
+  await syncCallRouting();
+  if (!listening) {
+    listening = true;
+    await listen<CallEvent>(CALL_EVENT, ({ payload }) => void onEvent(payload));
+    // The user may have answered from the notification before this WebView was even there (§66).
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") void applyCallNotification();
+    });
+  }
+  await restoreCall();
   await applyCallNotification();
 }

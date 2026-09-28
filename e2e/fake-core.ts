@@ -121,6 +121,17 @@ export function installFakeCore() {
         return "https://flickertalk.com/add#card";
       case "core_pending_call":
         return "";
+      // Native voice calls (2026-09-28): the fake is a browser, so calls stay on the WebView,
+      // and no call is going on when the app starts.
+      case "core_native_calls":
+        return false;
+      case "core_current_call":
+        return null;
+      case "core_set_call_routing":
+      case "core_call_start_native":
+      case "core_call_answer_native":
+      case "core_call_mute":
+        return undefined;
       case "core_quiet_hours":
         return null;
       case "core_plan":

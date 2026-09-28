@@ -72,6 +72,15 @@ describe("SettingsPage", () => {
     expect(select?.findAllComponents(IonSelectOption)).toHaveLength(3);
   });
 
+  // The core keeps a copy: a call answered from CallKit has no WebView to ask (2026-09-28).
+  it("tells the core when the call routing changes", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Calls");
+    select?.vm.$emit("ionChange", { detail: { value: "always" } });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_call_routing", { routing: "always" }]);
+  });
+
   // A4: up to what size a file comes on its own is this phone's choice.
   it("lets the user choose up to what size files download on their own", async () => {
     const wrapper = mount(SettingsPage, { shallow: true });
