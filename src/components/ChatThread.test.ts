@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { flushPromises, mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { IonTextarea } from "@ionic/vue";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
@@ -10,6 +10,14 @@ import { refreshPlugins } from "../plugins";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
+// Android's back button: the handler the app listens with while something is open on top.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
+  },
+}));
 const recorder = vi.hoisted(() => ({
   startRecording: vi.fn(async (): Promise<string> => "recording"),
   stopRecording: vi.fn(async () => new File(["voice"], "voice-20260922-161500.m4a", { type: "audio/mp4" })),
@@ -31,6 +39,9 @@ vi.mock("../recorder", async () => {
   });
   return { recording, ...recorder };
 });
+
+// Each thread goes when its test ends, as a page does: what it left open must not linger.
+enableAutoUnmount(afterEach);
 
 describe("ChatThread", () => {
   beforeEach(() => seed());
@@ -440,6 +451,29 @@ describe("ChatThread", () => {
     await tapped(wrapper, "m4");
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
     expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+  });
+
+  // Found on the phones (2026-09-28): back with a plugin open left the chat, or the whole app on
+  // the tablet. It closes what is open on top, and only that.
+  it("closes the plugin, then the actions, with the back button, and stays in the chat", async () => {
+    withPlugins([VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    expect(back.handler).toBeNull();
+
+    await tapped(wrapper, "m4");
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    expect(back.handler).toBeNull();
+
+    await pressed(wrapper);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(true);
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+    expect(push).not.toHaveBeenCalled();
   });
 
   it("offers another app from «open with» only when a viewer takes the tap", async () => {

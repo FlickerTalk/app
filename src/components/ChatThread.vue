@@ -63,6 +63,7 @@ import {
   type Sending,
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
+import { closeOnBackWhile } from "../back";
 import { t } from "../i18n";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
@@ -231,6 +232,12 @@ async function forwardTo(contact: string) {
 const showApps = ref(false);
 /** The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back. */
 const plugin = ref<{ id: string; name: string; sending: Sending; live: boolean; text?: string; file?: HandedFile; reference?: string } | null>(null);
+
+// Android's back button closes what is open on top, and only that (2026-09-28).
+closeOnBackWhile(() => emoji.value, () => (emoji.value = false));
+closeOnBackWhile(() => Boolean(acting.value), () => closeActions());
+closeOnBackWhile(() => showApps.value, () => (showApps.value = false));
+closeOnBackWhile(() => Boolean(plugin.value), () => (plugin.value = null));
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);

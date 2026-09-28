@@ -1,8 +1,17 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Phone-only permissions: the camera scanner for Contact Card QR codes (Plan §32)",
-  "windows": ["main"],
-  "platforms": ["android", "iOS"],
-  "permissions": ["barcode-scanner:default"]
+  "description": "Phone-only permissions: the camera scanner for Contact Card QR codes (Plan §32), and Android's back button, heard only while something is open on top (2026-09-28)",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "permissions": [
+    "barcode-scanner:default",
+    "core:app:allow-register-listener",
+    "core:app:allow-remove-listener"
+  ]
 }
