@@ -301,7 +301,9 @@
     "title": "Solicitudes",
     "hint": "Tienen tu enlace. No se descarga nada suyo ni pueden llamarte hasta que aceptes.",
     "accept": "Aceptar",
-    "decline": "Rechazar y bloquear"
+    "block": "Bloquear",
+    "inChat": "{name} no está en tus contactos",
+    "blockAsk": "¿Bloquear a {name}? No podrá escribirte ni llamarte."
   },
   "circle": {
     "title": "Círculo",

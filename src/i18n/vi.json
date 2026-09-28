@@ -301,7 +301,9 @@
     "title": "Requests",
     "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
     "accept": "Accept",
-    "decline": "Decline and block"
+    "block": "Chặn",
+    "inChat": "{name} không có trong danh bạ của bạn",
+    "blockAsk": "Chặn {name}? Người này sẽ không thể nhắn tin hay gọi cho bạn."
   },
   "circle": {
     "title": "Circle",

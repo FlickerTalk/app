@@ -301,7 +301,9 @@
     "title": "Richieste",
     "hint": "Hanno il tuo link. Nulla di loro viene scaricato e non possono chiamare finché non accetti.",
     "accept": "Accetta",
-    "decline": "Rifiuta e blocca"
+    "block": "Blocca",
+    "inChat": "{name} non è tra i tuoi contatti",
+    "blockAsk": "Bloccare {name}? Non potrà più scriverti né chiamarti."
   },
   "circle": {
     "title": "Cerchio",

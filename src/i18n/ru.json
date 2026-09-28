@@ -301,7 +301,9 @@
     "title": "Requests",
     "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
     "accept": "Accept",
-    "decline": "Decline and block"
+    "block": "Заблокировать",
+    "inChat": "{name} нет в ваших контактах",
+    "blockAsk": "Заблокировать {name}? Этот человек не сможет вам писать и звонить."
   },
   "circle": {
     "title": "Circle",

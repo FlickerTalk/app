@@ -301,7 +301,9 @@
     "title": "Demandes",
     "hint": "Ils ont votre lien. Rien de leur part n'est téléchargé et ils ne peuvent pas appeler tant que vous n'acceptez pas.",
     "accept": "Accepter",
-    "decline": "Refuser et bloquer"
+    "block": "Bloquer",
+    "inChat": "{name} ne fait pas partie de vos contacts",
+    "blockAsk": "Bloquer {name} ? Cette personne ne pourra plus vous écrire ni vous appeler."
   },
   "circle": {
     "title": "Cercle",

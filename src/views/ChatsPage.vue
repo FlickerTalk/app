@@ -12,7 +12,6 @@ import {
 } from "@ionic/vue";
 import {
   attachOutline,
-  banOutline,
   checkmark,
   checkmarkDone,
   checkmarkOutline,
@@ -29,7 +28,7 @@ import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
 import CircleThread from "../components/CircleThread.vue";
-import { acceptContact, closeSession, declineContact, removeSession, store, type Chat, type Circle, type Session } from "../core";
+import { closeSession, removeSession, store, type Chat, type Circle, type Session } from "../core";
 
 const router = useRouter();
 
@@ -141,7 +140,7 @@ const STATUS_ICON: Record<string, string> = {
             </button>
           </div>
 
-          <!-- A5: the requests come first, apart from the list, with a yes and a no on each. -->
+          <!-- A5: the requests come first, apart from the list; the yes and the no are in the conversation (2026-09-28). -->
           <section v-if="store.requests.length" class="ft-requests" data-test="requests">
             <h2 class="ft-requests__title">{{ $t("requests.title") }}</h2>
             <p class="ft-requests__hint">{{ $t("requests.hint") }}</p>
@@ -158,12 +157,6 @@ const STATUS_ICON: Record<string, string> = {
                       <span class="ft-row__preview">{{ chat.preview }}</span>
                     </span>
                   </span>
-                </button>
-                <button type="button" class="ft-row__more ft-row__yes" data-test="request-accept" :aria-label="$t('requests.accept')" @click="acceptContact(chat.id)">
-                  <ion-icon :icon="checkmarkOutline" aria-hidden="true" />
-                </button>
-                <button type="button" class="ft-row__more ft-row__no" data-test="request-decline" :aria-label="$t('requests.decline')" @click="declineContact(chat.id)">
-                  <ion-icon :icon="banOutline" aria-hidden="true" />
                 </button>
               </li>
             </ul>
@@ -348,12 +341,6 @@ const STATUS_ICON: Record<string, string> = {
                       </span>
                       <span class="ft-row__line"><span class="ft-row__preview">{{ chat.preview }}</span></span>
                     </span>
-                  </button>
-                  <button type="button" class="ft-row__more ft-row__yes" data-test="request-accept" :aria-label="$t('requests.accept')" @click="acceptContact(chat.id)">
-                    <ion-icon :icon="checkmarkOutline" aria-hidden="true" />
-                  </button>
-                  <button type="button" class="ft-row__more ft-row__no" data-test="request-decline" :aria-label="$t('requests.decline')" @click="declineContact(chat.id)">
-                    <ion-icon :icon="banOutline" aria-hidden="true" />
                   </button>
                 </li>
               </ul>
@@ -613,12 +600,6 @@ const STATUS_ICON: Record<string, string> = {
   font-size: 12px;
   color: var(--ft-muted);
   line-height: 1.35;
-}
-.ft-row__yes {
-  color: var(--ft-accent);
-}
-.ft-row__no {
-  color: var(--ion-color-danger);
 }
 .ft-session__action--danger {
   color: var(--ion-color-danger);

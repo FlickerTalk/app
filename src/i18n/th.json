@@ -301,7 +301,9 @@
     "title": "Requests",
     "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
     "accept": "Accept",
-    "decline": "Decline and block"
+    "block": "บล็อก",
+    "inChat": "{name} ไม่ได้อยู่ในรายชื่อติดต่อของคุณ",
+    "blockAsk": "บล็อก {name} ไหม? เขาจะส่งข้อความหรือโทรหาคุณไม่ได้"
   },
   "circle": {
     "title": "Circle",

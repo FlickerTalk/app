@@ -301,7 +301,9 @@
     "title": "Pedidos",
     "hint": "Têm o teu link. Nada deles é transferido e não podem ligar até aceitares.",
     "accept": "Aceitar",
-    "decline": "Recusar e bloquear"
+    "block": "Bloquear",
+    "inChat": "{name} não está nos seus contatos",
+    "blockAsk": "Bloquear {name}? Não poderá mais escrever nem ligar para você."
   },
   "circle": {
     "title": "Círculo",

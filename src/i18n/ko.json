@@ -301,7 +301,9 @@
     "title": "Requests",
     "hint": "They have your link. Nothing of theirs is downloaded and they cannot call until you accept.",
     "accept": "Accept",
-    "decline": "Decline and block"
+    "block": "차단",
+    "inChat": "{name}님은 연락처에 없습니다",
+    "blockAsk": "{name}님을 차단할까요? 메시지를 보내거나 전화할 수 없게 됩니다."
   },
   "circle": {
     "title": "Circle",
