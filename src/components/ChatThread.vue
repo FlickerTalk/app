@@ -17,6 +17,8 @@ import {
   add,
   appsOutline,
   arrowUp,
+  banOutline,
+  checkmarkOutline,
   callOutline,
   contractOutline,
   expandOutline,
@@ -40,6 +42,7 @@ import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import { installed, openersOf, refreshPlugins, viewerOf, type HandedFile } from "../plugins";
 import {
+  acceptContact,
   acceptFile,
   chat as chatOf,
   forgetMessage,
@@ -56,6 +59,7 @@ import {
   sendPicked,
   sendText,
   shareMessage,
+  declineContact,
   store,
   type ChatMessage,
   type PickedFile,
@@ -70,6 +74,28 @@ const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>()
 
 const chat = computed(() => chatOf(props.chatId));
 const messages = computed(() => chat.value?.messages ?? []);
+
+/**
+ * A5, as WhatsApp does it (2026-09-28): a stranger who wrote first is answered here, where the yes
+ * and the no stand apart and blocking asks once, never from the list, where a small screen made
+ * the no easy to hit by mistake. Until then, no composer and no call.
+ */
+const isRequest = computed(
+  () =>
+    store.requests.some((one) => one.id === props.chatId) ||
+    store.sessions.some((session) => session.requests.some((one) => one.id === props.chatId)),
+);
+const asksToBlock = ref(false);
+
+async function acceptRequest() {
+  await acceptContact(props.chatId);
+}
+
+async function blockRequest() {
+  asksToBlock.value = false;
+  await declineContact(props.chatId);
+  await router.push("/tabs/chats");
+}
 const draft = ref("");
 const router = useRouter();
 
@@ -415,7 +441,7 @@ watch(
             </span>
           </span>
         </button>
-        <ion-buttons slot="end">
+        <ion-buttons v-if="!isRequest" slot="end">
           <ion-button :aria-label="$t('chat.voiceCall')" @click="router.push(`/call/${chat.id}`)">
             <ion-icon slot="icon-only" :icon="callOutline" aria-hidden="true" />
           </ion-button>
@@ -551,7 +577,32 @@ watch(
       </div>
     </div>
 
-    <ion-footer class="ion-no-border">
+    <ion-footer v-if="isRequest" class="ion-no-border">
+      <div class="ft-request" data-test="request-panel">
+        <p class="ft-request__text">{{ $t("requests.inChat", { name: chat.name }) }}</p>
+        <p class="ft-request__hint">{{ $t("requests.hint") }}</p>
+        <div v-if="!asksToBlock" class="ft-request__actions">
+          <button type="button" class="ft-request__no" data-test="request-decline" @click="asksToBlock = true">
+            <ion-icon :icon="banOutline" aria-hidden="true" /> {{ $t("requests.block") }}
+          </button>
+          <button type="button" class="ft-request__yes" data-test="request-accept" @click="acceptRequest">
+            <ion-icon :icon="checkmarkOutline" aria-hidden="true" /> {{ $t("requests.accept") }}
+          </button>
+        </div>
+        <div v-else class="ft-request__ask" data-test="request-decline-ask">
+          <p class="ft-request__text">{{ $t("requests.blockAsk", { name: chat.name }) }}</p>
+          <div class="ft-request__actions">
+            <button type="button" class="ft-request__cancel" data-test="request-decline-cancel" @click="asksToBlock = false">
+              {{ $t("common.cancel") }}
+            </button>
+            <button type="button" class="ft-request__no is-sure" data-test="request-decline-confirm" @click="blockRequest">
+              <ion-icon :icon="banOutline" aria-hidden="true" /> {{ $t("requests.block") }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </ion-footer>
+    <ion-footer v-else class="ion-no-border">
       <p v-if="voiceError" class="ft-composer__error" role="alert">{{ voiceError }}</p>
       <!-- A2: what a plugin made, waiting for the user to send it or throw it away. -->
       <div v-if="staged" class="ft-staged" data-test="staged">
@@ -913,6 +964,60 @@ watch(
   color: var(--ion-color-danger);
   font-size: 13px;
   text-align: center;
+}
+/* A5 (2026-09-28): the answer to a stranger, where the composer would be; big, apart targets. */
+.ft-request {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  text-align: center;
+}
+.ft-request__text {
+  margin: 0;
+  font-weight: 600;
+}
+.ft-request__hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ft-muted);
+}
+.ft-request__actions {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin-top: 6px;
+}
+.ft-request__yes,
+.ft-request__no,
+.ft-request__cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 120px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.ft-request__yes {
+  border: 0;
+  color: var(--ft-on-accent);
+  background: var(--ft-accent);
+}
+.ft-request__no,
+.ft-request__cancel {
+  border: 1px solid var(--ft-border);
+  color: var(--ft-text);
+  background: transparent;
+}
+.ft-request__no.is-sure {
+  border-color: var(--ion-color-danger);
+  color: #fff;
+  background: var(--ion-color-danger);
 }
 .ft-staged {
   display: flex;

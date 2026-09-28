@@ -5,7 +5,7 @@ import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
-import { chat } from "../core";
+import { chat, store } from "../core";
 import { refreshPlugins } from "../plugins";
 
 const push = vi.fn();
@@ -451,6 +451,56 @@ describe("ChatThread", () => {
     await tapped(wrapper, "m4");
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
     expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+  });
+
+  // A5, as WhatsApp does it (2026-09-28): a stranger who wrote first is answered from the
+  // conversation, where the yes and the no stand apart and blocking asks once; not from the list.
+  describe("with someone who wrote first", () => {
+    beforeEach(() => {
+      store.requests = [{ ...store.chats[1], id: "ft_stranger", name: "Mamá", unread: 1, preview: "hi" }];
+    });
+
+    it("shows who it is instead of the composer, and no way to call yet", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      const panel = wrapper.find("[data-test='request-panel']");
+      expect(panel.exists()).toBe(true);
+      expect(panel.text()).toContain("Mamá");
+      expect(wrapper.findComponent(IonTextarea).exists()).toBe(false);
+      expect(wrapper.find(`[aria-label='Voice call']`).exists()).toBe(false);
+      expect(wrapper.find(`[aria-label='Video call']`).exists()).toBe(false);
+    });
+
+    it("blocks only after asking once", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      await wrapper.find("[data-test='request-decline']").trigger("click");
+      expect(calls.some(([command]) => command === "core_decline_contact")).toBe(false);
+      expect(wrapper.find("[data-test='request-decline-ask']").text()).toContain("Mamá");
+      await wrapper.find("[data-test='request-decline-cancel']").trigger("click");
+      expect(wrapper.find("[data-test='request-decline-ask']").exists()).toBe(false);
+
+      await wrapper.find("[data-test='request-decline']").trigger("click");
+      await wrapper.find("[data-test='request-decline-confirm']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_decline_contact", { contact: "ft_stranger" }]);
+      expect(push).toHaveBeenCalledWith("/tabs/chats");
+    });
+
+    it("accepts, and then the conversation is like any other", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      const stranger = { ...store.requests[0] };
+      await wrapper.find("[data-test='request-accept']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_accept_contact", { contact: "ft_stranger" }]);
+      // The core now lists it among the contacts, not the requests.
+      store.chats.push(stranger);
+      store.requests = [];
+      await flushPromises();
+      expect(wrapper.find("[data-test='request-panel']").exists()).toBe(false);
+      expect(wrapper.findComponent(IonTextarea).exists()).toBe(true);
+    });
   });
 
   // Found on the phones (2026-09-28): back with a plugin open left the chat, or the whole app on

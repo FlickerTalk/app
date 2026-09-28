@@ -301,7 +301,9 @@
     "title": "Anfragen",
     "hint": "Sie haben deinen Link. Nichts von ihnen wird geladen und sie können nicht anrufen, bis du annimmst.",
     "accept": "Annehmen",
-    "decline": "Ablehnen und blockieren"
+    "block": "Blockieren",
+    "inChat": "{name} ist nicht in deinen Kontakten",
+    "blockAsk": "{name} blockieren? Diese Person kann dir dann weder schreiben noch dich anrufen."
   },
   "circle": {
     "title": "Kreis",
