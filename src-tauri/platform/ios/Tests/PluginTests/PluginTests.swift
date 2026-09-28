@@ -140,12 +140,36 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertEqual(pushTarget(gateway: "production", bundle: "com.flickertalk.app", token: token, voip: nil), "production:com.flickertalk.app:0a0b")
     }
 
-    // On the screen the app rings itself; in the background CallKit does, once per call.
-    func testCallKitRingsOnlyWhenTheAppIsNotOnTheScreen() {
-        XCTAssertEqual(ringWith(appActive: true, callKitCall: false), .app)
-        XCTAssertEqual(ringWith(appActive: false, callKitCall: false), .report)
-        XCTAssertEqual(ringWith(appActive: false, callKitCall: true), .update, "PushKit already reported it: say who it is")
-        XCTAssertEqual(ringWith(appActive: true, callKitCall: true), .update)
+    // Every incoming call rings through CallKit, also with the app on the screen (2026-09-28):
+    // answered in the app or on the lock screen, it takes the same path (CallKit's answer, then
+    // the system activates the audio session), as Signal and react-native-callkeep do.
+    func testCallKitRingsEveryIncomingCallOncePerCall() {
+        XCTAssertEqual(ringWith(callKitCall: false), .report)
+        XCTAssertEqual(ringWith(callKitCall: true), .update, "PushKit already reported it: say who it is")
+    }
+
+    // The app's own answer button asks CallKit to answer, so the audio session comes the same way.
+    func testTheAppsAnswerGoesThroughCallKit() {
+        XCTAssertTrue(answerThroughCallKit(callKitCall: true, answered: false, outgoing: false))
+        XCTAssertFalse(answerThroughCallKit(callKitCall: false, answered: false, outgoing: false), "no CallKit call: the core answers")
+        XCTAssertFalse(answerThroughCallKit(callKitCall: true, answered: true, outgoing: false), "already answered")
+        XCTAssertFalse(answerThroughCallKit(callKitCall: true, answered: false, outgoing: true))
+    }
+
+    // Speaker or receiver (2026-09-28): `.playAndRecord` with `.voiceChat` plays on the receiver,
+    // which a user holding the phone in front of them barely hears. The user chooses.
+    func testTheSpeakerIsAnOverrideOfTheOutput() {
+        XCTAssertEqual(outputOverride(speaker: true), .speaker)
+        XCTAssertEqual(outputOverride(speaker: false), AVAudioSession.PortOverride.none)
+    }
+
+    // An interruption that ends with "should resume" and no new `didActivate` from CallKit: the
+    // voice is started again (Signal's CallAudioService does the same).
+    func testTheVoiceComesBackAfterAnInterruption() {
+        XCTAssertTrue(restartAfterInterruption(shouldResume: true, reactivated: false, callLive: true))
+        XCTAssertFalse(restartAfterInterruption(shouldResume: true, reactivated: true, callLive: true), "CallKit gave it back")
+        XCTAssertFalse(restartAfterInterruption(shouldResume: false, reactivated: false, callLive: true))
+        XCTAssertFalse(restartAfterInterruption(shouldResume: true, reactivated: false, callLive: false))
     }
 
     // A push that is not ours is not a call, and ours only when it says so.
@@ -233,8 +257,9 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertEqual(json(.end), ["event": "end"])
         XCTAssertEqual(json(.mute(true)), ["event": "mute", "muted": true])
         XCTAssertEqual(json(.mute(false)), ["event": "mute", "muted": false])
-        XCTAssertEqual(json(.audioActivated), ["event": "audioActivated"])
-        XCTAssertEqual(json(.audioDeactivated), ["event": "audioDeactivated"])
+        // With the CallKit call's generation: a late event of an older call is told apart.
+        XCTAssertEqual(json(.audioActivated(3)), ["event": "audioActivated", "generation": 3])
+        XCTAssertEqual(json(.audioDeactivated(2)), ["event": "audioDeactivated", "generation": 2])
         XCTAssertTrue(JSONSerialization.isValidJSONObject(callEventPayload(.mute(true)).mapValues { $0 ?? NSNull() }))
     }
 
@@ -244,12 +269,12 @@ final class PlatformPluginTests: XCTestCase {
         let queue = CallEventQueue()
         var heard: [CallEvent] = []
         queue.emit(.answer)
-        queue.emit(.audioActivated)
+        queue.emit(.audioActivated(1))
         XCTAssertEqual(heard, [])
         queue.register { heard.append($0) }
-        XCTAssertEqual(heard, [.answer, .audioActivated])
+        XCTAssertEqual(heard, [.answer, .audioActivated(1)])
         queue.emit(.mute(true))
-        XCTAssertEqual(heard, [.answer, .audioActivated, .mute(true)])
+        XCTAssertEqual(heard, [.answer, .audioActivated(1), .mute(true)])
     }
 
     // A new listener (the core started again) replaces the old one and gets no repeats.
@@ -290,19 +315,68 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertFalse(stopEndsCall(answered: false, outgoing: true), "this phone's own call is not a ringing one")
     }
 
-    // An outgoing call shows as connected; a call answered in the app's own screen (it rang
-    // there, CallKit never heard of it) joins CallKit, which gives it the audio session.
-    func testConnectingReportsOrJoinsCallKit() {
-        XCTAssertEqual(connectWith(callKitCall: true, outgoing: true), .reportConnected)
-        XCTAssertEqual(connectWith(callKitCall: false, outgoing: false), .join)
-        XCTAssertEqual(connectWith(callKitCall: false, outgoing: true), .join)
-        XCTAssertEqual(connectWith(callKitCall: true, outgoing: false), .nothing, "answered in CallKit: already live")
+    // An outgoing call shows as connected; an incoming one was answered in CallKit, and is live.
+    func testConnectingReportsAnOutgoingCall() {
+        XCTAssertEqual(connectWith(outgoing: true), .reportConnected)
+        XCTAssertEqual(connectWith(outgoing: false), .nothing)
     }
 
     // Recents and the lock screen say what happened: a call nobody picked up is unanswered.
     func testAnEndedCallSaysWhy() {
         XCTAssertEqual(endReason(live: true), .remoteEnded)
         XCTAssertEqual(endReason(live: false), .unanswered)
+    }
+
+    // Bug of 2026-09-28: a suspended iPhone rang through PushKit, but its socket to the router was
+    // dead and nothing told the core: the offer and the caller's end never came. The push tells it
+    // now; a new call forgets what an old one left, never the push that announces it.
+    func testACallPushTellsTheCoreToReconnect() {
+        XCTAssertEqual(json(.incoming), ["event": "incoming"])
+        let queue = CallEventQueue()
+        var heard: [CallEvent] = []
+        queue.emit(.end)
+        queue.forget()
+        queue.emit(.incoming)
+        queue.register { heard.append($0) }
+        XCTAssertEqual(heard, [.incoming])
+    }
+
+    // CallKit must not ring for ever (2026-09-28): a call nobody answers ends as unanswered, and an
+    // answered one whose voice never connects ends as failed. This phone's own call is the core's.
+    func testACallKitCallThatGoesNowhereEndsItself() {
+        XCTAssertEqual(callRingLimit, 45, "as the caller's limit and the push's life")
+        XCTAssertEqual(callConnectLimit, 30)
+        XCTAssertNil(callOverdue(outgoing: false, answered: false, connected: false, ringingFor: 44, answeredFor: nil))
+        XCTAssertEqual(callOverdue(outgoing: false, answered: false, connected: false, ringingFor: 46, answeredFor: nil), .unanswered)
+        XCTAssertNil(callOverdue(outgoing: false, answered: true, connected: false, ringingFor: 90, answeredFor: 29))
+        XCTAssertEqual(callOverdue(outgoing: false, answered: true, connected: false, ringingFor: 90, answeredFor: 31), .failed)
+        XCTAssertNil(callOverdue(outgoing: false, answered: true, connected: true, ringingFor: 900, answeredFor: 600))
+        XCTAssertNil(callOverdue(outgoing: true, answered: false, connected: false, ringingFor: 600, answeredFor: nil))
+    }
+
+    // The caller's end reaches the core, which stops the ringing and ends the call: a CallKit call
+    // that still rings lets go at the first of the two.
+    func testTheCallersEndLetsARingingCallKitCallGo() {
+        XCTAssertTrue(stopEndsCall(answered: false, outgoing: false))
+        XCTAssertEqual(endReason(live: false), .unanswered)
+    }
+
+    // iOS 18.4.1 and later (Apple DTS, developer forums thread 783870): the configuration is set
+    // again right before every call is reported or started, or `didActivate` may never come.
+    func testTheProviderConfigurationIsOneCallAtATime() {
+        let configuration = callProviderConfiguration()
+        XCTAssertTrue(configuration.supportsVideo)
+        XCTAssertEqual(configuration.maximumCallsPerCallGroup, 1)
+        XCTAssertEqual(configuration.maximumCallGroups, 1)
+        XCTAssertEqual(configuration.supportedHandleTypes, [.generic])
+        XCTAssertFalse(configuration.includesCallsInRecents)
+    }
+
+    // Temporary diagnostics (2026-09-28): the audio session is described by state and port types
+    // only, never by a device's name.
+    func testTheAudioSessionIsDescribedWithoutNames() {
+        let summary = audioSessionSummary(category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeVoiceChat", outputs: ["Receiver"], inputs: ["MicrophoneBuiltIn"])
+        XCTAssertEqual(summary, "category=AVAudioSessionCategoryPlayAndRecord mode=AVAudioSessionModeVoiceChat out=Receiver in=MicrophoneBuiltIn")
     }
 
     // The call's audio: Bluetooth headsets work, both hands-free and high quality output.
