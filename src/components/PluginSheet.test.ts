@@ -275,6 +275,16 @@ describe("PluginSheet", () => {
     expect(wrapper.emitted("attach")).toEqual([[down]]);
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_send_picked", expect.anything());
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d6", answer: true }, "*");
+
+    // The recovery phrase is typed only in Settings (2026-09-28): a plugin can neither set the
+    // drive up nor open it, so the phrase never crosses the frame.
+    says({ type: "ft.drive", id: "d7", op: "setup" });
+    says({ type: "ft.drive", id: "d8", op: "unlock", a: "a long phrase of mine" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d7", answer: false }, "*");
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d8", answer: false }, "*");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_vault_setup", expect.anything());
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_vault_unlock", expect.anything());
   });
 
   // With nothing granted, nothing leaves: not a file, not a text, not even a call to the core.

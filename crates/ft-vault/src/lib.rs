@@ -5,13 +5,14 @@
 //!
 //! ```text
 //! vault.json    the format version and the drive's random id, in clear (no data in it)
-//! key.ftv       the vault key, sealed with the recovery code
+//! key.ftv       the vault key, sealed with what the recovery phrase gives (`recovery`)
 //! index.ftv     folders, files, the backup: sealed
 //! blob-<id>     a file or the database, sealed, one key each
 //! ```
 //!
-//! The vault key is made on the phone and kept sealed there; the recovery code is shown once. A
-//! new phone with the same cloud and the code opens the drive and brings the backup down.
+//! The vault key is made on the phone and kept sealed there; the recovery phrase is the user's
+//! and is kept nowhere (2026-09-28). A new phone with the same cloud and the phrase opens the
+//! drive and brings the backup down.
 
 pub mod cipher;
 pub mod google;
@@ -38,8 +39,9 @@ const INDEX_FILE: &str = "index.ftv";
 const BLOB_PREFIX: &str = "blob-";
 const QUEUE_FILE: &str = "queue.json";
 const OUTGOING_DIR: &str = "outgoing";
-/// The format of what is in the cloud, for the day it changes.
-pub const FORMAT_VERSION: u32 = 1;
+/// The format of what is in the cloud, for the day it changes. 2 (2026-09-28): the key is sealed
+/// with a phrase the user chose; a drive of 1 (a generated code) is made again.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// What `vault.json` says: nothing that means anything to anyone but the app.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,18 +119,28 @@ impl Vault {
         Ok(provider.read(VAULT_FILE).await?.is_some())
     }
 
-    /// Makes a new drive in an empty cloud. Returns it and the recovery code, to show once.
-    pub async fn create(provider: Arc<dyn Provider>, dir: PathBuf, writer: &str) -> Result<(Self, String)> {
-        ensure!(!Self::exists(provider.as_ref()).await?, "this cloud already has a drive");
+    /// Whether the drive in this cloud is of the first version, which is made again, not opened.
+    pub async fn outdated(provider: &dyn Provider) -> Result<bool> {
+        let Some(bytes) = provider.read(VAULT_FILE).await? else { return Ok(false) };
+        let file: VaultFile = serde_json::from_slice(&bytes).context("vault.json is not ours")?;
+        let key = provider.read(KEY_FILE).await?;
+        Ok(file.version < FORMAT_VERSION || !key.is_some_and(|key| recovery::is_current(&key)))
+    }
+
+    /// Makes a new drive in a cloud with none (or with one of the first version, which it
+    /// replaces), its key sealed with the user's phrase.
+    pub async fn create(provider: Arc<dyn Provider>, dir: PathBuf, writer: &str, phrase: &str) -> Result<Self> {
+        ensure!(!Self::exists(provider.as_ref()).await? || Self::outdated(provider.as_ref()).await?, "this cloud already has a drive");
         let key: [u8; 32] = rand::random();
-        let code = recovery::new_code();
+        let sealed = seal_key(phrase, key).await?;
         let id = index::new_id();
         let file = VaultFile { format: "ftvault".to_owned(), version: FORMAT_VERSION, id: id.clone() };
+        let _ = provider.remove(INDEX_FILE).await;
+        provider.write(KEY_FILE, sealed).await?;
         provider.write(VAULT_FILE, serde_json::to_vec(&file)?).await?;
-        provider.write(KEY_FILE, cipher::seal(&recovery::wrap_key(&code)?, "key", &key)?).await?;
         let vault = Self::assemble(provider, dir, writer, key, id, Index::new(writer)).await?;
         vault.write_index(&mut *vault.index.lock().await).await?;
-        Ok((vault, code))
+        Ok(vault)
     }
 
     /// Opens the drive this phone already has the key of.
@@ -141,15 +153,20 @@ impl Vault {
         Ok(vault)
     }
 
-    /// Opens the drive on a new phone: the cloud and the recovery code are all it has.
-    pub async fn recover(provider: Arc<dyn Provider>, dir: PathBuf, writer: &str, code: &str) -> Result<Self> {
-        let wrap = recovery::wrap_key(code)?;
+    /// Opens the drive on a new phone: the cloud and the recovery phrase are all it has. A
+    /// phrase that is not the one fails with `recovery::WrongPhrase`.
+    pub async fn recover(provider: Arc<dyn Provider>, dir: PathBuf, writer: &str, phrase: &str) -> Result<Self> {
+        recovery::normalize(phrase)?;
         let Some(sealed) = provider.read(KEY_FILE).await? else { bail!("this cloud has no drive to recover") };
-        let key: [u8; 32] = cipher::open(&wrap, "key", &sealed)
-            .map_err(|_| anyhow::anyhow!("that is not the recovery code of this drive"))?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("the drive's key is corrupt"))?;
+        let phrase = phrase.to_owned();
+        let key = tokio::task::spawn_blocking(move || recovery::open_key(&phrase, &sealed)).await??;
         Self::open(provider, dir, writer, key).await
+    }
+
+    /// Seals the drive's key again with a new phrase: the old one no longer opens it.
+    pub async fn change_phrase(&self, phrase: &str) -> Result<()> {
+        let sealed = seal_key(phrase, self.key).await?;
+        self.provider.write(KEY_FILE, sealed).await
     }
 
     async fn vault_file(provider: &dyn Provider) -> Result<VaultFile> {
@@ -157,6 +174,9 @@ impl Vault {
         let file: VaultFile = serde_json::from_slice(&bytes).context("vault.json is not ours")?;
         ensure!(file.format == "ftvault", "vault.json is not ours");
         ensure!(file.version <= FORMAT_VERSION, "the drive was made by a newer app");
+        if file.version < FORMAT_VERSION {
+            bail!(recovery::OldDrive);
+        }
         Ok(file)
     }
 
@@ -441,6 +461,13 @@ impl Vault {
         }
         Ok(removed)
     }
+}
+
+/// `key.ftv` for this key and phrase; the stretching is slow, so it runs off the async threads.
+async fn seal_key(phrase: &str, key: [u8; 32]) -> Result<Vec<u8>> {
+    recovery::normalize(phrase)?;
+    let phrase = phrase.to_owned();
+    tokio::task::spawn_blocking(move || recovery::seal_key(&phrase, &key)).await?
 }
 
 /// Seals a file of the phone into `sealed`; returns the plaintext size.

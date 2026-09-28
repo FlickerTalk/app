@@ -1,9 +1,13 @@
 //! The drive end to end, against the cloud in memory (plan-drive §6): make it, fill it, come
-//! back to it from a new phone with the recovery code, lose the network, back the phone up and
+//! back to it from a new phone with the recovery phrase, lose the network, back the phone up and
 //! bring the backup down.
 
 use std::path::{Path, PathBuf};
-use ft_vault::{quiet, Memory, Provider, Quota, Vault};
+use ft_vault::recovery::{OldDrive, WrongPhrase};
+use ft_vault::{cipher, quiet, Memory, Provider, Quota, Vault};
+
+/// The phrase the user chose (plan-recuperacion, 2026-09-28).
+const PHRASE: &str = "a long phrase of mine";
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ft-vault-{name}-{}", ft_vault::index::new_id()));
@@ -22,9 +26,9 @@ fn file(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
 async fn a_drive_is_made_filled_and_read_back_and_the_cloud_sees_nothing_of_it() {
     let cloud = Memory::new();
     let home = scratch("home");
-    let (vault, code) = Vault::create(cloud.clone(), home.join("vault"), "phone-a").await.unwrap();
+    let vault = Vault::create(cloud.clone(), home.join("vault"), "phone-a", PHRASE).await.unwrap();
     assert!(Vault::exists(cloud.as_ref()).await.unwrap());
-    assert!(Vault::create(cloud.clone(), home.join("again"), "phone-a").await.is_err(), "one drive per cloud");
+    assert!(Vault::create(cloud.clone(), home.join("again"), "phone-a", PHRASE).await.is_err(), "one drive per cloud");
 
     let docs = vault.mkdir("Docs", None).await.unwrap();
     let big: Vec<u8> = (0..3_000_000u32).map(|at| (at % 253) as u8).collect();
@@ -82,7 +86,6 @@ async fn a_drive_is_made_filled_and_read_back_and_the_cloud_sees_nothing_of_it()
     vault.remove(&tax_id).await.unwrap();
     assert!(!cloud.names().contains(&blob));
     assert_eq!(cloud.names().iter().filter(|name| name.starts_with("blob-")).count(), 1);
-    let _ = code;
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -90,18 +93,19 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 }
 
 #[tokio::test]
-async fn a_new_phone_opens_the_drive_with_the_recovery_code_and_only_with_it() {
+async fn a_new_phone_opens_the_drive_with_the_recovery_phrase_and_only_with_it() {
     let cloud = Memory::new();
     let old = scratch("old");
-    let (vault, code) = Vault::create(cloud.clone(), old.join("vault"), "phone-a").await.unwrap();
+    let vault = Vault::create(cloud.clone(), old.join("vault"), "phone-a", PHRASE).await.unwrap();
     let note = file(&old, "note.txt", b"remember this");
     let id = vault.upload(&note, "note.txt", "text/plain", None, quiet()).await.unwrap().unwrap();
 
     let new = scratch("new");
-    assert!(Vault::recover(cloud.clone(), new.join("vault"), "phone-b", "ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567").await.is_err(), "a wrong code");
-    assert!(Vault::recover(cloud.clone(), new.join("vault"), "phone-b", "nonsense").await.is_err());
-    let typed = code.to_lowercase().replace('-', " ");
-    let recovered = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", &typed).await.unwrap();
+    let wrong = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", "A long phrase of mine").await.err().expect("a wrong phrase");
+    assert!(wrong.downcast_ref::<WrongPhrase>().is_some(), "{wrong}");
+    let short = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", "nonsense").await.err().expect("not a phrase");
+    assert!(short.downcast_ref::<WrongPhrase>().is_none(), "too short is not a try");
+    let recovered = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", "  a long phrase of mine ").await.unwrap();
     assert_eq!(recovered.id(), vault.id());
     assert_eq!(recovered.key(), vault.key());
     let listing = recovered.list(None).await.unwrap();
@@ -110,18 +114,62 @@ async fn a_new_phone_opens_the_drive_with_the_recovery_code_and_only_with_it() {
     recovered.download(&id, &down, quiet()).await.unwrap();
     assert_eq!(std::fs::read(down).unwrap(), b"remember this");
 
-    // The phone that has the key opens it without the code; an empty cloud is not a drive.
+    // Nothing of the phrase is in the cloud.
+    assert!(!contains(&cloud.read("key.ftv").await.unwrap().unwrap(), PHRASE.as_bytes()));
+
+    // The phone that has the key opens it without the phrase; an empty cloud is not a drive.
     let reopened = Vault::open(cloud.clone(), old.join("vault"), "phone-a", vault.key()).await.unwrap();
     assert_eq!(reopened.list(None).await.unwrap().files.len(), 1);
     assert!(Vault::open(Memory::new(), old.join("x"), "phone-a", vault.key()).await.is_err());
-    assert!(Vault::recover(Memory::new(), old.join("x"), "phone-a", &code).await.is_err());
+    assert!(Vault::recover(Memory::new(), old.join("x"), "phone-a", PHRASE).await.is_err());
+}
+
+// "I lost the note": the phone that has the drive open seals its key again with a new phrase.
+#[tokio::test]
+async fn the_phrase_is_changed_from_the_phone_that_has_the_drive_open() {
+    let cloud = Memory::new();
+    let home = scratch("change");
+    let vault = Vault::create(cloud.clone(), home.join("vault"), "phone-a", PHRASE).await.unwrap();
+    let note = file(&home, "note.txt", b"still here");
+    let id = vault.upload(&note, "note.txt", "text/plain", None, quiet()).await.unwrap().unwrap();
+    assert!(vault.change_phrase("short").await.is_err());
+    vault.change_phrase("another phrase, a new one").await.unwrap();
+
+    let new = scratch("change-new");
+    let old_one = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", PHRASE).await.err().expect("the old phrase no longer opens it");
+    assert!(old_one.downcast_ref::<WrongPhrase>().is_some());
+    let recovered = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", "another phrase, a new one").await.unwrap();
+    assert_eq!(recovered.key(), vault.key(), "the same drive, the same key");
+    assert_eq!(recovered.file(&id).await.unwrap().name, "note.txt");
+}
+
+// A drive of the first version (a generated code, never published): made again, never opened.
+#[tokio::test]
+async fn a_drive_of_the_first_version_is_made_again() {
+    let cloud = Memory::new();
+    let home = scratch("first");
+    cloud.write("vault.json", br#"{"format":"ftvault","version":1,"id":"old"}"#.to_vec()).await.unwrap();
+    cloud.write("key.ftv", cipher::seal(&[9; 32], "key", &[1; 32]).unwrap()).await.unwrap();
+    cloud.write("blob-old", b"sealed with the old key".to_vec()).await.unwrap();
+    assert!(Vault::exists(cloud.as_ref()).await.unwrap());
+    assert!(Vault::outdated(cloud.as_ref()).await.unwrap());
+
+    let refused = Vault::recover(cloud.clone(), home.join("r"), "phone-b", PHRASE).await.err().expect("not opened");
+    assert!(refused.downcast_ref::<OldDrive>().is_some(), "{refused}");
+    assert!(Vault::open(cloud.clone(), home.join("o"), "phone-a", [9; 32]).await.is_err(), "the phone that made it cannot open it either");
+
+    let vault = Vault::create(cloud.clone(), home.join("vault"), "phone-a", PHRASE).await.unwrap();
+    assert!(!Vault::outdated(cloud.as_ref()).await.unwrap());
+    assert_ne!(vault.id(), "old");
+    assert_eq!(vault.collect_garbage().await.unwrap(), 1, "what the old drive left goes");
+    assert!(Vault::recover(cloud.clone(), home.join("again"), "phone-b", PHRASE).await.is_ok());
 }
 
 #[tokio::test]
 async fn two_phones_writing_the_same_drive_lose_nothing() {
     let cloud = Memory::new();
-    let (a, code) = Vault::create(cloud.clone(), scratch("a").join("vault"), "phone-a").await.unwrap();
-    let b = Vault::recover(cloud.clone(), scratch("b").join("vault"), "phone-b", &code).await.unwrap();
+    let a = Vault::create(cloud.clone(), scratch("a").join("vault"), "phone-a", PHRASE).await.unwrap();
+    let b = Vault::recover(cloud.clone(), scratch("b").join("vault"), "phone-b", PHRASE).await.unwrap();
     let home = scratch("files");
     let one = file(&home, "one.txt", b"1");
     let two = file(&home, "two.txt", b"2");
@@ -142,7 +190,7 @@ async fn two_phones_writing_the_same_drive_lose_nothing() {
 async fn an_upload_without_network_waits_on_the_phone_and_goes_when_it_can() {
     let cloud = Memory::new();
     let home = scratch("queue");
-    let (vault, _) = Vault::create(cloud.clone(), home.join("vault"), "phone-a").await.unwrap();
+    let vault = Vault::create(cloud.clone(), home.join("vault"), "phone-a", PHRASE).await.unwrap();
     let writes = cloud.writes();
     let note = file(&home, "note.txt", b"later");
     cloud.set_failing(true);
@@ -176,7 +224,7 @@ async fn an_upload_without_network_waits_on_the_phone_and_goes_when_it_can() {
 async fn the_phone_is_backed_up_and_a_new_one_brings_it_down() {
     let cloud = Memory::new();
     let old = scratch("backup-old");
-    let (vault, code) = Vault::create(cloud.clone(), old.join("vault"), "phone-a").await.unwrap();
+    let vault = Vault::create(cloud.clone(), old.join("vault"), "phone-a", PHRASE).await.unwrap();
     let db = file(&old, "snapshot.db", b"sqlite bytes of the whole history");
     let files = old.join("files");
     file(&files, "uploads/photo.jpg", b"a photo");
@@ -209,7 +257,7 @@ async fn the_phone_is_backed_up_and_a_new_one_brings_it_down() {
     assert_eq!(cloud.names().iter().filter(|name| name.starts_with("blob-")).count(), 4);
 
     let new = scratch("backup-new");
-    let recovered = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", &code).await.unwrap();
+    let recovered = Vault::recover(cloud.clone(), new.join("vault"), "phone-b", PHRASE).await.unwrap();
     let restored = recovered.restore(&new.join("move"), &new.join("files"), quiet()).await.unwrap();
     assert_eq!(restored.at, second.at);
     assert_eq!(std::fs::read(new.join("move").join("incoming.db")).unwrap(), b"sqlite bytes of the whole history");
@@ -220,7 +268,7 @@ async fn the_phone_is_backed_up_and_a_new_one_brings_it_down() {
     assert!(recovered.list(None).await.unwrap().files.is_empty(), "the backup is not in the drive's folders");
 
     // A drive with no backup says so; leftovers nothing names are collected.
-    let (empty, _) = Vault::create(Memory::new(), scratch("e").join("vault"), "x").await.unwrap();
+    let empty = Vault::create(Memory::new(), scratch("e").join("vault"), "x", PHRASE).await.unwrap();
     assert!(empty.restore(&new.join("m"), &new.join("f"), quiet()).await.is_err());
     cloud.write("blob-orphan", b"left behind".to_vec()).await.unwrap();
     assert_eq!(vault.collect_garbage().await.unwrap(), 1);

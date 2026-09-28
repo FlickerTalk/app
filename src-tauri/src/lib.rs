@@ -136,6 +136,8 @@ pub fn run() {
             client::core_vault_connect,
             client::core_vault_setup,
             client::core_vault_unlock,
+            client::core_vault_suggest_phrase,
+            client::core_vault_change_phrase,
             client::core_vault_disconnect,
             client::core_vault_set_client_id,
             client::core_vault_list,
