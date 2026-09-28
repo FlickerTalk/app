@@ -246,6 +246,31 @@ async fn a_webview_video_offer_is_answered_with_audio_only() {
     bob.core.end_call(&call, false).await.unwrap();
 }
 
+// CallKit's answer on a locked iPhone, with no WebView: the core answers the ringing voice call
+// with the routing it keeps. A video call is left to the WebView.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_os_answers_the_ringing_voice_call_without_a_webview() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let mut alice_events = alice.core.events();
+    assert!(!bob.core.answer_ringing_call().await.unwrap(), "nothing rings");
+
+    let video = alice.core.place_call(&bob.id(), true).await.unwrap();
+    alice.core.offer_call_within(&video, &webview_video_offer(), Duration::from_secs(5)).await.unwrap();
+    ringing_call(&bob).await;
+    assert!(!bob.core.answer_ringing_call().await.unwrap(), "a video call is the WebView's");
+    alice.core.end_call(&video, false).await.unwrap();
+    until("the video call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+
+    bob.core.set_call_routing(CallRouting::Direct).await.unwrap();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.unwrap();
+    ringing_call(&bob).await;
+    assert!(bob.core.answer_ringing_call().await.unwrap());
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    // The WebView may answer the same call once it is up: nothing changes.
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("answering twice is fine");
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
 // The routing chosen in Settings lives in the core too: CallKit answers with no WebView at all.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_core_keeps_the_call_routing() {
