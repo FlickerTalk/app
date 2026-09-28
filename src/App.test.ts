@@ -3,6 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { IonRouterOutlet } from "@ionic/vue";
 import App from "./App.vue";
 import { installTauri } from "./__tests__/tauri";
+import { clearOnboarded, setOnboarded } from "./preferences";
 
 const push = vi.fn();
 vi.mock("vue-router", async (importOriginal) => ({ ...(await importOriginal<typeof import("vue-router")>()), useRouter: () => ({ push }) }));
@@ -48,6 +49,30 @@ describe("App", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
     expect(asked).toContain("core_resume");
+  });
+
+  // Found on the iPhone (2026-09-28): a push registration that failed (the router was being
+  // deployed) left the phone unreachable until the app was started again. Back on the screen it
+  // hands its push token over once more, but never before the welcome asked for permission.
+  it("hands the push token over again when it comes back to the screen", async () => {
+    const asked: string[] = [];
+    installTauri((command) => {
+      asked.push(command);
+      return undefined;
+    });
+    mount(App, { shallow: true });
+    await flushPromises();
+
+    clearOnboarded();
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(asked).not.toContain("core_enable_push");
+
+    setOnboarded();
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(asked).toContain("core_enable_push");
+    clearOnboarded();
   });
 
   it("goes nowhere special when no reminder was tapped", async () => {
