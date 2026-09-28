@@ -46,5 +46,11 @@
 	<string>FlickerTalk uses the camera for video calls and to scan contact codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>FlickerTalk uses the microphone for calls.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>remote-notification</string>
+		<string>voip</string>
+	</array>
 </dict>
 </plist>

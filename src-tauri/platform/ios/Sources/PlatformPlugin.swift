@@ -1,5 +1,7 @@
 import AuthenticationServices
+import CallKit
 import Foundation
+import PushKit
 import ObjectiveC
 import QuickLook
 import Security
@@ -167,15 +169,145 @@ func apnsGateway(provisioning: String?) -> String {
     return profile.range(of: development, options: .regularExpression) != nil ? "sandbox" : "production"
 }
 
-/// What the router is given: the gateway, the app and Apple's token, in hex.
-func pushTarget(gateway: String, bundle: String, token: Data) -> String {
-    "\(gateway):\(bundle):\(token.map { String(format: "%02x", $0) }.joined())"
+private func hex(_ data: Data) -> String {
+    data.map { String(format: "%02x", $0) }.joined()
+}
+
+/// What the router is given: the gateway, the app and Apple's token, in hex, and PushKit's when
+/// there is one, so a call can ring through CallKit (2026-09-28).
+func pushTarget(gateway: String, bundle: String, token: Data, voip: Data? = nil) -> String {
+    let target = "\(gateway):\(bundle):\(hex(token))"
+    return voip.map { "\(target):\(hex($0))" } ?? target
+}
+
+/// Whether a push is our router's call (`t: call`), which rings through CallKit.
+func isCallPush(_ userInfo: [AnyHashable: Any]) -> Bool {
+    (userInfo["t"] as? String) == "call"
+}
+
+/// How an incoming call rings (2026-09-28): on the screen the app rings itself; otherwise CallKit,
+/// once per call, and a call PushKit already reported only learns who it is.
+enum Ring: Equatable {
+    case app
+    case report
+    case update
+}
+
+func ringWith(appActive: Bool, callKitCall: Bool) -> Ring {
+    if callKitCall { return .update }
+    return appActive ? .app : .report
+}
+
+/// PushKit and CallKit (2026-09-28). Apple wants every VoIP push reported to CallKit at once, so
+/// it rings as "FlickerTalk" while the app, woken, connects and reads the offer; then the name
+/// comes. Answer and hang-up wait in `pendingCall` for the WebView, as on Android.
+final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
+    static let shared = Calls()
+    private let registry = PKPushRegistry(queue: .main)
+    private let provider: CXProvider
+    private(set) var voipToken: Data?
+    private var current: UUID?
+    private var answered = false
+    var pending = ""
+
+    override init() {
+        let configuration = CXProviderConfiguration()
+        configuration.supportsVideo = true
+        configuration.maximumCallsPerCallGroup = 1
+        configuration.maximumCallGroups = 1
+        configuration.supportedHandleTypes = [.generic]
+        configuration.includesCallsInRecents = false
+        provider = CXProvider(configuration: configuration)
+        super.init()
+        provider.setDelegate(self, queue: .main)
+        registry.delegate = self
+        registry.desiredPushTypes = [.voIP]
+    }
+
+    private func update(caller: String, video: Bool) -> CXCallUpdate {
+        let update = CXCallUpdate()
+        let name = caller.isEmpty ? NSLocalizedString("FT_INCOMING_CALL", comment: "") : caller
+        update.remoteHandle = CXHandle(type: .generic, value: name)
+        update.localizedCallerName = name
+        update.hasVideo = video
+        return update
+    }
+
+    private func report(caller: String, video: Bool, done: (() -> Void)? = nil) {
+        let uuid = UUID()
+        current = uuid
+        answered = false
+        provider.reportNewIncomingCall(with: uuid, update: update(caller: caller, video: video)) { [weak self] error in
+            if error != nil, self?.current == uuid { self?.current = nil }
+            done?()
+        }
+    }
+
+    /// The core says a call rings: CallKit, unless the app on the screen rings itself.
+    func ring(caller: String, video: Bool) {
+        let active = UIApplication.shared.applicationState == .active
+        switch ringWith(appActive: active, callKitCall: current != nil) {
+        case .app:
+            break
+        case .report:
+            report(caller: caller, video: video)
+        case .update:
+            if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
+        }
+    }
+
+    /// The ringing is over (answered here, declined, ended or given up): CallKit lets go.
+    func stop() {
+        guard let call = current else { return }
+        current = nil
+        provider.reportCall(with: call, endedAt: nil, reason: answered ? .answeredElsewhere : .remoteEnded)
+    }
+
+    // PushKit
+
+    func pushRegistry(_ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType) {
+        voipToken = credentials.token
+    }
+
+    func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
+        voipToken = nil
+    }
+
+    func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload, for type: PKPushType, completion: @escaping () -> Void) {
+        // Every VoIP push rings, or iOS stops delivering them; ours are only ever calls.
+        if current != nil {
+            completion()
+            return
+        }
+        report(caller: "", video: false, done: completion)
+    }
+
+    // CallKit
+
+    func providerDidReset(_ provider: CXProvider) {
+        current = nil
+    }
+
+    func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        answered = true
+        pending = "answer"
+        action.fulfill()
+    }
+
+    func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+        pending = "decline"
+        current = nil
+        action.fulfill()
+    }
 }
 
 /// Whether a notification is our router's wake-up (`t: wake`), which says nothing.
 func isWakePush(_ userInfo: [AnyHashable: Any]) -> Bool {
     (userInfo["t"] as? String) == "wake"
 }
+
+// Registered as early as the plugin loads: a VoIP push may be what launched the app.
+private let callsAtLaunch = Calls.shared
 
 /// Apple hands the device token to the app delegate, which Tauri owns: the two answers are added
 /// to its class once, and whoever asked for the token hears it here.
@@ -213,12 +345,20 @@ final class RemoteToken {
                     .flatMap { FileManager.default.contents(atPath: $0) }
                     .map { String(decoding: $0, as: UTF8.self) }
                 let bundle = Bundle.main.bundleIdentifier ?? ""
-                invoke.resolve(["token": pushTarget(gateway: apnsGateway(provisioning: profile), bundle: bundle, token: token)])
+                let target = pushTarget(gateway: apnsGateway(provisioning: profile), bundle: bundle, token: token, voip: Calls.shared.voipToken)
+                invoke.resolve(["token": target])
             } else {
                 invoke.reject(error?.localizedDescription ?? "no push token")
             }
         }
     }
+}
+
+/// Arguments of `startRinging`, the same as Kotlin's.
+struct RingingArgs: Decodable {
+    let caller: String
+    let video: Bool
+    let muted: Bool
 }
 
 /// Arguments of `openFile`, the same as Kotlin's: a path inside the app and its kind.
@@ -258,6 +398,31 @@ class PlatformPlugin: Plugin {
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = ReminderTaps.shared
+        _ = callsAtLaunch
+    }
+
+    /// An incoming call rings: CallKit when the app is not on the screen (2026-09-28).
+    @objc public func startRinging(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(RingingArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.ring(caller: args.caller, video: args.video)
+            invoke.resolve()
+        }
+    }
+
+    @objc public func stopRinging(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            Calls.shared.stop()
+            invoke.resolve()
+        }
+    }
+
+    /// What the user did in CallKit ("answer", "decline" or nothing), once, as on Android.
+    @objc public func pendingCall(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            invoke.resolve(["action": Calls.shared.pending])
+            Calls.shared.pending = ""
+        }
     }
 
     /// Asks to show notifications: the router's wake-ups on iOS are visible ones (2026-09-28).

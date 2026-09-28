@@ -84,6 +84,22 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   rechaza si el fichero no está o Quick Look no puede con él (`previewable`, con test). En Rust no
   cambia nada: `Platform::open_file` ya llamaba a `openFile` en móvil.
 
+- **Push y llamadas en iOS** (2026-09-28): el iPhone registra en el router `apns` con
+  `pasarela:bundle:token-hex[:token-voip-hex]` (`pushToken` en `PlatformPlugin.swift`). Las
+  respuestas de iOS se añaden al delegado de Tauri y la pasarela se deduce del perfil. El router
+  manda una clave (`FT_PUSH_WAKE`, `FT_INCOMING_CALL`) que el iPhone traduce con los
+  `Localizable.strings` de `gen/apple/flickertalk_iOS/<idioma>.lproj`, los mismos textos que
+  `ft_strings.xml` de Android. Los permisos de cámara y micrófono se traducen en
+  `InfoPlist.strings`. Llamadas: PushKit (registrado al cargar el plugin) informa a CallKit en el
+  acto; `startRinging` pone el nombre o informa si la app no está en pantalla; contestar o colgar
+  en CallKit queda en `pendingCall`, como en Android. **Limitación**: contestar desde la pantalla
+  bloqueada pide abrir la app para hablar, porque el audio va por el WebRTC del WebView.
+  `UIBackgroundModes`: `audio`, `remote-notification` y `voip`. Entitlement `aps-environment`.
+- **Probar iOS**: los tests Swift del puente corren en el simulador (`xcodebuild test -scheme
+  tauri-plugin-ft-platform -destination 'platform=iOS Simulator,name=iPhone 17'` desde
+  `platform/ios`). El chat y las llamadas se prueban en el iPhone, porque el simulador no tiene
+  WebRTC.
+
 ## Reglas
 
 - **Pegamento, no lógica**: cada comando Tauri delega en `ft-core`. Validación, estado y reglas
