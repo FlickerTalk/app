@@ -110,6 +110,12 @@ Estado (2026-09-27, plugins fase 3 y la nube del usuario; `docs/drive.md`):
   común entre el toque y «Abrir con», que con visor ofrece además **«Otra app»**
   (`open-elsewhere`, `chat.otherApp`). En iOS no hay plugins descargados: el toque va siempre a
   Quick Look.
+- **Botón Atrás de Android** (2026-09-28, `back.ts`): lo que está abierto encima (plugin, apps,
+  acciones de un mensaje, emoji) se cierra con Atrás, lo último primero (`closeOnBackWhile`). Solo
+  se escucha el botón (`onBackButtonPress`, permisos `core:app:allow-register-listener` y
+  `allow-remove-listener` en `capabilities/mobile.json`) mientras hay algo abierto: sin nada, Atrás
+  hace lo de siempre. Antes, con un plugin abierto, sacaba del chat o, en la tableta, de la app.
+  Una superposición nueva se registra con `closeOnBackWhile`.
 - **Copia de seguridad** (`BackupPage`, Ajustes → Copia de seguridad): conectar Google Drive
   (login en el navegador del sistema, por el núcleo), crear el drive y enseñar el **código de
   recuperación una sola vez**, abrir el drive de otro teléfono con el código, hacer copia,
