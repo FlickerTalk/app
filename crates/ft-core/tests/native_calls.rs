@@ -287,3 +287,71 @@ async fn the_core_keeps_the_call_routing() {
     alice.core.set_call_audio(None);
     assert!(!alice.core.native_calls(), "without a device, calls stay on the WebView");
 }
+
+// Bug of 2026-09-28: a suspended iPhone rang through PushKit and was answered on the lock screen
+// while its socket to the router was still being opened again, so the offer came after the
+// answer. The answer waits for it: when the voice call's offer arrives, it is answered at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_that_comes_before_the_offer_answers_it_when_it_arrives() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let mut alice_events = alice.core.events();
+    assert!(!bob.core.answer_ringing_call().await.unwrap(), "nothing rings yet: the answer waits");
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    until("both devices run", || async { alice.probe.running() && bob.probe.running() }).await;
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// The waiting answer is short-lived, and the system's hang-up takes it back: a later call just
+// rings.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_early_answer_is_forgotten_after_its_window_or_a_hang_up() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    assert!(!bob.core.answer_ringing_call_within(Duration::from_millis(300)).await.unwrap());
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let late = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.unwrap();
+    ringing_call(&bob).await;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(bob.core.current_call().await.unwrap().expect("rings").phase, CallPhase::Ringing, "it just rings");
+    alice.core.end_call(&late, false).await.unwrap();
+    until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+
+    assert!(!bob.core.answer_ringing_call().await.unwrap());
+    bob.core.end_current_call().await.expect("CallKit's end, with nothing going on");
+    let declined = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.unwrap();
+    ringing_call(&bob).await;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(bob.core.current_call().await.unwrap().expect("rings").phase, CallPhase::Ringing, "the hang-up took the answer back");
+    alice.core.end_call(&declined, false).await.unwrap();
+}
+
+// Bug of 2026-09-28: the caller gave up while the other phone was asleep and out of reach, and
+// its hang-up was sent once and lost: the other phone kept ringing. It keeps trying for a while,
+// and arrives as soon as the other phone is back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hang_up_reaches_the_other_phone_once_it_is_back() {
+    let bus = Arc::new(Bus::default());
+    let alice = phone(&bus, "Alice", false, Activation::Immediate).await;
+    let bob = phone(&bus, "Bob", true, Activation::Immediate).await;
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    ringing_call(&bob).await;
+    // Bob's phone is suspended: off the router, and its direct connection is gone.
+    bus.online.lock().unwrap().remove(&bob.id());
+    alice.network.disconnect(&bob.id()).await;
+    let alice_id = alice.id();
+    until("bob's connection is gone", || async { !bob.network.is_connected(&alice_id).await }).await;
+
+    alice.core.end_call(&call, false).await.expect("alice gives up");
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    assert_eq!(bob.core.current_call().await.unwrap().expect("still rings").phase, CallPhase::Ringing);
+
+    bob.go_online(&bus);
+    until("bob's phone stops ringing", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+    let record = bob.core.store().call(&call).await.unwrap().expect("in the history");
+    assert_eq!(record.outcome, Some(CallOutcome::Missed));
+}

@@ -165,6 +165,11 @@ pub struct Core {
     ringing_offer: std::sync::Mutex<Option<(String, String)>>,
     /// Whether the OS has the call's audio session active (CallKit's `didActivate` on iOS).
     call_audio_active: std::sync::atomic::AtomicBool,
+    /// The OS answered before any call rang (2026-09-28): until when (ms) the next voice call's
+    /// offer is answered as soon as it arrives.
+    early_answer: std::sync::Mutex<Option<i64>>,
+    /// This core, for work it hands to the background (a waiting answer, a hang-up to deliver).
+    this: std::sync::Weak<Core>,
     /// Where a move to a new phone writes its copies (set by the app).
     move_dir: OnceLock<PathBuf>,
     moving: std::sync::Mutex<moving::MoveState>,
@@ -243,7 +248,9 @@ impl Core {
             store.set_setting(INSTALLED_AT, &now().to_string()).await?;
         }
         let (events, _) = broadcast::channel(256);
-        Ok(Arc::new(Self {
+        Ok(Arc::new_cyclic(|this| Self {
+            this: this.clone(),
+            early_answer: std::sync::Mutex::default(),
             device_id: identity.device_id(),
             identity: Mutex::new(identity),
             store,

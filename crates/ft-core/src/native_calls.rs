@@ -8,6 +8,7 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, PoisonError};
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 use ft_media::{AudioPlatform, CallRouting, LinkState, MediaSession, Voice};
@@ -64,6 +65,9 @@ impl NativeCall {
         self.session.close().await;
     }
 }
+
+/// How long the OS's answer waits for an offer that has not arrived yet.
+pub const EARLY_ANSWER: Duration = Duration::from_secs(30);
 
 /// Settings key: the call routing, as Settings writes it (`direct`, `auto`, `always`).
 const CALL_ROUTING: &str = "call_routing";
@@ -144,8 +148,22 @@ impl Core {
     /// The OS answered (CallKit on a locked iPhone, with no WebView): the ringing voice call is
     /// answered here with the routing the core keeps. `false` when nothing rings, or it is a
     /// video call, which is the WebView's.
+    ///
+    /// When nothing rings yet, the answer waits `EARLY_ANSWER` for the offer (2026-09-28): a
+    /// suspended iPhone rings through PushKit and may be answered before its socket to the router
+    /// is back and the offer arrives.
     pub async fn answer_ringing_call(self: &Arc<Self>) -> Result<bool> {
-        let Some(current) = self.current_call().await? else { return Ok(false) };
+        self.answer_ringing_call_within(EARLY_ANSWER).await
+    }
+
+    /// Like `answer_ringing_call`, with the answer waiting `wait` for an offer yet to come.
+    pub async fn answer_ringing_call_within(self: &Arc<Self>, wait: Duration) -> Result<bool> {
+        let current = self.current_call().await?;
+        if current.is_none() {
+            let until = now() + i64::try_from(wait.as_millis()).unwrap_or(i64::MAX);
+            *self.early_answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(until);
+        }
+        let Some(current) = current else { return Ok(false) };
         if current.phase != CallPhase::Ringing || current.video {
             return Ok(false);
         }
@@ -182,8 +200,10 @@ impl Core {
         Ok(())
     }
 
-    /// Hangs up whatever call is going on (CallKit's end, or the notification's button).
+    /// Hangs up whatever call is going on (CallKit's end, or the notification's button). An answer
+    /// still waiting for its offer is taken back.
     pub async fn end_current_call(&self) -> Result<()> {
+        self.early_answer.lock().unwrap_or_else(PoisonError::into_inner).take();
         let active = self.active_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
         match active {
             Some(call) => self.end_call(&call, false).await,
@@ -218,6 +238,22 @@ impl Core {
             outgoing: record.outgoing,
             phase,
         }))
+    }
+
+    /// A voice call started ringing: if the OS answered it early (within its window), it is
+    /// answered now, in the background, with the routing the core keeps.
+    pub(crate) fn answer_if_answered_early(&self, call: &str, video: bool) {
+        let until = self.early_answer.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let Some(until) = until else { return };
+        if video || now() > until {
+            return;
+        }
+        let Some(core) = self.this.upgrade() else { return };
+        let call = call.to_owned();
+        tokio::spawn(async move {
+            let routing = core.call_routing().await;
+            let _ = core.answer_native_call(&call, routing).await;
+        });
     }
 
     /// Their offer, kept while the call rings here.
