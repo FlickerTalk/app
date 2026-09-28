@@ -225,6 +225,10 @@ impl Core {
                     *self.vault.lock().await = Some(Arc::new(vault));
                     self.status_of(VaultState::Ready, Some(provider_name), status, None).await
                 }
+                // The key of a drive of the first version: it is made again, not opened.
+                Err(error) if error.downcast_ref::<ft_vault::recovery::OldDrive>().is_some() => {
+                    self.status_of(VaultState::Outdated, Some(provider_name), None, None).await
+                }
                 Err(error) => self.status_of(VaultState::Locked, Some(provider_name), None, Some(error.to_string())).await,
             },
             None => match Vault::exists(provider.as_ref()).await {
