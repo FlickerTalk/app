@@ -15,6 +15,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import org.json.JSONArray
 import org.json.JSONObject
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.Ringtone
@@ -155,6 +156,85 @@ class FtMessagingService : FirebaseMessagingService() {
 
     // A new token reaches the router the next time the app starts.
     override fun onNewToken(token: String) {}
+}
+
+// ---- Native calls (2026-09-28) ----
+
+/** The router's call push (`{"t":"call","s":"N"}`): ring with the app closed (§66). */
+fun isCall(data: Map<String, String>): Boolean = data["t"] == "call"
+
+/** What a call push does. */
+enum class CallPush { IGNORE, RING, SILENT }
+
+/** Whether a call push rings, shows quietly or is dropped. */
+fun callPush(data: Map<String, String>, open: Set<Int>, appOnScreen: Boolean, mayDisturb: Boolean): CallPush = when {
+    !isCall(data) || !wakeIsHeard(data["s"], open) -> CallPush.IGNORE
+    // The app on the screen is connected: the core rings the call itself (`startRinging`).
+    appOnScreen -> CallPush.IGNORE
+    !mayDisturb -> CallPush.SILENT
+    else -> CallPush.RING
+}
+
+/** How long a call rings, in ms, at most. The router gives the push the same 45 s to live. */
+const val CALL_RING_MS = 45_000L
+
+/** How long a call pushed at `sentAt` still rings at `now`. */
+fun callRingMillis(sentAt: Long, now: Long): Long {
+    val elapsed = now - sentAt
+    return if (sentAt > 0 && elapsed in 0 until CALL_RING_MS) CALL_RING_MS - elapsed else CALL_RING_MS
+}
+
+/** What the user does with a native call, as Rust's `NativeCallEvent`. */
+sealed class CallEvent {
+    object Answer : CallEvent()
+    object End : CallEvent()
+    data class Mute(val muted: Boolean) : CallEvent()
+    object AudioActivated : CallEvent()
+    object AudioDeactivated : CallEvent()
+}
+
+/** The event as the channel carries it: `{"event": "mute", "muted": true}`. */
+fun callEventPayload(event: CallEvent): Map<String, Any> = when (event) {
+    CallEvent.Answer -> mapOf("event" to "answer")
+    CallEvent.End -> mapOf("event" to "end")
+    is CallEvent.Mute -> mapOf("event" to "mute", "muted" to event.muted)
+    CallEvent.AudioActivated -> mapOf("event" to "audioActivated")
+    CallEvent.AudioDeactivated -> mapOf("event" to "audioDeactivated")
+}
+
+/** Events wait here until the core listens, then go out in order. */
+class CallEventQueue(private val limit: Int = 16) {
+    private var sink: ((CallEvent) -> Unit)? = null
+    private val waiting = ArrayDeque<CallEvent>()
+
+    /** The core listens: what waited goes out now, in order; a previous listener hears no more. */
+    @Synchronized
+    fun register(sink: (CallEvent) -> Unit) {
+        this.sink = sink
+        while (waiting.isNotEmpty()) sink(waiting.removeFirst())
+    }
+
+    @Synchronized
+    fun emit(event: CallEvent) {
+        val listening = sink
+        if (listening != null) {
+            listening(event)
+            return
+        }
+        waiting.addLast(event)
+        while (waiting.size > limit) waiting.removeFirst()
+    }
+
+    /** A new call starts: what an old one left unheard is no longer true. */
+    @Synchronized
+    fun forget() = waiting.clear()
+}
+
+/** The foreground service types of a call: phone call, and the microphone once it is allowed. */
+fun callServiceTypes(sdk: Int, microphone: Boolean): Int = when {
+    sdk < Build.VERSION_CODES.Q -> 0
+    sdk < Build.VERSION_CODES.R || !microphone -> ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+    else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
 }
 
 /**
