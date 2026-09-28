@@ -12,7 +12,7 @@
 //! route capability instead of our identity (§34): the router learns nothing about the sender.
 //! This crate transports; it never encrypts (ft-crypto does, before).
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -107,6 +107,16 @@ pub struct RouterClient {
     signer: Arc<dyn Signer>,
     /// Asked to reconnect now (`reconnect_now`): the app came back to the screen.
     again: Arc<tokio::sync::Notify>,
+    /// Where the socket stands, for `reconnect_unless_fresh`.
+    link: std::sync::Mutex<Link>,
+}
+
+/// The router's socket, and since when (wall clock).
+#[derive(Debug, Clone, Copy)]
+enum Link {
+    Down,
+    Opening(SystemTime),
+    Open(SystemTime),
 }
 
 /// An HTTPS client that carries its own cryptography. A phone has no crypto provider installed,
@@ -129,7 +139,7 @@ pub fn https_client(timeout: Duration) -> Result<reqwest::Client> {
 impl RouterClient {
     pub fn new(base: &str, signer: Arc<dyn Signer>) -> Result<Self> {
         let http = https_client(Duration::from_secs(20))?;
-        Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer, again: Arc::default() })
+        Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer, again: Arc::default(), link: std::sync::Mutex::new(Link::Down) })
     }
 
     /// Drops the socket and opens it again at once, skipping any wait (2026-09-28). iOS cuts the
@@ -137,6 +147,26 @@ impl RouterClient {
     /// the screen, or a push was tapped, the welcome of a fresh connection fetches what waits.
     pub fn reconnect_now(&self) {
         self.again.notify_one();
+    }
+
+    /// Like `reconnect_now`, unless the socket was opened, or began to open, less than `fresh`
+    /// ago (2026-09-28). A call push, CallKit's answer and its audio activation all ask for a fresh
+    /// socket within seconds: the first one reconnects, and dropping the new socket again could
+    /// lose the call's offer in the gap. Wall-clock time: a sleeping iPhone's monotonic clock
+    /// stops, and a socket from before the sleep must count as old.
+    pub fn reconnect_unless_fresh(&self, fresh: Duration) {
+        let since = match *self.link.lock().unwrap_or_else(PoisonError::into_inner) {
+            Link::Down => None,
+            Link::Opening(at) | Link::Open(at) => Some(at),
+        };
+        let young = since.and_then(|at| SystemTime::now().duration_since(at).ok()).is_some_and(|age| age < fresh);
+        if !young {
+            self.reconnect_now();
+        }
+    }
+
+    fn set_link(&self, link: Link) {
+        *self.link.lock().unwrap_or_else(PoisonError::into_inner) = link;
     }
 
     pub fn device_id(&self) -> String {
@@ -257,6 +287,7 @@ impl RouterClient {
         tokio::spawn(async move {
             let mut backoff = Duration::from_secs(1);
             loop {
+                client.set_link(Link::Opening(SystemTime::now()));
                 let asked = tokio::select! {
                     result = client.connection(&events) => {
                         match result {
@@ -267,6 +298,7 @@ impl RouterClient {
                     }
                     _ = client.again.notified() => true,
                 };
+                client.set_link(Link::Down);
                 if events.send(RouterEvent::Disconnected).await.is_err() {
                     return;
                 }
@@ -296,7 +328,10 @@ impl RouterClient {
         while let Some(message) = socket.next().await {
             let Message::Text(text) = message? else { continue };
             let event = match serde_json::from_str::<Frame>(text.as_str()) {
-                Ok(Frame::Welcome { stun, turn }) => RouterEvent::Connected { stun, turn },
+                Ok(Frame::Welcome { stun, turn }) => {
+                    self.set_link(Link::Open(SystemTime::now()));
+                    RouterEvent::Connected { stun, turn }
+                }
                 Ok(Frame::Signal { signal }) => RouterEvent::Signal(STANDARD_NO_PAD.decode(signal.trim_end_matches('='))?),
                 Ok(Frame::Mail) => RouterEvent::Mail,
                 Err(_) => continue,
