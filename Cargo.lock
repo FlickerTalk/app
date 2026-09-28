@@ -1859,6 +1859,7 @@ dependencies = [
  "ft-contacts",
  "ft-crypto",
  "ft-identity",
+ "ft-media",
  "ft-plugins",
  "ft-protocol",
  "ft-push",

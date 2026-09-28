@@ -16,6 +16,7 @@ pub mod calls;
 pub mod circles;
 pub mod files;
 pub mod moving;
+pub mod native_calls;
 pub mod plugins;
 pub mod net;
 pub mod vault;
@@ -87,9 +88,15 @@ pub trait Transport: Send + Sync {
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
     /// Closes any direct connection with the device (a blocked contact, §35).
     async fn disconnect(&self, _device_id: &str) {}
+    /// Where a native call's media listens and the servers that help it: the router's STUN and
+    /// TURN (2026-09-28). The routing is the call's own.
+    fn media_config(&self) -> ft_media::MediaConfig {
+        ft_media::MediaConfig::default()
+    }
 }
 
 pub use calls::CallUpdate;
+pub use native_calls::{CallPhase, CurrentCall};
 pub use files::MAX_FILE_SIZE;
 pub use ft_push::{RouterClient, TurnGrant};
 
@@ -148,6 +155,16 @@ pub struct Core {
     transfers: std::sync::Mutex<HashMap<String, files::Transfer>>,
     /// The call going on, if any: one at a time.
     active_call: std::sync::Mutex<Option<String>>,
+    /// The phone's audio device for native voice calls (2026-09-28); none on the desktop.
+    call_audio: RwLock<Option<ft_media::AudioPlatform>>,
+    /// The media of the active call, when its voice runs here and not in the WebView.
+    native_call: std::sync::Mutex<Option<Arc<native_calls::NativeCall>>>,
+    /// One native answer at a time: CallKit and the WebView may both answer the same call.
+    native_setup: Mutex<()>,
+    /// The offer of the call ringing here: (call, SDP), for a WebView that comes up late.
+    ringing_offer: std::sync::Mutex<Option<(String, String)>>,
+    /// Whether the OS has the call's audio session active (CallKit's `didActivate` on iOS).
+    call_audio_active: std::sync::atomic::AtomicBool,
     /// Where a move to a new phone writes its copies (set by the app).
     move_dir: OnceLock<PathBuf>,
     moving: std::sync::Mutex<moving::MoveState>,
@@ -239,6 +256,11 @@ impl Core {
             plugins_dir: OnceLock::new(),
             transfers: std::sync::Mutex::default(),
             active_call: std::sync::Mutex::default(),
+            call_audio: RwLock::new(ft_media::platform_audio()),
+            native_call: std::sync::Mutex::default(),
+            native_setup: Mutex::new(()),
+            ringing_offer: std::sync::Mutex::default(),
+            call_audio_active: std::sync::atomic::AtomicBool::new(false),
             move_dir: OnceLock::new(),
             moving: std::sync::Mutex::default(),
             open_sessions: std::sync::Mutex::default(),
