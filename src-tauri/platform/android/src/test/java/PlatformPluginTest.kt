@@ -5,6 +5,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import com.android.billingclient.api.Purchase
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -431,6 +432,53 @@ class PlatformPluginTest {
         assertEquals(AudioManager.MODE_NORMAL, modeAfterCall(AudioManager.MODE_IN_COMMUNICATION))
         assertEquals(AudioManager.MODE_NORMAL, modeAfterCall(AudioManager.MODE_IN_CALL))
         assertEquals(AudioManager.MODE_NORMAL, modeAfterCall(null))
+    }
+
+    // Bug of 2026-09-28: a phone asleep had lost its socket to the router, and only the WebView
+    // asked to reconnect. A call or wake-up push tells a core that listens to reconnect at once;
+    // a process FCM just started has no core yet, and it connects when it starts.
+    @Test
+    fun aCallOrWakePushTellsALiveCoreToReconnect() {
+        assertEquals(mapOf("event" to "incoming"), callEventPayload(CallEvent.Incoming))
+        assertTrue(reconnectsOnPush(mapOf("t" to "call", "s" to "0"), emptySet()))
+        assertTrue(reconnectsOnPush(mapOf("t" to "wake"), emptySet()))
+        assertFalse("a closed hidden session stays quiet", reconnectsOnPush(mapOf("t" to "call", "s" to "3"), emptySet()))
+        assertFalse(reconnectsOnPush(mapOf("t" to "other"), emptySet()))
+        val queue = CallEventQueue()
+        val heard = mutableListOf<CallEvent>()
+        assertFalse(queue.offer(CallEvent.Incoming))
+        queue.register { heard.add(it) }
+        assertEquals(emptyList<CallEvent>(), heard)
+        assertTrue(queue.offer(CallEvent.Incoming))
+        assertEquals(listOf<CallEvent>(CallEvent.Incoming), heard)
+    }
+
+    // Speaker or receiver (2026-09-28): Android 12 chooses the communication device; before, the
+    // speakerphone switch.
+    @Test
+    fun theSpeakerIsTheCommunicationDeviceFromAndroid12() {
+        assertEquals(SpeakerRoute.SPEAKER_DEVICE, speakerRoute(31, on = true))
+        assertEquals(SpeakerRoute.CLEAR_DEVICE, speakerRoute(34, on = false))
+        assertEquals(SpeakerRoute.SPEAKERPHONE_ON, speakerRoute(30, on = true))
+        assertEquals(SpeakerRoute.SPEAKERPHONE_OFF, speakerRoute(30, on = false))
+    }
+
+    // A call shows over the lock screen and turns the screen on while it rings or goes on.
+    @Test
+    fun aCallShowsOverTheLockScreenWhileItRingsOrGoesOn() {
+        assertTrue(overLockScreen(ringing = true, inCall = false))
+        assertTrue(overLockScreen(ringing = false, inCall = true))
+        assertFalse(overLockScreen(ringing = false, inCall = false))
+    }
+
+    // Android 14 lets a foreground service take the microphone only while the app is on the
+    // screen, or right after the user's own answer.
+    @Test
+    fun theMicrophoneTypeNeedsTheAppOnScreenOrTheUsersAnswer() {
+        assertTrue(microphoneServiceAllowed(granted = true, visible = true, answeredByTap = false))
+        assertTrue(microphoneServiceAllowed(granted = true, visible = false, answeredByTap = true))
+        assertFalse(microphoneServiceAllowed(granted = true, visible = false, answeredByTap = false))
+        assertFalse(microphoneServiceAllowed(granted = false, visible = true, answeredByTap = true))
     }
 
     // With the app closed the system rings (the process may be frozen), on a channel of its own:

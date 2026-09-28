@@ -5,7 +5,10 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Notification
 import android.app.Service
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
+import android.util.Log
+import android.view.WindowManager
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import app.tauri.PermissionState
@@ -156,6 +159,8 @@ fun callText(video: Boolean): Int = if (video) R.string.ft_incoming_video_call e
  */
 class FtMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
+        // A live core reconnects now: its socket to the router is dead (2026-09-28).
+        if (reconnectsOnPush(message.data, openSlots)) CallEvents.offer(CallEvent.Incoming)
         if (isCall(message.data)) {
             incomingCall(message)
             return
@@ -221,6 +226,8 @@ fun callRingMillis(sentAt: Long, now: Long): Long {
 
 /** What the user does with a native call, as Rust's `NativeCallEvent`. */
 sealed class CallEvent {
+    /** A call or wake-up push: the router found this phone offline; the core reconnects now. */
+    object Incoming : CallEvent()
     object Answer : CallEvent()
     object End : CallEvent()
     data class Mute(val muted: Boolean) : CallEvent()
@@ -230,6 +237,7 @@ sealed class CallEvent {
 
 /** The event as the channel carries it: `{"event": "mute", "muted": true}`. */
 fun callEventPayload(event: CallEvent): Map<String, Any> = when (event) {
+    CallEvent.Incoming -> mapOf("event" to "incoming")
     CallEvent.Answer -> mapOf("event" to "answer")
     CallEvent.End -> mapOf("event" to "end")
     is CallEvent.Mute -> mapOf("event" to "mute", "muted" to event.muted)
@@ -263,7 +271,62 @@ class CallEventQueue(private val limit: Int = 16) {
     /** A new call starts: what an old one left unheard is no longer true. */
     @Synchronized
     fun forget() = waiting.clear()
+
+    /** Only to a core that listens now; nothing waits (a process FCM started has no core yet). */
+    @Synchronized
+    fun offer(event: CallEvent): Boolean {
+        val listening = sink ?: return false
+        listening(event)
+        return true
+    }
 }
+
+/**
+ * Whether a push tells the core to reconnect at once (2026-09-28): a call or a wake-up means the
+ * router found this phone offline, so its socket is dead. A closed hidden session stays quiet.
+ */
+fun reconnectsOnPush(data: Map<String, String>, open: Set<Int>): Boolean =
+    (isCall(data) || isWake(data)) && wakeIsHeard(data["s"], open)
+
+/** How the call's voice goes to the speaker or back to the earpiece. */
+enum class SpeakerRoute { SPEAKER_DEVICE, CLEAR_DEVICE, SPEAKERPHONE_ON, SPEAKERPHONE_OFF }
+
+/** Android 12 picks the communication device; before, the speakerphone switch. */
+fun speakerRoute(sdk: Int, on: Boolean): SpeakerRoute = when {
+    sdk >= Build.VERSION_CODES.S -> if (on) SpeakerRoute.SPEAKER_DEVICE else SpeakerRoute.CLEAR_DEVICE
+    else -> if (on) SpeakerRoute.SPEAKERPHONE_ON else SpeakerRoute.SPEAKERPHONE_OFF
+}
+
+/** The app shows over the lock screen, and turns the screen on, while a call rings or goes on. */
+fun overLockScreen(ringing: Boolean, inCall: Boolean): Boolean = ringing || inCall
+
+/**
+ * Whether the call's service may take the microphone type (Android 14): only with the app on the
+ * screen or right after the user's own answer; otherwise the system refuses the whole service.
+ */
+fun microphoneServiceAllowed(granted: Boolean, visible: Boolean, answeredByTap: Boolean): Boolean =
+    granted && (visible || answeredByTap)
+
+/** Shows the app over the lock screen and turns the screen on, or stops doing so. */
+fun showOverLockScreen(activity: Activity, on: Boolean) {
+    activity.runOnUiThread {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            activity.setShowWhenLocked(on)
+            activity.setTurnScreenOn(on)
+        } else {
+            @Suppress("DEPRECATION")
+            val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (on) activity.window.addFlags(flags) else activity.window.clearFlags(flags)
+        }
+    }
+}
+
+/**
+ * Temporary call diagnostics (2026-09-28): state names only, never a name or an identifier. Read
+ * with `adb logcat -s FtCallDiag`. To remove: set this to false, or delete it with the `diagnose`
+ * command (Rust: `CALL_DIAGNOSTICS` in src-tauri/src/client.rs).
+ */
+const val CALL_DIAGNOSTICS = true
 
 /** The audio mode to go back to after a call: what it was, unless that was a call's mode too. */
 fun modeAfterCall(previous: Int?): Int = when (previous) {
@@ -413,6 +476,8 @@ object CallEvents {
 
     fun emit(event: CallEvent) = sender.execute { queue.emit(event) }
 
+    fun offer(event: CallEvent) = sender.execute { queue.offer(event) }
+
     fun forget() = sender.execute { queue.forget() }
 }
 
@@ -429,6 +494,12 @@ object InCall {
         private set
     /** Who the last ringing call was: an answered call is named after it. */
     var ringingName = ""
+    /** The app is on the screen (the plugin's activity is resumed). */
+    @Volatile
+    var appVisible = false
+    /** The user answered this call with their own tap (the notification's button, or the app's). */
+    @Volatile
+    var answeredByTap = false
     private var previousMode: Int? = null
     private var focus: Any? = null
     @Volatile
@@ -461,6 +532,7 @@ object InCall {
         if (!active) return
         active = false
         muted = false
+        answeredByTap = false
         context.stopService(Intent(context, FtCallService::class.java))
         giveAudioBack(context)
     }
@@ -496,8 +568,28 @@ object InCall {
             audio.abandonAudioFocus(null)
         }
         focus = null
+        speaker(audio, false)
         audio.mode = modeAfterCall(previousMode)
         previousMode = null
+    }
+
+    /** The call's voice on the speaker, or back on the earpiece (2026-09-28). */
+    fun setSpeaker(context: Context, on: Boolean) {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        speaker(audio, on)
+    }
+
+    private fun speaker(audio: AudioManager, on: Boolean) {
+        when (speakerRoute(Build.VERSION.SDK_INT, on)) {
+            SpeakerRoute.SPEAKER_DEVICE -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let { audio.setCommunicationDevice(it) }
+            }
+            SpeakerRoute.CLEAR_DEVICE -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audio.clearCommunicationDevice()
+            SpeakerRoute.SPEAKERPHONE_ON, SpeakerRoute.SPEAKERPHONE_OFF -> {
+                @Suppress("DEPRECATION")
+                audio.isSpeakerphoneOn = on
+            }
+        }
     }
 }
 
@@ -554,7 +646,8 @@ class FtCallService : Service() {
 
     /** In the foreground with the types it may hold now: the microphone once it is allowed. */
     fun promote() {
-        val microphone = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val microphone = microphoneServiceAllowed(granted, InCall.appVisible, InCall.answeredByTap)
         try {
             ServiceCompat.startForeground(this, ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this), callServiceTypes(Build.VERSION.SDK_INT, microphone))
         } catch (_: Exception) {
@@ -861,6 +954,16 @@ class OutgoingArgs {
 }
 
 @InvokeArg
+class SpeakerArgs {
+    var on: Boolean = false
+}
+
+@InvokeArg
+class DiagnoseArgs {
+    var what: String = ""
+}
+
+@InvokeArg
 class QuietHoursArgs {
     var week: String = ""
 }
@@ -963,6 +1066,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /** The app is open: the "something new" notification has done its job. */
     override fun load(webView: WebView) {
         super.load(webView)
+        InCall.appVisible = true
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
         pendingCall = callAction(activity.intent?.getStringExtra(CALL_ACTION))
         activity.intent?.removeExtra(CALL_ACTION)
@@ -970,6 +1074,18 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         if (pendingCall.isNotEmpty()) activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
         pendingReminder = pendingReminderOf(activity.intent?.getStringExtra(REMINDER_ACTION))
         activity.intent?.removeExtra(REMINDER_ACTION)
+    }
+
+    /** On the screen again: a call's service may now take the microphone (Android 14). */
+    override fun onResume() {
+        super.onResume()
+        InCall.appVisible = true
+        if (InCall.active) InCall.service?.promote()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        InCall.appVisible = false
     }
 
     /** The app was already open when the notification's button was pressed. */
@@ -1040,7 +1156,11 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun pendingCall(invoke: Invoke) {
         val action = pendingCall
         pendingCall = ""
-        if (action == "answer") activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
+        if (action == "answer") {
+            InCall.answeredByTap = true
+            showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+            activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
+        }
         invoke.resolve(JSObject().apply { put("action", action) })
     }
 
@@ -1060,6 +1180,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun callStartedOutgoing(invoke: Invoke) {
         val args = invoke.parseArgs(OutgoingArgs::class.java)
         activity.runOnUiThread { InCall.start(activity, args.name) }
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
         invoke.resolve()
     }
 
@@ -1067,6 +1188,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun callConnected(invoke: Invoke) {
         activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
         invoke.resolve()
     }
 
@@ -1074,6 +1196,23 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun callEnded(invoke: Invoke) {
         activity.runOnUiThread { InCall.end(activity) }
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = false))
+        invoke.resolve()
+    }
+
+    /** Speaker or earpiece for the call (2026-09-28). */
+    @Command
+    fun setSpeaker(invoke: Invoke) {
+        val args = invoke.parseArgs(SpeakerArgs::class.java)
+        activity.runOnUiThread { InCall.setSpeaker(activity, args.on) }
+        invoke.resolve()
+    }
+
+    /** Temporary call diagnostics (2026-09-28): a state name from the Rust core, to logcat. */
+    @Command
+    fun diagnose(invoke: Invoke) {
+        val args = invoke.parseArgs(DiagnoseArgs::class.java)
+        if (CALL_DIAGNOSTICS) Log.i("FtCallDiag", args.what)
         invoke.resolve()
     }
 
@@ -1132,6 +1271,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         try {
             val args = invoke.parseArgs(RingingArgs::class.java)
             InCall.ringingName = args.caller
+            showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))
             silence()
             showCall(
                 activity,
@@ -1245,6 +1385,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun stopRinging(invoke: Invoke) {
         activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = InCall.active))
         silence()
         invoke.resolve()
     }
