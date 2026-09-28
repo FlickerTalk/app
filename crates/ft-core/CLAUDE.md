@@ -201,3 +201,36 @@ app, una memoria en los tests) y `trait Authorizer` el navegador. `Event::VaultC
   aceptación: copia, siguen hablando, se pierde el teléfono, se restaura y los dos se leen en ambos
   sentidos (sin la renovación, el restaurado no lee al otro). Probado en el Lenovo desinstalando la
   app (`docs/drive.md`).
+
+## Estado (2026-09-28, llamadas de voz nativas; `native_calls.rs`, `tests/native_calls.rs`)
+
+En los teléfonos, la **voz** de una llamada ya no va por el WebView sino por Rust (`ft-media`, sobre
+`webrtc-engine`): con el iPhone bloqueado, CallKit contesta sin WebView y la media de WKWebView se
+silencia en segundo plano. El vídeo y el escritorio siguen con el WebView. La señalización no
+cambia (`CallOffer`, `CallAnswer`, `CallEnd`, SDP estándar), así que un teléfono nativo habla con un
+WebView (una app vieja): a una oferta con vídeo se le contesta solo el audio (`m=video 0`).
+
+- `start_native_call(contacto, ruta)` devuelve el id al momento; en segundo plano abre la conexión
+  (una pista de audio Opus), junta los candidatos (sin goteo) y manda la oferta con `offer_call`.
+  `call_answered` pone la respuesta en esa conexión. `answer_native_call(llamada, ruta)` contesta
+  con la oferta que se guardó al sonar (`ringing_offer`); contestar dos veces (CallKit y el WebView)
+  no hace nada. `answer_ringing_call` es el «contestar» del sistema: la llamada de voz que suena,
+  con la ruta guardada (la de vídeo se deja al WebView).
+- **Ruta** (`§17`): `set_call_routing`/`call_routing` (ajuste `call_routing`), una copia de la de
+  Ajustes para lo que se contesta sin WebView. `direct` quita el TURN, `always` solo TURN y política
+  `relay`. STUN, TURN y direcciones salen de `Transport::media_config` (el de `Network`: el mismo que
+  los DataChannels).
+- Al conectar: `CallUpdate::Connected` y arranca la voz; si la conexión falla, la llamada acaba como
+  `failed`, y también si el micrófono o el altavoz no abren. `close_call` (cualquier final, de
+  cualquier lado) para la voz y cierra la conexión. `mute_call`/`mute_current_call` →
+  `CallUpdate::Muted`.
+- **Sesión de audio de iOS**: `set_call_audio_active` (el `didActivate` de CallKit). Con
+  `Activation::WhenSessionActive` el dispositivo arranca solo con la llamada conectada **y** la
+  sesión activa; se para si CallKit la retira y vuelve a arrancar si la devuelve. En Android arranca
+  al conectar.
+- `current_call()`: la llamada que suena o va (fase, oferta si suena, `native`, `muted`,
+  `connected_at`), para un WebView que llega tarde. `set_call_audio(None)` deja todo en el WebView
+  (escritorio; por defecto, `ft_media::platform_audio()`).
+- Tests (WebRTC real en loopback, dispositivos falsos que hablan una voz de prueba): la voz llega a
+  los dos lados (correlación ~0,97), silenciar deja silencio (RMS ~0), colgar para los dos, el
+  dispositivo de iOS espera a CallKit y una oferta de WebView con vídeo se contesta solo con audio.

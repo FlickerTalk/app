@@ -180,3 +180,20 @@ Estado (2026-09-27, plugins fase 3 y la nube del usuario; `docs/drive.md`):
   momento solo se usa en la app móvil, la UI es web y se adapta al ancho; la barra de pestañas
   inferior pasa a ser un NavigationRail (barra lateral de iconos) en pantallas anchas, y la
   lista de chats y la conversación se ven lado a lado. Sin fuentes ni recursos externos.
+
+Estado (2026-09-28, llamadas de voz nativas):
+
+- En iOS y Android (`core_native_calls`), una llamada de **voz** no usa `getUserMedia` ni
+  `RTCPeerConnection`: `startCall` llama a `core_call_start_native({ contact, routing })`,
+  `acceptCall` a `core_call_answer_native({ call, routing })`, `toggleMute` a
+  `core_call_mute({ call, muted })` y colgar sigue siendo `core_call_end` (el núcleo para la voz).
+  El estado llega de los eventos del núcleo: `answered` → «connecting», `connected` → en curso (el
+  reloj), `muted` (también desde CallKit o la notificación) y `ended`. Las videollamadas y el
+  escritorio no cambian.
+- `startCalls()` pregunta `core_current_call()` y recupera la llamada que suena o va: el núcleo
+  pudo oír la oferta, o CallKit contestarla, antes de que el WebView escuchara. Una llamada en
+  curso abre la pantalla de llamada; `applyCallNotification` actúa sobre ese estado. Una llamada del
+  WebView que sobrevivió a su WebView ya no tiene media: acaba como fallida.
+- La ruta de llamadas se le dice al núcleo al arrancar y en cada cambio (`syncCallRouting` en
+  `preferences.ts`): CallKit contesta sin WebView con esa copia.
+- Sin textos nuevos: la pantalla de llamada (`CallPage`, `IncomingCall`) es la misma.
