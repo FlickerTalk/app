@@ -73,6 +73,9 @@ impl PacketSource for Inbound {
     }
 }
 
+/// How often the device thread looks after the device while it runs.
+const UPKEEP_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// The device, on a thread of its own: a backend never has to cross threads.
 struct Device {
     stop: std::sync::mpsc::Sender<()>,
@@ -99,8 +102,11 @@ impl Device {
                     return;
                 }
                 let _ = started.send(Ok(()));
-                // Until told, or until the voice is gone.
-                let _ = stopping.recv();
+                // Until told, or until the voice is gone; the device gets a look every 100 ms.
+                while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopping.recv_timeout(UPKEEP_EVERY) {
+                    // TODO(engine backends): `backend.maintain()` here once webrtc-engine has it
+                    // (Android reopens its streams after a disconnect); a no-op elsewhere.
+                }
                 let _ = backend.stop();
             })
             .map_err(|error| AudioError::Backend(error.to_string()))?;
