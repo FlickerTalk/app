@@ -2131,7 +2131,8 @@ pub struct DriveStatusView {
 }
 
 /// Where the drive stands: `none`, `empty` (logged in, no drive yet), `locked` (a drive from
-/// another phone: needs the code) or `ready`.
+/// another phone: needs the phrase), `outdated` (a drive of the first version: made again) or
+/// `ready`. `triesLeft` and `retryAt` say how the recovery's tries stand (2026-09-28).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultStatusView {
@@ -2139,6 +2140,8 @@ pub struct VaultStatusView {
     pub provider: Option<String>,
     pub drive: Option<DriveStatusView>,
     pub problem: Option<String>,
+    pub tries_left: u32,
+    pub retry_at: Option<i64>,
 }
 
 impl From<ft_core::vault::VaultStatus> for VaultStatusView {
@@ -2149,6 +2152,7 @@ impl From<ft_core::vault::VaultStatus> for VaultStatusView {
                 VaultState::None => "none",
                 VaultState::Empty => "empty",
                 VaultState::Locked => "locked",
+                VaultState::Outdated => "outdated",
                 VaultState::Ready => "ready",
             }
             .to_owned(),
@@ -2162,6 +2166,8 @@ impl From<ft_core::vault::VaultStatus> for VaultStatusView {
                 backup_at: drive.backup_at,
             }),
             problem: status.problem,
+            tries_left: status.tries_left,
+            retry_at: status.retry_at,
         }
     }
 }
@@ -2250,15 +2256,27 @@ pub async fn core_vault_connect(provider: String, app: AppHandle, client: State<
     Ok(core.vault_connect(&provider, &PlatformAuthorizer(app)).await.map_err(failed)?.into())
 }
 
-/// Makes the drive; the recovery code comes back once, for the user to write down.
+/// Makes the drive, its key sealed with the phrase the user chose (kept by nobody but them).
 #[tauri::command]
-pub async fn core_vault_setup(client: State<'_, Client>) -> Result<String, String> {
-    client.core().await?.vault_setup().await.map_err(failed)
+pub async fn core_vault_setup(phrase: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_setup(&phrase).await.map_err(failed)
 }
 
 #[tauri::command]
-pub async fn core_vault_unlock(code: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.vault_unlock(&code).await.map_err(failed)
+pub async fn core_vault_unlock(phrase: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_unlock(&phrase).await.map_err(failed)
+}
+
+/// A strong phrase, for whoever wants the app to suggest one.
+#[tauri::command]
+pub async fn core_vault_suggest_phrase(client: State<'_, Client>) -> Result<String, String> {
+    Ok(client.core().await?.vault_suggest_phrase())
+}
+
+/// Seals the drive's key with a new phrase; the old one stops opening it.
+#[tauri::command]
+pub async fn core_vault_change_phrase(phrase: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.vault_change_phrase(&phrase).await.map_err(failed)
 }
 
 #[tauri::command]
@@ -2387,6 +2405,18 @@ mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
 
     use super::*;
+
+    // The recovery phrase (2026-09-28): the page learns a drive of the first version, how many
+    // tries are left and until when the recovery is locked.
+    #[test]
+    fn the_drive_s_state_tells_the_page_what_it_needs() {
+        use ft_core::vault::{VaultState, VaultStatus};
+        let view = VaultStatusView::from(VaultStatus { state: VaultState::Outdated, provider: Some("google".into()), drive: None, problem: None, tries_left: 5, retry_at: None });
+        assert_eq!(view.state, "outdated");
+        let view = VaultStatusView::from(VaultStatus { state: VaultState::Locked, provider: Some("google".into()), drive: None, problem: None, tries_left: 0, retry_at: Some(42) });
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!((json["state"].as_str(), json["triesLeft"].as_u64(), json["retryAt"].as_i64()), (Some("locked"), Some(0), Some(42)));
+    }
 
     /// The tools the app carries are a seed, not a store: what is heavy is a download and only
     /// for whoever wants it. The app stays small, whatever the catalogue grows to (§52).
