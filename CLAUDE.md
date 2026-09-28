@@ -7,7 +7,7 @@ Todo el **cliente** de FlickerTalk. Es un proyecto Tauri 2 generado con `create-
 | ------------- | ---------------------------------------------------------------------------- |
 | `src/`        | frontend: Vue 3 + Ionic + TypeScript + Vite (`§83`)                          |
 | `src-tauri/`  | proyecto Rust de Tauri: comandos, capabilities, bridge nativo, `gen/android` |
-| `crates/ft-*` | núcleo Rust con la lógica de negocio (`§82`); `ft-vault` es la nube del usuario (`docs/drive.md`) |
+| `crates/ft-*` | núcleo Rust con la lógica de negocio (`§82`); `ft-vault` es la nube del usuario (`docs/drive.md`); `ft-media`, la media nativa de las llamadas |
 | `packages/`   | `ui` (TypeScript)                                                            |
 
 Los plugins **no** viven aquí: cada uno tiene su repo (`FlickerTalk/plugin-images`, `plugin-pdf`,
@@ -74,12 +74,34 @@ plugins nuevos, y el visor de documentos (`views` en el manifiesto, el toque en 
 PDF en `plugin-pdf-viewer`; en iOS, Quick Look). `version` de `tauri.conf.json` y `CORE_VERSION`
 de `ft-core` van a la par.
 
+**Estado (2026-09-28): push en iOS y llamadas de voz nativas.** Nada de esto está fusionado:
+
+- **iOS** (rama `ios-push`, PR app#13): push por APNs (el router 0.3.0 ya lo sirve) y llamadas con
+  CallKit a través de PushKit; tocar una notificación ya no cierra la app (el delegado corre en el
+  hilo principal); el registro del push espera al token de VoIP y la app vuelve a dejar su token
+  al router cada vez que vuelve a la pantalla; colgar siempre sale de la pantalla de llamada; y el
+  núcleo arranca desde un plugin de Tauri (`ft-boot`) y no con la ventana, así que una app que
+  PushKit lanza sin escena también se conecta. Detalle en `src-tauri/CLAUDE.md`.
+- **Llamadas de voz nativas** (rama `native-calls`, encima de `ios-push`, sin subir; Plan `§66`,
+  decisión del 2026-09-28): en iOS y Android la **voz** de una llamada va en Rust, sin WebView, con
+  el crate `crates/ft-media` sobre `webrtc-engine` (repo público `FlickerTalk/webrtc-engine-rs`,
+  AGPL-3.0, dependencia git). Motivo: la media de WKWebView corre en otro proceso, se silencia en
+  segundo plano y no recibe el micrófono de CallKit, así que una llamada contestada con el iPhone
+  bloqueado no tenía audio. La señalización SDP no cambia: un teléfono nativo habla con un par que
+  aún usa el WebView. Android: audio nativo con el servicio en primer plano `phoneCall|microphone`
+  y, con el router 0.3.1 (PR server#3, sin fusionar), el push FCM `t: call` hace sonar el teléfono
+  con la app cerrada. Las **videollamadas y el escritorio siguen en el WebView** hasta que se
+  integre el vídeo del motor (en curso en `webrtc-engine-rs`). **En pruebas** en dispositivos
+  reales desde el 2026-09-28; falta declarar en Play Console los servicios en primer plano
+  `phoneCall` y `microphone`. Detalle en `crates/ft-core/CLAUDE.md` (`native_calls.rs`),
+  `crates/ft-media/CLAUDE.md`, `src-tauri/CLAUDE.md` y `src/CLAUDE.md`.
+
 **Estado (2026-09-23): la 1.0.0 está en revisión en Google Play.** El AAB (29,5 MB; 8,45 MB de
 descarga) se subió a mano —la primera subida lo exige— desde la cuenta de organización ERPlora,
 con la ficha, las capturas y el «Data safety» de `infra/store/play/` y del runbook
 `infra/runbooks/ficha-google-play.md`. A partir de aquí las sube CI. Lo que falta para cobrar (el
-perfil de pagos y la suscripción de 1 €) está en `infra/TAREAS.md`. iOS espera a la cuenta de pago
-de Apple.
+perfil de pagos y la suscripción de 1 €) está en `infra/TAREAS.md`. iOS ya tiene la cuenta de pago
+de Apple, pero su publicación espera a que Apple libere el bundle id (abajo, «Entorno»).
 
 Compilar para Android necesita el NDK **que hay instalado**: hoy
 `~/Library/Android/sdk/ndk/27.1.12297006`. Con otro número, el build falla con «Android NDK
@@ -122,6 +144,13 @@ irá por variables de entorno (`ANDROID_UPLOAD_KEYSTORE_FILE`, `ANDROID_UPLOAD_K
   app y sus librerías. **No regeneres el proyecto con `xcodegen`**: borra las descripciones de
   cámara y micrófono del `Info.plist` y las líneas `DEVELOPMENT_TEAM = ""` que necesita
   `scripts/ios-build.sh`.
+  **Bundle id en iOS (2026-09-28)**: `com.flickertalk.app` sigue retenido por el antiguo equipo
+  personal (gratuito) y el equipo de pago no puede registrarlo hasta que Apple lo libere (caso
+  abierto con Apple). Mientras tanto, el iPhone se prueba con una build **`.dev`**
+  (`com.flickertalk.app.dev`) firmada en el equipo de pago y **solo local**: ese identificador y el
+  equipo nunca se versionan (el router acepta los dos bundles, `FT_APNS_TOPICS`). No se compila
+  con el equipo personal: mantendría el identificador ocupado. El ID de equipo nunca va en este
+  repo; se pasa por `APPLE_DEVELOPMENT_TEAM`.
   Un iPhone nuevo se registra una vez con `xcodebuild -allowProvisioningUpdates
   -allowProvisioningDeviceRegistration -destination id=<udid> …`. Los permisos de cámara y micrófono
   están en `src-tauri/Info.ios.plist`. El WebView de iOS no habla CDP: en el iPhone se prueba a mano.
