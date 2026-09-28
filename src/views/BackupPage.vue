@@ -68,6 +68,11 @@ const counted = (value: string) => value.trim().normalize("NFC");
 const length = computed(() => [...counted(phrase.value)].length);
 const mismatch = computed(() => again.value !== "" && counted(again.value) !== counted(phrase.value));
 const acceptable = computed(() => length.value >= PHRASE_MIN && length.value <= PHRASE_MAX && !mismatch.value && again.value !== "");
+/** What went wrong, honestly (§84); a wrong phrase is just that, not "something went wrong". */
+const shownError = computed(() => {
+  const said = error.value || status.value.problem || "";
+  return said === t("backup.wrongPhrase") ? said : t("backup.failed", { error: said });
+});
 const retryAt = computed(() => (status.value.retryAt ? new Date(status.value.retryAt).toLocaleString() : ""));
 
 const percent = computed(() => (progress.value?.total ? Math.round((progress.value.done / progress.value.total) * 100) : 0));
@@ -346,7 +351,7 @@ const forget = () =>
         </span>
         <p v-if="done" class="ft-backup__hint is-done" role="status">{{ done }}</p>
         <p v-if="error || status.problem" class="ft-backup__error" role="alert">
-          <ion-icon :icon="warningOutline" aria-hidden="true" /> {{ $t("backup.failed", { error: error || status.problem }) }}
+          <ion-icon :icon="warningOutline" aria-hidden="true" /> {{ shownError }}
         </p>
         <p class="ft-backup__hint ft-backup__foot">{{ $t("backup.sees") }}</p>
       </div>
@@ -435,7 +440,7 @@ const forget = () =>
   border: 0;
   border-radius: 14px;
   font-weight: 600;
-  color: #fff;
+  color: var(--ft-on-accent);
   background: var(--ft-accent);
 }
 .ft-backup__go:disabled {
