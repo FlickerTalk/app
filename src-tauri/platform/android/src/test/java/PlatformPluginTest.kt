@@ -1,6 +1,7 @@
 package com.flickertalk.platform
 
 import android.app.ActivityManager
+import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import com.android.billingclient.api.Purchase
 import org.junit.Assert.assertEquals
@@ -320,4 +321,105 @@ class PlatformPluginTest {
         assertEquals(false, isAuthRedirect(null, "com.flickertalk.app"))
         assertEquals(false, isAuthRedirect("com.flickertalk.app:/x", ""))
     }
+
+    // Native calls (2026-09-28): the router pushes `t: call` for a call, so it rings with the app
+    // closed; everything else is still `wake`.
+    @Test
+    fun onlyTheRoutersCallPushIsACall() {
+        assertEquals(true, isCall(mapOf("t" to "call", "s" to "0")))
+        assertEquals(false, isCall(mapOf("t" to "wake", "s" to "0")))
+        assertEquals(false, isCall(emptyMap()))
+        assertEquals(false, isWake(mapOf("t" to "call")))
+    }
+
+    // The same rules as a wake-up: a closed hidden session makes no noise at all (app#9); the
+    // app on the screen rings by itself; outside the weekly hours (app#7) the call shows but is
+    // quiet, like a call the app rings itself.
+    @Test
+    fun aCallPushFollowsTheWakeUpRules() {
+        val call = mapOf("t" to "call", "s" to "0")
+        assertEquals(CallPush.RING, callPush(call, emptySet(), appOnScreen = false, mayDisturb = true))
+        assertEquals(CallPush.SILENT, callPush(call, emptySet(), appOnScreen = false, mayDisturb = false))
+        assertEquals(CallPush.IGNORE, callPush(call, emptySet(), appOnScreen = true, mayDisturb = true))
+        val hidden = mapOf("t" to "call", "s" to "3")
+        assertEquals(CallPush.IGNORE, callPush(hidden, emptySet(), appOnScreen = false, mayDisturb = true))
+        assertEquals(CallPush.RING, callPush(hidden, setOf(3), appOnScreen = false, mayDisturb = true))
+        assertEquals(CallPush.IGNORE, callPush(mapOf("t" to "wake"), emptySet(), appOnScreen = false, mayDisturb = true))
+    }
+
+    // A call rings 45 s from when the router pushed it, no longer: the caller gave up by then.
+    // A phone clock that disagrees with Google's is not trusted to cut the call short.
+    @Test
+    fun aCallRingsFortyFiveSecondsFromItsPush() {
+        assertEquals(45_000L, callRingMillis(sentAt = 1_000_000L, now = 1_000_000L))
+        assertEquals(35_000L, callRingMillis(sentAt = 1_000_000L, now = 1_010_000L))
+        assertEquals(45_000L, callRingMillis(sentAt = 1_000_000L, now = 990_000L), "a clock behind")
+        assertEquals(45_000L, callRingMillis(sentAt = 1_000_000L, now = 1_300_000L), "a clock ahead: FCM's TTL already bounds it")
+        assertEquals(45_000L, callRingMillis(sentAt = 0L, now = 1_000_000L), "no send time")
+    }
+
+    private fun assertEquals(expected: Long, actual: Long, message: String) = org.junit.Assert.assertEquals(message, expected, actual)
+
+    // The events travel as Rust's `call_event` reads them.
+    @Test
+    fun callEventsTravelAsTheCoreReadsThem() {
+        assertEquals(mapOf("event" to "answer"), callEventPayload(CallEvent.Answer))
+        assertEquals(mapOf("event" to "end"), callEventPayload(CallEvent.End))
+        assertEquals(mapOf("event" to "mute", "muted" to true), callEventPayload(CallEvent.Mute(true)))
+        assertEquals(mapOf("event" to "mute", "muted" to false), callEventPayload(CallEvent.Mute(false)))
+        assertEquals(mapOf("event" to "audioActivated"), callEventPayload(CallEvent.AudioActivated))
+        assertEquals(mapOf("event" to "audioDeactivated"), callEventPayload(CallEvent.AudioDeactivated))
+    }
+
+    // Nothing the user does before the core listens is lost; it arrives in order when it does.
+    @Test
+    fun callEventsWaitUntilTheCoreListens() {
+        val queue = CallEventQueue()
+        val heard = mutableListOf<CallEvent>()
+        queue.emit(CallEvent.Answer)
+        queue.emit(CallEvent.Mute(true))
+        assertEquals(emptyList<CallEvent>(), heard)
+        queue.register { heard.add(it) }
+        assertEquals(listOf(CallEvent.Answer, CallEvent.Mute(true)), heard)
+        queue.emit(CallEvent.End)
+        assertEquals(listOf(CallEvent.Answer, CallEvent.Mute(true), CallEvent.End), heard)
+    }
+
+    // A new listener replaces the old; waiting is bounded; a new call forgets an old one's events.
+    @Test
+    fun aNewListenerReplacesTheOldAndWaitingIsBounded() {
+        val queue = CallEventQueue(limit = 2)
+        val first = mutableListOf<CallEvent>()
+        val second = mutableListOf<CallEvent>()
+        queue.emit(CallEvent.Answer)
+        queue.emit(CallEvent.Mute(true))
+        queue.emit(CallEvent.End)
+        queue.register { first.add(it) }
+        assertEquals(listOf(CallEvent.Mute(true), CallEvent.End), first)
+        queue.register { second.add(it) }
+        queue.emit(CallEvent.Mute(false))
+        assertEquals(listOf(CallEvent.Mute(true), CallEvent.End), first)
+        assertEquals(listOf<CallEvent>(CallEvent.Mute(false)), second)
+        val other = CallEventQueue()
+        val none = mutableListOf<CallEvent>()
+        other.emit(CallEvent.End)
+        other.forget()
+        other.register { none.add(it) }
+        assertEquals(emptyList<CallEvent>(), none)
+    }
+
+    // Android 14 keeps the microphone from an app in the background unless a foreground service
+    // of type microphone holds it, and that type needs the permission already granted.
+    @Test
+    fun theCallServiceHoldsTheMicrophoneOnceItIsAllowed() {
+        val call = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+        val microphone = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        assertEquals(call or microphone, callServiceTypes(34, microphone = true))
+        assertEquals(call, callServiceTypes(34, microphone = false))
+        assertEquals(call or microphone, callServiceTypes(30, microphone = true))
+        assertEquals(call, callServiceTypes(29, microphone = true), "no microphone type before Android 11")
+        assertEquals(0, callServiceTypes(28, microphone = true), "no types at all before Android 10")
+    }
+
+    private fun assertEquals(expected: Int, actual: Int, message: String) = org.junit.Assert.assertEquals(message, expected.toLong(), actual.toLong())
 }
