@@ -109,4 +109,26 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertEqual(item.previewItemTitle, file.lastPathComponent)
         XCTAssertEqual(item.numberOfPreviewItems(in: QLPreviewController()), 1)
     }
+    // APNs (2026-09-28): the token names its gateway and the app, so the router pushes to the
+    // right place. A development profile says so; an App Store build carries no profile.
+    func testTheGatewayComesFromTheProvisioningProfile() {
+        let development = "junk<plist><dict><key>Entitlements</key><dict><key>aps-environment</key>\n\t\t<string>development</string></dict></dict></plist>junk"
+        let production = development.replacingOccurrences(of: ">development<", with: ">production<")
+        XCTAssertEqual(apnsGateway(provisioning: development), "sandbox")
+        XCTAssertEqual(apnsGateway(provisioning: production), "production")
+        XCTAssertEqual(apnsGateway(provisioning: nil), "production", "no profile: the App Store")
+        XCTAssertEqual(apnsGateway(provisioning: "<plist></plist>"), "production")
+    }
+
+    func testThePushTargetIsGatewayBundleAndTokenInHex() {
+        let token = Data([0x00, 0x0f, 0xab, 0xff])
+        XCTAssertEqual(pushTarget(gateway: "sandbox", bundle: "com.flickertalk.app.dev", token: token), "sandbox:com.flickertalk.app.dev:000fabff")
+    }
+
+    // Our wake-up says nothing and needs showing only when the app is not on the screen.
+    func testOnlyOurWakeUpIsRecognised() {
+        XCTAssertTrue(isWakePush(["t": "wake", "s": 0]))
+        XCTAssertFalse(isWakePush(["aps": ["alert": "x"]]))
+        XCTAssertFalse(isWakePush([:]))
+    }
 }

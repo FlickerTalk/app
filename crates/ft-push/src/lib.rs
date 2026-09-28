@@ -105,6 +105,8 @@ pub struct RouterClient {
     base: String,
     http: reqwest::Client,
     signer: Arc<dyn Signer>,
+    /// Asked to reconnect now (`reconnect_now`): the app came back to the screen.
+    again: Arc<tokio::sync::Notify>,
 }
 
 /// An HTTPS client that carries its own cryptography. A phone has no crypto provider installed,
@@ -127,7 +129,14 @@ pub fn https_client(timeout: Duration) -> Result<reqwest::Client> {
 impl RouterClient {
     pub fn new(base: &str, signer: Arc<dyn Signer>) -> Result<Self> {
         let http = https_client(Duration::from_secs(20))?;
-        Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer })
+        Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer, again: Arc::default() })
+    }
+
+    /// Drops the socket and opens it again at once, skipping any wait (2026-09-28). iOS cuts the
+    /// socket of a suspended app and the phone may take long to notice; when the app is back on
+    /// the screen, or a push was tapped, the welcome of a fresh connection fetches what waits.
+    pub fn reconnect_now(&self) {
+        self.again.notify_one();
     }
 
     pub fn device_id(&self) -> String {
@@ -235,14 +244,27 @@ impl RouterClient {
         tokio::spawn(async move {
             let mut backoff = Duration::from_secs(1);
             loop {
-                match client.connection(&events).await {
-                    Ok(()) => backoff = Duration::from_secs(1),
-                    Err(_) => backoff = (backoff * 2).min(MAX_BACKOFF),
-                }
+                let asked = tokio::select! {
+                    result = client.connection(&events) => {
+                        match result {
+                            Ok(()) => backoff = Duration::from_secs(1),
+                            Err(_) => backoff = (backoff * 2).min(MAX_BACKOFF),
+                        }
+                        false
+                    }
+                    _ = client.again.notified() => true,
+                };
                 if events.send(RouterEvent::Disconnected).await.is_err() {
                     return;
                 }
-                tokio::time::sleep(backoff).await;
+                if asked {
+                    backoff = Duration::from_secs(1);
+                    continue;
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(backoff) => {}
+                    _ = client.again.notified() => backoff = Duration::from_secs(1),
+                }
             }
         });
         receiver

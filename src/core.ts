@@ -649,6 +649,11 @@ export async function erasePhone(): Promise<void> {
   await invoke("core_erase");
 }
 
+/** Reconnects to the router at once (2026-09-28): the app is back on the screen. Never fails. */
+export async function resumeRouter(): Promise<void> {
+  await invoke("core_resume").catch(() => undefined);
+}
+
 /** Opens the phone's share sheet with `text`; fails where there is none (a desktop). */
 export async function shareText(text: string): Promise<void> {
   await invoke("core_share", { text });

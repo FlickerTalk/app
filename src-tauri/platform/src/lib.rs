@@ -244,7 +244,8 @@ impl<R: Runtime> Platform<R> {
         self.run("stopRinging", ())
     }
 
-    /// The FCM token of this device.
+    /// The token the router wakes this device with: FCM's on Android; on iOS, `gateway:bundle:token`
+    /// for APNs (2026-09-28).
     pub fn push_token(&self) -> Result<String> {
         #[cfg(mobile)]
         {
