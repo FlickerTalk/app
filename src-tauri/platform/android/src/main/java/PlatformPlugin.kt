@@ -1,6 +1,16 @@
 package com.flickertalk.platform
 
+import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.Service
+import android.media.AudioFocusRequest
+import android.os.IBinder
+import androidx.core.app.ServiceCompat
+import app.tauri.PermissionState
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
+import app.tauri.plugin.Channel
 import android.app.ActivityManager
 import android.app.AlarmManager
 import android.app.NotificationChannel
@@ -145,6 +155,10 @@ fun callText(video: Boolean): Int = if (video) R.string.ft_incoming_video_call e
  */
 class FtMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
+        if (isCall(message.data)) {
+            incomingCall(message)
+            return
+        }
         if (!isWake(message.data)) return
         // A closed hidden session makes no noise, not even this (app#9).
         if (!wakeIsHeard(message.data["s"], openSlots)) return
@@ -152,6 +166,26 @@ class FtMessagingService : FirebaseMessagingService() {
         ActivityManager.getMyMemoryState(state)
         // Outside the weekly hours (app#7) the message still arrives when the app opens.
         if (shouldNotify(state.importance) && mayDisturbNow(this)) showActivityNotification(this)
+    }
+
+    /**
+     * A call with the app closed (native calls, 2026-09-28): the incoming-call notification, with
+     * the generic text (the name comes when the app opens and reads the offer), ringing for what
+     * is left of its 45 s. The system plays the ringtone on the ringing channel, as the ringer mode
+     * says: a process woken by FCM may be frozen long before the call stops ringing.
+     */
+    private fun incomingCall(message: RemoteMessage) {
+        val state = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(state)
+        val push = callPush(message.data, openSlots, !shouldNotify(state.importance), mayDisturbNow(this))
+        if (push == CallPush.IGNORE) return
+        showCall(
+            this,
+            getString(R.string.ft_someone),
+            getString(R.string.ft_incoming_call),
+            ringing = push == CallPush.RING,
+            timeoutMs = callRingMillis(message.sentTime, System.currentTimeMillis()),
+        )
     }
 
     // A new token reaches the router the next time the app starts.
@@ -230,6 +264,15 @@ class CallEventQueue(private val limit: Int = 16) {
     fun forget() = waiting.clear()
 }
 
+/** The audio mode to go back to after a call: what it was, unless that was a call's mode too. */
+fun modeAfterCall(previous: Int?): Int = when (previous) {
+    null, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> AudioManager.MODE_NORMAL
+    else -> previous
+}
+
+/** A call pushed with the app closed rings on this channel: the system plays the ringtone. */
+const val RINGING_CALL_CHANNEL = "ft.call.ringing"
+
 /** The foreground service types of a call: phone call, and the microphone once it is allowed. */
 fun callServiceTypes(sdk: Int, microphone: Boolean): Int = when {
     sdk < Build.VERSION_CODES.Q -> 0
@@ -256,7 +299,19 @@ private fun callIntent(context: Context, action: String, request: Int): PendingI
     )
 }
 
-private fun showCall(context: Context, title: String, text: String) {
+/** How the system plays the ringtone of a call pushed with the app closed. A function, not a
+ *  value: a top-level value would run Android code when the JVM tests load this file. */
+private fun ringtoneAttributes(): AudioAttributes = AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+    .build()
+
+/**
+ * `ringing`: the system rings (insistently, as the ringer mode says) until the notification goes,
+ * after `timeoutMs` at most. Otherwise the notification is silent: the app rings itself, or the
+ * weekly hours keep the call quiet.
+ */
+private fun showCall(context: Context, title: String, text: String, ringing: Boolean = false, timeoutMs: Long = 0) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         manager.createNotificationChannel(
@@ -265,12 +320,21 @@ private fun showCall(context: Context, title: String, text: String) {
                 enableVibration(false)
             }
         )
+        if (ringing) {
+            manager.createNotificationChannel(
+                NotificationChannel(RINGING_CALL_CHANNEL, context.getString(R.string.ft_channel_incoming_calls), NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), ringtoneAttributes())
+                    enableVibration(true)
+                    vibrationPattern = RING_PATTERN
+                }
+            )
+        }
     }
     val open = callIntent(context, "", 1) ?: return
     val answer = callIntent(context, "answer", 2) ?: return
     val decline = callIntent(context, "decline", 3) ?: return
     val caller = Person.Builder().setName(title).setImportant(true).build()
-    val notification = NotificationCompat.Builder(context, CALL_CHANNEL)
+    val builder = NotificationCompat.Builder(context, if (ringing) RINGING_CALL_CHANNEL else CALL_CHANNEL)
         .setSmallIcon(R.drawable.ft_notification)
         .setContentTitle(title)
         .setContentText(text)
@@ -283,7 +347,14 @@ private fun showCall(context: Context, title: String, text: String) {
         // Answer and decline from the notification itself: the user should not have to open the
         // app to pick up (§66).
         .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer))
-        .build()
+    if (timeoutMs > 0) builder.setTimeoutAfter(timeoutMs)
+    if (ringing) {
+        // Before Android 8 the sound and vibration are the notification's, not its channel's.
+        builder.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioManager.STREAM_RING)
+        builder.setVibrate(RING_PATTERN)
+    }
+    val notification = builder.build()
+    if (ringing) notification.flags = notification.flags or Notification.FLAG_INSISTENT
     try {
         manager.notify(CALL_NOTIFICATION, notification)
     } catch (_: SecurityException) {
@@ -315,6 +386,214 @@ private fun showActivityNotification(context: Context) {
         manager.notify(NOTIFICATION, notification)
     } catch (_: SecurityException) {
         // Notifications not allowed: the app gets everything when it opens.
+    }
+}
+
+// ---- A native call in progress (2026-09-28) ----
+
+/** The ongoing call's notification: the foreground service's, so it has its own id. */
+private const val ONGOING_CALL_NOTIFICATION = 3
+/** The ongoing call shows on a quiet channel: it is there to hang up and mute, not to alert. */
+const val ONGOING_CALL_CHANNEL = "ft.call.ongoing"
+private const val ACTION_HANG_UP = "com.flickertalk.platform.HANG_UP"
+private const val ACTION_MUTE = "com.flickertalk.platform.MUTE"
+
+/**
+ * The core's channel (`listen_calls`) and the events that wait for it. One background thread
+ * sends them, so Rust's handler never runs on the main thread and may call the plugin back.
+ */
+object CallEvents {
+    private val queue = CallEventQueue()
+    private val sender = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    fun register(channel: Channel) = sender.execute { queue.register { channel.sendObject(callEventPayload(it)) } }
+
+    fun emit(event: CallEvent) = sender.execute { queue.emit(event) }
+
+    fun forget() = sender.execute { queue.forget() }
+}
+
+/**
+ * The call this phone is in (native calls): communication audio mode, audio focus for voice,
+ * and a foreground service of type phone call and microphone, so the microphone keeps working
+ * with the app in the background (Android 14). Used on the main thread.
+ */
+object InCall {
+    var active = false
+        private set
+    var muted = false
+    var name = ""
+        private set
+    /** Who the last ringing call was: an answered call is named after it. */
+    var ringingName = ""
+    private var previousMode: Int? = null
+    private var focus: Any? = null
+    @Volatile
+    var service: FtCallService? = null
+
+    /** Starts the call's audio and service; again, only makes sure the service holds what it may. */
+    fun start(context: Context, name: String) {
+        if (!active) {
+            this.name = name
+            active = true
+            muted = false
+            CallEvents.forget()
+            context.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+            takeAudio(context)
+        }
+        val running = service
+        if (running != null) {
+            running.promote()
+            return
+        }
+        try {
+            ContextCompat.startForegroundService(context, Intent(context, FtCallService::class.java))
+        } catch (_: Exception) {
+            // Android 12+ refuses a foreground service started from the background; the call
+            // still works while the app is on the screen.
+        }
+    }
+
+    fun end(context: Context) {
+        if (!active) return
+        active = false
+        muted = false
+        context.stopService(Intent(context, FtCallService::class.java))
+        giveAudioBack(context)
+    }
+
+    private fun takeAudio(context: Context) {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        previousMode = audio.mode
+        audio.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener {}
+                .build()
+            audio.requestAudioFocus(request)
+            focus = request
+        } else {
+            @Suppress("DEPRECATION")
+            audio.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        }
+    }
+
+    private fun giveAudioBack(context: Context) {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            (focus as? AudioFocusRequest)?.let { audio.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audio.abandonAudioFocus(null)
+        }
+        focus = null
+        audio.mode = modeAfterCall(previousMode)
+        previousMode = null
+    }
+}
+
+/** The ongoing call's notification: who, hang up and mute; tapping it opens the app. */
+fun ongoingCallNotification(context: Context): Notification {
+    val manager = context.getSystemService(NotificationManager::class.java)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        manager?.createNotificationChannel(
+            NotificationChannel(ONGOING_CALL_CHANNEL, context.getString(R.string.ft_channel_ongoing_calls), NotificationManager.IMPORTANCE_LOW)
+        )
+    }
+    fun action(action: String, request: Int): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        request,
+        Intent(context, FtCallActionReceiver::class.java).setAction(action),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    val title = callTitle(InCall.name) ?: context.getString(R.string.ft_someone)
+    val caller = Person.Builder().setName(title).setImportant(true).build()
+    val builder = NotificationCompat.Builder(context, ONGOING_CALL_CHANNEL)
+        .setSmallIcon(R.drawable.ft_notification)
+        .setContentTitle(title)
+        .setContentText(context.getString(R.string.ft_ongoing_call))
+        .setCategory(NotificationCompat.CATEGORY_CALL)
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, action(ACTION_HANG_UP, 5)))
+        .addAction(
+            R.drawable.ft_notification,
+            context.getString(if (InCall.muted) R.string.ft_unmute else R.string.ft_mute),
+            action(ACTION_MUTE, 6),
+        )
+    callIntent(context, "", 4)?.let { builder.setContentIntent(it) }
+    return builder.build()
+}
+
+/** Keeps the call alive with the app in the background: the microphone and the audio go on. */
+class FtCallService : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        InCall.service = this
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!InCall.active) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        promote()
+        return START_NOT_STICKY
+    }
+
+    /** In the foreground with the types it may hold now: the microphone once it is allowed. */
+    fun promote() {
+        val microphone = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        try {
+            ServiceCompat.startForeground(this, ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this), callServiceTypes(Build.VERSION.SDK_INT, microphone))
+        } catch (_: Exception) {
+            // The microphone type from the background, or no leave for a phone-call service: try
+            // without the microphone, and give up if even that is refused.
+            try {
+                ServiceCompat.startForeground(this, ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this), callServiceTypes(Build.VERSION.SDK_INT, false))
+            } catch (_: Exception) {
+                stopSelf()
+            }
+        }
+    }
+
+    /** The notification again, after a change (mute). */
+    fun refresh() {
+        try {
+            getSystemService(NotificationManager::class.java)?.notify(ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this))
+        } catch (_: SecurityException) {
+        }
+    }
+
+    override fun onDestroy() {
+        if (InCall.service === this) InCall.service = null
+        super.onDestroy()
+    }
+}
+
+/** Hang up and mute on the ongoing call's notification: to the core, through its channel. */
+class FtCallActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+            ACTION_HANG_UP -> {
+                CallEvents.emit(CallEvent.End)
+                // The notification goes at once; the core's `callEnded` then finds it done.
+                InCall.end(context)
+            }
+            ACTION_MUTE -> {
+                InCall.muted = !InCall.muted
+                CallEvents.emit(CallEvent.Mute(InCall.muted))
+                InCall.service?.refresh()
+            }
+        }
     }
 }
 
@@ -568,6 +847,17 @@ class RingingArgs {
 }
 
 @InvokeArg
+class CallEventsArgs {
+    lateinit var channel: Channel
+}
+
+@InvokeArg
+class OutgoingArgs {
+    var name: String = ""
+    var video: Boolean = false
+}
+
+@InvokeArg
 class QuietHoursArgs {
     var week: String = ""
 }
@@ -652,7 +942,7 @@ class SaveFileArgs {
 }
 
 /** What only Android lets Kotlin do (Plan §5): lend a file to a viewer, save it to Downloads. */
-@TauriPlugin
+@TauriPlugin(permissions = [Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone")])
 class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
@@ -673,6 +963,8 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
         pendingCall = callAction(activity.intent?.getStringExtra(CALL_ACTION))
         activity.intent?.removeExtra(CALL_ACTION)
+        // Answer or decline on a call pushed with the app closed: the system stops ringing now.
+        if (pendingCall.isNotEmpty()) activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
         pendingReminder = pendingReminderOf(activity.intent?.getStringExtra(REMINDER_ACTION))
         activity.intent?.removeExtra(REMINDER_ACTION)
     }
@@ -681,7 +973,10 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         val action = callAction(intent.getStringExtra(CALL_ACTION))
-        if (action.isNotEmpty()) pendingCall = action
+        if (action.isNotEmpty()) {
+            pendingCall = action
+            activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        }
         intent.removeExtra(CALL_ACTION)
         val reminder = pendingReminderOf(intent.getStringExtra(REMINDER_ACTION))
         if (reminder.isNotEmpty()) pendingReminder = reminder
@@ -734,11 +1029,67 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** Answer or decline, once, if the user pressed it on the notification. */
+    /**
+     * Answer or decline, once, if the user pressed it on the notification. Answered: the core
+     * answers natively, so the call's audio and foreground service start now.
+     */
     @Command
     fun pendingCall(invoke: Invoke) {
-        invoke.resolve(JSObject().apply { put("action", pendingCall) })
+        val action = pendingCall
         pendingCall = ""
+        if (action == "answer") activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
+        invoke.resolve(JSObject().apply { put("action", action) })
+    }
+
+    /** The core listens to native calls (`listen_calls`): events that waited go out now. */
+    @Command
+    fun registerCallEvents(invoke: Invoke) {
+        try {
+            CallEvents.register(invoke.parseArgs(CallEventsArgs::class.java).channel)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "no channel")
+        }
+    }
+
+    /** This phone calls: communication audio, focus and the call's foreground service. */
+    @Command
+    fun callStartedOutgoing(invoke: Invoke) {
+        val args = invoke.parseArgs(OutgoingArgs::class.java)
+        activity.runOnUiThread { InCall.start(activity, args.name) }
+        invoke.resolve()
+    }
+
+    /** Connected: a call answered in the app's own screen gets its audio and service here. */
+    @Command
+    fun callConnected(invoke: Invoke) {
+        activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
+        invoke.resolve()
+    }
+
+    /** The call is over: the service stops, focus goes and the audio mode is what it was. */
+    @Command
+    fun callEnded(invoke: Invoke) {
+        activity.runOnUiThread { InCall.end(activity) }
+        invoke.resolve()
+    }
+
+    /**
+     * The microphone before a native call (2026-09-28): the WebView used to ask through
+     * `getUserMedia`. Asks only if it is not allowed yet; `granted` says what the user chose.
+     */
+    @Command
+    fun requestMicrophone(invoke: Invoke) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            invoke.resolve(JSObject().apply { put("granted", true) })
+        } else {
+            requestPermissionForAlias("microphone", invoke, "microphoneAnswered")
+        }
+    }
+
+    @PermissionCallback
+    fun microphoneAnswered(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("granted", getPermissionState("microphone") == PermissionState.GRANTED) })
     }
 
     /** Whether this phone lets us put a call on the whole screen (Android 14 and up). */
@@ -777,6 +1128,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun startRinging(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(RingingArgs::class.java)
+            InCall.ringingName = args.caller
             silence()
             showCall(
                 activity,

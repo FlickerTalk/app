@@ -422,4 +422,21 @@ class PlatformPluginTest {
     }
 
     private fun assertEquals(expected: Int, actual: Int, message: String) = org.junit.Assert.assertEquals(message, expected.toLong(), actual.toLong())
+
+    // After a call the phone's audio goes back to how it was, never stuck in a call's mode.
+    @Test
+    fun theAudioModeGoesBackAfterACall() {
+        assertEquals(AudioManager.MODE_NORMAL, modeAfterCall(AudioManager.MODE_NORMAL))
+        assertEquals(AudioManager.MODE_RINGTONE, modeAfterCall(AudioManager.MODE_RINGTONE))
+        assertEquals(AudioManager.MODE_NORMAL, modeAfterCall(AudioManager.MODE_IN_COMMUNICATION))
+        assertEquals(AudioManager.MODE_NORMAL, modeAfterCall(AudioManager.MODE_IN_CALL))
+        assertEquals(AudioManager.MODE_NORMAL, modeAfterCall(null))
+    }
+
+    // With the app closed the system rings (the process may be frozen), on a channel of its own:
+    // the in-app one is silent because the app plays the ringtone itself.
+    @Test
+    fun aCallPushedWithTheAppClosedRingsOnItsOwnChannel() {
+        assertEquals("ft.call.ringing", RINGING_CALL_CHANNEL)
+    }
 }

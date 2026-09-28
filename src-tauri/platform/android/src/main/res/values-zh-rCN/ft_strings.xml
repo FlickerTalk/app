@@ -9,4 +9,9 @@
     <string name="ft_channel_reminders">Reminders</string>
     <string name="ft_reminder">Reminder</string>
     <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_incoming_calls">来电</string>
+    <string name="ft_channel_ongoing_calls">进行中的通话</string>
+    <string name="ft_ongoing_call">通话中</string>
+    <string name="ft_mute">静音</string>
+    <string name="ft_unmute">取消静音</string>
 </resources>
