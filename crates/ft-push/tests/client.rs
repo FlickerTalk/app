@@ -246,6 +246,61 @@ async fn the_socket_is_opened_again_at_once_when_asked() {
     assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
 
+/// Whether a welcome comes within a few seconds.
+async fn welcomed(events: &mut tokio::sync::mpsc::Receiver<RouterEvent>) -> bool {
+    let waiting = async {
+        loop {
+            if matches!(events.recv().await, Some(RouterEvent::Connected { .. })) {
+                return;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), waiting).await.is_ok()
+}
+
+// A call push wakes a suspended iPhone, and CallKit's answer and audio activation follow within
+// seconds (2026-09-28): each asks for a fresh socket, but a socket that is being opened or was
+// just opened is not dropped again, or the call's offer could be lost in the gap.
+#[tokio::test]
+async fn a_fresh_socket_is_kept_and_an_old_one_is_opened_again() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let counted = counted.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    // A slow welcome: the socket is still being opened meanwhile.
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    client.reconnect_unless_fresh(Duration::from_secs(60));
+    assert!(welcomed(&mut events).await, "the socket being opened goes on");
+    client.reconnect_unless_fresh(Duration::from_secs(60));
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1, "a fresh socket is kept");
+
+    // An older one (here, anything older than nothing) is opened again at once.
+    client.reconnect_unless_fresh(Duration::ZERO);
+    assert!(welcomed(&mut events).await, "connected again");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
 // A call's signal says it is one, and nothing else does (2026-09-28): the router rings an
 // offline iPhone only for a call.
 #[tokio::test]
