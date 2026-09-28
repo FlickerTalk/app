@@ -49,15 +49,34 @@ onMounted(() => {
   if (!current.value || call.phase === "ended") void startCall(id.value, Boolean(route.query.video));
   ticking = setInterval(() => (now.value = Date.now()), 1000);
 });
+// Out of the call screen, once (2026-09-28): back where the call came from or, with nothing behind
+// (opened from a notification, or reloaded), to the conversation. Hanging up always leaves, even
+// when the call already ended on its own ("Unreachable"): the screen used to stay there.
+let left = false;
+let leaving: ReturnType<typeof setTimeout> | undefined;
+function leave() {
+  if (left) return;
+  left = true;
+  clearTimeout(leaving);
+  if (window.history.state?.back) router.back();
+  else void router.replace(`/chat/${id.value}`);
+}
+function end() {
+  if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
+  leave();
+}
+
 onUnmounted(() => {
   clearInterval(ticking);
+  left = true;
+  clearTimeout(leaving);
   // Leaving the screen ends the call: no call goes on out of sight.
   if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
 });
 watch(
   () => call.phase,
   (phase) => {
-    if (phase === "ended") setTimeout(() => router.back(), 1500);
+    if (phase === "ended") leaving = setTimeout(leave, 1500);
   },
 );
 </script>
@@ -108,7 +127,7 @@ watch(
               aria-hidden="true"
             />
           </button>
-          <button type="button" class="ft-round ft-call__hangup" :aria-label="$t('calls.hangUp')" @click="hangUp">
+          <button type="button" class="ft-round ft-call__hangup" :aria-label="$t('calls.hangUp')" @click="end">
             <ion-icon :icon="callOutline" aria-hidden="true" />
           </button>
         </div>
