@@ -117,7 +117,8 @@ describe("BackupPage", () => {
     await wrapper.find("[data-test='phrase-input']").setValue("not my phrase at all");
     await wrapper.find("[data-test='unlock']").trigger("click");
     await flushPromises();
-    expect(wrapper.find("[role='alert']").text()).toContain("does not open this drive");
+    // Seen on the Lenovo (2026-09-28): a wrong phrase is not "something went wrong", it is just that.
+    expect(wrapper.find("[role='alert']").text()).toBe("That phrase does not open this drive");
     expect(wrapper.find("[data-test='tries-left']").text()).toContain("4");
     await wrapper.find("[data-test='phrase-input']").setValue(PHRASE);
     await wrapper.find("[data-test='unlock']").trigger("click");
