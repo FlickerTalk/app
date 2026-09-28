@@ -168,6 +168,8 @@ pub struct Core {
     /// The OS answered before any call rang (2026-09-28): until when (ms) the next voice call's
     /// offer is answered as soon as it arrives.
     early_answer: std::sync::Mutex<Option<i64>>,
+    /// The newest CallKit call whose audio session was heard of (`set_call_audio_session`).
+    audio_generation: std::sync::atomic::AtomicU64,
     /// This core, for work it hands to the background (a waiting answer, a hang-up to deliver).
     this: std::sync::Weak<Core>,
     /// Where a move to a new phone writes its copies (set by the app).
@@ -251,6 +253,7 @@ impl Core {
         Ok(Arc::new_cyclic(|this| Self {
             this: this.clone(),
             early_answer: std::sync::Mutex::default(),
+            audio_generation: std::sync::atomic::AtomicU64::new(0),
             device_id: identity.device_id(),
             identity: Mutex::new(identity),
             store,
