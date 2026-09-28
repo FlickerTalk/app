@@ -148,13 +148,27 @@ final class ReminderTaps: NSObject, UNUserNotificationCenterDelegate {
     static let shared = ReminderTaps()
     var pending: String = ""
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        if let key = reminderKey(response.notification.request.identifier) { pending = key }
+    // iOS may call the delegate off the main thread, and UIKit wants the answer on it: the `async`
+    // forms answered from elsewhere and a tapped notification stopped the app (2026-09-28).
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        tapped(identifier: response.notification.request.identifier, done: completionHandler)
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        presenting(userInfo: notification.request.content.userInfo, done: completionHandler)
+    }
+
+    func tapped(identifier: String, done: @escaping () -> Void) {
+        DispatchQueue.main.async {
+            if let key = reminderKey(identifier) { self.pending = key }
+            done()
+        }
+    }
+
+    func presenting(userInfo: [AnyHashable: Any], done: @escaping (UNNotificationPresentationOptions) -> Void) {
         // Our wake-up only matters when the app is not on the screen: here it already connects.
-        isWakePush(notification.request.content.userInfo) ? [] : [.banner, .sound, .list]
+        let options: UNNotificationPresentationOptions = isWakePush(userInfo) ? [] : [.banner, .sound, .list]
+        DispatchQueue.main.async { done(options) }
     }
 }
 
@@ -205,7 +219,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     static let shared = Calls()
     private let registry = PKPushRegistry(queue: .main)
     private let provider: CXProvider
-    private(set) var voipToken: Data?
+    let voip = VoipToken()
     private var current: UUID?
     private var answered = false
     var pending = ""
@@ -266,11 +280,11 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     // PushKit
 
     func pushRegistry(_ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType) {
-        voipToken = credentials.token
+        voip.update(credentials.token)
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
-        voipToken = nil
+        voip.update(nil)
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload, for type: PKPushType, completion: @escaping () -> Void) {
@@ -339,18 +353,50 @@ final class RemoteToken {
     private func answer(token: Data?, error: Error?) {
         let invokes = waiting
         waiting = []
-        for invoke in invokes {
-            if let token {
-                let profile = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision")
-                    .flatMap { FileManager.default.contents(atPath: $0) }
-                    .map { String(decoding: $0, as: UTF8.self) }
-                let bundle = Bundle.main.bundleIdentifier ?? ""
-                let target = pushTarget(gateway: apnsGateway(provisioning: profile), bundle: bundle, token: token, voip: Calls.shared.voipToken)
-                invoke.resolve(["token": target])
-            } else {
-                invoke.reject(error?.localizedDescription ?? "no push token")
-            }
+        guard let token else {
+            invokes.forEach { $0.reject(error?.localizedDescription ?? "no push token") }
+            return
         }
+        // PushKit's token often comes after Apple's: without it a call only shows a notification.
+        Calls.shared.voip.when(within: 5) { voip in
+            let profile = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision")
+                .flatMap { FileManager.default.contents(atPath: $0) }
+                .map { String(decoding: $0, as: UTF8.self) }
+            let bundle = Bundle.main.bundleIdentifier ?? ""
+            let target = pushTarget(gateway: apnsGateway(provisioning: profile), bundle: bundle, token: token, voip: voip)
+            invokes.forEach { $0.resolve(["token": target]) }
+        }
+    }
+}
+
+/// PushKit's token, and whoever waits a moment for it (2026-09-28). Used on the main queue, like
+/// PushKit's delegate.
+final class VoipToken {
+    private(set) var token: Data?
+    private var waiting: [(Data?) -> Void] = []
+
+    func update(_ token: Data?) {
+        self.token = token
+        guard let token else { return }
+        let ready = waiting
+        waiting = []
+        ready.forEach { $0(token) }
+    }
+
+    /// The token now if there is one; else when it comes, or nothing once the time is up.
+    func when(within seconds: TimeInterval, _ then: @escaping (Data?) -> Void) {
+        if let token {
+            then(token)
+            return
+        }
+        var answered = false
+        let once: (Data?) -> Void = { token in
+            guard !answered else { return }
+            answered = true
+            then(token)
+        }
+        waiting.append(once)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { once(nil) }
     }
 }
 
