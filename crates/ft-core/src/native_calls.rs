@@ -141,6 +141,19 @@ impl Core {
         self.answer_call(call, &sdp).await
     }
 
+    /// The OS answered (CallKit on a locked iPhone, with no WebView): the ringing voice call is
+    /// answered here with the routing the core keeps. `false` when nothing rings, or it is a
+    /// video call, which is the WebView's.
+    pub async fn answer_ringing_call(self: &Arc<Self>) -> Result<bool> {
+        let Some(current) = self.current_call().await? else { return Ok(false) };
+        if current.phase != CallPhase::Ringing || current.video {
+            return Ok(false);
+        }
+        let routing = self.call_routing().await;
+        self.answer_native_call(&current.call, routing).await?;
+        Ok(true)
+    }
+
     /// Mutes or unmutes our voice in the call.
     pub async fn mute_call(&self, call: &str, muted: bool) -> Result<()> {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
