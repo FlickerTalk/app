@@ -1,5 +1,6 @@
 // Privacy choices made in Settings. They stay on this device and never reach a server (Plan §17, §44).
 // The mailbox preference lives in the core, which tells contacts about it (Plan §19).
+import { invoke } from "@tauri-apps/api/core";
 
 const CALL_ROUTING_KEY = "ft-call-routing";
 
@@ -16,6 +17,15 @@ export function storedCallRouting(): CallRouting {
 
 export function setCallRouting(routing: CallRouting) {
   localStorage.setItem(CALL_ROUTING_KEY, routing);
+  void syncCallRouting();
+}
+
+/**
+ * The core keeps a copy of the routing (2026-09-28): a call answered from CallKit on a locked
+ * iPhone has no WebView to ask. Sent at start and on every change.
+ */
+export async function syncCallRouting(): Promise<void> {
+  await invoke("core_set_call_routing", { routing: storedCallRouting() }).catch(() => undefined);
 }
 
 const ONBOARDED_KEY = "ft-onboarded";

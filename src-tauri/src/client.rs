@@ -11,12 +11,13 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use ft_core::online::{self, Online};
 use ft_core::moving::MoveUpdate;
-use ft_core::{CallUpdate, Core, Event, TurnGrant};
+use ft_core::{CallPhase, CallUpdate, Core, Event, TurnGrant};
+use ft_media::CallRouting;
 use ft_storage::{CallOutcome, CallRecord, Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_ft_platform::PlatformExt;
+use tauri_plugin_ft_platform::{NativeCallEvent, PlatformExt};
 use tokio::sync::OnceCell;
 
 /// The router of the cluster, behind the load balancer (Plan §75).
@@ -261,17 +262,83 @@ pub struct CallEvent {
     sdp: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outcome: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    muted: Option<bool>,
 }
 
 impl CallEvent {
     pub fn new(contact: &str, call: &str, update: CallUpdate) -> Self {
-        let (kind, video, sdp, outcome) = match update {
-            CallUpdate::Incoming { video, sdp } => ("incoming", Some(video), Some(sdp), None),
-            CallUpdate::Answered { sdp } => ("answered", None, Some(sdp), None),
-            CallUpdate::Ended { outcome } => ("ended", None, None, Some(outcome.as_str())),
+        let (kind, video, sdp, outcome, muted) = match update {
+            CallUpdate::Incoming { video, sdp } => ("incoming", Some(video), Some(sdp), None, None),
+            CallUpdate::Answered { sdp } => ("answered", None, Some(sdp), None, None),
+            CallUpdate::Ended { outcome } => ("ended", None, None, Some(outcome.as_str()), None),
+            CallUpdate::Connected => ("connected", None, None, None, None),
+            CallUpdate::Muted { muted } => ("muted", None, None, None, Some(muted)),
         };
-        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome }
+        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome, muted }
     }
+}
+
+/// What the phone's own call screen (CallKit, the ongoing call notification) is told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeScreen {
+    Connected,
+    Ended,
+    Nothing,
+}
+
+pub fn native_screen(update: &CallUpdate) -> NativeScreen {
+    match update {
+        CallUpdate::Connected => NativeScreen::Connected,
+        CallUpdate::Ended { .. } => NativeScreen::Ended,
+        CallUpdate::Incoming { .. } | CallUpdate::Answered { .. } | CallUpdate::Muted { .. } => NativeScreen::Nothing,
+    }
+}
+
+/// The call going on, for a WebView that comes up after it started (2026-09-28).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentCallView {
+    call: String,
+    contact: String,
+    video: bool,
+    outgoing: bool,
+    /// `calling`, `ringing`, `connecting` or `active`.
+    phase: &'static str,
+    /// Their offer while it rings: a WebView call is answered with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offer: Option<String>,
+    native: bool,
+    muted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connected_at: Option<i64>,
+}
+
+impl From<ft_core::CurrentCall> for CurrentCallView {
+    fn from(current: ft_core::CurrentCall) -> Self {
+        let phase = match current.phase {
+            CallPhase::Calling => "calling",
+            CallPhase::Ringing => "ringing",
+            CallPhase::Connecting => "connecting",
+            CallPhase::Active => "active",
+        };
+        Self {
+            call: current.call,
+            contact: current.contact,
+            video: current.video,
+            outgoing: current.outgoing,
+            phase,
+            offer: current.offer,
+            native: current.native,
+            muted: current.muted,
+            connected_at: current.connected_at,
+        }
+    }
+}
+
+/// The call routing as Settings words it (`direct`, `auto`, `always`, §17).
+pub fn call_routing(routing: &str) -> Result<CallRouting, String> {
+    routing.parse().map_err(failed)
 }
 
 /// What the phone does about ringing after a call update (§66).
@@ -288,6 +355,7 @@ pub fn ringing(update: &CallUpdate) -> Ring {
         CallUpdate::Incoming { video, .. } => Ring::Start { video: *video },
         CallUpdate::Ended { .. } => Ring::Stop,
         CallUpdate::Answered { .. } => Ring::Nothing,
+        CallUpdate::Connected | CallUpdate::Muted { .. } => Ring::Nothing,
     }
 }
 
@@ -598,6 +666,7 @@ impl Client {
         }
 
         if let Some(app) = self.app.get().cloned() {
+            listen_native_calls(&app, &online.core);
             let mut events = online.core.events();
             let dir_for_events = dir.to_owned();
             let router_for_events = online.router.clone();
@@ -646,6 +715,16 @@ impl Client {
                                 }
                                 Ring::Nothing => {}
                             }
+                            // CallKit or the ongoing call notification shows the call too.
+                            match native_screen(&update) {
+                                NativeScreen::Connected => {
+                                    let _ = app.platform().call_connected();
+                                }
+                                NativeScreen::Ended => {
+                                    let _ = app.platform().call_ended();
+                                }
+                                NativeScreen::Nothing => {}
+                            }
                             let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
                             continue;
                         }
@@ -655,6 +734,47 @@ impl Client {
             });
         }
         Ok(online)
+    }
+}
+
+/// What the phone's own call screen says (2026-09-28): CallKit on iOS, the ongoing call
+/// notification on Android. It works with no WebView at all: a locked iPhone that PushKit woke
+/// answers here.
+fn listen_native_calls(app: &AppHandle, core: &Arc<Core>) {
+    let (core, handle) = (core.clone(), app.clone());
+    // The handler runs on a native queue: it only hands the work over.
+    app.platform().listen_calls(move |event| {
+        let (core, app) = (core.clone(), handle.clone());
+        tauri::async_runtime::spawn(async move {
+            let _ = match event {
+                NativeCallEvent::Answer => {
+                    if microphone(&app).await {
+                        core.answer_ringing_call().await.map(drop)
+                    } else {
+                        fail_current_call(&core).await
+                    }
+                }
+                NativeCallEvent::End => core.end_current_call().await,
+                NativeCallEvent::Mute(muted) => core.mute_current_call(muted).await,
+                NativeCallEvent::AudioActivated => core.set_call_audio_active(true).await,
+                NativeCallEvent::AudioDeactivated => core.set_call_audio_active(false).await,
+            };
+        });
+    });
+}
+
+/// Whether the app may use the microphone, asking if it has not been asked yet. Off the main
+/// thread: the bridge would deadlock there, and the question waits for the user.
+async fn microphone(app: &AppHandle) -> bool {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || app.platform().request_microphone()).await.ok().and_then(Result::ok).unwrap_or(false)
+}
+
+/// Without a microphone the call cannot go on: it ends as failed, which the other side hears.
+async fn fail_current_call(core: &Core) -> anyhow::Result<()> {
+    match core.current_call().await? {
+        Some(current) => core.end_call(&current.call, true).await,
+        None => Ok(()),
     }
 }
 
@@ -1869,7 +1989,66 @@ pub async fn core_call_answer(call: String, sdp: String, app: AppHandle, client:
     Ok(())
 }
 
-/// Hangs up, declines or gives up; `failed` when the media could not connect.
+/// Whether voice calls run natively on this phone (iOS and Android; 2026-09-28). The desktop
+/// keeps the WebView's media.
+#[tauri::command]
+pub async fn core_native_calls(client: State<'_, Client>) -> Result<bool, String> {
+    Ok(client.core().await?.native_calls())
+}
+
+/// Places a voice call whose media runs in Rust; returns its id at once, the offer goes on in the
+/// background. The phone's call screen (CallKit) owns the audio session of the call.
+#[tauri::command]
+pub async fn core_call_start_native(contact: String, routing: String, app: AppHandle, client: State<'_, Client>) -> Result<String, String> {
+    let routing = call_routing(&routing)?;
+    if !microphone(&app).await {
+        return Err("the microphone is not allowed".to_owned());
+    }
+    let core = client.core().await?;
+    let call = core.start_native_call(&contact, routing).await.map_err(failed)?;
+    let name = core.store().contact(&contact).await.ok().flatten().map(|stored| stored.name).unwrap_or_default();
+    let _ = app.platform().call_started_outgoing(&name, false);
+    Ok(call)
+}
+
+/// Answers the ringing voice call with our voice in Rust.
+#[tauri::command]
+pub async fn core_call_answer_native(call: String, routing: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let routing = call_routing(&routing)?;
+    let _ = app.platform().stop_ringing();
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        if microphone(&app).await {
+            let _ = core.answer_native_call(&call, routing).await;
+        } else {
+            let _ = core.end_call(&call, true).await;
+        }
+    });
+    Ok(())
+}
+
+/// Mutes or unmutes our voice in a native call.
+#[tauri::command]
+pub async fn core_call_mute(call: String, muted: bool, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.mute_call(&call, muted).await.map_err(failed)
+}
+
+/// The routing chosen in Settings, kept in the core for calls answered with no WebView (§17).
+#[tauri::command]
+pub async fn core_set_call_routing(routing: String, client: State<'_, Client>) -> Result<(), String> {
+    let routing = call_routing(&routing)?;
+    client.core().await?.set_call_routing(routing).await.map_err(failed)
+}
+
+/// The ringing or active call, if any: the core may have heard it, or answered it from CallKit,
+/// before the WebView was there.
+#[tauri::command]
+pub async fn core_current_call(client: State<'_, Client>) -> Result<Option<CurrentCallView>, String> {
+    Ok(client.core().await?.current_call().await.map_err(failed)?.map(CurrentCallView::from))
+}
+
+/// Hangs up, declines or gives up; `failed` when the media could not connect. A native call's
+/// voice stops with it.
 #[tauri::command]
 pub async fn core_call_end(call: String, failed: bool, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let _ = app.platform().stop_ringing();
@@ -2632,6 +2811,55 @@ mod tests {
         let ended = serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Ended { outcome: CallOutcome::Busy })).unwrap();
         assert_eq!((ended["kind"].as_str(), ended["outcome"].as_str()), (Some("ended"), Some("busy")));
         assert!(ended.get("sdp").is_none());
+        // A native call (2026-09-28): the core says when its media connected and when it was muted.
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Connected)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "connected"
+        }));
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Muted { muted: true })).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "muted", "muted": true
+        }));
+    }
+
+    // The phone's own call screen (CallKit, the ongoing call notification) follows the call.
+    #[test]
+    fn the_native_call_screen_hears_when_a_call_connects_and_ends() {
+        assert_eq!(native_screen(&CallUpdate::Connected), NativeScreen::Connected);
+        assert_eq!(native_screen(&CallUpdate::Ended { outcome: CallOutcome::Answered }), NativeScreen::Ended);
+        assert_eq!(native_screen(&CallUpdate::Answered { sdp: String::new() }), NativeScreen::Nothing);
+        assert_eq!(native_screen(&CallUpdate::Muted { muted: true }), NativeScreen::Nothing);
+        assert_eq!(native_screen(&CallUpdate::Incoming { video: false, sdp: String::new() }), NativeScreen::Nothing);
+    }
+
+    // A WebView that comes up after the call started (PushKit launched the app, CallKit answered)
+    // finds it in the core.
+    #[test]
+    fn the_current_call_reaches_a_late_webview() {
+        let ringing = ft_core::CurrentCall {
+            call: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: false,
+            outgoing: false,
+            phase: ft_core::CallPhase::Ringing,
+            offer: Some("offer".to_owned()),
+            native: false,
+            muted: false,
+            connected_at: None,
+        };
+        assert_eq!(serde_json::to_value(CurrentCallView::from(ringing.clone())).unwrap(), serde_json::json!({
+            "call": "c1", "contact": "ft_bob", "video": false, "outgoing": false, "phase": "ringing",
+            "offer": "offer", "native": false, "muted": false
+        }));
+        let active = ft_core::CurrentCall { phase: ft_core::CallPhase::Active, offer: None, native: true, muted: true, connected_at: Some(7), ..ringing };
+        let view = serde_json::to_value(CurrentCallView::from(active)).unwrap();
+        assert_eq!((view["phase"].as_str(), view["connectedAt"].as_i64(), view["muted"].as_bool()), (Some("active"), Some(7), Some(true)));
+        assert!(view.get("offer").is_none());
+    }
+
+    #[test]
+    fn the_call_routing_is_one_of_the_settings_words() {
+        assert_eq!(call_routing("always"), Ok(ft_media::CallRouting::Always));
+        assert_eq!(call_routing("direct"), Ok(ft_media::CallRouting::Direct));
+        assert!(call_routing("sometimes").is_err());
     }
 
     // §41: the free year shows in Settings, counted on this phone.
@@ -2651,6 +2879,8 @@ mod tests {
         assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }), Ring::Start { video: false });
         assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }), Ring::Stop);
         assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Connected), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Muted { muted: false }), Ring::Nothing);
     }
 
     // The WebView's WebRTC uses the cluster's STUN and a short-lived TURN user (§16–17).

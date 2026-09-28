@@ -297,3 +297,164 @@ describe("calls", () => {
     expect(calls.call.phase).toBe("ringing");
   });
 });
+
+// 2026-09-28: on the phones a voice call's media runs in the Rust core (CallKit on a locked
+// iPhone has no WebView). The WebView only shows the call; video calls keep the WebView's media.
+describe("native voice calls", () => {
+  let current: Record<string, unknown> | null;
+  let pending: string;
+
+  function answers(command: string) {
+    switch (command) {
+      case "core_native_calls":
+        return true;
+      case "core_call_start_native":
+        return "call-1";
+      case "core_current_call":
+        return current;
+      case "core_pending_call":
+        return pending;
+      case "core_call_ice":
+        return servers;
+      case "core_calls":
+        return [];
+      default:
+        return undefined;
+    }
+  }
+
+  const event = (payload: Record<string, unknown>) => tauri.handlers["ft://call"]({ payload: { contact: "ft_bob", call: "call-1", ...payload } });
+
+  beforeEach(async () => {
+    current = null;
+    pending = "";
+    tauri.invoke.mockReset();
+    tauri.invoke.mockImplementation((command: string) => Promise.resolve(answers(command)));
+    calls.media.getUserMedia = vi.fn(async () => new FakeStream(false) as unknown as MediaStream);
+    calls.media.createPeer = vi.fn((config: RTCConfiguration) => new FakePeer(config) as unknown as RTCPeerConnection);
+    calls.media.ringback = { start: vi.fn(), stop: vi.fn() };
+    navigation.push.mockClear();
+    localStorage.clear();
+    calls.reset();
+    await calls.startCalls();
+  });
+
+  it("places a voice call in the core, with the routing of the settings and no WebView media", async () => {
+    setCallRouting("always");
+    await calls.startCall("ft_bob", false);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_start_native", { contact: "ft_bob", routing: "always" });
+    expect(calls.media.getUserMedia).not.toHaveBeenCalled();
+    expect(calls.media.createPeer).not.toHaveBeenCalled();
+    expect(calls.call).toMatchObject({ id: "call-1", phase: "calling", outgoing: true, video: false });
+    expect(calls.media.ringback.start).toHaveBeenCalled();
+  });
+
+  it("keeps video calls on the WebView", async () => {
+    await calls.startCall("ft_bob", true);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_start_native", expect.anything());
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_start", expect.objectContaining({ contact: "ft_bob", video: true }));
+  });
+
+  it("goes live when the core says the media connected", async () => {
+    await calls.startCall("ft_bob", false);
+    event({ kind: "answered", sdp: "their-answer" });
+    await flushPromises();
+    expect(calls.call.phase).toBe("connecting");
+    expect(calls.media.ringback.stop).toHaveBeenCalled();
+    event({ kind: "connected" });
+    await flushPromises();
+    expect(calls.call.phase).toBe("active");
+    expect(calls.call.since).toBeGreaterThan(0);
+  });
+
+  it("answers a ringing voice call in the core", async () => {
+    event({ kind: "incoming", video: false, sdp: "their-offer" });
+    await calls.acceptCall();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "call-1", routing: "auto" });
+    expect(calls.media.getUserMedia).not.toHaveBeenCalled();
+    expect(calls.call.phase).toBe("connecting");
+  });
+
+  it("mutes through the core, and follows a mute from the phone's call screen", async () => {
+    await calls.startCall("ft_bob", false);
+    calls.toggleMute();
+    expect(calls.call.muted).toBe(true);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_mute", { call: "call-1", muted: true });
+    event({ kind: "muted", muted: false });
+    await flushPromises();
+    expect(calls.call.muted).toBe(false);
+  });
+
+  it("hangs up through the core", async () => {
+    await calls.startCall("ft_bob", false);
+    await calls.hangUp();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_end", { call: "call-1", failed: false });
+    expect(calls.call.phase).toBe("ended");
+  });
+
+  it("ends as failed when the core cannot place it (no microphone)", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      command === "core_call_start_native" ? Promise.reject(new Error("the microphone is not allowed")) : Promise.resolve(answers(command)),
+    );
+    await calls.startCall("ft_bob", false);
+    expect(calls.call).toMatchObject({ phase: "ended", outcome: "failed" });
+  });
+
+  it("tells the core the routing at start", () => {
+    expect(tauri.invoke).toHaveBeenCalledWith("core_set_call_routing", { routing: "auto" });
+  });
+
+  // The core heard the call before this WebView was there (PushKit woke the app).
+  it("restores a call that rang before the WebView was there and answers it from the notification", async () => {
+    current = { call: "c7", contact: "ft_bob", video: false, outgoing: false, phase: "ringing", offer: "their-offer", native: false, muted: false };
+    pending = "answer";
+    calls.reset();
+    await calls.startCalls();
+    await flushPromises();
+    expect(calls.call).toMatchObject({ id: "c7", contact: "ft_bob", outgoing: false, video: false });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "c7", routing: "auto" });
+    expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
+  });
+
+  it("restores a ringing video call with its offer for the WebView", async () => {
+    current = { call: "c8", contact: "ft_bob", video: true, outgoing: false, phase: "ringing", offer: "their-offer", native: false, muted: false };
+    calls.reset();
+    await calls.startCalls();
+    expect(calls.call).toMatchObject({ id: "c8", phase: "ringing", video: true });
+    await calls.acceptCall();
+    expect(FakePeer.last.remote).toEqual({ type: "offer", sdp: "their-offer" });
+  });
+
+  // CallKit answered on the locked iPhone; the app opens during the call.
+  it("shows a call CallKit already answered", async () => {
+    current = { call: "c9", contact: "ft_bob", video: false, outgoing: false, phase: "active", native: true, muted: true, connectedAt: 1234 };
+    pending = "answer";
+    calls.reset();
+    await calls.startCalls();
+    await flushPromises();
+    expect(calls.call).toMatchObject({ id: "c9", phase: "active", since: 1234, muted: true });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_answer_native", expect.anything());
+    expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
+    calls.toggleMute();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_mute", { call: "c9", muted: false });
+  });
+
+  it("gives up a restored native call nobody answers", async () => {
+    vi.useFakeTimers();
+    current = { call: "c11", contact: "ft_bob", video: false, outgoing: true, phase: "calling", native: true, muted: false };
+    calls.reset();
+    await calls.startCalls();
+    expect(calls.call).toMatchObject({ id: "c11", phase: "calling" });
+    await vi.advanceTimersByTimeAsync(calls.RING_LIMIT + 1);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_end", { call: "c11", failed: false });
+  });
+
+  // A WebView call whose WebView is gone has no media left: it ends honestly.
+  it("ends a WebView call that outlived its WebView", async () => {
+    current = { call: "c10", contact: "ft_bob", video: true, outgoing: true, phase: "active", native: false, muted: false, connectedAt: 1 };
+    calls.reset();
+    await calls.startCalls();
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_end", { call: "c10", failed: true });
+  });
+});
