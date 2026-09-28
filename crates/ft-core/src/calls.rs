@@ -23,7 +23,7 @@ const CALL_RETRY: Duration = Duration::from_secs(2);
 pub const RING_LIMIT: Duration = Duration::from_secs(60);
 
 /// A call that rang unanswered for longer than it can: its caller is gone.
-fn stale(record: &CallRecord, now: i64) -> bool {
+pub(crate) fn stale(record: &CallRecord, now: i64) -> bool {
     record.answered_at.is_none() && now - record.started_at > RING_LIMIT.as_millis() as i64
 }
 
@@ -35,6 +35,10 @@ pub enum CallUpdate {
     /// The contact answered our call.
     Answered { sdp: String },
     Ended { outcome: CallOutcome },
+    /// The media connected: the call is on (a native call; a WebView call knows by itself).
+    Connected,
+    /// Our voice was muted or unmuted (from the call screen, CallKit or the notification).
+    Muted { muted: bool },
 }
 
 impl Core {
@@ -206,6 +210,7 @@ impl Core {
             return Ok(());
         }
         if fresh {
+            self.remember_offer(&call_id, &sdp);
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
         }
         Ok(())
@@ -218,6 +223,11 @@ impl Core {
             return Ok(());
         }
         self.store.answer_call(&record.call_id, now()).await?;
+        // A native call takes the answer itself; the UI only learns that it was answered.
+        if let Err(error) = self.accept_native_answer(&record.call_id, &sdp).await {
+            self.end_call(&record.call_id, true).await?;
+            return Err(error);
+        }
         self.announce_call(&record, CallUpdate::Answered { sdp });
         Ok(())
     }
@@ -248,8 +258,10 @@ impl Core {
         Ok(Some((record, contact)))
     }
 
-    async fn close_call(&self, record: &CallRecord, outcome: CallOutcome) -> Result<()> {
+    pub(crate) async fn close_call(&self, record: &CallRecord, outcome: CallOutcome) -> Result<()> {
         self.store.finish_call(&record.call_id, now(), outcome).await?;
+        // The voice stops with the call, whichever side ended it.
+        self.drop_native(&record.call_id).await;
         {
             let mut active = self.active_call.lock().expect("active call poisoned");
             if active.as_deref() == Some(record.call_id.as_str()) {
@@ -260,7 +272,7 @@ impl Core {
         Ok(())
     }
 
-    fn announce_call(&self, record: &CallRecord, update: CallUpdate) {
+    pub(crate) fn announce_call(&self, record: &CallRecord, update: CallUpdate) {
         let _ = self.events.send(Event::Call { contact: record.contact.clone(), call: record.call_id.clone(), update });
     }
 }

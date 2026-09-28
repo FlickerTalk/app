@@ -362,6 +362,10 @@ impl Network {
 
 #[async_trait]
 impl Transport for Network {
+    fn media_config(&self) -> ft_media::MediaConfig {
+        media_config(&self.session_config())
+    }
+
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct_as(to, bytes, false).await
     }
@@ -418,6 +422,22 @@ pub fn ice_config(base: &SessionConfig, stun: Vec<String>, turn: Option<TurnGran
     config
 }
 
+/// A native call's media setup from the data channels' one: the same addresses and servers.
+pub fn media_config(session: &SessionConfig) -> ft_media::MediaConfig {
+    let turn = session.turn_servers.first().map(|first| ft_media::TurnRelay {
+        urls: session.turn_servers.iter().map(|server| server.url.clone()).collect(),
+        username: first.username.clone(),
+        credential: first.credential.clone(),
+    });
+    ft_media::MediaConfig {
+        stun: session.stun_servers.clone(),
+        turn,
+        bind: session.bind.clone(),
+        routing: ft_media::CallRouting::default(),
+        gather_timeout: session.gather_timeout,
+    }
+}
+
 /// A random id for one signalling exchange.
 fn uuid_like() -> String {
     ft_protocol::MessageId::new().to_string()
@@ -437,6 +457,21 @@ mod tests {
         assert_eq!(config.turn_servers[0].username, "u");
         assert!(config.relay_only, "the listening setup is kept");
         assert_eq!(config.bind, base.bind);
+    }
+
+    // A native call listens where the data channels do and uses the router's STUN and TURN.
+    #[test]
+    fn a_native_call_uses_the_same_servers_and_addresses() {
+        let base = SessionConfig::offline();
+        let grant = TurnGrant { urls: vec!["turn:t:3478".to_owned(), "turns:t:5349".to_owned()], username: "u".to_owned(), credential: "c".to_owned() };
+        let media = media_config(&ice_config(&base, vec!["stun:t:3478".to_owned()], Some(grant)));
+        assert_eq!(media.stun, ["stun:t:3478"]);
+        let turn = media.turn.expect("a relay");
+        assert_eq!(turn.urls, ["turn:t:3478", "turns:t:5349"]);
+        assert_eq!((turn.username.as_str(), turn.credential.as_str()), ("u", "c"));
+        assert_eq!(media.bind, base.bind);
+        assert_eq!(media.gather_timeout, base.gather_timeout);
+        assert!(media_config(&base).turn.is_none());
     }
 
     #[test]
