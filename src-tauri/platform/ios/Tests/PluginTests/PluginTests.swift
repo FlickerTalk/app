@@ -152,4 +152,72 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertFalse(isCallPush(["t": "wake", "s": 1]))
         XCTAssertFalse(isCallPush([:]))
     }
+
+    // Bug of 2026-09-28: iOS hands a tapped notification over off the main thread, and answering
+    // it from there made UIKit stop the app ("Call must be made on main thread").
+    func testATappedNotificationIsAnsweredOnTheMainThread() {
+        let taps = ReminderTaps()
+        let answered = expectation(description: "answered")
+        DispatchQueue.global().async {
+            taps.tapped(identifier: "ft.reminder|com.example.notes|r1") {
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(taps.pending, "com.example.notes\nr1")
+                answered.fulfill()
+            }
+        }
+        wait(for: [answered], timeout: 2)
+    }
+
+    func testANotificationOnTheScreenIsAnsweredOnTheMainThread() {
+        let taps = ReminderTaps()
+        let wake = expectation(description: "wake")
+        let other = expectation(description: "other")
+        DispatchQueue.global().async {
+            taps.presenting(userInfo: ["t": "wake"]) { options in
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(options, [], "the app on the screen already connects")
+                wake.fulfill()
+            }
+            taps.presenting(userInfo: [:]) { options in
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(options, [.banner, .sound, .list])
+                other.fulfill()
+            }
+        }
+        wait(for: [wake, other], timeout: 2)
+    }
+
+    // Bug of 2026-09-28: PushKit's token often comes after Apple's, and the router got only the
+    // latter: a call then showed a notification instead of ringing.
+    func testTheVoipTokenAlreadyThereIsGivenAtOnce() {
+        let voip = VoipToken()
+        voip.update(Data([0x01]))
+        var given: Data?? = .none
+        voip.when(within: 5) { given = .some($0) }
+        XCTAssertEqual(given, .some(Data([0x01])))
+    }
+
+    func testAVoipTokenThatComesSoonIsWaitedFor() {
+        let voip = VoipToken()
+        let given = expectation(description: "given")
+        voip.when(within: 5) { token in
+            XCTAssertEqual(token, Data([0x02]))
+            given.fulfill()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { voip.update(Data([0x02])) }
+        wait(for: [given], timeout: 2)
+    }
+
+    func testWithoutAVoipTokenTheWaitEndsOnceWithNothing() {
+        let voip = VoipToken()
+        let given = expectation(description: "given")
+        given.assertForOverFulfill = true
+        voip.when(within: 0.2) { token in
+            XCTAssertNil(token)
+            given.fulfill()
+        }
+        wait(for: [given], timeout: 2)
+        voip.update(Data([0x03]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    }
 }
