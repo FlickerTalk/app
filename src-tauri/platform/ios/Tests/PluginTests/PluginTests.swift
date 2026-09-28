@@ -1,3 +1,5 @@
+import AVFAudio
+import CallKit
 import QuickLook
 import XCTest
 @testable import tauri_plugin_ft_platform
@@ -219,5 +221,93 @@ final class PlatformPluginTests: XCTestCase {
         wait(for: [given], timeout: 2)
         voip.update(Data([0x03]))
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    // Native calls (2026-09-28): the events travel as Rust's `call_event` reads them.
+    private func json(_ event: CallEvent) -> NSDictionary {
+        NSDictionary(dictionary: callEventPayload(event).mapValues { $0 ?? NSNull() })
+    }
+
+    func testCallEventsTravelAsTheCoreReadsThem() {
+        XCTAssertEqual(json(.answer), ["event": "answer"])
+        XCTAssertEqual(json(.end), ["event": "end"])
+        XCTAssertEqual(json(.mute(true)), ["event": "mute", "muted": true])
+        XCTAssertEqual(json(.mute(false)), ["event": "mute", "muted": false])
+        XCTAssertEqual(json(.audioActivated), ["event": "audioActivated"])
+        XCTAssertEqual(json(.audioDeactivated), ["event": "audioDeactivated"])
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(callEventPayload(.mute(true)).mapValues { $0 ?? NSNull() }))
+    }
+
+    // PushKit may launch the app, and the user answer on the lock screen, before Rust listens:
+    // nothing is lost, and it all arrives in order once it does.
+    func testCallEventsWaitUntilTheCoreListens() {
+        let queue = CallEventQueue()
+        var heard: [CallEvent] = []
+        queue.emit(.answer)
+        queue.emit(.audioActivated)
+        XCTAssertEqual(heard, [])
+        queue.register { heard.append($0) }
+        XCTAssertEqual(heard, [.answer, .audioActivated])
+        queue.emit(.mute(true))
+        XCTAssertEqual(heard, [.answer, .audioActivated, .mute(true)])
+    }
+
+    // A new listener (the core started again) replaces the old one and gets no repeats.
+    func testANewListenerReplacesTheOld() {
+        let queue = CallEventQueue()
+        var first: [CallEvent] = []
+        var second: [CallEvent] = []
+        queue.emit(.answer)
+        queue.register { first.append($0) }
+        queue.register { second.append($0) }
+        queue.emit(.end)
+        XCTAssertEqual(first, [.answer])
+        XCTAssertEqual(second, [.end])
+    }
+
+    // Waiting is bounded, and a new call forgets what an old one left unheard.
+    func testWaitingEventsAreBoundedAndForgottenByANewCall() {
+        let queue = CallEventQueue(limit: 2)
+        var heard: [CallEvent] = []
+        queue.emit(.answer)
+        queue.emit(.mute(true))
+        queue.emit(.end)
+        queue.register { heard.append($0) }
+        XCTAssertEqual(heard, [.mute(true), .end], "the latest ones are kept")
+        let other = CallEventQueue()
+        var none: [CallEvent] = []
+        other.emit(.end)
+        other.forget()
+        other.register { none.append($0) }
+        XCTAssertEqual(none, [])
+    }
+
+    // Bug the native calls would bring: the core stops the ringing once answered, and that used to
+    // end the CallKit call, and with it the audio session.
+    func testAnAnsweredCallOutlivesTheRinging() {
+        XCTAssertTrue(stopEndsCall(answered: false), "declined or given up: CallKit lets go")
+        XCTAssertFalse(stopEndsCall(answered: true), "answered: it goes on until callEnded")
+        XCTAssertFalse(stopEndsCall(answered: false, outgoing: true), "this phone's own call is not a ringing one")
+    }
+
+    // An outgoing call shows as connected; a call answered in the app's own screen (it rang
+    // there, CallKit never heard of it) joins CallKit, which gives it the audio session.
+    func testConnectingReportsOrJoinsCallKit() {
+        XCTAssertEqual(connectWith(callKitCall: true, outgoing: true), .reportConnected)
+        XCTAssertEqual(connectWith(callKitCall: false, outgoing: false), .join)
+        XCTAssertEqual(connectWith(callKitCall: false, outgoing: true), .join)
+        XCTAssertEqual(connectWith(callKitCall: true, outgoing: false), .nothing, "answered in CallKit: already live")
+    }
+
+    // Recents and the lock screen say what happened: a call nobody picked up is unanswered.
+    func testAnEndedCallSaysWhy() {
+        XCTAssertEqual(endReason(live: true), .remoteEnded)
+        XCTAssertEqual(endReason(live: false), .unanswered)
+    }
+
+    // The call's audio: Bluetooth headsets work, both hands-free and high quality output.
+    func testCallAudioWorksWithBluetooth() {
+        XCTAssertTrue(callAudioOptions().contains(.allowBluetoothHFP))
+        XCTAssertTrue(callAudioOptions().contains(.allowBluetoothA2DP))
     }
 }

@@ -7,6 +7,10 @@
 //! - `start_ringing` / `stop_ringing`: an incoming call rings with the user's ringtone, vibrates
 //!   as the phone is set to (silent, vibrate only or normal) and shows on the screen, over the
 //!   lock screen if need be.
+//! - Native calls (2026-09-28): `listen_calls` hears answer, hang-up, mute and the audio
+//!   session's activation straight from CallKit / the call notification, through a channel made
+//!   here (no WebView); `call_started_outgoing`, `call_connected` and `call_ended` tell the OS
+//!   about the call; `request_microphone` asks for the microphone first.
 //! - `push_token`, `request_notifications`: the FCM token the router wakes this device with, and
 //!   Android 13's permission to show the notification a wake-up brings (M4).
 //! - `seal_key` / `open_key`: the storage key, sealed by Android Keystore (an AES key that never
@@ -65,6 +69,67 @@ struct Ringing<'a> {
     video: bool,
     /// A muted contact (app#4): the call shows but makes no noise.
     muted: bool,
+}
+
+/// What the native side tells the core about a call it owns (CallKit on iOS; the ongoing call
+/// notification on Android), with no WebView in between (2026-09-28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeCallEvent {
+    /// The user answered (CallKit's answer button, also from the lock screen).
+    Answer,
+    /// The user hung up or declined, or the system ended the call.
+    End,
+    /// The user muted (`true`) or unmuted the microphone.
+    Mute(bool),
+    /// The system activated the audio session: the audio unit may start now (iOS).
+    AudioActivated,
+    /// The system took the audio session away: the audio unit stops (iOS).
+    AudioDeactivated,
+}
+
+/// One event as Swift and Kotlin send it: `{"event": "mute", "muted": true}`.
+#[cfg_attr(not(mobile), allow(dead_code))]
+fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
+    #[derive(Deserialize)]
+    struct Wire {
+        event: String,
+        muted: Option<bool>,
+    }
+    let wire: Wire = body.deserialize().ok()?;
+    match (wire.event.as_str(), wire.muted) {
+        ("answer", _) => Some(NativeCallEvent::Answer),
+        ("end", _) => Some(NativeCallEvent::End),
+        ("mute", Some(muted)) => Some(NativeCallEvent::Mute(muted)),
+        ("audioActivated", _) => Some(NativeCallEvent::AudioActivated),
+        ("audioDeactivated", _) => Some(NativeCallEvent::AudioDeactivated),
+        _ => None,
+    }
+}
+
+/// The channel the native side sends call events through: created here, registered by Tauri, and
+/// handed to the plugin, so events reach Rust even with no WebView (a locked iPhone).
+#[cfg_attr(not(mobile), allow(dead_code))]
+fn call_channel(handler: impl Fn(NativeCallEvent) + Send + Sync + 'static) -> tauri::ipc::Channel<serde_json::Value> {
+    tauri::ipc::Channel::new(move |body| {
+        if let Some(event) = call_event(body) {
+            handler(event);
+        }
+        Ok(())
+    })
+}
+
+/// Arguments of the native `registerCallEvents` command.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct CallEvents<'a> {
+    channel: &'a tauri::ipc::Channel<serde_json::Value>,
+}
+
+/// Arguments of the native `callStartedOutgoing` command.
+#[derive(Serialize)]
+struct Outgoing<'a> {
+    name: &'a str,
+    video: bool,
 }
 
 /// Arguments of the native `setOpenSlots` command (app#9): the slots of the open hidden sessions.
@@ -144,6 +209,13 @@ struct Picked {
 #[cfg_attr(not(mobile), allow(dead_code))]
 struct PendingCall {
     action: String,
+}
+
+/// What the native `requestMicrophone` resolves with.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Microphone {
+    granted: bool,
 }
 
 /// What Kotlin's `canShowFullScreen` resolves with.
@@ -242,6 +314,70 @@ impl<R: Runtime> Platform<R> {
 
     pub fn stop_ringing(&self) -> Result<()> {
         self.run("stopRinging", ())
+    }
+
+    /// Hears what the native side does with a call (2026-09-28): answer, hang-up and mute from
+    /// CallKit or the call notification, and the audio session's activation. Events arrive with
+    /// no WebView (PushKit may launch the app in the background of a locked iPhone); those that
+    /// come before this is called wait natively and arrive now. A second call replaces the
+    /// handler. The handler runs on a native background thread: it must not block for long.
+    /// On desktop it does nothing.
+    pub fn listen_calls(&self, handler: impl Fn(NativeCallEvent) + Send + Sync + 'static) {
+        #[cfg(mobile)]
+        {
+            let channel = call_channel(handler);
+            // Only fails if the plugin is not loaded, and then there is no native call to hear.
+            let _ = self.run("registerCallEvents", CallEvents { channel: &channel });
+        }
+        #[cfg(not(mobile))]
+        let _ = handler;
+    }
+
+    /// This phone starts a call (2026-09-28): on iOS CallKit takes it (and the audio session); on
+    /// Android the audio goes to communication mode and a foreground service keeps the microphone
+    /// with the app in the background.
+    pub fn call_started_outgoing(&self, name: &str, video: bool) -> Result<()> {
+        self.call("callStartedOutgoing", Outgoing { name, video })
+    }
+
+    /// The call is connected. On iOS an outgoing call shows as connected; a call answered in the
+    /// app's own screen (no CallKit call yet) joins CallKit here, so it gets the audio session. On
+    /// Android the call's audio and foreground service start if they had not.
+    pub fn call_connected(&self) -> Result<()> {
+        self.call("callConnected", ())
+    }
+
+    /// The call is over, whoever ended it: CallKit lets go / the service stops and the audio mode
+    /// goes back to what it was.
+    pub fn call_ended(&self) -> Result<()> {
+        self.call("callEnded", ())
+    }
+
+    /// Whether the microphone may be used, asking the user if it was never asked (2026-09-28).
+    /// The core calls it before starting or answering a native call: the WebView used to ask
+    /// through `getUserMedia`. `false` means denied. On desktop, `true`.
+    pub fn request_microphone(&self) -> Result<bool> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Microphone>("requestMicrophone", ())?.granted)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(true)
+        }
+    }
+
+    /// A call command: on desktop there is no native call to tell, so it is not an error.
+    fn call(&self, command: &str, args: impl Serialize) -> Result<()> {
+        #[cfg(mobile)]
+        {
+            self.run(command, args)
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = (command, args);
+            Ok(())
+        }
     }
 
     /// The token the router wakes this device with: FCM's on Android; on iOS, `gateway:bundle:token`
@@ -468,5 +604,48 @@ mod tests {
         assert_eq!(pick, serde_json::json!({ "accept": "image/*" }));
         let print = serde_json::to_value(SaveFile { path: "/files/a.pdf", name: "a.pdf", mime: "application/pdf" }).unwrap();
         assert_eq!(print, serde_json::json!({ "path": "/files/a.pdf", "name": "a.pdf", "mime": "application/pdf" }));
+    }
+
+    // Native calls (2026-09-28): what Swift and Kotlin send through the channel.
+    #[test]
+    fn native_call_events_are_read_from_their_wire_form() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"answer"}"#), Some(NativeCallEvent::Answer));
+        assert_eq!(read(r#"{"event":"end"}"#), Some(NativeCallEvent::End));
+        assert_eq!(read(r#"{"event":"mute","muted":true}"#), Some(NativeCallEvent::Mute(true)));
+        assert_eq!(read(r#"{"event":"mute","muted":false}"#), Some(NativeCallEvent::Mute(false)));
+        assert_eq!(read(r#"{"event":"audioActivated"}"#), Some(NativeCallEvent::AudioActivated));
+        assert_eq!(read(r#"{"event":"audioDeactivated"}"#), Some(NativeCallEvent::AudioDeactivated));
+    }
+
+    // Anything else is ignored, never a panic on the phone's main thread.
+    #[test]
+    fn unknown_or_broken_call_events_are_ignored() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"hold"}"#), None);
+        assert_eq!(read(r#"{"event":"mute"}"#), None);
+        assert_eq!(read("not json"), None);
+        assert_eq!(call_event(tauri::ipc::InvokeResponseBody::Raw(vec![1, 2])), None);
+    }
+
+    // The channel reaches the native side as Tauri's reference, which Swift's and Kotlin's
+    // `Channel` decode; what they send comes back to the handler.
+    #[test]
+    fn the_call_channel_goes_native_and_its_events_reach_the_handler() {
+        let heard = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = heard.clone();
+        let channel = call_channel(move |event| sink.lock().unwrap().push(event));
+        let args = serde_json::to_value(CallEvents { channel: &channel }).unwrap();
+        assert_eq!(args, serde_json::json!({ "channel": format!("__CHANNEL__:{}", channel.id()) }));
+        channel.send(serde_json::json!({ "event": "answer" })).unwrap();
+        channel.send(serde_json::json!({ "event": "mute", "muted": true })).unwrap();
+        channel.send(serde_json::json!({ "event": "nonsense" })).unwrap();
+        assert_eq!(*heard.lock().unwrap(), vec![NativeCallEvent::Answer, NativeCallEvent::Mute(true)]);
+    }
+
+    #[test]
+    fn an_outgoing_call_names_the_contact() {
+        let outgoing = serde_json::to_value(Outgoing { name: "Ioan", video: false }).unwrap();
+        assert_eq!(outgoing, serde_json::json!({ "name": "Ioan", "video": false }));
     }
 }

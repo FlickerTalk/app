@@ -92,9 +92,56 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   `ft_strings.xml` de Android. Los permisos de cámara y micrófono se traducen en
   `InfoPlist.strings`. Llamadas: PushKit (registrado al cargar el plugin) informa a CallKit en el
   acto; `startRinging` pone el nombre o informa si la app no está en pantalla; contestar o colgar
-  en CallKit queda en `pendingCall`, como en Android. **Limitación**: contestar desde la pantalla
-  bloqueada pide abrir la app para hablar, porque el audio va por el WebRTC del WebView.
+  en CallKit queda en `pendingCall`, como en Android. **Limitación** (hasta las llamadas nativas,
+  abajo): contestar desde la pantalla bloqueada pide abrir la app para hablar, porque el audio va
+  por el WebRTC del WebView.
   `UIBackgroundModes`: `audio`, `remote-notification` y `voip`. Entitlement `aps-environment`.
+- **Puente de llamadas nativas** (2026-09-28, rama `native-calls-bridge`): el audio de la llamada
+  pasa del WebView a Rust (`webrtc-engine`), así que el puente habla con el núcleo **sin WebView**.
+  Contrato (`platform/src/lib.rs`, en escritorio no hace nada):
+  - `listen_calls(handler)` con `NativeCallEvent { Answer, End, Mute(bool), AudioActivated,
+    AudioDeactivated }`. El canal es un `tauri::ipc::Channel` creado en Rust: Tauri lo registra en
+    su tabla global de canales (`plugin/mobile.rs`, `CHANNELS`) y viaja a Swift/Kotlin como
+    `__CHANNEL__:<id>` en el comando `registerCallEvents`; su `send` vuelve por
+    `send_channel_data` (JNI / puntero C) a esa tabla, sin pasar por ninguna ventana. En la
+    tubería van como `{"event":"mute","muted":true}`. Lo que llega antes del registro espera en
+    una cola nativa (16 como mucho; una llamada nueva olvida lo de la anterior) y sale en orden al
+    registrarse. El handler corre en un hilo nativo propio (una cola serie en iOS, un executor en
+    Android), nunca en el principal: puede volver a llamar al puente, pero no debe bloquear.
+  - `call_started_outgoing(name, video)`, `call_connected()`, `call_ended()` y
+    `request_microphone() -> bool` (se pide explícito antes de llamar o contestar; el WebView lo
+    pedía con `getUserMedia`). `start_ringing`/`stop_ringing` siguen.
+  - **Los comandos del puente no se llaman desde el hilo principal**: resuelven desde él y
+    `run_mobile_plugin` bloquea hasta la respuesta.
+- **iOS (CallKit)**: CallKit es dueño de la llamada y de la sesión de audio en los dos sentidos.
+  Saliente: `CXStartCallAction` por `CXCallController`; en la acción se configura la sesión
+  (`.playAndRecord`, `.voiceChat`, Bluetooth HFP y A2DP) y **no se activa**: lo hace el sistema,
+  y `didActivate`/`didDeactivate` mandan `AudioActivated`/`AudioDeactivated`. `call_connected`
+  informa de la saliente como conectada; una entrante contestada en la pantalla de la app (sonó
+  allí, CallKit no la conocía) **se une a CallKit** en `call_connected` como llamada iniciada y
+  conectada al momento, para tener sesión de audio: **el núcleo debe llamar a `call_connected`
+  también en las entrantes**. Contestar en CallKit manda `Answer` y sigue dejando `pendingCall`;
+  colgar manda `End`; silenciar, `Mute`. `stopRinging` ya no termina una llamada contestada ni
+  una saliente. `call_ended` la cierra siempre (`remoteEnded` si llegó a hablarse, `unanswered`
+  si no).
+- **Android**: el router manda `{"t":"call","s":"N"}` (TTL 45 s) para una llamada. Con la app
+  cerrada, `FtMessagingService` muestra la notificación de llamada entrante con el texto genérico,
+  con las reglas de `wake` (sesión oculta cerrada → nada; app en pantalla → nada, la hace sonar el
+  núcleo) y, fuera del horario semanal, **sin sonido** (como una llamada que suena en la app).
+  Suena el **sistema**, no nuestro `Ringtone`: canal propio `ft.call.ringing` con el tono de
+  llamada, `FLAG_INSISTENT` y `setTimeoutAfter` con lo que quede de los 45 s desde `sentTime`. Un
+  proceso despertado por FCM puede congelarse mucho antes; el canal respeta solo el modo del
+  timbre. Contestar o rechazar abre la app con `CALL_ACTION` como antes y corta el timbre.
+  Durante la llamada (`call_started_outgoing`, `pendingCall` = `answer` y `call_connected`, que
+  es idempotente): `MODE_IN_COMMUNICATION`, foco de audio de voz y el servicio en primer plano
+  `FtCallService` (`phoneCall|microphone`; el de micrófono solo si `RECORD_AUDIO` está concedido
+  y se vuelve a promocionar al conectar) con notificación en curso: colgar manda `End` y silenciar
+  `Mute` por el canal. `call_ended` para el servicio, suelta el foco y deja el modo como estaba.
+  Manifiesto del puente: `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, `FOREGROUND_SERVICE`,
+  `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_PHONE_CALL`, `MANAGE_OWN_CALLS` (lo exige
+  el tipo `phoneCall`), el servicio y `FtCallActionReceiver`. Textos nuevos en los 21
+  `ft_strings.xml`. **Pendiente**: Play pide declarar los servicios en primer plano de tipo
+  `phoneCall` y `microphone` en la consola; nada de esto se ha probado aún en un teléfono.
 - **Probar iOS**: los tests Swift del puente corren en el simulador (`xcodebuild test -scheme
   tauri-plugin-ft-platform -destination 'platform=iOS Simulator,name=iPhone 17'` desde
   `platform/ios`). El chat y las llamadas se prueban en el iPhone, porque el simulador no tiene

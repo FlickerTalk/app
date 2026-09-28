@@ -9,4 +9,9 @@
     <string name="ft_channel_reminders">Reminders</string>
     <string name="ft_reminder">Reminder</string>
     <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_incoming_calls">Połączenia przychodzące</string>
+    <string name="ft_channel_ongoing_calls">Trwające połączenia</string>
+    <string name="ft_ongoing_call">Trwa połączenie</string>
+    <string name="ft_mute">Wycisz</string>
+    <string name="ft_unmute">Wyłącz wyciszenie</string>
 </resources>
