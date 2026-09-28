@@ -6,9 +6,15 @@
 //!
 //! The descriptions stay standard SDP, so a native phone talks to a WebView phone (an older app).
 
+pub mod platform;
 pub mod session;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+pub mod voice;
 
+pub use platform::platform_audio;
 pub use session::{LinkState, MediaSession};
+pub use voice::{Activation, AudioPlatform, BackendFactory, Voice};
 
 use std::fmt;
 use std::str::FromStr;
