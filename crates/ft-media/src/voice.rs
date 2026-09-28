@@ -104,8 +104,9 @@ impl Device {
                 let _ = started.send(Ok(()));
                 // Until told, or until the voice is gone; the device gets a look every 100 ms.
                 while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopping.recv_timeout(UPKEEP_EVERY) {
-                    // TODO(engine backends): `backend.maintain()` here once webrtc-engine has it
-                    // (Android reopens its streams after a disconnect); a no-op elsewhere.
+                    // Android reopens its streams here after a headset comes or goes; a failed
+                    // upkeep is tried again next time.
+                    let _ = backend.maintain();
                 }
                 let _ = backend.stop();
             })
@@ -403,6 +404,39 @@ mod tests {
         let played = bob_probe.played();
         assert!(played.len() > 48_000);
         assert!(rms(&played[24_000..]) < 30.0, "rms {}", rms(&played[24_000..]));
+    }
+
+    /// Counts the upkeep calls it gets.
+    struct Upkept(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl AudioBackend for Upkept {
+        fn start(&mut self, _io: webrtc_engine::audio::DeviceIo) -> Result<(), AudioError> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), AudioError> {
+            Ok(())
+        }
+        fn maintain(&mut self) -> Result<(), AudioError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    // Android reopens its streams only from `maintain` (a headset plugged in or out).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_device_is_looked_after_while_it_runs() {
+        let upkeeps = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = upkeeps.clone();
+        let backend: BackendFactory = Arc::new(move || Ok(Box::new(Upkept(counted.clone())) as Box<dyn AudioBackend>));
+        let (outgoing, incoming) = wire();
+        let voice = Voice::new(outgoing, incoming, platform(backend, Activation::Immediate));
+        voice.connected().await.expect("starts");
+        tokio::time::sleep(Duration::from_millis(450)).await;
+        voice.stop().await;
+        let looked_after = upkeeps.load(Ordering::SeqCst);
+        assert!((2..=5).contains(&looked_after), "{looked_after} upkeeps in 450 ms");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert_eq!(upkeeps.load(Ordering::SeqCst), looked_after, "none once stopped");
     }
 
     #[tokio::test(flavor = "multi_thread")]
