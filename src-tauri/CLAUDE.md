@@ -159,3 +159,27 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   Billing/StoreKit 2, llamadas (PushKit + CallKit en iOS; notificación de llamada entrante en
   Android, `§66`), cámara y micrófono, y lo que imponga el SO (p. ej. señales de edad, `§43`). No son lenguajes de
   aplicación: el bridge obtiene el dato nativo y lo pasa al core.
+
+- **Llamadas con el iPhone suspendido** (2026-09-29, rama `native-calls`):
+  - Evento nativo `Incoming` (`{"event":"incoming"}`): lo manda el push de VoIP en iOS y, en
+    Android, el push `call`/`wake` si el núcleo ya escucha (`offer`, no espera en la cola).
+    `client.rs` lo atiende con `reconnect_now`; `Answer` y `AudioActivated` con
+    `reconnect_unless_fresh` (10 s). Los eventos nativos se atienden en orden (una cola en Rust).
+  - Los eventos de audio llevan `generation` (una por llamada de CallKit).
+  - iOS: **toda** entrante se informa a CallKit (también en primer plano) y el botón de la app
+    pide un `CXAnswerCallAction` (`answer_call`); ya no existe «unirse a CallKit al conectar».
+    `setConfiguration` antes de cada llamada (iOS 18.4.1+). Una entrante sin contestar acaba sola
+    a los 45 s y una contestada que no conecta en 30 s acaba como fallida, las dos con `End`. Tras
+    una interrupción con «should resume» sin `didActivate` nuevo, la voz se reinicia.
+  - Altavoz: `set_speaker` / `core_call_speaker` (iOS `overrideOutputAudioPort`, Android
+    `setCommunicationDevice` o `setSpeakerphoneOn`). La voz empieza en el auricular; el vídeo, en
+    el altavoz. Sin tono de espera del WebView en una llamada nativa del iPhone.
+  - Android: `setShowWhenLocked`/`setTurnScreenOn` mientras suena o dura la llamada; el tipo
+    `microphone` del servicio solo con la app visible o tras el «contestar» del usuario.
+  - **Diagnóstico temporal** (para el audio en un solo sentido): `CALL_DIAGNOSTICS` en `client.rs`,
+    `callDiagnostics` en Swift (`log stream --predicate 'subsystem == "com.flickertalk.calls"'`) y
+    `CALL_DIAGNOSTICS` en Kotlin (`adb logcat -s FtCallDiag`); solo nombres de estado, tipos de
+    puerto y contadores del dispositivo (`ft_media::device_stats`). Para quitarlo: las tres a
+    `false`, o borrar esos bloques y el comando `diagnose`.
+  - Pendiente: un id opaco de llamada en el payload de VoIP, el delegado `mustReport` de iOS 26.4 y
+    Telecom autogestionado en Android.

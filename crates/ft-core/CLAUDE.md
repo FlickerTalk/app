@@ -234,3 +234,19 @@ WebView (una app vieja): a una oferta con vídeo se le contesta solo el audio (`
 - Tests (WebRTC real en loopback, dispositivos falsos que hablan una voz de prueba): la voz llega a
   los dos lados (correlación ~0,97), silenciar deja silencio (RMS ~0), colgar para los dos, el
   dispositivo de iOS espera a CallKit y una oferta de WebView con vídeo se contesta solo con audio.
+
+## Estado (2026-09-29, llamadas con el iPhone suspendido)
+
+Bug visto en dispositivos: con el iPhone suspendido o bloqueado, PushKit hacía sonar CallKit y se
+contestaba, pero el socket del router estaba muerto y nada pedía reconectar (solo el WebView, que
+no corre en segundo plano): la oferta y el `CallEnd` no llegaban.
+
+- `answer_ringing_call` sin nada sonando guarda la respuesta `EARLY_ANSWER` (30 s): la oferta de
+  voz que llega en ese plazo se contesta al momento (`answer_if_answered_early`);
+  `end_current_call` la retira. `answer_ringing_call_within` para los tests.
+- `end_call`: si el `CallEnd` no sale, se reintenta cada 2 s durante `CALL_REACH`
+  (`deliver_call_end`), así el otro teléfono deja de sonar en cuanto vuelve.
+- `set_call_audio_session(activo, generación)`: los eventos de audio de CallKit llevan la
+  generación de su llamada; uno de una llamada anterior no cambia nada. Si el dispositivo no
+  arranca al activarse la sesión, se reintenta una vez (300 ms) y si no, la llamada falla.
+- `call_device_running` (diagnóstico temporal).
