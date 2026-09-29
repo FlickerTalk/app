@@ -5,6 +5,12 @@
 //! Every call negotiates both lines from the start, voice or video (native video, 2026-09-29;
 //! `docs/video-nativo.md`): the video line costs nothing while no camera is on, and turning one on
 //! never needs a new offer.
+//!
+//! Call setup time (2026-09-29): a description goes as soon as it has what the routing wants
+//! (`send_at`), not when gathering completes: a STUN or TURN server that never answers, on one
+//! interface or all, used to hold it for the whole 3 s deadline. The callee may prepare its answer
+//! while the phone rings (`prepare_answer`): the offer's candidates are kept apart, so nothing
+//! reaches the caller, not even an ICE check, until the user answers (`release_answer`).
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
