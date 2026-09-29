@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">Đang trong cuộc gọi</string>
     <string name="ft_mute">Tắt tiếng</string>
     <string name="ft_unmute">Bật tiếng</string>
+    <string name="ft_video">Video</string>
 </resources>

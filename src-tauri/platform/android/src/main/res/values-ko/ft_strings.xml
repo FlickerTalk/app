@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">통화 중</string>
     <string name="ft_mute">음소거</string>
     <string name="ft_unmute">음소거 해제</string>
+    <string name="ft_video">영상</string>
 </resources>
