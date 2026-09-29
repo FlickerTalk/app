@@ -352,6 +352,115 @@ async fn an_early_answer_is_forgotten_after_its_window_or_a_hang_up() {
     alice.core.end_call(&declined, false).await.unwrap();
 }
 
+// Bug of 2026-09-29 (QA on Android emulators, the owner on the iPhone): with the app closed, the
+// user answered on the phone's own screen before the offer arrived, and the call then rang again
+// in the app, asking for a second answer. A call answered early never shows as ringing: from the
+// moment the UI can hear of it, it is connecting.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_answered_before_its_offer_never_shows_as_ringing() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    assert!(!bob.core.answer_ringing_call().await.unwrap(), "nothing rings yet: the answer waits");
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+    let shown = bob.core.current_call().await.unwrap().expect("the call");
+    assert_ne!(shown.phase, CallPhase::Ringing, "answered already: {shown:?}");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A decline that comes before the offer (the notification's decline, or CallKit's, with the app
+// closed) declines the call when its offer arrives: the phone never rings again, and the caller
+// hears that it was declined.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_decline_before_the_offer_declines_the_call_when_it_arrives() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    bob.core.decline_ringing_call().await.expect("nothing rings yet: the decline waits");
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    let declined = CallUpdate::Ended { outcome: CallOutcome::Declined };
+    assert_eq!(next_update(&mut alice_events, &call, |update| matches!(update, CallUpdate::Ended { .. })).await, declined);
+    assert_eq!(next_update(&mut bob_events, &call, |_| true).await, declined, "it never rang");
+    assert!(bob.core.current_call().await.unwrap().is_none());
+    assert_eq!(bob.core.store().call(&call).await.unwrap().expect("in the history").outcome, Some(CallOutcome::Declined));
+}
+
+// The user's last word before the offer is the one that counts (a decline, then an answer on a
+// new call's screen: answered), and a waiting decline is short-lived too.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_last_early_choice_wins_and_a_decline_is_forgotten_after_its_window() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let mut alice_events = alice.core.events();
+    bob.core.decline_ringing_call().await.unwrap();
+    assert!(!bob.core.answer_ringing_call().await.unwrap());
+    let answered = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    next_update(&mut alice_events, &answered, |update| *update == CallUpdate::Connected).await;
+    alice.core.end_call(&answered, false).await.unwrap();
+    until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+
+    assert!(!bob.core.answer_ringing_call().await.unwrap());
+    bob.core.decline_ringing_call().await.unwrap();
+    let declined = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    let ended = next_update(&mut alice_events, &declined, |update| matches!(update, CallUpdate::Ended { .. })).await;
+    assert_eq!(ended, CallUpdate::Ended { outcome: CallOutcome::Declined }, "answered, then hung up before the offer");
+
+    bob.core.decline_ringing_call_within(Duration::from_millis(300)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let late = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    assert_eq!(ringing_call(&bob).await, late, "the decline's window is over: it just rings");
+    alice.core.end_call(&late, false).await.unwrap();
+}
+
+// Bug of 2026-09-29 (the iPhone, with the app on the screen): CallKit answered the ringing call,
+// but for the seconds the answer took to build (ICE), the core still said "ringing", so the app
+// kept ringing and asked again. From the moment a ringing call is answered, by any path, it is
+// connecting, and the UI hears so (`Answering`) before the media connects. Answering again
+// meanwhile does nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ringing_call_is_connecting_from_the_moment_it_is_answered() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let mut bob_events = bob.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    ringing_call(&bob).await;
+
+    let core = bob.core.clone();
+    let answering = tokio::spawn(async move { core.answer_ringing_call().await });
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Answering).await;
+    assert_ne!(bob.core.current_call().await.unwrap().expect("the call").phase, CallPhase::Ringing);
+    assert!(!bob.core.answer_ringing_call().await.unwrap(), "answered already: a second answer does nothing");
+    assert!(answering.await.expect("runs").expect("answers"));
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    alice.core.end_call(&call, false).await.unwrap();
+    until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+
+    // The app's own answer button says the same.
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    ringing_call(&bob).await;
+    let core = bob.core.clone();
+    let answered = call.clone();
+    let answering = tokio::spawn(async move { core.answer_native_call(&answered, CallRouting::Auto).await });
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Answering).await;
+    assert_ne!(bob.core.current_call().await.unwrap().expect("the call").phase, CallPhase::Ringing);
+    answering.await.expect("runs").expect("answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// The system's decline with the call ringing declines it at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_os_declines_the_ringing_call() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let mut alice_events = alice.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    ringing_call(&bob).await;
+    bob.core.decline_ringing_call().await.expect("declines");
+    let ended = next_update(&mut alice_events, &call, |update| matches!(update, CallUpdate::Ended { .. })).await;
+    assert_eq!(ended, CallUpdate::Ended { outcome: CallOutcome::Declined });
+    assert!(bob.core.current_call().await.unwrap().is_none());
+}
+
 // Bug of 2026-09-28: the caller gave up while the other phone was asleep and out of reach, and
 // its hang-up was sent once and lost: the other phone kept ringing. It keeps trying for a while,
 // and arrives as soon as the other phone is back.

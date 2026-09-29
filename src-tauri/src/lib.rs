@@ -107,7 +107,6 @@ pub fn run() {
             client::core_send_file,
             client::core_open_file,
             client::core_share,
-            client::core_pending_call,
             client::core_pick_files,
             client::core_take_photo,
             client::core_read_picked,

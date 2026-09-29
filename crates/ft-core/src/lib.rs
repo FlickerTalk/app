@@ -175,9 +175,9 @@ pub struct Core {
     call_shown: std::sync::atomic::AtomicBool,
     /// Whether the OS has the call's audio session active (CallKit's `didActivate` on iOS).
     call_audio_active: std::sync::atomic::AtomicBool,
-    /// The OS answered before any call rang (2026-09-28): until when (ms) the next voice call's
-    /// offer is answered as soon as it arrives.
-    early_answer: std::sync::Mutex<Option<i64>>,
+    /// The OS answered or declined before any call rang (2026-09-28, 2026-09-29): what the next
+    /// call's offer gets as soon as it arrives, and then the call being answered so.
+    early_answer: std::sync::Mutex<Option<native_calls::EarlyAnswer>>,
     /// The newest CallKit call whose audio session was heard of (`set_call_audio_session`).
     audio_generation: std::sync::atomic::AtomicU64,
     /// This core, for work it hands to the background (a waiting answer, a hang-up to deliver).

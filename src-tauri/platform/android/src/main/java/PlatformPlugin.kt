@@ -148,6 +148,16 @@ const val CALL_ACTION = "ft.call.action"
 /** What the user pressed on the call notification, if it was one of ours. */
 fun callAction(value: String?): String = if (value == "answer" || value == "decline") value else ""
 
+/**
+ * What a tap on the incoming call notification tells the core (2026-09-29): answer or decline, as
+ * CallKit's buttons do. They reach Rust through the call events channel, never the WebView.
+ */
+fun callTapEvent(value: String?): CallEvent? = when (callAction(value)) {
+    "answer" -> CallEvent.Answer
+    "decline" -> CallEvent.Decline
+    else -> null
+}
+
 /** Who is calling; null for a contact with no name, who is still a caller ("Someone"). */
 fun callTitle(name: String): String? = name.trim().ifEmpty { null }
 
@@ -230,6 +240,8 @@ sealed class CallEvent {
     object Incoming : CallEvent()
     object Answer : CallEvent()
     object End : CallEvent()
+    /** The incoming call notification's decline: before the offer came, the core waits for it. */
+    object Decline : CallEvent()
     data class Mute(val muted: Boolean) : CallEvent()
     object AudioActivated : CallEvent()
     object AudioDeactivated : CallEvent()
@@ -246,6 +258,7 @@ fun callEventPayload(event: CallEvent): Map<String, Any> = when (event) {
     CallEvent.Incoming -> mapOf("event" to "incoming")
     CallEvent.Answer -> mapOf("event" to "answer")
     CallEvent.End -> mapOf("event" to "end")
+    CallEvent.Decline -> mapOf("event" to "decline")
     is CallEvent.Mute -> mapOf("event" to "mute", "muted" to event.muted)
     CallEvent.AudioActivated -> mapOf("event" to "audioActivated")
     CallEvent.AudioDeactivated -> mapOf("event" to "audioDeactivated")
@@ -983,6 +996,12 @@ class RingingArgs {
 }
 
 @InvokeArg
+class AnsweringArgs {
+    var caller: String = ""
+    var video: Boolean = false
+}
+
+@InvokeArg
 class CallEventsArgs {
     lateinit var channel: Channel
 }
@@ -1098,9 +1117,6 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
 
-    /** What the user pressed on the call notification, until the app asks for it. */
-    private var pendingCall: String = ""
-
     /** The reminder the user tapped, until the app asks for it (2026-09-27). */
     private var pendingReminder: String = ""
 
@@ -1118,10 +1134,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         InCall.appVisible = true
         videoFrom(activity.intent)
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
-        pendingCall = callAction(activity.intent?.getStringExtra(CALL_ACTION))
-        activity.intent?.removeExtra(CALL_ACTION)
-        // Answer or decline on a call pushed with the app closed: the system stops ringing now.
-        if (pendingCall.isNotEmpty()) activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        callTapped(activity.intent)
         pendingReminder = pendingReminderOf(activity.intent?.getStringExtra(REMINDER_ACTION))
         activity.intent?.removeExtra(REMINDER_ACTION)
     }
@@ -1155,16 +1168,29 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         CallEvents.emit(CallEvent.VideoRequested)
     }
 
+    /**
+     * Answer or decline on the incoming call notification (2026-09-29): to the core, which may not
+     * listen yet (the app was closed) or have the offer yet; the event waits for the first and the
+     * core for the second. The ringing stops now. The WebView only shows what the core does.
+     */
+    private fun callTapped(intent: Intent?) {
+        val event = callTapEvent(intent?.getStringExtra(CALL_ACTION)) ?: return
+        intent?.removeExtra(CALL_ACTION)
+        activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        silence()
+        if (event == CallEvent.Answer) {
+            // The user's own tap: the call's service may take the microphone when it connects.
+            InCall.answeredByTap = true
+            showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+        }
+        CallEvents.emit(event)
+    }
+
     /** The app was already open when the notification's button was pressed. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         videoFrom(intent)
-        val action = callAction(intent.getStringExtra(CALL_ACTION))
-        if (action.isNotEmpty()) {
-            pendingCall = action
-            activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
-        }
-        intent.removeExtra(CALL_ACTION)
+        callTapped(intent)
         val reminder = pendingReminderOf(intent.getStringExtra(REMINDER_ACTION))
         if (reminder.isNotEmpty()) pendingReminder = reminder
         intent.removeExtra(REMINDER_ACTION)
@@ -1217,19 +1243,18 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * Answer or decline, once, if the user pressed it on the notification. Answered: the core
-     * answers natively, so the call's audio and foreground service start now.
+     * The incoming call is being answered, or was before its offer came (2026-09-29): it rings no
+     * more, the app stays over the lock screen, and the call is named after the caller. Its audio
+     * and service start when it connects (`callConnected`).
      */
     @Command
-    fun pendingCall(invoke: Invoke) {
-        val action = pendingCall
-        pendingCall = ""
-        if (action == "answer") {
-            InCall.answeredByTap = true
-            showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
-            activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
-        }
-        invoke.resolve(JSObject().apply { put("action", action) })
+    fun callAnswering(invoke: Invoke) {
+        val args = invoke.parseArgs(AnsweringArgs::class.java)
+        InCall.ringingName = args.caller
+        activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        silence()
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+        invoke.resolve()
     }
 
     /** The core listens to native calls (`listen_calls`): events that waited go out now. */

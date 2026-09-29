@@ -71,6 +71,14 @@ struct Ringing<'a> {
     muted: bool,
 }
 
+/// Arguments of the native `callAnswering` command: who the answered call is, and whether it is
+/// video.
+#[derive(Serialize)]
+struct Answering<'a> {
+    caller: &'a str,
+    video: bool,
+}
+
 /// What the native side tells the core about a call it owns (CallKit on iOS; the ongoing call
 /// notification on Android), with no WebView in between (2026-09-28).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +91,10 @@ pub enum NativeCallEvent {
     Answer,
     /// The user hung up or declined, or the system ended the call.
     End,
+    /// The user declined an incoming call that had not connected (2026-09-29): the incoming call
+    /// notification's decline, or CallKit's end of such a call. Unlike `End`, before the offer
+    /// comes it waits for it, and declines it as it arrives.
+    Decline,
     /// The user muted (`true`) or unmuted the microphone.
     Mute(bool),
     /// The system activated the audio session: the audio unit may start now (iOS). With the
@@ -123,6 +135,7 @@ fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
         ("incoming", _) => Some(NativeCallEvent::Incoming),
         ("answer", _) => Some(NativeCallEvent::Answer),
         ("end", _) => Some(NativeCallEvent::End),
+        ("decline", _) => Some(NativeCallEvent::Decline),
         ("mute", Some(muted)) => Some(NativeCallEvent::Mute(muted)),
         ("audioActivated", _) => Some(NativeCallEvent::AudioActivated(wire.generation)),
         ("audioDeactivated", _) => Some(NativeCallEvent::AudioDeactivated(wire.generation)),
@@ -301,13 +314,6 @@ struct Picked {
     files: Vec<PickedFile>,
 }
 
-/// What Kotlin's `pendingCall` resolves with: what the user pressed on the call notification.
-#[derive(Deserialize)]
-#[cfg_attr(not(mobile), allow(dead_code))]
-struct PendingCall {
-    action: String,
-}
-
 /// What the native `requestMicrophone` resolves with.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -411,6 +417,14 @@ impl<R: Runtime> Platform<R> {
 
     pub fn stop_ringing(&self) -> Result<()> {
         self.run("stopRinging", ())
+    }
+
+    /// The incoming call is being answered (2026-09-29), from any screen, or was answered before
+    /// its offer came: it rings no more, and the phone's own call screen learns who it is. On
+    /// Android the ringing stops and the app stays over the lock screen; on iOS CallKit, which
+    /// answered it, gets the name.
+    pub fn call_answering(&self, caller: &str, video: bool) -> Result<()> {
+        self.call("callAnswering", Answering { caller, video })
     }
 
     /// Hears what the native side does with a call (2026-09-28): answer, hang-up and mute from
@@ -625,18 +639,6 @@ impl<R: Runtime> Platform<R> {
         }
     }
 
-    /// What the user pressed on the call notification ("answer", "decline" or nothing), once.
-    pub fn pending_call(&self) -> Result<String> {
-        #[cfg(mobile)]
-        {
-            Ok(self.handle.run_mobile_plugin::<PendingCall>("pendingCall", ())?.action)
-        }
-        #[cfg(not(mobile))]
-        {
-            Ok(String::new())
-        }
-    }
-
     /// Whether this phone lets a call take the whole screen (Android 14 asks the user).
     pub fn can_show_full_screen(&self) -> Result<bool> {
         #[cfg(mobile)]
@@ -748,8 +750,6 @@ mod tests {
         .unwrap();
         assert_eq!(picked.files[0].name, "a.jpg");
         assert_eq!(picked.files[0].size, 12);
-        let pending: PendingCall = serde_json::from_value(serde_json::json!({ "action": "answer" })).unwrap();
-        assert_eq!(pending.action, "answer");
         // 2026-09-27: reminders travel as one JSON list, and a login comes back as a URL.
         let reminders = serde_json::to_value(Reminders { reminders: r#"[{"plugin":"p","id":"r1","at":5,"text":""}]"# }).unwrap();
         assert_eq!(reminders["reminders"], r#"[{"plugin":"p","id":"r1","at":5,"text":""}]"#);
@@ -789,6 +789,17 @@ mod tests {
         assert_eq!(read(r#"{"event":"audioActivated","generation":3}"#), Some(NativeCallEvent::AudioActivated(3)));
         assert_eq!(read(r#"{"event":"audioDeactivated","generation":2}"#), Some(NativeCallEvent::AudioDeactivated(2)));
         assert_eq!(read(r#"{"event":"audioActivated"}"#), Some(NativeCallEvent::AudioActivated(0)));
+    }
+
+    // 2026-09-29: the incoming call notification's decline (and CallKit's, of a call that never
+    // connected) is a decline, not a hang-up: before the offer comes, the core declines the offer
+    // when it arrives. And a call answered already only tells the native side who it is.
+    #[test]
+    fn a_decline_and_an_answered_call_travel_as_the_native_side_says_them() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"decline"}"#), Some(NativeCallEvent::Decline));
+        let answering = serde_json::to_value(Answering { caller: "Ioan", video: true }).unwrap();
+        assert_eq!(answering, serde_json::json!({ "caller": "Ioan", "video": true }));
     }
 
     // Anything else is ignored, never a panic on the phone's main thread.

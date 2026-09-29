@@ -241,6 +241,9 @@ enum CallEvent: Equatable {
     case incoming
     case answer
     case end
+    /// CallKit's end of an incoming call whose voice never connected (2026-09-29): before the
+    /// offer came, the core waits for it and declines it as it arrives, instead of ringing again.
+    case decline
     case mute(Bool)
     /// With the generation of the CallKit call (it grows with each call): Rust tells a late event
     /// of an older call apart.
@@ -261,6 +264,7 @@ func callEventPayload(_ event: CallEvent) -> JsonObject {
     case .incoming: return ["event": "incoming"]
     case .answer: return ["event": "answer"]
     case .end: return ["event": "end"]
+    case .decline: return ["event": "decline"]
     case .mute(let muted): return ["event": "mute", "muted": muted]
     case .audioActivated(let generation): return ["event": "audioActivated", "generation": generation]
     case .audioDeactivated(let generation): return ["event": "audioDeactivated", "generation": generation]
@@ -400,20 +404,10 @@ let callKitIconName = "CallKitIcon"
 /// The mark as CallKit takes it, read once from the app's assets; `nil` without them (tests).
 let callKitIcon: Data? = UIImage(named: callKitIconName)?.pngData()
 
-/// What the user did in CallKit for the call going on ("answer", "decline" or nothing), for the
-/// WebView, read once.
-struct CallChoice {
-    private var value = ""
-
-    mutating func answered() { value = "answer" }
-    mutating func declined() { value = "decline" }
-    /// A new call begins, or the call is over: nothing of it may reach another call.
-    mutating func forget() { value = "" }
-
-    mutating func take() -> String {
-        defer { value = "" }
-        return value
-    }
+/// What CallKit's end action tells the core: a decline for our incoming call whose voice never
+/// connected (it may not have its offer yet), an end otherwise.
+func endEvent(ours: Bool, outgoing: Bool, connected: Bool) -> CallEvent {
+    ours && !outgoing && !connected ? .decline : .end
 }
 
 /// Why CallKit's call ended, as it shows in the system.
@@ -477,8 +471,8 @@ struct OutgoingArgs: Decodable {
 /// PushKit and CallKit (2026-09-28). Apple wants every VoIP push reported to CallKit at once, so
 /// it rings as "FlickerTalk" while the app, woken, connects and reads the offer; then the name
 /// comes. Native calls: CallKit owns the call and its audio session in both directions; answer,
-/// hang-up, mute and the session's activation go to Rust through `CallEvents`. Answer and hang-up
-/// also wait in `pendingCall` for the WebView, as on Android. Used on the main queue.
+/// hang-up, mute and the session's activation go to Rust through `CallEvents`; the WebView only
+/// shows what the core does with them (2026-09-29). Used on the main queue.
 final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     static let shared = Calls()
     private let registry = PKPushRegistry(queue: .main)
@@ -505,8 +499,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private var answeredAt: Date?
     /// The core said the call's voice is connected.
     private var voiceConnected = false
-    /// What the user did in CallKit for this call, for the WebView (`pendingCall`).
-    private var choice = CallChoice()
 
     override init() {
         provider = CXProvider(configuration: callProviderConfiguration(icon: callKitIcon))
@@ -591,13 +583,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         provider.configuration = callProviderConfiguration(icon: callKitIcon)
     }
 
-    /// What the user did in CallKit for this call, once (the WebView asks).
-    func takeChoice() -> String {
-        let taken = choice.take()
-        diagnose("webview read the callkit choice: " + (taken.isEmpty ? "none" : taken))
-        return taken
-    }
-
     /// Ends the call if, `after` seconds from now, it still went nowhere (`callOverdue`).
     private func watch(_ uuid: UUID, after seconds: TimeInterval) {
         DispatchQueue.main.asyncAfter(wallDeadline: .now() + seconds) { [weak self] in
@@ -618,7 +603,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         guard let reason = overdue else { return }
         diagnose(reason == .failed ? "callkit call overdue: never connected" : "callkit call overdue: unanswered")
         finish()
-        choice.forget()
         provider.reportCall(with: uuid, endedAt: nil, reason: reason)
         CallEvents.shared.emit(.end)
     }
@@ -648,7 +632,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         generation += 1
         self.outgoing = outgoing
         // What the user did for an earlier call must not answer or hang up this one.
-        choice.forget()
         CallEvents.shared.forget()
     }
 
@@ -687,6 +670,13 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
             diagnose("core: rings, callkit call already there answered=\(answered)")
             if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
         }
+    }
+
+    /// The core is answering the call (2026-09-29): answered in CallKit, maybe before its offer came
+    /// (PushKit reported it as "FlickerTalk"). CallKit only learns who it is; it never rings again.
+    func answering(caller: String, video: Bool) {
+        diagnose("core: answering, callkit call there=\(current != nil) answered=\(answered)")
+        if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
     }
 
     /// The ringing is over. Declined or given up: CallKit lets go. Answered: the call goes on,
@@ -745,7 +735,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
     func ended() {
         diagnose("core: call ended, callkit call there=\(current != nil)")
-        choice.forget()
         guard let call = current else {
             finish()
             return
@@ -802,16 +791,15 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         watch(action.callUUID, after: callConnectLimit)
         answered = true
         live = true
-        choice.answered()
         CallEvents.shared.emit(.answer)
         action.fulfill()
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         diagnose("callkit end, the call going on=\(current == action.callUUID) answered=\(answered)")
-        choice.declined()
+        let event = endEvent(ours: current == action.callUUID, outgoing: outgoing, connected: voiceConnected)
         if current == action.callUUID { finish() }
-        CallEvents.shared.emit(.end)
+        CallEvents.shared.emit(event)
         action.fulfill()
     }
 
@@ -919,6 +907,12 @@ final class VoipToken {
         waiting.append(once)
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { once(nil) }
     }
+}
+
+/// Arguments of `callAnswering`, the same as Kotlin's.
+struct AnsweringArgs: Decodable {
+    let caller: String
+    let video: Bool
 }
 
 /// Arguments of `startRinging`, the same as Kotlin's.
@@ -1129,10 +1123,12 @@ class PlatformPlugin: Plugin {
         }
     }
 
-    /// What the user did in CallKit ("answer", "decline" or nothing), once, as on Android.
-    @objc public func pendingCall(_ invoke: Invoke) throws {
+    /// The core is answering the incoming call (2026-09-29): CallKit gets its name, and no ring.
+    @objc public func callAnswering(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(AnsweringArgs.self)
         DispatchQueue.main.async {
-            invoke.resolve(["action": Calls.shared.takeChoice()])
+            Calls.shared.answering(caller: args.caller, video: args.video)
+            invoke.resolve()
         }
     }
 

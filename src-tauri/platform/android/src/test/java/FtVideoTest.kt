@@ -128,7 +128,7 @@ class FtVideoTest {
     }
 
     // The ongoing notification's camera action opens the app with `video`: the core turns our
-    // camera on. It never reaches the WebView's `pendingCall`, which knows answer and decline only.
+    // camera on. It is never taken for the incoming call notification's answer or decline.
     @Test
     fun theNotificationsCameraActionAsksForVideo() {
         assertTrue(asksForVideo("video"))

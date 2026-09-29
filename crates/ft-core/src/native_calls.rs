@@ -130,8 +130,34 @@ impl NativeCall {
 /// What the app runs before a call's video devices go (`Core::set_video_detach`).
 pub type VideoDetach = Arc<dyn Fn() + Send + Sync>;
 
-/// How long the OS's answer waits for an offer that has not arrived yet.
+/// How long the OS's answer (or decline) waits for an offer that has not arrived yet.
 pub const EARLY_ANSWER: Duration = Duration::from_secs(30);
+
+/// What the OS said about a call before its offer arrived (2026-09-28, 2026-09-29): with the app
+/// closed, the phone's own call screen rings from the push, and the user may answer or decline
+/// before the core has the offer. The last word counts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EarlyAnswer {
+    /// The next offer, until then (ms), is answered as soon as it arrives.
+    Accept { until: i64 },
+    /// The next offer, until then (ms), is declined as soon as it arrives: it never rings.
+    Decline { until: i64 },
+    /// The call being answered, early or not: never shown ringing while its answer is built.
+    Accepting { call: String },
+}
+
+/// What a call whose offer just arrived gets from an early answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EarlyOutcome {
+    Ring,
+    Answer,
+    Decline,
+}
+
+/// When (ms) an early answer given now for `wait` stops counting.
+fn until(wait: Duration) -> i64 {
+    now().saturating_add(i64::try_from(wait.as_millis()).unwrap_or(i64::MAX))
+}
 
 /// Before an audio device that would not start is tried again.
 const AUDIO_RETRY: Duration = Duration::from_millis(300);
@@ -197,6 +223,8 @@ impl Core {
     /// CallKit and the WebView may both answer it.
     pub async fn answer_native_call(self: &Arc<Self>, call: &str, routing: CallRouting) -> Result<()> {
         let platform = self.audio_platform()?;
+        // From this moment it rings no more (2026-09-29): building the answer takes seconds.
+        let answering = self.offer_of(call).is_some() && self.mark_answering(call);
         let _one_at_a_time = self.native_setup.lock().await;
         let Some(record) = self.store.call(call).await? else { bail!("no such call") };
         if record.outgoing || record.ended_at.is_some() {
@@ -204,6 +232,9 @@ impl Core {
         }
         if record.answered_at.is_some() {
             return Ok(());
+        }
+        if answering {
+            self.announce_call(&record, CallUpdate::Answering);
         }
         let Some((offer, media)) = self.offer_of(call) else { bail!("no offer for this call") };
         let answered = self.answer_native(call, &offer, media, routing, platform).await;
@@ -234,8 +265,7 @@ impl Core {
     pub async fn answer_ringing_call_within(self: &Arc<Self>, wait: Duration) -> Result<bool> {
         let current = self.current_call().await?;
         if current.is_none() {
-            let until = now() + i64::try_from(wait.as_millis()).unwrap_or(i64::MAX);
-            *self.early_answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(until);
+            self.answer_early(EarlyAnswer::Accept { until: until(wait) });
         }
         let Some(current) = current else { return Ok(false) };
         if current.phase != CallPhase::Ringing {
@@ -314,6 +344,54 @@ impl Core {
         }
     }
 
+    /// The OS declined (2026-09-29): the incoming call notification's decline, or CallKit's end
+    /// of an incoming call whose voice never connected. The call going on ends (declined if it
+    /// rings). When nothing rings yet, the decline waits `EARLY_ANSWER` for the offer, which is
+    /// then declined as it arrives and never rings: the push rang the phone before the offer
+    /// came, as with an early answer.
+    pub async fn decline_ringing_call(&self) -> Result<()> {
+        self.decline_ringing_call_within(EARLY_ANSWER).await
+    }
+
+    /// Like `decline_ringing_call`, with the decline waiting `wait` for an offer yet to come.
+    pub async fn decline_ringing_call_within(&self, wait: Duration) -> Result<()> {
+        match self.current_call().await? {
+            Some(current) => {
+                self.early_answer.lock().unwrap_or_else(PoisonError::into_inner).take();
+                self.end_call(&current.call, false).await
+            }
+            None => {
+                self.answer_early(EarlyAnswer::Decline { until: until(wait) });
+                Ok(())
+            }
+        }
+    }
+
+    /// What the OS said before the offer came: it replaces whatever it said before.
+    fn answer_early(&self, answer: EarlyAnswer) {
+        *self.early_answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(answer);
+    }
+
+    /// `call` is being answered: the UI shows it connecting. `false` if it already was.
+    fn mark_answering(&self, call: &str) -> bool {
+        let mut early = self.early_answer.lock().unwrap_or_else(PoisonError::into_inner);
+        if matches!(&*early, Some(EarlyAnswer::Accepting { call: accepting }) if accepting == call) {
+            return false;
+        }
+        *early = Some(EarlyAnswer::Accepting { call: call.to_owned() });
+        true
+    }
+
+    /// Whether `call`, unanswered, is being answered by an early answer (or will be, the moment
+    /// it is taken): the UI shows it connecting, never ringing.
+    fn answered_early(&self, call: &str) -> bool {
+        match &*self.early_answer.lock().unwrap_or_else(PoisonError::into_inner) {
+            Some(EarlyAnswer::Accepting { call: accepting }) => accepting == call,
+            Some(EarlyAnswer::Accept { until }) => now() <= *until,
+            _ => false,
+        }
+    }
+
     /// The ringing or active call, if any.
     pub async fn current_call(&self) -> Result<Option<CurrentCall>> {
         let active = self.active_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
@@ -326,6 +404,8 @@ impl Core {
         let connected_at = native.as_ref().and_then(|native| native.connected_at());
         let phase = match (record.answered_at.is_some(), record.outgoing, connected_at.is_some()) {
             (false, true, _) => CallPhase::Calling,
+            // Being answered (2026-09-29), maybe before its offer came: never ringing again.
+            (false, false, _) if self.answered_early(&call) => CallPhase::Connecting,
             (false, false, _) => CallPhase::Ringing,
             (true, _, true) => CallPhase::Active,
             (true, _, false) => CallPhase::Connecting,
@@ -344,14 +424,24 @@ impl Core {
         }))
     }
 
-    /// A call started ringing: if the OS answered it early (within its window), it is answered
-    /// now, in the background, with the routing the core keeps.
-    pub(crate) fn answer_if_answered_early(&self, call: &str) {
-        let until = self.early_answer.lock().unwrap_or_else(PoisonError::into_inner).take();
-        let Some(until) = until else { return };
-        if now() > until {
-            return;
+    /// The offer of `call` arrived: what the OS said before it came, if it is still in time.
+    /// Answered, the call is marked as being answered until it is (`answered_early`).
+    pub(crate) fn take_early_answer(&self, call: &str) -> EarlyOutcome {
+        let mut early = self.early_answer.lock().unwrap_or_else(PoisonError::into_inner);
+        let outcome = match early.take() {
+            Some(EarlyAnswer::Accept { until }) if now() <= until => EarlyOutcome::Answer,
+            Some(EarlyAnswer::Decline { until }) if now() <= until => EarlyOutcome::Decline,
+            _ => EarlyOutcome::Ring,
+        };
+        if outcome == EarlyOutcome::Answer {
+            *early = Some(EarlyAnswer::Accepting { call: call.to_owned() });
         }
+        outcome
+    }
+
+    /// A call the OS answered before its offer came is answered now, in the background, with the
+    /// routing the core keeps.
+    pub(crate) fn answer_offered_early(&self, call: &str) {
         let Some(core) = self.this.upgrade() else { return };
         let call = call.to_owned();
         tokio::spawn(async move {
