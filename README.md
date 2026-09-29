@@ -41,6 +41,12 @@ iOS release builds with Xcode 27 also need `rustup component add llvm-tools`: th
 `swift-rs` in `Cargo.toml` uses its `llvm-objcopy` to export the Swift entry points that Xcode 27
 leaves local (see the comment there).
 
+Google Drive sign-in needs the app's OAuth client ids at build time: `FT_GOOGLE_CLIENT_ID`
+(Android) and `FT_GOOGLE_IOS_CLIENT_ID` (iOS), both `<id>.apps.googleusercontent.com`. A release
+build for Android or iOS stops without its platform's id (`src-tauri/build.rs`); a debug build only
+warns and cannot sign in. A release that is never published can build without it with
+`FT_ALLOW_NO_GOOGLE_CLIENT=1`.
+
 Builds are signed and published by GitHub Actions: every push to `main` produces a `canary`
 prerelease, and every `vX.Y.Z` tag a release.
 
