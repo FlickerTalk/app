@@ -233,6 +233,12 @@ sealed class CallEvent {
     data class Mute(val muted: Boolean) : CallEvent()
     object AudioActivated : CallEvent()
     object AudioDeactivated : CallEvent()
+    /** The app came to the screen or left it (native video): the core holds our camera meanwhile. */
+    data class Visible(val visible: Boolean) : CallEvent()
+    /** The display turned, in degrees, while the call has its video views. */
+    data class Orientation(val degrees: Int) : CallEvent()
+    /** The ongoing call notification's camera action: the core turns our camera on. */
+    object VideoRequested : CallEvent()
 }
 
 /** The event as the channel carries it: `{"event": "mute", "muted": true}`. */
@@ -243,6 +249,9 @@ fun callEventPayload(event: CallEvent): Map<String, Any> = when (event) {
     is CallEvent.Mute -> mapOf("event" to "mute", "muted" to event.muted)
     CallEvent.AudioActivated -> mapOf("event" to "audioActivated")
     CallEvent.AudioDeactivated -> mapOf("event" to "audioDeactivated")
+    is CallEvent.Visible -> mapOf("event" to "visible", "visible" to event.visible)
+    is CallEvent.Orientation -> mapOf("event" to "orientation", "orientation" to event.degrees)
+    CallEvent.VideoRequested -> mapOf("event" to "video")
 }
 
 /** Events wait here until the core listens, then go out in order. */
@@ -337,13 +346,20 @@ fun modeAfterCall(previous: Int?): Int = when (previous) {
 /** A call pushed with the app closed rings on this channel: the system plays the ringtone. */
 const val RINGING_CALL_CHANNEL = "ft.call.ringing"
 
-/** The foreground service types of a call: phone call, and the microphone once it is allowed. */
+/**
+ * The foreground service types of a call: phone call, the microphone once it is allowed, and the
+ * camera while the call has video (native video, 2026-09-29). Types beyond phone call exist from
+ * Android 11.
+ */
 // The types are compile-time constants, used only past the `sdk` checks lint cannot follow.
 @SuppressLint("InlinedApi")
-fun callServiceTypes(sdk: Int, microphone: Boolean): Int = when {
-    sdk < Build.VERSION_CODES.Q -> 0
-    sdk < Build.VERSION_CODES.R || !microphone -> ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-    else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+fun callServiceTypes(sdk: Int, microphone: Boolean, camera: Boolean = false): Int {
+    if (sdk < Build.VERSION_CODES.Q) return 0
+    var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+    if (sdk < Build.VERSION_CODES.R) return types
+    if (microphone) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+    if (camera) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+    return types
 }
 
 /**
@@ -377,7 +393,7 @@ private fun ringtoneAttributes(): AudioAttributes = AudioAttributes.Builder()
  * after `timeoutMs` at most. Otherwise the notification is silent: the app rings itself, or the
  * weekly hours keep the call quiet.
  */
-private fun showCall(context: Context, title: String, text: String, ringing: Boolean = false, timeoutMs: Long = 0) {
+private fun showCall(context: Context, title: String, text: String, ringing: Boolean = false, timeoutMs: Long = 0, video: Boolean = false) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         manager.createNotificationChannel(
@@ -412,7 +428,7 @@ private fun showCall(context: Context, title: String, text: String, ringing: Boo
         .setFullScreenIntent(open, true)
         // Answer and decline from the notification itself: the user should not have to open the
         // app to pick up (§66).
-        .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer))
+        .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer).setIsVideo(video))
     if (timeoutMs > 0) builder.setTimeoutAfter(timeoutMs)
     if (ringing) {
         // Before Android 8 the sound and vibration are the notification's, not its channel's.
@@ -500,6 +516,12 @@ object InCall {
     /** The user answered this call with their own tap (the notification's button, or the app's). */
     @Volatile
     var answeredByTap = false
+    /** The call has video now, either camera on (`callVideo`, native video 2026-09-29). */
+    @Volatile
+    var video = false
+    /** The user asked for video with their own tap on the ongoing notification's camera action. */
+    @Volatile
+    var videoByTap = false
     private var previousMode: Int? = null
     private var focus: Any? = null
     @Volatile
@@ -533,6 +555,8 @@ object InCall {
         active = false
         muted = false
         answeredByTap = false
+        video = false
+        videoByTap = false
         context.stopService(Intent(context, FtCallService::class.java))
         giveAudioBack(context)
     }
@@ -616,12 +640,16 @@ fun ongoingCallNotification(context: Context): Notification {
         .setCategory(NotificationCompat.CATEGORY_CALL)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
-        .setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, action(ACTION_HANG_UP, 5)))
+        // Published again on each change: CallStyle has no live switch between voice and video.
+        .setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, action(ACTION_HANG_UP, 5)).setIsVideo(InCall.video))
         .addAction(
             R.drawable.ft_notification,
             context.getString(if (InCall.muted) R.string.ft_unmute else R.string.ft_mute),
             action(ACTION_MUTE, 6),
         )
+    // The camera (native video, 2026-09-29): opens the app, where the core turns our camera on;
+    // the camera only runs with the app on the screen.
+    callIntent(context, VIDEO_ACTION, 7)?.let { builder.addAction(R.drawable.ft_notification, context.getString(R.string.ft_video), it) }
     callIntent(context, "", 4)?.let { builder.setContentIntent(it) }
     return builder.build()
 }
@@ -644,21 +672,33 @@ class FtCallService : Service() {
         return START_NOT_STICKY
     }
 
-    /** In the foreground with the types it may hold now: the microphone once it is allowed. */
+    /**
+     * In the foreground with the types it may hold now: the microphone once it is allowed, the
+     * camera while the call has video (native video, 2026-09-29). Called again on each change:
+     * `startForeground` with the whole set of types.
+     */
     fun promote() {
-        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val microphone = microphoneServiceAllowed(granted, InCall.appVisible, InCall.answeredByTap)
-        try {
-            ServiceCompat.startForeground(this, ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this), callServiceTypes(Build.VERSION.SDK_INT, microphone))
-        } catch (_: Exception) {
-            // The microphone type from the background, or no leave for a phone-call service: try
-            // without the microphone, and give up if even that is refused.
+        val recording = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val filming = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val microphone = microphoneServiceAllowed(recording, InCall.appVisible, InCall.answeredByTap)
+        val camera = cameraServiceAllowed(InCall.video, filming, InCall.appVisible, InCall.videoByTap)
+        val sdk = Build.VERSION.SDK_INT
+        // A type the system refuses now (from the background, or no leave for a phone-call
+        // service) fails the whole call: try with less, the camera first, and give up if even the
+        // phone call alone is refused.
+        val tries = listOf(
+            callServiceTypes(sdk, microphone, camera),
+            callServiceTypes(sdk, microphone, false),
+            callServiceTypes(sdk, false, false),
+        ).distinct()
+        for (types in tries) {
             try {
-                ServiceCompat.startForeground(this, ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this), callServiceTypes(Build.VERSION.SDK_INT, false))
+                ServiceCompat.startForeground(this, ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this), types)
+                return
             } catch (_: Exception) {
-                stopSelf()
             }
         }
+        stopSelf()
     }
 
     /** The notification again, after a change (mute). */
@@ -1048,7 +1088,12 @@ class SaveFileArgs {
 }
 
 /** What only Android lets Kotlin do (Plan §5): lend a file to a viewer, save it to Downloads. */
-@TauriPlugin(permissions = [Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone")])
+@TauriPlugin(
+    permissions = [
+        Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone"),
+        Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
+    ],
+)
 class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
@@ -1063,10 +1108,15 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     private var authWaiting: Invoke? = null
     private var authScheme: String = ""
 
+    /** The WebView the call's video views go under (native video). */
+    private var webView: WebView? = null
+
     /** The app is open: the "something new" notification has done its job. */
     override fun load(webView: WebView) {
         super.load(webView)
+        this.webView = webView
         InCall.appVisible = true
+        videoFrom(activity.intent)
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
         pendingCall = callAction(activity.intent?.getStringExtra(CALL_ACTION))
         activity.intent?.removeExtra(CALL_ACTION)
@@ -1076,21 +1126,39 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         activity.intent?.removeExtra(REMINDER_ACTION)
     }
 
-    /** On the screen again: a call's service may now take the microphone (Android 14). */
+    /**
+     * On the screen again: a call's service may now take the microphone (Android 14) and the
+     * camera; the core lets our camera go on (native video).
+     */
     override fun onResume() {
         super.onResume()
         InCall.appVisible = true
+        CallEvents.offer(CallEvent.Visible(true))
         if (InCall.active) InCall.service?.promote()
     }
 
+    /** Off the screen: the core holds our camera until the app is back (native video). */
     override fun onPause() {
         super.onPause()
         InCall.appVisible = false
+        CallEvents.offer(CallEvent.Visible(false))
+    }
+
+    /**
+     * The ongoing call notification's camera action opened the app: the core turns our camera on.
+     * The user's own tap lets the call's service take the camera type.
+     */
+    private fun videoFrom(intent: Intent?) {
+        if (!asksForVideo(intent?.getStringExtra(CALL_ACTION))) return
+        intent?.removeExtra(CALL_ACTION)
+        InCall.videoByTap = true
+        CallEvents.emit(CallEvent.VideoRequested)
     }
 
     /** The app was already open when the notification's button was pressed. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        videoFrom(intent)
         val action = callAction(intent.getStringExtra(CALL_ACTION))
         if (action.isNotEmpty()) {
             pendingCall = action
@@ -1169,6 +1237,8 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun registerCallEvents(invoke: Invoke) {
         try {
             CallEvents.register(invoke.parseArgs(CallEventsArgs::class.java).channel)
+            // Whether the app is on the screen now: the core holds our camera while it is not.
+            CallEvents.offer(CallEvent.Visible(InCall.appVisible))
             invoke.resolve()
         } catch (error: Exception) {
             invoke.reject(error.message ?: "no channel")
@@ -1234,6 +1304,87 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(JSObject().apply { put("granted", getPermissionState("microphone") == PermissionState.GRANTED) })
     }
 
+    /**
+     * The camera before our camera turns on (native video, 2026-09-29, §30): asks only if it is
+     * not allowed yet; `granted` says what the user chose.
+     */
+    @Command
+    fun requestCamera(invoke: Invoke) {
+        when (cameraRequest(getPermissionState("camera"))) {
+            CameraRequest.GRANTED -> invoke.resolve(JSObject().apply { put("granted", true) })
+            CameraRequest.DENIED -> invoke.resolve(JSObject().apply { put("granted", false) })
+            CameraRequest.ASK -> requestPermissionForAlias("camera", invoke, "cameraAnswered")
+        }
+    }
+
+    @PermissionCallback
+    fun cameraAnswered(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("granted", getPermissionState("camera") == PermissionState.GRANTED) })
+    }
+
+    /**
+     * The call's video views go behind the WebView, parked until `videoLayout` places them; their
+     * surfaces go to Rust over JNI (`FtVideoSurfaces`). The layers of iOS are not used here.
+     */
+    @Command
+    fun attachVideo(invoke: Invoke) {
+        val web = webView
+        if (web == null) {
+            invoke.reject("no webview")
+            return
+        }
+        activity.runOnUiThread {
+            CallVideoViews.attach(activity, web)
+            invoke.resolve()
+        }
+    }
+
+    /** Where the WebView leaves room for each picture, in CSS pixels; `null` hides one. */
+    @Command
+    fun videoLayout(invoke: Invoke) {
+        val args = invoke.parseArgs(VideoLayoutArgs::class.java)
+        activity.runOnUiThread {
+            CallVideoViews.layout(args)
+            invoke.resolve()
+        }
+    }
+
+    /** The other side's picture, upright: its view takes that shape. */
+    @Command
+    fun videoShape(invoke: Invoke) {
+        val args = invoke.parseArgs(VideoShapeArgs::class.java)
+        activity.runOnUiThread {
+            CallVideoViews.shape(args.width, args.height)
+            invoke.resolve()
+        }
+    }
+
+    /** The views go (their surfaces reach Rust as null first) and the WebView is opaque again. */
+    @Command
+    fun detachVideo(invoke: Invoke) {
+        activity.runOnUiThread {
+            CallVideoViews.detach()
+            invoke.resolve()
+        }
+    }
+
+    /**
+     * Whether the call has video now (either camera on): the ongoing notification says so and the
+     * call's service takes the camera type, or lets it go.
+     */
+    @Command
+    fun callVideo(invoke: Invoke) {
+        val on = invoke.parseArgs(CallVideoArgs::class.java).on
+        activity.runOnUiThread {
+            if (InCall.video != on) {
+                InCall.video = on
+                if (!on) InCall.videoByTap = false
+                if (InCall.active) InCall.service?.promote()
+            }
+            invoke.resolve()
+        }
+    }
+
     /** Whether this phone lets us put a call on the whole screen (Android 14 and up). */
     @Command
     fun canShowFullScreen(invoke: Invoke) {
@@ -1277,6 +1428,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                 activity,
                 callTitle(args.caller) ?: activity.getString(R.string.ft_someone),
                 activity.getString(callText(args.video)),
+                video = args.video,
             )
             val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val ringing = ringingFor(audio.ringerMode, quiet = args.muted || !mayDisturbNow(activity))

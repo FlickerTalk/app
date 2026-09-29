@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">Идёт звонок</string>
     <string name="ft_mute">Выключить микрофон</string>
     <string name="ft_unmute">Включить микрофон</string>
+    <string name="ft_video">Видео</string>
 </resources>

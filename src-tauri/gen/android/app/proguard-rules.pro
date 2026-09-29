@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Native video (2026-09-29): Rust's JNI entry (src-tauri/src/video_surfaces.rs) is found by the
+# names of this class and its native method.
+-keep class com.flickertalk.platform.FtVideoSurfaces {
+    native <methods>;
+}

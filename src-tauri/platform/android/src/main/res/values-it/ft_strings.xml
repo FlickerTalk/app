@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">Chiamata in corso</string>
     <string name="ft_mute">Disattiva microfono</string>
     <string name="ft_unmute">Attiva microfono</string>
+    <string name="ft_video">Video</string>
 </resources>
