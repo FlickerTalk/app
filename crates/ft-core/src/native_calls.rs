@@ -66,6 +66,8 @@ pub(crate) struct NativeCall {
     video_call: bool,
     /// The other side's call media version: from its offer, or from its answer to ours.
     peer_media: AtomicU16,
+    /// Whether `peer_media` is known: our own call learns it with the answer.
+    peer_known: AtomicBool,
     /// Our camera as the user wants it; it runs once the video is ready.
     camera: AtomicBool,
     /// The video is connected: the camera and the other side's state apply from now on.
@@ -89,6 +91,12 @@ impl NativeCall {
 
     fn peer_media(&self) -> u16 {
         self.peer_media.load(Ordering::SeqCst)
+    }
+
+    /// Whether our camera may turn on. Before the answer to our call the other side is not known
+    /// yet: the wish is kept, and checked once it is.
+    fn camera_allowed(&self) -> bool {
+        !self.peer_known.load(Ordering::SeqCst) || camera_allowed(self.peer_media(), self.video_call)
     }
 
     /// The media version we say: 1 when this phone runs the call's video.
@@ -180,7 +188,7 @@ impl Core {
 
     async fn offer_native(self: &Arc<Self>, call: &str, routing: CallRouting, platform: AudioPlatform) -> Result<()> {
         // The other side's media version comes with its answer.
-        let Some(native) = self.open_native(call, routing, platform, 0).await? else { return Ok(()) };
+        let Some(native) = self.open_native(call, routing, platform, None).await? else { return Ok(()) };
         let sdp = native.session.offer().await?;
         self.offer_call_media(call, &sdp, native.media(), crate::calls::CALL_REACH).await
     }
@@ -206,7 +214,7 @@ impl Core {
     }
 
     async fn answer_native(self: &Arc<Self>, call: &str, offer: &str, media: u16, routing: CallRouting, platform: AudioPlatform) -> Result<()> {
-        let Some(native) = self.open_native(call, routing, platform, media).await? else { bail!("the call is over") };
+        let Some(native) = self.open_native(call, routing, platform, Some(media)).await? else { bail!("the call is over") };
         let sdp = native.session.answer(offer).await?;
         self.answer_call_media(call, &sdp, native.media()).await
     }
@@ -375,7 +383,7 @@ impl Core {
         call: &str,
         routing: CallRouting,
         platform: AudioPlatform,
-        peer_media: u16,
+        peer_media: Option<u16>,
     ) -> Result<Option<Arc<NativeCall>>> {
         let Some(record) = self.store.call(call).await? else { bail!("no such call") };
         let mut config = self.transport.media_config();
@@ -390,7 +398,8 @@ impl Core {
             voice,
             video,
             video_call: record.video,
-            peer_media: AtomicU16::new(peer_media),
+            peer_media: AtomicU16::new(peer_media.unwrap_or(0)),
+            peer_known: AtomicBool::new(peer_media.is_some()),
             camera: AtomicBool::new(record.video),
             video_ready: AtomicBool::new(false),
             video_lock: tokio::sync::Mutex::new(()),
@@ -474,7 +483,12 @@ impl Core {
             let _ = self.apply_remote(native).await;
         }
         if native.camera.load(Ordering::SeqCst) {
-            let _ = self.apply_camera(native).await;
+            if native.camera_allowed() {
+                let _ = self.apply_camera(native).await;
+            } else {
+                // Kept before the answer, for an older app's voice call: it has no video line.
+                native.camera.store(false, Ordering::SeqCst);
+            }
         }
     }
 
@@ -596,6 +610,7 @@ impl Core {
         match self.native_of(call) {
             Some(native) => {
                 native.peer_media.store(media, Ordering::SeqCst);
+                native.peer_known.store(true, Ordering::SeqCst);
                 native.session.accept(sdp).await
             }
             None => Ok(()),
@@ -638,14 +653,15 @@ impl Core {
     }
 
     /// Our camera on or off in the call, as the user chose (the camera permission is the app's
-    /// business, asked before). Before the call connects it is kept for then. An older app's
-    /// voice call has no video line: the camera cannot turn on.
+    /// business, asked before). Before the call connects it is kept for then, even before the
+    /// answer to our call says what the other side runs. An older app's voice call has no video
+    /// line: the camera cannot turn on.
     pub async fn set_call_camera(&self, call: &str, on: bool) -> Result<VideoState> {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
         if native.video.is_none() {
             bail!("no video on this device");
         }
-        if on && !camera_allowed(native.peer_media(), native.video_call) {
+        if on && !native.camera_allowed() {
             bail!("the other side has no video in this call");
         }
         native.camera.store(on, Ordering::SeqCst);

@@ -5,8 +5,6 @@
 //! Every native call negotiates audio and video from the start; switching is turning our own
 //! camera on or off and telling the other side with `CallMedia`, never a new offer.
 //!
-//! Tests marked **waits for ft-media's `Video`** need the real pipeline (worker 1 of the design):
-//! against the contract's stubs they fail, and go green once it is merged.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -184,7 +182,7 @@ fn frames_shown(phone: &Phone) -> usize {
     phone.video.display().shown.len()
 }
 
-// Waits for ft-media's `Video`. The heart of the design: voice → video → voice from either side,
+// The heart of the design: voice → video → voice from either side,
 // with no new offer, and the voice sounding all along.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_voice_call_turns_to_video_and_back_with_the_voice_going_on() {
@@ -226,7 +224,37 @@ async fn a_voice_call_turns_to_video_and_back_with_the_voice_going_on() {
     assert!(bob_heard > 0.7, "bob heard alice at {bob_heard} while the cameras went on and off");
 }
 
-// Waits for ft-media's `Video`. Both press at once: two states, one per camera, nothing to clash.
+// The camera turned on before the call connects (from the calling screen) is kept, and turns on
+// as soon as the call has video both ways: ft-media refuses it before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_camera_turned_on_before_the_call_connects_turns_on_once_it_does() {
+    let (alice, bob) = two_phones().await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    ringing_call(&bob).await;
+    let kept = alice.core.set_call_camera(&call, true).await.expect("kept for when it connects");
+    assert!(kept.camera && !kept.available, "{kept:?}");
+    assert!(alice.video(&call).camera, "the core says it is wanted");
+    assert!(!alice.video.camera().running, "nothing opens before the call connects");
+
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    next_video(&mut bob_events, &call, |state| state.remote).await;
+    until("alice's camera runs", || async { alice.video.camera().running }).await;
+
+    // And turned off again before connecting, it stays off.
+    alice.core.end_call(&call, false).await.unwrap();
+    until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, true).await.expect("alice calls with video");
+    ringing_call(&bob).await;
+    assert!(!alice.core.set_call_camera(&call, false).await.expect("changed her mind").camera);
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_video(&mut alice_events, &call, |state| state.remote).await;
+    assert!(!alice.video(&call).camera, "her camera stays off");
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// Both press at once: two states, one per camera, nothing to clash.
 #[tokio::test(flavor = "multi_thread")]
 async fn both_turning_their_cameras_on_at_once_ends_with_both_on() {
     let (alice, bob) = two_phones().await;
@@ -244,7 +272,7 @@ async fn both_turning_their_cameras_on_at_once_ends_with_both_on() {
     alice.core.end_call(&call, false).await.unwrap();
 }
 
-// Waits for ft-media's `Video`. A video call from the start: the caller's camera turns on as it
+// A video call from the start: the caller's camera turns on as it
 // connects, and so does the callee's when it answers from the app.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_video_call_starts_with_both_cameras_on() {
@@ -260,7 +288,7 @@ async fn a_video_call_starts_with_both_cameras_on() {
     alice.core.end_call(&call, false).await.unwrap();
 }
 
-// Waits for ft-media's `Video`. CallKit answers a video call on a locked iPhone: the camera is
+// CallKit answers a video call on a locked iPhone: the camera is
 // wanted but held (iOS stops it in the background) and the other side sees it paused; once the app
 // is on the screen it runs.
 #[tokio::test(flavor = "multi_thread")]
@@ -286,7 +314,7 @@ async fn a_video_call_answered_by_the_os_with_the_app_away_holds_the_camera_unti
     alice.core.end_call(&call, false).await.unwrap();
 }
 
-// Waits for ft-media's `Video`. Leaving the call screen (the WebView's `null` layout) holds the
+// Leaving the call screen (the WebView's `null` layout) holds the
 // camera; coming back gives it back.
 #[tokio::test(flavor = "multi_thread")]
 async fn leaving_the_call_screen_holds_the_camera() {
@@ -309,7 +337,7 @@ async fn leaving_the_call_screen_holds_the_camera() {
     alice.core.end_call(&call, false).await.unwrap();
 }
 
-// Waits for ft-media's `Video`. The other camera: front to back and back again.
+// The other camera: front to back and back again.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_camera_switches_between_front_and_back() {
     let (alice, bob) = two_phones().await;
@@ -322,7 +350,7 @@ async fn the_camera_switches_between_front_and_back() {
     alice.core.end_call(&call, false).await.unwrap();
 }
 
-// Waits for ft-media's `Video`. The system's video button (CallKit) or the notification's camera
+// The system's video button (CallKit) or the notification's camera
 // action: our camera turns on in the call going on.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_system_s_video_button_turns_our_camera_on() {
@@ -336,7 +364,7 @@ async fn the_system_s_video_button_turns_our_camera_on() {
     alice.core.end_call(&call, false).await.unwrap();
 }
 
-// Waits for ft-media's `Video`. Hanging up stops the cameras and the displays on both sides, and
+// Hanging up stops the cameras and the displays on both sides, and
 // the native views are taken away before the devices go (iOS: the layers are the devices').
 #[tokio::test(flavor = "multi_thread")]
 async fn hanging_up_stops_the_video_after_the_views_are_taken_away() {
@@ -408,7 +436,32 @@ async fn an_older_app_s_voice_call_has_no_camera() {
     session.close().await;
 }
 
-// Waits for ft-media's `Video`. An older app's video call sends its camera from the start and
+// Our camera, kept before the answer, stays off when the answer is an older app's voice call: it
+// has no video line to send it on.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_camera_kept_before_an_older_app_answers_a_voice_call_stays_off() {
+    let (alice, bob) = two_phones().await;
+    let mut alice_events = alice.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    ringing_call(&bob).await;
+    assert!(alice.core.set_call_camera(&call, true).await.expect("kept").camera);
+
+    // Bob answers as an older app's WebView would.
+    let offer = bob.core.current_call().await.unwrap().and_then(|call| call.offer).expect("alice's offer");
+    let session = MediaSession::open(&bob.network.media_config()).await.expect("bob's connection");
+    let answer = session.answer(&offer).await.expect("his answer");
+    bob.core.answer_call(&call, &answer).await.expect("his WebView answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    until("alice's video is connected", || async { alice.core.current_call().await.unwrap().is_some_and(|c| c.phase == CallPhase::Active) }).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let state = alice.video(&call);
+    assert!(!state.camera && !state.available, "{state:?}");
+    assert!(!alice.video.camera().running);
+    alice.core.end_call(&call, false).await.unwrap();
+    session.close().await;
+}
+
+// An older app's video call sends its camera from the start and
 // never says so: its picture is shown at once, our camera turns on as for any video call.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_older_app_s_video_call_has_video_from_the_start() {

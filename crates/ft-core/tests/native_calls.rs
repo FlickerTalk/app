@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
 use ft_core::{CallPhase, CallUpdate, Core, Event};
-use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, DeviceProbe, ToneDevice};
+use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, webview_voice_offer, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, BackendFactory, CallRouting};
 use ft_push::RouterEvent;
 use ft_storage::{CallOutcome, Store};
@@ -229,8 +229,7 @@ async fn on_ios_the_device_starts_only_after_callkit_activates_the_audio_session
 }
 
 // An older app's WebView offers video: the native side answers audio and video (native video,
-// 2026-09-29: every native call has a video line). Waits for ft-media's `Video` (worker 1 of
-// docs/video-nativo.md): the contract's session still refuses the video line.
+// 2026-09-29: every native call has a video line).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_webview_video_offer_is_answered_with_audio_and_video() {
     let (alice, bob) = two_phones(Activation::Immediate).await;
@@ -248,6 +247,26 @@ async fn a_webview_video_offer_is_answered_with_audio_and_video() {
     let video: Vec<&str> = sdp.lines().filter(|line| line.starts_with("m=video")).collect();
     assert_eq!(video.len(), 1, "{sdp}");
     assert!(!video[0].starts_with("m=video 0 "), "video is answered: {sdp}");
+    bob.core.end_call(&call, false).await.unwrap();
+}
+
+// An older app's WebView voice call has no video line: the native side answers the voice only
+// (no video line appears that the older app never offered).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_webview_voice_offer_is_answered_with_audio_only() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let mut alice_events = alice.core.events();
+    let call = alice.core.place_call(&bob.id(), false).await.expect("alice calls like a WebView");
+    alice.core.offer_call_within(&call, &webview_voice_offer(), Duration::from_secs(5)).await.expect("offered");
+    ringing_call(&bob).await;
+
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    let CallUpdate::Answered { sdp } = next_update(&mut alice_events, &call, |update| matches!(update, CallUpdate::Answered { .. })).await
+    else {
+        unreachable!()
+    };
+    assert!(sdp.contains("a=rtpmap:111 opus/48000/2"), "{sdp}");
+    assert!(!sdp.lines().any(|line| line.starts_with("m=video")), "no video line: {sdp}");
     bob.core.end_call(&call, false).await.unwrap();
 }
 
