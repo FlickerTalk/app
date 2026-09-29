@@ -92,6 +92,7 @@
     "speaker": "Speaker",
     "camera": "Camera",
     "hangUp": "Hang up",
+    "backToCall": "Back to the call",
     "answer": "Answer",
     "decline": "Decline",
     "empty": "No calls yet"

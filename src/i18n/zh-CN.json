@@ -92,6 +92,7 @@
     "speaker": "扬声器",
     "camera": "摄像头",
     "hangUp": "挂断",
+    "backToCall": "返回通话",
     "answer": "接听",
     "decline": "拒绝",
     "empty": "还没有通话记录"
