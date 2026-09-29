@@ -20,7 +20,11 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.flickertalk"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!-- The keyboard (2026-09-29): never pan the window. Edge to edge, the WebView gets the
+             keyboard as an inset and shrinks its visual viewport, which the app follows
+             (src/viewport.ts); a pan took the whole app, header included, up out of the screen. -->
         <activity
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
