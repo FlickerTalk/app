@@ -7,6 +7,7 @@
 //! never needs a new offer.
 
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use rtc::rtp_transceiver::rtp_sender::RtpCodecKind;
@@ -77,6 +78,20 @@ impl PeerConnectionEventHandler for Events {
     }
 }
 
+/// How a session's ICE gathering went (call setup timings, 2026-09-29): numbers only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Gathering {
+    /// When our description was set and gathering began.
+    pub started: Option<Instant>,
+    /// When the description was taken to be sent, with what was gathered by then.
+    pub finished: Option<Instant>,
+    /// Whether gathering had completed by then, or the wait was cut short.
+    pub complete: bool,
+    pub host: u16,
+    pub srflx: u16,
+    pub relay: u16,
+}
+
 /// One side of a call's connection.
 pub struct MediaSession {
     connection: Arc<dyn PeerConnection>,
@@ -90,6 +105,7 @@ pub struct MediaSession {
     closed: Arc<watch::Sender<LinkState>>,
     remote: Mutex<Option<oneshot::Receiver<Arc<dyn TrackRemote>>>>,
     config: MediaConfig,
+    report: Mutex<Gathering>,
 }
 
 impl MediaSession {
@@ -143,6 +159,7 @@ impl MediaSession {
             closed: state_tx,
             remote: Mutex::new(Some(track)),
             config: config.clone(),
+            report: Mutex::new(Gathering::default()),
         })
     }
 
@@ -150,6 +167,7 @@ impl MediaSession {
     pub async fn offer(&self) -> Result<String> {
         let offer = self.connection.create_offer(None).await?;
         self.connection.set_local_description(offer).await?;
+        self.gathering_started();
         self.gathered_description().await
     }
 
@@ -160,6 +178,7 @@ impl MediaSession {
         self.connection.set_remote_description(offer).await?;
         let answer = self.connection.create_answer(None).await?;
         self.connection.set_local_description(answer).await?;
+        self.gathering_started();
         self.gathered_description().await
     }
 
@@ -176,10 +195,29 @@ impl MediaSession {
         let mut gathered = self.gathered.clone();
         let _ = tokio::time::timeout(self.config.gather_timeout, gathered.wait_for(|done| *done)).await;
         let description = self.connection.local_description().await.ok_or_else(|| anyhow!("no local description"))?;
+        self.gathering_finished(&description.sdp);
         if !description.sdp.contains("a=candidate:") {
             bail!("no ICE candidate was gathered");
         }
         Ok(description.sdp)
+    }
+
+    fn gathering_started(&self) {
+        let mut report = self.report.lock().unwrap_or_else(PoisonError::into_inner);
+        *report = Gathering { started: Some(Instant::now()), ..Gathering::default() };
+    }
+
+    /// `sdp` is the description taken to be sent.
+    fn gathering_finished(&self, sdp: &str) {
+        let (host, srflx, relay) = candidate_counts(sdp);
+        let complete = *self.gathered.borrow();
+        let mut report = self.report.lock().unwrap_or_else(PoisonError::into_inner);
+        *report = Gathering { finished: Some(Instant::now()), complete, host, srflx, relay, ..*report };
+    }
+
+    /// How the gathering went, so far.
+    pub fn gathering(&self) -> Gathering {
+        *self.report.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Follows the connection.
@@ -227,6 +265,27 @@ impl MediaSession {
         let _ = self.connection.close().await;
         let _ = self.closed.send(LinkState::Closed);
     }
+}
+
+/// The distinct candidates of `sdp` by type: (host, srflx, relay). Only the first component: the
+/// RTCP one is the same address.
+fn candidate_counts(sdp: &str) -> (u16, u16, u16) {
+    let distinct: std::collections::BTreeSet<&str> =
+        sdp.lines().filter_map(|line| line.trim_end().strip_prefix("a=candidate:")).collect();
+    let mut counts = (0u16, 0u16, 0u16);
+    for candidate in distinct {
+        if candidate.split(' ').nth(1) != Some("1") {
+            continue;
+        }
+        let kind = candidate.split(' ').skip_while(|word| *word != "typ").nth(1);
+        match kind {
+            Some("host") => counts.0 = counts.0.saturating_add(1),
+            Some("srflx") => counts.1 = counts.1.saturating_add(1),
+            Some("relay") => counts.2 = counts.2.saturating_add(1),
+            _ => {}
+        }
+    }
+    counts
 }
 
 /// Whether the video line negotiated on `connection` goes both ways (see
@@ -384,6 +443,37 @@ mod tests {
         assert!(callee.video_both_ways().await);
         caller.close().await;
         callee.close().await;
+    }
+
+    // Call setup timings (2026-09-29): when gathering started and ended and what it gave, for
+    // the diagnostics (names and numbers only).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_reports_its_gathering() {
+        let caller = MediaSession::open(&MediaConfig::default()).await.expect("caller");
+        assert_eq!(caller.gathering(), Gathering::default(), "nothing gathered before the offer");
+        let offer = caller.offer().await.expect("offer");
+        let gathering = caller.gathering();
+        let (started, finished) = (gathering.started.expect("started"), gathering.finished.expect("finished"));
+        assert!(finished >= started);
+        assert!(gathering.complete, "loopback with no servers completes at once");
+        assert_eq!((gathering.host, gathering.srflx, gathering.relay), (1, 0, 0), "{offer}");
+        caller.close().await;
+    }
+
+    // A candidate repeated in each bundled line is one candidate, and so is its RTCP twin
+    // (component 2, the same address).
+    #[test]
+    fn candidates_are_counted_once_by_type() {
+        let sdp = "v=0\r\n\
+            a=candidate:1 1 udp 2130706431 10.0.0.2 5000 typ host\r\n\
+            a=candidate:1 2 udp 2130706431 10.0.0.2 5000 typ host\r\n\
+            a=candidate:2 1 udp 1694498815 192.0.2.4 6000 typ srflx raddr 10.0.0.2 rport 5000\r\n\
+            a=candidate:3 1 udp 16777215 198.51.100.8 7000 typ relay raddr 192.0.2.4 rport 6000\r\n\
+            a=candidate:4 1 udp 2130706431 10.0.0.3 5001 typ host\r\n\
+            m=video 9 UDP/TLS/RTP/SAVPF 102\r\n\
+            a=candidate:1 1 udp 2130706431 10.0.0.2 5000 typ host\r\n";
+        assert_eq!(candidate_counts(sdp), (2, 1, 1));
+        assert_eq!(candidate_counts("v=0\r\n"), (0, 0, 0));
     }
 
     // The direction of a description's video line, as the answer or the offer says it.
