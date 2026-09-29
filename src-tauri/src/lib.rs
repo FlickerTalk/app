@@ -8,6 +8,19 @@ pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_ft_platform::init());
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    // The core starts with the app, not with its window (2026-09-28): a call's VoIP push launches
+    // the iPhone app in the background with no scene, and Tauri runs `setup` only once there is
+    // one. Plugins start when the app is built, so the core reaches the router and the call's offer
+    // arrives while CallKit rings.
+    let builder = builder.plugin(
+        tauri::plugin::Builder::<_, ()>::new("ft-boot")
+            .setup(|app, _| {
+                app.state::<client::Client>().setup(app)?;
+                client::start_in_background(app);
+                Ok(())
+            })
+            .build(),
+    );
     builder
         .manage(client::Client::default())
         .manage(plugins::Plugins::default())
@@ -46,11 +59,6 @@ pub fn run() {
                     .body(Vec::new())
                     .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
             }
-        })
-        .setup(|app| {
-            app.state::<client::Client>().setup(app.handle())?;
-            client::start_in_background(app.handle());
-            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             client::core_me,
@@ -136,6 +144,7 @@ pub fn run() {
             client::core_vault_connect,
             client::core_vault_setup,
             client::core_vault_unlock,
+            client::core_resume,
             client::core_vault_suggest_phrase,
             client::core_vault_change_phrase,
             client::core_vault_disconnect,

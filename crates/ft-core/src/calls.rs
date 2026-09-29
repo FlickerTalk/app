@@ -86,7 +86,7 @@ impl Core {
             if self.store.call(call).await?.is_none_or(|current| current.ended_at.is_some()) {
                 return Ok(());
             }
-            if self.transmit_direct(&contact, &Packet::new(body.clone())).await? {
+            if self.transmit_direct_call(&contact, &Packet::new(body.clone())).await? {
                 return Ok(());
             }
             if std::time::Instant::now() >= deadline {

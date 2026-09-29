@@ -24,6 +24,8 @@ struct Bus {
     capabilities: Mutex<HashMap<String, [u8; 32]>>,
     mail: Mutex<Mailboxes>,
     signals: AtomicUsize,
+    /// Signals the caller marked as a call (2026-09-28), which ring an iPhone.
+    call_signals: AtomicUsize,
     next_id: AtomicUsize,
 }
 
@@ -52,6 +54,11 @@ impl Relay for FakeRelay {
         self.bus.signals.fetch_add(1, Ordering::SeqCst);
         let online = self.bus.online.lock().unwrap().get(to).cloned();
         Ok(online.is_some_and(|device| device.send(RouterEvent::Signal(bytes)).is_ok()))
+    }
+
+    async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> anyhow::Result<bool> {
+        self.bus.call_signals.fetch_add(1, Ordering::SeqCst);
+        self.signal(to, capability, bytes).await
     }
 
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> anyhow::Result<()> {
@@ -280,4 +287,26 @@ async fn blocking_closes_the_connection() {
         !alice.network.is_connected(&bob.id()).await && !bob.network.is_connected(&alice.id()).await
     })
     .await;
+}
+
+// A call to a phone that is not connected (2026-09-28): the signal that opens the way is marked
+// as a call, so the router rings an iPhone through CallKit. A message never is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_an_offline_phone_is_signalled_as_a_call() {
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    bus.online.lock().unwrap().remove(&bob.id());
+    bob.network.disconnect(&alice.id()).await;
+    alice.network.disconnect(&bob.id()).await;
+
+    alice.core.send_text(&bob.id(), "are you there?").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(bus.call_signals.load(Ordering::SeqCst), 0, "a message is not a call");
+
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    alice.core.offer_call_within(&call, "offer", Duration::from_millis(300)).await.expect("tries");
+    assert!(bus.call_signals.load(Ordering::SeqCst) > 0, "the call rings");
 }

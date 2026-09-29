@@ -22,7 +22,7 @@ uuid = { version = "1.18", features = ["v7"] }
 webpki-roots = "1"
 
 [dev-dependencies]
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 ed25519-dalek = "3"
 ft-identity = { path = "../ft-identity" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net"] }

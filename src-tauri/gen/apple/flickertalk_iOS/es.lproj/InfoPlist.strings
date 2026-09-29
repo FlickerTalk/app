@@ -1,0 +1,3 @@
+/* Permission texts of the iPhone app (2026-09-28). */
+"NSCameraUsageDescription" = "FlickerTalk usa la cámara para las videollamadas y para escanear códigos de contacto.";
+"NSMicrophoneUsageDescription" = "FlickerTalk usa el micrófono para las llamadas.";

@@ -1,0 +1,3 @@
+/* Permission texts of the iPhone app (2026-09-28). */
+"NSCameraUsageDescription" = "FlickerTalk ভিডিও কল ও পরিচিতির কোড স্ক্যান করতে ক্যামেরা ব্যবহার করে।";
+"NSMicrophoneUsageDescription" = "FlickerTalk কলের জন্য মাইক্রোফোন ব্যবহার করে।";
