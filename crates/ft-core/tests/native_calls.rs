@@ -12,7 +12,7 @@ use ft_core::timings::{CallStage, CallTimings};
 use ft_core::{CallPhase, CallUpdate, Core, Event};
 use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, webview_voice_offer, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, BackendFactory, CallRouting};
-use ft_push::RouterEvent;
+use ft_push::{RouterEvent, TurnGrant};
 use ft_storage::{CallOutcome, Store};
 use ft_webrtc::SessionConfig;
 use tokio::sync::{broadcast, mpsc};
@@ -65,6 +65,11 @@ impl Phone {
     }
 
     fn go_online(&self, bus: &Arc<Bus>) {
+        self.go_online_with(bus, vec![], None);
+    }
+
+    /// Online, with the STUN and TURN servers the router's welcome names.
+    fn go_online_with(&self, bus: &Arc<Bus>, stun: Vec<String>, turn: Option<TurnGrant>) {
         let (events, mut incoming) = mpsc::unbounded_channel();
         bus.online.lock().unwrap().insert(self.id(), events.clone());
         let network = self.network.clone();
@@ -73,7 +78,7 @@ impl Phone {
                 network.handle(event).await;
             }
         });
-        let _ = events.send(RouterEvent::Connected { stun: vec![], turn: None });
+        let _ = events.send(RouterEvent::Connected { stun, turn });
     }
 }
 
@@ -482,4 +487,82 @@ async fn each_side_times_the_steps_of_the_call_setup() {
         assert!(!line.contains("ft_") && !line.contains(&call) && !line.contains("127.0.0.1"), "{line}");
     }
     alice.core.end_call(&call, false).await.unwrap();
+}
+
+/// STUN and TURN servers that never answer: local UDP sockets nobody reads (a server behind a
+/// network that drops the packets, or an interface with no way out). Nothing leaves the machine.
+struct Blackhole {
+    _stun: std::net::UdpSocket,
+    _turn: std::net::UdpSocket,
+    stun: Vec<String>,
+    turn: TurnGrant,
+}
+
+fn blackhole() -> Blackhole {
+    let (stun, turn) = (std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), std::net::UdpSocket::bind("127.0.0.1:0").unwrap());
+    let (stun_port, turn_port) = (stun.local_addr().unwrap().port(), turn.local_addr().unwrap().port());
+    Blackhole {
+        stun: vec![format!("stun:127.0.0.1:{stun_port}")],
+        turn: TurnGrant { urls: vec![format!("turn:127.0.0.1:{turn_port}?transport=udp")], username: "u".to_owned(), credential: "c".to_owned() },
+        _stun: stun,
+        _turn: turn,
+    }
+}
+
+/// Two paired phones whose router names servers that never answer.
+async fn two_phones_behind(hole: &Blackhole) -> (Phone, Phone) {
+    let bus = Arc::new(Bus::default());
+    let alice = phone(&bus, "Alice", false, Activation::Immediate).await;
+    let bob = phone(&bus, "Bob", true, Activation::Immediate).await;
+    alice.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    pair(&alice, &bob).await;
+    (alice, bob)
+}
+
+/// One call from Alice to Bob, answered as soon as it rings: (call started → ringing, answered →
+/// connected on Bob's side), with both sides' timings printed.
+async fn timed_call(alice: &Phone, bob: &Phone, what: &str) -> (Duration, Duration) {
+    let mut bob_events = bob.core.events();
+    let started = std::time::Instant::now();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+    let ringing = started.elapsed();
+    let answered = std::time::Instant::now();
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let connected = answered.elapsed();
+    eprintln!("{what}: ringing after {} ms, connected {} ms after the answer", ringing.as_millis(), connected.as_millis());
+    eprintln!("  caller: {}", alice.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    eprintln!("  callee: {}", bob.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    alice.core.end_call(&call, false).await.unwrap();
+    until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+    (ringing, connected)
+}
+
+// Call setup time (2026-09-29): a STUN or TURN server that never answers (on one interface, or
+// all of them) held every description for the whole gathering deadline, 3 s. An answer connects
+// in well under a second and a half however the servers behave.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_servers_that_never_answer_an_answer_still_connects_at_once() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    let (_, connected) = timed_call(&alice, &bob, "unreachable servers, link open").await;
+    assert!(connected < Duration::from_millis(1_500), "connected {} ms after the answer", connected.as_millis());
+}
+
+// The phone that was asleep (2026-09-29): the call's direct connection is opened on demand, and
+// it opens while our media offer gathers, not after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_servers_that_never_answer_the_direct_link_opens_while_the_offer_gathers() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    alice.network.disconnect(&bob.id()).await;
+    let alice_id = alice.id();
+    until("bob's connection is gone", || async { !bob.network.is_connected(&alice_id).await }).await;
+    timed_call(&alice, &bob, "unreachable servers, link closed").await;
+    let caller = alice.core.call_timings().expect("the caller's timings");
+    let offered = caller.at(CallStage::LinkOffered).expect("the link was offered");
+    // The link's own gathering waits up to 3 s (ft-webrtc); ours must not come first.
+    assert!(offered < 3_500, "the link was offered {offered} ms after the call started: {}", caller.line());
 }
