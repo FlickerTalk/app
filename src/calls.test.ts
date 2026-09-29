@@ -694,6 +694,24 @@ describe("native video", () => {
     expect(calls.call.view).toMatchObject({ available: false, camera: true });
   });
 
+  // One model after merging fix-bridge (2026-09-29): coming back to the screen, the WebView reads
+  // the core once, as a restore does. A suspended WebView may have missed the cameras changing
+  // (the other side turned theirs on): the screen shows them as the core has them. With no call,
+  // it asks the core nothing.
+  it("reads the cameras from the core once when it comes back to the screen", async () => {
+    await live();
+    going("active", { remote: true });
+    const before = reads();
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(reads()).toBe(before + 1);
+    expect(calls.call.view).toMatchObject({ available: true, remote: true });
+    calls.reset();
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(reads()).toBe(before + 1);
+  });
+
   it("starts a voice call with the camera off", async () => {
     await calls.startCall("ft_bob", false);
     expect(calls.call.view).toMatchObject({ available: false, camera: false, remote: false });
