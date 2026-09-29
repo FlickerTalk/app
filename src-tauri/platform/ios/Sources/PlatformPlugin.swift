@@ -328,11 +328,14 @@ func callOverdue(outgoing: Bool, answered: Bool, connected: Bool, ringingFor: Ti
     return ringingFor >= callRingLimit ? .unanswered : nil
 }
 
-/// CallKit's configuration: one call at a time, never in the phone's Recents. Set again right
-/// before every call is reported or started (Apple DTS, iOS 18.4.1 and later): otherwise the
-/// system may never activate the audio session, and the voice is lost.
-func callProviderConfiguration() -> CXProviderConfiguration {
+/// CallKit's configuration: one call at a time, never in the phone's Recents, with our mark on the
+/// button that opens the app (`icon`, a template PNG). Set again right before every call is
+/// reported or started (Apple DTS, iOS 18.4.1 and later): otherwise the system may never activate
+/// the audio session, and the voice is lost. The name CallKit shows is the app's display name
+/// (`CFBundleDisplayName`, "FlickerTalk"): `localizedName` is no longer supported since iOS 14.
+func callProviderConfiguration(icon: Data?) -> CXProviderConfiguration {
     let configuration = CXProviderConfiguration()
+    configuration.iconTemplateImageData = icon
     configuration.supportsVideo = true
     configuration.maximumCallsPerCallGroup = 1
     configuration.maximumCallGroups = 1
@@ -368,6 +371,29 @@ func currentAudioSession() -> String {
         outputs: session.currentRoute.outputs.map { $0.portType.rawValue },
         inputs: session.currentRoute.inputs.map { $0.portType.rawValue }
     )
+}
+
+/// The mark CallKit shows on the button of its screen that opens the app: an image set of the
+/// app's asset catalog (`gen/apple/Assets.xcassets`).
+let callKitIconName = "CallKitIcon"
+
+/// The mark as CallKit takes it, read once from the app's assets; `nil` without them (tests).
+let callKitIcon: Data? = UIImage(named: callKitIconName)?.pngData()
+
+/// What the user did in CallKit for the call going on ("answer", "decline" or nothing), for the
+/// WebView, read once.
+struct CallChoice {
+    private var value = ""
+
+    mutating func answered() { value = "answer" }
+    mutating func declined() { value = "decline" }
+    /// A new call begins, or the call is over: nothing of it may reach another call.
+    mutating func forget() { value = "" }
+
+    mutating func take() -> String {
+        defer { value = "" }
+        return value
+    }
 }
 
 /// Why CallKit's call ended, as it shows in the system.
@@ -455,10 +481,11 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private var answeredAt: Date?
     /// The core said the call's voice is connected.
     private var voiceConnected = false
-    var pending = ""
+    /// What the user did in CallKit for this call, for the WebView (`pendingCall`).
+    private var choice = CallChoice()
 
     override init() {
-        provider = CXProvider(configuration: callProviderConfiguration())
+        provider = CXProvider(configuration: callProviderConfiguration(icon: callKitIcon))
         super.init()
         provider.setDelegate(self, queue: .main)
         registry.delegate = self
@@ -509,7 +536,11 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// comes as on the lock screen. `false` when there is no CallKit call to answer: the core
     /// answers by itself.
     func requestAnswer() -> Bool {
-        guard let call = current, answerThroughCallKit(callKitCall: true, answered: answered, outgoing: outgoing) else { return false }
+        guard let call = current, answerThroughCallKit(callKitCall: true, answered: answered, outgoing: outgoing) else {
+            diagnose("app answer: no callkit call to answer, call there=\(current != nil) answered=\(answered)")
+            return false
+        }
+        diagnose("app answer: through callkit")
         controller.request(CXTransaction(action: CXAnswerCallAction(call: call))) { error in
             guard error != nil else { return }
             // CallKit refused: the core answers all the same, as before.
@@ -533,7 +564,14 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
 
     /// Before every call is reported or started (see `callProviderConfiguration`).
     private func configureProvider() {
-        provider.configuration = callProviderConfiguration()
+        provider.configuration = callProviderConfiguration(icon: callKitIcon)
+    }
+
+    /// What the user did in CallKit for this call, once (the WebView asks).
+    func takeChoice() -> String {
+        let taken = choice.take()
+        diagnose("webview read the callkit choice: " + (taken.isEmpty ? "none" : taken))
+        return taken
     }
 
     /// Ends the call if, `after` seconds from now, it still went nowhere (`callOverdue`).
@@ -556,7 +594,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         guard let reason = overdue else { return }
         diagnose(reason == .failed ? "callkit call overdue: never connected" : "callkit call overdue: unanswered")
         finish()
-        pending = ""
+        choice.forget()
         provider.reportCall(with: uuid, endedAt: nil, reason: reason)
         CallEvents.shared.emit(.end)
     }
@@ -585,6 +623,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         speaker = false
         generation += 1
         self.outgoing = outgoing
+        // What the user did for an earlier call must not answer or hang up this one.
+        choice.forget()
         CallEvents.shared.forget()
     }
 
@@ -605,7 +645,10 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         watch(uuid, after: callRingLimit)
         configureProvider()
         provider.reportNewIncomingCall(with: uuid, update: update(caller: caller, video: video)) { [weak self] error in
-            if error != nil, self?.current == uuid { self?.current = nil }
+            if let error {
+                diagnose("callkit refused the incoming call code=\((error as NSError).code)")
+                if self?.current == uuid { self?.current = nil }
+            }
             done?()
         }
     }
@@ -614,8 +657,10 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     func ring(caller: String, video: Bool) {
         switch ringWith(callKitCall: current != nil) {
         case .report:
+            diagnose("core: rings, callkit call reported")
             report(caller: caller, video: video)
         case .update:
+            diagnose("core: rings, callkit call already there answered=\(answered)")
             if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
         }
     }
@@ -624,6 +669,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// with its audio session, until `ended`.
     func stop() {
         guard let call = current, stopEndsCall(answered: answered, outgoing: outgoing) else { return }
+        diagnose("core: ringing over, callkit call ends")
         finish()
         provider.reportCall(with: call, endedAt: nil, reason: .remoteEnded)
     }
@@ -666,6 +712,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
 
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
     func ended() {
+        diagnose("core: call ended, callkit call there=\(current != nil)")
+        choice.forget()
         guard let call = current else {
             finish()
             return
@@ -717,19 +765,19 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     // connects, `callOverdue` ends the call as failed.
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         configureCallAudio()
-        diagnose("callkit answer")
+        diagnose("callkit answer, the call going on=\(current == action.callUUID)")
         answeredAt = Date()
         watch(action.callUUID, after: callConnectLimit)
         answered = true
         live = true
-        pending = "answer"
+        choice.answered()
         CallEvents.shared.emit(.answer)
         action.fulfill()
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        diagnose("callkit end")
-        pending = "decline"
+        diagnose("callkit end, the call going on=\(current == action.callUUID) answered=\(answered)")
+        choice.declined()
         if current == action.callUUID { finish() }
         CallEvents.shared.emit(.end)
         action.fulfill()
@@ -974,8 +1022,7 @@ class PlatformPlugin: Plugin {
     /// What the user did in CallKit ("answer", "decline" or nothing), once, as on Android.
     @objc public func pendingCall(_ invoke: Invoke) throws {
         DispatchQueue.main.async {
-            invoke.resolve(["action": Calls.shared.pending])
-            Calls.shared.pending = ""
+            invoke.resolve(["action": Calls.shared.takeChoice()])
         }
     }
 
