@@ -9,8 +9,8 @@
  * the fake plays a phone whose calls are native (docs/video-nativo.md), connects at once, and keeps
  * both cameras in `state.video`. `window.__ftFakeCameraDenied` makes turning the camera on fail as
  * a denied permission does; `window.__ftFakeCameraFails` makes the camera fail to start (an
- * encoder that cannot be set up), as the real core does: silently when the call connects, with
- * an error when it is turned on.
+ * encoder that cannot be set up), as the real core does: with a `camera_failed` event when a
+ * video call connects, with an error when it is turned on.
  *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
@@ -157,8 +157,9 @@ export function installFakeCore() {
           : null;
       case "core_call_start_native": {
         // The other side answers at once and the call connects with a video line both ways. Until
-        // the video is ready the core's camera is the wish; as the real core, it says nothing
-        // when the line comes up or the camera fails to start, only when the camera turns on.
+        // the video is ready the core's camera is the wish. As the real core, right after
+        // `connected` it says the video it has (`available`, the camera off), then the camera it
+        // turned on, or `camera_failed` when it could not start.
         state.nativeContact = String(a.contact);
         state.nativePhase = "calling";
         const wanted = Boolean(args?.video);
@@ -173,9 +174,15 @@ export function installFakeCore() {
           callEvent({ kind: "connected" });
         }, 20);
         setTimeout(() => {
-          const started = wanted && !flag("__ftFakeCameraFails");
-          Object.assign(state.video, { available: true, camera: started });
-          if (started) callEvent({ kind: "video", ...state.video });
+          Object.assign(state.video, { available: true, camera: false });
+          callEvent({ kind: "video", ...state.video });
+          if (!wanted) return;
+          if (flag("__ftFakeCameraFails")) {
+            callEvent({ kind: "camera_failed" });
+            return;
+          }
+          state.video.camera = true;
+          callEvent({ kind: "video", ...state.video });
         }, 30);
         return NATIVE_CALL;
       }

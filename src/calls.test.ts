@@ -665,46 +665,56 @@ describe("native video", () => {
     expect(calls.call.view.camera).toBe(false);
   });
 
-  // The core readies the video after it says the call connected, and says nothing when the
-  // camera fails to start there (an encoder that cannot be configured, on the emulator).
+  /** How many times the WebView asked the core for its call. */
+  const reads = () => tauri.invoke.mock.calls.filter(([command]) => command === "core_current_call").length;
+
+  // The core readies the video after it says the call connected. When the camera it wanted cannot
+  // start there (an encoder that cannot be configured, on the emulator) it says so with its own
+  // event (2026-09-29): the WebView follows the events, it does not ask the core in a loop.
   it("learns from the core that the camera did not start as the call connected", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     going("calling", { available: false, camera: true });
     await calls.startCall("ft_bob", true);
     event({ kind: "answered", sdp: "" });
-    going("active", { available: false, camera: true });
     event({ kind: "connected" });
-    await vi.advanceTimersByTimeAsync(0);
+    await flushPromises();
     expect(calls.call.view.camera).toBe(true);
-    going("active", { available: true, camera: false });
-    await vi.advanceTimersByTimeAsync(1000);
+    event({ kind: "camera_failed" });
+    await flushPromises();
+    expect(calls.call).toMatchObject({ phase: "active", cameraFailed: true });
+    expect(calls.call.view.camera).toBe(false);
+    video({ camera: false });
+    await flushPromises();
     expect(calls.call).toMatchObject({ phase: "active", cameraFailed: true });
     expect(calls.call.view).toMatchObject({ available: true, camera: false });
   });
 
-  it("learns that a voice call has a video line once it connects", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  it("learns that a voice call has a video line from the core's event as it connects", async () => {
     going("calling", { available: false });
     await calls.startCall("ft_bob", false);
     event({ kind: "answered", sdp: "" });
-    going("active", { available: false });
     event({ kind: "connected" });
-    await vi.advanceTimersByTimeAsync(0);
-    going("active", { available: true });
-    await vi.advanceTimersByTimeAsync(1000);
+    await flushPromises();
+    expect(calls.call.view.available).toBe(false);
+    video();
+    await flushPromises();
     expect(calls.call.view.available).toBe(true);
     expect(calls.call.cameraFailed).toBe(false);
   });
 
-  it("says the camera did not start when the video never gets ready", async () => {
+  // The owner's rule (2026-09-29): no workarounds. Placing a call reads the core once; after that
+  // only its events move the screen, however long the video takes.
+  it("does not ask the core again while the video of a connected call gets ready", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     going("calling", { available: false, camera: true });
     await calls.startCall("ft_bob", true);
+    const placed = reads();
     event({ kind: "answered", sdp: "" });
-    going("active", { available: false, camera: true });
+    going("active", { available: true, camera: false });
     event({ kind: "connected" });
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(calls.call).toMatchObject({ phase: "active", cameraFailed: true });
+    expect(reads()).toBe(placed);
+    expect(calls.call).toMatchObject({ phase: "active", cameraFailed: false });
+    expect(calls.call.view).toMatchObject({ available: false, camera: true });
   });
 
   it("starts a voice call with the camera off", async () => {
@@ -861,14 +871,18 @@ describe("native video", () => {
     expect(layouts()).toEqual([{ layout: null }]);
   });
 
-  it("keeps asking the core about the video of a call it restores before its video is ready", async () => {
+  it("restores a call whose video is not ready yet with one read, then follows the events", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     current = { call: "c9", contact: "ft_bob", video: snapshot({ available: false }), outgoing: false, phase: "active", native: true, muted: false, connectedAt: 1 };
     calls.reset();
+    const before = reads();
     await calls.startCalls();
     expect(calls.call.view.available).toBe(false);
     current = { ...current, video: snapshot() };
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(reads() - before).toBe(1);
+    expect(calls.call.view.available).toBe(false);
+    await tauri.handlers["ft://call"]({ payload: { contact: "ft_bob", call: "c9", kind: "video", ...snapshot() } });
     expect(calls.call.view.available).toBe(true);
   });
 
