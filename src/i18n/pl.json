@@ -94,6 +94,7 @@
     "switchCamera": "Przełącz kamerę",
     "cameraPaused": "Kamera wstrzymana",
     "cameraDenied": "Kamera nie jest dozwolona. Zezwól na nią FlickerTalk w Ustawieniach telefonu.",
+    "cameraFailed": "Nie udało się uruchomić kamery. Rozmowa trwa dalej jako głosowa.",
     "videoUnavailable": "Wideo nie jest dostępne w tym połączeniu",
     "turnOnCamera": "Włącz kamerę",
     "hangUp": "Rozłącz",

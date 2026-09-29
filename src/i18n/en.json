@@ -94,6 +94,7 @@
     "switchCamera": "Switch camera",
     "cameraPaused": "Camera paused",
     "cameraDenied": "The camera isn't allowed. Allow it for FlickerTalk in your phone's Settings.",
+    "cameraFailed": "The camera couldn't start. The call goes on as voice.",
     "videoUnavailable": "Video isn't available on this call",
     "turnOnCamera": "Turn on your camera",
     "hangUp": "Hang up",
