@@ -20,6 +20,9 @@ export function idleCall(): CallState {
     cameraOff: false,
     local: null,
     remote: null,
+    native: false,
+    view: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
+    cameraDenied: false,
   };
 }
 
@@ -32,6 +35,9 @@ export const actions = {
   toggleMute: vi.fn(),
   toggleSpeaker: vi.fn(),
   toggleCamera: vi.fn(),
+  switchCamera: vi.fn(),
+  layoutVideo: vi.fn(),
+  hideVideo: vi.fn(),
   loadHistory: vi.fn(),
 };
 
@@ -42,5 +48,12 @@ export function resetCalls() {
 }
 
 export function callsMock() {
-  return { call, history, ...actions };
+  return { call, history, ...actions, rectOf };
+}
+
+/** As in `calls.ts`: a video's place on the screen, in CSS pixels. */
+function rectOf(element: Element | null | undefined) {
+  if (!element) return null;
+  const { x, y, width, height } = element.getBoundingClientRect();
+  return { x, y, width, height };
 }
