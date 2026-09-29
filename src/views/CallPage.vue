@@ -14,6 +14,7 @@ import {
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
+import { closeOnBackWhile } from "../back";
 import { chat } from "../core";
 import {
   call,
@@ -64,16 +65,24 @@ const state = computed(() => {
 // there at all times, and theirs coming on only invites me to turn mine on.
 const native = computed(() => current.value && call.native);
 const live = computed(() => call.phase === "active");
-const stage = computed(() => native.value && live.value && (call.view.camera || call.view.remote));
-const showRemote = computed(() => stage.value && call.view.remote);
-const showLocal = computed(() => stage.value && call.view.camera);
 const cameraReady = computed(() => live.value && call.view.available);
+// My camera runs only once the core has the video line up: before that there is nothing under a
+// see-through page but the window's white (found by QA, 2026-09-29).
+const cameraRunning = computed(() => cameraReady.value && call.view.camera);
+const stage = computed(() => native.value && live.value && (cameraRunning.value || call.view.remote));
+const showRemote = computed(() => stage.value && call.view.remote);
+const showLocal = computed(() => stage.value && cameraRunning.value);
 const invite = computed(() => native.value && cameraReady.value && call.view.remote && !call.view.camera);
+// A video call with no pictures to show sits on a dark call background, not the page's (white in
+// the light theme); see-through, the native views paint it black.
+const dark = computed(() => native.value && !stage.value && (call.video || call.view.camera || call.view.remote));
+// The camera button can always turn my camera off.
+const cameraUsable = computed(() => cameraReady.value || (native.value && call.view.camera));
 
 const unavailable = ref(false);
 let unavailableTimer: ReturnType<typeof setTimeout> | undefined;
 function camera() {
-  if (!native.value || cameraReady.value) {
+  if (!native.value || cameraUsable.value) {
     void toggleCamera();
     return;
   }
@@ -81,6 +90,11 @@ function camera() {
   unavailable.value = true;
   clearTimeout(unavailableTimer);
   unavailableTimer = setTimeout(() => (unavailable.value = false), 4000);
+}
+
+// Always on a phone (2026-09-29), but it only flips a camera that runs.
+function flip() {
+  if (cameraRunning.value) void switchCamera();
 }
 
 const body = ref<HTMLElement | null>(null);
@@ -98,6 +112,8 @@ function measure(): VideoLayout {
 }
 /** On this screen: the core is told where the pictures go (nowhere, on a voice call). */
 let shown = true;
+/** On this screen, for Android's back button (Ionic keeps a page mounted under the next one). */
+const onScreen = ref(true);
 function relayout() {
   if (shown && native.value) layoutVideo(measure);
 }
@@ -118,10 +134,13 @@ watch([body, remoteSlot, localSlot], (elements) => {
 });
 onIonViewDidEnter(() => {
   shown = true;
+  onScreen.value = true;
   seeThrough.value = true;
   relayout();
 });
 onIonViewWillLeave(() => {
+  onScreen.value = false;
+  clearTimeout(leaving);
   hide();
   seeThrough.value = false;
 });
@@ -175,6 +194,8 @@ onMounted(() => {
 // Out of the call screen, once (2026-09-28): back where the call came from or, with nothing behind
 // (opened from a notification, or reloaded), to the conversation. Hanging up always leaves, even
 // when the call already ended on its own ("Unreachable"): the screen used to stay there.
+// Leaving keeps the call (2026-09-29): the call bar shows it and my camera is held; only the
+// hang-up button ends it. Android's back button leaves the same way, never out of the app.
 let left = false;
 let leaving: ReturnType<typeof setTimeout> | undefined;
 function leave() {
@@ -184,6 +205,7 @@ function leave() {
   if (window.history.state?.back) router.back();
   else void router.replace(`/chat/${id.value}`);
 }
+closeOnBackWhile(() => onScreen.value, leave);
 function end() {
   if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
   leave();
@@ -200,20 +222,19 @@ onUnmounted(() => {
   document.documentElement.classList.remove("ft-call-video");
   left = true;
   clearTimeout(leaving);
-  // Leaving the screen ends the call: no call goes on out of sight.
-  if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
 });
 watch(
   () => call.phase,
   (phase) => {
-    if (phase === "ended") leaving = setTimeout(leave, 1500);
+    // Only from this screen: the call may end while another one is in front.
+    if (phase === "ended" && onScreen.value) leaving = setTimeout(leave, 1500);
   },
 );
 </script>
 
 <template>
   <ion-page>
-    <ion-content class="ft-call">
+    <ion-content class="ft-call" :class="{ 'is-dark': dark }">
       <div
         ref="body"
         class="ft-call__body"
@@ -260,6 +281,10 @@ watch(
             <ion-icon :icon="videocamOffOutline" aria-hidden="true" />
             {{ $t("calls.cameraDenied") }}
           </p>
+          <p v-if="call.cameraFailed" class="ft-call__notice" role="alert" data-test="camera-failed">
+            <ion-icon :icon="videocamOffOutline" aria-hidden="true" />
+            {{ $t("calls.cameraFailed") }}
+          </p>
           <p v-if="unavailable" class="ft-call__notice" role="status">
             <ion-icon :icon="videocamOffOutline" aria-hidden="true" />
             {{ $t("calls.videoUnavailable") }}
@@ -303,10 +328,10 @@ watch(
             v-if="native"
             type="button"
             class="ft-round ft-round--ghost"
-            :class="{ 'is-on': call.view.camera, 'is-invite': invite, 'is-waiting': !cameraReady }"
+            :class="{ 'is-on': call.view.camera, 'is-invite': invite, 'is-waiting': !cameraUsable }"
             :aria-label="$t('calls.camera')"
             :aria-pressed="call.view.camera"
-            :aria-disabled="!cameraReady"
+            :aria-disabled="!cameraUsable"
             @click="camera"
           >
             <ion-icon
@@ -331,11 +356,13 @@ watch(
             />
           </button>
           <button
-            v-if="native && call.view.camera && cameraReady"
+            v-if="native"
             type="button"
             class="ft-round ft-round--ghost"
+            :class="{ 'is-waiting': !cameraRunning }"
             :aria-label="$t('calls.switchCamera')"
-            @click="switchCamera"
+            :aria-disabled="!cameraRunning"
+            @click="flip"
           >
             <ion-icon :icon="cameraReverseOutline" aria-hidden="true" />
           </button>
@@ -351,6 +378,15 @@ watch(
 <style scoped>
 .ft-call {
   --background: var(--ft-bg);
+}
+/* A video call without pictures: a dark call background whatever the theme, with its own ink. */
+.ft-call.is-dark {
+  --ft-bg: #07090c;
+  --ft-text: #f4f5f7;
+  --ft-muted: rgba(244, 245, 247, 0.65);
+  --ft-surface-2: rgba(255, 255, 255, 0.12);
+  --background: #07090c;
+  color: var(--ft-text);
 }
 .ft-call__body {
   display: flex;

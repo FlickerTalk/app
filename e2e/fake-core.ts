@@ -8,7 +8,9 @@
  * Calls stay on the WebView unless a test sets `window.__ftFakeNative` before the app loads: then
  * the fake plays a phone whose calls are native (docs/video-nativo.md), connects at once, and keeps
  * both cameras in `state.video`. `window.__ftFakeCameraDenied` makes turning the camera on fail as
- * a denied permission does.
+ * a denied permission does; `window.__ftFakeCameraFails` makes the camera fail to start (an
+ * encoder that cannot be set up), as the real core does: silently when the call connects, with
+ * an error when it is turned on.
  *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
@@ -88,6 +90,9 @@ export function installFakeCore() {
     nextCircle: 2,
     // The native call's cameras, as the core's `kind: "video"` snapshot.
     nativeContact: "",
+    // The native call's phase, for `core_current_call`; "" when there is none.
+    nativePhase: "",
+    connectedAt: 0,
     video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
   };
   const flag = (name: string) => Boolean((window as unknown as Record<string, unknown>)[name]);
@@ -138,18 +143,45 @@ export function installFakeCore() {
       case "core_native_calls":
         return flag("__ftFakeNative");
       case "core_current_call":
-        return null;
+        return state.nativePhase
+          ? {
+              call: NATIVE_CALL,
+              contact: state.nativeContact,
+              video: { ...state.video },
+              outgoing: true,
+              phase: state.nativePhase,
+              native: true,
+              muted: false,
+              connectedAt: state.connectedAt || undefined,
+            }
+          : null;
       case "core_call_start_native": {
-        // The other side answers at once and the call connects with a video line both ways.
+        // The other side answers at once and the call connects with a video line both ways. Until
+        // the video is ready the core's camera is the wish; as the real core, it says nothing
+        // when the line comes up or the camera fails to start, only when the camera turns on.
         state.nativeContact = String(a.contact);
-        Object.assign(state.video, { available: true, camera: Boolean(args?.video), paused: false, facing: "front", remote: false, remotePaused: false });
-        setTimeout(() => callEvent({ kind: "answered" }), 10);
-        setTimeout(() => callEvent({ kind: "connected" }), 20);
-        setTimeout(() => callEvent({ kind: "video", ...state.video }), 30);
+        state.nativePhase = "calling";
+        const wanted = Boolean(args?.video);
+        Object.assign(state.video, { available: false, camera: wanted, paused: false, facing: "front", remote: false, remotePaused: false });
+        setTimeout(() => {
+          state.nativePhase = "connecting";
+          callEvent({ kind: "answered" });
+        }, 10);
+        setTimeout(() => {
+          state.nativePhase = "active";
+          state.connectedAt = Date.now();
+          callEvent({ kind: "connected" });
+        }, 20);
+        setTimeout(() => {
+          const started = wanted && !flag("__ftFakeCameraFails");
+          Object.assign(state.video, { available: true, camera: started });
+          if (started) callEvent({ kind: "video", ...state.video });
+        }, 30);
         return NATIVE_CALL;
       }
       case "core_call_set_video":
         if (args?.on && flag("__ftFakeCameraDenied")) throw "camera_denied";
+        if (args?.on && flag("__ftFakeCameraFails")) throw "the camera cannot start: configure failed";
         state.video.camera = Boolean(args?.on);
         setTimeout(() => callEvent({ kind: "video", ...state.video }), 5);
         return { ...state.video };
@@ -157,7 +189,10 @@ export function installFakeCore() {
         state.video.facing = state.video.facing === "front" ? "back" : "front";
         return { ...state.video };
       case "core_call_end":
-        if (a.call === NATIVE_CALL) setTimeout(() => callEvent({ kind: "ended", outcome: "answered" }), 5);
+        if (a.call === NATIVE_CALL) {
+          state.nativePhase = "";
+          setTimeout(() => callEvent({ kind: "ended", outcome: "answered" }), 5);
+        }
         return undefined;
       case "core_set_call_routing":
       case "core_call_answer_native":

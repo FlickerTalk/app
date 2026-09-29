@@ -94,6 +94,7 @@
     "switchCamera": "Ganti kamera",
     "cameraPaused": "Kamera dijeda",
     "cameraDenied": "Kamera tidak diizinkan. Izinkan kamera untuk FlickerTalk di Setelan ponsel.",
+    "cameraFailed": "Kamera tidak dapat dimulai. Panggilan berlanjut sebagai suara.",
     "videoUnavailable": "Video tidak tersedia di panggilan ini",
     "turnOnCamera": "Nyalakan kamera Anda",
     "hangUp": "Tutup telepon",

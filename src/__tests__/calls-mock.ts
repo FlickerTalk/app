@@ -23,6 +23,7 @@ export function idleCall(): CallState {
     native: false,
     view: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
     cameraDenied: false,
+    cameraFailed: false,
   };
 }
 
