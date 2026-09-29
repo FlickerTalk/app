@@ -94,7 +94,7 @@ test("a camera that is not allowed leaves a voice call and says how to allow it"
 });
 
 // Found by QA on the emulators (2026-09-29): a video call whose camera failed to start left a
-// blank white screen, with the camera button stuck on. The core says nothing when that happens.
+// blank white screen, with the camera button stuck on. The core says so (`camera_failed`).
 test("a video call whose camera cannot start stays a voice call on a dark screen, and says so", async ({ app }) => {
   await app.addInitScript(() => {
     (window as unknown as { __ftFakeCameraFails: boolean }).__ftFakeCameraFails = true;

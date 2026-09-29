@@ -91,7 +91,7 @@ export interface CallEntry {
 interface CallEvent extends Partial<CallVideo> {
   contact: string;
   call: string;
-  kind: "incoming" | "answered" | "connected" | "muted" | "ended" | "video";
+  kind: "incoming" | "answered" | "connected" | "muted" | "ended" | "video" | "camera_failed";
   video?: boolean;
   sdp?: string;
   outcome?: CallOutcome;
@@ -120,9 +120,6 @@ export const CALL_EVENT = "ft://call";
 export const CALL_ACTION_EVENT = "ft://call-action";
 /** The caller gives up after this long without an answer. */
 export const RING_LIMIT = 45_000;
-/** How often, and how many times, the core is asked for the video it readies as the call connects. */
-const SETTLE_STEP = 250;
-const SETTLE_TRIES = 20;
 /** The longest wait for ICE candidates before the description goes anyway. */
 const GATHER_LIMIT = 3_000;
 
@@ -199,7 +196,6 @@ export const history = reactive({ calls: [] as CallEntry[] });
 let peer: RTCPeerConnection | null = null;
 let offer = "";
 let ringTimer: ReturnType<typeof setTimeout> | undefined;
-let settleTimer: ReturnType<typeof setTimeout> | undefined;
 let listening = false;
 /** Whether this phone runs calls in the core (iOS and Android): voice and video alike. */
 let nativeCalls = false;
@@ -288,7 +284,6 @@ function release() {
   cancelAnimationFrame(layoutFrame);
   layoutFrame = 0;
   clearTimeout(ringTimer);
-  clearTimeout(settleTimer);
   media.ringback.stop();
   call.local?.getTracks().forEach((track) => track.stop());
   peer?.close();
@@ -492,34 +487,14 @@ function applyVideo(update: Partial<CallVideo>) {
 }
 
 /**
- * The cameras as the core has them now (`core_current_call`), for what no event says. Returns
- * them, or `null` when the core has no video for this call to say.
+ * The cameras as the core has them now (`core_current_call`), read once after a command whose
+ * answer does not say them. From then on the core's events (`video`, `camera_failed`) say them.
  */
-async function followCore(): Promise<CallVideo | null> {
+async function followCore(): Promise<void> {
   const id = call.id;
   const current = await invoke<CurrentCall | null>("core_current_call").catch(() => null);
-  if (!current || current.call !== id || call.id !== id || typeof current.video !== "object" || !current.video) return null;
+  if (!current || current.call !== id || call.id !== id || typeof current.video !== "object" || !current.video) return;
   applyVideo(current.video);
-  return call.view;
-}
-
-/**
- * Found by QA on the emulators (2026-09-29): as the call connects the core readies its video and
- * turns a video call's camera on, but it says nothing when the video line comes up or when the
- * camera fails to start. So the core is asked until the video is ready (or a few seconds pass);
- * a camera it wanted and could not run is said on the screen, and the call goes on as voice.
- */
-async function settleVideo(wanted = false, tries = SETTLE_TRIES): Promise<void> {
-  clearTimeout(settleTimer);
-  const view = await followCore();
-  if (!view || !busy()) return;
-  // Before the video is ready the core's camera is the wish.
-  const want = wanted || view.camera;
-  if (!view.available && tries > 1) {
-    settleTimer = setTimeout(() => void settleVideo(want, tries - 1), SETTLE_STEP);
-    return;
-  }
-  if (want && !call.cameraDenied && (!view.available || !view.camera)) call.cameraFailed = true;
 }
 
 /** A video's place on the screen, in CSS pixels. */
@@ -584,11 +559,14 @@ async function onEvent(event: CallEvent) {
   } else if (event.call === call.id && event.kind === "connected" && call.phase !== "active") {
     // Answered by CallKit, say, while the app only showed it ringing: the call is on now.
     goLive();
-    if (nativeCall) void settleVideo();
     await showCall();
   } else if (event.call === call.id && event.kind === "video" && nativeCall) {
     applyVideo(event);
     if (call.view.camera) call.cameraFailed = false;
+  } else if (event.call === call.id && event.kind === "camera_failed" && nativeCall) {
+    // The camera wanted as the call connected could not start: the call goes on as voice.
+    applyVideo({ camera: false });
+    call.cameraFailed = true;
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
   } else if (event.call === call.id && event.kind === "ended") {
@@ -628,8 +606,6 @@ async function restoreCall(): Promise<void> {
   offer = current.offer ?? "";
   setNative(current.native);
   if (current.phase === "calling") giveUpUnanswered();
-  // Its video may still be getting ready, with no event to say when it is.
-  if (live && current.native) void settleVideo();
   // Without the call screen there is no way to hang up.
   if (live) await showCall();
 }
