@@ -9,6 +9,29 @@ use tokio::time::timeout;
 
 const LIMIT: Duration = Duration::from_secs(20);
 
+/// A STUN and a TURN server that never answer: local UDP sockets nobody reads (a server behind a
+/// network that drops the packets, or an interface with no way out). Nothing leaves the machine.
+struct Blackhole {
+    _stun: std::net::UdpSocket,
+    _turn: std::net::UdpSocket,
+    config: SessionConfig,
+}
+
+fn blackhole() -> Blackhole {
+    let stun = std::net::UdpSocket::bind("127.0.0.1:0").expect("a socket");
+    let turn = std::net::UdpSocket::bind("127.0.0.1:0").expect("a socket");
+    let config = SessionConfig {
+        stun_servers: vec![format!("stun:{}", stun.local_addr().expect("its address"))],
+        turn_servers: vec![TurnServer {
+            url: format!("turn:{}?transport=udp", turn.local_addr().expect("its address")),
+            username: "u".to_owned(),
+            credential: "c".to_owned(),
+        }],
+        ..SessionConfig::offline()
+    };
+    Blackhole { _stun: stun, _turn: turn, config }
+}
+
 fn pipe(signals: mpsc::Receiver<Signal>, peer: Session) {
     let mut signals = signals;
     tokio::spawn(async move {
@@ -173,4 +196,35 @@ async fn a_peer_that_vanishes_stops_being_open() {
         waited += Duration::from_millis(250);
     }
     assert!(!caller.is_open(), "the caller still thinks a vanished peer is there");
+}
+
+// DataChannel setup time (2026-09-29): a STUN or TURN server that never answers held the offer
+// and then the answer for the whole 3 s gathering deadline each, so the channel took over 6 s to
+// open. Each description now goes once it has what the routing wants, or a second at most.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_servers_that_never_answer_the_channel_still_opens_quickly() {
+    let hole = blackhole();
+    let (caller_out, caller_signals) = mpsc::channel(32);
+    let (callee_out, callee_signals) = mpsc::channel(32);
+    let (caller, _) = Session::start(hole.config.clone(), Role::Caller, caller_out).await.expect("starts");
+    let (callee, mut callee_inbox) = Session::start(hole.config.clone(), Role::Callee, callee_out).await.expect("starts");
+    pipe(caller_signals, callee.clone());
+    pipe(callee_signals, caller.clone());
+
+    let started = std::time::Instant::now();
+    caller.invite().await.expect("offers");
+    let offered = started.elapsed();
+    timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
+    let opened = started.elapsed();
+    eprintln!("unreachable servers: offer sent after {} ms, channel open after {} ms", offered.as_millis(), opened.as_millis());
+    let gathering = caller.gathering();
+    assert!(!gathering.complete, "cut short");
+    assert_eq!((gathering.host, gathering.srflx, gathering.relay), (1, 0, 0));
+    assert!(offered < Duration::from_millis(1_500), "the offer waited {offered:?}");
+    assert!(opened < Duration::from_millis(3_000), "the channel opened after {opened:?}");
+
+    caller.send("hello").await.expect("sends");
+    assert_eq!(timeout(LIMIT, callee_inbox.next_text()).await.expect("in time").as_deref(), Some("hello"));
+    caller.close().await.expect("closes");
+    callee.close().await.expect("closes");
 }
