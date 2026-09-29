@@ -43,6 +43,7 @@
     "attachCamera": "拍照",
     "voiceCall": "語音通話",
     "videoCall": "視訊通話",
+    "contactDetails": "聯絡人詳細資料：{name}，{status}",
     "contactSettings": "聯絡人設定",
     "openWithPlugin": "用外掛程式開啟",
     "emoji": "表情符號",

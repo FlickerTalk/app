@@ -43,6 +43,7 @@
     "attachCamera": "Chụp ảnh",
     "voiceCall": "Gọi thoại",
     "videoCall": "Gọi video",
+    "contactDetails": "Chi tiết liên hệ: {name}, {status}",
     "contactSettings": "Cài đặt liên hệ",
     "openWithPlugin": "Mở bằng plugin",
     "emoji": "Emoji",

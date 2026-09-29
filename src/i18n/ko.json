@@ -43,6 +43,7 @@
     "attachCamera": "사진 찍기",
     "voiceCall": "음성 통화",
     "videoCall": "영상 통화",
+    "contactDetails": "연락처 정보: {name}, {status}",
     "contactSettings": "연락처 설정",
     "openWithPlugin": "플러그인으로 열기",
     "emoji": "이모지",

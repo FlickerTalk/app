@@ -43,6 +43,7 @@
     "attachCamera": "写真を撮る",
     "voiceCall": "音声通話",
     "videoCall": "ビデオ通話",
+    "contactDetails": "連絡先の詳細：{name}、{status}",
     "contactSettings": "連絡先の設定",
     "openWithPlugin": "プラグインで開く",
     "emoji": "絵文字",
