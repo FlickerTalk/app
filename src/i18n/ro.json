@@ -94,6 +94,7 @@
     "switchCamera": "Schimbă camera",
     "cameraPaused": "Cameră în pauză",
     "cameraDenied": "Camera nu este permisă. Permite-o pentru FlickerTalk în Setările telefonului.",
+    "cameraFailed": "Camera nu a putut porni. Apelul continuă ca apel vocal.",
     "videoUnavailable": "Video nu este disponibil în acest apel",
     "turnOnCamera": "Pornește-ți camera",
     "hangUp": "Închide",

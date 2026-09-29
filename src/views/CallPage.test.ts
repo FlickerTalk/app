@@ -11,6 +11,14 @@ const route = { params: { id: "c1" }, query: {} as Record<string, string> };
 const nav = { back: vi.fn(), replace: vi.fn() };
 vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => nav }));
 vi.mock("../calls", async () => (await import("../__tests__/calls-mock")).callsMock());
+// Android's back button (src/back.ts): the handler the call screen takes it over with.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => (back.handler === handler ? (back.handler = null) : undefined) };
+  },
+}));
 
 describe("CallPage", () => {
   // Every screen mounted here watches the same call: one left mounted would react to the next test.
@@ -170,9 +178,80 @@ describe("CallPage", () => {
     vi.useRealTimers();
   });
 
+  // 2026-09-29: leaving the call screen keeps the call (the call bar shows it, the camera is
+  // held); only the hang-up button ends it. It used to hang up: "no call goes on out of sight".
+  it("keeps the call when the screen goes", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    mount(CallPage, { shallow: true }).unmount();
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  // Found by QA on the emulators (2026-09-29): the back gesture hung up.
+  it("goes back from the call screen with Android's back button, and keeps the call", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    mount(CallPage, { shallow: true });
+    await flushPromises();
+    expect(back.handler).not.toBeNull();
+    back.handler?.();
+    await flushPromises();
+    expect(nav.back).toHaveBeenCalledTimes(1);
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  it("with nothing behind, Android's back opens the conversation instead of leaving the app", async () => {
+    window.history.replaceState({ back: null }, "");
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    mount(CallPage, { shallow: true });
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(nav.replace).toHaveBeenCalledWith("/chat/c1");
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  // Ionic keeps the page mounted under the next one: it must act as gone.
+  const leaveView = (wrapper: { vm: unknown }) =>
+    ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
+
+  it("gives Android's back button back once another screen is in front", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    await flushPromises();
+    leaveView(wrapper);
+    await flushPromises();
+    expect(back.handler).toBeNull();
+  });
+
+  it("does not go back from another screen when the call ends there", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    leaveView(wrapper);
+    call.phase = "ended";
+    await nextTick();
+    vi.advanceTimersByTime(3000);
+    expect(nav.back).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("does not go back from another screen when the call ended just before leaving", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    call.phase = "ended";
+    await nextTick();
+    leaveView(wrapper);
+    vi.advanceTimersByTime(3000);
+    expect(nav.back).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it("on the desktop, a voice call has no camera switch", () => {
     Object.assign(call, { id: "x", contact: "c1", phase: "active", video: false, native: false });
-    expect(mount(CallPage, { shallow: true }).find("[aria-label='Camera']").exists()).toBe(false);
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[aria-label='Camera']").exists()).toBe(false);
+    expect(wrapper.find("[aria-label='Switch camera']").exists()).toBe(false);
   });
 });
 
@@ -219,22 +298,42 @@ describe("CallPage with native video", () => {
     expect(wrapper.find("[aria-label='Camera']").attributes("aria-pressed")).toBe("true");
   });
 
-  it("offers to switch between the front and back camera only with my camera on", async () => {
+  // The flip button is always there on a phone (2026-09-29: appearing only with the camera on
+  // confused the owner), dimmed and inert while my camera is off.
+  it("always shows the flip button on a phone, usable only with my camera on", async () => {
     live();
     const wrapper = mount(CallPage, { shallow: true });
-    expect(wrapper.find("[aria-label='Switch camera']").exists()).toBe(false);
+    const flip = () => wrapper.find("[aria-label='Switch camera']");
+    expect(flip().exists()).toBe(true);
+    expect(flip().attributes("aria-disabled")).toBe("true");
+    expect(flip().classes()).toContain("is-waiting");
+    await flip().trigger("click");
+    expect(actions.switchCamera).not.toHaveBeenCalled();
     call.view = view({ camera: true });
     await nextTick();
-    await wrapper.find("[aria-label='Switch camera']").trigger("click");
+    expect(flip().attributes("aria-disabled")).toBe("false");
+    expect(flip().classes()).not.toContain("is-waiting");
+    await flip().trigger("click");
     expect(actions.switchCamera).toHaveBeenCalled();
   });
 
-  // Before the call connects the core cannot open the camera yet: the switch waits.
-  it("keeps the switch waiting until the call connects", () => {
-    Object.assign(call, { id: "x", contact: "c1", phase: "calling", native: true, video: true, view: view({ available: false, camera: true }) });
-    const toggle = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
-    expect(toggle.attributes("aria-pressed")).toBe("true");
-    expect(toggle.attributes("aria-disabled")).toBe("true");
+  it("keeps the flip button inert while my camera waits for the video line", async () => {
+    live({ available: false, camera: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[aria-label='Switch camera']").attributes("aria-disabled")).toBe("true");
+  });
+
+  // Before the call connects the core cannot open the camera yet: the switch waits to turn it on.
+  // A camera already wanted can always be turned off (2026-09-29: it used to be stuck on).
+  it("keeps the switch waiting until the call connects, except to turn the camera off", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "calling", native: true, video: false, view: view({ available: false }) });
+    const off = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
+    expect(off.attributes("aria-pressed")).toBe("false");
+    expect(off.attributes("aria-disabled")).toBe("true");
+    Object.assign(call, { video: true, view: view({ available: false, camera: true }) });
+    const on = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
+    expect(on.attributes("aria-pressed")).toBe("true");
+    expect(on.attributes("aria-disabled")).toBe("false");
   });
 
   it("says video is not available on a call without a video line", async () => {
@@ -286,6 +385,57 @@ describe("CallPage with native video", () => {
     await nextTick();
     expect(wrapper.find("[data-test='remote-slot']").exists()).toBe(false);
     expect(document.documentElement.classList.contains("ft-call-video")).toBe(false);
+  });
+
+  // Found by QA on the emulators (2026-09-29): a video call whose camera never started left the
+  // page see-through with nothing under it, a blank white screen.
+  it("goes see-through only while there is a picture to show", async () => {
+    live({ available: false, camera: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[data-test='local-slot']").exists()).toBe(false);
+    expect(document.documentElement.classList.contains("ft-call-video")).toBe(false);
+    call.view = view({ camera: true });
+    await nextTick();
+    expect(wrapper.find("[data-test='local-slot']").exists()).toBe(true);
+    expect(document.documentElement.classList.contains("ft-call-video")).toBe(true);
+  });
+
+  it("has a dark background on a video call without pictures, never the page's white", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: true, view: view() });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find(".ft-call").classes()).toContain("is-dark");
+    // See-through, the native views paint it; dark, it would hide them.
+    call.view = view({ camera: true });
+    await nextTick();
+    expect(wrapper.find(".ft-call").classes()).not.toContain("is-dark");
+    const styles = source.slice(source.indexOf("<style"));
+    expect(styles).toMatch(/\.ft-call\.is-dark\s*\{[^}]*--background:\s*#0/);
+  });
+
+  it("keeps a voice call on the page's own background", () => {
+    live();
+    expect(mount(CallPage, { shallow: true }).find(".ft-call").classes()).not.toContain("is-dark");
+  });
+
+  it("always lets me turn my camera off, even while it waits", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: true, view: view({ available: false, camera: true }) });
+    const wrapper = mount(CallPage, { shallow: true });
+    const toggle = wrapper.find("[aria-label='Camera']");
+    expect(toggle.attributes("aria-disabled")).toBe("false");
+    await toggle.trigger("click");
+    expect(actions.toggleCamera).toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain("Video isn't available on this call");
+  });
+
+  it("says when the camera could not start, and the call goes on", () => {
+    live();
+    call.cameraFailed = true;
+    const wrapper = mount(CallPage, { shallow: true });
+    const failed = wrapper.find("[data-test='camera-failed']");
+    expect(failed.exists()).toBe(true);
+    expect(failed.attributes("role")).toBe("alert");
+    expect(failed.text()).toContain("The camera couldn't start");
+    expect(wrapper.find("[aria-label='Hang up']").exists()).toBe(true);
   });
 
   // Until their picture comes, mine fills the screen.
