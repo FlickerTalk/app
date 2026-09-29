@@ -1708,15 +1708,17 @@ dependencies = [
 
 [[package]]
 name = "flickertalk"
-version = "1.0.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "ft-billing",
  "ft-contacts",
  "ft-core",
  "ft-plugins",
  "ft-storage",
+ "ft-vault",
  "ft-webrtc",
  "rand 0.9.5",
  "serde",
@@ -1826,6 +1828,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "blake3",
  "ft-billing",
  "ft-circles",
@@ -1836,6 +1839,7 @@ dependencies = [
  "ft-protocol",
  "ft-push",
  "ft-storage",
+ "ft-vault",
  "ft-webrtc",
  "reqwest",
  "serde",
@@ -1932,6 +1936,25 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "ft-vault"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "ft-push",
+ "rand 0.9.5",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

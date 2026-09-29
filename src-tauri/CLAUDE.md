@@ -53,6 +53,36 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
   lleva `circle` cuando cambia una conversación de círculo.
 - El PoC 0 ya no está en la app (pantalla, comandos ni dependencia); `crates/ft-poc` sigue como
   herramienta de desarrollo.
+- **Plugins, fase 3** (2026-09-27): `core_plugin_record_*` (registros con cuota), `core_plugin_ref`
+  y `core_plugin_open_chat` (camino de vuelta al mensaje, opaco), `core_remind_*` y
+  `core_pending_reminder` (avisos locales; `sync_reminders` le pasa al puente nativo la lista
+  entera al arrancar y con cada cambio), `core_plugin_live_send` (canal en directo, solo por
+  conexión directa; lo que llega sale por `ft://plugin`), `core_plugins_opening` y
+  `core_read_message_file` («abrir con»). El marco (`plugins.rs`, `frame_js`) expone
+  `ft.records`, `ft.remind`, `ft.live`, `ft.openChat` y `ft.drive`.
+- **La nube del usuario** (2026-09-27, `docs/drive.md`): `core_vault_status/connect/setup/unlock/
+  disconnect`, `core_vault_list/mkdir/rename/move/remove/upload/upload_message/retry/
+  cancel_pending/download/open/save/send`, `core_vault_backup/backup_info/restore` y
+  `core_plugin_may_use_drive`. `core_vault_connect` abre el login con `platform.authorize` (Custom
+  Tabs / `ASWebAuthenticationSession`) a través de `PlatformAuthorizer`; los tokens y la clave del
+  drive se quedan en el núcleo, sellados. `core_vault_restore` deja la copia en la carpeta de
+  mudanza y reinicia la app: `apply_move` la cambia al arrancar, como tras una mudanza. Eventos
+  `ft://vault` y `ft://vault-progress`. `picked_path` admite también `files/drive/` (lo bajado del
+  drive se puede enviar). El esquema de redirección de Google va en el `AndroidManifest` del
+  puente como `${googleRedirectScheme}`, que `build.gradle.kts` rellena desde
+  `FT_GOOGLE_CLIENT_ID` (el mismo que lee el núcleo con `option_env!`).
+- **Puente nativo** (2026-09-27): el Kotlin compila y sus 33 tests pasan (los de avisos necesitan
+  `org.json` de verdad en `testImplementation`: `android.jar` solo trae stubs). Probado en el
+  Lenovo: el aviso llega al `AlarmManager` (`RTC_WAKEUP`, aproximado sin permiso de alarma exacta),
+  salta con la app en segundo plano y, al tocarlo, la app abre el plugin (`App.vue` vuelve a
+  preguntar por `pendingReminder` cada vez que la app pasa a visible). **Sin probar**: el Swift
+  (no hay Xcode aquí), `authorize` contra Google (falta el cliente OAuth), avisos tras reinicio y
+  en Doze.
+- **Visor de documentos en iOS** (2026-09-27): `openFile(path, mime)` en `PlatformPlugin.swift`
+  presenta un `QLPreviewController` (Quick Look: PDF, Office, Pages, texto e imágenes, dentro de
+  la app; su botón de compartir manda el fichero a otra app) sobre `manager.viewController`;
+  rechaza si el fichero no está o Quick Look no puede con él (`previewable`, con test). En Rust no
+  cambia nada: `Platform::open_file` ya llamaba a `openFile` en móvil.
 
 ## Reglas
 

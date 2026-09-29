@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { reactive } from "vue";
 
 const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({
@@ -40,7 +41,128 @@ describe("PluginSheet", () => {
     const { post, says } = framed(wrapper);
     says({ type: "ft.ready" });
     await flushPromises();
-    expect(post).toHaveBeenCalledWith({ type: "ft.open", text: "hello", dark: false }, "*");
+    expect(post).toHaveBeenCalledWith(
+      { type: "ft.open", text: "hello", dark: false, lang: "en", file: null, ref: null, reminder: null, live: false },
+      "*",
+    );
+  });
+
+  // 2026-09-27: opened with a file and a way back to its message, and with the live channel when
+  // it was granted and there is another side.
+  it("hands over the file, the ref and the channel it was opened with", async () => {
+    const file = { name: "class.ftboard", mime: "application/x-ftboard", data: "QUJD" };
+    const wrapper = mount(PluginSheet, {
+      props: { plugin, contact: "ft_bob", file, reference: "ref_1", live: true },
+      shallow: true,
+    });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    says({ type: "ft.ready" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", file, ref: "ref_1", live: true }), "*");
+
+    // On its own (no contact) there is no other side, whatever was granted.
+    const alone = mount(PluginSheet, { props: { plugin, contact: "", live: true, reminder: "r1" }, shallow: true });
+    await flushPromises();
+    const lone = framed(alone);
+    lone.says({ type: "ft.ready" });
+    await flushPromises();
+    expect(lone.post).toHaveBeenCalledWith(expect.objectContaining({ live: false, reminder: "r1" }), "*");
+  });
+
+  // Found on a real phone (2026-09-27): a reminder tapped while its plugin is already on screen
+  // only changes the reminder; the plugin has to hear it to open that note.
+  it("opens the plugin again on a new reminder", async () => {
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    says({ type: "ft.ready" });
+    await flushPromises();
+    post.mockClear();
+    await wrapper.setProps({ reminder: "r2" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", reminder: "r2" }), "*");
+  });
+
+  // Found on a real phone (2026-09-27): ChatThread keeps what it opens in a deep ref, so the file
+  // arrives as a reactive proxy, and a real postMessage cannot clone a proxy (DataCloneError): the
+  // plugin never heard `ft.open` and opened empty. What crosses to the frame is plain data.
+  it("hands over a file it was given as reactive state", async () => {
+    const file = reactive({ name: "class.ftboard", mime: "application/x-ftboard", data: "QUJD" });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", file }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    post.mockImplementation((message: unknown) => structuredClone(message));
+    says({ type: "ft.ready" });
+    await flushPromises();
+    expect(post).toHaveReturnedWith(
+      expect.objectContaining({ type: "ft.open", file: { name: "class.ftboard", mime: "application/x-ftboard", data: "QUJD" } }),
+    );
+  });
+
+  // 2026-09-27: records are the plugin's bytes, kept by the core as base64 and handed back as
+  // the string the plugin wrote; reminders and the way back go through the core too.
+  it("keeps records, sets reminders and finds the way back through the core", async () => {
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_plugin_record_get") return Promise.resolve(btoa(unescape(encodeURIComponent("milk ñ"))));
+      if (command === "core_plugin_record_keys") return Promise.resolve(["note/1"]);
+      if (command === "core_plugin_record_usage") return Promise.resolve([12, 4096]);
+      if (command === "core_remind_list") return Promise.resolve([{ plugin: plugin.id, id: "r1", at: 5, text: "" }]);
+      if (command === "core_remind_cancel") return Promise.resolve(true);
+      if (command === "core_plugin_open_chat") return Promise.resolve({ contact: "ft_bob", message: "m1" });
+      return Promise.resolve(undefined);
+    });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.recordSet", id: "q1", key: "note/1", value: "milk ñ" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_record_set", { plugin: plugin.id, key: "note/1", value: btoa(unescape(encodeURIComponent("milk ñ"))) });
+    says({ type: "ft.recordGet", id: "q2", key: "note/1" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: "milk ñ" }, "*");
+    says({ type: "ft.recordKeys", id: "q3", prefix: "note/" });
+    says({ type: "ft.recordUsage", id: "q4" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q3", answer: ["note/1"] }, "*");
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q4", answer: { used: 12, quota: 4096 } }, "*");
+
+    says({ type: "ft.remindSet", id: "q5", reminder: "r1", at: 5, text: "milk" });
+    says({ type: "ft.remindList", id: "q6" });
+    says({ type: "ft.remindCancel", id: "q7", reminder: "r1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_remind_set", { plugin: plugin.id, id: "r1", at: 5, text: "milk" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q6", answer: [{ plugin: plugin.id, id: "r1", at: 5, text: "" }] }, "*");
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q7", answer: true }, "*");
+
+    says({ type: "ft.openChat", id: "q8", ref: "ref_1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_open_chat", { plugin: plugin.id, reference: "ref_1" });
+    expect(wrapper.emitted("openChat")).toEqual([["ft_bob"]]);
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q8", answer: true }, "*");
+  });
+
+  // 2026-09-27: what the plugin says over the channel goes through the core, only with the
+  // grant and a contact; what the other side said is handed to the frame.
+  it("carries the live channel both ways, only when it may", async () => {
+    tauri.invoke.mockResolvedValue(true);
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: true }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    says({ type: "ft.liveSend", id: "q1", data: "AQID" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_live_send", { plugin: plugin.id, contact: "ft_bob", data: "AQID" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: true }, "*");
+
+    const locked = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: false }, shallow: true });
+    await flushPromises();
+    const other = framed(locked);
+    tauri.invoke.mockClear();
+    other.says({ type: "ft.liveSend", id: "q2", data: "AQID" });
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_plugin_live_send", expect.anything());
+    expect(other.post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: false }, "*");
   });
 
   // A plugin never opens the picker itself: it asks, and the app asks the user.
@@ -99,6 +221,60 @@ describe("PluginSheet", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", expect.objectContaining({ plugin: plugin.id }));
     expect(wrapper.emitted("attach")).toEqual([[staged]]);
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_send_picked", expect.anything());
+  });
+
+  // Plan-drive (2026-09-27): the drive is the core's; the plugin asks with an operation and gets
+  // names and sizes back, never bytes, tokens or the code, and only when it was granted it.
+  it("answers the drive for a plugin granted it, never bytes, and stages what it sends", async () => {
+    const listing = { folders: [{ id: "f1", name: "Docs", parent: null, modified: 1 }], files: [], pending: [] };
+    const down = { path: "/data/files/drive/x1/tax.pdf", name: "tax.pdf", mime: "application/pdf", size: 9 };
+    let granted = false;
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_plugin_may_use_drive") return Promise.resolve(granted);
+      if (command === "core_vault_list") return Promise.resolve(listing);
+      if (command === "core_vault_status") return Promise.resolve({ state: "ready", provider: "google", drive: null, problem: null });
+      if (command === "core_vault_download") return Promise.resolve(down);
+      if (command === "core_pick_files") return Promise.resolve([down]);
+      if (command === "core_plugin_open_chat") return Promise.resolve({ contact: "ft_bob", message: "m9" });
+      if (command === "core_vault_upload_message") return Promise.resolve("x2");
+      return Promise.resolve(undefined);
+    });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", sending: "propose", reference: "ref_9" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.drive", id: "d1", op: "list", a: "" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d1", answer: false }, "*");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_vault_list", expect.anything());
+
+    granted = true;
+    says({ type: "ft.drive", id: "d2", op: "list", a: "" });
+    says({ type: "ft.drive", id: "d3", op: "status" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_list", { parent: null });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d2", answer: listing }, "*");
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d3", answer: expect.objectContaining({ state: "ready" }) }, "*");
+
+    // Uploading: the app opens the picker, the core seals what was picked; the frame sees a count.
+    says({ type: "ft.drive", id: "d4", op: "upload", a: "f1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload", { file: down, parent: "f1" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d4", answer: 1 }, "*");
+
+    // Keeping the file it was opened with goes by its ref: no bytes cross the frame.
+    says({ type: "ft.drive", id: "d5", op: "keep", a: "" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload_message", { message: "m9", parent: null });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d5", answer: true }, "*");
+
+    // Sending a file of the drive: down from the cloud, then staged for the user (propose).
+    says({ type: "ft.drive", id: "d6", op: "send", a: "x1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_download", { id: "x1" });
+    expect(wrapper.emitted("attach")).toEqual([[down]]);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_send_picked", expect.anything());
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d6", answer: true }, "*");
   });
 
   // With nothing granted, nothing leaves: not a file, not a text, not even a call to the core.

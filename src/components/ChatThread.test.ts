@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { flushPromises, mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { IonTextarea } from "@ionic/vue";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
@@ -10,6 +10,14 @@ import { refreshPlugins } from "../plugins";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
+// Android's back button: the handler the app listens with while something is open on top.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
+  },
+}));
 const recorder = vi.hoisted(() => ({
   startRecording: vi.fn(async (): Promise<string> => "recording"),
   stopRecording: vi.fn(async () => new File(["voice"], "voice-20260922-161500.m4a", { type: "audio/mp4" })),
@@ -31,6 +39,9 @@ vi.mock("../recorder", async () => {
   });
   return { recording, ...recorder };
 });
+
+// Each thread goes when its test ends, as a page does: what it left open must not linger.
+enableAutoUnmount(afterEach);
 
 describe("ChatThread", () => {
   beforeEach(() => seed());
@@ -337,6 +348,154 @@ describe("ChatThread", () => {
     for (const what of ["fold", "forward", "share", "delete"]) {
       expect(actions.find(`[data-test='${what}']`).exists()).toBe(true);
     }
+  });
+
+  // 2026-09-27: "open with": a message goes to a plugin that opens its kind, with a way back.
+  it("opens a message with a plugin that says it opens its kind", async () => {
+    // The seed's bridge answers everything else (the messages, above all).
+    const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const fallback = bridge.invoke;
+    bridge.invoke = (command, args) => {
+      if (command === "core_plugins") {
+        return Promise.resolve([
+          {
+            id: "com.flickertalk.notes",
+            name: "Notes",
+            version: "1.0.0",
+            asks: { network: [], messages: true, send: "nothing" },
+            granted: { network: [], messages: true, send: "nothing" },
+            installedAt: 1,
+            opens: ["text/plain"],
+          },
+        ]);
+      }
+      if (command === "core_plugin_ref") {
+        calls.push([command, args]);
+        return Promise.resolve("ref_1");
+      }
+      return fallback(command, args);
+    };
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await pressed(wrapper);
+    await wrapper.find("[data-test='open-with']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='open-with-com.flickertalk.notes']").text()).toBe("Notes");
+    await wrapper.find("[data-test='open-with-com.flickertalk.notes']").trigger("click");
+    await flushPromises();
+    const sheet = wrapper.findComponent({ name: "PluginSheet" });
+    expect(sheet.exists()).toBe(true);
+    expect(sheet.props("text")).toBe(fixture.chats[0].messages[0].text);
+    expect(sheet.props("reference")).toBe("ref_1");
+    expect(calls).toContainEqual(["core_plugin_ref", { plugin: "com.flickertalk.notes", message: "m1" }]);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+  });
+
+  // Document viewer (2026-09-27): a tap on a file shows it in its viewer when there is one, and
+  // goes to another app otherwise, or when the bytes cannot be handed over.
+  function withPlugins(plugins: unknown[], answers: Record<string, unknown> = {}) {
+    const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const fallback = bridge.invoke;
+    bridge.invoke = (command, args) => {
+      if (command === "core_plugins") return Promise.resolve(plugins);
+      if (command in answers) {
+        calls.push([command, args]);
+        const answer = answers[command];
+        return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
+      }
+      return fallback(command, args);
+    };
+  }
+  const VIEWER = {
+    id: "com.flickertalk.pdfviewer",
+    name: "PDF viewer",
+    version: "1.0.0",
+    asks: { network: [], messages: false, send: "nothing" },
+    granted: { network: [], messages: false, send: "nothing" },
+    installedAt: 2,
+    opens: ["application/pdf"],
+    views: ["application/pdf"],
+  };
+  const DRIVE = { ...VIEWER, id: "com.flickertalk.drive", name: "My drive", opens: ["*/*"], views: [] };
+  const tapped = async (wrapper: ReturnType<typeof mount>, id: string) => {
+    const bubble = wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === id);
+    bubble?.vm.$emit("open", id);
+    await flushPromises();
+  };
+
+  it("shows a tapped file in its viewer, with the bytes and the way back", async () => {
+    withPlugins([DRIVE, VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await tapped(wrapper, "m4");
+    const sheet = wrapper.findComponent({ name: "PluginSheet" });
+    expect(sheet.exists()).toBe(true);
+    expect(sheet.props("plugin").id).toBe("com.flickertalk.pdfviewer");
+    expect(sheet.props("file")).toEqual({ name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" });
+    expect(sheet.props("reference")).toBe("ref_4");
+    expect(calls.some(([command]) => command === "core_open_file")).toBe(false);
+  });
+
+  it("sends a tapped file to another app when there is no viewer, or the bytes cannot be handed over", async () => {
+    withPlugins([DRIVE], {});
+    let wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await tapped(wrapper, "m4");
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+
+    calls.length = 0;
+    withPlugins([VIEWER], { core_read_message_file: new Error("that file is too big for a plugin") });
+    wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    await tapped(wrapper, "m4");
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+  });
+
+  // Found on the phones (2026-09-28): back with a plugin open left the chat, or the whole app on
+  // the tablet. It closes what is open on top, and only that.
+  it("closes the plugin, then the actions, with the back button, and stays in the chat", async () => {
+    withPlugins([VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    expect(back.handler).toBeNull();
+
+    await tapped(wrapper, "m4");
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    expect(back.handler).toBeNull();
+
+    await pressed(wrapper);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(true);
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("offers another app from «open with» only when a viewer takes the tap", async () => {
+    withPlugins([VIEWER], {});
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    await flushPromises();
+    // The text message: no file, no viewer, no «another app».
+    await pressed(wrapper);
+    expect(wrapper.find("[data-test='open-with']").exists()).toBe(false);
+    await wrapper.find("[data-test='actions']").trigger("click");
+    // The PDF: its viewer, and the way out to another app.
+    const bubble = wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === "m4");
+    bubble?.vm.$emit("actions", "m4");
+    await flushPromises();
+    await wrapper.find("[data-test='open-with']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='open-with-com.flickertalk.pdfviewer']").exists()).toBe(true);
+    expect(wrapper.find("[data-test='open-elsewhere']").text()).toContain("Another app");
+    await wrapper.find("[data-test='open-elsewhere']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+    expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
   it("folds and unfolds the message it was asked about", async () => {

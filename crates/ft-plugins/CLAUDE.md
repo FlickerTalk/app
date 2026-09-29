@@ -51,8 +51,11 @@ Primer trozo del runtime, todo en seco y con tests:
 
 El núcleo es un **puente**, no un contenedor: **ninguna herramienta viaja dentro de la app**.
 
-- **Catálogo servido**: `https://flickertalk.com/plugins/index.json` + `index.json.sig` + los
-  paquetes. Lo construye y firma `ftcatalogue` (bin de este crate) desde los repos de los plugins;
+- **Catálogo servido**: `https://flickertalk.com/plugins/catalogue.json` + `catalogue.json.sig` +
+  los paquetes. **Dos índices** (2026-09-28): `catalogue.json` (`INDEX`) lo lista todo y es el que
+  lee el núcleo desde la 1.1.0; `index.json` (`LEGACY_INDEX`) es el que lee la app 1.0.0, que no
+  mira `minCoreVersion`, y solo lista lo que corre en `LEGACY_CORE` (1.0.0): si no, la 1.0.0
+  ofrecería plugins que en ella se rompen. Los dos van firmados con la misma clave. Lo construye y firma `ftcatalogue` (bin de este crate) desde los repos de los plugins;
   la clave privada nunca sale de `infra/secrets/plugin-catalogue.key`. La app lo lee con
   `Core::catalogue()` y solo instala con `Core::add_plugin()`, que exige que el paquete sea byte a
   byte el que el índice listaba y que la URL sea del propio catálogo.
@@ -86,3 +89,37 @@ Falta: el modo desarrollador (cargar una carpeta sin firmar) y la revocación de
   `ft.text` ni `ft.send`). `Propose`: lo que hace queda en el compositor y lo manda el usuario.
   `Auto`: el núcleo lo envía (`Core::plugin_send_file`). El marco lo comprueba y el núcleo lo
   vuelve a comprobar (`core_plugin_made`).
+
+## Estado (2026-09-27, plugins fase 3: notas, pizarra y drive)
+
+Lo que pedían los planes de la pizarra, las notas y el drive, como capacidades **generales** de la
+Plugin API (una capacidad, varios plugins):
+
+- **Permisos nuevos** en `Permissions`: `live` (canal en directo con el mismo plugin al otro lado
+  de la conversación), `remind` (avisos locales), `drive` (la nube del usuario) y `storage`
+  (`small`, 4 MB, o `large`, 256 MB, para los registros). `Manifest.opens`: los tipos de fichero
+  que el plugin abre (`image/*`, `*/*`…, 16 como mucho); `opens_kind(mime)`.
+- **`minCoreVersion` se aplica** (`§51`): `version_at_least`; el núcleo no instala lo que pide
+  una versión mayor que `ft_core::plugins::CORE_VERSION` (1.1.0 desde hoy) y el catálogo no lo
+  ofrece. Los tres plugins nuevos piden 1.1.0.
+- La Plugin API (`app/src-tauri/src/plugins.rs`) suma `ft.records`, `ft.remind`, `ft.live`,
+  `ft.openChat` y `ft.drive`, y `onOpen` trae `lang`, `file`, `ref`, `reminder` y `live`. El
+  contrato está en `plugin-sdk` (`index.d.ts`, `module.schema.json`).
+- **Tres plugins nuevos**, cada uno en su repo: `plugin-notes` (notas con aviso; 21 idiomas;
+  `messages: given` + `remind`; abre `text/plain`), `plugin-board` (pizarra: Yjs +
+  perfect-freehand + KaTeX, el **primero con build** (esbuild) y ~770 KB, no es semilla; `live`,
+  `storage: large`, `send: propose`; abre `application/x-ftboard` e `image/*`) y `plugin-drive`
+  (Mi drive; `drive` + `send: propose`; abre `*/*`). Se descargan del catálogo; ninguno viaja en la
+  app.
+
+## Estado (2026-09-27, visor de documentos)
+
+- **`views`** en el manifiesto: los tipos de fichero de los que el plugin es **el visor**. Distinto
+  de `opens` («Abrir con»): tocar una foto no debe abrir la pizarra, ni cualquier fichero el drive.
+  Al abrir el paquete se exige que cada entrada sea un tipo exacto (`*/*` y `type/*` se rechazan),
+  que esté también en `opens`, y que un plugin con `views` **no pida `network`**: el toque le
+  entrega los bytes sin que el usuario lo haya elegido en ese momento. `Manifest::views_kind(mime)`
+  ignora mayúsculas y parámetros, como `opens_kind`. Un manifiesto sin `views` sigue valiendo.
+- `CORE_VERSION` pasa a **1.2.0**; `plugin-pdf-viewer` (pdf.js legacy sin worker, sin `eval`, sin
+  `fetch`, sin wasm, dentro de la CSP de los plugins tal cual) pide esa versión y es el visor de
+  `application/pdf`. Pesa ~3 MB: no es semilla.

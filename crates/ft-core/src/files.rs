@@ -53,7 +53,7 @@ impl Core {
         let _ = self.files_dir.set(dir);
     }
 
-    fn files_dir(&self) -> Result<&Path> {
+    pub(crate) fn files_dir(&self) -> Result<&Path> {
         self.files_dir.get().map(PathBuf::as_path).ok_or_else(|| anyhow!("no directory for files"))
     }
 

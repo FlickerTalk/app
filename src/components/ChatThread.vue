@@ -28,6 +28,8 @@ import {
   micOutline,
   shareOutline,
   arrowRedoOutline,
+  extensionPuzzleOutline,
+  openOutline,
   trashOutline,
   videocamOutline,
 } from "ionicons/icons";
@@ -36,7 +38,7 @@ import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
-import { installed, refreshPlugins } from "../plugins";
+import { installed, openersOf, refreshPlugins, viewerOf, type HandedFile } from "../plugins";
 import {
   acceptFile,
   chat as chatOf,
@@ -46,6 +48,8 @@ import {
   markRead,
   openFile,
   pickFiles,
+  pluginRef,
+  readMessageFile,
   takePhoto,
   saveFile,
   sendFile,
@@ -53,10 +57,13 @@ import {
   sendText,
   shareMessage,
   store,
+  type ChatMessage,
   type PickedFile,
+  type PluginView,
   type Sending,
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
+import { closeOnBackWhile } from "../back";
 import { t } from "../i18n";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
@@ -183,12 +190,14 @@ function act(id: string) {
   acting.value = id;
   forwarding.value = false;
   erasing.value = false;
+  openingWith.value = false;
 }
 
 function closeActions() {
   acting.value = "";
   forwarding.value = false;
   erasing.value = false;
+  openingWith.value = false;
 }
 
 function fold() {
@@ -221,13 +230,90 @@ async function forwardTo(contact: string) {
 // Issue app#3: the apps of this phone, each in its own window. The list is the app's, not this
 // component's: what Settings installs or removes shows up here without leaving the conversation.
 const showApps = ref(false);
-const plugin = ref<{ id: string; name: string; sending: Sending } | null>(null);
+/** The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back. */
+const plugin = ref<{ id: string; name: string; sending: Sending; live: boolean; text?: string; file?: HandedFile; reference?: string } | null>(null);
+
+// Android's back button closes what is open on top, and only that (2026-09-28).
+closeOnBackWhile(() => emoji.value, () => (emoji.value = false));
+closeOnBackWhile(() => Boolean(acting.value), () => closeActions());
+closeOnBackWhile(() => showApps.value, () => (showApps.value = false));
+closeOnBackWhile(() => Boolean(plugin.value), () => (plugin.value = null));
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   if (!chosen) return;
   showApps.value = false;
-  plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send };
+  plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send, live: Boolean(chosen.granted.live) };
+}
+
+// 2026-09-27: "open with": a message goes to a plugin that says it opens its kind. A text only
+// to one granted to read what it is handed; a file with its bytes, once it is here whole. The
+// plugin also gets a way back to the message (`ref`) that says nothing of the contact.
+const openingWith = ref(false);
+const openers = computed(() => {
+  const message = messages.value.find((one) => one.id === acting.value);
+  return message ? openersOf(installed.value, message) : [];
+});
+
+async function openWith(id: string) {
+  const message = messages.value.find((one) => one.id === acting.value);
+  const chosen = installed.value.find((one) => one.id === id);
+  closeActions();
+  if (!message || !chosen) return;
+  await openIn(chosen, message);
+}
+
+/** Whether a tap on this file shows it inside the app: the plugin that `views` its kind. */
+function viewerFor(message: ChatMessage | undefined): PluginView | undefined {
+  return message?.kind === "file" ? viewerOf(installed.value, message.file?.mime || "application/octet-stream") : undefined;
+}
+const viewable = computed(() => Boolean(viewerFor(messages.value.find((one) => one.id === acting.value))));
+
+/**
+ * A tap on a file (document viewer, 2026-09-27): shown here by its viewer when there is one and
+ * the bytes can be handed over; otherwise, or when that fails, it goes to another app as before,
+ * so the user always gets something.
+ */
+async function tapFile(id: string) {
+  const message = messages.value.find((one) => one.id === id);
+  const viewer = viewerFor(message);
+  if (message && viewer && (await openIn(viewer, message))) return;
+  await openFile(id);
+}
+
+/** «Another app» from "open with": the system's viewer, as a tap without a viewer does. */
+async function openElsewhere() {
+  const id = acting.value;
+  closeActions();
+  await openFile(id);
+}
+
+/** Puts a message in a plugin's window. False when the file could not be handed over. */
+async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean> {
+  try {
+    // A plugin granted the drive keeps the file by its ref (plan-drive): the bytes never cross the
+    // frame, so a file of any size opens with it; the rest are handed the bytes.
+    const file =
+      message.kind !== "file"
+        ? undefined
+        : chosen.granted.drive
+          ? { name: message.file?.name ?? "", mime: message.file?.mime ?? "application/octet-stream", data: "" }
+          : await readMessageFile(message.id);
+    const reference = await pluginRef(chosen.id, message.id).catch(() => undefined);
+    plugin.value = {
+      id: chosen.id,
+      name: chosen.name,
+      sending: chosen.granted.send,
+      live: Boolean(chosen.granted.live),
+      text: message.kind === "file" ? undefined : message.text,
+      file,
+      reference,
+    };
+    return true;
+  } catch {
+    // A file not here whole, or too big for a plugin: nothing opens here.
+    return false;
+  }
 }
 
 /** A plugin proposes; the user sends (§53). */
@@ -352,7 +438,19 @@ watch(
         </button>
         <span class="ft-app__name">{{ plugin.name }}</span>
       </div>
-      <PluginSheet :plugin="plugin" :contact="chatId" :sending="plugin.sending" @text="fromPlugin" @attach="stage" @done="plugin = null" />
+      <PluginSheet
+        :plugin="plugin"
+        :contact="chatId"
+        :sending="plugin.sending"
+        :live="plugin.live"
+        :text="plugin.text"
+        :file="plugin.file"
+        :reference="plugin.reference"
+        @text="fromPlugin"
+        @attach="stage"
+        @open-chat="(contact) => router.push(`/chat/${contact}`)"
+        @done="plugin = null"
+      />
     </div>
 
     <!-- The apps of this phone; each opens its own window. -->
@@ -375,7 +473,7 @@ watch(
         :message="message"
         :saved="saved.has(message.id)"
         :folded="folded.has(message.id)"
-        @open="openFile"
+        @open="tapFile"
         @save="save"
         @download="download"
         @actions="act"
@@ -400,6 +498,23 @@ watch(
         </button>
         <span v-if="!others.length" class="ft-actions__title">—</span>
       </div>
+      <div v-else-if="openingWith" class="ft-actions__bar">
+        <span class="ft-actions__title">{{ $t("chat.openWithPlugin") }}</span>
+        <button
+          v-for="one in openers"
+          :key="one.id"
+          type="button"
+          class="ft-actions__to"
+          :data-test="`open-with-${one.id}`"
+          @click="openWith(one.id)"
+        >
+          {{ one.name }}
+        </button>
+        <!-- With a viewer, a tap no longer leaves the app: the other apps are still one press away. -->
+        <button v-if="viewable" type="button" class="ft-actions__to" data-test="open-elsewhere" @click="openElsewhere">
+          <ion-icon :icon="openOutline" aria-hidden="true" /> {{ $t("chat.otherApp") }}
+        </button>
+      </div>
       <div v-else class="ft-actions__bar">
         <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
           <ion-icon :icon="folded.has(acting) ? expandOutline : contractOutline" aria-hidden="true" />
@@ -409,6 +524,16 @@ watch(
         </button>
         <button type="button" class="ft-round ft-round--ghost" data-test="share" :aria-label="$t('chat.share')" @click="share">
           <ion-icon :icon="shareOutline" aria-hidden="true" />
+        </button>
+        <button
+          v-if="openers.length"
+          type="button"
+          class="ft-round ft-round--ghost"
+          data-test="open-with"
+          :aria-label="$t('chat.openWithPlugin')"
+          @click="openingWith = true"
+        >
+          <ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" />
         </button>
         <button
           v-if="!erasing"

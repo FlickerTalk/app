@@ -55,7 +55,8 @@
     "deleteSure": "Borrar",
     "forwardTo": "Reenviar a",
     "download": "Descargar",
-    "discardAttachment": "Descartar el adjunto"
+    "discardAttachment": "Descartar el adjunto",
+    "otherApp": "Otra app"
   },
   "status": {
     "pending": "Esperando al dispositivo",
@@ -259,7 +260,13 @@
     "remove": "Quitar",
     "none": "Aún no hay plugins",
     "available": "Herramientas que puedes añadir",
-    "install": "Instalar"
+    "install": "Instalar",
+    "live": "Hablar con el mismo plugin al otro lado del chat",
+    "remind": "Poner avisos en este teléfono",
+    "drive": "Guardar ficheros en tu propia nube",
+    "storageLarge": "Guardar muchos datos en este teléfono (hasta 256 MB)",
+    "opens": "Abre: {kinds}",
+    "open": "Abrir"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} sacó a {what}",
       "renamed": "{who} cambió el nombre del círculo a «{what}»"
     }
+  },
+  "backup": {
+    "title": "Copia de seguridad",
+    "none": "Ninguna nube conectada",
+    "noneHint": "Guarda una copia sellada de este teléfono en tu propio Google Drive. Todo se cifra aquí antes de salir; Google ve ficheros sellados y nosotros no vemos nada.",
+    "connectGoogle": "Conectar Google Drive",
+    "empty": "Tu nube todavía no tiene un drive de FlickerTalk",
+    "emptyHint": "Al crearlo se genera una clave en este teléfono y se te enseña un código de recuperación.",
+    "setUp": "Crear",
+    "codeTitle": "Tu código de recuperación",
+    "codeHint": "Apúntalo y guárdalo bien: abre tu drive en un teléfono nuevo. Se enseña una sola vez y nadie puede recuperarlo por ti.",
+    "codeDone": "Ya lo he apuntado",
+    "locked": "Esta nube tiene un drive de otro teléfono",
+    "unlockHint": "Escribe su código de recuperación para abrirlo aquí.",
+    "codePlaceholder": "Código de recuperación",
+    "unlockNow": "Abrir",
+    "ready": "Tu drive está listo",
+    "backupNow": "Hacer copia ahora",
+    "lastBackup": "Última copia: {when}",
+    "noBackup": "Todavía no hay copia",
+    "done": "Copia hecha",
+    "restore": "Restaurar desde la copia",
+    "restoreAsk": "¿Sustituir todo lo de este teléfono por la copia? La app vuelve a arrancar.",
+    "restoreConfirm": "Restaurar",
+    "restored": "La copia ya está aquí",
+    "forget": "Olvidar esta nube en este teléfono",
+    "forgetHint": "Tus ficheros siguen en tu nube, sellados. Necesitarás el código de recuperación para abrirlos otra vez.",
+    "forgetConfirm": "Olvidar",
+    "used": "En el drive: {size}",
+    "pending": "Pendientes de subir: {count}",
+    "working": "Trabajando…",
+    "failed": "Algo ha fallado: {error}",
+    "sees": "Tu nube ve cuántos ficheros sellados hay, su tamaño y sus fechas. Nunca sus nombres ni su contenido."
   }
 }

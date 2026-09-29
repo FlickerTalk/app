@@ -30,7 +30,7 @@ export function seed(): void {
           text: message.text ?? "",
           status: message.status as Status,
           kind: message.kind === "file" ? "file" : undefined,
-          file: message.file && { ...message.file, mime: "", state: message.file.state as FileState },
+          file: message.file && { ...message.file, mime: (message.file as { mime?: string }).mime ?? "", state: message.file.state as FileState },
         }),
       ),
     }),
@@ -49,6 +49,10 @@ export function seed(): void {
         text: message.text ?? "",
         sentAt: at(message.time),
         state: message.status ?? "delivered",
+        // A file as the core would describe it, so a tap on it finds its kind.
+        ...(message.file
+          ? { file: { name: message.file.name, size: 1_200_000, mime: (message.file as { mime?: string }).mime ?? "application/octet-stream", state: message.file.state, progress: message.file.progress, path: `/data/files/${message.file.name}` } }
+          : {}),
       }));
     }
     if (command === "core_conversations") return [];

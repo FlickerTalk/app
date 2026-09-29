@@ -55,7 +55,8 @@
     "deleteSure": "Șterge",
     "forwardTo": "Redirecționează către",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Altă aplicație"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
@@ -259,7 +260,13 @@
     "remove": "Elimină",
     "none": "Niciun plugin încă",
     "available": "Instrumente pe care le poți adăuga",
-    "install": "Instalează"
+    "install": "Instalează",
+    "live": "Să vorbească cu același plugin de cealaltă parte a conversației",
+    "remind": "Să seteze mementouri pe acest telefon",
+    "drive": "Să păstreze fișiere în propriul tău cloud",
+    "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
+    "opens": "Deschide: {kinds}",
+    "open": "Deschide"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "Copie de siguranță",
+    "none": "Niciun cloud conectat",
+    "noneHint": "Păstrează o copie sigilată a acestui telefon în propriul Google Drive. Totul se criptează aici înainte să plece; Google vede fișiere sigilate, iar noi nu vedem nimic.",
+    "connectGoogle": "Conectează Google Drive",
+    "empty": "Cloudul tău nu are încă un drive FlickerTalk",
+    "emptyHint": "Configurarea creează o cheie pe acest telefon și îți arată un cod de recuperare.",
+    "setUp": "Configurează",
+    "codeTitle": "Codul tău de recuperare",
+    "codeHint": "Notează-l și păstrează-l în siguranță: deschide drive-ul pe un telefon nou. Se arată o singură dată și nimeni nu îl poate recupera pentru tine.",
+    "codeDone": "L-am notat",
+    "locked": "Acest cloud are un drive de pe alt telefon",
+    "unlockHint": "Introdu codul lui de recuperare ca să îl deschizi aici.",
+    "codePlaceholder": "Cod de recuperare",
+    "unlockNow": "Deschide",
+    "ready": "Drive-ul tău este gata",
+    "backupNow": "Fă copia acum",
+    "lastBackup": "Ultima copie: {when}",
+    "noBackup": "Încă nu există o copie",
+    "done": "Copie făcută",
+    "restore": "Restaurează din copie",
+    "restoreAsk": "Înlocuiești tot ce e pe acest telefon cu copia? Aplicația repornește.",
+    "restoreConfirm": "Restaurează",
+    "restored": "Copia este aici",
+    "forget": "Uită acest cloud pe acest telefon",
+    "forgetHint": "Fișierele rămân în cloudul tău, sigilate. Vei avea nevoie de codul de recuperare ca să le deschizi din nou.",
+    "forgetConfirm": "Uită",
+    "used": "În drive: {size}",
+    "pending": "În așteptarea încărcării: {count}",
+    "working": "Se lucrează…",
+    "failed": "Ceva nu a mers: {error}",
+    "sees": "Cloudul tău vede câte fișiere sigilate sunt, mărimea și datele lor. Niciodată numele sau conținutul."
   }
 }

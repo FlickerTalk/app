@@ -55,7 +55,8 @@
     "deleteSure": "Löschen",
     "forwardTo": "Weiterleiten an",
     "download": "Herunterladen",
-    "discardAttachment": "Anhang verwerfen"
+    "discardAttachment": "Anhang verwerfen",
+    "otherApp": "Andere App"
   },
   "status": {
     "pending": "Warte auf Gerät",
@@ -259,7 +260,13 @@
     "remove": "Entfernen",
     "none": "Noch keine Plugins",
     "available": "Tools zum Hinzufügen",
-    "install": "Installieren"
+    "install": "Installieren",
+    "live": "Mit demselben Plugin auf der anderen Seite des Chats sprechen",
+    "remind": "Erinnerungen auf diesem Telefon setzen",
+    "drive": "Dateien in deiner eigenen Cloud behalten",
+    "storageLarge": "Viele Daten auf diesem Telefon behalten (bis 256 MB)",
+    "opens": "Öffnet: {kinds}",
+    "open": "Öffnen"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} hat {what} entfernt",
       "renamed": "{who} hat den Kreis in „{what}“ umbenannt"
     }
+  },
+  "backup": {
+    "title": "Sicherung",
+    "none": "Keine Cloud verbunden",
+    "noneHint": "Bewahre eine versiegelte Kopie dieses Telefons in deinem eigenen Google Drive auf. Alles wird hier verschlüsselt, bevor es das Telefon verlässt; Google sieht versiegelte Dateien und wir sehen nichts.",
+    "connectGoogle": "Google Drive verbinden",
+    "empty": "Deine Cloud hat noch kein FlickerTalk-Laufwerk",
+    "emptyHint": "Beim Einrichten entsteht ein Schlüssel auf diesem Telefon und du bekommst einen Wiederherstellungscode.",
+    "setUp": "Einrichten",
+    "codeTitle": "Dein Wiederherstellungscode",
+    "codeHint": "Schreib ihn auf und bewahre ihn sicher auf: er öffnet dein Laufwerk auf einem neuen Telefon. Er wird nur einmal gezeigt, und niemand kann ihn für dich zurückholen.",
+    "codeDone": "Ich habe ihn notiert",
+    "locked": "Diese Cloud enthält ein Laufwerk von einem anderen Telefon",
+    "unlockHint": "Gib seinen Wiederherstellungscode ein, um es hier zu öffnen.",
+    "codePlaceholder": "Wiederherstellungscode",
+    "unlockNow": "Öffnen",
+    "ready": "Dein Laufwerk ist bereit",
+    "backupNow": "Jetzt sichern",
+    "lastBackup": "Letzte Sicherung: {when}",
+    "noBackup": "Noch keine Sicherung",
+    "done": "Gesichert",
+    "restore": "Aus der Sicherung wiederherstellen",
+    "restoreAsk": "Alles auf diesem Telefon durch die Sicherung ersetzen? Die App startet neu.",
+    "restoreConfirm": "Wiederherstellen",
+    "restored": "Die Sicherung ist da",
+    "forget": "Diese Cloud auf diesem Telefon vergessen",
+    "forgetHint": "Deine Dateien bleiben versiegelt in deiner Cloud. Zum erneuten Öffnen brauchst du den Wiederherstellungscode.",
+    "forgetConfirm": "Vergessen",
+    "used": "Im Laufwerk: {size}",
+    "pending": "Warten auf Upload: {count}",
+    "working": "Läuft…",
+    "failed": "Etwas ist schiefgegangen: {error}",
+    "sees": "Deine Cloud sieht, wie viele versiegelte Dateien es gibt, ihre Größe und ihre Daten. Nie ihre Namen oder Inhalte."
   }
 }

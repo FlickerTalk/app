@@ -55,7 +55,8 @@
     "deleteSure": "Hapus",
     "forwardTo": "Teruskan ke",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Aplikasi lain"
   },
   "status": {
     "pending": "Menunggu perangkat",
@@ -259,7 +260,13 @@
     "remove": "Hapus",
     "none": "Belum ada plugin",
     "available": "Alat yang bisa Anda tambahkan",
-    "install": "Pasang"
+    "install": "Pasang",
+    "live": "Berbicara dengan plugin yang sama di sisi lain obrolan",
+    "remind": "Memasang pengingat di ponsel ini",
+    "drive": "Menyimpan berkas di cloud milikmu sendiri",
+    "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
+    "opens": "Membuka: {kinds}",
+    "open": "Buka"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "Cadangan",
+    "none": "Tidak ada cloud yang terhubung",
+    "noneHint": "Simpan salinan tersegel ponsel ini di Google Drive milikmu. Semuanya dienkripsi di sini sebelum keluar; Google melihat berkas tersegel, dan kami tidak melihat apa pun.",
+    "connectGoogle": "Hubungkan Google Drive",
+    "empty": "Cloud-mu belum punya drive FlickerTalk",
+    "emptyHint": "Penyiapan membuat kunci di ponsel ini dan menampilkan kode pemulihan.",
+    "setUp": "Siapkan",
+    "codeTitle": "Kode pemulihanmu",
+    "codeHint": "Tulis dan simpan dengan aman: kode ini membuka drive-mu di ponsel baru. Hanya ditampilkan sekali, dan tidak ada yang bisa mengembalikannya untukmu.",
+    "codeDone": "Sudah saya tulis",
+    "locked": "Cloud ini punya drive dari ponsel lain",
+    "unlockHint": "Ketik kode pemulihannya untuk membukanya di sini.",
+    "codePlaceholder": "Kode pemulihan",
+    "unlockNow": "Buka",
+    "ready": "Drive-mu siap",
+    "backupNow": "Cadangkan sekarang",
+    "lastBackup": "Cadangan terakhir: {when}",
+    "noBackup": "Belum ada cadangan",
+    "done": "Tercadangkan",
+    "restore": "Pulihkan dari cadangan",
+    "restoreAsk": "Ganti semua di ponsel ini dengan cadangan? Aplikasi akan mulai ulang.",
+    "restoreConfirm": "Pulihkan",
+    "restored": "Cadangan sudah di sini",
+    "forget": "Lupakan cloud ini di ponsel ini",
+    "forgetHint": "Berkasmu tetap di cloud, tersegel. Kamu butuh kode pemulihan untuk membukanya lagi.",
+    "forgetConfirm": "Lupakan",
+    "used": "Di drive: {size}",
+    "pending": "Menunggu unggahan: {count}",
+    "working": "Sedang bekerja…",
+    "failed": "Ada yang salah: {error}",
+    "sees": "Cloud-mu melihat berapa banyak berkas tersegel, ukuran dan tanggalnya. Tidak pernah nama atau isinya."
   }
 }

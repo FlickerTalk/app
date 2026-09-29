@@ -285,4 +285,39 @@ class PlatformPluginTest {
             needsAcknowledgement(purchase(state = Purchase.PurchaseState.PENDING, acknowledged = false)),
         )
     }
+
+    // Local reminders (2026-09-27): what the core sends is read leniently, each reminder keeps
+    // the same alarm slot, and only the ones still ahead are set again after a reboot.
+    @Test
+    fun remindersAreReadFromTheCoreAndKeepTheirSlot() {
+        val entries = parseReminders("""[{"plugin":"com.example.notes","id":"r1","at":5000,"text":"milk"},{"plugin":"","id":"x","at":1},{"id":"no-plugin","at":2},"junk"]""")
+        assertEquals(1, entries.size)
+        assertEquals(ReminderEntry("com.example.notes", "r1", 5000, "milk"), entries[0])
+        assertEquals(0, parseReminders("not json").size)
+        assertEquals(reminderRequestCode("com.example.notes", "r1"), reminderRequestCode("com.example.notes", "r1"))
+        assertTrue(reminderRequestCode("com.example.notes", "r1") != reminderRequestCode("com.example.notes", "r2"))
+        assertTrue(reminderRequestCode("a", "b") >= 1000)
+        assertEquals("com.example.notes\nr1", reminderKey("com.example.notes", "r1"))
+        assertEquals("com.example.notes\nr1", pendingReminderOf("com.example.notes\nr1"))
+        assertEquals("", pendingReminderOf(null))
+        assertEquals("", pendingReminderOf("garbage"))
+        val due = remindersStillDue(entries + ReminderEntry("p", "past", 10, ""), now = 100)
+        assertEquals(listOf("r1"), due.map { it.id })
+    }
+
+    @Test
+    fun exactAlarmsNeedTheUsersLeaveFromAndroid12() {
+        assertTrue(exactAlarmsAllowed(30) { false })
+        assertEquals(false, exactAlarmsAllowed(31) { false })
+        assertTrue(exactAlarmsAllowed(34) { true })
+    }
+
+    // A login's redirect is only the one with our scheme; any other link is not an answer.
+    @Test
+    fun onlyOurSchemeEndsALogin() {
+        assertTrue(isAuthRedirect("com.flickertalk.app:/oauth?code=abc", "com.flickertalk.app"))
+        assertEquals(false, isAuthRedirect("https://evil.example/?code=abc", "com.flickertalk.app"))
+        assertEquals(false, isAuthRedirect(null, "com.flickertalk.app"))
+        assertEquals(false, isAuthRedirect("com.flickertalk.app:/x", ""))
+    }
 }

@@ -8,8 +8,8 @@ Diseño aprobado el 2026-09-21 (`§84`). Estructura:
 
 | Ruta                     | Contenido                                                                |
 | ------------------------ | ------------------------------------------------------------------------ |
-| `router.ts`              | `/welcome`, pestañas `/tabs/{chats,calls,settings}`, `/chat/:id`, `/add-contact`, `/contact/:id`, `/call/:id`, `/circle/:id`, `/circle/:id/info`, `/new-circle`; `onboardingGuard` manda la primera ejecución a `/welcome` |
-| `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage`, `BlockedPage`, `MovePage`, `PluginsPage`, `PlanPage`, `SessionPage`, `HoursPage`, `CirclePage`, `CircleInfoPage`, `NewCirclePage` |
+| `router.ts`              | `/welcome`, pestañas `/tabs/{chats,calls,settings}`, `/chat/:id`, `/add-contact`, `/contact/:id`, `/call/:id`, `/circle/:id`, `/circle/:id/info`, `/new-circle`, `/plugin/:id`, `/backup`; `onboardingGuard` manda la primera ejecución a `/welcome` |
+| `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage`, `BlockedPage`, `MovePage`, `PluginsPage`, `PlanPage`, `SessionPage`, `HoursPage`, `CirclePage`, `CircleInfoPage`, `NewCirclePage`, `PluginPage`, `BackupPage` |
 | `components/`            | `NavRail`, `ChatThread`, `CircleThread`, `MessageBubble`, `Avatar`, `QrCode`, `ScannerOverlay`, `EmojiPicker`, `IncomingCall`, `PluginSheet` |
 | `theme/`                 | `variables.css` (tokens de Ember, Aurora y Mono, claro y oscuro), `base.css` |
 | `theme.ts`               | color y apariencia elegidos en Ajustes                                    |
@@ -86,6 +86,41 @@ Estado (2026-09-23): herramientas, acciones del mensaje y plan.
 - **Plan** (`§40–47`): `PlanPage` (Ajustes → Plan) dice cuánto queda del año gratis, ofrece el euro
   y pregunta la edad (nunca la fecha de nacimiento). La compra todavía contesta «todavía no»:
   falta el producto en las tiendas.
+
+Estado (2026-09-27, plugins fase 3 y la nube del usuario; `docs/drive.md`):
+
+- **«Abrir con»** en la pulsación larga de una burbuja (`open-with-<id>`): los plugins cuyo
+  manifiesto `opens` el tipo del fichero (o `text/plain` para un texto, con `messages`). La hoja
+  recibe `file`, `reference` (el `ref` opaco del mensaje) y `live`; a un plugin con `drive`
+  concedido se le da solo el nombre y el tipo del fichero, no los bytes. `PluginPage`
+  (`/plugin/:id?reminder=`) abre un plugin solo, desde Ajustes → Plugins («Abrir») o desde un
+  aviso tocado (`App.vue` lo enruta con `pendingReminder()`).
+- `PluginSheet` contesta además `ft.record*`, `ft.remind*`, `ft.liveSend` (solo con `live`
+  concedido y un contacto), `ft.openChat` (emite `openChat` y la página navega) y `ft.drive`
+  (una pregunta con `op` y hasta dos textos; antes pregunta al núcleo si el plugin tiene `drive`;
+  `upload` abre el selector desde la app, `keep` guarda por el `ref`, `send` baja el fichero y lo
+  deja en el compositor con `propose` o lo envía con `auto`). Lo que dice el otro lado llega por
+  `ft://plugin` y se reenvía al marco como `ft.live`.
+- `PluginsPage` tiene un interruptor por permiso nuevo (`live`, `remind`, `drive`, `storage`
+  grande) y enseña qué abre cada plugin.
+- **Visor de documentos** (2026-09-27): tocar un fichero (`tapFile` en `ChatThread`) lo abre en
+  el plugin que `views` su tipo (`viewerOf` en `plugins.ts`: tipo exacto; entre dos, el instalado
+  más tarde), con los bytes y el `ref`; sin visor, o si los bytes no se pueden entregar (no está
+  entero, pasa de 32 MB), va a otra app (`openFile`) como antes. `openIn(plugin, message)` es lo
+  común entre el toque y «Abrir con», que con visor ofrece además **«Otra app»**
+  (`open-elsewhere`, `chat.otherApp`). En iOS no hay plugins descargados: el toque va siempre a
+  Quick Look.
+- **Botón Atrás de Android** (2026-09-28, `back.ts`): lo que está abierto encima (plugin, apps,
+  acciones de un mensaje, emoji) se cierra con Atrás, lo último primero (`closeOnBackWhile`). Solo
+  se escucha el botón (`onBackButtonPress`, permisos `core:app:allow-register-listener` y
+  `allow-remove-listener` en `capabilities/mobile.json`) mientras hay algo abierto: sin nada, Atrás
+  hace lo de siempre. Antes, con un plugin abierto, sacaba del chat o, en la tableta, de la app.
+  Una superposición nueva se registra con `closeOnBackWhile`.
+- **Copia de seguridad** (`BackupPage`, Ajustes → Copia de seguridad): conectar Google Drive
+  (login en el navegador del sistema, por el núcleo), crear el drive y enseñar el **código de
+  recuperación una sola vez**, abrir el drive de otro teléfono con el código, hacer copia,
+  restaurar (pregunta una vez; la app reinicia) y olvidar la nube (pregunta una vez). Escucha
+  `ft://vault` y `ft://vault-progress`. Los textos están en `backup.*`, 21 idiomas.
 
 ## Reglas
 

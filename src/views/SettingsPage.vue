@@ -37,6 +37,7 @@ import {
   swapHorizontalOutline,
   trashOutline,
   cloudDownloadOutline,
+  cloudUploadOutline,
   refreshOutline,
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
@@ -312,6 +313,11 @@ function chooseAppearance(id: Appearance) {
           <ion-item button detail lines="none" data-test="move" @click="router.push('/move?role=old')">
             <span slot="start" class="ft-tile"><ion-icon :icon="swapHorizontalOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.movePhone") }}</ion-label>
+          </ion-item>
+          <!-- 2026-09-27: a sealed copy of this phone in the user's own cloud (§61). -->
+          <ion-item button detail lines="none" data-test="backup" @click="router.push('/backup')">
+            <span slot="start" class="ft-tile"><ion-icon :icon="cloudUploadOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.backup") }}</ion-label>
           </ion-item>
           <!-- §78: the router forgets this device and the phone is wiped. It asks first. -->
           <ion-item v-if="!asksToErase" button lines="none" data-test="erase" @click="asksToErase = true">

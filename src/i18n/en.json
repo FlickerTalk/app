@@ -55,7 +55,8 @@
     "deleteSure": "Delete",
     "forwardTo": "Forward to",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Another app"
   },
   "status": {
     "pending": "Waiting for device",
@@ -259,7 +260,13 @@
     "remove": "Remove",
     "none": "No plugins yet",
     "available": "Tools you can add",
-    "install": "Install"
+    "install": "Install",
+    "live": "Talk to the same plugin on the other side of the chat",
+    "remind": "Set reminders on this phone",
+    "drive": "Keep files in your own cloud",
+    "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
+    "opens": "Opens: {kinds}",
+    "open": "Open"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "Backup",
+    "none": "No cloud connected",
+    "noneHint": "Keep a sealed copy of this phone in your own Google Drive. Everything is encrypted here before it leaves; Google sees sealed files, and we see nothing.",
+    "connectGoogle": "Connect Google Drive",
+    "empty": "Your cloud has no FlickerTalk drive yet",
+    "emptyHint": "Setting it up makes a key on this phone and shows you a recovery code.",
+    "setUp": "Set up",
+    "codeTitle": "Your recovery code",
+    "codeHint": "Write it down and keep it safe: it opens your drive on a new phone. It is shown only once, and nobody can get it back for you.",
+    "codeDone": "I wrote it down",
+    "locked": "This cloud has a drive from another phone",
+    "unlockHint": "Type its recovery code to open it here.",
+    "codePlaceholder": "Recovery code",
+    "unlockNow": "Open",
+    "ready": "Your drive is ready",
+    "backupNow": "Back up now",
+    "lastBackup": "Last backup: {when}",
+    "noBackup": "No backup yet",
+    "done": "Backed up",
+    "restore": "Restore from the backup",
+    "restoreAsk": "Replace everything on this phone with the backup? The app starts again.",
+    "restoreConfirm": "Restore",
+    "restored": "The backup is here",
+    "forget": "Forget this cloud on this phone",
+    "forgetHint": "Your files stay in your cloud, sealed. You will need the recovery code to open them again.",
+    "forgetConfirm": "Forget",
+    "used": "In the drive: {size}",
+    "pending": "Waiting to upload: {count}",
+    "working": "Working…",
+    "failed": "Something went wrong: {error}",
+    "sees": "Your cloud sees how many sealed files there are, their sizes and dates. Never their names or contents."
   }
 }

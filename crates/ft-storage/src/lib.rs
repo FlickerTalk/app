@@ -95,6 +95,25 @@ pub struct Contact {
     pub via_circle: bool,
 }
 
+/// A local reminder a plugin set (2026-09-27).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reminder {
+    pub plugin: String,
+    pub id: String,
+    /// Milliseconds since the epoch.
+    pub at: i64,
+    /// What the notification says; empty for the generic one.
+    pub text: String,
+}
+
+/// Where a plugin's opaque `ref` points (2026-09-27).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginRef {
+    pub plugin: String,
+    pub contact: String,
+    pub message_id: String,
+}
+
 /// A plugin installed on this phone, with what the user granted it (issue app#3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledPlugin {
@@ -278,6 +297,8 @@ pub struct CircleConversation {
 }
 
 
+/// The pool is shared: a clone is the same database.
+#[derive(Clone)]
 pub struct Store {
     pool: SqlitePool,
 }
@@ -966,7 +987,121 @@ impl Store {
     pub async fn remove_plugin(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM plugins WHERE id = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM plugin_memory WHERE plugin = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM plugin_records WHERE plugin = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM reminders WHERE plugin = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM plugin_refs WHERE plugin = ?").bind(id).execute(&self.pool).await?;
         Ok(())
+    }
+
+    // ---- Plugin records, reminders and refs (2026-09-27) ----
+
+    pub async fn plugin_record(&self, plugin: &str, key: &str) -> Result<Option<Vec<u8>>> {
+        let row = sqlx::query("SELECT value FROM plugin_records WHERE plugin = ? AND key = ?")
+            .bind(plugin)
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|row| row.get::<Vec<u8>, _>("value")))
+    }
+
+    pub async fn set_plugin_record(&self, plugin: &str, key: &str, value: &[u8]) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO plugin_records (plugin, key, value, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT (plugin, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        )
+        .bind(plugin)
+        .bind(key)
+        .bind(value)
+        .bind(now())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn forget_plugin_record(&self, plugin: &str, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM plugin_records WHERE plugin = ? AND key = ?").bind(plugin).bind(key).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// The keys of a plugin's records that start with `prefix`, in order.
+    pub async fn plugin_record_keys(&self, plugin: &str, prefix: &str) -> Result<Vec<String>> {
+        let rows = sqlx::query("SELECT key FROM plugin_records WHERE plugin = ? AND substr(key, 1, ?) = ? ORDER BY key")
+            .bind(plugin)
+            .bind(prefix.len() as i64)
+            .bind(prefix)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.iter().map(|row| row.get::<String, _>("key")).collect())
+    }
+
+    /// How many bytes a plugin keeps in its records.
+    pub async fn plugin_records_size(&self, plugin: &str) -> Result<i64> {
+        let row = sqlx::query("SELECT COALESCE(SUM(length(value)), 0) AS n FROM plugin_records WHERE plugin = ?")
+            .bind(plugin)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get("n"))
+    }
+
+    pub async fn set_reminder(&self, reminder: &Reminder) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO reminders (plugin, id, at, text) VALUES (?, ?, ?, ?)
+             ON CONFLICT (plugin, id) DO UPDATE SET at = excluded.at, text = excluded.text",
+        )
+        .bind(&reminder.plugin)
+        .bind(&reminder.id)
+        .bind(reminder.at)
+        .bind(&reminder.text)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn cancel_reminder(&self, plugin: &str, id: &str) -> Result<bool> {
+        let gone = sqlx::query("DELETE FROM reminders WHERE plugin = ? AND id = ?").bind(plugin).bind(id).execute(&self.pool).await?;
+        Ok(gone.rows_affected() > 0)
+    }
+
+    /// Drops every reminder of a plugin: whether there was any.
+    pub async fn forget_reminders(&self, plugin: &str) -> Result<bool> {
+        let gone = sqlx::query("DELETE FROM reminders WHERE plugin = ?").bind(plugin).execute(&self.pool).await?;
+        Ok(gone.rows_affected() > 0)
+    }
+
+    /// A plugin's reminders, soonest first; every plugin's when `plugin` is `None`.
+    pub async fn reminders(&self, plugin: Option<&str>) -> Result<Vec<Reminder>> {
+        let rows = match plugin {
+            Some(plugin) => sqlx::query("SELECT * FROM reminders WHERE plugin = ? ORDER BY at, id").bind(plugin).fetch_all(&self.pool).await?,
+            None => sqlx::query("SELECT * FROM reminders ORDER BY at, id").fetch_all(&self.pool).await?,
+        };
+        Ok(rows.iter().map(reminder_from).collect())
+    }
+
+    pub async fn add_plugin_ref(&self, reference: &str, plugin: &str, contact: &str, message_id: &str) -> Result<()> {
+        sqlx::query("INSERT INTO plugin_refs (ref, plugin, contact, message_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING")
+            .bind(reference)
+            .bind(plugin)
+            .bind(contact)
+            .bind(message_id)
+            .bind(now())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The ref a plugin already has for this message, if any.
+    pub async fn plugin_ref_for(&self, plugin: &str, message_id: &str) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT ref FROM plugin_refs WHERE plugin = ? AND message_id = ?")
+            .bind(plugin)
+            .bind(message_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|row| row.get::<String, _>("ref")))
+    }
+
+    pub async fn plugin_ref(&self, reference: &str) -> Result<Option<PluginRef>> {
+        let row = sqlx::query("SELECT * FROM plugin_refs WHERE ref = ?").bind(reference).fetch_optional(&self.pool).await?;
+        Ok(row.map(|row| PluginRef { plugin: row.get("plugin"), contact: row.get("contact"), message_id: row.get("message_id") }))
     }
 
     /// What a plugin left under that key, if anything (§53).
@@ -1022,6 +1157,11 @@ impl Store {
     pub async fn setting(&self, key: &str) -> Result<Option<String>> {
         let row = sqlx::query("SELECT value FROM settings WHERE key = ?").bind(key).fetch_optional(&self.pool).await?;
         Ok(row.map(|row| row.get("value")))
+    }
+
+    pub async fn forget_setting(&self, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM settings WHERE key = ?").bind(key).execute(&self.pool).await?;
+        Ok(())
     }
 
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<()> {
@@ -1273,6 +1413,10 @@ fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|since| since.as_millis() as i64)
         .unwrap_or_default()
+}
+
+fn reminder_from(row: &SqliteRow) -> Reminder {
+    Reminder { plugin: row.get("plugin"), id: row.get("id"), at: row.get("at"), text: row.get("text") }
 }
 
 fn plugin_from(row: &SqliteRow) -> InstalledPlugin {
@@ -2189,5 +2333,49 @@ mod tests {
         assert!(store.contacts().await.expect("contacts").is_empty());
         store.insert_message(&message("m1", "ft_dave", false, 1)).await.expect("writes");
         assert_eq!(store.requests(None).await.expect("requests").len(), 1, "now they wait for a yes");
+    }
+
+    // 2026-09-27: a plugin's records are bytes, apart from every other plugin's, counted for the
+    // quota, and gone with the plugin; so are its reminders and the refs it was handed.
+    #[tokio::test]
+    async fn keeps_records_reminders_and_refs_for_each_plugin_and_takes_them_with_it() {
+        let store = store().await;
+        store.install_plugin("com.example.notes", "1.0.0", "{}").await.unwrap();
+        assert_eq!(store.plugin_record("com.example.notes", "note/1").await.unwrap(), None);
+        store.set_plugin_record("com.example.notes", "note/1", b"milk").await.unwrap();
+        store.set_plugin_record("com.example.notes", "note/2", b"eggs and bread").await.unwrap();
+        store.set_plugin_record("com.example.notes", "settings", b"{}").await.unwrap();
+        store.set_plugin_record("com.example.other", "note/1", b"theirs").await.unwrap();
+        assert_eq!(store.plugin_record("com.example.notes", "note/1").await.unwrap().as_deref(), Some(&b"milk"[..]));
+        assert_eq!(store.plugin_record_keys("com.example.notes", "note/").await.unwrap(), ["note/1", "note/2"]);
+        assert_eq!(store.plugin_record_keys("com.example.notes", "").await.unwrap().len(), 3);
+        assert_eq!(store.plugin_records_size("com.example.notes").await.unwrap(), 4 + 14 + 2);
+        store.set_plugin_record("com.example.notes", "note/1", b"oat milk").await.unwrap();
+        assert_eq!(store.plugin_records_size("com.example.notes").await.unwrap(), 8 + 14 + 2, "a changed record counts once");
+        store.forget_plugin_record("com.example.notes", "note/2").await.unwrap();
+        assert_eq!(store.plugin_record_keys("com.example.notes", "note/").await.unwrap(), ["note/1"]);
+
+        let soon = Reminder { plugin: "com.example.notes".to_owned(), id: "r1".to_owned(), at: 2_000, text: String::new() };
+        let later = Reminder { plugin: "com.example.notes".to_owned(), id: "r2".to_owned(), at: 5_000, text: "call mum".to_owned() };
+        store.set_reminder(&later).await.unwrap();
+        store.set_reminder(&soon).await.unwrap();
+        store.set_reminder(&Reminder { plugin: "com.example.other".to_owned(), id: "x".to_owned(), at: 1, text: String::new() }).await.unwrap();
+        assert_eq!(store.reminders(Some("com.example.notes")).await.unwrap(), vec![soon.clone(), later.clone()]);
+        assert_eq!(store.reminders(None).await.unwrap().len(), 3);
+        store.set_reminder(&Reminder { at: 9_000, ..soon.clone() }).await.unwrap();
+        assert_eq!(store.reminders(Some("com.example.notes")).await.unwrap()[1].id, "r1", "moved later");
+        assert!(store.cancel_reminder("com.example.notes", "r2").await.unwrap());
+        assert!(!store.cancel_reminder("com.example.notes", "r2").await.unwrap());
+
+        store.add_plugin_ref("ref-1", "com.example.notes", "ft_bob", "m1").await.unwrap();
+        assert_eq!(store.plugin_ref_for("com.example.notes", "m1").await.unwrap().as_deref(), Some("ref-1"));
+        assert_eq!(store.plugin_ref("ref-1").await.unwrap().map(|r| r.contact), Some("ft_bob".to_owned()));
+        assert_eq!(store.plugin_ref("ref-9").await.unwrap(), None);
+
+        store.remove_plugin("com.example.notes").await.unwrap();
+        assert!(store.plugin_record_keys("com.example.notes", "").await.unwrap().is_empty());
+        assert!(store.reminders(Some("com.example.notes")).await.unwrap().is_empty());
+        assert_eq!(store.plugin_ref("ref-1").await.unwrap(), None);
+        assert_eq!(store.plugin_record("com.example.other", "note/1").await.unwrap().as_deref(), Some(&b"theirs"[..]), "another plugin's stay");
     }
 }

@@ -55,7 +55,8 @@
     "deleteSure": "刪除",
     "forwardTo": "轉傳給",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "其他應用程式"
   },
   "status": {
     "pending": "等待對方裝置",
@@ -259,7 +260,13 @@
     "remove": "移除",
     "none": "還沒有外掛程式",
     "available": "可新增的工具",
-    "install": "安裝"
+    "install": "安裝",
+    "live": "與對話另一端的同一外掛通訊",
+    "remind": "在這支手機上設定提醒",
+    "drive": "把檔案保存在你自己的雲端",
+    "storageLarge": "在這支手機上保存大量資料（最多 256 MB）",
+    "opens": "可開啟：{kinds}",
+    "open": "開啟"
   },
   "emoji": {
     "open": "表情符號",
@@ -329,5 +336,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "備份",
+    "none": "尚未連接雲端",
+    "noneHint": "把這支手機的密封副本保存在你自己的 Google 雲端硬碟。一切在離開手機前就已加密；Google 只看到密封檔案，我們什麼也看不到。",
+    "connectGoogle": "連接 Google 雲端硬碟",
+    "empty": "你的雲端還沒有 FlickerTalk 雲碟",
+    "emptyHint": "設定時會在這支手機上產生金鑰，並顯示一組復原碼。",
+    "setUp": "設定",
+    "codeTitle": "你的復原碼",
+    "codeHint": "請寫下並妥善保管：它用來在新手機上開啟你的雲碟。只顯示一次，沒有人能替你找回。",
+    "codeDone": "我已寫下",
+    "locked": "此雲端有來自另一支手機的雲碟",
+    "unlockHint": "輸入它的復原碼以在此開啟。",
+    "codePlaceholder": "復原碼",
+    "unlockNow": "開啟",
+    "ready": "你的雲碟已就緒",
+    "backupNow": "立即備份",
+    "lastBackup": "上次備份：{when}",
+    "noBackup": "還沒有備份",
+    "done": "已備份",
+    "restore": "從備份還原",
+    "restoreAsk": "用備份取代這支手機上的全部內容？應用程式將重新啟動。",
+    "restoreConfirm": "還原",
+    "restored": "備份已就位",
+    "forget": "在這支手機上忘記此雲端",
+    "forgetHint": "你的檔案仍密封保存在雲端。再次開啟需要復原碼。",
+    "forgetConfirm": "忘記",
+    "used": "雲碟中：{size}",
+    "pending": "等待上傳：{count}",
+    "working": "處理中…",
+    "failed": "出了點問題：{error}",
+    "sees": "你的雲端只看到密封檔案的數量、大小和日期，永遠看不到名稱或內容。"
   }
 }
