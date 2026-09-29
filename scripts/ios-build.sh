@@ -10,6 +10,9 @@ project=src-tauri/gen/apple/flickertalk.xcodeproj/project.pbxproj
 restore() { sed -i '' "s/DEVELOPMENT_TEAM = \"$APPLE_DEVELOPMENT_TEAM\";/DEVELOPMENT_TEAM = \"\";/" "$project"; }
 trap restore EXIT
 sed -i '' "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = \"$APPLE_DEVELOPMENT_TEAM\";/" "$project"
+# `tauri ios build` hands the Xcode build only TAURI* variables: the Google client id goes through
+# as TAURI_FT_GOOGLE_IOS_CLIENT_ID (docs/drive.md). Without it the build warns and cannot sign in.
+if [ -n "${FT_GOOGLE_IOS_CLIENT_ID:-}" ]; then export TAURI_FT_GOOGLE_IOS_CLIENT_ID="$FT_GOOGLE_IOS_CLIENT_ID"; fi
 npm run tauri ios build -- --debug --target aarch64
 if [ -n "${1:-}" ]; then
   xcrun devicectl device install app --device "$1" src-tauri/gen/apple/build/arm64/flickertalk.ipa
