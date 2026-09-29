@@ -92,6 +92,7 @@
     "speaker": "Altavoz",
     "camera": "Cámara",
     "hangUp": "Colgar",
+    "backToCall": "Volver a la llamada",
     "answer": "Responder",
     "decline": "Rechazar",
     "empty": "Aún no hay llamadas"

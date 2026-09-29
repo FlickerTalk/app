@@ -92,6 +92,7 @@
     "speaker": "スピーカー",
     "camera": "カメラ",
     "hangUp": "終了",
+    "backToCall": "通話に戻る",
     "answer": "応答",
     "decline": "拒否",
     "empty": "まだ通話履歴はありません"

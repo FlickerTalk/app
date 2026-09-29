@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted } from "vue";
 import { IonApp, IonRouterOutlet } from "@ionic/vue";
 import { useRouter } from "vue-router";
+import CallBar from "./components/CallBar.vue";
 import IncomingCall from "./components/IncomingCall.vue";
 import ScannerOverlay from "./components/ScannerOverlay.vue";
 import { enablePush, pendingReminder, resumeRouter } from "./core";
@@ -34,6 +35,7 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
   <ion-app>
     <ion-router-outlet />
     <IncomingCall />
+    <CallBar />
     <ScannerOverlay />
   </ion-app>
 </template>

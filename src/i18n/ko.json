@@ -92,6 +92,7 @@
     "speaker": "스피커",
     "camera": "카메라",
     "hangUp": "끊기",
+    "backToCall": "통화로 돌아가기",
     "answer": "받기",
     "decline": "거절",
     "empty": "아직 통화 기록이 없습니다"
