@@ -3211,6 +3211,38 @@ mod tests {
         assert!(open_app_on_answer(Some(" 1\n")));
     }
 
+    // ITMS-90717 (2026-09-29): the App Store rejects an app icon with an alpha channel, even one
+    // where every pixel is opaque. Every PNG of the iOS app icon is plain RGB (or grey), with no
+    // transparency chunk either.
+    #[test]
+    fn the_ios_app_icons_have_no_alpha_channel() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gen/apple/Assets.xcassets/AppIcon.appiconset");
+        let mut icons = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("png") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "{} is not a PNG", path.display());
+            let mut chunks = Vec::new();
+            let mut at = 8;
+            while at + 8 <= bytes.len() {
+                let length = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+                chunks.push((bytes[at + 4..at + 8].to_vec(), at + 8));
+                at += 12 + length;
+            }
+            let (kind, header) = &chunks[0];
+            assert_eq!(kind.as_slice(), b"IHDR");
+            // Colour types 4 (grey and alpha) and 6 (RGBA) carry an alpha channel.
+            let colour = bytes[header + 9];
+            assert!(![4, 6].contains(&colour), "{} has an alpha channel (colour type {colour})", path.display());
+            assert!(!chunks.iter().any(|(kind, _)| kind.as_slice() == b"tRNS"), "{} has transparency", path.display());
+            icons += 1;
+        }
+        assert!(icons >= 1, "no icons in {}", dir.display());
+    }
+
     // iPhones are woken through APNs, the rest through FCM (2026-09-28): the router is told which.
     #[test]
     fn the_push_provider_is_the_one_of_the_platform() {
