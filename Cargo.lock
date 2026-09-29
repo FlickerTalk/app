@@ -1868,6 +1868,7 @@ dependencies = [
  "ft-vault",
  "ft-webrtc",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tokio",

@@ -29,5 +29,7 @@ ft-media = { path = "../ft-media" }
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
 
 [dev-dependencies]
+# SHA-256, to check the login's PKCE challenge (already in the tree through ft-vault).
+ring = "0.17"
 ft-media = { path = "../ft-media", features = ["testing"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

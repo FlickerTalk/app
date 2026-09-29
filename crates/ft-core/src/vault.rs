@@ -55,6 +55,43 @@ pub fn google_redirect_scheme(client_id: &str) -> Result<String> {
     Ok(format!("com.googleusercontent.apps.{numeric}"))
 }
 
+/// The OAuth client a platform signs in with (2026-09-30): Google gives an iOS app and an Android
+/// app a client each. An iPhone uses the iOS client and never falls back to Android's; every
+/// other platform uses Android's (the desktop has no login).
+pub fn google_client_for<'a>(os: &str, android: Option<&'a str>, ios: Option<&'a str>) -> &'a str {
+    let id = if os == "ios" { ios } else { android };
+    id.map(str::trim).unwrap_or_default()
+}
+
+/// The client this build was compiled with: `FT_GOOGLE_IOS_CLIENT_ID` on iOS,
+/// `FT_GOOGLE_CLIENT_ID` elsewhere. A store build without it does not build (`src-tauri/build.rs`).
+fn built_in_google_client_id() -> &'static str {
+    google_client_for(std::env::consts::OS, option_env!("FT_GOOGLE_CLIENT_ID"), option_env!("FT_GOOGLE_IOS_CLIENT_ID"))
+}
+
+/// A Google login, ready for the browser: the page to open, the scheme the bridge waits for, and
+/// what the code exchange needs afterwards (the verifier never travels in the address).
+#[derive(Debug, Clone)]
+pub struct GoogleLogin {
+    pub url: String,
+    pub scheme: String,
+    pub redirect: String,
+    pub verifier: String,
+    pub state: String,
+}
+
+/// The login page for this client: OAuth with PKCE (S256), the `drive.file` scope only, and the
+/// redirect Google documents for an installed app, `<client id reversed>:/oauth2redirect`.
+pub fn google_login(client_id: &str) -> Result<GoogleLogin> {
+    ensure!(!client_id.is_empty(), "no Google client id is set up for this app");
+    let scheme = google_redirect_scheme(client_id)?;
+    let redirect = format!("{scheme}:/oauth2redirect");
+    let (verifier, challenge) = google::pkce();
+    let state = ft_vault::index::new_id();
+    let url = google::auth_url(google::AUTH_URL, client_id, &redirect, &challenge, &state);
+    Ok(GoogleLogin { url, scheme, redirect, verifier, state })
+}
+
 /// Google Drive, the real one.
 pub struct GoogleCloud;
 
@@ -62,16 +99,11 @@ pub struct GoogleCloud;
 impl Cloud for GoogleCloud {
     async fn login(&self, provider: &str, client_id: &str, authorizer: &dyn Authorizer) -> Result<Tokens> {
         ensure!(provider == GOOGLE, "only Google Drive is supported in this version");
-        ensure!(!client_id.is_empty(), "no Google client id is set up for this app");
-        let scheme = google_redirect_scheme(client_id)?;
-        let redirect = format!("{scheme}:/oauth2redirect");
-        let (verifier, challenge) = google::pkce();
-        let state = ft_vault::index::new_id();
-        let url = google::auth_url(google::AUTH_URL, client_id, &redirect, &challenge, &state);
-        let back = authorizer.authorize(&url, &scheme).await?;
-        let code = google::code_from_redirect(&back, &state)?;
+        let login = google_login(client_id)?;
+        let back = authorizer.authorize(&login.url, &login.scheme).await?;
+        let code = google::code_from_redirect(&back, &login.state)?;
         let http = ft_push::https_client(std::time::Duration::from_secs(30))?;
-        google::exchange(&http, google::TOKEN_URL, client_id, &redirect, &code, &verifier).await
+        google::exchange(&http, google::TOKEN_URL, client_id, &login.redirect, &code, &login.verifier).await
     }
 
     fn provider(&self, provider: &str, client_id: &str, keeper: Arc<dyn TokenKeeper>) -> Result<Arc<dyn Provider>> {
@@ -163,7 +195,7 @@ impl Core {
     async fn google_client_id(&self) -> String {
         match self.store.setting(GOOGLE_CLIENT_ID).await.ok().flatten() {
             Some(id) if !id.is_empty() => id,
-            _ => option_env!("FT_GOOGLE_CLIENT_ID").unwrap_or_default().to_owned(),
+            _ => built_in_google_client_id().to_owned(),
         }
     }
 
@@ -478,5 +510,81 @@ mod tests {
         assert_eq!(google_redirect_scheme("123-abc.apps.googleusercontent.com").unwrap(), "com.googleusercontent.apps.123-abc");
         assert!(google_redirect_scheme("not a client id").is_err());
         assert!(google_redirect_scheme(".apps.googleusercontent.com").is_err());
+    }
+
+    const ANDROID: &str = "111-android.apps.googleusercontent.com";
+    const IOS: &str = "222-ios.apps.googleusercontent.com";
+
+    // Store builds (2026-09-30): Google gives each platform its own OAuth client. An iPhone signs
+    // in with the iOS client and nothing else, never with Android's; the other platforms with
+    // Android's.
+    #[test]
+    fn each_platform_signs_in_with_its_own_client() {
+        assert_eq!(google_client_for("ios", Some(ANDROID), Some(IOS)), IOS);
+        assert_eq!(google_client_for("android", Some(ANDROID), Some(IOS)), ANDROID);
+        assert_eq!(google_client_for("macos", Some(ANDROID), Some(IOS)), ANDROID);
+        assert_eq!(google_client_for("ios", Some(ANDROID), None), "", "no iOS client: no login, not Android's");
+        assert_eq!(google_client_for("android", None, Some(IOS)), "");
+        assert_eq!(google_client_for("ios", None, Some(&format!(" {IOS}\n"))), IOS, "a pasted id loses its blanks");
+    }
+
+    fn query(url: &str) -> Vec<(String, String)> {
+        let (_, query) = url.split_once('?').expect("a query");
+        query
+            .split('&')
+            .map(|pair| {
+                let (name, value) = pair.split_once('=').expect("name=value");
+                (name.to_owned(), percent_decoded(value))
+            })
+            .collect()
+    }
+
+    fn percent_decoded(value: &str) -> String {
+        let bytes = value.as_bytes();
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            if bytes[at] == b'%' {
+                out.push(u8::from_str_radix(std::str::from_utf8(&bytes[at + 1..at + 3]).unwrap(), 16).unwrap());
+                at += 3;
+            } else {
+                out.push(bytes[at]);
+                at += 1;
+            }
+        }
+        String::from_utf8(out).unwrap()
+    }
+
+    fn one<'a>(query: &'a [(String, String)], name: &str) -> &'a str {
+        let found: Vec<&str> = query.iter().filter(|(key, _)| key == name).map(|(_, value)| value.as_str()).collect();
+        assert_eq!(found.len(), 1, "{name} goes exactly once");
+        found[0]
+    }
+
+    // The login each platform opens: its client, its redirect (Google's documented form for an
+    // installed app, the client id reversed + `:/oauth2redirect`), PKCE with S256 and only the
+    // non-sensitive `drive.file` scope the consent screen was published with.
+    #[test]
+    fn the_login_address_of_each_platform() {
+        for (os, prefix) in [("android", "111-android"), ("ios", "222-ios")] {
+            let client = google_client_for(os, Some(ANDROID), Some(IOS));
+            let login = google_login(client).unwrap();
+            assert!(login.url.starts_with(&format!("{}?", google::AUTH_URL)), "{os}: Google's login page");
+            let query = query(&login.url);
+            let scheme = format!("com.googleusercontent.apps.{prefix}");
+            assert_eq!(one(&query, "client_id"), client, "{os}");
+            assert_eq!(login.scheme, scheme, "{os}: the scheme the bridge waits for");
+            assert_eq!(login.redirect, format!("{scheme}:/oauth2redirect"), "{os}");
+            assert_eq!(one(&query, "redirect_uri"), login.redirect, "{os}");
+            assert_eq!(one(&query, "response_type"), "code");
+            assert_eq!(one(&query, "scope"), "https://www.googleapis.com/auth/drive.file", "{os}: drive.file and nothing else");
+            assert_eq!(one(&query, "code_challenge_method"), "S256");
+            let digest = ring::digest::digest(&ring::digest::SHA256, login.verifier.as_bytes());
+            assert_eq!(one(&query, "code_challenge"), base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest), "{os}: S256 of the verifier");
+            assert_eq!(one(&query, "state"), login.state);
+            assert!(!login.url.contains(&login.verifier), "the verifier never travels in the address");
+        }
+        assert!(google_login("").is_err(), "no client, no login");
+        assert!(google_login("not a client id").is_err());
     }
 }
