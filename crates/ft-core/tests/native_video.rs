@@ -194,6 +194,9 @@ async fn a_voice_call_turns_to_video_and_back_with_the_voice_going_on() {
     until("video is available on both sides", || async { alice.video(&call).available && bob.video(&call).available }).await;
     assert!(!alice.video(&call).camera && !bob.video(&call).remote, "a voice call starts with no camera");
     assert!(!alice.video.camera().running);
+    // The switches are spread over the stretch of voice measured below (from 1 s to 5 s).
+    let pause = || tokio::time::sleep(Duration::from_millis(600));
+    pause().await;
 
     let state = alice.core.set_call_camera(&call, true).await.expect("alice turns her camera on");
     assert!(state.camera && state.sending());
@@ -201,22 +204,25 @@ async fn a_voice_call_turns_to_video_and_back_with_the_voice_going_on() {
     assert!(!seen.remote_paused && !seen.camera, "bob sees alice; his own camera stays off");
     until("bob shows alice's frames", || async { frames_shown(&bob) > 5 }).await;
     assert!(!bob.video.camera().running, "alice's picture does not open bob's camera");
+    pause().await;
 
     bob.core.set_call_camera(&call, true).await.expect("bob turns his camera on too");
     next_video(&mut alice_events, &call, |state| state.remote && state.camera).await;
     until("alice shows bob's frames", || async { frames_shown(&alice) > 5 }).await;
+    pause().await;
 
     alice.core.set_call_camera(&call, false).await.expect("alice turns hers off");
     next_video(&mut bob_events, &call, |state| !state.remote && state.camera).await;
     until("alice's camera stops", || async { !alice.video.camera().running }).await;
+    pause().await;
     bob.core.set_call_camera(&call, false).await.expect("back to voice");
     next_video(&mut alice_events, &call, |state| !state.any()).await;
     assert!(alice.video.made() == 1 && bob.video.made() == 1, "the devices are made once per call");
 
-    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    until("bob played 6 s of the call", || async { bob.voice.played().len() > 6 * 48_000 }).await;
     alice.core.end_call(&call, false).await.expect("alice hangs up");
     until("bob's call ends", || async { bob.core.current_call().await.unwrap().is_none() }).await;
-    let bob_heard = mean_heard(&test_voice(VOICE_SECONDS, false), &bob.voice.played(), 48_000, 12_000, 8);
+    let bob_heard = mean_heard(&test_voice(VOICE_SECONDS, false), &bob.voice.played(), 48_000, 12_000, 16);
     assert!(bob_heard > 0.7, "bob heard alice at {bob_heard} while the cameras went on and off");
 }
 
