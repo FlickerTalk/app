@@ -441,6 +441,8 @@ pub struct VideoGlue {
     /// The WebView's latest layout, kept for when the views come (the call screen may lay them
     /// out before the call has video, or an id).
     layout: Option<VideoLayout>,
+    /// The camera ours is on, as the core last said: our preview is mirrored with the front one.
+    facing: Facing,
 }
 
 impl VideoGlue {
@@ -458,12 +460,17 @@ impl VideoGlue {
             self.has_video = state.any();
             told.push(BridgeVideo::CallVideo(self.has_video));
         }
+        let turned = state.facing != self.facing;
+        self.facing = state.facing;
         if !self.attached && state.any() {
             if let Some(layers) = layers {
                 self.attached = true;
                 told.push(BridgeVideo::Attach(layers));
-                told.extend(self.layout.map(BridgeVideo::Layout));
+                told.extend(self.placed().map(BridgeVideo::Layout));
             }
+        } else if self.attached && turned {
+            // The camera flipped: our preview's mirroring follows it at once.
+            told.extend(self.placed().map(BridgeVideo::Layout));
         }
         if self.attached && state.shape != self.shape {
             self.shape = state.shape;
@@ -476,10 +483,16 @@ impl VideoGlue {
     pub fn layout(&mut self, layout: Option<VideoLayout>) -> Vec<BridgeVideo> {
         self.layout = layout;
         if self.attached {
-            vec![BridgeVideo::Layout(layout.unwrap_or(HIDDEN))]
+            vec![BridgeVideo::Layout(self.placed().unwrap_or(HIDDEN))]
         } else {
             Vec::new()
         }
+    }
+
+    /// The WebView's layout with our preview mirrored exactly with the front camera, whatever
+    /// facing the WebView last knew.
+    fn placed(&self) -> Option<VideoLayout> {
+        self.layout.map(|layout| VideoLayout { mirror_local: self.facing == Facing::Front, ..layout })
     }
 
     /// The call's video devices are about to go: its views go first.
@@ -3511,6 +3524,29 @@ mod tests {
         assert_eq!(glue.state("c1", &theirs, Some(LAYERS)), vec![BridgeVideo::Attach(LAYERS)], "nothing laid out yet");
         assert_eq!(glue.end(), vec![BridgeVideo::Detach]);
         assert_eq!(glue.state("c2", &theirs, Some(LAYERS)), vec![BridgeVideo::CallVideo(true), BridgeVideo::Attach(LAYERS)]);
+    }
+
+    // The camera flip (docs/video-nativo.md §3): our preview is mirrored exactly with the front
+    // camera. The glue takes the facing from the core's state, not from the WebView's last word,
+    // and places the views again as soon as the camera turns (iOS mirrors only by `mirrorLocal`).
+    #[test]
+    fn our_preview_is_mirrored_only_with_the_front_camera() {
+        let mut glue = VideoGlue::default();
+        let front = VideoState { available: true, camera: true, ..VideoState::default() };
+        let unmirrored = VideoLayout { mirror_local: false, ..laid_out() };
+        assert_eq!(glue.layout(Some(unmirrored)), vec![]);
+        assert_eq!(
+            glue.state("c1", &front, Some(LAYERS)),
+            vec![BridgeVideo::CallVideo(true), BridgeVideo::Attach(LAYERS), BridgeVideo::Layout(laid_out())],
+            "the front camera is mirrored"
+        );
+        let back = VideoState { facing: Facing::Back, ..front };
+        assert_eq!(glue.state("c1", &back, Some(LAYERS)), vec![BridgeVideo::Layout(unmirrored)], "flipped to the back: not mirrored, at once");
+        assert_eq!(glue.layout(Some(laid_out())), vec![BridgeVideo::Layout(unmirrored)], "a late layout from before the flip");
+        assert_eq!(glue.state("c1", &front, Some(LAYERS)), vec![BridgeVideo::Layout(laid_out())], "and back to the front");
+        assert_eq!(glue.layout(None), vec![BridgeVideo::Layout(HIDDEN)]);
+        assert_eq!(glue.state("c1", &back, Some(LAYERS)), vec![], "hidden: nothing to place");
+        assert_eq!(glue.layout(Some(laid_out())), vec![BridgeVideo::Layout(unmirrored)], "shown again with the back camera");
     }
 
     // A call that never had video has no views to take away.
