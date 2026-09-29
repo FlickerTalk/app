@@ -1,5 +1,6 @@
 mod client;
 mod plugins;
+mod video_surfaces;
 
 use tauri::Manager;
 
