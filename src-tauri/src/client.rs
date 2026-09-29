@@ -1798,6 +1798,28 @@ pub async fn core_plan(client: State<'_, Client>) -> Result<PlanView, String> {
     Ok(PlanView { state: state.to_owned(), until, age: plan.age.as_str().to_owned() })
 }
 
+/// What a year costs, as the Store formats it for this phone (2026-09-29); `price` is `null` when
+/// the Store cannot say, and the screen then names no amount.
+#[derive(Serialize)]
+pub struct PriceView {
+    price: Option<String>,
+}
+
+fn price_view(answer: Result<Option<String>, String>) -> PriceView {
+    PriceView { price: answer.ok().flatten() }
+}
+
+/// Asks the Store what a year costs, every time the Plan screen opens: a price is never kept, so
+/// it is never shown from another store or another country.
+#[tauri::command]
+pub async fn core_subscription_price(app: AppHandle) -> Result<PriceView, String> {
+    let answer = tauri::async_runtime::spawn_blocking(move || app.platform().subscription_price().map_err(failed))
+        .await
+        .map_err(failed)
+        .and_then(|answer| answer);
+    Ok(price_view(answer))
+}
+
 /// What the user said about their age. Under 21 is always free (§40); it never leaves the phone.
 #[tauri::command]
 pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), String> {
@@ -3766,6 +3788,16 @@ mod tests {
         assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
             "id": "ft_me", "name": "Ioan", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
         }));
+    }
+
+    // 2026-09-29: the Plan screen gets the Store's own price, or `null` when the Store cannot
+    // say (offline, desktop, no product); a failing Store is no price, never an error on screen.
+    #[test]
+    fn the_plan_screen_gets_the_store_price_or_none() {
+        let price = |answer| serde_json::to_value(price_view(answer)).unwrap();
+        assert_eq!(price(Ok(Some("0,99 €".to_owned()))), serde_json::json!({ "price": "0,99 €" }));
+        assert_eq!(price(Ok(None)), serde_json::json!({ "price": null }));
+        assert_eq!(price(Err("store_unavailable".to_owned())), serde_json::json!({ "price": null }));
     }
 
     // An incoming call rings until it is answered, declined or given up (§66); our own calls

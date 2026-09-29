@@ -118,6 +118,7 @@ pub fn run() {
             client::core_plan,
             client::core_set_age,
             client::core_subscribe,
+            client::core_subscription_price,
             client::core_forget_message,
             client::core_forward,
             client::core_share_message,
