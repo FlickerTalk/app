@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
 use ft_core::{Core, Event};
-use ft_push::{RouterEvent, Signalled};
+use ft_push::{RouterEvent, Signalled, TurnGrant};
 use ft_storage::{MessageState, Store};
 use ft_webrtc::SessionConfig;
 use tokio::sync::mpsc;
@@ -121,6 +121,11 @@ impl Phone {
 
     /// Connects to the fake router, as the app does at start.
     fn go_online(&self, bus: &Arc<Bus>) {
+        self.go_online_with(bus, vec![], None);
+    }
+
+    /// Online, with the STUN and TURN servers the router's welcome names.
+    fn go_online_with(&self, bus: &Arc<Bus>, stun: Vec<String>, turn: Option<TurnGrant>) {
         let (events, mut incoming) = mpsc::unbounded_channel();
         bus.online.lock().unwrap().insert(self.id(), events.clone());
         let network = self.network.clone();
@@ -129,7 +134,7 @@ impl Phone {
                 network.handle(event).await;
             }
         });
-        let _ = events.send(RouterEvent::Connected { stun: vec![], turn: None });
+        let _ = events.send(RouterEvent::Connected { stun, turn });
         // Router 0.4.0: what waited for this device comes right after the welcome.
         for bytes in bus.held.lock().unwrap().remove(&self.id()).unwrap_or_default() {
             let _ = events.send(RouterEvent::Signal(bytes));
@@ -435,4 +440,55 @@ async fn a_call_to_a_phone_that_wakes_rings_as_soon_as_it_connects() {
     assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
     assert!(ringing < Duration::from_millis(1_500), "{} ms", ringing.as_millis());
     let _ = alice.core.end_call(&call, false).await;
+}
+
+/// STUN and TURN servers that never answer: local UDP sockets nobody reads (a server behind a
+/// network that drops the packets). Gathering takes its whole second. Nothing leaves the machine.
+struct Blackhole {
+    _stun: std::net::UdpSocket,
+    _turn: std::net::UdpSocket,
+    stun: Vec<String>,
+    turn: TurnGrant,
+}
+
+fn blackhole() -> Blackhole {
+    let (stun, turn) = (std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), std::net::UdpSocket::bind("127.0.0.1:0").unwrap());
+    let (stun_port, turn_port) = (stun.local_addr().unwrap().port(), turn.local_addr().unwrap().port());
+    Blackhole {
+        stun: vec![format!("stun:127.0.0.1:{stun_port}")],
+        turn: TurnGrant { urls: vec![format!("turn:127.0.0.1:{turn_port}?transport=udp")], username: "u".to_owned(), credential: "c".to_owned() },
+        _stun: stun,
+        _turn: turn,
+    }
+}
+
+// A router before 0.4 loses the offer for a phone that is not connected, and every message or
+// call retry makes another. The candidates already gathered are not thrown away: the next attempt
+// goes with the same offer, at once, instead of gathering again.
+#[tokio::test(flavor = "multi_thread")]
+async fn without_retention_a_retry_reuses_the_offer_already_gathered() {
+    let hole = blackhole();
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    pair(&alice, &bob).await;
+    bob.go_offline(&bus, &alice).await;
+
+    let started = std::time::Instant::now();
+    alice.core.send_text(&bob.id(), "one").await.expect("sends");
+    let first = started.elapsed();
+    let started = std::time::Instant::now();
+    alice.core.send_text(&bob.id(), "two").await.expect("sends");
+    let second = started.elapsed();
+    eprintln!("no retention: first attempt {} ms, second {} ms", first.as_millis(), second.as_millis());
+    assert!(first >= Duration::from_millis(900), "the first gathers: {first:?}");
+    assert!(second < Duration::from_millis(400), "the second gathered again: {second:?}");
+    assert_eq!(bus.mail_for(&bob.id()), 2, "both in the mailbox");
+
+    // Bob is back: the reused offer connects as any other.
+    bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    until("bob caught up", || async { texts(&bob, &alice.id()).await.len() == 2 }).await;
+    alice.core.send_text(&bob.id(), "three").await.expect("sends");
+    until("bob has the third", || async { texts(&bob, &alice.id()).await.len() == 3 }).await;
 }

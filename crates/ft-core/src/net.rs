@@ -40,6 +40,9 @@ const RETAINED_FOR: Duration = Duration::from_secs(55);
 /// An answer to a retained offer handed over at the last moment still has this long to come.
 const ANSWER_GRACE: Duration = Duration::from_secs(5);
 
+/// An offer nobody got (a router before 0.4 loses it) is kept this long for the next attempt.
+const SPARE_FOR: Duration = Duration::from_secs(20);
+
 /// The router, as the network uses it (ft-push's `RouterClient` in the app, a fake in tests).
 #[async_trait]
 pub trait Relay: Send + Sync {
@@ -98,6 +101,15 @@ struct Link {
     session: Session,
 }
 
+/// An offer made and gathered that nobody got, ready for the next attempt with the same contact.
+struct Spare {
+    id: u64,
+    session: Session,
+    inbox: Inbox,
+    sdp: String,
+    made: Instant,
+}
+
 /// Our offer, kept by the router for a contact that is not connected, still waiting for its answer.
 #[derive(Clone)]
 struct Retained {
@@ -122,6 +134,8 @@ pub struct Network {
     pending: Mutex<HashMap<String, Session>>,
     /// By contact, our offer the router keeps for them while they are not connected.
     retained: Mutex<HashMap<String, Retained>>,
+    /// By contact, our offer a router before 0.4 lost, for the next attempt.
+    spare: Mutex<HashMap<String, Spare>>,
     /// One connection attempt at a time per contact.
     gates: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     /// One mailbox collection at a time: a blob must not be processed twice.
@@ -140,6 +154,7 @@ impl Network {
             links: Mutex::default(),
             pending: Mutex::default(),
             retained: Mutex::default(),
+            spare: Mutex::default(),
             gates: Mutex::default(),
             collecting: Mutex::default(),
             next_link: AtomicU64::new(0),
@@ -246,6 +261,10 @@ impl Network {
         if let Some(retained) = retained {
             let _ = retained.session.close().await;
         }
+        let spare = self.spare.lock().await.remove(contact);
+        if let Some(spare) = spare {
+            let _ = spare.session.close().await;
+        }
         let link = self.links.lock().await.remove(contact);
         if let Some(link) = link {
             let _ = link.session.close().await;
@@ -276,11 +295,17 @@ impl Network {
             return Ok(opened.then_some(retained.session));
         }
         let core = self.core()?;
-        let (signals, mut descriptions) = mpsc::channel(8);
-        let (session, inbox) = Session::start(self.session_config(), Role::Caller, signals).await?;
-        session.invite().await?;
-        let Some(Description::Sdp(sdp)) = descriptions.recv().await else {
-            bail!("no offer was produced");
+        let (session, inbox, sdp) = match self.take_spare(&peer.device_id).await {
+            Some(spare) => (spare.session, spare.inbox, spare.sdp),
+            None => {
+                let (signals, mut descriptions) = mpsc::channel(8);
+                let (session, inbox) = Session::start(self.session_config(), Role::Caller, signals).await?;
+                session.invite().await?;
+                let Some(Description::Sdp(sdp)) = descriptions.recv().await else {
+                    bail!("no offer was produced");
+                };
+                (session, inbox, sdp)
+            }
         };
         if call {
             core.mark_link_gathering(&session.gathering());
@@ -292,7 +317,7 @@ impl Network {
         let hidden = contact.as_ref().and_then(|contact| contact.session.clone());
         let card = if introduced { None } else { Some(core.my_card_in(hidden.as_deref()).await?.encode()) };
         let via = Some(peer.capability.hash().to_vec());
-        let sealed = core.seal_signal(&peer.device_id, Body::Offer { sdp, card, via }).await?;
+        let sealed = core.seal_signal(&peer.device_id, Body::Offer { sdp: sdp.clone(), card, via }).await?;
         let session_id = uuid_like();
         let signal = Signal {
             version: PROTOCOL_VERSION,
@@ -327,6 +352,11 @@ impl Network {
             return Ok(None);
         }
         self.pending.lock().await.remove(&session_id);
+        if matches!(signalled, Ok(Signalled::NotConnected)) {
+            // Nobody got it: the next attempt goes with it instead of gathering again.
+            self.keep_spare(&peer.device_id, session, inbox, sdp).await;
+            return Ok(None);
+        }
 
         if opened {
             self.adopt(&peer.device_id, session.clone(), inbox).await;
@@ -335,6 +365,39 @@ impl Network {
             let _ = session.close().await;
             Ok(None)
         }
+    }
+
+    /// The offer a router before 0.4 lost for the contact, if still fresh.
+    async fn take_spare(&self, contact: &str) -> Option<Spare> {
+        let spare = self.spare.lock().await.remove(contact)?;
+        if spare.made.elapsed() < SPARE_FOR {
+            return Some(spare);
+        }
+        let _ = spare.session.close().await;
+        None
+    }
+
+    /// Keeps an offer nobody got for the contact's next attempt, for a while.
+    async fn keep_spare(&self, contact: &str, session: Session, inbox: Inbox, sdp: String) {
+        let id = self.next_link.fetch_add(1, Ordering::Relaxed);
+        let made = session.gathering().started.unwrap_or_else(Instant::now);
+        let older = self.spare.lock().await.insert(contact.to_owned(), Spare { id, session, inbox, sdp, made });
+        if let Some(older) = older {
+            let _ = older.session.close().await;
+        }
+        let network = self.this.get().cloned().unwrap_or_default();
+        let contact = contact.to_owned();
+        tokio::spawn(async move {
+            tokio::time::sleep(SPARE_FOR.saturating_sub(made.elapsed())).await;
+            let Some(network) = network.upgrade() else { return };
+            let stale = {
+                let mut spare = network.spare.lock().await;
+                if spare.get(&contact).is_some_and(|spare| spare.id == id) { spare.remove(&contact) } else { None }
+            };
+            if let Some(stale) = stale {
+                let _ = stale.session.close().await;
+            }
+        });
     }
 
     /// Our offer the router still keeps for the contact, if any.
