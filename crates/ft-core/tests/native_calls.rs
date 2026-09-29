@@ -854,3 +854,146 @@ async fn a_call_to_a_closed_app_still_rings_through_a_router_before_0_4() {
     let (ringing, _) = call_to_a_closed_app(false).await;
     assert!(ringing < Duration::from_millis(5_000), "it rang {} ms after the app connected", ringing.as_millis());
 }
+
+// The two lines of work meet in the answer (2026-09-29): `fix-bridge` (a call is connecting from
+// the moment it is answered; an answer or a decline given before the offer counts when it comes)
+// and `call-setup-time` (the answer is prepared while the phone rings, sending nothing). What
+// follows are the orders of events neither had alone.
+
+/// Whether anything arrives on `spy` within `wait`.
+async fn hears_within(spy: &std::net::UdpSocket, wait: Duration) -> bool {
+    let spy = spy.try_clone().expect("the spy");
+    tokio::task::spawn_blocking(move || {
+        spy.set_read_timeout(Some(wait)).expect("a timeout");
+        spy.recv(&mut [0; 1500]).is_ok()
+    })
+    .await
+    .expect("listened")
+}
+
+/// Alice calls Bob as an older app's WebView would, with every candidate of her offer pointing at
+/// `spy`, which stands for the caller: whatever Bob's side sends towards the caller, an ICE check
+/// included, reaches the spy. Returns the call once its offer went.
+async fn call_watched_by(alice: &Phone, bob: &Phone, spy: &std::net::UdpSocket) -> String {
+    let at = spy.local_addr().expect("the spy's address");
+    let offer = webview_voice_offer().replace("127.0.0.1 50000", &format!("{} {}", at.ip(), at.port()));
+    assert_ne!(offer, webview_voice_offer(), "the offer points at the spy");
+    let call = alice.core.place_call(&bob.id(), false).await.expect("alice calls");
+    alice.core.offer_call_within(&call, &offer, Duration::from_secs(5)).await.expect("offered");
+    call
+}
+
+// An answer while the first preparation still gathers (it holds other answers back, to hand them
+// what it makes): the UI hears at once that the call is being answered, not when the preparation
+// is done. Behind servers that never answer, that preparation takes a whole second.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_while_the_first_preparation_gathers_is_heard_at_once() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+
+    let answered = std::time::Instant::now();
+    let (core, id) = (bob.core.clone(), call.clone());
+    let answering = tokio::spawn(async move { core.answer_native_call(&id, CallRouting::Auto).await });
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Answering).await;
+    let heard = answered.elapsed();
+    assert!(heard < Duration::from_millis(300), "the UI heard of the answer {} ms after it", heard.as_millis());
+    assert_ne!(bob.core.current_call().await.unwrap().expect("the call").phase, CallPhase::Ringing);
+    answering.await.expect("runs").expect("answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// An answer given before the offer (CallKit on a locked iPhone): when the offer comes it is
+// answered at once, with no preparation in between (there is nothing to prepare for: the answer
+// exists) and never shown ringing. What reaches the caller comes after that answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_early_answer_goes_as_soon_as_the_offer_comes_with_nothing_prepared() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    assert!(!bob.core.answer_ringing_call().await.unwrap(), "nothing rings yet: the answer waits");
+
+    let spy = std::net::UdpSocket::bind("127.0.0.1:0").expect("a spy");
+    let call = call_watched_by(&alice, &bob, &spy).await;
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+    let offered = std::time::Instant::now();
+    let watching = async {
+        loop {
+            assert_eq!(bob.core.prepared_call(), None, "an answered call is not prepared");
+            let phase = bob.core.current_call().await.unwrap().map(|call| call.phase);
+            assert_ne!(phase, Some(CallPhase::Ringing), "answered already");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    };
+    let answered = next_update(&mut alice_events, &call, |update| matches!(update, CallUpdate::Answered { .. }));
+    tokio::select! {
+        _ = answered => {}
+        () = watching => unreachable!(),
+    }
+    let sent = offered.elapsed();
+    // One gathering (a second here, the servers never answer), not a preparation and then that.
+    assert!(sent < Duration::from_millis(1_600), "answered {} ms after the offer came", sent.as_millis());
+    assert!(hears_within(&spy, Duration::from_millis(1_500)).await, "once answered, the checks go");
+    assert_eq!(bob.core.prepared_call(), None);
+    bob.core.end_call(&call, false).await.unwrap();
+}
+
+// A decline while the answer is being prepared (the first preparation, which takes a second here)
+// declines at once, the preparation is thrown away when it is done, and nothing ever reached the
+// caller.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_decline_while_the_answer_is_prepared_reaches_nobody() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    let spy = std::net::UdpSocket::bind("127.0.0.1:0").expect("a spy");
+    let listening = hears_within(&spy, Duration::from_millis(3_000));
+    let calling = async {
+        let call = call_watched_by(&alice, &bob, &spy).await;
+        next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+        let declined = std::time::Instant::now();
+        bob.core.decline_ringing_call().await.expect("bob declines");
+        let ended = next_update(&mut alice_events, &call, |update| matches!(update, CallUpdate::Ended { .. })).await;
+        assert_eq!(ended, CallUpdate::Ended { outcome: CallOutcome::Declined });
+        assert!(declined.elapsed() < Duration::from_millis(500), "declined {} ms after the decline", declined.elapsed().as_millis());
+        // Well after the preparation that was under way is done.
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        assert_eq!(bob.core.prepared_call(), None, "thrown away");
+        assert!(bob.core.current_call().await.unwrap().is_none());
+    };
+    let (heard, ()) = tokio::join!(listening, calling);
+    assert!(!heard, "nothing reached the caller");
+}
+
+// An answer while the prepared answer is being made again (it is made every so often while the
+// phone rings): the one ready goes at once, the one being made is thrown away, and nothing
+// reached the caller before the answer, through every preparation.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_while_the_prepared_answer_is_made_again_takes_the_one_ready() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    // Made again 50 ms after each one is ready: behind these servers, one is nearly always being
+    // made.
+    bob.core.set_answer_refresh(Duration::from_millis(50));
+    let mut alice_events = alice.core.events();
+    let spy = std::net::UdpSocket::bind("127.0.0.1:0").expect("a spy");
+    let call = call_watched_by(&alice, &bob, &spy).await;
+    assert_eq!(ringing_call(&bob).await, call);
+    until("the first answer is prepared", || async { bob.core.prepared_call().is_some() }).await;
+    // The next one is being made (it takes a second): the phone rings on meanwhile.
+    assert!(!hears_within(&spy, Duration::from_millis(400)).await, "nothing reaches the caller while it rings");
+
+    let answered = std::time::Instant::now();
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| matches!(update, CallUpdate::Answered { .. })).await;
+    let sent = answered.elapsed();
+    assert!(sent < Duration::from_millis(300), "the answer went {} ms after answering", sent.as_millis());
+    assert!(hears_within(&spy, Duration::from_millis(1_500)).await, "once answered, the checks go");
+    // The one being made is done by now, and thrown away.
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    assert_eq!(bob.core.prepared_call(), None);
+    bob.core.end_call(&call, false).await.unwrap();
+}

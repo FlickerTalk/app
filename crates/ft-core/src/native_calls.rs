@@ -310,8 +310,15 @@ impl Core {
     pub async fn answer_native_call(self: &Arc<Self>, call: &str, routing: CallRouting) -> Result<()> {
         let platform = self.audio_platform()?;
         self.mark_call_stage(CallStage::AnswerRequested);
-        // From this moment it rings no more (2026-09-29): building the answer takes seconds.
-        let answering = self.offer_of(call).is_some() && self.mark_answering(call);
+        // From this moment it rings no more (2026-09-29), and the UI hears so at once: building the
+        // answer takes seconds, and the answer prepared while it rang may still be under way (the
+        // first one holds the answers back until it is ready).
+        if self.offer_of(call).is_some() && self.mark_answering(call) {
+            let ringing = self.store.call(call).await?;
+            if let Some(record) = ringing.filter(|record| !record.outgoing && record.ended_at.is_none() && record.answered_at.is_none()) {
+                self.announce_call(&record, CallUpdate::Answering);
+            }
+        }
         let _one_at_a_time = self.native_setup.lock().await;
         let Some(record) = self.store.call(call).await? else { bail!("no such call") };
         if record.outgoing || record.ended_at.is_some() {
@@ -319,9 +326,6 @@ impl Core {
         }
         if record.answered_at.is_some() {
             return Ok(());
-        }
-        if answering {
-            self.announce_call(&record, CallUpdate::Answering);
         }
         let Some((offer, media)) = self.offer_of(call) else { bail!("no offer for this call") };
         let answered = self.answer_native(call, &offer, media, routing, platform).await;
