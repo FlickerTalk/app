@@ -81,6 +81,12 @@ pub trait Transport: Send + Sync {
     /// Hands the packet to a direct connection with the peer, opening one if needed. `false` when
     /// the peer cannot be reached directly right now.
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool>;
+    /// The same for what may go to the mailbox instead (2026-09-29): `false` at once when the peer
+    /// is not connected to the router, so the mailbox takes it without waiting for the connection.
+    /// An offer the router keeps for the peer stays open: the connection may still open later.
+    async fn try_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct(to, bytes).await
+    }
     /// The same for a call's offer (2026-09-28): opening the way rings an offline iPhone.
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct(to, bytes).await
@@ -960,6 +966,23 @@ impl Core {
         Ok(())
     }
 
+    /// A direct connection with the contact opened (2026-09-29): what was already tried and still
+    /// waits for its receipt goes over it now, even if it is in the mailbox too; the recipient
+    /// shows it once. What is being sent for the first time is left to its own send.
+    pub(crate) async fn retry_contact_now(&self, contact: &str) -> Result<()> {
+        for entry in self.store.outbox().await? {
+            if entry.contact == contact && entry.attempts > 0 {
+                self.deliver(&entry).await?;
+            }
+        }
+        for entry in self.store.circle_outbox().await? {
+            if entry.contact == contact && entry.attempts > 0 {
+                let _ = self.deliver_circle(&entry).await;
+            }
+        }
+        Ok(())
+    }
+
     /// Retries every pending message now (the contact came online, say).
     pub async fn retry_now(&self) -> Result<()> {
         for entry in self.store.outbox().await? {
@@ -1268,10 +1291,14 @@ impl Core {
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
 
-        if self.transport.send_direct(&peer, bytes.clone()).await.unwrap_or(false) {
+        // The message gets delivered first (§17, §19): with the mailbox allowed on both sides, a
+        // peer that is not connected does not hold it back (2026-09-29).
+        let mailbox = contact.mailbox && self.mailbox().await?;
+        let direct = if mailbox { self.transport.try_direct(&peer, bytes.clone()).await } else { self.transport.send_direct(&peer, bytes.clone()).await };
+        if direct.unwrap_or(false) {
             return Ok(Route::Direct);
         }
-        if contact.mailbox && self.mailbox().await? {
+        if mailbox {
             // Through the router it goes in an envelope (A1): the router sees only who it is for.
             let mail = self.wrap_for(&contact.device_id, bytes).await?;
             self.transport.send_mailbox(&peer, mail).await.context("the mailbox is not reachable")?;

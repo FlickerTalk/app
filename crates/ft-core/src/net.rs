@@ -101,6 +101,20 @@ struct Link {
     session: Session,
 }
 
+/// What a send to a contact that is not connected may do meanwhile (2026-09-29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// A call's offer: waits for the connection (and marks the call's timings).
+    Call,
+    /// Only a direct connection will do (files, calls' answers and ends, plugins): waits for it.
+    Direct,
+    /// It may go to the mailbox instead: never waits for a contact that is not connected.
+    Fallback,
+}
+
+/// Between looks at whether our offer is waiting at the router, while another send holds the gate.
+const GATE_LOOK: Duration = Duration::from_millis(50);
+
 /// An offer made and gathered that nobody got, ready for the next attempt with the same contact.
 struct Spare {
     id: u64,
@@ -285,14 +299,19 @@ impl Network {
     /// Opens a data channel with the contact, or returns `None` if it cannot be reached now.
     ///
     /// A contact that is not connected to the router (a closed app): a router from 0.4.0 keeps our
-    /// offer and wakes them, so the offer stays open for their answer, first within the usual
-    /// window and then, once that falls back, until the router drops it. Meanwhile no new offer is
-    /// made: a message falls back at once, a call waits for that offer again.
-    async fn connect(&self, peer: &Peer, call: bool) -> Result<Option<Session>> {
+    /// offer and wakes them, so the offer stays open for their answer until the router drops it,
+    /// and the connection is kept when it opens. Meanwhile no new offer is made. What may go to the
+    /// mailbox never waits for it (the message gets delivered first, §17); a call waits the usual
+    /// window each time, and what needs the connection waits the window of the offer's first send.
+    async fn connect(&self, peer: &Peer, reach: Reach) -> Result<Option<Session>> {
+        let call = reach == Reach::Call;
         if let Some(retained) = self.retained_offer(&peer.device_id).await {
-            let limit = if call { CONNECT_WAIT } else { retained.window.saturating_duration_since(Instant::now()) };
-            let opened = tokio::time::timeout(limit, retained.session.wait_open()).await.is_ok_and(|open| open.is_ok());
-            return Ok(opened.then_some(retained.session));
+            let limit = match reach {
+                Reach::Call => CONNECT_WAIT,
+                Reach::Direct => retained.window.saturating_duration_since(Instant::now()),
+                Reach::Fallback => Duration::ZERO,
+            };
+            return Ok(wait_open(&retained.session, limit).await.then_some(retained.session));
         }
         let core = self.core()?;
         let (session, inbox, sdp) = match self.take_spare(&peer.device_id).await {
@@ -336,21 +355,23 @@ impl Network {
         // recipient alone.
         let wrapped = core.wrap_for(&peer.device_id, signal.encode()).await?;
         let signalled = self.relay.signal_as(&peer.device_id, peer.capability.as_bytes(), wrapped, call).await;
-        let signalled_at = Instant::now();
+        if matches!(signalled, Ok(Signalled::Retained)) {
+            if call {
+                core.mark_call_stage(CallStage::LinkOfferRetained);
+            }
+            self.keep_retained(&peer.device_id, session_id, session.clone(), inbox, Instant::now()).await;
+            let limit = if reach == Reach::Fallback { Duration::ZERO } else { CONNECT_WAIT };
+            return Ok(wait_open(&session, limit).await.then_some(session));
+        }
         let opened = match signalled {
-            Ok(Signalled::Delivered | Signalled::Retained) => {
+            Ok(Signalled::Delivered) => {
                 if call {
-                    let retained = matches!(signalled, Ok(Signalled::Retained));
-                    core.mark_call_stage(if retained { CallStage::LinkOfferRetained } else { CallStage::LinkOfferSent });
+                    core.mark_call_stage(CallStage::LinkOfferSent);
                 }
-                tokio::time::timeout(CONNECT_WAIT, session.wait_open()).await.is_ok_and(|open| open.is_ok())
+                wait_open(&session, CONNECT_WAIT).await
             }
             _ => false,
         };
-        if !opened && matches!(signalled, Ok(Signalled::Retained)) {
-            self.keep_retained(&peer.device_id, session_id, session, inbox, signalled_at).await;
-            return Ok(None);
-        }
         self.pending.lock().await.remove(&session_id);
         if matches!(signalled, Ok(Signalled::NotConnected)) {
             // Nobody got it: the next attempt goes with it instead of gathering again.
@@ -406,8 +427,8 @@ impl Network {
         retained.get(contact).filter(|retained| retained.until > Instant::now()).cloned()
     }
 
-    /// Keeps a retained offer nobody answered in time open until the router drops it (and a last
-    /// answer has had time to come): the contact may still wake and answer it.
+    /// Keeps a retained offer open until the router drops it (and a last answer has had time to
+    /// come): the contact may wake and answer it at any moment, and its connection is kept then.
     async fn keep_retained(&self, contact: &str, id: String, session: Session, inbox: Inbox, signalled_at: Instant) {
         let until = signalled_at + RETAINED_FOR;
         let retained = Retained { id: id.clone(), session: session.clone(), window: signalled_at + CONNECT_WAIT, until };
@@ -415,8 +436,7 @@ impl Network {
         let network = self.this.get().cloned().unwrap_or_default();
         let contact = contact.to_owned();
         tokio::spawn(async move {
-            let left = (until + ANSWER_GRACE).saturating_duration_since(Instant::now());
-            let opened = tokio::time::timeout(left, session.wait_open()).await.is_ok_and(|open| open.is_ok());
+            let opened = wait_open(&session, (until + ANSWER_GRACE).saturating_duration_since(Instant::now())).await;
             let Some(network) = network.upgrade() else {
                 let _ = session.close().await;
                 return;
@@ -507,10 +527,12 @@ impl Network {
         if let Ok(core) = self.core() {
             core.mark_call_stage(CallStage::LinkOpened);
         }
-        // File transfers stopped by the last connection go on over this one (§63).
+        // File transfers stopped by the last connection go on over this one (§63), and what
+        // waits for its receipt goes over it too, even if it is in the mailbox (2026-09-29).
         if let Ok(core) = self.core() {
             let from = contact.to_owned();
             tokio::spawn(async move {
+                let _ = core.retry_contact_now(&from).await;
                 let _ = core.resume_files_from(&from, RESUME_QUIET).await;
             });
         }
@@ -542,11 +564,15 @@ impl Transport for Network {
     }
 
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
-        self.send_direct_as(to, bytes, false).await
+        self.send_direct_as(to, bytes, Reach::Direct).await
+    }
+
+    async fn try_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct_as(to, bytes, Reach::Fallback).await
     }
 
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
-        self.send_direct_as(to, bytes, true).await
+        self.send_direct_as(to, bytes, Reach::Call).await
     }
 
     async fn open_direct_call(&self, to: &Peer) -> Result<bool> {
@@ -559,7 +585,7 @@ impl Transport for Network {
         if self.open_link(&to.device_id).await.is_some() {
             return Ok(true);
         }
-        Ok(self.connect(to, true).await?.is_some())
+        Ok(self.connect(to, Reach::Call).await?.is_some())
     }
 
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()> {
@@ -572,26 +598,47 @@ impl Transport for Network {
 }
 
 impl Network {
-    /// Sends over the open link, or opens one first; `call` marks the signal that opens it as a
-    /// call's (2026-09-28), so an offline iPhone rings.
-    async fn send_direct_as(&self, to: &Peer, bytes: Vec<u8>, call: bool) -> Result<bool> {
+    /// Sends over the open link, or opens one first; a call's signal is marked as such
+    /// (2026-09-28), so an offline iPhone rings.
+    async fn send_direct_as(&self, to: &Peer, bytes: Vec<u8>, reach: Reach) -> Result<bool> {
         if let Some(session) = self.open_link(&to.device_id).await {
             if session.send_bytes(&bytes).await.is_ok() {
                 return Ok(true);
             }
         }
         let gate = self.gate(&to.device_id).await;
-        let _one_at_a_time = gate.lock().await;
+        let _one_at_a_time = if reach == Reach::Fallback {
+            // Behind a call waiting for a contact that is not connected, a message would wait too:
+            // once our offer is known to wait at the router, it goes to the mailbox instead.
+            loop {
+                if let Ok(guard) = tokio::time::timeout(GATE_LOOK, gate.clone().lock_owned()).await {
+                    break guard;
+                }
+                if self.open_link(&to.device_id).await.is_none() && self.retained_offer(&to.device_id).await.is_some() {
+                    return Ok(false);
+                }
+            }
+        } else {
+            gate.clone().lock_owned().await
+        };
         // Another send may have connected while this one waited.
         let session = match self.open_link(&to.device_id).await {
             Some(session) => session,
-            None => match self.connect(to, call).await? {
+            None => match self.connect(to, reach).await? {
                 Some(session) => session,
                 None => return Ok(false),
             },
         };
         Ok(session.send_bytes(&bytes).await.is_ok())
     }
+}
+
+/// Whether the session's channel opens within `limit` (at once if it is open).
+async fn wait_open(session: &Session, limit: Duration) -> bool {
+    if session.is_open() {
+        return true;
+    }
+    tokio::time::timeout(limit, session.wait_open()).await.is_ok_and(|open| open.is_ok())
 }
 
 /// The listening addresses of `base` with the router's STUN and TURN.
