@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonRouterOutlet } from "@ionic/vue";
 import App from "./App.vue";
+import CallBar from "./components/CallBar.vue";
 import { installTauri } from "./__tests__/tauri";
 import { clearOnboarded, setOnboarded } from "./preferences";
 
@@ -84,6 +85,12 @@ describe("App", () => {
   it("hosts the router outlet", () => {
     const wrapper = mount(App, { shallow: true });
     expect(wrapper.findComponent(IonRouterOutlet).exists()).toBe(true);
+  });
+
+  // 2026-09-29: a call going on can be gone back to from any screen.
+  it("hosts the bar that goes back to a call going on", () => {
+    const wrapper = mount(App, { shallow: true });
+    expect(wrapper.findComponent(CallBar).exists()).toBe(true);
   });
 
   it("no longer shows the prototype design switcher", () => {

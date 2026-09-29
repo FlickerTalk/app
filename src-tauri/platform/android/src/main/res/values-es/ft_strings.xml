@@ -9,4 +9,10 @@
     <string name="ft_channel_reminders">Recordatorios</string>
     <string name="ft_reminder">Recordatorio</string>
     <string name="ft_reminder_generic">Tienes un recordatorio</string>
+    <string name="ft_channel_incoming_calls">Llamadas entrantes</string>
+    <string name="ft_channel_ongoing_calls">Llamadas en curso</string>
+    <string name="ft_ongoing_call">Llamada en curso</string>
+    <string name="ft_mute">Silenciar</string>
+    <string name="ft_unmute">Activar micrófono</string>
+    <string name="ft_video">Vídeo</string>
 </resources>

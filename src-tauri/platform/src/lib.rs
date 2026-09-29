@@ -7,6 +7,10 @@
 //! - `start_ringing` / `stop_ringing`: an incoming call rings with the user's ringtone, vibrates
 //!   as the phone is set to (silent, vibrate only or normal) and shows on the screen, over the
 //!   lock screen if need be.
+//! - Native calls (2026-09-28): `listen_calls` hears answer, hang-up, mute and the audio
+//!   session's activation straight from CallKit / the call notification, through a channel made
+//!   here (no WebView); `call_started_outgoing`, `call_connected` and `call_ended` tell the OS
+//!   about the call; `request_microphone` asks for the microphone first.
 //! - `push_token`, `request_notifications`: the FCM token the router wakes this device with, and
 //!   Android 13's permission to show the notification a wake-up brings (M4).
 //! - `seal_key` / `open_key`: the storage key, sealed by Android Keystore (an AES key that never
@@ -65,6 +69,184 @@ struct Ringing<'a> {
     video: bool,
     /// A muted contact (app#4): the call shows but makes no noise.
     muted: bool,
+}
+
+/// Arguments of the native `callAnswering` command: who the answered call is, and whether it is
+/// video.
+#[derive(Serialize)]
+struct Answering<'a> {
+    caller: &'a str,
+    video: bool,
+}
+
+/// What the native side tells the core about a call it owns (CallKit on iOS; the ongoing call
+/// notification on Android), with no WebView in between (2026-09-28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeCallEvent {
+    /// A call push arrived (PushKit, or FCM's `t: call` with the process alive): the router
+    /// found this phone offline, so its socket is dead; the core reconnects at once to get the
+    /// offer, and later the caller's end.
+    Incoming,
+    /// The user answered (CallKit's answer button, also from the lock screen).
+    Answer,
+    /// The user hung up or declined, or the system ended the call.
+    End,
+    /// The user declined an incoming call that had not connected (2026-09-29): the incoming call
+    /// notification's decline, or CallKit's end of such a call. Unlike `End`, before the offer
+    /// comes it waits for it, and declines it as it arrives.
+    Decline,
+    /// The user muted (`true`) or unmuted the microphone.
+    Mute(bool),
+    /// The system activated the audio session: the audio unit may start now (iOS). With the
+    /// generation of the CallKit call it belongs to (it grows with each call), so that a late
+    /// event of an older call is told apart.
+    AudioActivated(u64),
+    /// The system took the audio session away: the audio unit stops (iOS).
+    AudioDeactivated(u64),
+    /// The app came to the screen (`true`) or left it (native video, 2026-09-29): the phone
+    /// holds our camera while the app is away (iOS stops it anyway), and gives it back.
+    Visible(bool),
+    /// The phone turned (native video): iOS `UIDeviceOrientation.rawValue`, Android the display
+    /// rotation in degrees. The rotation our frames carry follows it.
+    Orientation(i32),
+    /// The user asked for video from the phone's own call screen (native video): CallKit's video
+    /// button opens the app with a video call intent; the ongoing call notification's camera
+    /// action on Android. Our camera turns on.
+    VideoRequested,
+}
+
+/// One event as Swift and Kotlin send it: `{"event": "mute", "muted": true}`.
+#[cfg_attr(not(mobile), allow(dead_code))]
+fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
+    #[derive(Deserialize)]
+    struct Wire {
+        event: String,
+        muted: Option<bool>,
+        #[serde(default)]
+        generation: u64,
+        visible: Option<bool>,
+        orientation: Option<i32>,
+    }
+    let wire: Wire = body.deserialize().ok()?;
+    match (wire.event.as_str(), wire.muted) {
+        ("visible", _) => wire.visible.map(NativeCallEvent::Visible),
+        ("orientation", _) => wire.orientation.map(NativeCallEvent::Orientation),
+        ("video", _) => Some(NativeCallEvent::VideoRequested),
+        ("incoming", _) => Some(NativeCallEvent::Incoming),
+        ("answer", _) => Some(NativeCallEvent::Answer),
+        ("end", _) => Some(NativeCallEvent::End),
+        ("decline", _) => Some(NativeCallEvent::Decline),
+        ("mute", Some(muted)) => Some(NativeCallEvent::Mute(muted)),
+        ("audioActivated", _) => Some(NativeCallEvent::AudioActivated(wire.generation)),
+        ("audioDeactivated", _) => Some(NativeCallEvent::AudioDeactivated(wire.generation)),
+        _ => None,
+    }
+}
+
+/// The channel the native side sends call events through: created here, registered by Tauri, and
+/// handed to the plugin, so events reach Rust even with no WebView (a locked iPhone).
+#[cfg_attr(not(mobile), allow(dead_code))]
+fn call_channel(handler: impl Fn(NativeCallEvent) + Send + Sync + 'static) -> tauri::ipc::Channel<serde_json::Value> {
+    tauri::ipc::Channel::new(move |body| {
+        if let Some(event) = call_event(body) {
+            handler(event);
+        }
+        Ok(())
+    })
+}
+
+/// Arguments of the native `registerCallEvents` command.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct CallEvents<'a> {
+    channel: &'a tauri::ipc::Channel<serde_json::Value>,
+}
+
+/// Arguments of the native `setSpeaker` command.
+#[derive(Serialize)]
+struct Speaker {
+    on: bool,
+}
+
+/// Arguments of the native `attachVideo` command (native video, 2026-09-29): the call's layers on
+/// iOS, as addresses of `CALayer`s the Rust side owns (`ft_media::views::layers`); 0 on Android,
+/// where the Kotlin side makes its own `SurfaceView`s and hands their surfaces over JNI.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachVideo {
+    remote_layer: u64,
+    local_layer: u64,
+}
+
+/// A rectangle of the WebView, in CSS pixels from its top left corner (`getBoundingClientRect`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VideoRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Where the WebView leaves room for the call's pictures (native video, 2026-09-29): the native
+/// views sit under the WebView, which is transparent there. `None` hides a picture.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoLayout {
+    pub remote: Option<VideoRect>,
+    pub local: Option<VideoRect>,
+    /// Our preview as in a mirror (the front camera).
+    pub mirror_local: bool,
+    /// The corners of our preview, in CSS pixels.
+    pub local_radius: f64,
+}
+
+/// Arguments of the native `videoShape` command: see `ft_media::RemoteShape`.
+#[derive(Serialize)]
+struct VideoShape {
+    width: u32,
+    height: u32,
+    rotation: u16,
+}
+
+/// Arguments of the native `callVideo` command: whether the call has video now.
+#[derive(Serialize)]
+struct CallVideo {
+    on: bool,
+}
+
+/// Arguments of the native `setOpenAppOnAnswer` command (iOS only).
+#[derive(Serialize)]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+struct OpenAppOnAnswer {
+    on: bool,
+}
+
+/// What the native `requestCamera` command answers.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Camera {
+    granted: bool,
+}
+
+/// What the native `answerCall` resolves with: whether CallKit took the answer.
+#[derive(Deserialize)]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+struct Answered {
+    answered: bool,
+}
+
+/// Arguments of the native `diagnose` command (temporary, 2026-09-28): a state name only, never a
+/// name or an identifier.
+#[derive(Serialize)]
+struct Diagnose<'a> {
+    what: &'a str,
+}
+
+/// Arguments of the native `callStartedOutgoing` command.
+#[derive(Serialize)]
+struct Outgoing<'a> {
+    name: &'a str,
+    video: bool,
 }
 
 /// Arguments of the native `setOpenSlots` command (app#9): the slots of the open hidden sessions.
@@ -139,11 +321,11 @@ struct Picked {
     files: Vec<PickedFile>,
 }
 
-/// What Kotlin's `pendingCall` resolves with: what the user pressed on the call notification.
+/// What the native `requestMicrophone` resolves with.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
-struct PendingCall {
-    action: String,
+struct Microphone {
+    granted: bool,
 }
 
 /// What Kotlin's `canShowFullScreen` resolves with.
@@ -244,6 +426,169 @@ impl<R: Runtime> Platform<R> {
         self.run("stopRinging", ())
     }
 
+    /// The incoming call is being answered (2026-09-29), from any screen, or was answered before
+    /// its offer came: it rings no more, and the phone's own call screen learns who it is. On
+    /// Android the ringing stops and the app stays over the lock screen; on iOS CallKit, which
+    /// answered it, gets the name.
+    pub fn call_answering(&self, caller: &str, video: bool) -> Result<()> {
+        self.call("callAnswering", Answering { caller, video })
+    }
+
+    /// Hears what the native side does with a call (2026-09-28): answer, hang-up and mute from
+    /// CallKit or the call notification, and the audio session's activation. Events arrive with
+    /// no WebView (PushKit may launch the app in the background of a locked iPhone); those that
+    /// come before this is called wait natively and arrive now. A second call replaces the
+    /// handler. The handler runs on a native background thread: it must not block for long.
+    /// On desktop it does nothing.
+    pub fn listen_calls(&self, handler: impl Fn(NativeCallEvent) + Send + Sync + 'static) {
+        #[cfg(mobile)]
+        {
+            let channel = call_channel(handler);
+            // Only fails if the plugin is not loaded, and then there is no native call to hear.
+            let _ = self.run("registerCallEvents", CallEvents { channel: &channel });
+        }
+        #[cfg(not(mobile))]
+        let _ = handler;
+    }
+
+    /// This phone starts a call (2026-09-28): on iOS CallKit takes it (and the audio session); on
+    /// Android the audio goes to communication mode and a foreground service keeps the microphone
+    /// with the app in the background.
+    pub fn call_started_outgoing(&self, name: &str, video: bool) -> Result<()> {
+        self.call("callStartedOutgoing", Outgoing { name, video })
+    }
+
+    /// The call is connected. On iOS an outgoing call shows as connected; a call answered in the
+    /// app's own screen (no CallKit call yet) joins CallKit here, so it gets the audio session. On
+    /// Android the call's audio and foreground service start if they had not.
+    pub fn call_connected(&self) -> Result<()> {
+        self.call("callConnected", ())
+    }
+
+    /// The app's answer button (2026-09-28): on iOS, CallKit is asked to answer the ringing call,
+    /// so the audio session comes as on the lock screen, and its `Answer` event reaches the core
+    /// through `listen_calls`. `false` when the OS has no call to answer (Android, desktop, or
+    /// CallKit never had it): the core answers by itself.
+    pub fn answer_call(&self) -> Result<bool> {
+        #[cfg(target_os = "ios")]
+        {
+            Ok(self.handle.run_mobile_plugin::<Answered>("answerCall", ())?.answered)
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            Ok(false)
+        }
+    }
+
+    /// The call's voice on the speaker (`true`) or the receiver (2026-09-28). A voice call starts
+    /// on the receiver, like a phone call.
+    pub fn set_speaker(&self, on: bool) -> Result<()> {
+        self.call("setSpeaker", Speaker { on })
+    }
+
+    /// Temporary call diagnostics (2026-09-28): writes a state name (never a name or an
+    /// identifier) to the device log, `os_log` on iOS and `Log` on Android. Nothing on desktop.
+    pub fn diagnose(&self, what: &str) {
+        let _ = self.call("diagnose", Diagnose { what });
+    }
+
+    /// The call is over, whoever ended it: CallKit lets go / the service stops and the audio mode
+    /// goes back to what it was.
+    pub fn call_ended(&self) -> Result<()> {
+        self.call("callEnded", ())
+    }
+
+    /// Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): with `on`,
+    /// the bridge reports every incoming call to CallKit as a video call (`hasVideo`), whatever
+    /// its media, because iOS opens the app after the answer (asking to unlock first on the lock
+    /// screen) only for video calls. The call's real media does not change. Remembered by the
+    /// bridge, so a call PushKit reports before the core starts follows it. Nothing elsewhere:
+    /// Android opens the app on its own.
+    pub fn set_open_app_on_answer(&self, on: bool) -> Result<()> {
+        #[cfg(target_os = "ios")]
+        {
+            self.run("setOpenAppOnAnswer", OpenAppOnAnswer { on })
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = on;
+            Ok(())
+        }
+    }
+
+    /// Whether the microphone may be used, asking the user if it was never asked (2026-09-28).
+    /// The core calls it before starting or answering a native call: the WebView used to ask
+    /// through `getUserMedia`. `false` means denied. On desktop, `true`.
+    pub fn request_microphone(&self) -> Result<bool> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Microphone>("requestMicrophone", ())?.granted)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(true)
+        }
+    }
+
+    /// Shows the call's video views under the WebView (native video, 2026-09-29), hidden until
+    /// `video_layout` places them. iOS: `remote_layer` and `local_layer` are the addresses of the
+    /// call's `CALayer`s (`ft_media::views::layers`), added as sublayers on the main thread;
+    /// Android: both 0, the Kotlin side makes its `SurfaceView`s and hands their surfaces to
+    /// `ft_media::views` over JNI. The WebView turns transparent. Nothing on desktop.
+    pub fn attach_video(&self, remote_layer: usize, local_layer: usize) -> Result<()> {
+        self.call("attachVideo", AttachVideo { remote_layer: remote_layer as u64, local_layer: local_layer as u64 })
+    }
+
+    /// Places the video views where the WebView left room for them.
+    pub fn video_layout(&self, layout: &VideoLayout) -> Result<()> {
+        self.call("videoLayout", layout)
+    }
+
+    /// How to lay the other side's picture out: its upright size (Android, for the aspect ratio)
+    /// and the turn its view applies (iOS, bounds swapped for a quarter turn).
+    pub fn video_shape(&self, width: u32, height: u32, rotation: u16) -> Result<()> {
+        self.call("videoShape", VideoShape { width, height, rotation })
+    }
+
+    /// Takes the video views away and makes the WebView opaque again. On iOS it returns once the
+    /// layers are out of the view hierarchy: only then may the call's video devices go.
+    pub fn detach_video(&self) -> Result<()> {
+        self.call("detachVideo", ())
+    }
+
+    /// Whether the call has video now (either camera on): CallKit's `hasVideo` on iOS; on
+    /// Android the ongoing notification (`CallStyle.setIsVideo`) and the `camera` type of the
+    /// call's foreground service, only while our camera may run.
+    pub fn call_video(&self, on: bool) -> Result<()> {
+        self.call("callVideo", CallVideo { on })
+    }
+
+    /// Whether the camera may be used, asking the user if it was never asked (native video,
+    /// 2026-09-29): before our camera turns on. `false` means denied. On desktop, `true`.
+    pub fn request_camera(&self) -> Result<bool> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Camera>("requestCamera", ())?.granted)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(true)
+        }
+    }
+
+    /// A call command: on desktop there is no native call to tell, so it is not an error.
+    fn call(&self, command: &str, args: impl Serialize) -> Result<()> {
+        #[cfg(mobile)]
+        {
+            self.run(command, args)
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = (command, args);
+            Ok(())
+        }
+    }
+
     /// The token the router wakes this device with: FCM's on Android; on iOS, `gateway:bundle:token`
     /// for APNs (2026-09-28).
     pub fn push_token(&self) -> Result<String> {
@@ -316,18 +661,6 @@ impl<R: Runtime> Platform<R> {
         {
             let _ = (url, scheme);
             Err(Error::Unsupported)
-        }
-    }
-
-    /// What the user pressed on the call notification ("answer", "decline" or nothing), once.
-    pub fn pending_call(&self) -> Result<String> {
-        #[cfg(mobile)]
-        {
-            Ok(self.handle.run_mobile_plugin::<PendingCall>("pendingCall", ())?.action)
-        }
-        #[cfg(not(mobile))]
-        {
-            Ok(String::new())
         }
     }
 
@@ -442,8 +775,6 @@ mod tests {
         .unwrap();
         assert_eq!(picked.files[0].name, "a.jpg");
         assert_eq!(picked.files[0].size, 12);
-        let pending: PendingCall = serde_json::from_value(serde_json::json!({ "action": "answer" })).unwrap();
-        assert_eq!(pending.action, "answer");
         // 2026-09-27: reminders travel as one JSON list, and a login comes back as a URL.
         let reminders = serde_json::to_value(Reminders { reminders: r#"[{"plugin":"p","id":"r1","at":5,"text":""}]"# }).unwrap();
         assert_eq!(reminders["reminders"], r#"[{"plugin":"p","id":"r1","at":5,"text":""}]"#);
@@ -468,5 +799,128 @@ mod tests {
         assert_eq!(pick, serde_json::json!({ "accept": "image/*" }));
         let print = serde_json::to_value(SaveFile { path: "/files/a.pdf", name: "a.pdf", mime: "application/pdf" }).unwrap();
         assert_eq!(print, serde_json::json!({ "path": "/files/a.pdf", "name": "a.pdf", "mime": "application/pdf" }));
+    }
+
+    // Native calls (2026-09-28): what Swift and Kotlin send through the channel.
+    #[test]
+    fn native_call_events_are_read_from_their_wire_form() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"answer"}"#), Some(NativeCallEvent::Answer));
+        assert_eq!(read(r#"{"event":"incoming"}"#), Some(NativeCallEvent::Incoming));
+        assert_eq!(read(r#"{"event":"end"}"#), Some(NativeCallEvent::End));
+        assert_eq!(read(r#"{"event":"mute","muted":true}"#), Some(NativeCallEvent::Mute(true)));
+        assert_eq!(read(r#"{"event":"mute","muted":false}"#), Some(NativeCallEvent::Mute(false)));
+        // Each CallKit call has its generation: a late event of an older call is told apart.
+        assert_eq!(read(r#"{"event":"audioActivated","generation":3}"#), Some(NativeCallEvent::AudioActivated(3)));
+        assert_eq!(read(r#"{"event":"audioDeactivated","generation":2}"#), Some(NativeCallEvent::AudioDeactivated(2)));
+        assert_eq!(read(r#"{"event":"audioActivated"}"#), Some(NativeCallEvent::AudioActivated(0)));
+    }
+
+    // 2026-09-29: the incoming call notification's decline (and CallKit's, of a call that never
+    // connected) is a decline, not a hang-up: before the offer comes, the core declines the offer
+    // when it arrives. And a call answered already only tells the native side who it is.
+    #[test]
+    fn a_decline_and_an_answered_call_travel_as_the_native_side_says_them() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"decline"}"#), Some(NativeCallEvent::Decline));
+        let answering = serde_json::to_value(Answering { caller: "Ioan", video: true }).unwrap();
+        assert_eq!(answering, serde_json::json!({ "caller": "Ioan", "video": true }));
+    }
+
+    // Anything else is ignored, never a panic on the phone's main thread.
+    #[test]
+    fn unknown_or_broken_call_events_are_ignored() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"hold"}"#), None);
+        assert_eq!(read(r#"{"event":"mute"}"#), None);
+        assert_eq!(read("not json"), None);
+        assert_eq!(call_event(tauri::ipc::InvokeResponseBody::Raw(vec![1, 2])), None);
+    }
+
+    // The channel reaches the native side as Tauri's reference, which Swift's and Kotlin's
+    // `Channel` decode; what they send comes back to the handler.
+    #[test]
+    fn the_call_channel_goes_native_and_its_events_reach_the_handler() {
+        let heard = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = heard.clone();
+        let channel = call_channel(move |event| sink.lock().unwrap().push(event));
+        let args = serde_json::to_value(CallEvents { channel: &channel }).unwrap();
+        assert_eq!(args, serde_json::json!({ "channel": format!("__CHANNEL__:{}", channel.id()) }));
+        channel.send(serde_json::json!({ "event": "answer" })).unwrap();
+        channel.send(serde_json::json!({ "event": "mute", "muted": true })).unwrap();
+        channel.send(serde_json::json!({ "event": "nonsense" })).unwrap();
+        assert_eq!(*heard.lock().unwrap(), vec![NativeCallEvent::Answer, NativeCallEvent::Mute(true)]);
+    }
+
+    // Speaker or receiver, and CallKit answering for the app's button (2026-09-28).
+    #[test]
+    fn the_speaker_and_the_answer_travel_as_swift_and_kotlin_read_them() {
+        assert_eq!(serde_json::to_value(Speaker { on: true }).unwrap(), serde_json::json!({ "on": true }));
+        let answered: Answered = serde_json::from_value(serde_json::json!({ "answered": true })).unwrap();
+        assert!(answered.answered);
+    }
+
+    // Temporary call diagnostics (2026-09-28): a state name, as Swift's and Kotlin's `diagnose` read it.
+    #[test]
+    fn a_diagnostic_is_a_state_name() {
+        let args = serde_json::to_value(Diagnose { what: "audio activated; device running" }).unwrap();
+        assert_eq!(args, serde_json::json!({ "what": "audio activated; device running" }));
+    }
+
+    // Native video (2026-09-29, docs/video-nativo.md): what Swift and Kotlin add to the channel.
+    #[test]
+    fn native_video_events_are_read_from_their_wire_form() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"visible","visible":true}"#), Some(NativeCallEvent::Visible(true)));
+        assert_eq!(read(r#"{"event":"visible","visible":false}"#), Some(NativeCallEvent::Visible(false)));
+        assert_eq!(read(r#"{"event":"orientation","orientation":3}"#), Some(NativeCallEvent::Orientation(3)));
+        assert_eq!(read(r#"{"event":"video"}"#), Some(NativeCallEvent::VideoRequested));
+        assert_eq!(read(r#"{"event":"visible"}"#), None);
+        assert_eq!(read(r#"{"event":"orientation"}"#), None);
+    }
+
+    // Native video: the views, where the WebView draws them, the remote picture's shape, the
+    // call's video for CallKit and the ongoing notification, and the camera permission.
+    #[test]
+    fn native_video_travels_as_swift_and_kotlin_read_it() {
+        let attach = serde_json::to_value(AttachVideo { remote_layer: 0x1000, local_layer: 0x2000 }).unwrap();
+        assert_eq!(attach, serde_json::json!({ "remoteLayer": 4096, "localLayer": 8192 }));
+        let layout = VideoLayout {
+            remote: Some(VideoRect { x: 0.0, y: 0.0, width: 390.0, height: 844.0 }),
+            local: Some(VideoRect { x: 278.0, y: 594.0, width: 96.0, height: 140.0 }),
+            mirror_local: true,
+            local_radius: 16.0,
+        };
+        assert_eq!(
+            serde_json::to_value(layout).unwrap(),
+            serde_json::json!({
+                "remote": { "x": 0.0, "y": 0.0, "width": 390.0, "height": 844.0 },
+                "local": { "x": 278.0, "y": 594.0, "width": 96.0, "height": 140.0 },
+                "mirrorLocal": true,
+                "localRadius": 16.0
+            })
+        );
+        // The WebView sends the same shape: it reads back what it wrote.
+        let hidden: VideoLayout = serde_json::from_value(serde_json::json!({ "remote": null, "local": null, "mirrorLocal": false, "localRadius": 0 })).unwrap();
+        assert_eq!((hidden.remote, hidden.local), (None, None));
+        let shape = serde_json::to_value(VideoShape { width: 480, height: 640, rotation: 90 }).unwrap();
+        assert_eq!(shape, serde_json::json!({ "width": 480, "height": 640, "rotation": 90 }));
+        assert_eq!(serde_json::to_value(CallVideo { on: true }).unwrap(), serde_json::json!({ "on": true }));
+        let camera: Camera = serde_json::from_value(serde_json::json!({ "granted": false })).unwrap();
+        assert!(!camera.granted);
+    }
+
+    // Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): what
+    // Swift's `setOpenAppOnAnswer` reads (`OpenAppOnAnswerArgs`).
+    #[test]
+    fn the_open_app_on_answer_switch_travels_as_swift_reads_it() {
+        assert_eq!(serde_json::to_value(OpenAppOnAnswer { on: true }).unwrap(), serde_json::json!({ "on": true }));
+        assert_eq!(serde_json::to_value(OpenAppOnAnswer { on: false }).unwrap(), serde_json::json!({ "on": false }));
+    }
+
+    #[test]
+    fn an_outgoing_call_names_the_contact() {
+        let outgoing = serde_json::to_value(Outgoing { name: "Ioan", video: false }).unwrap();
+        assert_eq!(outgoing, serde_json::json!({ "name": "Ioan", "video": false }));
     }
 }

@@ -1,5 +1,6 @@
 mod client;
 mod plugins;
+mod video_surfaces;
 
 use tauri::Manager;
 
@@ -106,7 +107,6 @@ pub fn run() {
             client::core_send_file,
             client::core_open_file,
             client::core_share,
-            client::core_pending_call,
             client::core_pick_files,
             client::core_take_photo,
             client::core_read_picked,
@@ -175,6 +175,16 @@ pub fn run() {
             client::core_call_start,
             client::core_call_answer,
             client::core_call_end,
+            client::core_native_calls,
+            client::core_call_start_native,
+            client::core_call_answer_native,
+            client::core_call_mute,
+            client::core_call_set_video,
+            client::core_call_switch_camera,
+            client::core_call_video_layout,
+            client::core_call_speaker,
+            client::core_set_call_routing,
+            client::core_current_call,
             client::core_calls,
             client::core_enable_push,
             client::core_move_invite,

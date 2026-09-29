@@ -1,6 +1,20 @@
 package com.flickertalk.platform
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Notification
+import android.app.Service
+import android.media.AudioDeviceInfo
+import android.media.AudioFocusRequest
+import android.util.Log
+import android.view.WindowManager
+import android.os.IBinder
+import androidx.core.app.ServiceCompat
+import app.tauri.PermissionState
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
+import app.tauri.plugin.Channel
 import android.app.ActivityManager
 import android.app.AlarmManager
 import android.app.NotificationChannel
@@ -15,6 +29,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import org.json.JSONArray
 import org.json.JSONObject
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.Ringtone
@@ -125,13 +140,7 @@ private const val NOTIFICATION = 1
 
 /** Calls ring on their own channel, so messages and calls can be set apart (§66). */
 const val CALL_CHANNEL = "ft.call"
-private const val CALL_NOTIFICATION = 2
-
-/** The notification's buttons travel as this extra on the intent that opens the app. */
-const val CALL_ACTION = "ft.call.action"
-
-/** What the user pressed on the call notification, if it was one of ours. */
-fun callAction(value: String?): String = if (value == "answer" || value == "decline") value else ""
+const val CALL_NOTIFICATION = 2
 
 /** Who is calling; null for a contact with no name, who is still a caller ("Someone"). */
 fun callTitle(name: String): String? = name.trim().ifEmpty { null }
@@ -144,6 +153,12 @@ fun callText(video: Boolean): Int = if (video) R.string.ft_incoming_video_call e
  */
 class FtMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
+        // A live core reconnects now: its socket to the router is dead (2026-09-28).
+        if (reconnectsOnPush(message.data, openSlots)) CallEvents.offer(CallEvent.Incoming)
+        if (isCall(message.data)) {
+            incomingCall(message)
+            return
+        }
         if (!isWake(message.data)) return
         // A closed hidden session makes no noise, not even this (app#9).
         if (!wakeIsHeard(message.data["s"], openSlots)) return
@@ -153,8 +168,199 @@ class FtMessagingService : FirebaseMessagingService() {
         if (shouldNotify(state.importance) && mayDisturbNow(this)) showActivityNotification(this)
     }
 
+    /**
+     * A call with the app closed (native calls, 2026-09-28): the incoming-call notification, with
+     * the generic text (the name comes when the app opens and reads the offer), ringing for what
+     * is left of its 45 s. The system plays the ringtone on the ringing channel, as the ringer mode
+     * says: a process woken by FCM may be frozen long before the call stops ringing.
+     */
+    private fun incomingCall(message: RemoteMessage) {
+        val state = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(state)
+        val push = callPush(message.data, openSlots, !shouldNotify(state.importance), mayDisturbNow(this))
+        if (push == CallPush.IGNORE) return
+        showCall(
+            this,
+            getString(R.string.ft_someone),
+            getString(R.string.ft_incoming_call),
+            ringing = push == CallPush.RING,
+            timeoutMs = callRingMillis(message.sentTime, System.currentTimeMillis()),
+        )
+    }
+
     // A new token reaches the router the next time the app starts.
     override fun onNewToken(token: String) {}
+}
+
+// ---- Native calls (2026-09-28) ----
+
+/** The router's call push (`{"t":"call","s":"N"}`): ring with the app closed (§66). */
+fun isCall(data: Map<String, String>): Boolean = data["t"] == "call"
+
+/** What a call push does. */
+enum class CallPush { IGNORE, RING, SILENT }
+
+/** Whether a call push rings, shows quietly or is dropped. */
+fun callPush(data: Map<String, String>, open: Set<Int>, appOnScreen: Boolean, mayDisturb: Boolean): CallPush = when {
+    !isCall(data) || !wakeIsHeard(data["s"], open) -> CallPush.IGNORE
+    // The app on the screen is connected: the core rings the call itself (`startRinging`).
+    appOnScreen -> CallPush.IGNORE
+    !mayDisturb -> CallPush.SILENT
+    else -> CallPush.RING
+}
+
+/** How long a call rings, in ms, at most. The router gives the push the same 45 s to live. */
+const val CALL_RING_MS = 45_000L
+
+/** How long a call pushed at `sentAt` still rings at `now`. */
+fun callRingMillis(sentAt: Long, now: Long): Long {
+    val elapsed = now - sentAt
+    return if (sentAt > 0 && elapsed in 0 until CALL_RING_MS) CALL_RING_MS - elapsed else CALL_RING_MS
+}
+
+/** What the user does with a native call, as Rust's `NativeCallEvent`. */
+sealed class CallEvent {
+    /** A call or wake-up push: the router found this phone offline; the core reconnects now. */
+    object Incoming : CallEvent()
+    object Answer : CallEvent()
+    object End : CallEvent()
+    /** The incoming call notification's decline: before the offer came, the core waits for it. */
+    object Decline : CallEvent()
+    data class Mute(val muted: Boolean) : CallEvent()
+    object AudioActivated : CallEvent()
+    object AudioDeactivated : CallEvent()
+    /** The app came to the screen or left it (native video): the core holds our camera meanwhile. */
+    data class Visible(val visible: Boolean) : CallEvent()
+    /** The display turned, in degrees, while the call has its video views. */
+    data class Orientation(val degrees: Int) : CallEvent()
+    /** The ongoing call notification's camera action: the core turns our camera on. */
+    object VideoRequested : CallEvent()
+}
+
+/** The event as the channel carries it: `{"event": "mute", "muted": true}`. */
+fun callEventPayload(event: CallEvent): Map<String, Any> = when (event) {
+    CallEvent.Incoming -> mapOf("event" to "incoming")
+    CallEvent.Answer -> mapOf("event" to "answer")
+    CallEvent.End -> mapOf("event" to "end")
+    CallEvent.Decline -> mapOf("event" to "decline")
+    is CallEvent.Mute -> mapOf("event" to "mute", "muted" to event.muted)
+    CallEvent.AudioActivated -> mapOf("event" to "audioActivated")
+    CallEvent.AudioDeactivated -> mapOf("event" to "audioDeactivated")
+    is CallEvent.Visible -> mapOf("event" to "visible", "visible" to event.visible)
+    is CallEvent.Orientation -> mapOf("event" to "orientation", "orientation" to event.degrees)
+    CallEvent.VideoRequested -> mapOf("event" to "video")
+}
+
+/** Events wait here until the core listens, then go out in order. */
+class CallEventQueue(private val limit: Int = 16) {
+    private var sink: ((CallEvent) -> Unit)? = null
+    private val waiting = ArrayDeque<CallEvent>()
+
+    /** The core listens: what waited goes out now, in order; a previous listener hears no more. */
+    @Synchronized
+    fun register(sink: (CallEvent) -> Unit) {
+        this.sink = sink
+        while (waiting.isNotEmpty()) sink(waiting.removeFirst())
+    }
+
+    @Synchronized
+    fun emit(event: CallEvent) {
+        val listening = sink
+        if (listening != null) {
+            listening(event)
+            return
+        }
+        waiting.addLast(event)
+        while (waiting.size > limit) waiting.removeFirst()
+    }
+
+    /** Whether the core listens now (it runs only with the app: Tauri starts Rust with it). */
+    @Synchronized
+    fun listening(): Boolean = sink != null
+
+    /** A new call starts: what an old one left unheard is no longer true. */
+    @Synchronized
+    fun forget() = waiting.clear()
+
+    /** Only to a core that listens now; nothing waits (a process FCM started has no core yet). */
+    @Synchronized
+    fun offer(event: CallEvent): Boolean {
+        val listening = sink ?: return false
+        listening(event)
+        return true
+    }
+}
+
+/**
+ * Whether a push tells the core to reconnect at once (2026-09-28): a call or a wake-up means the
+ * router found this phone offline, so its socket is dead. A closed hidden session stays quiet.
+ */
+fun reconnectsOnPush(data: Map<String, String>, open: Set<Int>): Boolean =
+    (isCall(data) || isWake(data)) && wakeIsHeard(data["s"], open)
+
+/** How the call's voice goes to the speaker or back to the earpiece. */
+enum class SpeakerRoute { SPEAKER_DEVICE, CLEAR_DEVICE, SPEAKERPHONE_ON, SPEAKERPHONE_OFF }
+
+/** Android 12 picks the communication device; before, the speakerphone switch. */
+fun speakerRoute(sdk: Int, on: Boolean): SpeakerRoute = when {
+    sdk >= Build.VERSION_CODES.S -> if (on) SpeakerRoute.SPEAKER_DEVICE else SpeakerRoute.CLEAR_DEVICE
+    else -> if (on) SpeakerRoute.SPEAKERPHONE_ON else SpeakerRoute.SPEAKERPHONE_OFF
+}
+
+/** The app shows over the lock screen, and turns the screen on, while a call rings or goes on. */
+fun overLockScreen(ringing: Boolean, inCall: Boolean): Boolean = ringing || inCall
+
+/**
+ * Whether the call's service may take the microphone type (Android 14): only with the app on the
+ * screen or right after the user's own answer; otherwise the system refuses the whole service.
+ */
+fun microphoneServiceAllowed(granted: Boolean, visible: Boolean, answeredByTap: Boolean): Boolean =
+    granted && (visible || answeredByTap)
+
+/** Shows the app over the lock screen and turns the screen on, or stops doing so. */
+fun showOverLockScreen(activity: Activity, on: Boolean) {
+    activity.runOnUiThread {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            activity.setShowWhenLocked(on)
+            activity.setTurnScreenOn(on)
+        } else {
+            @Suppress("DEPRECATION")
+            val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (on) activity.window.addFlags(flags) else activity.window.clearFlags(flags)
+        }
+    }
+}
+
+/**
+ * Temporary call diagnostics (2026-09-28): state names only, never a name or an identifier. Read
+ * with `adb logcat -s FtCallDiag`. To remove: set this to false, or delete it with the `diagnose`
+ * command (Rust: `CALL_DIAGNOSTICS` in src-tauri/src/client.rs).
+ */
+const val CALL_DIAGNOSTICS = true
+
+/** The audio mode to go back to after a call: what it was, unless that was a call's mode too. */
+fun modeAfterCall(previous: Int?): Int = when (previous) {
+    null, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> AudioManager.MODE_NORMAL
+    else -> previous
+}
+
+/** A call pushed with the app closed rings on this channel: the system plays the ringtone. */
+const val RINGING_CALL_CHANNEL = "ft.call.ringing"
+
+/**
+ * The foreground service types of a call: phone call, the microphone once it is allowed, and the
+ * camera while the call has video (native video, 2026-09-29). Types beyond phone call exist from
+ * Android 11.
+ */
+// The types are compile-time constants, used only past the `sdk` checks lint cannot follow.
+@SuppressLint("InlinedApi")
+fun callServiceTypes(sdk: Int, microphone: Boolean, camera: Boolean = false): Int {
+    if (sdk < Build.VERSION_CODES.Q) return 0
+    var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+    if (sdk < Build.VERSION_CODES.R) return types
+    if (microphone) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+    if (camera) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+    return types
 }
 
 /**
@@ -162,11 +368,10 @@ class FtMessagingService : FirebaseMessagingService() {
  * intent that opens the app over the lock screen. If the system does not allow full screen (§66,
  * Android 14 keeps it for calling apps), it still shows as a heads-up notification.
  */
-/** Opening the app, carrying what the user pressed on the notification. */
-private fun callIntent(context: Context, action: String, request: Int): PendingIntent? {
+/** Opening the app, and nothing more: the buttons go through `tapIntent` (NotificationTaps.kt). */
+private fun openAppIntent(context: Context, request: Int): PendingIntent? {
     val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        if (action.isNotEmpty()) putExtra(CALL_ACTION, action)
     } ?: return null
     return PendingIntent.getActivity(
         context,
@@ -176,7 +381,19 @@ private fun callIntent(context: Context, action: String, request: Int): PendingI
     )
 }
 
-private fun showCall(context: Context, title: String, text: String) {
+/** How the system plays the ringtone of a call pushed with the app closed. A function, not a
+ *  value: a top-level value would run Android code when the JVM tests load this file. */
+private fun ringtoneAttributes(): AudioAttributes = AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+    .build()
+
+/**
+ * `ringing`: the system rings (insistently, as the ringer mode says) until the notification goes,
+ * after `timeoutMs` at most. Otherwise the notification is silent: the app rings itself, or the
+ * weekly hours keep the call quiet.
+ */
+fun showCall(context: Context, title: String, text: String, ringing: Boolean = false, timeoutMs: Long = 0, video: Boolean = false) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         manager.createNotificationChannel(
@@ -185,12 +402,22 @@ private fun showCall(context: Context, title: String, text: String) {
                 enableVibration(false)
             }
         )
+        if (ringing) {
+            manager.createNotificationChannel(
+                NotificationChannel(RINGING_CALL_CHANNEL, context.getString(R.string.ft_channel_incoming_calls), NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), ringtoneAttributes())
+                    enableVibration(true)
+                    vibrationPattern = RING_PATTERN
+                }
+            )
+        }
     }
-    val open = callIntent(context, "", 1) ?: return
-    val answer = callIntent(context, "answer", 2) ?: return
-    val decline = callIntent(context, "decline", 3) ?: return
+    val open = openAppIntent(context, 1) ?: return
+    // The buttons hand the tap to the process at once, whatever state the app is in (2026-09-29).
+    val answer = tapIntent(context, NotificationTap.CALL_ANSWER)
+    val decline = tapIntent(context, NotificationTap.CALL_DECLINE)
     val caller = Person.Builder().setName(title).setImportant(true).build()
-    val notification = NotificationCompat.Builder(context, CALL_CHANNEL)
+    val builder = NotificationCompat.Builder(context, if (ringing) RINGING_CALL_CHANNEL else CALL_CHANNEL)
         .setSmallIcon(R.drawable.ft_notification)
         .setContentTitle(title)
         .setContentText(text)
@@ -202,8 +429,15 @@ private fun showCall(context: Context, title: String, text: String) {
         .setFullScreenIntent(open, true)
         // Answer and decline from the notification itself: the user should not have to open the
         // app to pick up (§66).
-        .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer))
-        .build()
+        .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer).setIsVideo(video))
+    if (timeoutMs > 0) builder.setTimeoutAfter(timeoutMs)
+    if (ringing) {
+        // Before Android 8 the sound and vibration are the notification's, not its channel's.
+        builder.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioManager.STREAM_RING)
+        builder.setVibrate(RING_PATTERN)
+    }
+    val notification = builder.build()
+    if (ringing) notification.flags = notification.flags or Notification.FLAG_INSISTENT
     try {
         manager.notify(CALL_NOTIFICATION, notification)
     } catch (_: SecurityException) {
@@ -238,14 +472,299 @@ private fun showActivityNotification(context: Context) {
     }
 }
 
+// ---- A native call in progress (2026-09-28) ----
+
+/** The ongoing call's notification: the foreground service's, so it has its own id. */
+private const val ONGOING_CALL_NOTIFICATION = 3
+/** The ongoing call shows on a quiet channel: it is there to hang up and mute, not to alert. */
+const val ONGOING_CALL_CHANNEL = "ft.call.ongoing"
+private const val ACTION_HANG_UP = "com.flickertalk.platform.HANG_UP"
+private const val ACTION_MUTE = "com.flickertalk.platform.MUTE"
+
+/**
+ * The core's channel (`listen_calls`) and the events that wait for it. One background thread
+ * sends them, so Rust's handler never runs on the main thread and may call the plugin back.
+ */
+object CallEvents {
+    private val queue = CallEventQueue()
+    private val sender = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    fun register(channel: Channel) = sender.execute {
+        queue.register {
+            val payload = callEventPayload(it)
+            if (CALL_DIAGNOSTICS) Log.i("FtCallDiag", "native event to the core: ${payload["event"]}")
+            channel.sendObject(payload)
+        }
+    }
+
+    fun emit(event: CallEvent) = sender.execute { queue.emit(event) }
+
+    fun offer(event: CallEvent) = sender.execute { queue.offer(event) }
+
+    fun forget() = sender.execute { queue.forget() }
+
+    /** Whether the core listens now; a registration still on its way counts as not yet. */
+    fun listening(): Boolean = queue.listening()
+}
+
+/**
+ * The ringtone and vibration of a call the core rings with the app running (`startRinging`): the
+ * process's, so a tap on the notification's buttons silences them before the plugin hears of it.
+ */
+object CallRinger {
+    var ringtone: Ringtone? = null
+    var vibrator: Vibrator? = null
+
+    fun silence() {
+        ringtone?.stop()
+        ringtone = null
+        vibrator?.cancel()
+        vibrator = null
+    }
+}
+
+/**
+ * The call this phone is in (native calls): communication audio mode, audio focus for voice,
+ * and a foreground service of type phone call and microphone, so the microphone keeps working
+ * with the app in the background (Android 14). Used on the main thread.
+ */
+object InCall {
+    var active = false
+        private set
+    var muted = false
+    var name = ""
+        private set
+    /** Who the last ringing call was: an answered call is named after it. */
+    var ringingName = ""
+    /** The app is on the screen (the plugin's activity is resumed). */
+    @Volatile
+    var appVisible = false
+    /** The user answered this call with their own tap (the notification's button, or the app's). */
+    @Volatile
+    var answeredByTap = false
+    /** The call has video now, either camera on (`callVideo`, native video 2026-09-29). */
+    @Volatile
+    var video = false
+    /** The user asked for video with their own tap on the ongoing notification's camera action. */
+    @Volatile
+    var videoByTap = false
+    private var previousMode: Int? = null
+    private var focus: Any? = null
+    @Volatile
+    var service: FtCallService? = null
+
+    /** Starts the call's audio and service; again, only makes sure the service holds what it may. */
+    fun start(context: Context, name: String) {
+        if (!active) {
+            this.name = name
+            active = true
+            muted = false
+            CallEvents.forget()
+            context.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+            takeAudio(context)
+        }
+        val running = service
+        if (running != null) {
+            running.promote()
+            return
+        }
+        try {
+            ContextCompat.startForegroundService(context, Intent(context, FtCallService::class.java))
+        } catch (_: Exception) {
+            // Android 12+ refuses a foreground service started from the background; the call
+            // still works while the app is on the screen.
+        }
+    }
+
+    fun end(context: Context) {
+        if (!active) return
+        active = false
+        muted = false
+        answeredByTap = false
+        video = false
+        videoByTap = false
+        context.stopService(Intent(context, FtCallService::class.java))
+        giveAudioBack(context)
+    }
+
+    private fun takeAudio(context: Context) {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        previousMode = audio.mode
+        audio.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener {}
+                .build()
+            audio.requestAudioFocus(request)
+            focus = request
+        } else {
+            @Suppress("DEPRECATION")
+            audio.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        }
+    }
+
+    private fun giveAudioBack(context: Context) {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            (focus as? AudioFocusRequest)?.let { audio.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audio.abandonAudioFocus(null)
+        }
+        focus = null
+        speaker(audio, false)
+        audio.mode = modeAfterCall(previousMode)
+        previousMode = null
+    }
+
+    /** The call's voice on the speaker, or back on the earpiece (2026-09-28). */
+    fun setSpeaker(context: Context, on: Boolean) {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        speaker(audio, on)
+    }
+
+    private fun speaker(audio: AudioManager, on: Boolean) {
+        when (speakerRoute(Build.VERSION.SDK_INT, on)) {
+            SpeakerRoute.SPEAKER_DEVICE -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let { audio.setCommunicationDevice(it) }
+            }
+            SpeakerRoute.CLEAR_DEVICE -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audio.clearCommunicationDevice()
+            SpeakerRoute.SPEAKERPHONE_ON, SpeakerRoute.SPEAKERPHONE_OFF -> {
+                @Suppress("DEPRECATION")
+                audio.isSpeakerphoneOn = on
+            }
+        }
+    }
+}
+
+/** The ongoing call's notification: who, hang up and mute; tapping it opens the app. */
+fun ongoingCallNotification(context: Context): Notification {
+    val manager = context.getSystemService(NotificationManager::class.java)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        manager?.createNotificationChannel(
+            NotificationChannel(ONGOING_CALL_CHANNEL, context.getString(R.string.ft_channel_ongoing_calls), NotificationManager.IMPORTANCE_LOW)
+        )
+    }
+    fun action(action: String, request: Int): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        request,
+        Intent(context, FtCallActionReceiver::class.java).setAction(action),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    val title = callTitle(InCall.name) ?: context.getString(R.string.ft_someone)
+    val caller = Person.Builder().setName(title).setImportant(true).build()
+    val builder = NotificationCompat.Builder(context, ONGOING_CALL_CHANNEL)
+        .setSmallIcon(R.drawable.ft_notification)
+        .setContentTitle(title)
+        .setContentText(context.getString(R.string.ft_ongoing_call))
+        .setCategory(NotificationCompat.CATEGORY_CALL)
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        // Published again on each change: CallStyle has no live switch between voice and video.
+        .setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, action(ACTION_HANG_UP, 5)).setIsVideo(InCall.video))
+        .addAction(
+            R.drawable.ft_notification,
+            context.getString(if (InCall.muted) R.string.ft_unmute else R.string.ft_mute),
+            action(ACTION_MUTE, 6),
+        )
+    // The camera (native video, 2026-09-29): opens the app, where the core turns our camera on;
+    // the camera only runs with the app on the screen.
+    builder.addAction(R.drawable.ft_notification, context.getString(R.string.ft_video), tapIntent(context, NotificationTap.CALL_VIDEO))
+    openAppIntent(context, 4)?.let { builder.setContentIntent(it) }
+    return builder.build()
+}
+
+/** Keeps the call alive with the app in the background: the microphone and the audio go on. */
+class FtCallService : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        InCall.service = this
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!InCall.active) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        promote()
+        return START_NOT_STICKY
+    }
+
+    /**
+     * In the foreground with the types it may hold now: the microphone once it is allowed, the
+     * camera while the call has video (native video, 2026-09-29). Called again on each change:
+     * `startForeground` with the whole set of types.
+     */
+    fun promote() {
+        val recording = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val filming = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val microphone = microphoneServiceAllowed(recording, InCall.appVisible, InCall.answeredByTap)
+        val camera = cameraServiceAllowed(InCall.video, filming, InCall.appVisible, InCall.videoByTap)
+        val sdk = Build.VERSION.SDK_INT
+        // A type the system refuses now (from the background, or no leave for a phone-call
+        // service) fails the whole call: try with less, the camera first, and give up if even the
+        // phone call alone is refused.
+        val tries = listOf(
+            callServiceTypes(sdk, microphone, camera),
+            callServiceTypes(sdk, microphone, false),
+            callServiceTypes(sdk, false, false),
+        ).distinct()
+        for (types in tries) {
+            try {
+                ServiceCompat.startForeground(this, ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this), types)
+                return
+            } catch (_: Exception) {
+            }
+        }
+        stopSelf()
+    }
+
+    /** The notification again, after a change (mute). */
+    fun refresh() {
+        try {
+            getSystemService(NotificationManager::class.java)?.notify(ONGOING_CALL_NOTIFICATION, ongoingCallNotification(this))
+        } catch (_: SecurityException) {
+        }
+    }
+
+    override fun onDestroy() {
+        if (InCall.service === this) InCall.service = null
+        super.onDestroy()
+    }
+}
+
+/** Hang up and mute on the ongoing call's notification: to the core, through its channel. */
+class FtCallActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+            ACTION_HANG_UP -> {
+                CallEvents.emit(CallEvent.End)
+                // The notification goes at once; the core's `callEnded` then finds it done.
+                InCall.end(context)
+            }
+            ACTION_MUTE -> {
+                InCall.muted = !InCall.muted
+                CallEvents.emit(CallEvent.Mute(InCall.muted))
+                InCall.service?.refresh()
+            }
+        }
+    }
+}
+
 // ---- Local reminders (2026-09-27): a plugin's alarm, shown by this phone alone ----
 
 /** The channel reminders go to, apart from messages and calls, so the user can silence it alone. */
 const val REMINDER_CHANNEL = "ft.reminders"
 /** Where the reminder list is kept for the boot receiver: the core is the truth, this is a copy. */
 private const val REMINDERS = "reminders"
-/** The extra that carries `plugin\nid` when a reminder notification opens the app. */
-const val REMINDER_ACTION = "ft.reminder"
 /** The extra that carries the URL a login sent the user back with. */
 const val AUTH_RESULT = "ft.auth.result"
 /** Notification ids for reminders start here; messages and calls use the first few. */
@@ -344,32 +863,27 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val plugin = intent.getStringExtra("plugin") ?: return
         val id = intent.getStringExtra("id") ?: return
-        val text = intent.getStringExtra("text").orEmpty()
-        reminderChannel(context)
-        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra(REMINDER_ACTION, reminderKey(plugin, id))
-        } ?: return
-        val open = PendingIntent.getActivity(
-            context,
-            reminderRequestCode(plugin, id),
-            launch,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL)
-            .setSmallIcon(R.drawable.ft_notification)
-            .setContentTitle(context.getString(R.string.ft_reminder))
-            .setContentText(text.ifEmpty { context.getString(R.string.ft_reminder_generic) })
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setAutoCancel(true)
-            .setContentIntent(open)
-            .build()
-        try {
-            context.getSystemService(NotificationManager::class.java)?.notify(reminderRequestCode(plugin, id), notification)
-        } catch (_: SecurityException) {
-            // Notifications not allowed: the plugin shows the reminder as due when the app opens.
-        }
+        showReminder(context, plugin, id, intent.getStringExtra("text").orEmpty())
+    }
+}
+
+/** A reminder's notification; its tap hands the reminder to the process, then opens the app. */
+fun showReminder(context: Context, plugin: String, id: String, text: String) {
+    reminderChannel(context)
+    val open = tapIntent(context, NotificationTap.REMINDER, reminderRequestCode(plugin, id), reminderKey(plugin, id))
+    val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL)
+        .setSmallIcon(R.drawable.ft_notification)
+        .setContentTitle(context.getString(R.string.ft_reminder))
+        .setContentText(text.ifEmpty { context.getString(R.string.ft_reminder_generic) })
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_REMINDER)
+        .setAutoCancel(true)
+        .setContentIntent(open)
+        .build()
+    try {
+        context.getSystemService(NotificationManager::class.java)?.notify(reminderRequestCode(plugin, id), notification)
+    } catch (_: SecurityException) {
+        // Notifications not allowed: the plugin shows the reminder as due when the app opens.
     }
 }
 
@@ -488,6 +1002,33 @@ class RingingArgs {
 }
 
 @InvokeArg
+class AnsweringArgs {
+    var caller: String = ""
+    var video: Boolean = false
+}
+
+@InvokeArg
+class CallEventsArgs {
+    lateinit var channel: Channel
+}
+
+@InvokeArg
+class OutgoingArgs {
+    var name: String = ""
+    var video: Boolean = false
+}
+
+@InvokeArg
+class SpeakerArgs {
+    var on: Boolean = false
+}
+
+@InvokeArg
+class DiagnoseArgs {
+    var what: String = ""
+}
+
+@InvokeArg
 class QuietHoursArgs {
     var week: String = ""
 }
@@ -572,40 +1113,52 @@ class SaveFileArgs {
 }
 
 /** What only Android lets Kotlin do (Plan §5): lend a file to a viewer, save it to Downloads. */
-@TauriPlugin
+@TauriPlugin(
+    permissions = [
+        Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone"),
+        Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
+    ],
+)
 class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
-    private var ringtone: Ringtone? = null
-    private var vibrator: Vibrator? = null
-
-    /** What the user pressed on the call notification, until the app asks for it. */
-    private var pendingCall: String = ""
-
-    /** The reminder the user tapped, until the app asks for it (2026-09-27). */
-    private var pendingReminder: String = ""
-
     /** A login waiting for the provider to send the user back, and the scheme it comes with. */
     private var authWaiting: Invoke? = null
     private var authScheme: String = ""
 
+    /** The WebView the call's video views go under (native video). */
+    private var webView: WebView? = null
+
     /** The app is open: the "something new" notification has done its job. */
     override fun load(webView: WebView) {
         super.load(webView)
+        this.webView = webView
+        InCall.appVisible = true
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
-        pendingCall = callAction(activity.intent?.getStringExtra(CALL_ACTION))
-        activity.intent?.removeExtra(CALL_ACTION)
-        pendingReminder = pendingReminderOf(activity.intent?.getStringExtra(REMINDER_ACTION))
-        activity.intent?.removeExtra(REMINDER_ACTION)
     }
 
-    /** The app was already open when the notification's button was pressed. */
+    /**
+     * On the screen again: a call's service may now take the microphone (Android 14) and the
+     * camera; the core lets our camera go on (native video).
+     */
+    override fun onResume() {
+        super.onResume()
+        InCall.appVisible = true
+        CallEvents.offer(CallEvent.Visible(true))
+        if (InCall.active) InCall.service?.promote()
+    }
+
+    /** Off the screen: the core holds our camera until the app is back (native video). */
+    override fun onPause() {
+        super.onPause()
+        InCall.appVisible = false
+        CallEvents.offer(CallEvent.Visible(false))
+    }
+
+    /**
+     * The notifications' buttons (answer, decline, the camera, a reminder) no longer come here:
+     * `FtNotificationTapActivity` hands them to the process (NotificationTaps.kt, 2026-09-29).
+     */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val action = callAction(intent.getStringExtra(CALL_ACTION))
-        if (action.isNotEmpty()) pendingCall = action
-        intent.removeExtra(CALL_ACTION)
-        val reminder = pendingReminderOf(intent.getStringExtra(REMINDER_ACTION))
-        if (reminder.isNotEmpty()) pendingReminder = reminder
-        intent.removeExtra(REMINDER_ACTION)
         // A login came back (drive): the command that opened it gets the URL.
         val result = intent.getStringExtra(AUTH_RESULT)
         intent.removeExtra(AUTH_RESULT)
@@ -619,8 +1172,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /** The reminder the user tapped to open the app, once (2026-09-27). */
     @Command
     fun pendingReminder(invoke: Invoke) {
-        invoke.resolve(JSObject().apply { put("reminder", pendingReminder) })
-        pendingReminder = ""
+        invoke.resolve(JSObject().apply { put("reminder", tappedReminder.take()) })
     }
 
     /** Every reminder there is, from the core: the alarm clock is set again from scratch. */
@@ -654,11 +1206,172 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** Answer or decline, once, if the user pressed it on the notification. */
+    /**
+     * The incoming call is being answered, or was before its offer came (2026-09-29): it rings no
+     * more, the app stays over the lock screen, and the call is named after the caller. Its audio
+     * and service start when it connects (`callConnected`).
+     */
     @Command
-    fun pendingCall(invoke: Invoke) {
-        invoke.resolve(JSObject().apply { put("action", pendingCall) })
-        pendingCall = ""
+    fun callAnswering(invoke: Invoke) {
+        val args = invoke.parseArgs(AnsweringArgs::class.java)
+        InCall.ringingName = args.caller
+        activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        silence()
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+        invoke.resolve()
+    }
+
+    /** The core listens to native calls (`listen_calls`): events that waited go out now. */
+    @Command
+    fun registerCallEvents(invoke: Invoke) {
+        try {
+            CallEvents.register(invoke.parseArgs(CallEventsArgs::class.java).channel)
+            // Whether the app is on the screen now: the core holds our camera while it is not.
+            CallEvents.offer(CallEvent.Visible(InCall.appVisible))
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "no channel")
+        }
+    }
+
+    /** This phone calls: communication audio, focus and the call's foreground service. */
+    @Command
+    fun callStartedOutgoing(invoke: Invoke) {
+        val args = invoke.parseArgs(OutgoingArgs::class.java)
+        activity.runOnUiThread { InCall.start(activity, args.name) }
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+        invoke.resolve()
+    }
+
+    /** Connected: a call answered in the app's own screen gets its audio and service here. */
+    @Command
+    fun callConnected(invoke: Invoke) {
+        activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+        invoke.resolve()
+    }
+
+    /** The call is over: the service stops, focus goes and the audio mode is what it was. */
+    @Command
+    fun callEnded(invoke: Invoke) {
+        activity.runOnUiThread { InCall.end(activity) }
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = false))
+        invoke.resolve()
+    }
+
+    /** Speaker or earpiece for the call (2026-09-28). */
+    @Command
+    fun setSpeaker(invoke: Invoke) {
+        val args = invoke.parseArgs(SpeakerArgs::class.java)
+        activity.runOnUiThread { InCall.setSpeaker(activity, args.on) }
+        invoke.resolve()
+    }
+
+    /** Temporary call diagnostics (2026-09-28): a state name from the Rust core, to logcat. */
+    @Command
+    fun diagnose(invoke: Invoke) {
+        val args = invoke.parseArgs(DiagnoseArgs::class.java)
+        if (CALL_DIAGNOSTICS) Log.i("FtCallDiag", args.what)
+        invoke.resolve()
+    }
+
+    /**
+     * The microphone before a native call (2026-09-28): the WebView used to ask through
+     * `getUserMedia`. Asks only if it is not allowed yet; `granted` says what the user chose.
+     */
+    @Command
+    fun requestMicrophone(invoke: Invoke) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            invoke.resolve(JSObject().apply { put("granted", true) })
+        } else {
+            requestPermissionForAlias("microphone", invoke, "microphoneAnswered")
+        }
+    }
+
+    @PermissionCallback
+    fun microphoneAnswered(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("granted", getPermissionState("microphone") == PermissionState.GRANTED) })
+    }
+
+    /**
+     * The camera before our camera turns on (native video, 2026-09-29, §30): asks only if it is
+     * not allowed yet; `granted` says what the user chose.
+     */
+    @Command
+    fun requestCamera(invoke: Invoke) {
+        when (cameraRequest(getPermissionState("camera"))) {
+            CameraRequest.GRANTED -> invoke.resolve(JSObject().apply { put("granted", true) })
+            CameraRequest.DENIED -> invoke.resolve(JSObject().apply { put("granted", false) })
+            CameraRequest.ASK -> requestPermissionForAlias("camera", invoke, "cameraAnswered")
+        }
+    }
+
+    @PermissionCallback
+    fun cameraAnswered(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("granted", getPermissionState("camera") == PermissionState.GRANTED) })
+    }
+
+    /**
+     * The call's video views go behind the WebView, parked until `videoLayout` places them; their
+     * surfaces go to Rust over JNI (`FtVideoSurfaces`). The layers of iOS are not used here.
+     */
+    @Command
+    fun attachVideo(invoke: Invoke) {
+        val web = webView
+        if (web == null) {
+            invoke.reject("no webview")
+            return
+        }
+        activity.runOnUiThread {
+            CallVideoViews.attach(activity, web)
+            invoke.resolve()
+        }
+    }
+
+    /** Where the WebView leaves room for each picture, in CSS pixels; `null` hides one. */
+    @Command
+    fun videoLayout(invoke: Invoke) {
+        val args = invoke.parseArgs(VideoLayoutArgs::class.java)
+        activity.runOnUiThread {
+            CallVideoViews.layout(args)
+            invoke.resolve()
+        }
+    }
+
+    /** The other side's picture, upright: its view takes that shape. */
+    @Command
+    fun videoShape(invoke: Invoke) {
+        val args = invoke.parseArgs(VideoShapeArgs::class.java)
+        activity.runOnUiThread {
+            CallVideoViews.shape(args.width, args.height)
+            invoke.resolve()
+        }
+    }
+
+    /** The views go (their surfaces reach Rust as null first) and the WebView is opaque again. */
+    @Command
+    fun detachVideo(invoke: Invoke) {
+        activity.runOnUiThread {
+            CallVideoViews.detach()
+            invoke.resolve()
+        }
+    }
+
+    /**
+     * Whether the call has video now (either camera on): the ongoing notification says so and the
+     * call's service takes the camera type, or lets it go.
+     */
+    @Command
+    fun callVideo(invoke: Invoke) {
+        val on = invoke.parseArgs(CallVideoArgs::class.java).on
+        activity.runOnUiThread {
+            if (InCall.video != on) {
+                InCall.video = on
+                if (!on) InCall.videoByTap = false
+                if (InCall.active) InCall.service?.promote()
+            }
+            invoke.resolve()
+        }
     }
 
     /** Whether this phone lets us put a call on the whole screen (Android 14 and up). */
@@ -697,18 +1410,21 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun startRinging(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(RingingArgs::class.java)
+            InCall.ringingName = args.caller
+            showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))
             silence()
             showCall(
                 activity,
                 callTitle(args.caller) ?: activity.getString(R.string.ft_someone),
                 activity.getString(callText(args.video)),
+                video = args.video,
             )
             val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val ringing = ringingFor(audio.ringerMode, quiet = args.muted || !mayDisturbNow(activity))
             if (ringing.sound) {
                 val uri = RingtoneManager.getActualDefaultRingtoneUri(activity, RingtoneManager.TYPE_RINGTONE)
                     ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                ringtone = RingtoneManager.getRingtone(activity, uri)?.apply {
+                CallRinger.ringtone = RingtoneManager.getRingtone(activity, uri)?.apply {
                     audioAttributes = AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -718,7 +1434,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                 }
             }
             if (ringing.vibrate && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator = phoneVibrator()?.apply { vibrate(VibrationEffect.createWaveform(RING_PATTERN, 0)) }
+                CallRinger.vibrator = phoneVibrator()?.apply { vibrate(VibrationEffect.createWaveform(RING_PATTERN, 0)) }
             }
             invoke.resolve()
         } catch (error: Exception) {
@@ -810,16 +1526,12 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun stopRinging(invoke: Invoke) {
         activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        showOverLockScreen(activity, overLockScreen(ringing = false, inCall = InCall.active))
         silence()
         invoke.resolve()
     }
 
-    private fun silence() {
-        ringtone?.stop()
-        ringtone = null
-        vibrator?.cancel()
-        vibrator = null
-    }
+    private fun silence() = CallRinger.silence()
 
     private fun phoneVibrator(): Vibrator? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

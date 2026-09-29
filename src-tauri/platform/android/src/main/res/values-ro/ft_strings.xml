@@ -9,4 +9,10 @@
     <string name="ft_channel_reminders">Reminders</string>
     <string name="ft_reminder">Reminder</string>
     <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_incoming_calls">Apeluri primite</string>
+    <string name="ft_channel_ongoing_calls">Apeluri în curs</string>
+    <string name="ft_ongoing_call">Apel în curs</string>
+    <string name="ft_mute">Dezactivează microfonul</string>
+    <string name="ft_unmute">Activează microfonul</string>
+    <string name="ft_video">Video</string>
 </resources>

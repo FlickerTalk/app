@@ -1,5 +1,5 @@
-//! Voice and video calls (Plan §66, §106 M6), one to one. The media is the WebView's WebRTC; the
-//! core carries its descriptions (offer, answer) and the end of the call, encrypted with Olm and
+//! Voice and video calls (Plan §66, §106 M6), one to one. The media is the WebView's WebRTC, or
+//! Rust's on the phones (`native_calls.rs`); the core carries its descriptions (offer, answer) and the end of the call, encrypted with Olm and
 //! only over a direct connection (opened on demand through the router): never through the mailbox.
 //! It also keeps the call history, which never leaves the phone.
 //!
@@ -12,6 +12,8 @@ use anyhow::{bail, Result};
 use ft_protocol::{Body, EndReason, MessageId, Packet};
 use ft_storage::{CallOutcome, CallRecord, Contact};
 
+use crate::native_calls::EarlyOutcome;
+use crate::timings::CallStage;
 use crate::{now, Core, Event};
 
 /// How long a call keeps trying to reach a phone that may be asleep (the router wakes it).
@@ -23,7 +25,7 @@ const CALL_RETRY: Duration = Duration::from_secs(2);
 pub const RING_LIMIT: Duration = Duration::from_secs(60);
 
 /// A call that rang unanswered for longer than it can: its caller is gone.
-fn stale(record: &CallRecord, now: i64) -> bool {
+pub(crate) fn stale(record: &CallRecord, now: i64) -> bool {
     record.answered_at.is_none() && now - record.started_at > RING_LIMIT.as_millis() as i64
 }
 
@@ -34,7 +36,24 @@ pub enum CallUpdate {
     Incoming { video: bool, sdp: String },
     /// The contact answered our call.
     Answered { sdp: String },
+    /// The call ringing here is being answered (2026-09-29), from the app, the phone's own call
+    /// screen or the notification: it rings no more, and connects next.
+    Answering,
     Ended { outcome: CallOutcome },
+    /// The media connected: the call is on (a native call; a WebView call knows by itself).
+    Connected,
+    /// Our voice was muted or unmuted (from the call screen, CallKit or the notification).
+    Muted { muted: bool },
+    /// The contact called while another call was going on (2026-09-29): refused as busy and
+    /// logged as missed. Only the history changes: the phone's call screen stays with the call
+    /// going on (an `Ended` here used to end that one in CallKit, and its audio).
+    MissedWhileBusy,
+    /// The call's video changed (native video, 2026-09-29): the whole state, never a change.
+    Video(ft_media::VideoState),
+    /// Our camera was wanted and could not start (native video, 2026-09-29): a video call's
+    /// camera as the call connected, an encoder that cannot be set up, say. The call goes on as
+    /// voice; the video state that follows has the camera off.
+    CameraFailed,
 }
 
 impl Core {
@@ -78,8 +97,14 @@ impl Core {
 
     /// Like `offer_call`, trying for `reach`.
     pub async fn offer_call_within(&self, call: &str, sdp: &str, reach: Duration) -> Result<()> {
+        // The WebView's calls speak media version 0: no switching between voice and video.
+        self.offer_call_media(call, sdp, 0, reach).await
+    }
+
+    /// Like `offer_call_within`, saying our call media version (`CALL_MEDIA_VERSION`).
+    pub(crate) async fn offer_call_media(&self, call: &str, sdp: &str, media: u16, reach: Duration) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, true).await? else { bail!("no such call") };
-        let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video };
+        let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video, media };
         let deadline = std::time::Instant::now() + reach;
         loop {
             // The caller may have given up meanwhile.
@@ -87,6 +112,7 @@ impl Core {
                 return Ok(());
             }
             if self.transmit_direct_call(&contact, &Packet::new(body.clone())).await? {
+                self.mark_call_stage(CallStage::OfferSent);
                 return Ok(());
             }
             if std::time::Instant::now() >= deadline {
@@ -96,12 +122,21 @@ impl Core {
         }
     }
 
-    /// Accepts an incoming call with our answer.
+    /// Accepts an incoming call with our answer (the WebView's: media version 0).
     pub async fn answer_call(&self, call: &str, sdp: &str) -> Result<()> {
+        self.answer_call_media(call, sdp, 0).await
+    }
+
+    /// Like `answer_call`, saying our call media version.
+    pub(crate) async fn answer_call_media(&self, call: &str, sdp: &str, media: u16) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, false).await? else { bail!("no such call") };
+        // Answered here or in the WebView: nothing more is prepared for it.
+        self.discard_prepared(call).await;
         self.store.answer_call(call, now()).await?;
-        let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned() };
-        if !self.transmit_direct(&contact, &Packet::new(body)).await? {
+        let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), media };
+        if self.transmit_direct(&contact, &Packet::new(body)).await? {
+            self.mark_call_stage(CallStage::AnswerSent);
+        } else {
             self.close_call(&record, CallOutcome::Failed).await?;
         }
         Ok(())
@@ -122,9 +157,26 @@ impl Core {
         };
         self.close_call(&record, outcome).await?;
         let contact = self.contact(&record.contact).await?;
-        let body = Body::CallEnd { call: MessageId::parse(call)?, reason };
-        let _ = self.transmit_direct(&contact, &Packet::new(body)).await;
+        let packet = Packet::new(Body::CallEnd { call: MessageId::parse(call)?, reason });
+        if !self.transmit_direct(&contact, &packet).await.unwrap_or(false) {
+            // The other phone may be asleep, its socket to the router gone (2026-09-28): the end
+            // keeps trying while a call would, so it stops ringing as soon as it is back.
+            if let Some(core) = self.this.upgrade() {
+                tokio::spawn(async move { core.deliver_call_end(&contact, &packet, CALL_REACH).await });
+            }
+        }
         Ok(())
+    }
+
+    /// Sends a call's end until it gets through or `reach` passes.
+    async fn deliver_call_end(&self, contact: &Contact, packet: &Packet, reach: Duration) {
+        let deadline = std::time::Instant::now() + reach;
+        while std::time::Instant::now() < deadline {
+            tokio::time::sleep(CALL_RETRY).await;
+            if self.transmit_direct(contact, packet).await.unwrap_or(false) {
+                return;
+            }
+        }
     }
 
     /// Ends the active call if it rang unanswered for too long.
@@ -148,8 +200,8 @@ impl Core {
         }
     }
 
-    /// The contact calls us.
-    pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool) -> Result<()> {
+    /// The contact calls us, at call media version `media`.
+    pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool, media: u16) -> Result<()> {
         let call_id = call.to_string();
         if !contact.rules.accepts_calls || !contact.accepted {
             // Calls off (app#5), or a stranger still in the requests (A5): busy for them, and not
@@ -201,23 +253,45 @@ impl Core {
             let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
             if fresh {
                 // For the history: the UI follows only the call it shows.
-                self.announce_call(&record, CallUpdate::Ended { outcome: CallOutcome::Missed });
+                self.announce_call(&record, CallUpdate::MissedWhileBusy);
             }
             return Ok(());
         }
         if fresh {
+            self.mark_call_stage(CallStage::OfferReceived);
+            self.remember_offer(&call_id, &sdp, media);
+            // Answered or declined on the phone's own screen before the offer came (2026-09-29):
+            // decided before the UI hears of it, so it never rings again.
+            let early = self.take_early_answer(&call_id);
+            match early {
+                EarlyOutcome::Decline => return self.end_call(&call_id, false).await,
+                EarlyOutcome::Answer => self.answer_offered_early(&call_id),
+                EarlyOutcome::Ring => {}
+            }
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
+            self.mark_call_stage(CallStage::Ringing);
+            // Its answer is prepared while it rings; one answered already goes at once, without
+            // waiting for a preparation (2026-09-29).
+            if early == EarlyOutcome::Ring {
+                self.prepare_while_ringing(&call_id);
+            }
         }
         Ok(())
     }
 
-    /// The contact answered our call.
-    pub(crate) async fn call_answered(&self, contact: &Contact, call: MessageId, sdp: String) -> Result<()> {
+    /// The contact answered our call, at call media version `media`.
+    pub(crate) async fn call_answered(&self, contact: &Contact, call: MessageId, sdp: String, media: u16) -> Result<()> {
         let Some((record, _)) = self.open_call(&call.to_string(), true).await? else { return Ok(()) };
         if record.contact != contact.device_id {
             return Ok(());
         }
+        self.mark_call_stage(CallStage::AnswerReceived);
         self.store.answer_call(&record.call_id, now()).await?;
+        // A native call takes the answer itself; the UI only learns that it was answered.
+        if let Err(error) = self.accept_native_answer(&record.call_id, &sdp, media).await {
+            self.end_call(&record.call_id, true).await?;
+            return Err(error);
+        }
         self.announce_call(&record, CallUpdate::Answered { sdp });
         Ok(())
     }
@@ -248,8 +322,10 @@ impl Core {
         Ok(Some((record, contact)))
     }
 
-    async fn close_call(&self, record: &CallRecord, outcome: CallOutcome) -> Result<()> {
+    pub(crate) async fn close_call(&self, record: &CallRecord, outcome: CallOutcome) -> Result<()> {
         self.store.finish_call(&record.call_id, now(), outcome).await?;
+        // The voice stops with the call, whichever side ended it.
+        self.drop_native(&record.call_id).await;
         {
             let mut active = self.active_call.lock().expect("active call poisoned");
             if active.as_deref() == Some(record.call_id.as_str()) {
@@ -260,7 +336,7 @@ impl Core {
         Ok(())
     }
 
-    fn announce_call(&self, record: &CallRecord, update: CallUpdate) {
+    pub(crate) fn announce_call(&self, record: &CallRecord, update: CallUpdate) {
         let _ = self.events.send(Event::Call { contact: record.contact.clone(), call: record.call_id.clone(), update });
     }
 }

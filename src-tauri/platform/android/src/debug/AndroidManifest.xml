@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: posts our notifications with no real call or alarm, for device checks
+     (NotificationTaps.kt). Never in a release build. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <receiver
+            android:name="com.flickertalk.platform.FtDebugNotificationReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver" />
+    </application>
+</manifest>

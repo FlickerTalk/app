@@ -4,19 +4,20 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use anyhow::Context;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use ft_core::online::{self, Online};
 use ft_core::moving::MoveUpdate;
-use ft_core::{CallUpdate, Core, Event, TurnGrant};
+use ft_core::{CallPhase, CallUpdate, Core, Event, TurnGrant};
+use ft_media::{CallRouting, Facing, Layers, RemoteShape, VideoState};
 use ft_storage::{CallOutcome, CallRecord, Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_ft_platform::PlatformExt;
+use tauri_plugin_ft_platform::{NativeCallEvent, PlatformExt, VideoLayout};
 use tokio::sync::OnceCell;
 
 /// The router of the cluster, behind the load balancer (Plan §75).
@@ -247,7 +248,6 @@ struct Changed {
 
 /// Sent to the UI on `ft://call` (§66).
 pub const CALL_EVENT: &str = "ft://call";
-
 /// What happened to a call, as the WebView hears it.
 #[derive(Clone, Serialize)]
 pub struct CallEvent {
@@ -261,17 +261,257 @@ pub struct CallEvent {
     sdp: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outcome: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    muted: Option<bool>,
+    /// `video`: the call's video, a whole state (native video, 2026-09-29).
+    #[serde(flatten)]
+    view: Option<CallVideoView>,
+    /// `incoming`: answered already on the phone's own screen, before its offer came (2026-09-29).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    answered: bool,
 }
 
 impl CallEvent {
     pub fn new(contact: &str, call: &str, update: CallUpdate) -> Self {
-        let (kind, video, sdp, outcome) = match update {
-            CallUpdate::Incoming { video, sdp } => ("incoming", Some(video), Some(sdp), None),
-            CallUpdate::Answered { sdp } => ("answered", None, Some(sdp), None),
-            CallUpdate::Ended { outcome } => ("ended", None, None, Some(outcome.as_str())),
+        let view = match update {
+            CallUpdate::Video(state) => Some(CallVideoView::from(state)),
+            _ => None,
         };
-        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome }
+        let (kind, video, sdp, outcome, muted) = match update {
+            CallUpdate::Incoming { video, sdp } => ("incoming", Some(video), Some(sdp), None, None),
+            CallUpdate::Answered { sdp } => ("answered", None, Some(sdp), None, None),
+            CallUpdate::Answering => ("answering", None, None, None, None),
+            CallUpdate::Ended { outcome } => ("ended", None, None, Some(outcome.as_str()), None),
+            CallUpdate::Connected => ("connected", None, None, None, None),
+            CallUpdate::Muted { muted } => ("muted", None, None, None, Some(muted)),
+            // The WebView only logs it: it follows the call it shows.
+            CallUpdate::MissedWhileBusy => ("ended", None, None, Some(CallOutcome::Missed.as_str()), None),
+            CallUpdate::Video(_) => ("video", None, None, None, None),
+            CallUpdate::CameraFailed => ("camera_failed", None, None, None, None),
+        };
+        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome, muted, view, answered: false }
     }
+
+    /// An incoming call the core is answering already: the WebView shows it connecting.
+    pub fn answered(self, answered: bool) -> Self {
+        Self { answered, ..self }
+    }
+}
+
+/// What the phone's own call screen (CallKit, the ongoing call notification) is told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeScreen {
+    Connected,
+    Ended,
+    Nothing,
+}
+
+pub fn native_screen(update: &CallUpdate) -> NativeScreen {
+    match update {
+        CallUpdate::Connected => NativeScreen::Connected,
+        CallUpdate::Ended { .. } => NativeScreen::Ended,
+        CallUpdate::Incoming { .. }
+        | CallUpdate::Answering
+        | CallUpdate::Answered { .. }
+        | CallUpdate::Muted { .. }
+        | CallUpdate::MissedWhileBusy
+        | CallUpdate::Video(_)
+        | CallUpdate::CameraFailed => NativeScreen::Nothing,
+    }
+}
+
+/// The call going on, for a WebView that comes up after it started (2026-09-28).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentCallView {
+    call: String,
+    contact: String,
+    /// The call's video (native video, 2026-09-29). With no native video yet (it rings, or it
+    /// is the WebView's), our camera is wanted in a video call: `camera` says it is one.
+    video: CallVideoView,
+    outgoing: bool,
+    /// `calling`, `ringing`, `connecting` or `active`.
+    phase: &'static str,
+    /// Their offer while it rings: a WebView call is answered with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offer: Option<String>,
+    native: bool,
+    muted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connected_at: Option<i64>,
+}
+
+impl From<ft_core::CurrentCall> for CurrentCallView {
+    fn from(current: ft_core::CurrentCall) -> Self {
+        let phase = match current.phase {
+            CallPhase::Calling => "calling",
+            CallPhase::Ringing => "ringing",
+            CallPhase::Connecting => "connecting",
+            CallPhase::Active => "active",
+        };
+        Self {
+            call: current.call,
+            contact: current.contact,
+            video: CallVideoView::from(current.video_state.unwrap_or(VideoState { camera: current.video, ..VideoState::default() })),
+            outgoing: current.outgoing,
+            phase,
+            offer: current.offer,
+            native: current.native,
+            muted: current.muted,
+            connected_at: current.connected_at,
+        }
+    }
+}
+
+/// A call's video as the WebView sees it (native video, 2026-09-29): the `kind: "video"` event,
+/// `core_call_set_video` and `core_current_call`. The other picture's shape stays with the native
+/// views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallVideoView {
+    /// The call has a video line both ways: the camera button is enabled.
+    available: bool,
+    /// The user wants our camera on.
+    camera: bool,
+    /// The phone holds our camera (the app away, the call screen left).
+    paused: bool,
+    /// `front` or `back`.
+    facing: &'static str,
+    /// The other side's camera is on.
+    remote: bool,
+    /// The other side's phone holds its camera: its last picture is old.
+    remote_paused: bool,
+}
+
+impl From<VideoState> for CallVideoView {
+    fn from(state: VideoState) -> Self {
+        let facing = match state.facing {
+            Facing::Front => "front",
+            Facing::Back => "back",
+        };
+        Self {
+            available: state.available,
+            camera: state.camera,
+            paused: state.paused,
+            facing,
+            remote: state.remote,
+            remote_paused: state.remote_paused,
+        }
+    }
+}
+
+/// What the WebView gets when the camera may not be used: it keeps the call as voice.
+const CAMERA_DENIED: &str = "camera_denied";
+
+pub fn camera_or_denied(granted: bool) -> Result<(), String> {
+    if granted {
+        Ok(())
+    } else {
+        Err(CAMERA_DENIED.to_owned())
+    }
+}
+
+/// What the native bridge is told about the call's video (docs/video-nativo.md §4).
+#[derive(Debug, Clone, PartialEq)]
+pub enum BridgeVideo {
+    /// Whether the call has video now: CallKit's `hasVideo`, the notification's `setIsVideo`.
+    CallVideo(bool),
+    /// The call's views, under the WebView (iOS: its layers; Android: zeros).
+    Attach(Layers),
+    /// Where the WebView left room for the pictures.
+    Layout(VideoLayout),
+    /// How to lay the other picture out.
+    Shape(RemoteShape),
+    /// The views go, before the call's devices do.
+    Detach,
+}
+
+/// The views hidden: the WebView left the call screen.
+pub const HIDDEN: VideoLayout = VideoLayout { remote: None, local: None, mirror_local: false, local_radius: 0.0 };
+
+/// What the bridge was last told about the call's video: the bridge hears each thing once, in
+/// order (the views before where they go), and nothing about a call that ended.
+#[derive(Default)]
+pub struct VideoGlue {
+    /// The call whose video the bridge follows.
+    call: Option<String>,
+    /// The call whose views were taken away: its late states change nothing.
+    ended: Option<String>,
+    has_video: bool,
+    attached: bool,
+    shape: Option<RemoteShape>,
+    /// The WebView's latest layout, kept for when the views come (the call screen may lay them
+    /// out before the call has video, or an id).
+    layout: Option<VideoLayout>,
+    /// The camera ours is on, as the core last said: our preview is mirrored with the front one.
+    facing: Facing,
+}
+
+impl VideoGlue {
+    /// A new video state of `call`. `layers` are the views to attach: on iOS the call's layers,
+    /// once its devices exist; zeros on Android.
+    pub fn state(&mut self, call: &str, state: &VideoState, layers: Option<Layers>) -> Vec<BridgeVideo> {
+        if self.ended.as_deref() == Some(call) {
+            return Vec::new();
+        }
+        if self.call.as_deref() != Some(call) {
+            *self = Self { call: Some(call.to_owned()), layout: self.layout, ..Self::default() };
+        }
+        let mut told = Vec::new();
+        if state.any() != self.has_video {
+            self.has_video = state.any();
+            told.push(BridgeVideo::CallVideo(self.has_video));
+        }
+        let turned = state.facing != self.facing;
+        self.facing = state.facing;
+        if !self.attached && state.any() {
+            if let Some(layers) = layers {
+                self.attached = true;
+                told.push(BridgeVideo::Attach(layers));
+                told.extend(self.placed().map(BridgeVideo::Layout));
+            }
+        } else if self.attached && turned {
+            // The camera flipped: our preview's mirroring follows it at once.
+            told.extend(self.placed().map(BridgeVideo::Layout));
+        }
+        if self.attached && state.shape != self.shape {
+            self.shape = state.shape;
+            told.extend(state.shape.map(BridgeVideo::Shape));
+        }
+        told
+    }
+
+    /// Where the WebView left room for the pictures; `None` when it left the call screen.
+    pub fn layout(&mut self, layout: Option<VideoLayout>) -> Vec<BridgeVideo> {
+        self.layout = layout;
+        if self.attached {
+            vec![BridgeVideo::Layout(self.placed().unwrap_or(HIDDEN))]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The WebView's layout with our preview mirrored exactly with the front camera, whatever
+    /// facing the WebView last knew.
+    fn placed(&self) -> Option<VideoLayout> {
+        self.layout.map(|layout| VideoLayout { mirror_local: self.facing == Facing::Front, ..layout })
+    }
+
+    /// The call's video devices are about to go: its views go first.
+    pub fn end(&mut self) -> Vec<BridgeVideo> {
+        let attached = self.attached;
+        *self = Self { ended: self.call.take().or(self.ended.take()), layout: self.layout, ..Self::default() };
+        if attached {
+            vec![BridgeVideo::Detach]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+/// The call routing as Settings words it (`direct`, `auto`, `always`, §17).
+pub fn call_routing(routing: &str) -> Result<CallRouting, String> {
+    routing.parse().map_err(failed)
 }
 
 /// What the phone does about ringing after a call update (§66).
@@ -279,15 +519,25 @@ impl CallEvent {
 pub enum Ring {
     /// Ring and show the call on the screen; video calls say so.
     Start { video: bool },
+    /// Answered already, or being answered (2026-09-29): no ringing, on the phone or in the app;
+    /// the phone's own call screen learns who it is.
+    Answered,
     Stop,
     Nothing,
 }
 
-pub fn ringing(update: &CallUpdate) -> Ring {
+/// What the ringing does after `update`. `answered`: the core is answering the call already (it
+/// was answered on the phone's own screen before its offer came).
+pub fn ringing(update: &CallUpdate, answered: bool) -> Ring {
     match update {
+        CallUpdate::Incoming { .. } if answered => Ring::Answered,
+        CallUpdate::Answering => Ring::Answered,
         CallUpdate::Incoming { video, .. } => Ring::Start { video: *video },
         CallUpdate::Ended { .. } => Ring::Stop,
         CallUpdate::Answered { .. } => Ring::Nothing,
+        CallUpdate::Connected | CallUpdate::Muted { .. } | CallUpdate::MissedWhileBusy | CallUpdate::Video(_) | CallUpdate::CameraFailed => {
+            Ring::Nothing
+        }
     }
 }
 
@@ -514,6 +764,8 @@ pub struct Client {
     /// The web the core uses on someone else's behalf: the catalogue, and what a plugin is
     /// allowed to reach (§55–§56).
     web: ft_core::Web,
+    /// What the native bridge was told about the call's video (native video, 2026-09-29).
+    video: Arc<Mutex<VideoGlue>>,
 }
 
 impl Client {
@@ -598,6 +850,12 @@ impl Client {
         }
 
         if let Some(app) = self.app.get().cloned() {
+            // The call's video views go before its devices (on iOS the layers are theirs): the
+            // core runs this, off the async workers, right before it lets them go.
+            let (glue, app_for_views) = (self.video.clone(), app.clone());
+            online.core.set_video_detach(Some(Arc::new(move || tell_bridge(&app_for_views, &glue, VideoGlue::end))));
+            listen_native_calls(&app, &online);
+            let glue_for_events = self.video.clone();
             let mut events = online.core.events();
             let dir_for_events = dir.to_owned();
             let router_for_events = online.router.clone();
@@ -631,7 +889,14 @@ impl Client {
                             continue;
                         }
                         Event::Call { contact, call, update } => {
-                            match ringing(&update) {
+                            // Answered on the phone's own screen before its offer came: the core
+                            // is answering it, so it rings nowhere (2026-09-29).
+                            let current = match update {
+                                CallUpdate::Incoming { .. } | CallUpdate::Answering => core_for_events.current_call().await.ok().flatten(),
+                                _ => None,
+                            };
+                            let answered = matches!(update, CallUpdate::Incoming { .. }) && answered_already(current.as_ref(), &call);
+                            match ringing(&update, answered) {
                                 Ring::Start { video } => {
                                     // The screen says who is calling, so a call in the background
                                     // is more than a ringtone (§66).
@@ -644,9 +909,45 @@ impl Client {
                                 Ring::Stop => {
                                     let _ = app.platform().stop_ringing();
                                 }
+                                Ring::Answered => {
+                                    let name = core_for_events.store().contact(&contact).await.ok().flatten().map(|stored| stored.name).unwrap_or_default();
+                                    let video = current.as_ref().is_some_and(|current| current.video);
+                                    let _ = app.platform().call_answering(&name, video);
+                                }
                                 Ring::Nothing => {}
                             }
-                            let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
+                            // CallKit or the ongoing call notification shows the call too.
+                            match native_screen(&update) {
+                                NativeScreen::Connected => {
+                                    let _ = app.platform().call_connected();
+                                }
+                                NativeScreen::Ended => {
+                                    let _ = app.platform().call_ended();
+                                }
+                                NativeScreen::Nothing => {}
+                            }
+                            if let CallUpdate::Video(state) = update {
+                                // CallKit's `hasVideo`, the views under the WebView, the other
+                                // picture's shape (docs/video-nativo.md §4).
+                                let (app, glue, call) = (app.clone(), glue_for_events.clone(), call.clone());
+                                let _ = tauri::async_runtime::spawn_blocking(move || {
+                                    tell_bridge(&app, &glue, |glue| glue.state(&call, &state, video_layers()))
+                                })
+                                .await;
+                            }
+                            let name = update_name(&update);
+                            let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update).answered(answered));
+                            diagnose_call(&app, &core_for_events, &format!("update {name}")).await;
+                            if CALL_DIAGNOSTICS && name == "connected" {
+                                diagnose_call(&app, &core_for_events, &timings_line(core_for_events.call_timings())).await;
+                                // Whether the voice runs a moment later: on iOS it waits for CallKit.
+                                let (app, core) = (app.clone(), core_for_events.clone());
+                                tauri::async_runtime::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                                    diagnose_call(&app, &core, "3 s after connecting").await;
+                                    diagnose_call(&app, &core, &timings_line(core.call_timings())).await;
+                                });
+                            }
                             continue;
                         }
                     };
@@ -655,6 +956,336 @@ impl Client {
             });
         }
         Ok(online)
+    }
+}
+
+/// What the phone's own call screen says (2026-09-28): CallKit on iOS, the ongoing call
+/// notification on Android. It works with no WebView at all: a locked iPhone that PushKit woke
+/// answers here.
+fn listen_native_calls(app: &AppHandle, online: &Online) {
+    let (core, router, app_for_events) = (online.core.clone(), online.router.clone(), app.clone());
+    // iOS experiment: incoming calls reported as video calls, so answering opens the app.
+    let _ = app.platform().set_open_app_on_answer(open_app_on_answer(option_env!("FT_IOS_OPEN_APP_ON_ANSWER")));
+    // The handler runs on a native queue: it only hands the event over. They are handled in the
+    // order they came (an audio deactivation and activation must not swap); what may take long
+    // (answering, hanging up) goes on in the background.
+    let (events, mut queue) = tokio::sync::mpsc::unbounded_channel::<NativeCallEvent>();
+    app.platform().listen_calls(move |event| {
+        let _ = events.send(event);
+    });
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = queue.recv().await {
+            match reconnect_for(event) {
+                Reconnect::Now => router.reconnect_now(),
+                Reconnect::UnlessFresh => router.reconnect_unless_fresh(CALL_SOCKET_FRESH),
+                Reconnect::No => {}
+            }
+            let (core, app) = (core.clone(), app_for_events.clone());
+            if let Some(stage) = native_event_stage(event).filter(|_| CALL_DIAGNOSTICS) {
+                core.mark_call_stage(stage);
+            }
+            match event {
+                NativeCallEvent::Incoming => diagnose_call(&app, &core, "event incoming").await,
+                NativeCallEvent::Answer => {
+                    tauri::async_runtime::spawn(async move {
+                        diagnose_call(&app, &core, "event answer").await;
+                        if !microphone(&app).await {
+                            let failed = fail_current_call(&core).await;
+                            diagnose_outcome(&app, &core, "answer without a microphone", &failed).await;
+                            return;
+                        }
+                        // A video call's camera needs its permission: without it the call is voice.
+                        let video_call = ringing_video_call(&core).await;
+                        let camera_allowed = video_call.is_none() || camera(&app).await;
+                        match core.answer_ringing_call().await {
+                            Ok(answered) => {
+                                if let (true, Some(call), false) = (answered, video_call, camera_allowed) {
+                                    let _ = core.set_call_camera(&call, false).await;
+                                }
+                                diagnose_call(&app, &core, &format!("event answer: {}", answer_state(answered))).await
+                            }
+                            Err(error) => diagnose_outcome(&app, &core, "answer", &Err(error)).await,
+                        }
+                    });
+                }
+                NativeCallEvent::End => {
+                    tauri::async_runtime::spawn(async move {
+                        let ended = core.end_current_call().await;
+                        diagnose_outcome(&app, &core, "end", &ended).await;
+                    });
+                }
+                // Declined before its offer came, the call is declined as it arrives (2026-09-29).
+                NativeCallEvent::Decline => {
+                    tauri::async_runtime::spawn(async move {
+                        let declined = core.decline_ringing_call().await;
+                        diagnose_outcome(&app, &core, "decline", &declined).await;
+                    });
+                }
+                NativeCallEvent::Mute(muted) => {
+                    let _ = core.mute_current_call(muted).await;
+                }
+                NativeCallEvent::AudioActivated(generation) => {
+                    // A device that will not start is tried again, then fails the call (core).
+                    let started = core.set_call_audio_session(true, generation).await;
+                    diagnose_outcome(&app, &core, native_event_name(event), &started).await;
+                }
+                NativeCallEvent::AudioDeactivated(generation) => {
+                    let stopped = core.set_call_audio_session(false, generation).await;
+                    diagnose_outcome(&app, &core, native_event_name(event), &stopped).await;
+                }
+                // Native video (docs/video-nativo.md): away from the screen our camera is held.
+                NativeCallEvent::Visible(visible) => {
+                    let _ = core.set_app_visible(visible).await;
+                }
+                NativeCallEvent::Orientation(raw) => ft_media::views::set_orientation(raw),
+                // CallKit's video button, the notification's camera action: our camera, if allowed.
+                NativeCallEvent::VideoRequested => {
+                    tauri::async_runtime::spawn(async move {
+                        if camera(&app).await {
+                            let _ = core.request_call_video().await;
+                        }
+                    });
+                }
+            }
+        }
+    });
+}
+
+/// A socket to the router opened this recently is kept when a call event asks for one.
+const CALL_SOCKET_FRESH: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Whether a native call event asks for a fresh socket to the router.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reconnect {
+    Now,
+    UnlessFresh,
+    No,
+}
+
+/// A call push means the router found this phone offline (2026-09-28): iOS dropped the socket of
+/// the suspended app, whatever the app thinks, and only the WebView (which does not run in the
+/// background) used to ask to reconnect. CallKit's answer and the audio activation ask too, in
+/// case the push's reconnection did not get through, but keep a socket just opened: dropping it
+/// again could lose the call's offer in the gap.
+fn reconnect_for(event: NativeCallEvent) -> Reconnect {
+    match event {
+        NativeCallEvent::Incoming => Reconnect::Now,
+        // A decline waits for the offer as an answer does, to decline it.
+        NativeCallEvent::Answer | NativeCallEvent::Decline | NativeCallEvent::AudioActivated(_) => Reconnect::UnlessFresh,
+        NativeCallEvent::End
+        | NativeCallEvent::Mute(_)
+        | NativeCallEvent::AudioDeactivated(_)
+        | NativeCallEvent::Visible(_)
+        | NativeCallEvent::Orientation(_)
+        | NativeCallEvent::VideoRequested => Reconnect::No,
+    }
+}
+
+/// Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): a local debug
+/// switch, set at build time with `FT_IOS_OPEN_APP_ON_ANSWER=1`, off by default. With it, the
+/// bridge reports every incoming call to CallKit as a video call, so iOS opens the app on answer.
+fn open_app_on_answer(flag: Option<&str>) -> bool {
+    matches!(flag.map(str::trim), Some("1" | "true"))
+}
+
+/// Temporary call diagnostics (2026-09-28), to find why a native call's voice is one-way on the
+/// iPhone: state names go to the device log through the bridge (`os_log` subsystem
+/// `com.flickertalk.calls` on iOS, `Log` tag `FtCallDiag` on Android). To remove: set this to
+/// false, or delete it with `native_event_name`, `update_name`, `diagnose_call`, `device_counts`,
+/// `speaker_name`, `CAMERA_SWITCHED`, `diagnose_now_and_later`, `timings_line`,
+/// `native_event_stage` (and `ft_core::timings`) and their calls, and the
+/// `diagnose` command of the bridge.
+const CALL_DIAGNOSTICS: bool = true;
+
+fn native_event_name(event: NativeCallEvent) -> &'static str {
+    match event {
+        NativeCallEvent::Incoming => "incoming",
+        NativeCallEvent::Answer => "answer",
+        NativeCallEvent::End => "end",
+        NativeCallEvent::Decline => "decline",
+        NativeCallEvent::Mute(_) => "mute",
+        NativeCallEvent::AudioActivated(_) => "audio activated",
+        NativeCallEvent::AudioDeactivated(_) => "audio deactivated",
+        NativeCallEvent::Visible(_) => "visible",
+        NativeCallEvent::Orientation(_) => "orientation",
+        NativeCallEvent::VideoRequested => "video requested",
+    }
+}
+
+/// The call setup timings, for the device log (diagnostics).
+fn timings_line(timings: Option<ft_core::timings::CallTimings>) -> String {
+    format!("timings: {}", timings.unwrap_or_default().line())
+}
+
+/// The setup stage a native event marks (diagnostics): the push that rang, the user's answer.
+fn native_event_stage(event: NativeCallEvent) -> Option<ft_core::timings::CallStage> {
+    match event {
+        NativeCallEvent::Incoming => Some(ft_core::timings::CallStage::PushReceived),
+        NativeCallEvent::Answer => Some(ft_core::timings::CallStage::AnswerTapped),
+        _ => None,
+    }
+}
+
+/// What CallKit's answer did in the core (diagnostics).
+fn answer_state(answered: bool) -> &'static str {
+    if answered {
+        "answered"
+    } else {
+        "nothing to answer yet (waits for the offer)"
+    }
+}
+
+/// Where the core's call stands, and whether it is a video call (diagnostics): no identifiers.
+fn phase_name(phase: Option<(CallPhase, bool)>) -> String {
+    let Some((phase, video)) = phase else { return "no call".to_owned() };
+    let name = match phase {
+        CallPhase::Calling => "calling",
+        CallPhase::Ringing => "ringing",
+        CallPhase::Connecting => "connecting",
+        CallPhase::Active => "active",
+    };
+    if video {
+        format!("{name} video")
+    } else {
+        name.to_owned()
+    }
+}
+
+fn update_name(update: &CallUpdate) -> &'static str {
+    match update {
+        CallUpdate::Incoming { .. } => "incoming",
+        CallUpdate::Answered { .. } => "answered",
+        CallUpdate::Answering => "answering",
+        CallUpdate::Ended { .. } => "ended",
+        CallUpdate::Connected => "connected",
+        CallUpdate::Muted { .. } => "muted",
+        CallUpdate::MissedWhileBusy => "missed while busy",
+        CallUpdate::Video(_) => "video",
+        CallUpdate::CameraFailed => "camera failed",
+    }
+}
+
+/// How a native event went, for the device log. Only an audio device's error is written (an
+/// OSStatus, say): others may come from the network and name a device.
+async fn diagnose_outcome(app: &AppHandle, core: &Core, what: &str, outcome: &anyhow::Result<()>) {
+    let audio = what.starts_with("audio");
+    match outcome {
+        Ok(()) => diagnose_call(app, core, &format!("event {what} ok")).await,
+        Err(error) if audio => diagnose_call(app, core, &format!("event {what} failed: {error}")).await,
+        Err(_) => diagnose_call(app, core, &format!("event {what} failed")).await,
+    }
+}
+
+/// The voice's device counters (diagnostics). Dropped capture and underruns start again at zero
+/// each time the streams reopen; the stream errors add up over the call, and on Android each one
+/// reopens both streams (a route or device change, for example). The camera has none here.
+fn device_counts(stats: Option<ft_media::DeviceStats>) -> String {
+    match stats {
+        Some(stats) => format!(
+            "; audio capture dropped={} playout underruns={} audio stream errors={}",
+            stats.capture_dropped, stats.playout_underruns, stats.errors
+        ),
+        None => String::new(),
+    }
+}
+
+/// The speaker change, for the device log: it may move the audio route (diagnostics).
+fn speaker_name(on: bool) -> &'static str {
+    if on {
+        "speaker on"
+    } else {
+        "speaker off"
+    }
+}
+
+/// The camera flip, for the device log (diagnostics).
+const CAMERA_SWITCHED: &str = "camera switched";
+
+/// Writes `what` now and again a second later (diagnostics): AAudio reports a route change on its
+/// own thread, a little after the change.
+fn diagnose_now_and_later(app: &AppHandle, core: Arc<Core>, what: &'static str) {
+    if !CALL_DIAGNOSTICS {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        diagnose_call(&app, &core, what).await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        diagnose_call(&app, &core, &format!("1 s after {what}")).await;
+    });
+}
+
+/// Writes a call state and whether the voice's device runs to the device log (diagnostics).
+async fn diagnose_call(app: &AppHandle, core: &Core, what: &str) {
+    if !CALL_DIAGNOSTICS {
+        return;
+    }
+    let running = core.call_device_running().await;
+    let app = app.clone();
+    let counts = device_counts(ft_media::device_stats());
+    let phase = core.current_call().await.ok().flatten().map(|current| (current.phase, current.video));
+    let line = format!("{what}; call {}; device running={running}{counts}", phase_name(phase));
+    // Off the async workers: the bridge blocks until the native side answers.
+    let _ = tauri::async_runtime::spawn_blocking(move || app.platform().diagnose(&line)).await;
+}
+
+/// Whether the app may use the microphone, asking if it has not been asked yet. Off the main
+/// thread: the bridge would deadlock there, and the question waits for the user.
+async fn microphone(app: &AppHandle) -> bool {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || app.platform().request_microphone()).await.ok().and_then(Result::ok).unwrap_or(false)
+}
+
+/// Whether the app may use the camera, asking if it has not been asked yet (native video). Off the
+/// main thread, like the microphone.
+async fn camera(app: &AppHandle) -> bool {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || app.platform().request_camera()).await.ok().and_then(Result::ok).unwrap_or(false)
+}
+
+/// The ringing call, if it is a video call: its camera needs the permission.
+async fn ringing_video_call(core: &Core) -> Option<String> {
+    let current = core.current_call().await.ok().flatten()?;
+    (current.phase == CallPhase::Ringing && current.video).then_some(current.call)
+}
+
+/// The views to attach: on iOS the call's layers, once its devices exist; on Android the Kotlin
+/// side makes its own views and hands their surfaces over (zeros).
+fn video_layers() -> Option<Layers> {
+    if cfg!(target_os = "ios") {
+        ft_media::views::layers()
+    } else {
+        Some(Layers { remote: 0, local: 0 })
+    }
+}
+
+/// Moves the glue a step and tells the bridge what it says, in order, under the glue's lock: the
+/// views never come after they went. Blocking: the bridge waits for the native side.
+fn tell_bridge(app: &AppHandle, glue: &Mutex<VideoGlue>, step: impl FnOnce(&mut VideoGlue) -> Vec<BridgeVideo>) {
+    let mut glue = glue.lock().unwrap_or_else(PoisonError::into_inner);
+    for told in step(&mut glue) {
+        let platform = app.platform();
+        let _ = match told {
+            BridgeVideo::CallVideo(on) => platform.call_video(on),
+            BridgeVideo::Attach(layers) => platform.attach_video(layers.remote, layers.local),
+            BridgeVideo::Layout(layout) => platform.video_layout(&layout),
+            BridgeVideo::Shape(shape) => platform.video_shape(shape.width, shape.height, shape.rotation),
+            BridgeVideo::Detach => platform.detach_video(),
+        };
+    }
+}
+
+/// Whether the core is answering `call` already, as it says of the call going on: it rings no
+/// more (answered on the phone's own screen, maybe before its offer came).
+fn answered_already(current: Option<&ft_core::CurrentCall>, call: &str) -> bool {
+    current.is_some_and(|current| current.call == call && !current.outgoing && current.phase != CallPhase::Ringing)
+}
+
+/// Without a microphone the call cannot go on: it ends as failed, which the other side hears.
+async fn fail_current_call(core: &Core) -> anyhow::Result<()> {
+    match core.current_call().await? {
+        Some(current) => core.end_call(&current.call, true).await,
+        None => Ok(()),
     }
 }
 
@@ -1772,12 +2403,6 @@ fn forget_old_prints(dir: &Path, keep: &Path) {
     }
 }
 
-/// What the user pressed on the incoming call notification: "answer", "decline" or nothing (§66).
-#[tauri::command]
-pub async fn core_pending_call(app: AppHandle) -> Result<String, String> {
-    Ok(app.platform().pending_call().unwrap_or_default())
-}
-
 /// Opens the phone's share sheet with a text, such as the Contact Card link (§32). Fails where
 /// there is none (desktop): the UI copies the link instead.
 #[tauri::command]
@@ -1869,7 +2494,130 @@ pub async fn core_call_answer(call: String, sdp: String, app: AppHandle, client:
     Ok(())
 }
 
-/// Hangs up, declines or gives up; `failed` when the media could not connect.
+/// Whether voice calls run natively on this phone (iOS and Android; 2026-09-28). The desktop
+/// keeps the WebView's media.
+#[tauri::command]
+pub async fn core_native_calls(client: State<'_, Client>) -> Result<bool, String> {
+    Ok(client.core().await?.native_calls())
+}
+
+/// Places a call whose media runs in Rust; returns its id at once, the offer goes on in the
+/// background. The phone's call screen (CallKit) owns the audio session of the call. A `video`
+/// call turns our camera on as it connects; without the camera allowed it fails with
+/// `camera_denied`, and the WebView places it as voice.
+#[tauri::command]
+pub async fn core_call_start_native(contact: String, routing: String, video: bool, app: AppHandle, client: State<'_, Client>) -> Result<String, String> {
+    let routing = call_routing(&routing)?;
+    if !microphone(&app).await {
+        return Err("the microphone is not allowed".to_owned());
+    }
+    if video {
+        camera_or_denied(camera(&app).await)?;
+    }
+    let core = client.core().await?;
+    let call = core.start_native_call(&contact, routing, video).await.map_err(failed)?;
+    let name = core.store().contact(&contact).await.ok().flatten().map(|stored| stored.name).unwrap_or_default();
+    let _ = app.platform().call_started_outgoing(&name, video);
+    Ok(call)
+}
+
+/// Answers the ringing voice call with our voice in Rust. On iOS CallKit answers it (2026-09-28):
+/// its `Answer` event answers in the core, so the in-app button and the lock screen take the same
+/// path and the system activates the audio session for both.
+#[tauri::command]
+///
+/// A video call turns our camera on as it connects. Without the camera allowed it is answered all
+/// the same, as voice, and the WebView hears `camera_denied`.
+pub async fn core_call_answer_native(call: String, routing: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let routing = call_routing(&routing)?;
+    let core = client.core().await?;
+    // The routing the core answers with, whoever answers.
+    core.set_call_routing(routing).await.map_err(failed)?;
+    // Asked here, with the app on the screen: CallKit's answer asks again and knows by then.
+    let video_call = ringing_video_call(&core).await.is_some_and(|ringing| ringing == call);
+    let camera_allowed = !video_call || camera(&app).await;
+    if app.platform().answer_call().unwrap_or(false) {
+        return camera_or_denied(camera_allowed);
+    }
+    let _ = app.platform().stop_ringing();
+    tauri::async_runtime::spawn(async move {
+        if !microphone(&app).await {
+            let _ = core.end_call(&call, true).await;
+            return;
+        }
+        if core.answer_native_call(&call, routing).await.is_ok() && !camera_allowed {
+            let _ = core.set_call_camera(&call, false).await;
+        }
+    });
+    camera_or_denied(camera_allowed)
+}
+
+/// Turns our camera on or off in a native call (native video, 2026-09-29): switching between
+/// voice and video, with no new offer. On asks for the camera first: `camera_denied` if it may
+/// not be used. Before the call connects, it is kept for then.
+#[tauri::command]
+pub async fn core_call_set_video(call: String, on: bool, app: AppHandle, client: State<'_, Client>) -> Result<CallVideoView, String> {
+    if on {
+        camera_or_denied(camera(&app).await)?;
+    }
+    let state = client.core().await?.set_call_camera(&call, on).await.map_err(failed)?;
+    Ok(CallVideoView::from(state))
+}
+
+/// The other camera: front to back and back again.
+#[tauri::command]
+pub async fn core_call_switch_camera(call: String, app: AppHandle, client: State<'_, Client>) -> Result<CallVideoView, String> {
+    let core = client.core().await?;
+    let state = core.switch_call_camera(&call).await.map_err(failed)?;
+    diagnose_now_and_later(&app, core, CAMERA_SWITCHED);
+    Ok(CallVideoView::from(state))
+}
+
+/// Where the call screen leaves room for the pictures, or `null` when it does not show them (it
+/// is left): the views hide and our camera is held. It may come before the call has video, or
+/// an id: the latest is kept for when the views come.
+#[tauri::command]
+pub async fn core_call_video_layout(layout: Option<VideoLayout>, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    let glue = client.video.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || tell_bridge(&app, &glue, |glue| glue.layout(layout))).await;
+    if let Ok(core) = client.core().await {
+        let _ = core.set_call_shown(layout.is_some()).await;
+    }
+    Ok(())
+}
+
+/// The call's voice on the speaker or the receiver (2026-09-28).
+#[tauri::command]
+pub async fn core_call_speaker(on: bool, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    app.platform().set_speaker(on).map_err(|error| error.to_string())?;
+    if let Ok(core) = client.core().await {
+        diagnose_now_and_later(&app, core, speaker_name(on));
+    }
+    Ok(())
+}
+
+/// Mutes or unmutes our voice in a native call.
+#[tauri::command]
+pub async fn core_call_mute(call: String, muted: bool, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.mute_call(&call, muted).await.map_err(failed)
+}
+
+/// The routing chosen in Settings, kept in the core for calls answered with no WebView (§17).
+#[tauri::command]
+pub async fn core_set_call_routing(routing: String, client: State<'_, Client>) -> Result<(), String> {
+    let routing = call_routing(&routing)?;
+    client.core().await?.set_call_routing(routing).await.map_err(failed)
+}
+
+/// The ringing or active call, if any: the core may have heard it, or answered it from CallKit,
+/// before the WebView was there.
+#[tauri::command]
+pub async fn core_current_call(client: State<'_, Client>) -> Result<Option<CurrentCallView>, String> {
+    Ok(client.core().await?.current_call().await.map_err(failed)?.map(CurrentCallView::from))
+}
+
+/// Hangs up, declines or gives up; `failed` when the media could not connect. A native call's
+/// voice stops with it.
 #[tauri::command]
 pub async fn core_call_end(call: String, failed: bool, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let _ = app.platform().stop_ringing();
@@ -2423,7 +3171,23 @@ pub async fn core_plugin_may_use_drive(plugin: String, client: State<'_, Client>
 mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
 
+    use ft_media::{Facing, Layers, RemoteShape, VideoState};
+    use tauri_plugin_ft_platform::{VideoLayout, VideoRect};
+
     use super::*;
+
+    // Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): off unless
+    // the build set FT_IOS_OPEN_APP_ON_ANSWER to 1 (or true).
+    #[test]
+    fn the_open_app_on_answer_switch_is_off_unless_the_build_turns_it_on() {
+        assert!(!open_app_on_answer(None));
+        assert!(!open_app_on_answer(Some("")));
+        assert!(!open_app_on_answer(Some("0")));
+        assert!(!open_app_on_answer(Some("false")));
+        assert!(open_app_on_answer(Some("1")));
+        assert!(open_app_on_answer(Some("true")));
+        assert!(open_app_on_answer(Some(" 1\n")));
+    }
 
     // iPhones are woken through APNs, the rest through FCM (2026-09-28): the router is told which.
     #[test]
@@ -2632,6 +3396,367 @@ mod tests {
         let ended = serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Ended { outcome: CallOutcome::Busy })).unwrap();
         assert_eq!((ended["kind"].as_str(), ended["outcome"].as_str()), (Some("ended"), Some("busy")));
         assert!(ended.get("sdp").is_none());
+        // A native call (2026-09-28): the core says when its media connected and when it was muted.
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Connected)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "connected"
+        }));
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Muted { muted: true })).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "muted", "muted": true
+        }));
+    }
+
+    // The phone's own call screen (CallKit, the ongoing call notification) follows the call.
+    #[test]
+    fn the_native_call_screen_hears_when_a_call_connects_and_ends() {
+        assert_eq!(native_screen(&CallUpdate::Connected), NativeScreen::Connected);
+        assert_eq!(native_screen(&CallUpdate::Ended { outcome: CallOutcome::Answered }), NativeScreen::Ended);
+        assert_eq!(native_screen(&CallUpdate::Answered { sdp: String::new() }), NativeScreen::Nothing);
+        assert_eq!(native_screen(&CallUpdate::Muted { muted: true }), NativeScreen::Nothing);
+        assert_eq!(native_screen(&CallUpdate::Incoming { video: false, sdp: String::new() }), NativeScreen::Nothing);
+    }
+
+    // Bug of 2026-09-29: a contact who called during another call was refused as busy, and its
+    // end also ended the call going on in CallKit (and its audio) and stopped its ringing. Only the
+    // history changes now; the WebView hears an end of another call, which it only logs.
+    #[test]
+    fn a_call_refused_as_busy_leaves_the_phone_s_call_screen_alone() {
+        assert_eq!(native_screen(&CallUpdate::MissedWhileBusy), NativeScreen::Nothing);
+        assert_eq!(ringing(&CallUpdate::MissedWhileBusy, false), Ring::Nothing);
+        let event = serde_json::to_value(CallEvent::new("ft_carol", "c2", CallUpdate::MissedWhileBusy)).unwrap();
+        assert_eq!(event, serde_json::json!({ "contact": "ft_carol", "call": "c2", "kind": "ended", "outcome": "missed" }));
+        assert_eq!(update_name(&CallUpdate::MissedWhileBusy), "missed while busy");
+    }
+
+    // Bug of 2026-09-28: a suspended iPhone rang through PushKit and was answered, but its socket
+    // to the router was dead and only the WebView (not running) asked to reconnect: the offer and
+    // the caller's end never came. The push, the answer and the audio activation reconnect now.
+    #[test]
+    fn a_call_push_the_answer_and_the_audio_activation_reconnect_to_the_router() {
+        // The push means the router has no live socket for this phone: whatever this phone
+        // thinks, its socket is dead (iOS may suspend the app right after opening it).
+        assert_eq!(reconnect_for(NativeCallEvent::Incoming), Reconnect::Now);
+        assert_eq!(reconnect_for(NativeCallEvent::Answer), Reconnect::UnlessFresh);
+        assert_eq!(reconnect_for(NativeCallEvent::AudioActivated(1)), Reconnect::UnlessFresh);
+        assert_eq!(reconnect_for(NativeCallEvent::End), Reconnect::No);
+        assert_eq!(reconnect_for(NativeCallEvent::Mute(true)), Reconnect::No);
+        assert_eq!(reconnect_for(NativeCallEvent::AudioDeactivated(1)), Reconnect::No);
+        assert_eq!(reconnect_for(NativeCallEvent::Visible(true)), Reconnect::No);
+        assert_eq!(reconnect_for(NativeCallEvent::Orientation(3)), Reconnect::No);
+        assert_eq!(reconnect_for(NativeCallEvent::VideoRequested), Reconnect::No);
+        assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
+    }
+
+    // Bug of 2026-09-29 (Android with the app closed, the iPhone with it open): a call answered on
+    // the phone's own screen rang again, on the phone and in the app, and asked for a second
+    // answer. A call the core answered before its offer came does not ring when the offer
+    // arrives, and a ringing call stops ringing the moment it is answered, not when it connects.
+    #[test]
+    fn an_answered_call_never_rings() {
+        assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }, true), Ring::Answered);
+        assert_eq!(ringing(&CallUpdate::Answering, false), Ring::Answered);
+        assert_eq!(native_screen(&CallUpdate::Answering), NativeScreen::Nothing);
+        assert_eq!(update_name(&CallUpdate::Answering), "answering");
+    }
+
+    // The WebView hears it too, wherever it is: `answering` for a ringing call, and an incoming
+    // call answered already says so, so that it never shows its ringing screen.
+    #[test]
+    fn the_webview_hears_that_a_call_is_answered_the_moment_it_is() {
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Answering)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "answering"
+        }));
+        let early = CallEvent::new("ft_bob", "c1", CallUpdate::Incoming { video: false, sdp: "offer".to_owned() }).answered(true);
+        assert_eq!(serde_json::to_value(early).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "incoming", "video": false, "sdp": "offer", "answered": true
+        }));
+    }
+
+    // What the core says of the call whose offer just arrived: answered already when it is not
+    // ringing (it is being answered).
+    #[test]
+    fn a_call_is_answered_already_when_the_core_is_answering_it() {
+        let current = |phase| ft_core::CurrentCall {
+            call: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: false,
+            outgoing: false,
+            phase,
+            offer: None,
+            native: false,
+            muted: false,
+            connected_at: None,
+            video_state: None,
+        };
+        assert!(answered_already(Some(&current(ft_core::CallPhase::Connecting)), "c1"));
+        assert!(!answered_already(Some(&current(ft_core::CallPhase::Ringing)), "c1"));
+        assert!(!answered_already(Some(&current(ft_core::CallPhase::Connecting)), "c2"), "another call");
+        assert!(!answered_already(None, "c1"));
+    }
+
+    // A decline needs the offer to come, to decline it: like an answer, it asks for a fresh socket.
+    #[test]
+    fn a_decline_asks_for_the_router_and_is_named() {
+        assert_eq!(reconnect_for(NativeCallEvent::Decline), Reconnect::UnlessFresh);
+        assert_eq!(native_event_name(NativeCallEvent::Decline), "decline");
+    }
+
+    // Temporary call diagnostics (2026-09-28): state names only, nothing about who.
+    #[test]
+    fn call_diagnostics_name_states_only() {
+        assert_eq!(native_event_name(NativeCallEvent::Incoming), "incoming");
+        assert_eq!(native_event_name(NativeCallEvent::Answer), "answer");
+        assert_eq!(native_event_name(NativeCallEvent::End), "end");
+        assert_eq!(native_event_name(NativeCallEvent::Mute(true)), "mute");
+        assert_eq!(native_event_name(NativeCallEvent::AudioActivated(1)), "audio activated");
+        assert_eq!(native_event_name(NativeCallEvent::AudioDeactivated(1)), "audio deactivated");
+        assert_eq!(update_name(&CallUpdate::Connected), "connected");
+        assert_eq!(update_name(&CallUpdate::Ended { outcome: CallOutcome::Failed }), "ended");
+        assert_eq!(update_name(&CallUpdate::Incoming { video: false, sdp: "v=0 secret".to_owned() }), "incoming");
+        // 2026-09-29: what CallKit's answer did, and where the call stood, for the answers that
+        // sometimes did nothing.
+        assert_eq!(answer_state(true), "answered");
+        assert_eq!(answer_state(false), "nothing to answer yet (waits for the offer)");
+        assert_eq!(phase_name(None), "no call");
+        assert_eq!(phase_name(Some((ft_core::CallPhase::Ringing, false))), "ringing");
+        assert_eq!(phase_name(Some((ft_core::CallPhase::Active, true))), "active video");
+    }
+
+    // A WebView that comes up after the call started (PushKit launched the app, CallKit answered)
+    // finds it in the core.
+    #[test]
+    fn the_current_call_reaches_a_late_webview() {
+        let ringing = ft_core::CurrentCall {
+            call: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: false,
+            outgoing: false,
+            phase: ft_core::CallPhase::Ringing,
+            offer: Some("offer".to_owned()),
+            native: false,
+            muted: false,
+            connected_at: None,
+            video_state: None,
+        };
+        let no_video = serde_json::json!({
+            "available": false, "camera": false, "paused": false, "facing": "front", "remote": false, "remotePaused": false
+        });
+        assert_eq!(serde_json::to_value(CurrentCallView::from(ringing.clone())).unwrap(), serde_json::json!({
+            "call": "c1", "contact": "ft_bob", "video": no_video, "outgoing": false, "phase": "ringing",
+            "offer": "offer", "native": false, "muted": false
+        }));
+        let active = ft_core::CurrentCall { phase: ft_core::CallPhase::Active, offer: None, native: true, muted: true, connected_at: Some(7), ..ringing.clone() };
+        let view = serde_json::to_value(CurrentCallView::from(active)).unwrap();
+        assert_eq!((view["phase"].as_str(), view["connectedAt"].as_i64(), view["muted"].as_bool()), (Some("active"), Some(7), Some(true)));
+        assert!(view.get("offer").is_none());
+    }
+
+    // Native video (2026-09-29): `video` is the call's video as `kind: "video"` says it. A call
+    // with no native video yet (it rings, or it is the WebView's) wants our camera when it is a
+    // video call, so the WebView still tells a video call from a voice call.
+    #[test]
+    fn the_current_call_carries_its_video() {
+        let ringing = ft_core::CurrentCall {
+            call: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: true,
+            outgoing: false,
+            phase: ft_core::CallPhase::Ringing,
+            offer: Some("offer".to_owned()),
+            native: false,
+            muted: false,
+            connected_at: None,
+            video_state: None,
+        };
+        let view = serde_json::to_value(CurrentCallView::from(ringing.clone())).unwrap();
+        assert_eq!(view["video"]["camera"], true, "a video call wants our camera: {view}");
+        assert_eq!(view["video"]["available"], false);
+        let state = VideoState { available: true, camera: false, remote: true, remote_paused: true, ..VideoState::default() };
+        let active = ft_core::CurrentCall { phase: ft_core::CallPhase::Active, native: true, video_state: Some(state), ..ringing };
+        assert_eq!(serde_json::to_value(CurrentCallView::from(active)).unwrap()["video"], serde_json::json!({
+            "available": true, "camera": false, "paused": false, "facing": "front", "remote": true, "remotePaused": true
+        }));
+    }
+
+    // Native video (docs/video-nativo.md §4): the call's video reaches the WebView as a whole
+    // state, never a change; the other picture's shape is only the native views' business.
+    #[test]
+    fn the_call_s_video_reaches_the_webview_as_a_whole_state() {
+        let state = VideoState {
+            available: true,
+            camera: true,
+            paused: false,
+            facing: Facing::Back,
+            remote: true,
+            remote_paused: true,
+            shape: Some(RemoteShape { width: 640, height: 480, rotation: 90 }),
+        };
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Video(state))).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "video", "available": true, "camera": true, "paused": false,
+            "facing": "back", "remote": true, "remotePaused": true
+        }));
+        assert_eq!(serde_json::to_value(CallVideoView::from(VideoState::default())).unwrap(), serde_json::json!({
+            "available": false, "camera": false, "paused": false, "facing": "front", "remote": false, "remotePaused": false
+        }));
+        assert_eq!(native_screen(&CallUpdate::Video(state)), NativeScreen::Nothing);
+        assert_eq!(ringing(&CallUpdate::Video(state), false), Ring::Nothing);
+        assert_eq!(update_name(&CallUpdate::Video(state)), "video");
+    }
+
+    // A camera that could not start as the call connected (2026-09-29): the WebView says so, and
+    // the phone's own call screen and ringing are not touched.
+    #[test]
+    fn a_camera_that_could_not_start_reaches_the_webview() {
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::CameraFailed)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "camera_failed"
+        }));
+        assert_eq!(native_screen(&CallUpdate::CameraFailed), NativeScreen::Nothing);
+        assert_eq!(ringing(&CallUpdate::CameraFailed, false), Ring::Nothing);
+    }
+
+    // Call setup timings (2026-09-29): the device log gets the stages and their milliseconds.
+    #[test]
+    fn the_call_setup_timings_go_to_the_device_log_as_one_line() {
+        use ft_core::timings::{CallStage, CallTimings};
+        let timings = CallTimings { stages: vec![(CallStage::AnswerTapped, 0), (CallStage::Connected, 700)], candidates: None, link: None };
+        assert_eq!(timings_line(Some(timings)), "timings: answer tapped 0 ms, connected 700 ms");
+        assert_eq!(timings_line(None), "timings: no call timings");
+        assert_eq!(native_event_stage(NativeCallEvent::Incoming), Some(CallStage::PushReceived));
+        assert_eq!(native_event_stage(NativeCallEvent::Answer), Some(CallStage::AnswerTapped));
+        assert_eq!(native_event_stage(NativeCallEvent::End), None);
+        assert_eq!(native_event_stage(NativeCallEvent::AudioActivated(1)), None);
+    }
+
+    // Temporary call diagnostics: the counters say they are the audio device's (an AAudio or
+    // VoiceProcessingIO stream error, which reopens the streams), not the camera's.
+    #[test]
+    fn the_diagnostic_counts_name_the_audio_streams() {
+        let stats = ft_media::DeviceStats { capture_dropped: 2, playout_underruns: 3, errors: 1 };
+        assert_eq!(device_counts(Some(stats)), "; audio capture dropped=2 playout underruns=3 audio stream errors=1");
+        assert_eq!(device_counts(None), "");
+    }
+
+    // A speaker change or a camera flip may move the audio route: the log marks both, so a
+    // stream error falls between two named lines.
+    #[test]
+    fn the_diagnostics_name_the_speaker_and_the_flip() {
+        assert_eq!(speaker_name(true), "speaker on");
+        assert_eq!(speaker_name(false), "speaker off");
+        assert_eq!(CAMERA_SWITCHED, "camera switched");
+    }
+
+    // The WebView tells a denied camera by this word (`core_call_set_video`, and a video call's
+    // start or answer).
+    #[test]
+    fn a_denied_camera_says_camera_denied() {
+        assert_eq!(camera_or_denied(true), Ok(()));
+        assert_eq!(camera_or_denied(false), Err("camera_denied".to_owned()));
+    }
+
+    fn laid_out() -> VideoLayout {
+        VideoLayout {
+            remote: Some(VideoRect { x: 0.0, y: 0.0, width: 390.0, height: 844.0 }),
+            local: Some(VideoRect { x: 278.0, y: 594.0, width: 96.0, height: 140.0 }),
+            mirror_local: true,
+            local_radius: 16.0,
+        }
+    }
+
+    // The layout as the WebView sends it to `core_call_video_layout` (`src/calls.ts`,
+    // `VideoLayout`): CSS pixels, a picture it does not show as `null`, and `null` for the whole
+    // layout when it leaves the call screen.
+    #[test]
+    fn the_webview_s_layout_is_read_as_it_sends_it() {
+        let sent = serde_json::json!({
+            "remote": { "x": 0, "y": 0, "width": 390, "height": 844 },
+            "local": { "x": 278, "y": 594, "width": 96, "height": 140 },
+            "mirrorLocal": true,
+            "localRadius": 16
+        });
+        assert_eq!(serde_json::from_value::<Option<VideoLayout>>(sent).unwrap(), Some(laid_out()));
+        let voice = serde_json::json!({ "remote": null, "local": null, "mirrorLocal": false, "localRadius": 0 });
+        assert_eq!(serde_json::from_value::<Option<VideoLayout>>(voice).unwrap(), Some(HIDDEN));
+        assert_eq!(serde_json::from_value::<Option<VideoLayout>>(serde_json::Value::Null).unwrap(), None, "left the call screen");
+    }
+
+    const LAYERS: Layers = Layers { remote: 0x10, local: 0x20 };
+
+    // Native video (docs/video-nativo.md §4): the bridge hears when the call has video (CallKit's
+    // `hasVideo`), gets the views once, where the WebView left room for them, and the other
+    // picture's shape; the views go when the call ends.
+    #[test]
+    fn the_bridge_attaches_the_views_once_the_call_has_video_and_follows_it() {
+        let mut glue = VideoGlue::default();
+        let voice = VideoState { available: true, ..VideoState::default() };
+        assert_eq!(glue.state("c1", &voice, Some(LAYERS)), vec![], "a voice call shows nothing");
+        assert_eq!(glue.layout(Some(laid_out())), vec![], "laid out before there is video: kept for then");
+        let theirs = VideoState { remote: true, ..voice };
+        assert_eq!(
+            glue.state("c1", &theirs, Some(LAYERS)),
+            vec![BridgeVideo::CallVideo(true), BridgeVideo::Attach(LAYERS), BridgeVideo::Layout(laid_out())]
+        );
+        assert_eq!(glue.state("c1", &VideoState { camera: true, ..theirs }, Some(LAYERS)), vec![], "attached once, and CallKit knows");
+        let shape = RemoteShape { width: 640, height: 480, rotation: 90 };
+        let shaped = VideoState { shape: Some(shape), ..theirs };
+        assert_eq!(glue.state("c1", &shaped, Some(LAYERS)), vec![BridgeVideo::Shape(shape)]);
+        assert_eq!(glue.state("c1", &shaped, Some(LAYERS)), vec![], "the same shape again");
+        let moved = VideoLayout { local: None, ..laid_out() };
+        assert_eq!(glue.layout(Some(moved)), vec![BridgeVideo::Layout(moved)]);
+        assert_eq!(glue.layout(None), vec![BridgeVideo::Layout(HIDDEN)], "off the call screen the views hide");
+        let voice_again = VideoState { shape: Some(shape), ..voice };
+        assert_eq!(glue.state("c1", &voice_again, Some(LAYERS)), vec![BridgeVideo::CallVideo(false)], "the views stay until the end");
+        assert_eq!(glue.end(), vec![BridgeVideo::Detach]);
+        assert_eq!(glue.state("c1", &theirs, Some(LAYERS)), vec![], "a late state of the call that ended");
+        assert_eq!(glue.end(), vec![], "taken away once");
+    }
+
+    // iOS: the layers exist once the call's devices do; the views wait for them. The next call
+    // starts afresh.
+    #[test]
+    fn the_views_wait_for_the_call_s_layers() {
+        let mut glue = VideoGlue::default();
+        let theirs = VideoState { remote: true, ..VideoState::default() };
+        assert_eq!(glue.state("c1", &theirs, None), vec![BridgeVideo::CallVideo(true)]);
+        assert_eq!(glue.state("c1", &theirs, Some(LAYERS)), vec![BridgeVideo::Attach(LAYERS)], "nothing laid out yet");
+        assert_eq!(glue.end(), vec![BridgeVideo::Detach]);
+        assert_eq!(glue.state("c2", &theirs, Some(LAYERS)), vec![BridgeVideo::CallVideo(true), BridgeVideo::Attach(LAYERS)]);
+    }
+
+    // The camera flip (docs/video-nativo.md §3): our preview is mirrored exactly with the front
+    // camera. The glue takes the facing from the core's state, not from the WebView's last word,
+    // and places the views again as soon as the camera turns (iOS mirrors only by `mirrorLocal`).
+    #[test]
+    fn our_preview_is_mirrored_only_with_the_front_camera() {
+        let mut glue = VideoGlue::default();
+        let front = VideoState { available: true, camera: true, ..VideoState::default() };
+        let unmirrored = VideoLayout { mirror_local: false, ..laid_out() };
+        assert_eq!(glue.layout(Some(unmirrored)), vec![]);
+        assert_eq!(
+            glue.state("c1", &front, Some(LAYERS)),
+            vec![BridgeVideo::CallVideo(true), BridgeVideo::Attach(LAYERS), BridgeVideo::Layout(laid_out())],
+            "the front camera is mirrored"
+        );
+        let back = VideoState { facing: Facing::Back, ..front };
+        assert_eq!(glue.state("c1", &back, Some(LAYERS)), vec![BridgeVideo::Layout(unmirrored)], "flipped to the back: not mirrored, at once");
+        assert_eq!(glue.layout(Some(laid_out())), vec![BridgeVideo::Layout(unmirrored)], "a late layout from before the flip");
+        assert_eq!(glue.state("c1", &front, Some(LAYERS)), vec![BridgeVideo::Layout(laid_out())], "and back to the front");
+        assert_eq!(glue.layout(None), vec![BridgeVideo::Layout(HIDDEN)]);
+        assert_eq!(glue.state("c1", &back, Some(LAYERS)), vec![], "hidden: nothing to place");
+        assert_eq!(glue.layout(Some(laid_out())), vec![BridgeVideo::Layout(unmirrored)], "shown again with the back camera");
+    }
+
+    // A call that never had video has no views to take away.
+    #[test]
+    fn a_call_without_video_has_no_views_to_take_away() {
+        let mut glue = VideoGlue::default();
+        assert_eq!(glue.state("c1", &VideoState { available: true, ..VideoState::default() }, Some(LAYERS)), vec![]);
+        assert_eq!(glue.end(), vec![]);
+    }
+
+    #[test]
+    fn the_call_routing_is_one_of_the_settings_words() {
+        assert_eq!(call_routing("always"), Ok(ft_media::CallRouting::Always));
+        assert_eq!(call_routing("direct"), Ok(ft_media::CallRouting::Direct));
+        assert!(call_routing("sometimes").is_err());
     }
 
     // §41: the free year shows in Settings, counted on this phone.
@@ -2647,10 +3772,12 @@ mod tests {
     // being answered never ring.
     #[test]
     fn only_incoming_calls_ring() {
-        assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }), Ring::Start { video: true });
-        assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }), Ring::Start { video: false });
-        assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }), Ring::Stop);
-        assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }, false), Ring::Start { video: true });
+        assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }, false), Ring::Start { video: false });
+        assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }, false), Ring::Stop);
+        assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }, false), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Connected, false), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Muted { muted: false }, false), Ring::Nothing);
     }
 
     // The WebView's WebRTC uses the cluster's STUN and a short-lived TURN user (§16–17).
