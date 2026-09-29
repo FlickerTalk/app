@@ -212,6 +212,11 @@ impl MediaSession {
         self.video_arrived.clone()
     }
 
+    /// The connection itself, for what the call's video reads of it.
+    pub(crate) fn connection(&self) -> Arc<dyn PeerConnection> {
+        self.connection.clone()
+    }
+
     /// Whether the call's video line was negotiated both ways: open, sending and receiving on
     /// each side, with H.264 we can send. Never with an older app's voice call (no video line).
     pub async fn video_both_ways(&self) -> bool {

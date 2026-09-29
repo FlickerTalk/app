@@ -72,6 +72,11 @@ pub fn layers() -> Option<Layers> {
 /// `UIDeviceOrientation.rawValue`, on Android the display's rotation in degrees.
 pub fn set_orientation(_raw: i32) {}
 
+/// How the platform's display shows the other side's picture now, once it has shown one.
+pub(crate) fn remote_shape() -> Option<RemoteShape> {
+    None
+}
+
 /// How the native side lays the other side's picture out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemoteShape {
