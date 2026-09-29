@@ -23,6 +23,8 @@ pub enum CallStage {
     LinkGatheringDone,
     /// The router took our direct connection's offer: the other side is connected to it.
     LinkOfferSent,
+    /// The other side is not connected: the router (0.4.0) woke it and keeps our offer for it.
+    LinkOfferRetained,
     /// The other side's answer to our direct connection offer arrived.
     LinkAnswerReceived,
     /// The other side's direct connection offer arrived (a call's or a message's: this side
@@ -65,6 +67,7 @@ impl CallStage {
             Self::LinkGatheringStarted => "link gathering started",
             Self::LinkGatheringDone => "link gathering done",
             Self::LinkOfferSent => "link offer sent",
+            Self::LinkOfferRetained => "link offer retained",
             Self::LinkAnswerReceived => "link answer received",
             Self::LinkOfferReceived => "link offer received",
             Self::LinkOpened => "link open",
@@ -387,7 +390,7 @@ mod tests {
         use CallStage::*;
         let all = [
             PushReceived, CallStarted, LinkGatheringStarted, LinkGatheringDone, LinkOffered, LinkOfferSent,
-            LinkAnswerReceived, LinkOfferReceived, LinkAnswered, LinkOpened, OfferReceived, Ringing, AnswerTapped,
+            LinkOfferRetained, LinkAnswerReceived, LinkOfferReceived, LinkAnswered, LinkOpened, OfferReceived, Ringing, AnswerTapped,
             AnswerRequested, ConnectionBuilt, GatheringStarted, GatheringDone, OfferBuilt, OfferSent, AnswerBuilt,
             AnswerSent, AnswerReceived, Connected, AudioDeviceStarted, FirstAudioPacket,
         ];
@@ -396,5 +399,6 @@ mod tests {
         assert!(names.iter().all(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == ' ')));
         assert_eq!(PushReceived.name(), "push received");
         assert_eq!(FirstAudioPacket.name(), "first audio packet");
+        assert_eq!(LinkOfferRetained.name(), "link offer retained");
     }
 }

@@ -101,6 +101,24 @@ enum Frame {
     Mail,
 }
 
+/// What became of a signal (router 0.4.0, 2026-09-29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signalled {
+    /// The recipient is connected and got it.
+    Delivered,
+    /// The recipient is not connected; the router woke it and keeps the signal in memory (55 s at
+    /// most) to hand it over right after its next welcome. A 404 with `ft-retained: 1`.
+    Retained,
+    /// The recipient is not connected and the signal is lost: a 404 from a router before 0.4.
+    NotConnected,
+}
+
+impl Signalled {
+    pub fn delivered(self) -> bool {
+        self == Self::Delivered
+    }
+}
+
 pub struct RouterClient {
     base: String,
     http: reqwest::Client,
@@ -224,25 +242,28 @@ impl RouterClient {
         Ok(response.json().await?)
     }
 
-    /// `true` if the recipient is connected and got it; `false` if it is offline.
-    pub async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
+    /// Whether the recipient is connected and got it, or the router keeps it for later.
+    pub async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
         self.signal_as(to, capability, bytes, false).await
     }
 
     /// The same, marked as a call's (2026-09-28): an offline iPhone is rung through CallKit. That
     /// it is a call is all the router learns.
-    pub async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
+    pub async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
         self.signal_as(to, capability, bytes, true).await
     }
 
-    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<bool> {
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<Signalled> {
         let mut request = self.http.post(format!("{}/v1/signal/{to}", self.base)).header("ft-capability", encode(capability));
         if call {
             request = request.header("ft-call", "1");
         }
-        match send(request.body(bytes)).await?.status() {
-            StatusCode::ACCEPTED => Ok(true),
-            StatusCode::NOT_FOUND => Ok(false),
+        let response = send(request.body(bytes)).await?;
+        let retained = response.headers().get("ft-retained").is_some_and(|value| value == "1");
+        match response.status() {
+            StatusCode::ACCEPTED => Ok(Signalled::Delivered),
+            StatusCode::NOT_FOUND if retained => Ok(Signalled::Retained),
+            StatusCode::NOT_FOUND => Ok(Signalled::NotConnected),
             status => bail!("the router refused the signal: {status}"),
         }
     }

@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
 use ft_core::{Core, Event};
-use ft_push::RouterEvent;
+use ft_push::{RouterEvent, Signalled};
 use ft_storage::{MessageState, Store};
 use ft_webrtc::SessionConfig;
 use tokio::sync::mpsc;
@@ -27,6 +27,12 @@ struct Bus {
     /// Signals the caller marked as a call (2026-09-28), which ring an iPhone.
     call_signals: AtomicUsize,
     next_id: AtomicUsize,
+    /// Router 0.4.0 (2026-09-29): a signal for a device that is not connected waits for its next
+    /// connection, handed over right after the welcome. Off: a router before 0.4.
+    retaining: std::sync::atomic::AtomicBool,
+    held: Mutex<HashMap<String, Vec<Vec<u8>>>>,
+    /// The offers and answers sent to each device, connected or not.
+    signalled: Mutex<HashMap<String, usize>>,
 }
 
 impl Bus {
@@ -40,6 +46,10 @@ impl Bus {
     fn mail_for(&self, device: &str) -> usize {
         self.mail.lock().unwrap().get(device).map_or(0, Vec::len)
     }
+
+    fn signalled_to(&self, device: &str) -> usize {
+        self.signalled.lock().unwrap().get(device).copied().unwrap_or(0)
+    }
 }
 
 struct FakeRelay {
@@ -50,15 +60,31 @@ struct FakeRelay {
 #[async_trait]
 impl Relay for FakeRelay {
     async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> anyhow::Result<bool> {
-        self.bus.allowed(to, capability)?;
-        self.bus.signals.fetch_add(1, Ordering::SeqCst);
-        let online = self.bus.online.lock().unwrap().get(to).cloned();
-        Ok(online.is_some_and(|device| device.send(RouterEvent::Signal(bytes)).is_ok()))
+        Ok(self.signal_as(to, capability, bytes, false).await? == Signalled::Delivered)
     }
 
     async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> anyhow::Result<bool> {
-        self.bus.call_signals.fetch_add(1, Ordering::SeqCst);
-        self.signal(to, capability, bytes).await
+        Ok(self.signal_as(to, capability, bytes, true).await? == Signalled::Delivered)
+    }
+
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> anyhow::Result<Signalled> {
+        if call {
+            self.bus.call_signals.fetch_add(1, Ordering::SeqCst);
+        }
+        self.bus.allowed(to, capability)?;
+        self.bus.signals.fetch_add(1, Ordering::SeqCst);
+        *self.bus.signalled.lock().unwrap().entry(to.to_owned()).or_default() += 1;
+        let online = self.bus.online.lock().unwrap().get(to).cloned();
+        if let Some(device) = online {
+            if device.send(RouterEvent::Signal(bytes.clone())).is_ok() {
+                return Ok(Signalled::Delivered);
+            }
+        }
+        if self.bus.retaining.load(Ordering::SeqCst) {
+            self.bus.held.lock().unwrap().entry(to.to_owned()).or_default().push(bytes);
+            return Ok(Signalled::Retained);
+        }
+        Ok(Signalled::NotConnected)
     }
 
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> anyhow::Result<()> {
@@ -104,6 +130,17 @@ impl Phone {
             }
         });
         let _ = events.send(RouterEvent::Connected { stun: vec![], turn: None });
+        // Router 0.4.0: what waited for this device comes right after the welcome.
+        for bytes in bus.held.lock().unwrap().remove(&self.id()).unwrap_or_default() {
+            let _ = events.send(RouterEvent::Signal(bytes));
+        }
+    }
+
+    /// Its app closed: no longer connected to the router, and its direct connections gone.
+    async fn go_offline(&self, bus: &Arc<Bus>, contact: &Phone) {
+        bus.online.lock().unwrap().remove(&self.id());
+        self.network.disconnect(&contact.id()).await;
+        contact.network.disconnect(&self.id()).await;
     }
 }
 
@@ -309,4 +346,93 @@ async fn a_call_to_an_offline_phone_is_signalled_as_a_call() {
     let call = alice.core.place_call(&bob.id(), false).await.unwrap();
     alice.core.offer_call_within(&call, "offer", Duration::from_millis(300)).await.expect("tries");
     assert!(bus.call_signals.load(Ordering::SeqCst) > 0, "the call rings");
+}
+
+/// Two paired phones behind a router that retains signals (0.4.0); Bob's app is closed.
+async fn bob_asleep() -> (Arc<Bus>, Phone, Phone) {
+    let bus = Arc::new(Bus::default());
+    bus.retaining.store(true, Ordering::SeqCst);
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    bob.go_offline(&bus, &alice).await;
+    (bus, alice, bob)
+}
+
+// Router 0.4.0 (2026-09-29): an offer for a phone whose app is closed waits at the router, which
+// wakes it. The offer is kept open and answered as soon as the phone connects: the message goes
+// directly, nothing through the mailbox, and no second offer is made.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retained_offer_opens_the_connection_as_soon_as_the_contact_is_back() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let before = bus.signalled_to(&bob.id());
+    let deposits = bus.next_id.load(Ordering::SeqCst);
+    let (core, to) = (alice.core.clone(), bob.id());
+    let sending = tokio::spawn(async move { core.send_text(&to, "wake up").await });
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+
+    let back = std::time::Instant::now();
+    bob.go_online(&bus);
+    until("bob has it", || async { texts(&bob, &alice.id()).await == ["wake up"] }).await;
+    let delivered = back.elapsed();
+    eprintln!("retained offer: the message arrived {} ms after bob connected", delivered.as_millis());
+    let sent = sending.await.unwrap().expect("sent");
+    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
+    assert_eq!(bus.next_id.load(Ordering::SeqCst), deposits, "nothing went through the mailbox");
+    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
+    assert!(delivered < Duration::from_millis(1_500), "{} ms", delivered.as_millis());
+}
+
+// A retained offer nobody answers within the connection window falls back as before: to the
+// mailbox. The next message does not wait again behind a new offer: the first is still out there.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retained_offer_nobody_answers_falls_back_to_the_mailbox() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let before = bus.signalled_to(&bob.id());
+    let started = std::time::Instant::now();
+    let first = alice.core.send_text(&bob.id(), "are you there?").await.expect("sends");
+    let waited = started.elapsed();
+    assert!(waited >= Duration::from_secs(11), "it waited {waited:?} for the answer");
+    assert_eq!(state(&alice, &bob.id(), &first).await, MessageState::Sent, "in the mailbox");
+    assert!(bus.mail_for(&bob.id()) >= 1);
+
+    let started = std::time::Instant::now();
+    alice.core.send_text(&bob.id(), "hello?").await.expect("sends");
+    assert!(started.elapsed() < Duration::from_secs(1), "the second waited {:?}", started.elapsed());
+    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "no second offer while the first waits");
+
+    // Bob wakes later: the offer still waiting at the router opens the connection.
+    bob.go_online(&bus);
+    until("bob caught up", || async { texts(&bob, &alice.id()).await.len() == 2 }).await;
+    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+}
+
+// A call to a phone whose app is closed (2026-09-29): its connection's offer waits at the router,
+// and the call rings as soon as the phone connects, with no new offer and no retry round.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_phone_that_wakes_rings_as_soon_as_it_connects() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let before = bus.signalled_to(&bob.id());
+    let mut bob_events = bob.core.events();
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let (core, id) = (alice.core.clone(), call.clone());
+    tokio::spawn(async move { core.offer_call(&id, "offer").await });
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+
+    let back = std::time::Instant::now();
+    bob.go_online(&bus);
+    let rang = async {
+        loop {
+            if let Ok(Event::Call { update: ft_core::CallUpdate::Incoming { .. }, .. }) = bob_events.recv().await {
+                return;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), rang).await.expect("bob's phone rings");
+    let ringing = back.elapsed();
+    eprintln!("retained call offer: rang {} ms after bob connected", ringing.as_millis());
+    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
+    assert!(ringing < Duration::from_millis(1_500), "{} ms", ringing.as_millis());
+    let _ = alice.core.end_call(&call, false).await;
 }
