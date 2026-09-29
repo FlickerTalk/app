@@ -230,7 +230,9 @@ impl Video {
         *self.inner.state.borrow()
     }
 
-    /// Follows the state: our camera, theirs, and the remote picture's shape.
+    /// Follows the state: our camera, theirs, and the remote picture's shape. The new receiver
+    /// counts the state as it is now as seen: read it first (`borrow_and_update`), then wait
+    /// for changes, or what came before (`available`, as the call connects) is never heard.
     pub fn changes(&self) -> watch::Receiver<VideoState> {
         self.inner.state.subscribe()
     }

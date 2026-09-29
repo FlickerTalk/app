@@ -493,18 +493,23 @@ impl Core {
     }
 
     /// Follows the call's video: the UI hears every state, and the other side every change of
-    /// our camera.
+    /// our camera. The state it has already (`available`, set as the video connected) is heard
+    /// first: a new receiver counts it as seen, and waiting for a change would never tell it.
     fn follow_video(&self, native: &Arc<NativeCall>, video: &Video) {
         let (core, weak) = (self.this.clone(), Arc::downgrade(native));
         let mut changes = video.changes();
         tokio::spawn(async move {
-            while changes.changed().await.is_ok() {
+            loop {
                 let state = *changes.borrow_and_update();
                 let (Some(core), Some(native)) = (core.upgrade(), weak.upgrade()) else { break };
                 if core.native_of(&native.call).is_none() {
                     break;
                 }
                 core.video_changed(&native, state).await;
+                drop((core, native));
+                if changes.changed().await.is_err() {
+                    break;
+                }
             }
         });
     }
@@ -635,6 +640,11 @@ impl Core {
         };
         if let Some(native) = taken {
             self.shut_native(&native).await;
+            // The follower stops with the call and would not tell it: the UI hears the video is
+            // gone (nothing available, no camera) before it hears the call ended.
+            if let Some(video) = &native.video {
+                self.announce(&native, CallUpdate::Video(video.state()));
+            }
             // CallKit gives the session back at the end; the next call waits for its own.
             self.call_audio_active.store(false, Ordering::SeqCst);
         }
