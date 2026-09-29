@@ -1,6 +1,6 @@
 [package]
 name = "flickertalk"
-version = "1.2.0"
+version = "1.2.1"
 description = "FlickerTalk: private messages, phone to phone (the Tauri app around ft-core)"
 authors = ["FlickerTalk"]
 license = "AGPL-3.0-only"
