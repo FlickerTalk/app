@@ -23,8 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
-# Versioned on purpose (overrides the global git ignore)
-!CLAUDE.md
 
 # Secrets
 .env
