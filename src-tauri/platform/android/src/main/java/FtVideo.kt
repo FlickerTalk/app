@@ -95,12 +95,6 @@ fun cameraRequest(state: PermissionState?): CameraRequest = when (state) {
 fun cameraServiceAllowed(video: Boolean, granted: Boolean, visible: Boolean, fromNotification: Boolean): Boolean =
     video && granted && (visible || fromNotification)
 
-/** The ongoing call notification's camera action, as `CALL_ACTION` carries it. */
-const val VIDEO_ACTION = "video"
-
-/** Whether the app was opened by the ongoing call notification's camera action. */
-fun asksForVideo(value: String?): Boolean = value == VIDEO_ACTION
-
 /**
  * The views' surfaces to Rust (`src-tauri/src/video_surfaces.rs`, JNI): `ANativeWindow`s for the
  * engine's display (remote) and camera preview (local). The app's library is loaded by Tauri.

@@ -127,14 +127,13 @@ class FtVideoTest {
         assertFalse(cameraServiceAllowed(video = false, granted = true, visible = true, fromNotification = true))
     }
 
-    // The ongoing notification's camera action opens the app with `video`: the core turns our
-    // camera on. It is never taken for the incoming call notification's answer or decline.
+    // The ongoing notification's camera action has its own tap: the core turns our camera on. It
+    // is never taken for the incoming call notification's answer or decline.
     @Test
     fun theNotificationsCameraActionAsksForVideo() {
-        assertTrue(asksForVideo("video"))
-        assertFalse(asksForVideo("answer"))
-        assertFalse(asksForVideo(null))
-        assertEquals("", callAction("video"))
+        assertEquals(CallEvent.VideoRequested, tapCallEvent(NotificationTap.CALL_VIDEO))
+        assertEquals(NotificationTap.CALL_VIDEO, notificationTapOf("com.flickertalk.platform.CALL_VIDEO"))
+        assertFalse(NotificationTap.CALL_VIDEO.action == NotificationTap.CALL_ANSWER.action)
     }
 
     // The bridge's manifest declares what the camera type needs, and the service may hold it.

@@ -63,6 +63,18 @@
             android:exported="false"
             android:foregroundServiceType="phoneCall|microphone|camera" />
         <receiver android:name="com.flickertalk.platform.FtCallActionReceiver" android:exported="false" />
+        <!-- The notifications' buttons (2026-09-29): answer, decline, the call's camera and a
+             reminder land here. It hands the tap to the process at once, then opens the app if it
+             must: an extra on the launcher's intent got lost when the process had died. Private,
+             over the lock screen (no unlock to decline), its own task, out of recents. -->
+        <activity
+            android:name="com.flickertalk.platform.FtNotificationTapActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <!-- Lends a file of the app to the viewer the user picks, only for that viewing (§62). -->
         <provider
             android:name="com.flickertalk.platform.FtFileProvider"

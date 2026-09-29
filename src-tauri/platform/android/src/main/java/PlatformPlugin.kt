@@ -140,23 +140,7 @@ private const val NOTIFICATION = 1
 
 /** Calls ring on their own channel, so messages and calls can be set apart (§66). */
 const val CALL_CHANNEL = "ft.call"
-private const val CALL_NOTIFICATION = 2
-
-/** The notification's buttons travel as this extra on the intent that opens the app. */
-const val CALL_ACTION = "ft.call.action"
-
-/** What the user pressed on the call notification, if it was one of ours. */
-fun callAction(value: String?): String = if (value == "answer" || value == "decline") value else ""
-
-/**
- * What a tap on the incoming call notification tells the core (2026-09-29): answer or decline, as
- * CallKit's buttons do. They reach Rust through the call events channel, never the WebView.
- */
-fun callTapEvent(value: String?): CallEvent? = when (callAction(value)) {
-    "answer" -> CallEvent.Answer
-    "decline" -> CallEvent.Decline
-    else -> null
-}
+const val CALL_NOTIFICATION = 2
 
 /** Who is calling; null for a contact with no name, who is still a caller ("Someone"). */
 fun callTitle(name: String): String? = name.trim().ifEmpty { null }
@@ -290,6 +274,10 @@ class CallEventQueue(private val limit: Int = 16) {
         while (waiting.size > limit) waiting.removeFirst()
     }
 
+    /** Whether the core listens now (it runs only with the app: Tauri starts Rust with it). */
+    @Synchronized
+    fun listening(): Boolean = sink != null
+
     /** A new call starts: what an old one left unheard is no longer true. */
     @Synchronized
     fun forget() = waiting.clear()
@@ -380,11 +368,10 @@ fun callServiceTypes(sdk: Int, microphone: Boolean, camera: Boolean = false): In
  * intent that opens the app over the lock screen. If the system does not allow full screen (§66,
  * Android 14 keeps it for calling apps), it still shows as a heads-up notification.
  */
-/** Opening the app, carrying what the user pressed on the notification. */
-private fun callIntent(context: Context, action: String, request: Int): PendingIntent? {
+/** Opening the app, and nothing more: the buttons go through `tapIntent` (NotificationTaps.kt). */
+private fun openAppIntent(context: Context, request: Int): PendingIntent? {
     val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        if (action.isNotEmpty()) putExtra(CALL_ACTION, action)
     } ?: return null
     return PendingIntent.getActivity(
         context,
@@ -406,7 +393,7 @@ private fun ringtoneAttributes(): AudioAttributes = AudioAttributes.Builder()
  * after `timeoutMs` at most. Otherwise the notification is silent: the app rings itself, or the
  * weekly hours keep the call quiet.
  */
-private fun showCall(context: Context, title: String, text: String, ringing: Boolean = false, timeoutMs: Long = 0, video: Boolean = false) {
+fun showCall(context: Context, title: String, text: String, ringing: Boolean = false, timeoutMs: Long = 0, video: Boolean = false) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         manager.createNotificationChannel(
@@ -425,9 +412,10 @@ private fun showCall(context: Context, title: String, text: String, ringing: Boo
             )
         }
     }
-    val open = callIntent(context, "", 1) ?: return
-    val answer = callIntent(context, "answer", 2) ?: return
-    val decline = callIntent(context, "decline", 3) ?: return
+    val open = openAppIntent(context, 1) ?: return
+    // The buttons hand the tap to the process at once, whatever state the app is in (2026-09-29).
+    val answer = tapIntent(context, NotificationTap.CALL_ANSWER)
+    val decline = tapIntent(context, NotificationTap.CALL_DECLINE)
     val caller = Person.Builder().setName(title).setImportant(true).build()
     val builder = NotificationCompat.Builder(context, if (ringing) RINGING_CALL_CHANNEL else CALL_CHANNEL)
         .setSmallIcon(R.drawable.ft_notification)
@@ -501,13 +489,38 @@ object CallEvents {
     private val queue = CallEventQueue()
     private val sender = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    fun register(channel: Channel) = sender.execute { queue.register { channel.sendObject(callEventPayload(it)) } }
+    fun register(channel: Channel) = sender.execute {
+        queue.register {
+            val payload = callEventPayload(it)
+            if (CALL_DIAGNOSTICS) Log.i("FtCallDiag", "native event to the core: ${payload["event"]}")
+            channel.sendObject(payload)
+        }
+    }
 
     fun emit(event: CallEvent) = sender.execute { queue.emit(event) }
 
     fun offer(event: CallEvent) = sender.execute { queue.offer(event) }
 
     fun forget() = sender.execute { queue.forget() }
+
+    /** Whether the core listens now; a registration still on its way counts as not yet. */
+    fun listening(): Boolean = queue.listening()
+}
+
+/**
+ * The ringtone and vibration of a call the core rings with the app running (`startRinging`): the
+ * process's, so a tap on the notification's buttons silences them before the plugin hears of it.
+ */
+object CallRinger {
+    var ringtone: Ringtone? = null
+    var vibrator: Vibrator? = null
+
+    fun silence() {
+        ringtone?.stop()
+        ringtone = null
+        vibrator?.cancel()
+        vibrator = null
+    }
 }
 
 /**
@@ -662,8 +675,8 @@ fun ongoingCallNotification(context: Context): Notification {
         )
     // The camera (native video, 2026-09-29): opens the app, where the core turns our camera on;
     // the camera only runs with the app on the screen.
-    callIntent(context, VIDEO_ACTION, 7)?.let { builder.addAction(R.drawable.ft_notification, context.getString(R.string.ft_video), it) }
-    callIntent(context, "", 4)?.let { builder.setContentIntent(it) }
+    builder.addAction(R.drawable.ft_notification, context.getString(R.string.ft_video), tapIntent(context, NotificationTap.CALL_VIDEO))
+    openAppIntent(context, 4)?.let { builder.setContentIntent(it) }
     return builder.build()
 }
 
@@ -752,8 +765,6 @@ class FtCallActionReceiver : BroadcastReceiver() {
 const val REMINDER_CHANNEL = "ft.reminders"
 /** Where the reminder list is kept for the boot receiver: the core is the truth, this is a copy. */
 private const val REMINDERS = "reminders"
-/** The extra that carries `plugin\nid` when a reminder notification opens the app. */
-const val REMINDER_ACTION = "ft.reminder"
 /** The extra that carries the URL a login sent the user back with. */
 const val AUTH_RESULT = "ft.auth.result"
 /** Notification ids for reminders start here; messages and calls use the first few. */
@@ -852,32 +863,27 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val plugin = intent.getStringExtra("plugin") ?: return
         val id = intent.getStringExtra("id") ?: return
-        val text = intent.getStringExtra("text").orEmpty()
-        reminderChannel(context)
-        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra(REMINDER_ACTION, reminderKey(plugin, id))
-        } ?: return
-        val open = PendingIntent.getActivity(
-            context,
-            reminderRequestCode(plugin, id),
-            launch,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL)
-            .setSmallIcon(R.drawable.ft_notification)
-            .setContentTitle(context.getString(R.string.ft_reminder))
-            .setContentText(text.ifEmpty { context.getString(R.string.ft_reminder_generic) })
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setAutoCancel(true)
-            .setContentIntent(open)
-            .build()
-        try {
-            context.getSystemService(NotificationManager::class.java)?.notify(reminderRequestCode(plugin, id), notification)
-        } catch (_: SecurityException) {
-            // Notifications not allowed: the plugin shows the reminder as due when the app opens.
-        }
+        showReminder(context, plugin, id, intent.getStringExtra("text").orEmpty())
+    }
+}
+
+/** A reminder's notification; its tap hands the reminder to the process, then opens the app. */
+fun showReminder(context: Context, plugin: String, id: String, text: String) {
+    reminderChannel(context)
+    val open = tapIntent(context, NotificationTap.REMINDER, reminderRequestCode(plugin, id), reminderKey(plugin, id))
+    val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL)
+        .setSmallIcon(R.drawable.ft_notification)
+        .setContentTitle(context.getString(R.string.ft_reminder))
+        .setContentText(text.ifEmpty { context.getString(R.string.ft_reminder_generic) })
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_REMINDER)
+        .setAutoCancel(true)
+        .setContentIntent(open)
+        .build()
+    try {
+        context.getSystemService(NotificationManager::class.java)?.notify(reminderRequestCode(plugin, id), notification)
+    } catch (_: SecurityException) {
+        // Notifications not allowed: the plugin shows the reminder as due when the app opens.
     }
 }
 
@@ -1114,12 +1120,6 @@ class SaveFileArgs {
     ],
 )
 class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
-    private var ringtone: Ringtone? = null
-    private var vibrator: Vibrator? = null
-
-    /** The reminder the user tapped, until the app asks for it (2026-09-27). */
-    private var pendingReminder: String = ""
-
     /** A login waiting for the provider to send the user back, and the scheme it comes with. */
     private var authWaiting: Invoke? = null
     private var authScheme: String = ""
@@ -1132,11 +1132,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         super.load(webView)
         this.webView = webView
         InCall.appVisible = true
-        videoFrom(activity.intent)
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
-        callTapped(activity.intent)
-        pendingReminder = pendingReminderOf(activity.intent?.getStringExtra(REMINDER_ACTION))
-        activity.intent?.removeExtra(REMINDER_ACTION)
     }
 
     /**
@@ -1158,42 +1154,11 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * The ongoing call notification's camera action opened the app: the core turns our camera on.
-     * The user's own tap lets the call's service take the camera type.
+     * The notifications' buttons (answer, decline, the camera, a reminder) no longer come here:
+     * `FtNotificationTapActivity` hands them to the process (NotificationTaps.kt, 2026-09-29).
      */
-    private fun videoFrom(intent: Intent?) {
-        if (!asksForVideo(intent?.getStringExtra(CALL_ACTION))) return
-        intent?.removeExtra(CALL_ACTION)
-        InCall.videoByTap = true
-        CallEvents.emit(CallEvent.VideoRequested)
-    }
-
-    /**
-     * Answer or decline on the incoming call notification (2026-09-29): to the core, which may not
-     * listen yet (the app was closed) or have the offer yet; the event waits for the first and the
-     * core for the second. The ringing stops now. The WebView only shows what the core does.
-     */
-    private fun callTapped(intent: Intent?) {
-        val event = callTapEvent(intent?.getStringExtra(CALL_ACTION)) ?: return
-        intent?.removeExtra(CALL_ACTION)
-        activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
-        silence()
-        if (event == CallEvent.Answer) {
-            // The user's own tap: the call's service may take the microphone when it connects.
-            InCall.answeredByTap = true
-            showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
-        }
-        CallEvents.emit(event)
-    }
-
-    /** The app was already open when the notification's button was pressed. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        videoFrom(intent)
-        callTapped(intent)
-        val reminder = pendingReminderOf(intent.getStringExtra(REMINDER_ACTION))
-        if (reminder.isNotEmpty()) pendingReminder = reminder
-        intent.removeExtra(REMINDER_ACTION)
         // A login came back (drive): the command that opened it gets the URL.
         val result = intent.getStringExtra(AUTH_RESULT)
         intent.removeExtra(AUTH_RESULT)
@@ -1207,8 +1172,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /** The reminder the user tapped to open the app, once (2026-09-27). */
     @Command
     fun pendingReminder(invoke: Invoke) {
-        invoke.resolve(JSObject().apply { put("reminder", pendingReminder) })
-        pendingReminder = ""
+        invoke.resolve(JSObject().apply { put("reminder", tappedReminder.take()) })
     }
 
     /** Every reminder there is, from the core: the alarm clock is set again from scratch. */
@@ -1460,7 +1424,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             if (ringing.sound) {
                 val uri = RingtoneManager.getActualDefaultRingtoneUri(activity, RingtoneManager.TYPE_RINGTONE)
                     ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                ringtone = RingtoneManager.getRingtone(activity, uri)?.apply {
+                CallRinger.ringtone = RingtoneManager.getRingtone(activity, uri)?.apply {
                     audioAttributes = AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -1470,7 +1434,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                 }
             }
             if (ringing.vibrate && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator = phoneVibrator()?.apply { vibrate(VibrationEffect.createWaveform(RING_PATTERN, 0)) }
+                CallRinger.vibrator = phoneVibrator()?.apply { vibrate(VibrationEffect.createWaveform(RING_PATTERN, 0)) }
             }
             invoke.resolve()
         } catch (error: Exception) {
@@ -1567,12 +1531,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
-    private fun silence() {
-        ringtone?.stop()
-        ringtone = null
-        vibrator?.cancel()
-        vibrator = null
-    }
+    private fun silence() = CallRinger.silence()
 
     private fun phoneVibrator(): Vibrator? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
