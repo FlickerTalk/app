@@ -87,7 +87,7 @@ impl Core {
     /// Like `offer_call`, trying for `reach`.
     pub async fn offer_call_within(&self, call: &str, sdp: &str, reach: Duration) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, true).await? else { bail!("no such call") };
-        let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video };
+        let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video, media: 0 };
         let deadline = std::time::Instant::now() + reach;
         loop {
             // The caller may have given up meanwhile.
@@ -108,7 +108,7 @@ impl Core {
     pub async fn answer_call(&self, call: &str, sdp: &str) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, false).await? else { bail!("no such call") };
         self.store.answer_call(call, now()).await?;
-        let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned() };
+        let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), media: 0 };
         if !self.transmit_direct(&contact, &Packet::new(body)).await? {
             self.close_call(&record, CallOutcome::Failed).await?;
         }

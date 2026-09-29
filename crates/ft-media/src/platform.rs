@@ -11,7 +11,7 @@ use webrtc_engine::audio::{AudioBackend, AudioError, Counter, DeviceIo};
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use crate::Activation;
-use crate::AudioPlatform;
+use crate::{AudioPlatform, VideoPlatform};
 
 /// This platform's call audio, if calls run natively here.
 #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -26,6 +26,13 @@ pub fn platform_audio() -> Option<AudioPlatform> {
 /// This platform's call audio, if calls run natively here.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn platform_audio() -> Option<AudioPlatform> {
+    None
+}
+
+/// This platform's call video, if video calls run natively here (native video, 2026-09-29):
+/// the engine's camera and display on iOS and Android, none on the desktop. Contract only for
+/// now: none anywhere until the pipeline is there (`docs/video-nativo.md`).
+pub fn platform_video() -> Option<VideoPlatform> {
     None
 }
 
@@ -155,5 +162,12 @@ mod tests {
     #[test]
     fn the_desktop_has_no_native_call_audio() {
         assert!(platform_audio().is_none());
+    }
+
+    // Nor native video: the desktop's calls keep the WebView's camera and display.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[test]
+    fn the_desktop_has_no_native_call_video() {
+        assert!(platform_video().is_none());
     }
 }

@@ -19,6 +19,15 @@ use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
+/// The call media this version speaks (2026-09-29), in `CallOffer` and `CallAnswer`:
+///
+/// - 0 (absent): the WebView's calls up to app 1.2. A video line only in a video call, and no
+///   `CallMedia`: voice and video cannot be switched during the call.
+/// - 1: both an audio and a video line in every call, whatever it starts as, and the camera's
+///   state in `CallMedia`: either side turns its camera on or off at any moment, with no new
+///   offer. Only when both sides say 1.
+pub const CALL_MEDIA_VERSION: u16 = 1;
+
 /// Encoded packets are padded to a multiple of this (M9 of the 2026-09-24 review): whoever sees
 /// the sizes of what travels, the router included, cannot tell "ok" from a paragraph. The same
 /// bucket Signal uses. Files and chunks are bigger anyway and pad to their own boundary.
@@ -128,11 +137,29 @@ pub enum Body {
     /// receiver marks it failed and stops asking. A version that does not know it keeps asking,
     /// which is what happened before.
     FileFailed { file: MessageId },
-    /// A voice or video call (§66). The media is the WebView's WebRTC; its descriptions travel
-    /// here, directly and encrypted, never through the mailbox.
-    CallOffer { call: MessageId, sdp: String, video: bool },
-    CallAnswer { call: MessageId, sdp: String },
+    /// A voice or video call (§66). Its descriptions travel here, directly and encrypted, never
+    /// through the mailbox. `video` is how the caller starts the call; `media` is the sender's
+    /// call media version (`CALL_MEDIA_VERSION`, 2026-09-29), absent (0) from older apps.
+    CallOffer {
+        call: MessageId,
+        sdp: String,
+        video: bool,
+        #[serde(default)]
+        media: u16,
+    },
+    CallAnswer {
+        call: MessageId,
+        sdp: String,
+        #[serde(default)]
+        media: u16,
+    },
     CallEnd { call: MessageId, reason: EndReason },
+    /// The sender's camera in a call (native video, 2026-09-29), only between two sides at media
+    /// version 1 or later: `video` when its camera sends, `paused` when the user wants it on but
+    /// the phone holds it (the app is in the background or the phone locked). A state, not a
+    /// change: the one with the highest `seq` wins, so a repeat or a late one changes nothing.
+    /// An older app decodes it as `Unknown` and ignores it.
+    CallMedia { call: MessageId, seq: u32, video: bool, paused: bool },
     /// Moving to a new phone (§60), from the old phone to the new one, only directly. `proof`
     /// shows it read the new phone's QR; `key` seals the database copy that follows, of `size`
     /// bytes and BLAKE3 `hash`, pulled with `MoveRequest` like a file.
@@ -386,8 +413,11 @@ mod tests {
         round_trip(Body::FileDone { file });
         round_trip(Body::FileFailed { file });
         let call = MessageId::new();
-        round_trip(Body::CallOffer { call, sdp: "v=0".to_owned(), video: true });
-        round_trip(Body::CallAnswer { call, sdp: "v=0".to_owned() });
+        round_trip(Body::CallOffer { call, sdp: "v=0".to_owned(), video: true, media: CALL_MEDIA_VERSION });
+        round_trip(Body::CallOffer { call, sdp: "v=0".to_owned(), video: false, media: 0 });
+        round_trip(Body::CallAnswer { call, sdp: "v=0".to_owned(), media: CALL_MEDIA_VERSION });
+        round_trip(Body::CallMedia { call, seq: 7, video: true, paused: false });
+        round_trip(Body::CallMedia { call, seq: 8, video: true, paused: true });
         for reason in [EndReason::Hangup, EndReason::Declined, EndReason::Busy, EndReason::Cancelled, EndReason::Failed] {
             round_trip(Body::CallEnd { call, reason });
         }
@@ -452,6 +482,82 @@ mod tests {
         let decoded = Packet::decode(&bytes).expect("still decodes");
         assert_eq!(decoded.body, Body::Unknown);
         assert_eq!(decoded.version, 9);
+    }
+
+    /// The call packets as an app before the native video (2026-09-29) knows them.
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+    enum OlderBody {
+        CallOffer { call: MessageId, sdp: String, video: bool },
+        CallAnswer { call: MessageId, sdp: String },
+    }
+
+    fn older_packet(body: OlderBody) -> Vec<u8> {
+        #[derive(serde::Serialize)]
+        struct Older {
+            version: u16,
+            id: MessageId,
+            sent_at: u64,
+            body: OlderBody,
+        }
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&Older { version: 1, id: MessageId::new(), sent_at: 1, body }, &mut bytes).expect("encodes");
+        bytes
+    }
+
+    fn read_as_older(packet: &Packet) -> Result<OlderBody, ciborium::value::Error> {
+        #[derive(serde::Deserialize)]
+        struct Raw {
+            body: ciborium::Value,
+        }
+        let raw: Raw = decode(&packet.encode()).expect("decodes");
+        raw.body.deserialized()
+    }
+
+    // §23, native video (2026-09-29): an offer or an answer of an app before it has no media
+    // version, which reads as 0: the WebView's calls, which cannot switch between voice and video.
+    #[test]
+    fn a_call_offer_or_answer_without_a_media_version_reads_as_version_zero() {
+        let call = MessageId::new();
+        let offer = Packet::decode(&older_packet(OlderBody::CallOffer { call, sdp: "v=0".to_owned(), video: true })).expect("decodes");
+        assert_eq!(offer.body, Body::CallOffer { call, sdp: "v=0".to_owned(), video: true, media: 0 });
+        let answer = Packet::decode(&older_packet(OlderBody::CallAnswer { call, sdp: "v=0".to_owned() })).expect("decodes");
+        assert_eq!(answer.body, Body::CallAnswer { call, sdp: "v=0".to_owned(), media: 0 });
+    }
+
+    // §23: an app before the native video still reads a new offer and answer (it ignores the media
+    // version), and takes a camera state it does not know as a packet to ignore.
+    #[test]
+    fn an_older_app_reads_the_new_offer_and_answer_and_ignores_the_camera_state() {
+        let call = MessageId::new();
+        let offer = Packet::new(Body::CallOffer { call, sdp: "v=0".to_owned(), video: false, media: CALL_MEDIA_VERSION });
+        assert_eq!(read_as_older(&offer).expect("an older app reads it"), OlderBody::CallOffer { call, sdp: "v=0".to_owned(), video: false });
+        let answer = Packet::new(Body::CallAnswer { call, sdp: "v=0".to_owned(), media: CALL_MEDIA_VERSION });
+        assert_eq!(read_as_older(&answer).expect("an older app reads it"), OlderBody::CallAnswer { call, sdp: "v=0".to_owned() });
+        let camera = Packet::new(Body::CallMedia { call, seq: 1, video: true, paused: false });
+        assert!(read_as_older(&camera).is_err(), "an older app decodes it as Unknown and ignores it");
+    }
+
+    // A camera state from a newer app with fields this one does not know is still read.
+    #[test]
+    fn a_camera_state_with_fields_from_a_newer_app_is_still_read() {
+        #[derive(serde::Serialize)]
+        #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+        enum NewerBody {
+            CallMedia { call: MessageId, seq: u32, video: bool, paused: bool, screen: bool },
+        }
+        #[derive(serde::Serialize)]
+        struct Newer {
+            version: u16,
+            id: MessageId,
+            sent_at: u64,
+            body: NewerBody,
+        }
+        let call = MessageId::new();
+        let body = NewerBody::CallMedia { call, seq: 3, video: false, paused: false, screen: true };
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&Newer { version: 2, id: MessageId::new(), sent_at: 1, body }, &mut bytes).expect("encodes");
+        assert_eq!(Packet::decode(&bytes).expect("decodes").body, Body::CallMedia { call, seq: 3, video: false, paused: false });
     }
 
     // M9: every packet leaves the phone as a multiple of the bucket, whatever it says.

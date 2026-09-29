@@ -1117,8 +1117,8 @@ impl Core {
             Body::FileChunk { file, index, data } => self.take_chunk(contact, file, index, data).await?,
             Body::FileDone { file } => self.file_done(contact, file).await?,
             Body::FileFailed { file } => self.file_failed(contact, file).await?,
-            Body::CallOffer { call, sdp, video } => self.call_offered(contact, call, sdp, video).await?,
-            Body::CallAnswer { call, sdp } => self.call_answered(contact, call, sdp).await?,
+            Body::CallOffer { call, sdp, video, .. } => self.call_offered(contact, call, sdp, video).await?,
+            Body::CallAnswer { call, sdp, .. } => self.call_answered(contact, call, sdp).await?,
             Body::CallEnd { call, reason } => self.call_ended(contact, call, reason).await?,
             Body::MoveOffer { proof, key, size, hash } => self.move_offered(contact, proof, key, size, hash).await?,
             Body::MoveRequest { from, count } => self.move_requested(contact, from, count).await?,
@@ -1128,8 +1128,9 @@ impl Core {
             Body::CircleMessage { circle, text } => self.circle_text_received(contact, packet.id, packet.sent_at, &circle, text).await?,
             Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
             Body::PluginEvent { plugin, data } => self.plugin_event_received(contact, plugin, data).await?,
-            // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
+            // Offers and answers travel as signals (see `open_signal`), never as packets. The other
+            // side's camera (`CallMedia`) is not followed yet: native video (docs/video-nativo.md).
+            Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::CallMedia { .. } | Body::Unknown => {}
         }
         Ok(())
     }

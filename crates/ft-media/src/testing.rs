@@ -1,6 +1,6 @@
 //! Stand-ins for the tests of this crate and of the core (feature `testing`): a device that
-//! speaks a test voice in real time and records what it plays, and a measure of how well a voice
-//! came through.
+//! speaks a test voice in real time and records what it plays, a measure of how well a voice
+//! came through, and a video platform on the engine's fake camera and display.
 
 use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -9,9 +9,53 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use webrtc_engine::audio::{AudioBackend, AudioError, DeviceIo};
+use webrtc_engine::video::fake::{FakeSink, FakeSource, SinkProbe, SourceProbe};
 use webrtc_engine::SAMPLE_RATE;
 
+use crate::video::{VideoDevices, VideoFactory, VideoPlatform};
 use crate::voice::BackendFactory;
+
+/// What the tests see of the fake video devices a call made (native video, 2026-09-29).
+#[derive(Clone, Default)]
+pub struct VideoProbe {
+    made: Arc<AtomicUsize>,
+    camera: Arc<Mutex<Option<Arc<Mutex<SourceProbe>>>>>,
+    display: Arc<Mutex<Option<Arc<Mutex<SinkProbe>>>>>,
+}
+
+impl VideoProbe {
+    /// How many sets of devices were made: one per call that had video.
+    pub fn made(&self) -> usize {
+        self.made.load(Ordering::SeqCst)
+    }
+
+    /// What the latest fake camera did: whether it runs, which way it faces, the frames it sent.
+    pub fn camera(&self) -> SourceProbe {
+        let camera = self.camera.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        camera.map(|probe| probe.lock().unwrap_or_else(PoisonError::into_inner).clone()).unwrap_or_default()
+    }
+
+    /// What the latest fake display did: whether it runs, and the frames it showed.
+    pub fn display(&self) -> SinkProbe {
+        let display = self.display.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        display.map(|probe| probe.lock().unwrap_or_else(PoisonError::into_inner).clone()).unwrap_or_default()
+    }
+}
+
+/// A video platform on the engine's fakes (a camera that makes up H.264 frames, a display that
+/// checks them), and what the tests see of it.
+pub fn fake_video() -> (VideoPlatform, VideoProbe) {
+    let probe = VideoProbe::default();
+    let seen = probe.clone();
+    let devices: VideoFactory = Arc::new(move || {
+        let (source, sink) = (FakeSource::new(), FakeSink::new());
+        *seen.camera.lock().unwrap_or_else(PoisonError::into_inner) = Some(source.probe());
+        *seen.display.lock().unwrap_or_else(PoisonError::into_inner) = Some(sink.probe());
+        seen.made.fetch_add(1, Ordering::SeqCst);
+        Ok(VideoDevices { source: Box::new(source), sink: Box::new(sink) })
+    });
+    (VideoPlatform { devices }, probe)
+}
 
 /// What the tests see of a fake device: how often it started and stopped, and what it played.
 #[derive(Clone, Default)]
@@ -238,6 +282,19 @@ mod tests {
     use webrtc_engine::FRAME_SAMPLES;
 
     use super::*;
+
+    // Native video: the core's tests run a call's video on the engine's fakes and look at them.
+    #[test]
+    fn the_fake_video_platform_makes_devices_its_probe_sees() {
+        let (platform, probe) = fake_video();
+        assert_eq!(probe.made(), 0);
+        assert!(!probe.camera().running && !probe.display().running);
+        let mut devices = (platform.devices)().expect("fake devices");
+        assert_eq!(probe.made(), 1);
+        devices.sink.start().expect("the display starts");
+        assert!(probe.display().running);
+        assert!(!probe.camera().running, "the camera opens only when started");
+    }
 
     #[test]
     fn a_voice_heard_after_a_delay_correlates_and_its_mirror_does_not() {
