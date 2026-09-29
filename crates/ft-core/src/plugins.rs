@@ -41,8 +41,9 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// Plugin API bumps it, with the app's version. 1.1.0 (2026-09-27): records, reminders, the live
 /// channel, "open with", refs and the user's cloud. 1.2.0 (2026-09-27): `views`, the tap that
 /// shows a file in its viewer, and Quick Look on iOS. 1.2.1 (2026-09-29): no new capability, only
-/// the app's version (the Store's price on the Plan screen).
-pub const CORE_VERSION: &str = "1.2.1";
+/// the app's version (the Store's price on the Plan screen). 1.2.2 (2026-09-30): none either
+/// (Google Drive sign-in in the store builds, each platform with its own OAuth client).
+pub const CORE_VERSION: &str = "1.2.2";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 

@@ -3040,7 +3040,7 @@ mod tests {
 
     // Release: `version` of tauri.conf.json, the app crate and the core's CORE_VERSION go
     // together, and Play only takes a versionCode (major·10⁶ + minor·10³ + patch, as Tauri counts
-    // it) above the last one uploaded: 1002000, the 1.2.0.
+    // it) above the last one uploaded: 1002001, the 1.2.1.
     #[test]
     fn the_versions_go_together_and_play_takes_the_next_one() {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
@@ -3049,7 +3049,7 @@ mod tests {
         assert_eq!(version, env!("CARGO_PKG_VERSION"));
         let parts: Vec<u64> = version.split('.').map(|part| part.parse().unwrap()).collect();
         let version_code = parts[0] * 1_000_000 + parts[1] * 1_000 + parts[2];
-        assert!(version_code > 1_002_000, "versionCode {version_code} is not above 1002000");
+        assert!(version_code > 1_002_001, "versionCode {version_code} is not above 1002001");
     }
 
     // ITMS-90717 (2026-09-29): the App Store rejects an app icon with an alpha channel, even one
