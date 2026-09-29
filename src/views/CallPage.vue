@@ -14,6 +14,7 @@ import {
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
+import { closeOnBackWhile } from "../back";
 import { chat } from "../core";
 import {
   call,
@@ -106,6 +107,8 @@ function measure(): VideoLayout {
 }
 /** On this screen: the core is told where the pictures go (nowhere, on a voice call). */
 let shown = true;
+/** On this screen, for Android's back button (Ionic keeps a page mounted under the next one). */
+const onScreen = ref(true);
 function relayout() {
   if (shown && native.value) layoutVideo(measure);
 }
@@ -126,10 +129,13 @@ watch([body, remoteSlot, localSlot], (elements) => {
 });
 onIonViewDidEnter(() => {
   shown = true;
+  onScreen.value = true;
   seeThrough.value = true;
   relayout();
 });
 onIonViewWillLeave(() => {
+  onScreen.value = false;
+  clearTimeout(leaving);
   hide();
   seeThrough.value = false;
 });
@@ -183,6 +189,8 @@ onMounted(() => {
 // Out of the call screen, once (2026-09-28): back where the call came from or, with nothing behind
 // (opened from a notification, or reloaded), to the conversation. Hanging up always leaves, even
 // when the call already ended on its own ("Unreachable"): the screen used to stay there.
+// Leaving keeps the call (2026-09-29): the call bar shows it and my camera is held; only the
+// hang-up button ends it. Android's back button leaves the same way, never out of the app.
 let left = false;
 let leaving: ReturnType<typeof setTimeout> | undefined;
 function leave() {
@@ -192,6 +200,7 @@ function leave() {
   if (window.history.state?.back) router.back();
   else void router.replace(`/chat/${id.value}`);
 }
+closeOnBackWhile(() => onScreen.value, leave);
 function end() {
   if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
   leave();
@@ -208,13 +217,12 @@ onUnmounted(() => {
   document.documentElement.classList.remove("ft-call-video");
   left = true;
   clearTimeout(leaving);
-  // Leaving the screen ends the call: no call goes on out of sight.
-  if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
 });
 watch(
   () => call.phase,
   (phase) => {
-    if (phase === "ended") leaving = setTimeout(leave, 1500);
+    // Only from this screen: the call may end while another one is in front.
+    if (phase === "ended" && onScreen.value) leaving = setTimeout(leave, 1500);
   },
 );
 </script>

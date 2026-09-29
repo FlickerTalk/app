@@ -11,6 +11,14 @@ const route = { params: { id: "c1" }, query: {} as Record<string, string> };
 const nav = { back: vi.fn(), replace: vi.fn() };
 vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => nav }));
 vi.mock("../calls", async () => (await import("../__tests__/calls-mock")).callsMock());
+// Android's back button (src/back.ts): the handler the call screen takes it over with.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => (back.handler === handler ? (back.handler = null) : undefined) };
+  },
+}));
 
 describe("CallPage", () => {
   // Every screen mounted here watches the same call: one left mounted would react to the next test.
@@ -165,6 +173,75 @@ describe("CallPage", () => {
     call.phase = "ended";
     await nextTick();
     wrapper.unmount();
+    vi.advanceTimersByTime(3000);
+    expect(nav.back).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  // 2026-09-29: leaving the call screen keeps the call (the call bar shows it, the camera is
+  // held); only the hang-up button ends it. It used to hang up: "no call goes on out of sight".
+  it("keeps the call when the screen goes", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    mount(CallPage, { shallow: true }).unmount();
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  // Found by QA on the emulators (2026-09-29): the back gesture hung up.
+  it("goes back from the call screen with Android's back button, and keeps the call", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    mount(CallPage, { shallow: true });
+    await flushPromises();
+    expect(back.handler).not.toBeNull();
+    back.handler?.();
+    await flushPromises();
+    expect(nav.back).toHaveBeenCalledTimes(1);
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  it("with nothing behind, Android's back opens the conversation instead of leaving the app", async () => {
+    window.history.replaceState({ back: null }, "");
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    mount(CallPage, { shallow: true });
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(nav.replace).toHaveBeenCalledWith("/chat/c1");
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  // Ionic keeps the page mounted under the next one: it must act as gone.
+  const leaveView = (wrapper: { vm: unknown }) =>
+    ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
+
+  it("gives Android's back button back once another screen is in front", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    await flushPromises();
+    leaveView(wrapper);
+    await flushPromises();
+    expect(back.handler).toBeNull();
+  });
+
+  it("does not go back from another screen when the call ends there", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    leaveView(wrapper);
+    call.phase = "ended";
+    await nextTick();
+    vi.advanceTimersByTime(3000);
+    expect(nav.back).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("does not go back from another screen when the call ended just before leaving", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    call.phase = "ended";
+    await nextTick();
+    leaveView(wrapper);
     vi.advanceTimersByTime(3000);
     expect(nav.back).not.toHaveBeenCalled();
     vi.useRealTimers();
