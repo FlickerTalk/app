@@ -128,6 +128,31 @@ impl NativeCall {
     }
 }
 
+/// An answer prepared while the call rings (2026-09-29): its connection has taken the offer and
+/// gathered our candidates, but sent nothing and checks nothing until the user answers.
+pub(crate) struct Prepared {
+    native: Arc<NativeCall>,
+    routing: CallRouting,
+    at: Instant,
+}
+
+/// The call ringing here whose answer is being prepared, and the answer once ready.
+#[derive(Default)]
+pub(crate) struct Preparation {
+    call: Option<String>,
+    ready: Option<Prepared>,
+    /// Answered (or being answered): nothing is prepared for it any more.
+    answered: bool,
+}
+
+/// How often (ms) a prepared answer is made again while the call rings: ICE gives up 30 s after
+/// it starts checking (webrtc-rs: 5 s disconnected and 25 s failed), even with nothing to check,
+/// and a NAT may forget the mapping gathered.
+pub(crate) const ANSWER_REFRESH_MS: u64 = 15_000;
+
+/// A prepared answer older than this is never used: it is made afresh.
+const PREPARED_FOR: Duration = Duration::from_secs(20);
+
 /// What the app runs before a call's video devices go (`Core::set_video_detach`).
 pub type VideoDetach = Arc<dyn Fn() + Send + Sync>;
 
@@ -169,6 +194,19 @@ impl Core {
         });
         let clock = self.call_clock.lock().unwrap_or_else(PoisonError::into_inner);
         clock.as_ref().map(|clock| clock.timings(&later, candidates))
+    }
+
+    /// The call whose answer is prepared, if any (for the tests).
+    #[doc(hidden)]
+    pub fn prepared_call(&self) -> Option<String> {
+        let slot = self.preparation.lock().unwrap_or_else(PoisonError::into_inner);
+        slot.ready.as_ref().and(slot.call.clone())
+    }
+
+    /// How often a prepared answer is made again while the call rings (for the tests).
+    #[doc(hidden)]
+    pub fn set_answer_refresh(&self, every: Duration) {
+        self.answer_refresh.store(u64::try_from(every.as_millis()).unwrap_or(u64::MAX), Ordering::SeqCst);
     }
 
     /// The phone's audio device for calls; `None` keeps every call on the WebView.
@@ -244,11 +282,138 @@ impl Core {
         answered
     }
 
+    /// Answers with the answer prepared while it rang, if it is still good for this routing, or
+    /// with one made now.
     async fn answer_native(self: &Arc<Self>, call: &str, offer: &str, media: u16, routing: CallRouting, platform: AudioPlatform) -> Result<()> {
-        let Some(native) = self.open_native(call, routing, platform, Some(media)).await? else { bail!("the call is over") };
-        let sdp = native.session.answer(offer).await?;
+        let prepared = self.take_prepared(call);
+        let usable = prepared.as_ref().is_some_and(|prepared| {
+            prepared.routing == routing
+                && prepared.at.elapsed() < PREPARED_FOR
+                && *prepared.native.session.state().borrow() == LinkState::Connecting
+        });
+        let (native, sdp) = match prepared {
+            Some(prepared) if usable => {
+                let Some(native) = self.install_native(prepared.native).await? else { bail!("the call is over") };
+                let sdp = native.session.release_answer().await?;
+                (native, sdp)
+            }
+            unusable => {
+                if let Some(unusable) = unusable {
+                    unusable.native.shut().await;
+                }
+                let Some(native) = self.open_native(call, routing, platform, Some(media)).await? else { bail!("the call is over") };
+                let sdp = native.session.answer(offer).await?;
+                (native, sdp)
+            }
+        };
         self.mark_call_stage(CallStage::AnswerBuilt);
         self.answer_call_media(call, &sdp, native.media()).await
+    }
+
+    /// Their call rings here (2026-09-29): its answer is prepared in the background, and made
+    /// again every so often while it rings. Nothing reaches the caller until the user answers
+    /// (`MediaSession::prepare_answer`); the microphone and the camera stay untouched.
+    pub(crate) fn prepare_while_ringing(&self, call: &str) {
+        if !self.native_calls() {
+            return;
+        }
+        let stale = {
+            let mut slot = self.preparation.lock().unwrap_or_else(PoisonError::into_inner);
+            let stale = slot.ready.take();
+            *slot = Preparation { call: Some(call.to_owned()), ready: None, answered: false };
+            stale
+        };
+        let Some(core) = self.this.upgrade() else { return };
+        let call = call.to_owned();
+        tokio::spawn(async move {
+            if let Some(stale) = stale {
+                stale.native.shut().await;
+            }
+            core.keep_prepared(&call).await;
+        });
+    }
+
+    async fn keep_prepared(self: &Arc<Self>, call: &str) {
+        let mut first = true;
+        loop {
+            let prepared = {
+                // The first preparation holds answers back: one that comes meanwhile takes it
+                // when ready, sooner than it could make its own.
+                let _answers_wait = if first { Some(self.native_setup.lock().await) } else { None };
+                if !self.still_preparing(call) {
+                    return;
+                }
+                self.prepare_answer(call).await
+            };
+            first = false;
+            // One that could not be made is made by the answer.
+            if let Ok(prepared) = prepared {
+                self.keep_prepared_answer(call, prepared).await;
+            }
+            let every = Duration::from_millis(self.answer_refresh.load(Ordering::SeqCst));
+            tokio::time::sleep(every).await;
+            if !self.still_preparing(call) {
+                return;
+            }
+        }
+    }
+
+    async fn prepare_answer(self: &Arc<Self>, call: &str) -> Result<Prepared> {
+        let platform = self.audio_platform()?;
+        let Some((offer, media)) = self.offer_of(call) else { bail!("no offer for this call") };
+        let routing = self.call_routing().await;
+        let native = self.build_native(call, routing, platform, Some(media)).await?;
+        if let Err(error) = native.session.prepare_answer(&offer).await {
+            native.shut().await;
+            return Err(error);
+        }
+        Ok(Prepared { native, routing, at: Instant::now() })
+    }
+
+    fn still_preparing(&self, call: &str) -> bool {
+        let slot = self.preparation.lock().unwrap_or_else(PoisonError::into_inner);
+        slot.call.as_deref() == Some(call) && !slot.answered
+    }
+
+    /// Keeps `prepared` for the call, if it still rings unanswered; the one it replaces, or itself
+    /// otherwise, is closed.
+    async fn keep_prepared_answer(&self, call: &str, prepared: Prepared) {
+        let unused = {
+            let mut slot = self.preparation.lock().unwrap_or_else(PoisonError::into_inner);
+            if slot.call.as_deref() == Some(call) && !slot.answered {
+                slot.ready.replace(prepared)
+            } else {
+                Some(prepared)
+            }
+        };
+        if let Some(unused) = unused {
+            unused.native.shut().await;
+        }
+    }
+
+    /// The call is being answered: its prepared answer, if ready, and no more preparing.
+    fn take_prepared(&self, call: &str) -> Option<Prepared> {
+        let mut slot = self.preparation.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.call.as_deref() != Some(call) {
+            return None;
+        }
+        slot.answered = true;
+        slot.ready.take()
+    }
+
+    /// The call was answered or is over: whatever was prepared for it goes.
+    pub(crate) async fn discard_prepared(&self, call: &str) {
+        let unused = {
+            let mut slot = self.preparation.lock().unwrap_or_else(PoisonError::into_inner);
+            if slot.call.as_deref() != Some(call) {
+                return;
+            }
+            std::mem::take(&mut *slot).ready
+        };
+        if let Some(unused) = unused {
+            // Never shown: it has no views to take away.
+            unused.native.shut().await;
+        }
     }
 
     /// The OS answered (CallKit on a locked iPhone, with no WebView): the ringing call is answered
@@ -417,6 +582,12 @@ impl Core {
         platform: AudioPlatform,
         peer_media: Option<u16>,
     ) -> Result<Option<Arc<NativeCall>>> {
+        let native = self.build_native(call, routing, platform, peer_media).await?;
+        self.install_native(native).await
+    }
+
+    /// The call's media, made but not yet the call's: nothing runs, nothing is followed.
+    async fn build_native(&self, call: &str, routing: CallRouting, platform: AudioPlatform, peer_media: Option<u16>) -> Result<Arc<NativeCall>> {
         let Some(record) = self.store.call(call).await? else { bail!("no such call") };
         let mut config = self.transport.media_config();
         config.routing = routing;
@@ -441,6 +612,13 @@ impl Core {
             remote: Mutex::new(RemoteCamera::default()),
             connected_at: AtomicI64::new(0),
         });
+        Ok(native)
+    }
+
+    /// Makes `native` the call's media: the voice learns the audio session, and the connection is
+    /// followed. `None` if the call ended meanwhile.
+    async fn install_native(self: &Arc<Self>, native: Arc<NativeCall>) -> Result<Option<Arc<NativeCall>>> {
+        let call = native.call.as_str();
         // A new call is shown on the call screen until the WebView says otherwise.
         self.call_shown.store(true, Ordering::SeqCst);
         let replaced = self.native_call.lock().unwrap_or_else(PoisonError::into_inner).replace(native.clone());
@@ -658,6 +836,7 @@ impl Core {
 
     /// Stops the call's voice and closes its connection, if it has them.
     pub(crate) async fn drop_native(&self, call: &str) {
+        self.discard_prepared(call).await;
         {
             let mut ringing = self.ringing_offer.lock().unwrap_or_else(PoisonError::into_inner);
             if ringing.as_ref().is_some_and(|(id, _, _)| id == call) {

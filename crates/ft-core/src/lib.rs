@@ -179,6 +179,9 @@ pub struct Core {
     /// The OS answered before any call rang (2026-09-28): until when (ms) the next voice call's
     /// offer is answered as soon as it arrives.
     early_answer: std::sync::Mutex<Option<i64>>,
+    /// The answer prepared while a call rings here (2026-09-29), and how often it is made again.
+    preparation: std::sync::Mutex<native_calls::Preparation>,
+    answer_refresh: std::sync::atomic::AtomicU64,
     /// The steps of the call being set up, as they happen (temporary diagnostics).
     call_clock: std::sync::Mutex<Option<timings::CallClock>>,
     /// The newest CallKit call whose audio session was heard of (`set_call_audio_session`).
@@ -268,6 +271,8 @@ impl Core {
             early_answer: std::sync::Mutex::default(),
             audio_generation: std::sync::atomic::AtomicU64::new(0),
             call_clock: std::sync::Mutex::default(),
+            preparation: std::sync::Mutex::default(),
+            answer_refresh: std::sync::atomic::AtomicU64::new(native_calls::ANSWER_REFRESH_MS),
             device_id: identity.device_id(),
             identity: Mutex::new(identity),
             store,

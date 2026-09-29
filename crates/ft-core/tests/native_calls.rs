@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
-use ft_core::timings::{CallStage, CallTimings};
+use ft_core::timings::CallStage::{self, *};
+use ft_core::timings::CallTimings;
 use ft_core::{CallPhase, CallUpdate, Core, Event};
 use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, webview_voice_offer, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, BackendFactory, CallRouting};
@@ -475,7 +476,6 @@ async fn each_side_times_the_steps_of_the_call_setup() {
     let callee = bob.core.call_timings().expect("the callee's timings");
     eprintln!("caller: {}", caller.line());
     eprintln!("callee: {}", callee.line());
-    use CallStage::*;
     in_order(&caller, &[CallStarted, ConnectionBuilt, GatheringStarted, GatheringDone, OfferBuilt, OfferSent, AnswerReceived, Connected]);
     in_order(&caller, &[Connected, AudioDeviceStarted]);
     in_order(&caller, &[AnswerReceived, FirstAudioPacket]);
@@ -565,4 +565,86 @@ async fn with_servers_that_never_answer_the_direct_link_opens_while_the_offer_ga
     let offered = caller.at(CallStage::LinkOffered).expect("the link was offered");
     // The link's own gathering waits up to 3 s (ft-webrtc); ours must not come first.
     assert!(offered < 3_500, "the link was offered {offered} ms after the call started: {}", caller.line());
+}
+
+/// Alice calls Bob behind servers that never answer (gathering takes its whole second); returns
+/// the call once it has rung for `ringing`.
+async fn ringing_for(alice: &Phone, bob: &Phone, ringing: Duration) -> String {
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    assert_eq!(ringing_call(bob).await, call);
+    tokio::time::sleep(ringing).await;
+    call
+}
+
+// Call setup time (2026-09-29): while the phone rings, the callee prepares its answer (the
+// connection, the offer taken, our candidates gathered) without sending anything; answering sends
+// it at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_prepared_while_ringing_goes_at_once() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    let call = ringing_for(&alice, &bob, Duration::from_millis(1_500)).await;
+    assert_eq!(bob.core.prepared_call().as_deref(), Some(call.as_str()), "prepared while it rings");
+    // Nothing reached the caller: no answer, and it still calls.
+    assert_eq!(alice.core.current_call().await.unwrap().expect("calling").phase, CallPhase::Calling);
+    assert!(alice.core.call_timings().is_some_and(|timings| timings.at(CallStage::AnswerReceived).is_none()));
+
+    let answered = std::time::Instant::now();
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    let sent = answered.elapsed();
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    let connected = answered.elapsed();
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let callee = bob.core.call_timings().expect("the callee's timings");
+    eprintln!("prepared: answer sent {} ms and connected {} ms after the answer; callee: {}", sent.as_millis(), connected.as_millis(), callee.line());
+    in_order(&callee, &[OfferReceived, GatheringStarted, GatheringDone, AnswerRequested, AnswerBuilt, AnswerSent, Connected]);
+    assert!(sent < Duration::from_millis(300), "the answer went {} ms after answering", sent.as_millis());
+    assert!(connected < Duration::from_millis(800), "connected {} ms after answering", connected.as_millis());
+    assert_eq!(bob.core.prepared_call(), None, "taken by the answer");
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A call declined, given up by the caller or left to ring out closes its prepared answer; one
+// answered with another routing than it was prepared with is made again with that one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_prepared_answer_goes_with_its_call() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let call = ringing_for(&alice, &bob, Duration::from_millis(300)).await;
+    until("prepared", || async { bob.core.prepared_call().is_some() }).await;
+    bob.core.end_call(&call, false).await.expect("bob declines");
+    assert_eq!(bob.core.prepared_call(), None, "declined");
+    until("alice's call is over", || async { alice.core.current_call().await.unwrap().is_none() }).await;
+
+    let call = ringing_for(&alice, &bob, Duration::from_millis(300)).await;
+    until("prepared", || async { bob.core.prepared_call().is_some() }).await;
+    alice.core.end_call(&call, false).await.expect("alice gives up");
+    until("bob's call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+    assert_eq!(bob.core.prepared_call(), None, "given up");
+
+    bob.core.set_call_routing(CallRouting::Direct).await.unwrap();
+    let mut alice_events = alice.core.events();
+    let call = ringing_for(&alice, &bob, Duration::from_millis(300)).await;
+    until("prepared", || async { bob.core.prepared_call().is_some() }).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("answered with another routing");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    let callee = bob.core.call_timings().expect("timings");
+    in_order(&callee, &[AnswerRequested, GatheringStarted, AnswerSent]);
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A prepared answer cannot wait for ever: ICE gives up 30 s after it starts checking, and a NAT
+// may forget the mapping it gathered. While the phone rings it is made again every so often.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_ring_keeps_its_prepared_answer_fresh() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    bob.core.set_answer_refresh(Duration::from_millis(700));
+    let mut alice_events = alice.core.events();
+    let call = ringing_for(&alice, &bob, Duration::from_millis(2_500)).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    let callee = bob.core.call_timings().expect("timings");
+    let (gathered, answered) = (callee.at(GatheringStarted).expect("gathered"), callee.at(AnswerRequested).expect("answered"));
+    assert!(gathered < answered && answered - gathered < 1_200, "the answer used an old preparation: {}", callee.line());
+    alice.core.end_call(&call, false).await.unwrap();
 }
