@@ -122,6 +122,8 @@ impl Core {
     /// Like `answer_call`, saying our call media version.
     pub(crate) async fn answer_call_media(&self, call: &str, sdp: &str, media: u16) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, false).await? else { bail!("no such call") };
+        // Answered here or in the WebView: nothing more is prepared for it.
+        self.discard_prepared(call).await;
         self.store.answer_call(call, now()).await?;
         let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), media };
         if self.transmit_direct(&contact, &Packet::new(body)).await? {
@@ -252,6 +254,7 @@ impl Core {
             self.remember_offer(&call_id, &sdp, media);
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
             self.mark_call_stage(CallStage::Ringing);
+            self.prepare_while_ringing(&call_id);
             self.answer_if_answered_early(&call_id);
         }
         Ok(())
