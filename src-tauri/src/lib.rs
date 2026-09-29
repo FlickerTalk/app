@@ -2,6 +2,11 @@ mod client;
 mod plugins;
 mod video_surfaces;
 
+// The store-build check of `build.rs` (2026-09-30), tested with the app.
+#[cfg(test)]
+#[path = "../google_client_check.rs"]
+mod google_client_check;
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
