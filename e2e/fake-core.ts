@@ -12,6 +12,9 @@
  * encoder that cannot be set up), as the real core does: with a `camera_failed` event when a
  * video call connects, with an error when it is turned on.
  *
+ * `window.__ftFakeLongChat` (a number) puts that many older texts before Bob's messages, for a
+ * conversation longer than the screen.
+ *
  * The other phone may ring this one too (`window.__ftFake.ring`): as the real core since
  * 2026-09-29, whoever answers (the app's button, `core_call_answer_native`, or the phone's own call
  * screen, `window.__ftFake.phoneAnswers`), the core answers and says `answering`, then
@@ -133,8 +136,17 @@ export function installFakeCore() {
         return state.requests;
       case "core_sessions":
         return state.open.map(sessionView);
-      case "core_messages":
-        return state.messages[String(a.contact)] ?? [];
+      case "core_messages": {
+        const older = Number((window as unknown as Record<string, unknown>).__ftFakeLongChat ?? 0);
+        const filler = Array.from({ length: String(a.contact) === "ft_bob123456789" ? older : 0 }, (_, at) => ({
+          id: `old${at}`,
+          outgoing: at % 2 === 0,
+          text: `older message ${at}`,
+          sentAt: Date.now() - 3_600_000 + at * 1000,
+          state: "read",
+        }));
+        return [...filler, ...(state.messages[String(a.contact)] ?? [])];
+      }
       case "core_plugins":
         return state.plugins;
       case "core_catalogue":
