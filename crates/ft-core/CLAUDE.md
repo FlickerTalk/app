@@ -250,3 +250,6 @@ no corre en segundo plano): la oferta y el `CallEnd` no llegaban.
   generación de su llamada; uno de una llamada anterior no cambia nada. Si el dispositivo no
   arranca al activarse la sesión, se reintenta una vez (300 ms) y si no, la llamada falla.
 - `call_device_running` (diagnóstico temporal).
+- Una oferta que llega con otra llamada en curso se contesta «busy», queda como perdida y se
+  anuncia como `CallUpdate::MissedWhileBusy` (2026-09-29), no como `Ended`: la app terminaba con
+  ese `Ended` la llamada en curso en CallKit (y su audio).
