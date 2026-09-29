@@ -40,6 +40,14 @@ impl VideoProbe {
         let display = self.display.lock().unwrap_or_else(PoisonError::into_inner).clone();
         display.map(|probe| probe.lock().unwrap_or_else(PoisonError::into_inner).clone()).unwrap_or_default()
     }
+
+    /// Whether the latest fake camera and display are gone (dropped), or none was made.
+    pub fn released(&self) -> bool {
+        let alone = |probe: Option<usize>| probe.is_none_or(|count| count == 1);
+        let camera = self.camera.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(Arc::strong_count);
+        let display = self.display.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(Arc::strong_count);
+        alone(camera) && alone(display)
+    }
 }
 
 /// A video platform on the engine's fakes (a camera that makes up H.264 frames, a display that
@@ -216,9 +224,20 @@ pub fn rms(samples: &[i16]) -> f64 {
     (samples.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / samples.len() as f64).sqrt()
 }
 
-/// What a WebView (Chrome) offers for a video call, as an older app would send it: audio and video,
-/// with a candidate nobody answers.
+/// What a WebView (Chrome) offers for a video call, as an older app would send it: audio and video
+/// (VP8 first, then H.264 in both packetization modes, as Chrome lists them), with a candidate
+/// nobody answers.
 pub fn webview_video_offer() -> String {
+    webview_offer(true)
+}
+
+/// What a WebView (Chrome) offers for a voice call, as an older app would send it: audio only,
+/// no video line, with a candidate nobody answers.
+pub fn webview_voice_offer() -> String {
+    webview_offer(false)
+}
+
+fn webview_offer(video: bool) -> String {
     let fingerprint = (0..32).map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(":");
     let transport = |mid: &str| {
         vec![
@@ -239,7 +258,7 @@ pub fn webview_video_offer() -> String {
         "o=- 4611731400430051336 2 IN IP4 127.0.0.1".to_owned(),
         "s=-".to_owned(),
         "t=0 0".to_owned(),
-        "a=group:BUNDLE 0 1".to_owned(),
+        if video { "a=group:BUNDLE 0 1" } else { "a=group:BUNDLE 0" }.to_owned(),
         "a=msid-semantic: WMS stream".to_owned(),
         "m=audio 9 UDP/TLS/RTP/SAVPF 111 9 0 8 126".to_owned(),
     ];
@@ -254,25 +273,38 @@ pub fn webview_video_offer() -> String {
             "a=rtpmap:8 PCMA/8000",
             "a=rtpmap:126 telephone-event/8000",
             "a=ssrc:1111 cname:webview",
-            "m=video 9 UDP/TLS/RTP/SAVPF 96 97",
         ]
         .map(str::to_owned),
     );
-    lines.extend(transport("1"));
-    lines.extend(
-        [
-            "a=msid:stream camera",
-            "a=rtpmap:96 VP8/90000",
-            "a=rtcp-fb:96 nack",
-            "a=rtcp-fb:96 nack pli",
-            "a=rtpmap:97 rtx/90000",
-            "a=fmtp:97 apt=96",
-            "a=ssrc-group:FID 2222 3333",
-            "a=ssrc:2222 cname:webview",
-            "a=ssrc:3333 cname:webview",
-        ]
-        .map(str::to_owned),
-    );
+    if video {
+        lines.push("m=video 9 UDP/TLS/RTP/SAVPF 96 97 106 107 108".to_owned());
+        lines.extend(transport("1"));
+        lines.extend(
+            [
+                "a=extmap:13 urn:3gpp:video-orientation",
+                "a=msid:stream camera",
+                "a=rtpmap:96 VP8/90000",
+                "a=rtcp-fb:96 nack",
+                "a=rtcp-fb:96 nack pli",
+                "a=rtpmap:97 rtx/90000",
+                "a=fmtp:97 apt=96",
+                "a=rtpmap:106 H264/90000",
+                "a=rtcp-fb:106 goog-remb",
+                "a=rtcp-fb:106 ccm fir",
+                "a=rtcp-fb:106 nack",
+                "a=rtcp-fb:106 nack pli",
+                "a=fmtp:106 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+                "a=rtpmap:107 rtx/90000",
+                "a=fmtp:107 apt=106",
+                "a=rtpmap:108 H264/90000",
+                "a=fmtp:108 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f",
+                "a=ssrc-group:FID 2222 3333",
+                "a=ssrc:2222 cname:webview",
+                "a=ssrc:3333 cname:webview",
+            ]
+            .map(str::to_owned),
+        );
+    }
     lines.join("\r\n") + "\r\n"
 }
 
@@ -294,6 +326,9 @@ mod tests {
         devices.sink.start().expect("the display starts");
         assert!(probe.display().running);
         assert!(!probe.camera().running, "the camera opens only when started");
+        assert!(!probe.released(), "the devices are alive");
+        drop(devices);
+        assert!(probe.released());
     }
 
     #[test]
