@@ -19,8 +19,11 @@ import { enablePush, start } from "./core";
 import { isOnboarded } from "./preferences";
 import { loadHistory, startCalls } from "./calls";
 import { startMoving } from "./moving";
+import { startViewportFit } from "./viewport";
 
 initTheme();
+// The app is as tall as what the on-screen keyboard leaves visible (viewport.ts, theme/base.css).
+startViewportFit(window, document.documentElement);
 
 const app = createApp(App).use(IonicVue).use(i18n).use(router);
 

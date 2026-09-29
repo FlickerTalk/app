@@ -4,6 +4,8 @@ import CircleThread from "./CircleThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, seed } from "../__tests__/seed";
 import { store, type Circle } from "../core";
+import { defineComponent, h } from "vue";
+import { startViewportFit } from "../viewport";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -38,6 +40,27 @@ function friends(overrides: Partial<Circle> = {}): Circle {
 
 // Circles (2026-09-27): a conversation of many; who said what is written over each bubble that
 // is not ours, and what happened is a line between them.
+
+/** A visual viewport the test moves, as the on-screen keyboard would (2026-09-29). */
+class FakeViewport extends EventTarget {
+  height = 900;
+  offsetTop = 0;
+  move(height: number) {
+    this.height = height;
+    this.dispatchEvent(new Event("resize"));
+  }
+}
+/** `ion-content` whose element hands out a scroller the test can read. */
+const contentWith = (scroller: { scrollHeight: number; clientHeight: number; scrollTop: number }) =>
+  defineComponent({
+    mounted() {
+      (this.$el as { getScrollElement?: () => Promise<unknown> }).getScrollElement = async () => scroller;
+    },
+    render() {
+      return h("div", this.$slots.default?.());
+    },
+  });
+
 describe("CircleThread", () => {
   beforeEach(() => {
     push.mockClear();
@@ -89,5 +112,31 @@ describe("CircleThread", () => {
     const wrapper = mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
     expect(wrapper.find("[data-test='circle-left']").text()).toBe("You are no longer in this circle");
     expect(wrapper.find("[data-test='circle-send']").exists()).toBe(false);
+  });
+
+  // The keyboard shrinks the conversation: the last message stays in sight above the composer.
+  it("keeps the last message in sight when the keyboard opens", async () => {
+    const viewport = new FakeViewport();
+    Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+    const stop = startViewportFit(window, document.documentElement);
+    const scroller = { scrollHeight: 2000, clientHeight: 800, scrollTop: 1200 };
+    const wrapper = mount(CircleThread, {
+      props: { circleId: "circle1" },
+      shallow: true,
+      global: { stubs: { IonContent: contentWith(scroller) } },
+    });
+    await flushPromises();
+    viewport.move(560);
+    expect(scroller.scrollTop).toBe(2000);
+
+    // Once it is gone, it no longer moves anything.
+    wrapper.unmount();
+    scroller.scrollTop = 1200;
+    viewport.move(900);
+    viewport.move(560);
+    expect(scroller.scrollTop).toBe(1200);
+    stop();
+    document.documentElement.removeAttribute("style");
   });
 });
