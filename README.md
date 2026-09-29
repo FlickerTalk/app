@@ -45,7 +45,8 @@ Google Drive sign-in needs the app's OAuth client ids at build time: `FT_GOOGLE_
 (Android) and `FT_GOOGLE_IOS_CLIENT_ID` (iOS), both `<id>.apps.googleusercontent.com`. A release
 build for Android or iOS stops without its platform's id (`src-tauri/build.rs`); a debug build only
 warns and cannot sign in. A release that is never published can build without it with
-`FT_ALLOW_NO_GOOGLE_CLIENT=1`.
+`FT_ALLOW_NO_GOOGLE_CLIENT=1`. `tauri ios build` only passes `TAURI*` variables to the Xcode build,
+so for iOS export the id as `TAURI_FT_GOOGLE_IOS_CLIENT_ID` (also read; the plain name wins).
 
 Builds are signed and published by GitHub Actions: every push to `main` produces a `canary`
 prerelease, and every `vX.Y.Z` tag a release.
