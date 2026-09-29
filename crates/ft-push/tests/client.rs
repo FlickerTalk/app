@@ -8,13 +8,14 @@ use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 use ft_identity::Identity;
-use ft_push::{canonical, RouterClient, RouterEvent, Signer};
+use ft_push::{canonical, RouterClient, RouterEvent, Signalled, Signer};
 use serde_json::{json, Value};
 
 /// The device identity, exactly as the app signs (vodozemac).
@@ -94,9 +95,11 @@ async fn fake_router() -> (String, Arc<Seen>) {
             "/v1/signal/{to}",
             post(|Path(to): Path<String>, headers: HeaderMap| async move {
                 match (to.as_str(), headers.get("ft-capability").is_some()) {
-                    ("ft_online", true) => StatusCode::ACCEPTED,
-                    (_, true) => StatusCode::NOT_FOUND,
-                    _ => StatusCode::FORBIDDEN,
+                    ("ft_online", true) => StatusCode::ACCEPTED.into_response(),
+                    // Router 0.4.0: not connected, but the signal waits for it in memory.
+                    ("ft_sleeping", true) => (StatusCode::NOT_FOUND, [("ft-retained", "1")]).into_response(),
+                    (_, true) => StatusCode::NOT_FOUND.into_response(),
+                    _ => StatusCode::FORBIDDEN.into_response(),
                 }
             }),
         )
@@ -156,8 +159,20 @@ async fn the_push_token_is_left_signed() {
 async fn a_signal_reports_whether_the_recipient_is_online() {
     let (base, _) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    assert!(client.signal("ft_online", &[1; 32], b"offer".to_vec()).await.expect("answers"));
-    assert!(!client.signal("ft_away", &[1; 32], b"offer".to_vec()).await.expect("answers"));
+    assert_eq!(client.signal("ft_online", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Delivered);
+    assert_eq!(client.signal("ft_away", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::NotConnected);
+}
+
+// Router 0.4.0 (2026-09-29): a signal for a recipient that is not connected is still a 404, now
+// with `ft-retained: 1` when the router keeps it for the recipient's next connection. A router
+// before 0.4 sends no such header: the signal is lost, as before.
+#[tokio::test]
+async fn a_signal_the_router_keeps_for_later_says_so() {
+    let (base, _) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    assert_eq!(client.signal("ft_sleeping", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Retained);
+    assert_eq!(client.signal_call("ft_sleeping", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Retained);
+    assert!(!Signalled::Retained.delivered() && !Signalled::NotConnected.delivered() && Signalled::Delivered.delivered());
 }
 
 #[tokio::test]
@@ -187,7 +202,7 @@ async fn two_devices_meet_on_the_live_router() {
     assert!(!stun.is_empty());
     assert!(turn.is_some());
 
-    assert!(alice.signal(&bob.device_id(), &bob_capability, b"offer".to_vec()).await.expect("signals"));
+    assert_eq!(alice.signal(&bob.device_id(), &bob_capability, b"offer".to_vec()).await.expect("signals"), Signalled::Delivered);
     assert_eq!(events.recv().await, Some(RouterEvent::Signal(b"offer".to_vec())));
 
     alice.deposit(&bob.device_id(), &bob_capability, b"sealed".to_vec()).await.expect("deposits");
@@ -321,7 +336,7 @@ async fn only_a_call_signal_says_it_is_a_call() {
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     let client = RouterClient::new(&format!("http://{address}"), device()).unwrap();
-    assert!(!client.signal("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap());
-    assert!(!client.signal_call("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap());
+    assert_eq!(client.signal("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap(), Signalled::NotConnected);
+    assert_eq!(client.signal_call("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap(), Signalled::NotConnected);
     assert_eq!(*marked.lock().unwrap(), [false, true]);
 }

@@ -8,7 +8,8 @@
 
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use tokio::sync::{mpsc, Mutex};
@@ -151,6 +152,9 @@ pub struct Voice<O: Outgoing = AudioSender> {
     muted: AtomicBool,
     state: Mutex<State>,
     forwarder: Option<JoinHandle<()>>,
+    /// When the device first ran, and when the other side's first packet arrived.
+    device_started: OnceLock<Instant>,
+    first_packet: Arc<OnceLock<Instant>>,
 }
 
 impl<O: Outgoing> Voice<O> {
@@ -163,6 +167,8 @@ impl<O: Outgoing> Voice<O> {
             muted: AtomicBool::new(false),
             state: Mutex::new(State::default()),
             forwarder: None,
+            device_started: OnceLock::new(),
+            first_packet: Arc::new(OnceLock::new()),
         }
     }
 
@@ -192,6 +198,16 @@ impl<O: Outgoing> Voice<O> {
         self.muted.load(Ordering::SeqCst)
     }
 
+    /// When the device first ran (call setup timings).
+    pub fn device_started(&self) -> Option<Instant> {
+        self.device_started.get().copied()
+    }
+
+    /// When the other side's first audio packet arrived (call setup timings).
+    pub fn first_packet(&self) -> Option<Instant> {
+        self.first_packet.get().copied()
+    }
+
     /// Whether the device and the pipeline are running.
     pub async fn is_running(&self) -> bool {
         self.state.lock().await.running.is_some()
@@ -218,7 +234,10 @@ impl<O: Outgoing> Voice<O> {
     /// Starts or stops the device and the pipeline, as the state says.
     async fn settle(&self, state: &mut State) -> Result<()> {
         match (self.may_run(state), state.running.is_some()) {
-            (true, false) => state.running = Some(self.start().await?),
+            (true, false) => {
+                state.running = Some(self.start().await?);
+                let _ = self.device_started.set(Instant::now());
+            }
             (false, true) => {
                 if let Some(running) = state.running.take() {
                     Self::halt(running).await;
@@ -269,10 +288,12 @@ impl Voice<AudioSender> {
     pub fn for_session(session: &MediaSession, platform: AudioPlatform) -> Self {
         let (arrived, incoming) = mpsc::channel(INCOMING_PACKETS);
         let mut voice = Self::new(session.sender(), incoming, platform);
+        let first_packet = voice.first_packet.clone();
         if let Some(track) = session.take_remote() {
             voice.forwarder = Some(tokio::spawn(async move {
                 let mut remote = RemoteAudio::new(track);
                 while let Ok(Some(packet)) = remote.recv().await {
+                    let _ = first_packet.set(Instant::now());
                     // Full means nothing plays right now (the device waits): dropping is what a
                     // network does.
                     let _ = arrived.try_send(packet);
@@ -437,6 +458,23 @@ mod tests {
         assert!((2..=5).contains(&looked_after), "{looked_after} upkeeps in 450 ms");
         tokio::time::sleep(Duration::from_millis(250)).await;
         assert_eq!(upkeeps.load(Ordering::SeqCst), looked_after, "none once stopped");
+    }
+
+    // Call setup timings (2026-09-29): when the device first ran, whatever happens after.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_voice_says_when_its_device_first_ran() {
+        let (alice, _, _bob, _) = pair(Activation::WhenSessionActive, 1);
+        alice.connected().await.expect("connects");
+        assert_eq!(alice.device_started(), None, "the session is not active yet");
+        let before = std::time::Instant::now();
+        alice.set_session_active(true).await.expect("activates");
+        let first = alice.device_started().expect("it ran");
+        assert!(first >= before);
+        alice.set_session_active(false).await.expect("deactivates");
+        alice.set_session_active(true).await.expect("activates again");
+        assert_eq!(alice.device_started(), Some(first), "the first time is kept");
+        assert_eq!(alice.first_packet(), None, "no connection, nothing arrived from it");
+        alice.stop().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]

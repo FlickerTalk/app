@@ -8,10 +8,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
+use ft_core::timings::CallStage::{self, *};
+use ft_core::timings::CallTimings;
 use ft_core::{CallPhase, CallUpdate, Core, Event};
 use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, webview_voice_offer, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, BackendFactory, CallRouting};
-use ft_push::RouterEvent;
+use ft_push::{RouterEvent, Signalled, TurnGrant};
 use ft_storage::{CallOutcome, Store};
 use ft_webrtc::SessionConfig;
 use tokio::sync::{broadcast, mpsc};
@@ -21,6 +23,10 @@ use tokio::sync::{broadcast, mpsc};
 struct Bus {
     online: Mutex<HashMap<String, mpsc::UnboundedSender<RouterEvent>>>,
     capabilities: Mutex<HashMap<String, [u8; 32]>>,
+    /// Router 0.4.0 (2026-09-29): a signal for a device that is not connected waits for its next
+    /// connection. Off: a router before 0.4, which loses it.
+    retaining: std::sync::atomic::AtomicBool,
+    held: Mutex<HashMap<String, Vec<Vec<u8>>>>,
 }
 
 struct FakeRelay {
@@ -36,6 +42,17 @@ impl Relay for FakeRelay {
         }
         let online = self.bus.online.lock().unwrap().get(to).cloned();
         Ok(online.is_some_and(|device| device.send(RouterEvent::Signal(bytes)).is_ok()))
+    }
+
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, _call: bool) -> anyhow::Result<Signalled> {
+        if self.signal(to, capability, bytes.clone()).await? {
+            return Ok(Signalled::Delivered);
+        }
+        if !self.bus.retaining.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(Signalled::NotConnected);
+        }
+        self.bus.held.lock().unwrap().entry(to.to_owned()).or_default().push(bytes);
+        Ok(Signalled::Retained)
     }
 
     async fn deposit(&self, _to: &str, _capability: &[u8; 32], _blob: Vec<u8>) -> anyhow::Result<()> {
@@ -64,6 +81,11 @@ impl Phone {
     }
 
     fn go_online(&self, bus: &Arc<Bus>) {
+        self.go_online_with(bus, vec![], None);
+    }
+
+    /// Online, with the STUN and TURN servers the router's welcome names.
+    fn go_online_with(&self, bus: &Arc<Bus>, stun: Vec<String>, turn: Option<TurnGrant>) {
         let (events, mut incoming) = mpsc::unbounded_channel();
         bus.online.lock().unwrap().insert(self.id(), events.clone());
         let network = self.network.clone();
@@ -72,7 +94,11 @@ impl Phone {
                 network.handle(event).await;
             }
         });
-        let _ = events.send(RouterEvent::Connected { stun: vec![], turn: None });
+        let _ = events.send(RouterEvent::Connected { stun, turn });
+        // Router 0.4.0: what waited for this device comes right after the welcome.
+        for bytes in bus.held.lock().unwrap().remove(&self.id()).unwrap_or_default() {
+            let _ = events.send(RouterEvent::Signal(bytes));
+        }
     }
 }
 
@@ -546,4 +572,285 @@ async fn a_call_whose_audio_device_never_starts_fails() {
     assert!(bob.core.set_call_audio_session(true, 1).await.is_err());
     until("alice's call ends", || async { alice.core.current_call().await.unwrap().is_none() }).await;
     assert_eq!(bob.core.store().call(&call).await.unwrap().expect("in the history").outcome, Some(CallOutcome::Failed));
+}
+
+/// Asserts the stages were all reached, in this order (the same millisecond is in order too).
+fn in_order(timings: &CallTimings, stages: &[CallStage]) {
+    let mut last = 0;
+    for stage in stages {
+        let at = timings.at(*stage).unwrap_or_else(|| panic!("{} never reached: {}", stage.name(), timings.line()));
+        assert!(at >= last, "{} before the stage ahead of it: {}", stage.name(), timings.line());
+        last = at;
+    }
+}
+
+// Call setup timings (2026-09-29, temporary diagnostics): each side knows how long each step of
+// the setup took, from its call or its offer to the first audio, and says nothing about who.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_side_times_the_steps_of_the_call_setup() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    assert!(alice.core.call_timings().is_none(), "no call yet");
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    ringing_call(&bob).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let heard = |phone: &Phone| phone.core.call_timings().is_some_and(|timings| timings.at(CallStage::FirstAudioPacket).is_some());
+    until("audio arrives on both sides", || async { heard(&alice) && heard(&bob) }).await;
+
+    let caller = alice.core.call_timings().expect("the caller's timings");
+    let callee = bob.core.call_timings().expect("the callee's timings");
+    eprintln!("caller: {}", caller.line());
+    eprintln!("callee: {}", callee.line());
+    in_order(&caller, &[CallStarted, ConnectionBuilt, GatheringStarted, GatheringDone, OfferBuilt, OfferSent, AnswerReceived, Connected]);
+    in_order(&caller, &[Connected, AudioDeviceStarted]);
+    in_order(&caller, &[AnswerReceived, FirstAudioPacket]);
+    in_order(&callee, &[OfferReceived, Ringing, AnswerRequested, AnswerSent, Connected, AudioDeviceStarted]);
+    in_order(&callee, &[ConnectionBuilt, GatheringStarted, GatheringDone, AnswerBuilt, AnswerSent, FirstAudioPacket]);
+    assert!(callee.candidates.is_some_and(|found| found.host >= 1), "{}", callee.line());
+    assert!(caller.candidates.is_some_and(|found| found.host >= 1 && found.complete), "loopback completes: {}", caller.line());
+    for line in [caller.line(), callee.line()] {
+        assert!(!line.contains("ft_") && !line.contains(&call) && !line.contains("127.0.0.1"), "{line}");
+    }
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+/// STUN and TURN servers that never answer: local UDP sockets nobody reads (a server behind a
+/// network that drops the packets, or an interface with no way out). Nothing leaves the machine.
+struct Blackhole {
+    _stun: std::net::UdpSocket,
+    _turn: std::net::UdpSocket,
+    stun: Vec<String>,
+    turn: TurnGrant,
+}
+
+fn blackhole() -> Blackhole {
+    let (stun, turn) = (std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), std::net::UdpSocket::bind("127.0.0.1:0").unwrap());
+    let (stun_port, turn_port) = (stun.local_addr().unwrap().port(), turn.local_addr().unwrap().port());
+    Blackhole {
+        stun: vec![format!("stun:127.0.0.1:{stun_port}")],
+        turn: TurnGrant { urls: vec![format!("turn:127.0.0.1:{turn_port}?transport=udp")], username: "u".to_owned(), credential: "c".to_owned() },
+        _stun: stun,
+        _turn: turn,
+    }
+}
+
+/// Two paired phones whose router names servers that never answer.
+async fn two_phones_behind(hole: &Blackhole) -> (Phone, Phone) {
+    two_phones_behind_on(&Arc::new(Bus::default()), hole).await
+}
+
+async fn two_phones_behind_on(bus: &Arc<Bus>, hole: &Blackhole) -> (Phone, Phone) {
+    let bus = bus.clone();
+    let alice = phone(&bus, "Alice", false, Activation::Immediate).await;
+    let bob = phone(&bus, "Bob", true, Activation::Immediate).await;
+    alice.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    pair(&alice, &bob).await;
+    (alice, bob)
+}
+
+/// One call from Alice to Bob, answered as soon as it rings: (call started → ringing, answered →
+/// connected on Bob's side), with both sides' timings printed.
+async fn timed_call(alice: &Phone, bob: &Phone, what: &str) -> (Duration, Duration) {
+    let mut bob_events = bob.core.events();
+    let started = std::time::Instant::now();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+    let ringing = started.elapsed();
+    let answered = std::time::Instant::now();
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let connected = answered.elapsed();
+    eprintln!("{what}: ringing after {} ms, connected {} ms after the answer", ringing.as_millis(), connected.as_millis());
+    eprintln!("  caller: {}", alice.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    eprintln!("  callee: {}", bob.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    alice.core.end_call(&call, false).await.unwrap();
+    until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+    (ringing, connected)
+}
+
+// Call setup time (2026-09-29): a STUN or TURN server that never answers (on one interface, or
+// all of them) held every description for the whole gathering deadline, 3 s. An answer connects
+// in well under a second and a half however the servers behave.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_servers_that_never_answer_an_answer_still_connects_at_once() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    let (_, connected) = timed_call(&alice, &bob, "unreachable servers, link open").await;
+    assert!(connected < Duration::from_millis(1_500), "connected {} ms after the answer", connected.as_millis());
+}
+
+// The phone that was asleep (2026-09-29): the call's direct connection is opened on demand, and
+// it opens while our media offer gathers, not after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_servers_that_never_answer_the_direct_link_opens_while_the_offer_gathers() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    alice.network.disconnect(&bob.id()).await;
+    let alice_id = alice.id();
+    until("bob's connection is gone", || async { !bob.network.is_connected(&alice_id).await }).await;
+    let (ringing, _) = timed_call(&alice, &bob, "unreachable servers, link closed").await;
+    let caller = alice.core.call_timings().expect("the caller's timings");
+    let offered = caller.at(CallStage::LinkOffered).expect("the link was offered");
+    // DataChannel setup time (2026-09-29): the link's gathering is capped as the media's is (a
+    // second here, where it waited the whole 3 s), on both sides.
+    assert!(offered < 1_500, "the link was offered {offered} ms after the call started: {}", caller.line());
+    assert!(ringing < Duration::from_millis(3_500), "it rang after {} ms", ringing.as_millis());
+}
+
+// DataChannel setup timings (2026-09-29, temporary diagnostics): each side times its direct
+// connection's steps, with the candidates its description carried, and says nothing about who.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_side_times_the_steps_of_the_direct_connection() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    alice.network.disconnect(&bob.id()).await;
+    let alice_id = alice.id();
+    until("bob's connection is gone", || async { !bob.network.is_connected(&alice_id).await }).await;
+    timed_call(&alice, &bob, "link stages").await;
+
+    let caller = alice.core.call_timings().expect("the caller's timings");
+    let callee = bob.core.call_timings().expect("the callee's timings");
+    in_order(&caller, &[CallStarted, LinkGatheringStarted, LinkGatheringDone, LinkOffered, LinkOfferSent, LinkAnswerReceived, LinkOpened, OfferSent]);
+    in_order(&callee, &[LinkOfferReceived, LinkGatheringStarted, LinkGatheringDone, LinkAnswered, LinkOpened, OfferReceived, Ringing]);
+    for (side, timings) in [("caller", &caller), ("callee", &callee)] {
+        let link = timings.link.unwrap_or_else(|| panic!("the {side}'s link candidates: {}", timings.line()));
+        assert!(link.host >= 1 && !link.complete, "the {side}'s link gathering was cut short: {}", timings.line());
+        let line = timings.line();
+        assert!(!line.contains("ft_") && !line.contains("127.0.0.1"), "{line}");
+    }
+}
+
+/// Alice calls Bob behind servers that never answer (gathering takes its whole second); returns
+/// the call once it has rung for `ringing`.
+async fn ringing_for(alice: &Phone, bob: &Phone, ringing: Duration) -> String {
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    assert_eq!(ringing_call(bob).await, call);
+    tokio::time::sleep(ringing).await;
+    call
+}
+
+// Call setup time (2026-09-29): while the phone rings, the callee prepares its answer (the
+// connection, the offer taken, our candidates gathered) without sending anything; answering sends
+// it at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_prepared_while_ringing_goes_at_once() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    let call = ringing_for(&alice, &bob, Duration::from_millis(1_500)).await;
+    assert_eq!(bob.core.prepared_call().as_deref(), Some(call.as_str()), "prepared while it rings");
+    // Nothing reached the caller: no answer, and it still calls.
+    assert_eq!(alice.core.current_call().await.unwrap().expect("calling").phase, CallPhase::Calling);
+    assert!(alice.core.call_timings().is_some_and(|timings| timings.at(CallStage::AnswerReceived).is_none()));
+
+    let answered = std::time::Instant::now();
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    let sent = answered.elapsed();
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    let connected = answered.elapsed();
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let callee = bob.core.call_timings().expect("the callee's timings");
+    eprintln!("prepared: answer sent {} ms and connected {} ms after the answer; callee: {}", sent.as_millis(), connected.as_millis(), callee.line());
+    in_order(&callee, &[OfferReceived, GatheringStarted, GatheringDone, AnswerRequested, AnswerBuilt, AnswerSent, Connected]);
+    assert!(sent < Duration::from_millis(300), "the answer went {} ms after answering", sent.as_millis());
+    assert!(connected < Duration::from_millis(800), "connected {} ms after answering", connected.as_millis());
+    assert_eq!(bob.core.prepared_call(), None, "taken by the answer");
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A call declined, given up by the caller or left to ring out closes its prepared answer; one
+// answered with another routing than it was prepared with is made again with that one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_prepared_answer_goes_with_its_call() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let call = ringing_for(&alice, &bob, Duration::from_millis(300)).await;
+    until("prepared", || async { bob.core.prepared_call().is_some() }).await;
+    bob.core.end_call(&call, false).await.expect("bob declines");
+    assert_eq!(bob.core.prepared_call(), None, "declined");
+    until("alice's call is over", || async { alice.core.current_call().await.unwrap().is_none() }).await;
+
+    let call = ringing_for(&alice, &bob, Duration::from_millis(300)).await;
+    until("prepared", || async { bob.core.prepared_call().is_some() }).await;
+    alice.core.end_call(&call, false).await.expect("alice gives up");
+    until("bob's call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+    assert_eq!(bob.core.prepared_call(), None, "given up");
+
+    bob.core.set_call_routing(CallRouting::Direct).await.unwrap();
+    let mut alice_events = alice.core.events();
+    let call = ringing_for(&alice, &bob, Duration::from_millis(300)).await;
+    until("prepared", || async { bob.core.prepared_call().is_some() }).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("answered with another routing");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    let callee = bob.core.call_timings().expect("timings");
+    in_order(&callee, &[AnswerRequested, GatheringStarted, AnswerSent]);
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A prepared answer cannot wait for ever: ICE gives up 30 s after it starts checking, and a NAT
+// may forget the mapping it gathered. While the phone rings it is made again every so often.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_ring_keeps_its_prepared_answer_fresh() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    bob.core.set_answer_refresh(Duration::from_millis(700));
+    let mut alice_events = alice.core.events();
+    let call = ringing_for(&alice, &bob, Duration::from_millis(2_500)).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    let callee = bob.core.call_timings().expect("timings");
+    let (gathered, answered) = (callee.at(GatheringStarted).expect("gathered"), callee.at(AnswerRequested).expect("answered"));
+    assert!(gathered < answered && answered - gathered < 1_200, "the answer used an old preparation: {}", callee.line());
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+/// Alice calls Bob behind servers that never answer, with Bob's app closed (no router socket, no
+/// direct connection); it opens 4 s later. Returns (connected to the router → ringing,
+/// connected to the router → call connected), with both sides' timings printed.
+async fn call_to_a_closed_app(retaining: bool) -> (Duration, Duration) {
+    let hole = blackhole();
+    let bus = Arc::new(Bus::default());
+    bus.retaining.store(retaining, std::sync::atomic::Ordering::SeqCst);
+    let (alice, bob) = two_phones_behind_on(&bus, &hole).await;
+    bus.online.lock().unwrap().remove(&bob.id());
+    bob.network.disconnect(&alice.id()).await;
+    alice.network.disconnect(&bob.id()).await;
+
+    let mut bob_events = bob.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    // Well after the first offer went (its gathering takes a second here), and halfway between
+    // two of the retries a router before 0.4 needs (every 2 s): the average case.
+    tokio::time::sleep(Duration::from_millis(4_000)).await;
+    let back = std::time::Instant::now();
+    bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+    let ringing = back.elapsed();
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let connected = back.elapsed();
+    let router = if retaining { "retaining router" } else { "router before 0.4" };
+    eprintln!("closed app, {router}: ringing {} ms and connected {} ms after its app connected", ringing.as_millis(), connected.as_millis());
+    eprintln!("  caller: {}", alice.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    eprintln!("  callee: {}", bob.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    alice.core.end_call(&call, false).await.unwrap();
+    (ringing, connected)
+}
+
+// A call to a phone whose app is closed (2026-09-29): the router (0.4.0) keeps the direct
+// connection's offer and wakes the phone; the offer is answered as soon as its app connects, with
+// no retry round and no new gathering on the caller's side.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_closed_app_rings_as_soon_as_it_connects() {
+    let (ringing, _) = call_to_a_closed_app(true).await;
+    // Bob's side gathers its link answer (a second here) and the channel opens.
+    assert!(ringing < Duration::from_millis(2_000), "it rang {} ms after the app connected", ringing.as_millis());
+}
+
+// Interop: a router before 0.4 loses the offer; the caller keeps trying every 2 s, as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_closed_app_still_rings_through_a_router_before_0_4() {
+    let (ringing, _) = call_to_a_closed_app(false).await;
+    assert!(ringing < Duration::from_millis(5_000), "it rang {} ms after the app connected", ringing.as_millis());
 }

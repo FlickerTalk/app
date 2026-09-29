@@ -5,21 +5,29 @@
 //! Every call negotiates both lines from the start, voice or video (native video, 2026-09-29;
 //! `docs/video-nativo.md`): the video line costs nothing while no camera is on, and turning one on
 //! never needs a new offer.
+//!
+//! Call setup time (2026-09-29): a description goes as soon as it has what the routing wants
+//! (`send_at`), not when gathering completes: a STUN or TURN server that never answers, on one
+//! interface or all, used to hold it for the whole 3 s deadline. The callee may prepare its answer
+//! while the phone rings (`prepare_answer`): the offer's candidates are kept apart, so nothing
+//! reaches the caller, not even an ICE check, until the user answers (`release_answer`).
 
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use rtc::rtp_transceiver::rtp_sender::RtpCodecKind;
 use tokio::sync::{oneshot, watch};
 use webrtc::media_stream::track_remote::TrackRemote;
 use webrtc::peer_connection::{
-    PeerConnection, PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceGatheringState, RTCPeerConnectionState,
-    RTCSessionDescription,
+    PeerConnection, PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceCandidateType,
+    RTCIceGatheringState,
+    RTCPeerConnectionIceEvent, RTCPeerConnectionState, RTCSessionDescription,
 };
 use webrtc_engine::rtp::{add_audio_track, peer_connection_builder, AudioSender};
 use webrtc_engine::video::rtp::{add_video_track, h264_payload_type, VideoSender};
 
-use crate::{ice_setup, MediaConfig};
+use crate::{ice_setup, CallRouting, MediaConfig};
 
 /// How far the connection has come.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +42,7 @@ pub enum LinkState {
 type PendingTrack = Mutex<Option<oneshot::Sender<Arc<dyn TrackRemote>>>>;
 
 struct Events {
-    gathered: watch::Sender<bool>,
+    gathered: watch::Sender<Live>,
     state: Arc<watch::Sender<LinkState>>,
     track: PendingTrack,
     video: PendingTrack,
@@ -45,8 +53,22 @@ struct Events {
 impl PeerConnectionEventHandler for Events {
     async fn on_ice_gathering_state_change(&self, state: RTCIceGatheringState) {
         if state == RTCIceGatheringState::Complete {
-            let _ = self.gathered.send(true);
+            self.gathered.send_modify(|live| live.complete = true);
         }
+    }
+
+    async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+        let now = Instant::now();
+        self.gathered.send_modify(|live| match event.candidate.typ {
+            RTCIceCandidateType::Host => live.host = live.host.saturating_add(1),
+            RTCIceCandidateType::Srflx => {
+                live.srflx.get_or_insert(now);
+            }
+            RTCIceCandidateType::Relay => {
+                live.relay.get_or_insert(now);
+            }
+            _ => {}
+        });
     }
 
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
@@ -77,6 +99,20 @@ impl PeerConnectionEventHandler for Events {
     }
 }
 
+/// How a session's ICE gathering went (call setup timings, 2026-09-29): numbers only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Gathering {
+    /// When our description was set and gathering began.
+    pub started: Option<Instant>,
+    /// When the description was taken to be sent, with what was gathered by then.
+    pub finished: Option<Instant>,
+    /// Whether gathering had completed by then, or the wait was cut short.
+    pub complete: bool,
+    pub host: u16,
+    pub srflx: u16,
+    pub relay: u16,
+}
+
 /// One side of a call's connection.
 pub struct MediaSession {
     connection: Arc<dyn PeerConnection>,
@@ -84,19 +120,22 @@ pub struct MediaSession {
     video: Arc<VideoSender>,
     remote_video: Mutex<Option<oneshot::Receiver<Arc<dyn TrackRemote>>>>,
     video_arrived: watch::Receiver<bool>,
-    gathered: watch::Receiver<bool>,
+    gathered: watch::Receiver<Live>,
     state: watch::Receiver<LinkState>,
     /// Closing says so itself: webrtc-rs does not report its own close.
     closed: Arc<watch::Sender<LinkState>>,
     remote: Mutex<Option<oneshot::Receiver<Arc<dyn TrackRemote>>>>,
     config: MediaConfig,
+    report: Mutex<Gathering>,
+    /// The offer's candidates, while our answer is prepared and not yet released.
+    held: Mutex<Option<Vec<String>>>,
 }
 
 impl MediaSession {
     /// A connection with our audio and video tracks, ready to offer or to answer.
     pub async fn open(config: &MediaConfig) -> Result<Self> {
         let (servers, policy) = ice_setup(config);
-        let (gathered_tx, gathered) = watch::channel(false);
+        let (gathered_tx, gathered) = watch::channel(Live::default());
         let (state_tx, state) = watch::channel(LinkState::Connecting);
         let state_tx = Arc::new(state_tx);
         let (track_tx, track) = oneshot::channel();
@@ -143,6 +182,8 @@ impl MediaSession {
             closed: state_tx,
             remote: Mutex::new(Some(track)),
             config: config.clone(),
+            report: Mutex::new(Gathering::default()),
+            held: Mutex::new(None),
         })
     }
 
@@ -150,6 +191,7 @@ impl MediaSession {
     pub async fn offer(&self) -> Result<String> {
         let offer = self.connection.create_offer(None).await?;
         self.connection.set_local_description(offer).await?;
+        self.gathering_started();
         self.gathered_description().await
     }
 
@@ -160,7 +202,39 @@ impl MediaSession {
         self.connection.set_remote_description(offer).await?;
         let answer = self.connection.create_answer(None).await?;
         self.connection.set_local_description(answer).await?;
+        self.gathering_started();
         self.gathered_description().await
+    }
+
+    /// Prepares our answer to `offer` while the call rings (2026-09-29): the connection takes the
+    /// offer and gathers our candidates, but the offer's candidates are kept apart, so nothing
+    /// reaches the other side (no ICE check) and nothing is sent until `release_answer`.
+    pub async fn prepare_answer(&self, offer: &str) -> Result<()> {
+        let (bare, candidates) = split_candidates(offer);
+        let offer = RTCSessionDescription::offer(bare).context("invalid offer")?;
+        self.connection.set_remote_description(offer).await?;
+        let answer = self.connection.create_answer(None).await?;
+        self.connection.set_local_description(answer).await?;
+        self.gathering_started();
+        self.gathered_description().await?;
+        *self.held.lock().unwrap_or_else(PoisonError::into_inner) = Some(candidates);
+        Ok(())
+    }
+
+    /// The prepared answer, with the candidates gathered by now; from here the offer's candidates
+    /// are checked. Only once, and only after `prepare_answer`.
+    pub async fn release_answer(&self) -> Result<String> {
+        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let Some(candidates) = held else { bail!("no prepared answer") };
+        for candidate in candidates {
+            // One the connection cannot read is skipped, as a browser skips it: the others may do.
+            let _ = self.connection.add_ice_candidate(RTCIceCandidateInit { candidate, ..RTCIceCandidateInit::default() }).await;
+        }
+        let description = self.connection.local_description().await.ok_or_else(|| anyhow!("no local description"))?;
+        let (host, srflx, relay) = candidate_counts(&description.sdp);
+        let mut report = self.report.lock().unwrap_or_else(PoisonError::into_inner);
+        *report = Gathering { host, srflx, relay, ..*report };
+        Ok(description.sdp)
     }
 
     /// The other side's answer to our offer.
@@ -170,16 +244,53 @@ impl MediaSession {
         Ok(())
     }
 
-    /// The local description with the candidates gathered so far: once gathering completes or,
-    /// at most, when the deadline passes. An interface that never answers must not hold the call.
+    /// The local description with the candidates gathered so far: once gathering completes, once
+    /// it has what the routing wants (`send_at`) or, at most, when the deadline passes. A server
+    /// or an interface that never answers must not hold the call (2026-09-29).
     async fn gathered_description(&self) -> Result<String> {
+        let started = self.gathering().started.unwrap_or_else(Instant::now);
+        let wanted = Wanted::of(&self.config);
+        let limits = GatherLimits { deadline: self.config.gather_timeout, ..GATHER_LIMITS };
         let mut gathered = self.gathered.clone();
-        let _ = tokio::time::timeout(self.config.gather_timeout, gathered.wait_for(|done| *done)).await;
+        loop {
+            let found = gathered.borrow_and_update().since(started);
+            let at = started + send_at(&found, wanted, limits);
+            if Instant::now() >= at {
+                break;
+            }
+            tokio::select! {
+                changed = gathered.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                }
+                () = tokio::time::sleep_until(at.into()) => {}
+            }
+        }
         let description = self.connection.local_description().await.ok_or_else(|| anyhow!("no local description"))?;
+        self.gathering_finished(&description.sdp);
         if !description.sdp.contains("a=candidate:") {
             bail!("no ICE candidate was gathered");
         }
         Ok(description.sdp)
+    }
+
+    fn gathering_started(&self) {
+        let mut report = self.report.lock().unwrap_or_else(PoisonError::into_inner);
+        *report = Gathering { started: Some(Instant::now()), ..Gathering::default() };
+    }
+
+    /// `sdp` is the description taken to be sent.
+    fn gathering_finished(&self, sdp: &str) {
+        let (host, srflx, relay) = candidate_counts(sdp);
+        let complete = self.gathered.borrow().complete;
+        let mut report = self.report.lock().unwrap_or_else(PoisonError::into_inner);
+        *report = Gathering { finished: Some(Instant::now()), complete, host, srflx, relay, ..*report };
+    }
+
+    /// How the gathering went, so far.
+    pub fn gathering(&self) -> Gathering {
+        *self.report.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Follows the connection.
@@ -227,6 +338,141 @@ impl MediaSession {
         let _ = self.connection.close().await;
         let _ = self.closed.send(LinkState::Closed);
     }
+}
+
+/// `sdp` without its candidates and its end-of-candidates, and its distinct candidates (as
+/// `candidate:…`), in order.
+fn split_candidates(sdp: &str) -> (String, Vec<String>) {
+    let mut bare = String::with_capacity(sdp.len());
+    let mut candidates: Vec<String> = Vec::new();
+    for line in sdp.split_inclusive('\n') {
+        let content = line.trim_end();
+        if let Some(candidate) = content.strip_prefix("a=") {
+            if candidate.starts_with("candidate:") {
+                if !candidates.iter().any(|kept| kept == candidate) {
+                    candidates.push(candidate.to_owned());
+                }
+                continue;
+            }
+            if candidate == "end-of-candidates" {
+                continue;
+            }
+        }
+        bare.push_str(line);
+    }
+    (bare, candidates)
+}
+
+/// What the routing wants a description to carry (call setup time, 2026-09-29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Wanted {
+    /// A server reflexive candidate: STUN is configured and the routing uses it.
+    srflx: bool,
+    /// A relay candidate: TURN is configured and the routing allows it.
+    relay: bool,
+    /// Only relay candidates are usable ("Always relay").
+    relay_only: bool,
+}
+
+impl Wanted {
+    fn of(config: &MediaConfig) -> Self {
+        let relay_only = config.routing == CallRouting::Always;
+        Self {
+            srflx: !config.stun.is_empty() && !relay_only,
+            relay: config.turn.is_some() && config.routing != CallRouting::Direct,
+            relay_only,
+        }
+    }
+}
+
+/// What gathering has found so far: host candidates, and when (from the start of gathering) the
+/// first server reflexive and relay ones came.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Found {
+    host: u16,
+    srflx: Option<Duration>,
+    relay: Option<Duration>,
+    complete: bool,
+}
+
+/// How long a description waits for its candidates.
+#[derive(Debug, Clone, Copy)]
+struct GatherLimits {
+    /// After every wanted kind came: for the other interfaces' candidates, which travel together.
+    settle: Duration,
+    /// With something usable, a server that never answers holds the description this long at most.
+    cap: Duration,
+    /// Without anything usable (no relay yet with "Always relay"): the whole deadline.
+    deadline: Duration,
+}
+
+const GATHER_LIMITS: GatherLimits =
+    GatherLimits { settle: Duration::from_millis(100), cap: Duration::from_secs(1), deadline: Duration::from_secs(3) };
+
+/// When (from the start of gathering) the description goes, if nothing more comes.
+fn send_at(found: &Found, wanted: Wanted, limits: GatherLimits) -> Duration {
+    if found.complete {
+        return Duration::ZERO;
+    }
+    let usable = if wanted.relay_only {
+        found.relay.is_some()
+    } else {
+        found.host > 0 || found.srflx.is_some() || found.relay.is_some()
+    };
+    if !usable {
+        return limits.deadline;
+    }
+    let srflx = if wanted.srflx { found.srflx.map(Some) } else { Some(None) };
+    let relay = if wanted.relay { found.relay.map(Some) } else { Some(None) };
+    let at = match (srflx, relay) {
+        // Every wanted kind is here: from the last of them.
+        (Some(srflx), Some(relay)) => srflx.max(relay).unwrap_or(Duration::ZERO) + limits.settle,
+        // The relay takes two round trips where STUN took one.
+        (Some(Some(srflx)), None) => limits.cap.max(srflx * 3 + limits.settle),
+        _ => limits.cap,
+    };
+    at.min(limits.deadline)
+}
+
+/// What gathering has found so far, as it happens: when the first candidates of each kind came.
+#[derive(Debug, Clone, Copy, Default)]
+struct Live {
+    host: u16,
+    srflx: Option<Instant>,
+    relay: Option<Instant>,
+    complete: bool,
+}
+
+impl Live {
+    fn since(&self, started: Instant) -> Found {
+        Found {
+            host: self.host,
+            srflx: self.srflx.map(|at| at.saturating_duration_since(started)),
+            relay: self.relay.map(|at| at.saturating_duration_since(started)),
+            complete: self.complete,
+        }
+    }
+}
+
+/// The distinct candidates of `sdp` by type: (host, srflx, relay). Only the first component: the
+/// RTCP one is the same address.
+fn candidate_counts(sdp: &str) -> (u16, u16, u16) {
+    let distinct: std::collections::BTreeSet<&str> =
+        sdp.lines().filter_map(|line| line.trim_end().strip_prefix("a=candidate:")).collect();
+    let mut counts = (0u16, 0u16, 0u16);
+    for candidate in distinct {
+        if candidate.split(' ').nth(1) != Some("1") {
+            continue;
+        }
+        let kind = candidate.split(' ').skip_while(|word| *word != "typ").nth(1);
+        match kind {
+            Some("host") => counts.0 = counts.0.saturating_add(1),
+            Some("srflx") => counts.1 = counts.1.saturating_add(1),
+            Some("relay") => counts.2 = counts.2.saturating_add(1),
+            _ => {}
+        }
+    }
+    counts
 }
 
 /// Whether the video line negotiated on `connection` goes both ways (see
@@ -384,6 +630,225 @@ mod tests {
         assert!(callee.video_both_ways().await);
         caller.close().await;
         callee.close().await;
+    }
+
+    fn ms(ms: u64) -> Duration {
+        Duration::from_millis(ms)
+    }
+
+    fn found(host: u16, srflx: Option<u64>, relay: Option<u64>) -> Found {
+        Found { host, srflx: srflx.map(ms), relay: relay.map(ms), complete: false }
+    }
+
+    const BOTH: Wanted = Wanted { srflx: true, relay: true, relay_only: false };
+
+    // Call setup time (2026-09-29): a server that never answers (on one interface, say) used to
+    // hold every description for the whole deadline. Gathering that completes goes at once.
+    #[test]
+    fn a_complete_gathering_goes_at_once() {
+        let complete = Found { complete: true, ..found(1, None, None) };
+        assert_eq!(send_at(&complete, BOTH, GATHER_LIMITS), Duration::ZERO);
+    }
+
+    // Once every kind the routing wants is there, a short settle lets the other interfaces'
+    // candidates, which travel at the same time, come in too.
+    #[test]
+    fn with_every_wanted_kind_the_description_goes_after_a_short_settle() {
+        assert_eq!(send_at(&found(2, Some(40), Some(120)), BOTH, GATHER_LIMITS), ms(220));
+        let direct = Wanted { srflx: true, relay: false, relay_only: false };
+        assert_eq!(send_at(&found(1, Some(50), None), direct, GATHER_LIMITS), ms(150), "Direct wants no relay");
+        let nothing = Wanted { srflx: false, relay: false, relay_only: false };
+        assert_eq!(send_at(&found(1, None, None), nothing, GATHER_LIMITS), ms(100), "no servers");
+    }
+
+    // A server that never answers holds the description a second at most, when something usable
+    // was gathered.
+    #[test]
+    fn a_server_that_never_answers_holds_the_description_a_second_at_most() {
+        assert_eq!(send_at(&found(1, None, None), BOTH, GATHER_LIMITS), ms(1_000));
+        assert_eq!(send_at(&found(1, Some(50), None), BOTH, GATHER_LIMITS), ms(1_000));
+        assert_eq!(send_at(&found(1, None, Some(80)), BOTH, GATHER_LIMITS), ms(1_000));
+    }
+
+    // A slow network: the relay takes two round trips where STUN took one. Its first answer says
+    // how slow, and the relay gets three times that, within the deadline.
+    #[test]
+    fn on_a_slow_network_the_relay_gets_the_time_stun_says_it_needs() {
+        assert_eq!(send_at(&found(1, Some(600), None), BOTH, GATHER_LIMITS), ms(1_900));
+        assert_eq!(send_at(&found(1, Some(1_500), None), BOTH, GATHER_LIMITS), ms(3_000), "never past the deadline");
+    }
+
+    // "Always relay": only a relay candidate is usable; without one the description waits for the
+    // whole deadline (and then fails: no candidate).
+    #[test]
+    fn always_relay_waits_for_its_relay() {
+        let always = Wanted { srflx: false, relay: true, relay_only: true };
+        assert_eq!(send_at(&found(0, None, None), always, GATHER_LIMITS), ms(3_000));
+        assert_eq!(send_at(&found(0, None, Some(400)), always, GATHER_LIMITS), ms(500));
+    }
+
+    // End to end: a STUN server that never answers (a local socket nobody reads) holds the offer
+    // a second, not the 3 s deadline, and the offer carries what was gathered.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_offer_does_not_wait_for_a_stun_server_that_never_answers() {
+        let silent = std::net::UdpSocket::bind("127.0.0.1:0").expect("a socket");
+        let stun = format!("stun:{}", silent.local_addr().expect("its address"));
+        let caller = MediaSession::open(&MediaConfig { stun: vec![stun], ..MediaConfig::default() }).await.expect("caller");
+        let started = Instant::now();
+        let offer = caller.offer().await.expect("offer");
+        let waited = started.elapsed();
+        assert!(waited >= ms(900) && waited < ms(1_500), "waited {waited:?}");
+        let gathering = caller.gathering();
+        assert!(!gathering.complete, "cut short");
+        assert_eq!((gathering.host, gathering.srflx), (1, 0), "{offer}");
+        caller.close().await;
+    }
+
+    /// Whether anything arrives on `spy` within `wait`.
+    async fn hears_within(spy: &std::net::UdpSocket, wait: Duration) -> bool {
+        let spy = spy.try_clone().expect("the spy");
+        tokio::task::spawn_blocking(move || {
+            spy.set_read_timeout(Some(wait)).expect("a timeout");
+            spy.recv(&mut [0; 1500]).is_ok()
+        })
+        .await
+        .expect("listened")
+    }
+
+    /// `offer` with every candidate pointing at `spy`, which stands for the caller.
+    fn aimed_at(offer: &str, spy: &std::net::UdpSocket) -> String {
+        let spy = spy.local_addr().expect("its address");
+        let lines = offer.split("\r\n").map(|line| {
+            if !line.starts_with("a=candidate:") {
+                return line.to_owned();
+            }
+            let mut words: Vec<String> = line.split(' ').map(str::to_owned).collect();
+            words[4] = spy.ip().to_string();
+            words[5] = spy.port().to_string();
+            words.join(" ")
+        });
+        lines.collect::<Vec<_>>().join("\r\n")
+    }
+
+    // Call setup time (2026-09-29): the callee prepares its answer while the phone rings, but
+    // nothing may reach the caller before the user answers (§17): no answer and no ICE check
+    // towards the caller's candidates, which would tell it where the callee is.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prepared_answer_reaches_nobody_until_it_is_released() {
+        let caller = MediaSession::open(&MediaConfig::default()).await.expect("caller");
+        let offer = caller.offer().await.expect("offer");
+
+        // The spy hears what an answer made the usual way sends at once.
+        let spy = std::net::UdpSocket::bind("127.0.0.1:0").expect("a spy");
+        let usual = MediaSession::open(&MediaConfig::default()).await.expect("usual");
+        usual.answer(&aimed_at(&offer, &spy)).await.expect("answer");
+        assert!(hears_within(&spy, ms(1_500)).await, "the usual answer checks the caller's candidates");
+        usual.close().await;
+
+        let spy = std::net::UdpSocket::bind("127.0.0.1:0").expect("a spy");
+        let callee = MediaSession::open(&MediaConfig::default()).await.expect("callee");
+        callee.prepare_answer(&aimed_at(&offer, &spy)).await.expect("prepared");
+        assert!(callee.gathering().finished.is_some(), "gathered while it rang");
+        assert!(!hears_within(&spy, ms(1_500)).await, "nothing reaches the caller before the answer");
+        let answer = callee.release_answer().await.expect("released");
+        assert!(answer.contains("a=candidate:"), "{answer}");
+        assert!(hears_within(&spy, ms(1_500)).await, "once answered, the checks go");
+        callee.close().await;
+        caller.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prepared_answer_connects_once_released() {
+        let caller = MediaSession::open(&MediaConfig::default()).await.expect("caller");
+        let callee = MediaSession::open(&MediaConfig::default()).await.expect("callee");
+        let offer = caller.offer().await.expect("offer");
+        callee.prepare_answer(&offer).await.expect("prepared");
+        tokio::time::sleep(ms(300)).await;
+        let answer = callee.release_answer().await.expect("released");
+        caller.accept(&answer).await.expect("accepted");
+        wait_until(&caller, LinkState::Connected).await;
+        wait_until(&callee, LinkState::Connected).await;
+        assert!(callee.video_both_ways().await, "the same answer as ever");
+        caller.close().await;
+        callee.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn only_a_prepared_answer_is_released_and_only_once() {
+        let caller = MediaSession::open(&MediaConfig::default()).await.expect("caller");
+        let callee = MediaSession::open(&MediaConfig::default()).await.expect("callee");
+        assert!(callee.release_answer().await.is_err(), "nothing prepared");
+        callee.prepare_answer(&caller.offer().await.expect("offer")).await.expect("prepared");
+        callee.release_answer().await.expect("released");
+        assert!(callee.release_answer().await.is_err(), "already released");
+        caller.close().await;
+        callee.close().await;
+    }
+
+    // The offer's candidates wait apart; the rest of the description is left as it was.
+    #[test]
+    fn the_offer_s_candidates_are_kept_apart_until_the_answer() {
+        let offer = "v=0\r\n\
+            m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n\
+            a=mid:0\r\n\
+            a=candidate:1 1 udp 2130706431 10.0.0.2 5000 typ host\r\n\
+            a=candidate:1 2 udp 2130706431 10.0.0.2 5000 typ host\r\n\
+            a=end-of-candidates\r\n\
+            m=video 9 UDP/TLS/RTP/SAVPF 102\r\n\
+            a=mid:1\r\n\
+            a=candidate:1 1 udp 2130706431 10.0.0.2 5000 typ host\r\n\
+            a=sendrecv\r\n";
+        let (bare, candidates) = split_candidates(offer);
+        assert_eq!(bare, "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\nm=video 9 UDP/TLS/RTP/SAVPF 102\r\na=mid:1\r\na=sendrecv\r\n");
+        assert_eq!(
+            candidates,
+            ["candidate:1 1 udp 2130706431 10.0.0.2 5000 typ host", "candidate:1 2 udp 2130706431 10.0.0.2 5000 typ host"]
+        );
+    }
+
+    #[test]
+    fn what_a_description_waits_for_follows_the_routing() {
+        let config = |routing| MediaConfig {
+            stun: vec!["stun:s:3478".to_owned()],
+            turn: Some(crate::TurnRelay { urls: vec!["turn:t:3478".to_owned()], username: "u".to_owned(), credential: "c".to_owned() }),
+            routing,
+            ..MediaConfig::default()
+        };
+        assert_eq!(Wanted::of(&config(CallRouting::Auto)), BOTH);
+        assert_eq!(Wanted::of(&config(CallRouting::Direct)), Wanted { srflx: true, relay: false, relay_only: false });
+        assert_eq!(Wanted::of(&config(CallRouting::Always)), Wanted { srflx: false, relay: true, relay_only: true });
+        assert_eq!(Wanted::of(&MediaConfig::default()), Wanted { srflx: false, relay: false, relay_only: false });
+    }
+
+    // Call setup timings (2026-09-29): when gathering started and ended and what it gave, for
+    // the diagnostics (names and numbers only).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_reports_its_gathering() {
+        let caller = MediaSession::open(&MediaConfig::default()).await.expect("caller");
+        assert_eq!(caller.gathering(), Gathering::default(), "nothing gathered before the offer");
+        let offer = caller.offer().await.expect("offer");
+        let gathering = caller.gathering();
+        let (started, finished) = (gathering.started.expect("started"), gathering.finished.expect("finished"));
+        assert!(finished >= started);
+        assert!(gathering.complete, "loopback with no servers completes at once");
+        assert_eq!((gathering.host, gathering.srflx, gathering.relay), (1, 0, 0), "{offer}");
+        caller.close().await;
+    }
+
+    // A candidate repeated in each bundled line is one candidate, and so is its RTCP twin
+    // (component 2, the same address).
+    #[test]
+    fn candidates_are_counted_once_by_type() {
+        let sdp = "v=0\r\n\
+            a=candidate:1 1 udp 2130706431 10.0.0.2 5000 typ host\r\n\
+            a=candidate:1 2 udp 2130706431 10.0.0.2 5000 typ host\r\n\
+            a=candidate:2 1 udp 1694498815 192.0.2.4 6000 typ srflx raddr 10.0.0.2 rport 5000\r\n\
+            a=candidate:3 1 udp 16777215 198.51.100.8 7000 typ relay raddr 192.0.2.4 rport 6000\r\n\
+            a=candidate:4 1 udp 2130706431 10.0.0.3 5001 typ host\r\n\
+            m=video 9 UDP/TLS/RTP/SAVPF 102\r\n\
+            a=candidate:1 1 udp 2130706431 10.0.0.2 5000 typ host\r\n";
+        assert_eq!(candidate_counts(sdp), (2, 1, 1));
+        assert_eq!(candidate_counts("v=0\r\n"), (0, 0, 0));
     }
 
     // The direction of a description's video line, as the answer or the offer says it.
