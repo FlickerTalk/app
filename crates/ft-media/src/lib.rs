@@ -5,15 +5,23 @@
 //! live here, on top of `webrtc-engine`. The core decides when; this crate knows how.
 //!
 //! The descriptions stay standard SDP, so a native phone talks to a WebView phone (an older app).
+//!
+//! Video (2026-09-29, `docs/video-nativo.md`): `Video` runs the platform's camera and display on
+//! the same connection, and `views` holds the native views the app shows them in. Contract only
+//! for now.
 
 pub mod platform;
 pub mod session;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
+pub mod video;
+pub mod views;
 pub mod voice;
 
-pub use platform::{device_stats, platform_audio, DeviceStats};
+pub use platform::{device_stats, platform_audio, platform_video, DeviceStats};
 pub use session::{LinkState, MediaSession};
+pub use video::{Facing, Video, VideoDevices, VideoError, VideoFactory, VideoPlatform, VideoState};
+pub use views::{Layers, RemoteShape, ViewSlot};
 pub use voice::{Activation, AudioPlatform, BackendFactory, Voice};
 
 use std::fmt;

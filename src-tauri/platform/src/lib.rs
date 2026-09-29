@@ -91,6 +91,16 @@ pub enum NativeCallEvent {
     AudioActivated(u64),
     /// The system took the audio session away: the audio unit stops (iOS).
     AudioDeactivated(u64),
+    /// The app came to the screen (`true`) or left it (native video, 2026-09-29): the phone
+    /// holds our camera while the app is away (iOS stops it anyway), and gives it back.
+    Visible(bool),
+    /// The phone turned (native video): iOS `UIDeviceOrientation.rawValue`, Android the display
+    /// rotation in degrees. The rotation our frames carry follows it.
+    Orientation(i32),
+    /// The user asked for video from the phone's own call screen (native video): CallKit's video
+    /// button opens the app with a video call intent; the ongoing call notification's camera
+    /// action on Android. Our camera turns on.
+    VideoRequested,
 }
 
 /// One event as Swift and Kotlin send it: `{"event": "mute", "muted": true}`.
@@ -102,9 +112,14 @@ fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
         muted: Option<bool>,
         #[serde(default)]
         generation: u64,
+        visible: Option<bool>,
+        orientation: Option<i32>,
     }
     let wire: Wire = body.deserialize().ok()?;
     match (wire.event.as_str(), wire.muted) {
+        ("visible", _) => wire.visible.map(NativeCallEvent::Visible),
+        ("orientation", _) => wire.orientation.map(NativeCallEvent::Orientation),
+        ("video", _) => Some(NativeCallEvent::VideoRequested),
         ("incoming", _) => Some(NativeCallEvent::Incoming),
         ("answer", _) => Some(NativeCallEvent::Answer),
         ("end", _) => Some(NativeCallEvent::End),
@@ -138,6 +153,59 @@ struct CallEvents<'a> {
 #[derive(Serialize)]
 struct Speaker {
     on: bool,
+}
+
+/// Arguments of the native `attachVideo` command (native video, 2026-09-29): the call's layers on
+/// iOS, as addresses of `CALayer`s the Rust side owns (`ft_media::views::layers`); 0 on Android,
+/// where the Kotlin side makes its own `SurfaceView`s and hands their surfaces over JNI.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachVideo {
+    remote_layer: u64,
+    local_layer: u64,
+}
+
+/// A rectangle of the WebView, in CSS pixels from its top left corner (`getBoundingClientRect`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VideoRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Where the WebView leaves room for the call's pictures (native video, 2026-09-29): the native
+/// views sit under the WebView, which is transparent there. `None` hides a picture.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoLayout {
+    pub remote: Option<VideoRect>,
+    pub local: Option<VideoRect>,
+    /// Our preview as in a mirror (the front camera).
+    pub mirror_local: bool,
+    /// The corners of our preview, in CSS pixels.
+    pub local_radius: f64,
+}
+
+/// Arguments of the native `videoShape` command: see `ft_media::RemoteShape`.
+#[derive(Serialize)]
+struct VideoShape {
+    width: u32,
+    height: u32,
+    rotation: u16,
+}
+
+/// Arguments of the native `callVideo` command: whether the call has video now.
+#[derive(Serialize)]
+struct CallVideo {
+    on: bool,
+}
+
+/// What the native `requestCamera` command answers.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Camera {
+    granted: bool,
 }
 
 /// What the native `answerCall` resolves with: whether CallKit took the answer.
@@ -416,6 +484,52 @@ impl<R: Runtime> Platform<R> {
         #[cfg(mobile)]
         {
             Ok(self.handle.run_mobile_plugin::<Microphone>("requestMicrophone", ())?.granted)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(true)
+        }
+    }
+
+    /// Shows the call's video views under the WebView (native video, 2026-09-29), hidden until
+    /// `video_layout` places them. iOS: `remote_layer` and `local_layer` are the addresses of the
+    /// call's `CALayer`s (`ft_media::views::layers`), added as sublayers on the main thread;
+    /// Android: both 0, the Kotlin side makes its `SurfaceView`s and hands their surfaces to
+    /// `ft_media::views` over JNI. The WebView turns transparent. Nothing on desktop.
+    pub fn attach_video(&self, remote_layer: usize, local_layer: usize) -> Result<()> {
+        self.call("attachVideo", AttachVideo { remote_layer: remote_layer as u64, local_layer: local_layer as u64 })
+    }
+
+    /// Places the video views where the WebView left room for them.
+    pub fn video_layout(&self, layout: &VideoLayout) -> Result<()> {
+        self.call("videoLayout", layout)
+    }
+
+    /// How to lay the other side's picture out: its upright size (Android, for the aspect ratio)
+    /// and the turn its view applies (iOS, bounds swapped for a quarter turn).
+    pub fn video_shape(&self, width: u32, height: u32, rotation: u16) -> Result<()> {
+        self.call("videoShape", VideoShape { width, height, rotation })
+    }
+
+    /// Takes the video views away and makes the WebView opaque again. On iOS it returns once the
+    /// layers are out of the view hierarchy: only then may the call's video devices go.
+    pub fn detach_video(&self) -> Result<()> {
+        self.call("detachVideo", ())
+    }
+
+    /// Whether the call has video now (either camera on): CallKit's `hasVideo` on iOS; on
+    /// Android the ongoing notification (`CallStyle.setIsVideo`) and the `camera` type of the
+    /// call's foreground service, only while our camera may run.
+    pub fn call_video(&self, on: bool) -> Result<()> {
+        self.call("callVideo", CallVideo { on })
+    }
+
+    /// Whether the camera may be used, asking the user if it was never asked (native video,
+    /// 2026-09-29): before our camera turns on. `false` means denied. On desktop, `true`.
+    pub fn request_camera(&self) -> Result<bool> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Camera>("requestCamera", ())?.granted)
         }
         #[cfg(not(mobile))]
         {
@@ -715,6 +829,49 @@ mod tests {
     fn a_diagnostic_is_a_state_name() {
         let args = serde_json::to_value(Diagnose { what: "audio activated; device running" }).unwrap();
         assert_eq!(args, serde_json::json!({ "what": "audio activated; device running" }));
+    }
+
+    // Native video (2026-09-29, docs/video-nativo.md): what Swift and Kotlin add to the channel.
+    #[test]
+    fn native_video_events_are_read_from_their_wire_form() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"visible","visible":true}"#), Some(NativeCallEvent::Visible(true)));
+        assert_eq!(read(r#"{"event":"visible","visible":false}"#), Some(NativeCallEvent::Visible(false)));
+        assert_eq!(read(r#"{"event":"orientation","orientation":3}"#), Some(NativeCallEvent::Orientation(3)));
+        assert_eq!(read(r#"{"event":"video"}"#), Some(NativeCallEvent::VideoRequested));
+        assert_eq!(read(r#"{"event":"visible"}"#), None);
+        assert_eq!(read(r#"{"event":"orientation"}"#), None);
+    }
+
+    // Native video: the views, where the WebView draws them, the remote picture's shape, the
+    // call's video for CallKit and the ongoing notification, and the camera permission.
+    #[test]
+    fn native_video_travels_as_swift_and_kotlin_read_it() {
+        let attach = serde_json::to_value(AttachVideo { remote_layer: 0x1000, local_layer: 0x2000 }).unwrap();
+        assert_eq!(attach, serde_json::json!({ "remoteLayer": 4096, "localLayer": 8192 }));
+        let layout = VideoLayout {
+            remote: Some(VideoRect { x: 0.0, y: 0.0, width: 390.0, height: 844.0 }),
+            local: Some(VideoRect { x: 278.0, y: 594.0, width: 96.0, height: 140.0 }),
+            mirror_local: true,
+            local_radius: 16.0,
+        };
+        assert_eq!(
+            serde_json::to_value(layout).unwrap(),
+            serde_json::json!({
+                "remote": { "x": 0.0, "y": 0.0, "width": 390.0, "height": 844.0 },
+                "local": { "x": 278.0, "y": 594.0, "width": 96.0, "height": 140.0 },
+                "mirrorLocal": true,
+                "localRadius": 16.0
+            })
+        );
+        // The WebView sends the same shape: it reads back what it wrote.
+        let hidden: VideoLayout = serde_json::from_value(serde_json::json!({ "remote": null, "local": null, "mirrorLocal": false, "localRadius": 0 })).unwrap();
+        assert_eq!((hidden.remote, hidden.local), (None, None));
+        let shape = serde_json::to_value(VideoShape { width: 480, height: 640, rotation: 90 }).unwrap();
+        assert_eq!(shape, serde_json::json!({ "width": 480, "height": 640, "rotation": 90 }));
+        assert_eq!(serde_json::to_value(CallVideo { on: true }).unwrap(), serde_json::json!({ "on": true }));
+        let camera: Camera = serde_json::from_value(serde_json::json!({ "granted": false })).unwrap();
+        assert!(!camera.granted);
     }
 
     #[test]

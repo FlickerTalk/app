@@ -817,6 +817,8 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                     let stopped = core.set_call_audio_session(false, generation).await;
                     diagnose_outcome(&app, &core, native_event_name(event), &stopped).await;
                 }
+                // Native video (docs/video-nativo.md): not followed yet.
+                NativeCallEvent::Visible(_) | NativeCallEvent::Orientation(_) | NativeCallEvent::VideoRequested => {}
             }
         }
     });
@@ -842,7 +844,12 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
     match event {
         NativeCallEvent::Incoming => Reconnect::Now,
         NativeCallEvent::Answer | NativeCallEvent::AudioActivated(_) => Reconnect::UnlessFresh,
-        NativeCallEvent::End | NativeCallEvent::Mute(_) | NativeCallEvent::AudioDeactivated(_) => Reconnect::No,
+        NativeCallEvent::End
+        | NativeCallEvent::Mute(_)
+        | NativeCallEvent::AudioDeactivated(_)
+        | NativeCallEvent::Visible(_)
+        | NativeCallEvent::Orientation(_)
+        | NativeCallEvent::VideoRequested => Reconnect::No,
     }
 }
 
@@ -861,6 +868,9 @@ fn native_event_name(event: NativeCallEvent) -> &'static str {
         NativeCallEvent::Mute(_) => "mute",
         NativeCallEvent::AudioActivated(_) => "audio activated",
         NativeCallEvent::AudioDeactivated(_) => "audio deactivated",
+        NativeCallEvent::Visible(_) => "visible",
+        NativeCallEvent::Orientation(_) => "orientation",
+        NativeCallEvent::VideoRequested => "video requested",
     }
 }
 

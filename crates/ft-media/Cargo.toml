@@ -2,7 +2,7 @@
 name = "ft-media"
 version = "0.1.0"
 edition = "2021"
-description = "Native call media: the voice peer connection and the audio pipeline of webrtc-engine"
+description = "Native call media: the call's peer connection, and the audio and video pipelines of webrtc-engine"
 license = "AGPL-3.0-only"
 
 [dependencies]
@@ -11,7 +11,7 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 rtc = "0.21"
 webrtc = "0.21"
-webrtc-engine = { git = "https://github.com/FlickerTalk/webrtc-engine-rs", branch = "audio-engine" }
+webrtc-engine = { git = "https://github.com/FlickerTalk/webrtc-engine-rs", branch = "main" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
