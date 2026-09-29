@@ -75,6 +75,21 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertEqual(activeUntil([soon, later], now: now), 1_821_744_000_000)
     }
 
+    // The Plan screen shows the price as the Store formats it for this Apple ID's storefront
+    // (currency, commas, taxes): nothing is converted or rounded here (2026-09-29).
+    func testTheYearlyPriceIsAsTheStoreFormatsIt() {
+        XCTAssertEqual(yearlyPrice([StoreProduct(id: yearly, displayPrice: "0,99 €")]), "0,99 €")
+        XCTAssertEqual(yearlyPrice([StoreProduct(id: "com.someone.else.pro", displayPrice: "9,99 €"), StoreProduct(id: yearly, displayPrice: "$0.99")]), "$0.99")
+    }
+
+    // When the Store cannot say (no product, another product, an empty price) there is no price,
+    // and the screen says "yearly subscription" without any amount.
+    func testWithoutTheYearlyProductThereIsNoPrice() {
+        XCTAssertNil(yearlyPrice([]))
+        XCTAssertNil(yearlyPrice([StoreProduct(id: "com.someone.else.pro", displayPrice: "9,99 €")]))
+        XCTAssertNil(yearlyPrice([StoreProduct(id: yearly, displayPrice: "  ")]))
+    }
+
     // Local reminders (2026-09-27): read leniently, one identifier per reminder, and never more
     // than the 64 iOS allows, the soonest first.
     func testRemindersAreReadAndCappedAtSixtyFour() throws {
