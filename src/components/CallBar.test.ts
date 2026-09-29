@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { IonIcon } from "@ionic/vue";
+import { callOutline, pauseCircleOutline, videocamOutline } from "ionicons/icons";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import CallBar from "./CallBar.vue";
@@ -56,5 +58,44 @@ describe("CallBar", () => {
     await mount(CallBar, { shallow: true }).find("[aria-label='Hang up']").trigger("click");
     expect(actions.hangUp).toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  // Native video (2026-09-29): the bar says whether the call has pictures now, not how it began.
+  describe("video state", () => {
+    const icon = () => mount(CallBar, { shallow: true }).find("[aria-label='Back to the call']").findComponent(IonIcon).props("icon");
+    const view = (patch: Partial<typeof call.view>) => ({
+      available: true,
+      camera: false,
+      paused: false,
+      facing: "front" as const,
+      remote: false,
+      remotePaused: false,
+      ...patch,
+    });
+
+    it("shows a voice call that went to video", () => {
+      Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: false, view: view({ remote: true }) });
+      expect(icon()).toBe(videocamOutline);
+    });
+
+    it("shows a video call that went back to voice", () => {
+      Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: true, view: view({}) });
+      expect(icon()).toBe(callOutline);
+    });
+
+    // Out of the call screen my camera is held (docs/video-nativo.md): the bar says so.
+    it("says my camera is paused while I am elsewhere", () => {
+      Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: true, view: view({ camera: true, paused: true }) });
+      const wrapper = mount(CallBar, { shallow: true });
+      expect(wrapper.find("[aria-label='Back to the call']").findComponent(IonIcon).props("icon")).toBe(pauseCircleOutline);
+      // The button's own label hides what is inside it: the pause is its description.
+      const back = wrapper.find("[aria-label='Back to the call']");
+      expect(wrapper.find(`#${back.attributes("aria-describedby")}`).text()).toBe("Camera paused");
+    });
+
+    it("keeps the call's kind on the desktop", () => {
+      Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: false, video: true });
+      expect(icon()).toBe(videocamOutline);
+    });
   });
 });
