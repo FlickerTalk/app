@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">通話中</string>
     <string name="ft_mute">ミュート</string>
     <string name="ft_unmute">ミュート解除</string>
+    <string name="ft_video">ビデオ</string>
 </resources>

@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">กำลังสนทนา</string>
     <string name="ft_mute">ปิดเสียง</string>
     <string name="ft_unmute">เปิดเสียง</string>
+    <string name="ft_video">วิดีโอ</string>
 </resources>
