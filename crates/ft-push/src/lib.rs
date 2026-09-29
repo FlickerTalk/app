@@ -12,7 +12,7 @@
 //! route capability instead of our identity (§34): the router learns nothing about the sender.
 //! This crate transports; it never encrypts (ft-crypto does, before).
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -101,12 +101,40 @@ enum Frame {
     Mail,
 }
 
+/// What became of a signal (router 0.4.0, 2026-09-29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signalled {
+    /// The recipient is connected and got it.
+    Delivered,
+    /// The recipient is not connected; the router woke it and keeps the signal in memory (55 s at
+    /// most) to hand it over right after its next welcome. A 404 with `ft-retained: 1`.
+    Retained,
+    /// The recipient is not connected and the signal is lost: a 404 from a router before 0.4.
+    NotConnected,
+}
+
+impl Signalled {
+    pub fn delivered(self) -> bool {
+        self == Self::Delivered
+    }
+}
+
 pub struct RouterClient {
     base: String,
     http: reqwest::Client,
     signer: Arc<dyn Signer>,
     /// Asked to reconnect now (`reconnect_now`): the app came back to the screen.
     again: Arc<tokio::sync::Notify>,
+    /// Where the socket stands, for `reconnect_unless_fresh`.
+    link: std::sync::Mutex<Link>,
+}
+
+/// The router's socket, and since when (wall clock).
+#[derive(Debug, Clone, Copy)]
+enum Link {
+    Down,
+    Opening(SystemTime),
+    Open(SystemTime),
 }
 
 /// An HTTPS client that carries its own cryptography. A phone has no crypto provider installed,
@@ -129,7 +157,7 @@ pub fn https_client(timeout: Duration) -> Result<reqwest::Client> {
 impl RouterClient {
     pub fn new(base: &str, signer: Arc<dyn Signer>) -> Result<Self> {
         let http = https_client(Duration::from_secs(20))?;
-        Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer, again: Arc::default() })
+        Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer, again: Arc::default(), link: std::sync::Mutex::new(Link::Down) })
     }
 
     /// Drops the socket and opens it again at once, skipping any wait (2026-09-28). iOS cuts the
@@ -137,6 +165,26 @@ impl RouterClient {
     /// the screen, or a push was tapped, the welcome of a fresh connection fetches what waits.
     pub fn reconnect_now(&self) {
         self.again.notify_one();
+    }
+
+    /// Like `reconnect_now`, unless the socket was opened, or began to open, less than `fresh`
+    /// ago (2026-09-28). A call push, CallKit's answer and its audio activation all ask for a fresh
+    /// socket within seconds: the first one reconnects, and dropping the new socket again could
+    /// lose the call's offer in the gap. Wall-clock time: a sleeping iPhone's monotonic clock
+    /// stops, and a socket from before the sleep must count as old.
+    pub fn reconnect_unless_fresh(&self, fresh: Duration) {
+        let since = match *self.link.lock().unwrap_or_else(PoisonError::into_inner) {
+            Link::Down => None,
+            Link::Opening(at) | Link::Open(at) => Some(at),
+        };
+        let young = since.and_then(|at| SystemTime::now().duration_since(at).ok()).is_some_and(|age| age < fresh);
+        if !young {
+            self.reconnect_now();
+        }
+    }
+
+    fn set_link(&self, link: Link) {
+        *self.link.lock().unwrap_or_else(PoisonError::into_inner) = link;
     }
 
     pub fn device_id(&self) -> String {
@@ -194,25 +242,28 @@ impl RouterClient {
         Ok(response.json().await?)
     }
 
-    /// `true` if the recipient is connected and got it; `false` if it is offline.
-    pub async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
+    /// Whether the recipient is connected and got it, or the router keeps it for later.
+    pub async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
         self.signal_as(to, capability, bytes, false).await
     }
 
     /// The same, marked as a call's (2026-09-28): an offline iPhone is rung through CallKit. That
     /// it is a call is all the router learns.
-    pub async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
+    pub async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
         self.signal_as(to, capability, bytes, true).await
     }
 
-    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<bool> {
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<Signalled> {
         let mut request = self.http.post(format!("{}/v1/signal/{to}", self.base)).header("ft-capability", encode(capability));
         if call {
             request = request.header("ft-call", "1");
         }
-        match send(request.body(bytes)).await?.status() {
-            StatusCode::ACCEPTED => Ok(true),
-            StatusCode::NOT_FOUND => Ok(false),
+        let response = send(request.body(bytes)).await?;
+        let retained = response.headers().get("ft-retained").is_some_and(|value| value == "1");
+        match response.status() {
+            StatusCode::ACCEPTED => Ok(Signalled::Delivered),
+            StatusCode::NOT_FOUND if retained => Ok(Signalled::Retained),
+            StatusCode::NOT_FOUND => Ok(Signalled::NotConnected),
             status => bail!("the router refused the signal: {status}"),
         }
     }
@@ -257,6 +308,7 @@ impl RouterClient {
         tokio::spawn(async move {
             let mut backoff = Duration::from_secs(1);
             loop {
+                client.set_link(Link::Opening(SystemTime::now()));
                 let asked = tokio::select! {
                     result = client.connection(&events) => {
                         match result {
@@ -267,6 +319,7 @@ impl RouterClient {
                     }
                     _ = client.again.notified() => true,
                 };
+                client.set_link(Link::Down);
                 if events.send(RouterEvent::Disconnected).await.is_err() {
                     return;
                 }
@@ -296,7 +349,10 @@ impl RouterClient {
         while let Some(message) = socket.next().await {
             let Message::Text(text) = message? else { continue };
             let event = match serde_json::from_str::<Frame>(text.as_str()) {
-                Ok(Frame::Welcome { stun, turn }) => RouterEvent::Connected { stun, turn },
+                Ok(Frame::Welcome { stun, turn }) => {
+                    self.set_link(Link::Open(SystemTime::now()));
+                    RouterEvent::Connected { stun, turn }
+                }
                 Ok(Frame::Signal { signal }) => RouterEvent::Signal(STANDARD_NO_PAD.decode(signal.trim_end_matches('='))?),
                 Ok(Frame::Mail) => RouterEvent::Mail,
                 Err(_) => continue,

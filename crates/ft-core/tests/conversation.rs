@@ -610,6 +610,11 @@ async fn a_busy_contact_says_so() {
     })
     .await;
     assert_eq!(bob.store().call(&first).await.unwrap().unwrap().outcome, None, "the first call goes on");
+    // 2026-09-29: the refused call is not an end for the phone's call screen (CallKit, the call
+    // notification), which follows the first call: it used to end that one, and its audio.
+    let (_, refused, update) = next_call(&mut at_bob).await;
+    assert_eq!(refused, second);
+    assert_eq!(update, CallUpdate::MissedWhileBusy, "only the history changes");
 }
 
 // §41 (strategy A): the first year is free, counted on this phone from the install; reopening

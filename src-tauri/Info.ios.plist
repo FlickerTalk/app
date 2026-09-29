@@ -20,6 +20,13 @@
 		<key>UISceneConfigurations</key>
 		<dict/>
 	</dict>
+	<!-- 2026-09-29, native video: CallKit's "Video" button opens the app with a call intent's
+	     user activity, which turns our camera on (PlatformPlugin, CallIntentActivities). -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INStartCallIntent</string>
+		<string>INStartVideoCallIntent</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

@@ -1,4 +1,7 @@
+import AVFAudio
+import AVFoundation
 import AuthenticationServices
+import OSLog
 import CallKit
 import Foundation
 import PushKit
@@ -12,9 +15,8 @@ import UIKit
 import UserNotifications
 import WebKit
 
-// FlickerTalk's native bridge on iOS (see ../../src/lib.rs). For now the storage key, which lives
-// in the Keychain on this device only (Plan §94), and the share sheet. The rest of the bridge
-// answers that it is not available on iOS yet, and the app carries on without it.
+// FlickerTalk's native bridge on iOS (see ../../src/lib.rs): the storage key in the Keychain on
+// this device only (Plan §94), the share sheet, APNs and PushKit, and calls through CallKit.
 
 private let keyService = "com.flickertalk.app.storage"
 private let keyAccount = "storage-key"
@@ -199,82 +201,552 @@ func isCallPush(_ userInfo: [AnyHashable: Any]) -> Bool {
     (userInfo["t"] as? String) == "call"
 }
 
-/// How an incoming call rings (2026-09-28): on the screen the app rings itself; otherwise CallKit,
-/// once per call, and a call PushKit already reported only learns who it is.
+/// How an incoming call rings (2026-09-28): always through CallKit, once per call, also with the
+/// app on the screen (iOS shows its banner), so that answering in the app or on the lock screen
+/// takes the same path; a call PushKit already reported only learns who it is.
 enum Ring: Equatable {
-    case app
     case report
     case update
 }
 
-func ringWith(appActive: Bool, callKitCall: Bool) -> Ring {
-    if callKitCall { return .update }
-    return appActive ? .app : .report
+func ringWith(callKitCall: Bool) -> Ring {
+    callKitCall ? .update : .report
+}
+
+/// Whether the app's own answer button asks CallKit to answer (a `CXAnswerCallAction`): the audio
+/// session then comes as on the lock screen. Without a CallKit call the core answers by itself.
+func answerThroughCallKit(callKitCall: Bool, answered: Bool, outgoing: Bool) -> Bool {
+    callKitCall && !answered && !outgoing
+}
+
+/// The speaker, or the receiver (`.none`) that `.voiceChat` plays on by default.
+func outputOverride(speaker: Bool) -> AVAudioSession.PortOverride {
+    speaker ? .speaker : .none
+}
+
+/// After an interruption ends with "should resume", whether the voice is started again here:
+/// CallKit did not activate the session again, and the call is live.
+func restartAfterInterruption(shouldResume: Bool, reactivated: Bool, callLive: Bool) -> Bool {
+    shouldResume && !reactivated && callLive
+}
+
+// ---- Native calls (2026-09-28) ----
+// The call's media lives in Rust now, so CallKit owns the audio session in both directions and
+// tells the core, through a channel made in Rust, what the user does. No WebView in between: a
+// call answered on a locked iPhone that PushKit woke has audio.
+
+/// What CallKit tells the core, as Rust's `NativeCallEvent`.
+enum CallEvent: Equatable {
+    /// A call push: the router found this phone offline, so the core reconnects at once.
+    case incoming
+    case answer
+    case end
+    /// CallKit's end of an incoming call whose voice never connected (2026-09-29): before the
+    /// offer came, the core waits for it and declines it as it arrives, instead of ringing again.
+    case decline
+    case mute(Bool)
+    /// With the generation of the CallKit call (it grows with each call): Rust tells a late event
+    /// of an older call apart.
+    case audioActivated(UInt64)
+    case audioDeactivated(UInt64)
+    /// Native video (2026-09-29): the app came to the screen or left it; the core holds our
+    /// camera while it is away (iOS stops it anyway).
+    case visible(Bool)
+    /// The phone turned: `UIDeviceOrientation.rawValue`, for the rotation our frames carry.
+    case orientation(Int)
+    /// CallKit's "Video" button opened the app with a video call intent: our camera turns on.
+    case videoRequested
+}
+
+/// The event as the channel carries it: `{"event": "mute", "muted": true}`.
+func callEventPayload(_ event: CallEvent) -> JsonObject {
+    switch event {
+    case .incoming: return ["event": "incoming"]
+    case .answer: return ["event": "answer"]
+    case .end: return ["event": "end"]
+    case .decline: return ["event": "decline"]
+    case .mute(let muted): return ["event": "mute", "muted": muted]
+    case .audioActivated(let generation): return ["event": "audioActivated", "generation": generation]
+    case .audioDeactivated(let generation): return ["event": "audioDeactivated", "generation": generation]
+    case .visible(let visible): return ["event": "visible", "visible": visible]
+    case .orientation(let orientation): return ["event": "orientation", "orientation": orientation]
+    case .videoRequested: return ["event": "video"]
+    }
+}
+
+/// Events wait here until the core listens (PushKit may launch the app, and the user answer on
+/// the lock screen, before Rust has registered), then go out in order.
+/// Not thread-safe: `CallEvents` uses it on one serial queue.
+final class CallEventQueue {
+    private let limit: Int
+    private var sink: ((CallEvent) -> Void)?
+    private var waiting: [CallEvent] = []
+
+    init(limit: Int = 16) {
+        self.limit = limit
+    }
+
+    /// The core listens: what waited goes out now, in order; a previous listener hears no more.
+    func register(_ sink: @escaping (CallEvent) -> Void) {
+        self.sink = sink
+        let ready = waiting
+        waiting = []
+        ready.forEach(sink)
+    }
+
+    func emit(_ event: CallEvent) {
+        if let sink {
+            sink(event)
+            return
+        }
+        waiting.append(event)
+        if waiting.count > limit { waiting.removeFirst(waiting.count - limit) }
+    }
+
+    /// A new call starts: what an old one left unheard is no longer true.
+    func forget() {
+        waiting = []
+    }
+
+    /// Only to a core that listens now; nothing waits (native video: visibility and orientation
+    /// are told again when the core registers or the video is attached).
+    @discardableResult
+    func offer(_ event: CallEvent) -> Bool {
+        guard let sink else { return false }
+        sink(event)
+        return true
+    }
+}
+
+/// Whether the core's "stop ringing" ends the CallKit call: only an incoming call that still rings.
+/// An answered call goes on (CallKit holds its audio) until `callEnded`, and so does this phone's
+/// own call.
+func stopEndsCall(answered: Bool, outgoing: Bool = false) -> Bool { !answered && !outgoing }
+
+/// What `callConnected` does with CallKit.
+enum Connect: Equatable {
+    case reportConnected
+    case nothing
+}
+
+func connectWith(outgoing: Bool) -> Connect {
+    outgoing ? .reportConnected : .nothing
+}
+
+/// An incoming CallKit call nobody answers ends by itself after this long (s): the caller's limit
+/// (`RING_LIMIT` in the app) and the life of the router's call push.
+let callRingLimit: TimeInterval = 45
+/// An answered CallKit call whose voice never connects ends as failed after this long (s): the
+/// offer never came, or the connection never opened.
+let callConnectLimit: TimeInterval = 30
+
+/// Whether an incoming CallKit call went nowhere, and how it ends (2026-09-28): if the caller's
+/// end never arrives (the phone was out of reach), CallKit must not ring for ever. This phone's
+/// own call is the core's to end.
+func callOverdue(outgoing: Bool, answered: Bool, connected: Bool, ringingFor: TimeInterval, answeredFor: TimeInterval?) -> CXCallEndedReason? {
+    if outgoing || connected { return nil }
+    if answered {
+        guard let answeredFor, answeredFor >= callConnectLimit else { return nil }
+        return .failed
+    }
+    return ringingFor >= callRingLimit ? .unanswered : nil
+}
+
+/// CallKit's configuration: one call at a time, never in the phone's Recents, with our mark on the
+/// button that opens the app (`icon`, a template PNG). Set again right before every call is
+/// reported or started (Apple DTS, iOS 18.4.1 and later): otherwise the system may never activate
+/// the audio session, and the voice is lost. The name CallKit shows is the app's display name
+/// (`CFBundleDisplayName`, "FlickerTalk"): `localizedName` is no longer supported since iOS 14.
+func callProviderConfiguration(icon: Data?) -> CXProviderConfiguration {
+    let configuration = CXProviderConfiguration()
+    configuration.iconTemplateImageData = icon
+    configuration.supportsVideo = true
+    configuration.maximumCallsPerCallGroup = 1
+    configuration.maximumCallGroups = 1
+    configuration.supportedHandleTypes = [.generic]
+    configuration.includesCallsInRecents = false
+    return configuration
+}
+
+// ---- Temporary call diagnostics (2026-09-28) ----
+// To find why a native call's voice is one-way on the iPhone. Only state names and port types go
+// to the log, never a name or an identifier. Read them with
+// `log stream --predicate 'subsystem == "com.flickertalk.calls"'` (or Console.app). To remove:
+// set `callDiagnostics` to false, or delete this block, `diagnose(...)` calls and the `diagnose`
+// command (Rust: `CALL_DIAGNOSTICS` in src-tauri/src/client.rs).
+let callDiagnostics = true
+private let callLog = Logger(subsystem: "com.flickertalk.calls", category: "diagnostics")
+
+func diagnose(_ state: String) {
+    guard callDiagnostics else { return }
+    callLog.notice("\(state, privacy: .public)")
+}
+
+/// The audio session by category, mode and port types: never a device's name.
+func audioSessionSummary(category: String, mode: String, outputs: [String], inputs: [String]) -> String {
+    "category=\(category) mode=\(mode) out=\(outputs.joined(separator: ",")) in=\(inputs.joined(separator: ","))"
+}
+
+func currentAudioSession() -> String {
+    let session = AVAudioSession.sharedInstance()
+    return audioSessionSummary(
+        category: session.category.rawValue,
+        mode: session.mode.rawValue,
+        outputs: session.currentRoute.outputs.map { $0.portType.rawValue },
+        inputs: session.currentRoute.inputs.map { $0.portType.rawValue }
+    )
+}
+
+/// The mark CallKit shows on the button of its screen that opens the app: an image set of the
+/// app's asset catalog (`gen/apple/Assets.xcassets`).
+let callKitIconName = "CallKitIcon"
+
+/// The mark as CallKit takes it, read once from the app's assets; `nil` without them (tests).
+let callKitIcon: Data? = UIImage(named: callKitIconName)?.pngData()
+
+/// What CallKit's end action tells the core: a decline for our incoming call whose voice never
+/// connected (it may not have its offer yet), an end otherwise.
+func endEvent(ours: Bool, outgoing: Bool, connected: Bool) -> CallEvent {
+    ours && !outgoing && !connected ? .decline : .end
+}
+
+/// Why CallKit's call ended, as it shows in the system.
+func endReason(live: Bool) -> CXCallEndedReason { live ? .remoteEnded : .unanswered }
+
+/// The audio session of a call: voice chat, with Bluetooth headsets.
+func callAudioOptions() -> AVAudioSession.CategoryOptions { [.allowBluetoothHFP, .allowBluetoothA2DP] }
+
+/// Set before CallKit activates the session (answer and start actions), never activated here: the
+/// system activates it and says so in `didActivate`.
+func configureCallAudio() {
+    try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat, options: callAudioOptions())
+}
+
+/// The channel Rust made (`listen_calls`) and the events that wait for it. Its own serial queue:
+/// CallKit's delegate (on main) never runs Rust's handler itself, so the handler may call the
+/// plugin back (its commands hop to main) without a deadlock.
+final class CallEvents {
+    static let shared = CallEvents()
+    private let queue = DispatchQueue(label: "com.flickertalk.calls.events")
+    private let events = CallEventQueue()
+
+    func register(_ channel: Channel) {
+        queue.async { self.events.register { channel.send(callEventPayload($0)) } }
+    }
+
+    func emit(_ event: CallEvent) {
+        queue.async { self.events.emit(event) }
+    }
+
+    func offer(_ event: CallEvent) {
+        queue.async { self.events.offer(event) }
+    }
+
+    func forget() {
+        queue.async { self.events.forget() }
+    }
+}
+
+/// Arguments of `registerCallEvents`: the channel, as `__CHANNEL__:<id>`.
+struct CallEventsArgs: Decodable {
+    let channel: Channel
+}
+
+/// Arguments of `setSpeaker`.
+struct SpeakerArgs: Decodable {
+    let on: Bool
+}
+
+/// Arguments of `diagnose`: a state name, never a name or an identifier.
+struct DiagnoseArgs: Decodable {
+    let what: String
+}
+
+/// Arguments of `callStartedOutgoing`.
+struct OutgoingArgs: Decodable {
+    let name: String
+    let video: Bool
 }
 
 /// PushKit and CallKit (2026-09-28). Apple wants every VoIP push reported to CallKit at once, so
 /// it rings as "FlickerTalk" while the app, woken, connects and reads the offer; then the name
-/// comes. Answer and hang-up wait in `pendingCall` for the WebView, as on Android.
+/// comes. Native calls: CallKit owns the call and its audio session in both directions; answer,
+/// hang-up, mute and the session's activation go to Rust through `CallEvents`; the WebView only
+/// shows what the core does with them (2026-09-29). Used on the main queue.
 final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     static let shared = Calls()
     private let registry = PKPushRegistry(queue: .main)
     private let provider: CXProvider
+    private let controller = CXCallController(queue: .main)
     let voip = VoipToken()
     private var current: UUID?
     private var answered = false
-    var pending = ""
+    /// This phone started the call.
+    private var outgoing = false
+    /// Answered, or connected: how it ended shows as ended, not unanswered.
+    private var live = false
+    /// Grows with each CallKit call; audio events carry it (see `CallEvent`).
+    private var generation: UInt64 = 0
+    /// The generation whose audio session the system activated last: a late `didDeactivate`
+    /// belongs to it, not to a call that began since.
+    private var sessionGeneration: UInt64 = 0
+    /// Whether CallKit activated the session again since the last interruption ended.
+    private var reactivated = false
+    /// The user's choice for this call: speaker, or the receiver.
+    private var speaker = false
+    /// When the incoming call was reported, and when it was answered: for `callOverdue`.
+    private var ringingSince: Date?
+    private var answeredAt: Date?
+    /// The core said the call's voice is connected.
+    private var voiceConnected = false
+    /// Whether incoming calls are reported as video calls, so that answering opens the app.
+    private let openAppOnAnswer = OpenAppOnAnswerSetting()
 
     override init() {
-        let configuration = CXProviderConfiguration()
-        configuration.supportsVideo = true
-        configuration.maximumCallsPerCallGroup = 1
-        configuration.maximumCallGroups = 1
-        configuration.supportedHandleTypes = [.generic]
-        configuration.includesCallsInRecents = false
-        provider = CXProvider(configuration: configuration)
+        provider = CXProvider(configuration: callProviderConfiguration(icon: callKitIcon))
         super.init()
         provider.setDelegate(self, queue: .main)
         registry.delegate = self
         registry.desiredPushTypes = [.voIP]
+        if callDiagnostics { watchAudioSession() }
+        NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            self?.interrupted(note)
+        }
     }
 
+    /// An interruption (Siri, an alarm…) stops the audio unit. If it ends with "should resume" and
+    /// CallKit does not activate the session again within a second, the voice starts again here
+    /// (Signal's CallAudioService does the same).
+    private func interrupted(_ note: Notification) {
+        let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+        diagnose("audio interruption " + (type == .began ? "began" : "ended"))
+        guard type == .ended else { return }
+        let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
+        reactivated = false
+        let call = current
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self else { return }
+            let live = call != nil && self.current == call && (self.live || self.outgoing)
+            guard restartAfterInterruption(shouldResume: options.contains(.shouldResume), reactivated: self.reactivated, callLive: live) else { return }
+            diagnose("audio restarted after an interruption")
+            CallEvents.shared.emit(.audioDeactivated(self.sessionGeneration))
+            CallEvents.shared.emit(.audioActivated(self.sessionGeneration))
+        }
+    }
+
+    /// Speaker or receiver, as the user chose (2026-09-28). Applied now and again each time the
+    /// system activates the session: an override lasts only while the session is active.
+    func setSpeaker(_ on: Bool) {
+        speaker = on
+        applySpeaker()
+    }
+
+    private func applySpeaker() {
+        do {
+            try AVAudioSession.sharedInstance().overrideOutputAudioPort(outputOverride(speaker: speaker))
+        } catch {
+            diagnose("audio output override refused")
+        }
+        diagnose("audio output speaker=\(speaker) " + currentAudioSession())
+    }
+
+    /// The app's own answer button (2026-09-28): CallKit is asked to answer, so the audio session
+    /// comes as on the lock screen. `false` when there is no CallKit call to answer: the core
+    /// answers by itself.
+    func requestAnswer() -> Bool {
+        guard let call = current, answerThroughCallKit(callKitCall: true, answered: answered, outgoing: outgoing) else {
+            diagnose("app answer: no callkit call to answer, call there=\(current != nil) answered=\(answered)")
+            return false
+        }
+        diagnose("app answer: through callkit")
+        controller.request(CXTransaction(action: CXAnswerCallAction(call: call))) { error in
+            guard error != nil else { return }
+            // CallKit refused: the core answers all the same, as before.
+            diagnose("callkit refused the answer")
+            CallEvents.shared.emit(.answer)
+        }
+        return true
+    }
+
+    /// Temporary diagnostics: route changes and interruptions of the audio session.
+    private func watchAudioSession() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).map(String.init) ?? "?"
+            diagnose("audio route changed reason=\(reason) " + currentAudioSession())
+        }
+        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { _ in
+            diagnose("audio media services were reset")
+        }
+    }
+
+    /// Before every call is reported or started (see `callProviderConfiguration`).
+    private func configureProvider() {
+        provider.configuration = callProviderConfiguration(icon: callKitIcon)
+    }
+
+    /// Ends the call if, `after` seconds from now, it still went nowhere (`callOverdue`).
+    private func watch(_ uuid: UUID, after seconds: TimeInterval) {
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + seconds) { [weak self] in
+            self?.endIfOverdue(uuid)
+        }
+    }
+
+    private func endIfOverdue(_ uuid: UUID) {
+        guard current == uuid else { return }
+        let now = Date()
+        let overdue = callOverdue(
+            outgoing: outgoing,
+            answered: answered,
+            connected: voiceConnected,
+            ringingFor: ringingSince.map { now.timeIntervalSince($0) } ?? 0,
+            answeredFor: answeredAt.map { now.timeIntervalSince($0) }
+        )
+        guard let reason = overdue else { return }
+        diagnose(reason == .failed ? "callkit call overdue: never connected" : "callkit call overdue: unanswered")
+        finish()
+        provider.reportCall(with: uuid, endedAt: nil, reason: reason)
+        CallEvents.shared.emit(.end)
+    }
+
+    /// The call's name and video for CallKit: `callUpdate`, with this call's direction and the
+    /// switch that opens the app on answer.
     private func update(caller: String, video: Bool) -> CXCallUpdate {
-        let update = CXCallUpdate()
-        let name = caller.isEmpty ? NSLocalizedString("FT_INCOMING_CALL", comment: "") : caller
-        update.remoteHandle = CXHandle(type: .generic, value: name)
-        update.localizedCallerName = name
-        update.hasVideo = video
-        return update
+        callUpdate(caller: caller, video: video, outgoing: outgoing, openAppOnAnswer: openAppOnAnswer.on)
+    }
+
+    /// Opening the app when an incoming call is answered (experiment, `OpenAppOnAnswer.swift`):
+    /// from the next call on; the call ringing now keeps what CallKit was told.
+    func setOpenAppOnAnswer(_ on: Bool) {
+        diagnose("core: open the app on answer=\(on)")
+        openAppOnAnswer.on = on
+    }
+
+    /// A new call: what the last one left behind is forgotten.
+    private func begin(_ uuid: UUID, outgoing: Bool) {
+        current = uuid
+        answered = false
+        live = false
+        voiceConnected = false
+        ringingSince = nil
+        answeredAt = nil
+        speaker = false
+        generation += 1
+        self.outgoing = outgoing
+        // What the user did for an earlier call must not answer or hang up this one.
+        CallEvents.shared.forget()
+    }
+
+    private func finish() {
+        current = nil
+        answered = false
+        live = false
+        outgoing = false
+        voiceConnected = false
+        ringingSince = nil
+        answeredAt = nil
     }
 
     private func report(caller: String, video: Bool, done: (() -> Void)? = nil) {
         let uuid = UUID()
-        current = uuid
-        answered = false
-        provider.reportNewIncomingCall(with: uuid, update: update(caller: caller, video: video)) { [weak self] error in
-            if error != nil, self?.current == uuid { self?.current = nil }
+        begin(uuid, outgoing: false)
+        ringingSince = Date()
+        watch(uuid, after: callRingLimit)
+        configureProvider()
+        let shown = update(caller: caller, video: video)
+        diagnose("callkit reports an incoming call hasVideo=\(shown.hasVideo)")
+        provider.reportNewIncomingCall(with: uuid, update: shown) { [weak self] error in
+            if let error {
+                diagnose("callkit refused the incoming call code=\((error as NSError).code)")
+                if self?.current == uuid { self?.current = nil }
+            }
             done?()
         }
     }
 
-    /// The core says a call rings: CallKit, unless the app on the screen rings itself.
+    /// The core says a call rings: CallKit, also with the app on the screen.
     func ring(caller: String, video: Bool) {
-        let active = UIApplication.shared.applicationState == .active
-        switch ringWith(appActive: active, callKitCall: current != nil) {
-        case .app:
-            break
+        switch ringWith(callKitCall: current != nil) {
         case .report:
+            diagnose("core: rings, callkit call reported")
             report(caller: caller, video: video)
         case .update:
+            diagnose("core: rings, callkit call already there answered=\(answered)")
             if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
         }
     }
 
-    /// The ringing is over (answered here, declined, ended or given up): CallKit lets go.
+    /// The core is answering the call (2026-09-29): answered in CallKit, maybe before its offer came
+    /// (PushKit reported it as "FlickerTalk"). CallKit only learns who it is; it never rings again.
+    func answering(caller: String, video: Bool) {
+        diagnose("core: answering, callkit call there=\(current != nil) answered=\(answered)")
+        guard let current else { return }
+        provider.reportCall(with: current, updated: answeringUpdate(caller: caller, video: video, openAppOnAnswer: openAppOnAnswer.on))
+    }
+
+    /// The ringing is over. Declined or given up: CallKit lets go. Answered: the call goes on,
+    /// with its audio session, until `ended`.
     func stop() {
-        guard let call = current else { return }
-        current = nil
-        provider.reportCall(with: call, endedAt: nil, reason: answered ? .answeredElsewhere : .remoteEnded)
+        guard let call = current, stopEndsCall(answered: answered, outgoing: outgoing) else { return }
+        diagnose("core: ringing over, callkit call ends")
+        finish()
+        provider.reportCall(with: call, endedAt: nil, reason: .remoteEnded)
+    }
+
+    /// This phone calls (native calls): CallKit is asked to start it, and its start action sets
+    /// the audio session up. `done` hears CallKit's refusal, if any (a phone call going on…).
+    func startOutgoing(name: String, video: Bool, done: @escaping (Error?) -> Void) {
+        if let old = current { provider.reportCall(with: old, endedAt: nil, reason: .remoteEnded) }
+        let uuid = UUID()
+        begin(uuid, outgoing: true)
+        configureProvider()
+        diagnose("callkit outgoing call starts")
+        let shown = name.isEmpty ? "FlickerTalk" : name
+        let action = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: shown))
+        action.isVideo = video
+        controller.request(CXTransaction(action: action)) { [weak self] error in
+            guard let self else { return }
+            if error != nil {
+                if self.current == uuid { self.finish() }
+            } else if self.current == uuid {
+                self.provider.reportCall(with: uuid, updated: self.update(caller: shown, video: video))
+            }
+            done(error)
+        }
+    }
+
+    /// The call is connected: an outgoing call shows so; an incoming one was answered in CallKit
+    /// (in the app too, through `requestAnswer`) and is live already.
+    func connected() {
+        voiceConnected = true
+        diagnose("core: call connected " + currentAudioSession())
+        switch connectWith(outgoing: outgoing) {
+        case .reportConnected:
+            live = true
+            if let current { provider.reportOutgoingCall(with: current, connectedAt: nil) }
+        case .nothing:
+            break
+        }
+    }
+
+    /// Whether the call has video now (native video, 2026-09-29): CallKit's `hasVideo`, with
+    /// either camera on, so that unlocking the phone opens the app on the call.
+    func setVideo(_ on: Bool) {
+        guard let current else { return }
+        diagnose("core: call video=\(on)")
+        provider.reportCall(with: current, updated: videoUpdate(on, outgoing: outgoing, openAppOnAnswer: openAppOnAnswer.on))
+    }
+
+    /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
+    func ended() {
+        diagnose("core: call ended, callkit call there=\(current != nil)")
+        guard let call = current else {
+            finish()
+            return
+        }
+        let reason = endReason(live: live || answered)
+        finish()
+        provider.reportCall(with: call, endedAt: nil, reason: reason)
     }
 
     // PushKit
@@ -288,30 +760,72 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload, for type: PKPushType, completion: @escaping () -> Void) {
-        // Every VoIP push rings, or iOS stops delivering them; ours are only ever calls.
+        // Every VoIP push rings, or iOS stops delivering them; ours are only ever calls. The core
+        // reconnects to the router at once (after `report`, whose new call forgets older events):
+        // its socket died with the suspended app, and the offer and the caller's end come by it.
+        diagnose("voip push, callkit call already there=\(current != nil)")
         if current != nil {
+            CallEvents.shared.emit(.incoming)
             completion()
             return
         }
         report(caller: "", video: false, done: completion)
+        CallEvents.shared.emit(.incoming)
     }
 
     // CallKit
 
     func providerDidReset(_ provider: CXProvider) {
-        current = nil
+        if current != nil { CallEvents.shared.emit(.end) }
+        finish()
     }
 
+    func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
+        configureCallAudio()
+        provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: nil)
+        action.fulfill()
+    }
+
+    // Fulfilled at once, not once the voice connects (Apple: that loses the audio, forums thread
+    // 747627). The core reconnects and answers when the offer is there; if the voice never
+    // connects, `callOverdue` ends the call as failed.
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        configureCallAudio()
+        diagnose("callkit answer, the call going on=\(current == action.callUUID)")
+        answeredAt = Date()
+        watch(action.callUUID, after: callConnectLimit)
         answered = true
-        pending = "answer"
+        live = true
+        CallEvents.shared.emit(.answer)
         action.fulfill()
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        pending = "decline"
-        current = nil
+        diagnose("callkit end, the call going on=\(current == action.callUUID) answered=\(answered)")
+        let event = endEvent(ours: current == action.callUUID, outgoing: outgoing, connected: voiceConnected)
+        if current == action.callUUID { finish() }
+        CallEvents.shared.emit(event)
         action.fulfill()
+    }
+
+    func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        CallEvents.shared.emit(.mute(action.isMuted))
+        action.fulfill()
+    }
+
+    // The system activates the session CallKit's actions set up: Rust starts its audio unit now,
+    // and stops it when the session is taken away.
+    func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+        sessionGeneration = generation
+        reactivated = true
+        applySpeaker()
+        diagnose("audio activated generation=\(sessionGeneration) " + currentAudioSession())
+        CallEvents.shared.emit(.audioActivated(sessionGeneration))
+    }
+
+    func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+        diagnose("audio deactivated generation=\(sessionGeneration)")
+        CallEvents.shared.emit(.audioDeactivated(sessionGeneration))
     }
 }
 
@@ -400,6 +914,12 @@ final class VoipToken {
     }
 }
 
+/// Arguments of `callAnswering`, the same as Kotlin's.
+struct AnsweringArgs: Decodable {
+    let caller: String
+    let video: Bool
+}
+
 /// Arguments of `startRinging`, the same as Kotlin's.
 struct RingingArgs: Decodable {
     let caller: String
@@ -440,11 +960,22 @@ class PlatformPlugin: Plugin {
     /// A login sheet waiting for the provider to send the user back (drive, 2026-09-27).
     private var authSession: ASWebAuthenticationSession?
     private let authAnchor = AuthAnchor()
+    /// The WebView the call's video goes under (native video).
+    private weak var webView: WKWebView?
 
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = ReminderTaps.shared
         _ = callsAtLaunch
+        let install = {
+            AppVisibility.install()
+            CallIntentActivities.install()
+        }
+        if Thread.isMainThread { install() } else { DispatchQueue.main.async(execute: install) }
+    }
+
+    override func load(webview: WKWebView) {
+        webView = webview
     }
 
     /// An incoming call rings: CallKit when the app is not on the screen (2026-09-28).
@@ -463,11 +994,156 @@ class PlatformPlugin: Plugin {
         }
     }
 
-    /// What the user did in CallKit ("answer", "decline" or nothing), once, as on Android.
-    @objc public func pendingCall(_ invoke: Invoke) throws {
+    /// The core listens to native calls (`listen_calls`): events that waited go out now.
+    @objc public func registerCallEvents(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(CallEventsArgs.self)
+        CallEvents.shared.register(args.channel)
+        // Whether the app is on the screen now: the core holds our camera while it is not.
+        DispatchQueue.main.async { AppVisibility.tellNow() }
+        invoke.resolve()
+    }
+
+    // ---- Native video (2026-09-29, docs/video-nativo.md) ----
+
+    /// The call's layers under the WebView, which turns transparent; hidden until `videoLayout`.
+    @objc public func attachVideo(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(AttachVideoArgs.self)
+        DispatchQueue.main.async { [weak self] in
+            guard let web = self?.webView else {
+                invoke.reject("no webview")
+                return
+            }
+            CallVideoViews.shared.attach(webView: web, remote: rustLayer(args.remoteLayer), local: rustLayer(args.localLayer))
+            CallVideoViews.shared.startOrientation()
+            invoke.resolve()
+        }
+    }
+
+    /// Where the WebView leaves room for each picture, and whether ours is mirrored.
+    @objc public func videoLayout(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(VideoLayoutArgs.self)
         DispatchQueue.main.async {
-            invoke.resolve(["action": Calls.shared.pending])
-            Calls.shared.pending = ""
+            CallVideoViews.shared.layout(args)
+            invoke.resolve()
+        }
+    }
+
+    /// The turn of the other side's picture: its layer is laid out by it.
+    @objc public func videoShape(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(VideoShapeArgs.self)
+        DispatchQueue.main.async {
+            CallVideoViews.shared.shape(rotation: args.rotation)
+            invoke.resolve()
+        }
+    }
+
+    /// Takes the layers away and gives the WebView its look back; resolves only once they are out
+    /// of the view hierarchy, so Rust may then drop the video devices that own them.
+    @objc public func detachVideo(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            CallVideoViews.shared.detach()
+            invoke.resolve()
+        }
+    }
+
+    /// Opening the app when an incoming call is answered (experiment, 2026-09-29): the core says
+    /// whether incoming calls are reported to CallKit as video calls (`OpenAppOnAnswer.swift`).
+    @objc public func setOpenAppOnAnswer(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OpenAppOnAnswerArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.setOpenAppOnAnswer(args.on)
+            invoke.resolve()
+        }
+    }
+
+    /// Whether the call has video now: CallKit's `hasVideo`.
+    @objc public func callVideo(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(CallVideoArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.setVideo(args.on)
+            invoke.resolve()
+        }
+    }
+
+    /// The camera before our camera turns on (§30): asks only if it was never asked; `granted`
+    /// says whether it may be used.
+    @objc public func requestCamera(_ invoke: Invoke) throws {
+        switch cameraAccess(AVCaptureDevice.authorizationStatus(for: .video)) {
+        case .granted:
+            invoke.resolve(["granted": true])
+        case .denied:
+            invoke.resolve(["granted": false])
+        case .ask:
+            AVCaptureDevice.requestAccess(for: .video) { invoke.resolve(["granted": $0]) }
+        }
+    }
+
+    /// This phone calls: CallKit takes the call and its audio session (native calls, 2026-09-28).
+    @objc public func callStartedOutgoing(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OutgoingArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.startOutgoing(name: args.name, video: args.video) { error in
+                if let error {
+                    invoke.reject("callkit_refused: \(error.localizedDescription)")
+                } else {
+                    invoke.resolve()
+                }
+            }
+        }
+    }
+
+    @objc public func callConnected(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            Calls.shared.connected()
+            invoke.resolve()
+        }
+    }
+
+    /// The app's answer button (2026-09-28): CallKit answers, if it has the call; `answered` says.
+    @objc public func answerCall(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            invoke.resolve(["answered": Calls.shared.requestAnswer()])
+        }
+    }
+
+    /// Speaker or receiver for the call (2026-09-28).
+    @objc public func setSpeaker(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(SpeakerArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.setSpeaker(args.on)
+            invoke.resolve()
+        }
+    }
+
+    /// Temporary diagnostics (2026-09-28): a state name from the Rust core, to the device log.
+    @objc public func diagnose(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(DiagnoseArgs.self)
+        tauri_plugin_ft_platform.diagnose("rust: " + args.what)
+        invoke.resolve()
+    }
+
+    @objc public func callEnded(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            Calls.shared.ended()
+            invoke.resolve()
+        }
+    }
+
+    /// Asks for the microphone before a native call, if it was never asked: `granted` says.
+    @objc public func requestMicrophone(_ invoke: Invoke) throws {
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission { invoke.resolve(["granted": $0]) }
+        } else {
+            AVAudioSession.sharedInstance().requestRecordPermission { invoke.resolve(["granted": $0]) }
+        }
+    }
+
+    /// The core is answering the incoming call (2026-09-29): CallKit gets its name, and no ring.
+    @objc public func callAnswering(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(AnsweringArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.answering(caller: args.caller, video: args.video)
+            invoke.resolve()
         }
     }
 

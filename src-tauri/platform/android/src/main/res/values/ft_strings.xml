@@ -10,4 +10,10 @@
     <string name="ft_channel_reminders">Reminders</string>
     <string name="ft_reminder">Reminder</string>
     <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_incoming_calls">Incoming calls</string>
+    <string name="ft_channel_ongoing_calls">Ongoing calls</string>
+    <string name="ft_ongoing_call">Call in progress</string>
+    <string name="ft_mute">Mute</string>
+    <string name="ft_unmute">Unmute</string>
+    <string name="ft_video">Video</string>
 </resources>

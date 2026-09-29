@@ -729,9 +729,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.4.7"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54413ede23c2daf518f35156dfde027feb2374004d63bd497f983c8db9c0e313"
+checksum = "f360145194ee8e21db5ee7f3fcd4fe52210864c75c985dae33218202c8bbe040"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -1715,9 +1715,9 @@ dependencies = [
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.13"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef25905e51abafe4dcea6c15fec58c57b601cdbd0ee53d22ea1d3016c587d39b"
+checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
 name = "flate2"
@@ -1740,6 +1740,7 @@ dependencies = [
  "ft-billing",
  "ft-contacts",
  "ft-core",
+ "ft-media",
  "ft-plugins",
  "ft-storage",
  "ft-vault",
@@ -1859,6 +1860,7 @@ dependencies = [
  "ft-contacts",
  "ft-crypto",
  "ft-identity",
+ "ft-media",
  "ft-plugins",
  "ft-protocol",
  "ft-push",
@@ -1892,6 +1894,18 @@ dependencies = [
  "chacha20poly1305 0.10.1",
  "crypto_box",
  "vodozemac",
+]
+
+[[package]]
+name = "ft-media"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "rtc",
+ "tokio",
+ "webrtc",
+ "webrtc-engine",
 ]
 
 [[package]]
@@ -5962,7 +5976,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -6864,6 +6878,21 @@ dependencies = [
  "quinn-udp",
  "rtc",
  "tokio",
+]
+
+[[package]]
+name = "webrtc-engine"
+version = "0.1.0"
+source = "git+https://github.com/FlickerTalk/webrtc-engine-rs?branch=main#4beeefe5aa15fef4197638b32590e05f6d3d6415"
+dependencies = [
+ "bytes",
+ "cc",
+ "libc",
+ "objc2",
+ "rand 0.10.3",
+ "rtc",
+ "tokio",
+ "webrtc",
 ]
 
 [[package]]
