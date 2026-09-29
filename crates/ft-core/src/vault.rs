@@ -65,8 +65,18 @@ pub fn google_client_for<'a>(os: &str, android: Option<&'a str>, ios: Option<&'a
 
 /// The client this build was compiled with: `FT_GOOGLE_IOS_CLIENT_ID` on iOS,
 /// `FT_GOOGLE_CLIENT_ID` elsewhere. A store build without it does not build (`src-tauri/build.rs`).
+///
+/// `tauri ios build` runs cargo with a clean environment that only keeps `TAURI*` variables (and
+/// a few more), so each id also comes as `TAURI_FT_GOOGLE_…`; the plain name wins.
 fn built_in_google_client_id() -> &'static str {
-    google_client_for(std::env::consts::OS, option_env!("FT_GOOGLE_CLIENT_ID"), option_env!("FT_GOOGLE_IOS_CLIENT_ID"))
+    let android = set_or(option_env!("FT_GOOGLE_CLIENT_ID"), option_env!("TAURI_FT_GOOGLE_CLIENT_ID"));
+    let ios = set_or(option_env!("FT_GOOGLE_IOS_CLIENT_ID"), option_env!("TAURI_FT_GOOGLE_IOS_CLIENT_ID"));
+    google_client_for(std::env::consts::OS, android, ios)
+}
+
+/// The first of two build variables that is set and not blank.
+fn set_or<'a>(plain: Option<&'a str>, through_tauri: Option<&'a str>) -> Option<&'a str> {
+    plain.filter(|id| !id.trim().is_empty()).or(through_tauri)
 }
 
 /// A Google login, ready for the browser: the page to open, the scheme the bridge waits for, and
@@ -526,6 +536,16 @@ mod tests {
         assert_eq!(google_client_for("ios", Some(ANDROID), None), "", "no iOS client: no login, not Android's");
         assert_eq!(google_client_for("android", None, Some(IOS)), "");
         assert_eq!(google_client_for("ios", None, Some(&format!(" {IOS}\n"))), IOS, "a pasted id loses its blanks");
+    }
+
+    // `tauri ios build` only lets TAURI_* variables through to cargo: the client id also comes
+    // as TAURI_FT_GOOGLE_*; the plain name wins, and blank is the same as missing.
+    #[test]
+    fn a_client_id_also_comes_through_tauri() {
+        assert_eq!(set_or(Some(IOS), Some("other")), Some(IOS));
+        assert_eq!(set_or(None, Some(IOS)), Some(IOS));
+        assert_eq!(set_or(Some(" "), Some(IOS)), Some(IOS));
+        assert_eq!(set_or(None, None), None);
     }
 
     fn query(url: &str) -> Vec<(String, String)> {
