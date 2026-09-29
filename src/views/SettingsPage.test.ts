@@ -43,10 +43,16 @@ describe("SettingsPage", () => {
     expect(text).not.toContain("Export identity");
   });
 
-  // §41: the free year, counted on this phone.
+  // §41: the free year, counted on this phone. Settings and the Plan screen count it the same
+  // way (`daysLeft`): a phone installed a moment ago reads 365 days on both, not 364 here.
   it("shows how long the app stays free", () => {
-    store.me.freeUntil = Date.now() + 100.5 * 24 * 3600 * 1000;
-    expect(mount(SettingsPage, { shallow: true }).text()).toContain("Free · 100 days left");
+    store.me.freeUntil = Date.now() + 365 * 24 * 3600 * 1000 - 5;
+    expect(mount(SettingsPage, { shallow: true }).text()).toContain("Free · 365 days left");
+  });
+
+  it("says the free year is over once it is", () => {
+    store.me.freeUntil = Date.now() - 1000;
+    expect(mount(SettingsPage, { shallow: true }).text()).toContain("Free year over");
   });
 
   it("shows the app's real version", async () => {

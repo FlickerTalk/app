@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
-import { payTrouble, plan as planOf, setAge, subscribe, type PlanView } from "../core";
+import { daysLeft, payTrouble, plan as planOf, setAge, subscribe, type PlanView } from "../core";
 import { t } from "../i18n";
 
 // Plan §40–§47: the first year is free from the install, then 1 € a year; under 21 it is always
@@ -15,7 +15,7 @@ async function refresh() {
   plan.value = await planOf().catch(() => null);
 }
 
-const days = computed(() => Math.max(0, Math.ceil(((plan.value?.until ?? 0) - Date.now()) / (24 * 3600 * 1000))));
+const days = computed(() => daysLeft(plan.value?.until ?? 0));
 const until = computed(() => new Date(plan.value?.until ?? 0).toLocaleDateString());
 
 /** What the screen says, in one line, about where the user stands. */

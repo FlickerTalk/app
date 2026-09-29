@@ -28,6 +28,14 @@ describe("PlanPage", () => {
     expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
   });
 
+  // The same free year reads the same on Settings (`daysLeft`): installed a moment ago, 365 days.
+  it("counts the free year as Settings does", async () => {
+    planning({ state: "trial", until: Date.now() + 365 * DAY - 5, age: "unknown" });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='where']").text()).toBe("Free · 365 days left");
+  });
+
   // §40: under 21 it is free, and that is a thing the user says, never a date we keep.
   it("asks the age and keeps only the answer", async () => {
     planning({ state: "limited", until: 0, age: "unknown" });

@@ -774,6 +774,16 @@ export interface PlanView {
   age: "minor" | "adult" | "unknown";
 }
 
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Whole days left until `until` (ms), as every screen says it (§41): a day that has started
+ * counts, so a phone installed a moment ago has 365; nothing is ever below 0.
+ */
+export function daysLeft(until: number, now = Date.now()): number {
+  return Math.max(0, Math.ceil((until - now) / DAY));
+}
+
 export async function plan(): Promise<PlanView> {
   return invoke<PlanView>("core_plan");
 }
