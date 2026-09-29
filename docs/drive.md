@@ -99,6 +99,13 @@ entropía, y ninguno lleva ni el nombre ni un byte del documento.
     cliente de Android en `infra/secrets/google-oauth-android-client.json`) y, para CI, los dos
     como secretos del entorno `release` de GitHub. El job de Android recibe `FT_GOOGLE_CLIENT_ID`;
     no hay job de iOS (se compila en un Mac con la variable exportada).
+  - **`tauri ios build` no pasa las variables**: la CLI de Tauri (2.11, `mobile::env_vars`) da al
+    build de Xcode, y con él a cargo, un entorno limpio con solo `TAURI*`, `WRY*`, `CARGO_*`,
+    `RUST_*`, `TMPDIR` y `PATH`. Por eso el núcleo y la comprobación leen también
+    `TAURI_FT_GOOGLE_IOS_CLIENT_ID` (y `TAURI_FT_GOOGLE_CLIENT_ID`, `TAURI_FT_ALLOW_NO_GOOGLE_CLIENT`);
+    el nombre sin prefijo gana. Para iOS: `export TAURI_FT_GOOGLE_IOS_CLIENT_ID=$FT_GOOGLE_IOS_CLIENT_ID`
+    antes de `tauri ios build` (`scripts/ios-build.sh` lo hace solo). En Android, Gradle hereda el
+    entorno entero y basta `FT_GOOGLE_CLIENT_ID`.
   - **Comprobación al compilar** (`src-tauri/build.rs`, lógica y tests en
     `src-tauri/google_client_check.rs`): una build **release** para Android o iOS **no compila**
     si falta el id de su plataforma o no tiene la forma `<id>.apps.googleusercontent.com`; una
