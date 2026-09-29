@@ -18,6 +18,7 @@ pub mod files;
 pub mod moving;
 pub mod native_calls;
 pub mod plugins;
+pub mod timings;
 pub mod net;
 pub mod vault;
 pub mod online;
@@ -80,9 +81,20 @@ pub trait Transport: Send + Sync {
     /// Hands the packet to a direct connection with the peer, opening one if needed. `false` when
     /// the peer cannot be reached directly right now.
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool>;
+    /// The same for what may go to the mailbox instead (2026-09-29): `false` at once when the peer
+    /// is not connected to the router, so the mailbox takes it without waiting for the connection.
+    /// An offer the router keeps for the peer stays open: the connection may still open later.
+    async fn try_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct(to, bytes).await
+    }
     /// The same for a call's offer (2026-09-28): opening the way rings an offline iPhone.
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct(to, bytes).await
+    }
+    /// Opens a direct connection for a call, sending nothing yet (2026-09-29): the caller opens
+    /// the way while its media offer gathers. `false` when the peer cannot be reached now.
+    async fn open_direct_call(&self, _to: &Peer) -> Result<bool> {
+        Ok(false)
     }
     /// Leaves the packet, already encrypted, in the peer's mailbox on the router (§19).
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
@@ -178,6 +190,11 @@ pub struct Core {
     /// The OS answered or declined before any call rang (2026-09-28, 2026-09-29): what the next
     /// call's offer gets as soon as it arrives, and then the call being answered so.
     early_answer: std::sync::Mutex<Option<native_calls::EarlyAnswer>>,
+    /// The answer prepared while a call rings here (2026-09-29), and how often it is made again.
+    preparation: std::sync::Mutex<native_calls::Preparation>,
+    answer_refresh: std::sync::atomic::AtomicU64,
+    /// The steps of the call being set up, as they happen (temporary diagnostics).
+    call_clock: std::sync::Mutex<Option<timings::CallClock>>,
     /// The newest CallKit call whose audio session was heard of (`set_call_audio_session`).
     audio_generation: std::sync::atomic::AtomicU64,
     /// This core, for work it hands to the background (a waiting answer, a hang-up to deliver).
@@ -264,6 +281,9 @@ impl Core {
             this: this.clone(),
             early_answer: std::sync::Mutex::default(),
             audio_generation: std::sync::atomic::AtomicU64::new(0),
+            call_clock: std::sync::Mutex::default(),
+            preparation: std::sync::Mutex::default(),
+            answer_refresh: std::sync::atomic::AtomicU64::new(native_calls::ANSWER_REFRESH_MS),
             device_id: identity.device_id(),
             identity: Mutex::new(identity),
             store,
@@ -946,6 +966,23 @@ impl Core {
         Ok(())
     }
 
+    /// A direct connection with the contact opened (2026-09-29): what was already tried and still
+    /// waits for its receipt goes over it now, even if it is in the mailbox too; the recipient
+    /// shows it once. What is being sent for the first time is left to its own send.
+    pub(crate) async fn retry_contact_now(&self, contact: &str) -> Result<()> {
+        for entry in self.store.outbox().await? {
+            if entry.contact == contact && entry.attempts > 0 {
+                self.deliver(&entry).await?;
+            }
+        }
+        for entry in self.store.circle_outbox().await? {
+            if entry.contact == contact && entry.attempts > 0 {
+                let _ = self.deliver_circle(&entry).await;
+            }
+        }
+        Ok(())
+    }
+
     /// Retries every pending message now (the contact came online, say).
     pub async fn retry_now(&self) -> Result<()> {
         for entry in self.store.outbox().await? {
@@ -1242,15 +1279,26 @@ impl Core {
         Ok(self.transport.send_direct_call(&peer, bytes).await.unwrap_or(false))
     }
 
+    /// Opens the way to the contact for a call's offer, sending nothing yet.
+    pub(crate) async fn open_direct_call(&self, contact: &Contact) -> Result<bool> {
+        let card = ContactCard::decode(&contact.card)?;
+        let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
+        Ok(self.transport.open_direct_call(&peer).await.unwrap_or(false))
+    }
+
     async fn transmit(&self, contact: &Contact, packet: &Packet) -> Result<Route> {
         let bytes = self.seal_for(contact, packet).await?;
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
 
-        if self.transport.send_direct(&peer, bytes.clone()).await.unwrap_or(false) {
+        // The message gets delivered first (§17, §19): with the mailbox allowed on both sides, a
+        // peer that is not connected does not hold it back (2026-09-29).
+        let mailbox = contact.mailbox && self.mailbox().await?;
+        let direct = if mailbox { self.transport.try_direct(&peer, bytes.clone()).await } else { self.transport.send_direct(&peer, bytes.clone()).await };
+        if direct.unwrap_or(false) {
             return Ok(Route::Direct);
         }
-        if contact.mailbox && self.mailbox().await? {
+        if mailbox {
             // Through the router it goes in an envelope (A1): the router sees only who it is for.
             let mail = self.wrap_for(&contact.device_id, bytes).await?;
             self.transport.send_mailbox(&peer, mail).await.context("the mailbox is not reachable")?;

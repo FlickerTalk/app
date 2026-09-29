@@ -15,15 +15,16 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use ft_protocol::{Body, Signal, SignalKind, PROTOCOL_VERSION};
-use ft_push::{RouterClient, RouterEvent, TurnGrant};
+use ft_push::{RouterClient, RouterEvent, Signalled, TurnGrant};
 use ft_webrtc::{Inbox, Role, Session, SessionConfig, Signal as Description, TurnServer};
 use tokio::sync::{mpsc, Mutex};
 
+use crate::timings::CallStage;
 use crate::{Core, Event, Peer, Transport};
 
 /// A transfer quiet for this long when a connection opens is asked for again over it.
@@ -31,6 +32,16 @@ const RESUME_QUIET: Duration = Duration::from_secs(2);
 
 /// How long to wait for a data channel before falling back to the mailbox.
 pub const CONNECT_WAIT: Duration = Duration::from_secs(12);
+
+/// A router from 0.4.0 keeps a signal for a recipient that is not connected this long, and hands
+/// it over right after the recipient's next welcome (2026-09-29).
+const RETAINED_FOR: Duration = Duration::from_secs(55);
+
+/// An answer to a retained offer handed over at the last moment still has this long to come.
+const ANSWER_GRACE: Duration = Duration::from_secs(5);
+
+/// An offer nobody got (a router before 0.4 loses it) is kept this long for the next attempt.
+const SPARE_FOR: Duration = Duration::from_secs(20);
 
 /// The router, as the network uses it (ft-push's `RouterClient` in the app, a fake in tests).
 #[async_trait]
@@ -41,6 +52,12 @@ pub trait Relay: Send + Sync {
     async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
         self.signal(to, capability, bytes).await
     }
+    /// Either, saying whether a router from 0.4.0 kept the signal for a recipient that is not
+    /// connected (2026-09-29). A relay that cannot tell never keeps it.
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<Signalled> {
+        let delivered = if call { self.signal_call(to, capability, bytes).await? } else { self.signal(to, capability, bytes).await? };
+        Ok(if delivered { Signalled::Delivered } else { Signalled::NotConnected })
+    }
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()>;
     /// This device's mail: (id, blob), oldest first.
     async fn collect(&self) -> Result<Vec<(String, Vec<u8>)>>;
@@ -50,11 +67,19 @@ pub trait Relay: Send + Sync {
 #[async_trait]
 impl Relay for RouterClient {
     async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
-        RouterClient::signal(self, to, capability, bytes).await
+        Ok(RouterClient::signal(self, to, capability, bytes).await?.delivered())
     }
 
     async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<bool> {
-        RouterClient::signal_call(self, to, capability, bytes).await
+        Ok(RouterClient::signal_call(self, to, capability, bytes).await?.delivered())
+    }
+
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<Signalled> {
+        if call {
+            RouterClient::signal_call(self, to, capability, bytes).await
+        } else {
+            RouterClient::signal(self, to, capability, bytes).await
+        }
     }
 
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()> {
@@ -76,6 +101,41 @@ struct Link {
     session: Session,
 }
 
+/// What a send to a contact that is not connected may do meanwhile (2026-09-29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// A call's offer: waits for the connection (and marks the call's timings).
+    Call,
+    /// Only a direct connection will do (files, calls' answers and ends, plugins): waits for it.
+    Direct,
+    /// It may go to the mailbox instead: never waits for a contact that is not connected.
+    Fallback,
+}
+
+/// Between looks at whether our offer is waiting at the router, while another send holds the gate.
+const GATE_LOOK: Duration = Duration::from_millis(50);
+
+/// An offer made and gathered that nobody got, ready for the next attempt with the same contact.
+struct Spare {
+    id: u64,
+    session: Session,
+    inbox: Inbox,
+    sdp: String,
+    made: Instant,
+}
+
+/// Our offer, kept by the router for a contact that is not connected, still waiting for its answer.
+#[derive(Clone)]
+struct Retained {
+    /// Its signalling session id.
+    id: String,
+    session: Session,
+    /// The end of the connection window of the send that made it.
+    window: Instant,
+    /// When the router drops it: from then on a new offer is needed.
+    until: Instant,
+}
+
 pub struct Network {
     relay: Arc<dyn Relay>,
     /// Where to listen; STUN and TURN come from the router's welcome.
@@ -86,6 +146,10 @@ pub struct Network {
     links: Mutex<HashMap<String, Link>>,
     /// Our offers waiting for their answer, by signalling session id.
     pending: Mutex<HashMap<String, Session>>,
+    /// By contact, our offer the router keeps for them while they are not connected.
+    retained: Mutex<HashMap<String, Retained>>,
+    /// By contact, our offer a router before 0.4 lost, for the next attempt.
+    spare: Mutex<HashMap<String, Spare>>,
     /// One connection attempt at a time per contact.
     gates: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     /// One mailbox collection at a time: a blob must not be processed twice.
@@ -103,6 +167,8 @@ impl Network {
             this: OnceLock::new(),
             links: Mutex::default(),
             pending: Mutex::default(),
+            retained: Mutex::default(),
+            spare: Mutex::default(),
             gates: Mutex::default(),
             collecting: Mutex::default(),
             next_link: AtomicU64::new(0),
@@ -202,8 +268,17 @@ impl Network {
         contacts
     }
 
-    /// Closes the direct connection with the contact, if any (the other side sees it close too).
+    /// Closes the direct connection with the contact, if any (the other side sees it close too),
+    /// and drops our offer waiting for them.
     pub async fn disconnect(&self, contact: &str) {
+        let retained = self.retained.lock().await.remove(contact);
+        if let Some(retained) = retained {
+            let _ = retained.session.close().await;
+        }
+        let spare = self.spare.lock().await.remove(contact);
+        if let Some(spare) = spare {
+            let _ = spare.session.close().await;
+        }
         let link = self.links.lock().await.remove(contact);
         if let Some(link) = link {
             let _ = link.session.close().await;
@@ -222,14 +297,38 @@ impl Network {
     }
 
     /// Opens a data channel with the contact, or returns `None` if it cannot be reached now.
-    async fn connect(&self, peer: &Peer, call: bool) -> Result<Option<Session>> {
+    ///
+    /// A contact that is not connected to the router (a closed app): a router from 0.4.0 keeps our
+    /// offer and wakes them, so the offer stays open for their answer until the router drops it,
+    /// and the connection is kept when it opens. Meanwhile no new offer is made. What may go to the
+    /// mailbox never waits for it (the message gets delivered first, §17); a call waits the usual
+    /// window each time, and what needs the connection waits the window of the offer's first send.
+    async fn connect(&self, peer: &Peer, reach: Reach) -> Result<Option<Session>> {
+        let call = reach == Reach::Call;
+        if let Some(retained) = self.retained_offer(&peer.device_id).await {
+            let limit = match reach {
+                Reach::Call => CONNECT_WAIT,
+                Reach::Direct => retained.window.saturating_duration_since(Instant::now()),
+                Reach::Fallback => Duration::ZERO,
+            };
+            return Ok(wait_open(&retained.session, limit).await.then_some(retained.session));
+        }
         let core = self.core()?;
-        let (signals, mut descriptions) = mpsc::channel(8);
-        let (session, inbox) = Session::start(self.session_config(), Role::Caller, signals).await?;
-        session.invite().await?;
-        let Some(Description::Sdp(sdp)) = descriptions.recv().await else {
-            bail!("no offer was produced");
+        let (session, inbox, sdp) = match self.take_spare(&peer.device_id).await {
+            Some(spare) => (spare.session, spare.inbox, spare.sdp),
+            None => {
+                let (signals, mut descriptions) = mpsc::channel(8);
+                let (session, inbox) = Session::start(self.session_config(), Role::Caller, signals).await?;
+                session.invite().await?;
+                let Some(Description::Sdp(sdp)) = descriptions.recv().await else {
+                    bail!("no offer was produced");
+                };
+                (session, inbox, sdp)
+            }
         };
+        if call {
+            core.mark_link_gathering(&session.gathering());
+        }
 
         let contact = core.store().contact(&peer.device_id).await?;
         let introduced = contact.as_ref().is_some_and(|contact| contact.introduced);
@@ -237,7 +336,7 @@ impl Network {
         let hidden = contact.as_ref().and_then(|contact| contact.session.clone());
         let card = if introduced { None } else { Some(core.my_card_in(hidden.as_deref()).await?.encode()) };
         let via = Some(peer.capability.hash().to_vec());
-        let sealed = core.seal_signal(&peer.device_id, Body::Offer { sdp, card, via }).await?;
+        let sealed = core.seal_signal(&peer.device_id, Body::Offer { sdp: sdp.clone(), card, via }).await?;
         let session_id = uuid_like();
         let signal = Signal {
             version: PROTOCOL_VERSION,
@@ -248,20 +347,37 @@ impl Network {
             sealed,
         };
 
+        if call {
+            core.mark_call_stage(CallStage::LinkOffered);
+        }
         self.pending.lock().await.insert(session_id.clone(), session.clone());
         // Through the router the signal goes in an envelope (A1): it names its sender to the
         // recipient alone.
         let wrapped = core.wrap_for(&peer.device_id, signal.encode()).await?;
-        let delivered = if call {
-            self.relay.signal_call(&peer.device_id, peer.capability.as_bytes(), wrapped).await
-        } else {
-            self.relay.signal(&peer.device_id, peer.capability.as_bytes(), wrapped).await
-        };
-        let opened = match delivered {
-            Ok(true) => tokio::time::timeout(CONNECT_WAIT, session.wait_open()).await.is_ok_and(|open| open.is_ok()),
+        let signalled = self.relay.signal_as(&peer.device_id, peer.capability.as_bytes(), wrapped, call).await;
+        if matches!(signalled, Ok(Signalled::Retained)) {
+            if call {
+                core.mark_call_stage(CallStage::LinkOfferRetained);
+            }
+            self.keep_retained(&peer.device_id, session_id, session.clone(), inbox, Instant::now()).await;
+            let limit = if reach == Reach::Fallback { Duration::ZERO } else { CONNECT_WAIT };
+            return Ok(wait_open(&session, limit).await.then_some(session));
+        }
+        let opened = match signalled {
+            Ok(Signalled::Delivered) => {
+                if call {
+                    core.mark_call_stage(CallStage::LinkOfferSent);
+                }
+                wait_open(&session, CONNECT_WAIT).await
+            }
             _ => false,
         };
         self.pending.lock().await.remove(&session_id);
+        if matches!(signalled, Ok(Signalled::NotConnected)) {
+            // Nobody got it: the next attempt goes with it instead of gathering again.
+            self.keep_spare(&peer.device_id, session, inbox, sdp).await;
+            return Ok(None);
+        }
 
         if opened {
             self.adopt(&peer.device_id, session.clone(), inbox).await;
@@ -270,6 +386,74 @@ impl Network {
             let _ = session.close().await;
             Ok(None)
         }
+    }
+
+    /// The offer a router before 0.4 lost for the contact, if still fresh.
+    async fn take_spare(&self, contact: &str) -> Option<Spare> {
+        let spare = self.spare.lock().await.remove(contact)?;
+        if spare.made.elapsed() < SPARE_FOR {
+            return Some(spare);
+        }
+        let _ = spare.session.close().await;
+        None
+    }
+
+    /// Keeps an offer nobody got for the contact's next attempt, for a while.
+    async fn keep_spare(&self, contact: &str, session: Session, inbox: Inbox, sdp: String) {
+        let id = self.next_link.fetch_add(1, Ordering::Relaxed);
+        let made = session.gathering().started.unwrap_or_else(Instant::now);
+        let older = self.spare.lock().await.insert(contact.to_owned(), Spare { id, session, inbox, sdp, made });
+        if let Some(older) = older {
+            let _ = older.session.close().await;
+        }
+        let network = self.this.get().cloned().unwrap_or_default();
+        let contact = contact.to_owned();
+        tokio::spawn(async move {
+            tokio::time::sleep(SPARE_FOR.saturating_sub(made.elapsed())).await;
+            let Some(network) = network.upgrade() else { return };
+            let stale = {
+                let mut spare = network.spare.lock().await;
+                if spare.get(&contact).is_some_and(|spare| spare.id == id) { spare.remove(&contact) } else { None }
+            };
+            if let Some(stale) = stale {
+                let _ = stale.session.close().await;
+            }
+        });
+    }
+
+    /// Our offer the router still keeps for the contact, if any.
+    async fn retained_offer(&self, contact: &str) -> Option<Retained> {
+        let retained = self.retained.lock().await;
+        retained.get(contact).filter(|retained| retained.until > Instant::now()).cloned()
+    }
+
+    /// Keeps a retained offer open until the router drops it (and a last answer has had time to
+    /// come): the contact may wake and answer it at any moment, and its connection is kept then.
+    async fn keep_retained(&self, contact: &str, id: String, session: Session, inbox: Inbox, signalled_at: Instant) {
+        let until = signalled_at + RETAINED_FOR;
+        let retained = Retained { id: id.clone(), session: session.clone(), window: signalled_at + CONNECT_WAIT, until };
+        self.retained.lock().await.insert(contact.to_owned(), retained);
+        let network = self.this.get().cloned().unwrap_or_default();
+        let contact = contact.to_owned();
+        tokio::spawn(async move {
+            let opened = wait_open(&session, (until + ANSWER_GRACE).saturating_duration_since(Instant::now())).await;
+            let Some(network) = network.upgrade() else {
+                let _ = session.close().await;
+                return;
+            };
+            network.pending.lock().await.remove(&id);
+            {
+                let mut retained = network.retained.lock().await;
+                if retained.get(&contact).is_some_and(|retained| retained.id == id) {
+                    retained.remove(&contact);
+                }
+            }
+            if opened {
+                network.adopt(&contact, session, inbox).await;
+            } else {
+                let _ = session.close().await;
+            }
+        });
     }
 
     async fn on_signal(&self, bytes: &[u8]) -> Result<()> {
@@ -283,11 +467,17 @@ impl Network {
             bail!("the signal is not from who it claims");
         }
         match (signal.kind, body) {
-            (SignalKind::Offer, Body::Offer { sdp, .. }) => self.answer(&core, &from, signal.session, sdp).await,
+            (SignalKind::Offer, Body::Offer { sdp, .. }) => {
+                core.mark_call_stage(CallStage::LinkOfferReceived);
+                self.answer(&core, &from, signal.session, sdp).await
+            }
             (SignalKind::Answer, Body::Answer { sdp }) => {
                 let pending = self.pending.lock().await.get(&signal.session).cloned();
                 match pending {
-                    Some(session) => session.handle_signal(Description::Sdp(sdp)).await,
+                    Some(session) => {
+                        core.mark_call_stage(CallStage::LinkAnswerReceived);
+                        session.handle_signal(Description::Sdp(sdp)).await
+                    }
                     None => Ok(()),
                 }
             }
@@ -302,6 +492,7 @@ impl Network {
         let Some(Description::Sdp(sdp)) = descriptions.recv().await else {
             bail!("no answer was produced");
         };
+        core.mark_link_gathering(&session.gathering());
         let sealed = core.seal_signal(from, Body::Answer { sdp }).await?;
         let peer = core.peer(from).await?;
         let signal = Signal {
@@ -314,6 +505,7 @@ impl Network {
         };
         let wrapped = core.wrap_for(from, signal.encode()).await?;
         self.relay.signal(from, peer.capability.as_bytes(), wrapped).await?;
+        core.mark_call_stage(CallStage::LinkAnswered);
 
         let network = self.this.get().and_then(Weak::upgrade).ok_or_else(|| anyhow!("the network is gone"))?;
         let contact = from.to_owned();
@@ -332,10 +524,15 @@ impl Network {
         let id = self.next_link.fetch_add(1, Ordering::Relaxed);
         self.links.lock().await.insert(contact.to_owned(), Link { id, session });
         self.announce(contact);
-        // File transfers stopped by the last connection go on over this one (§63).
+        if let Ok(core) = self.core() {
+            core.mark_call_stage(CallStage::LinkOpened);
+        }
+        // File transfers stopped by the last connection go on over this one (§63), and what
+        // waits for its receipt goes over it too, even if it is in the mailbox (2026-09-29).
         if let Ok(core) = self.core() {
             let from = contact.to_owned();
             tokio::spawn(async move {
+                let _ = core.retry_contact_now(&from).await;
                 let _ = core.resume_files_from(&from, RESUME_QUIET).await;
             });
         }
@@ -367,11 +564,28 @@ impl Transport for Network {
     }
 
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
-        self.send_direct_as(to, bytes, false).await
+        self.send_direct_as(to, bytes, Reach::Direct).await
+    }
+
+    async fn try_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct_as(to, bytes, Reach::Fallback).await
     }
 
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
-        self.send_direct_as(to, bytes, true).await
+        self.send_direct_as(to, bytes, Reach::Call).await
+    }
+
+    async fn open_direct_call(&self, to: &Peer) -> Result<bool> {
+        if self.open_link(&to.device_id).await.is_some() {
+            return Ok(true);
+        }
+        // A send that comes meanwhile waits here, and then finds the connection open.
+        let gate = self.gate(&to.device_id).await;
+        let _one_at_a_time = gate.lock().await;
+        if self.open_link(&to.device_id).await.is_some() {
+            return Ok(true);
+        }
+        Ok(self.connect(to, Reach::Call).await?.is_some())
     }
 
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()> {
@@ -384,26 +598,47 @@ impl Transport for Network {
 }
 
 impl Network {
-    /// Sends over the open link, or opens one first; `call` marks the signal that opens it as a
-    /// call's (2026-09-28), so an offline iPhone rings.
-    async fn send_direct_as(&self, to: &Peer, bytes: Vec<u8>, call: bool) -> Result<bool> {
+    /// Sends over the open link, or opens one first; a call's signal is marked as such
+    /// (2026-09-28), so an offline iPhone rings.
+    async fn send_direct_as(&self, to: &Peer, bytes: Vec<u8>, reach: Reach) -> Result<bool> {
         if let Some(session) = self.open_link(&to.device_id).await {
             if session.send_bytes(&bytes).await.is_ok() {
                 return Ok(true);
             }
         }
         let gate = self.gate(&to.device_id).await;
-        let _one_at_a_time = gate.lock().await;
+        let _one_at_a_time = if reach == Reach::Fallback {
+            // Behind a call waiting for a contact that is not connected, a message would wait too:
+            // once our offer is known to wait at the router, it goes to the mailbox instead.
+            loop {
+                if let Ok(guard) = tokio::time::timeout(GATE_LOOK, gate.clone().lock_owned()).await {
+                    break guard;
+                }
+                if self.open_link(&to.device_id).await.is_none() && self.retained_offer(&to.device_id).await.is_some() {
+                    return Ok(false);
+                }
+            }
+        } else {
+            gate.clone().lock_owned().await
+        };
         // Another send may have connected while this one waited.
         let session = match self.open_link(&to.device_id).await {
             Some(session) => session,
-            None => match self.connect(to, call).await? {
+            None => match self.connect(to, reach).await? {
                 Some(session) => session,
                 None => return Ok(false),
             },
         };
         Ok(session.send_bytes(&bytes).await.is_ok())
     }
+}
+
+/// Whether the session's channel opens within `limit` (at once if it is open).
+async fn wait_open(session: &Session, limit: Duration) -> bool {
+    if session.is_open() {
+        return true;
+    }
+    tokio::time::timeout(limit, session.wait_open()).await.is_ok_and(|open| open.is_ok())
 }
 
 /// The listening addresses of `base` with the router's STUN and TURN.
