@@ -11,6 +11,11 @@
 //! turning our own camera on or off (`set_call_camera`) and telling the other side with a
 //! `CallMedia` (a state with a growing `seq`, retried until it gets through), never a new offer.
 //! The camera is held while the app is away or the call screen does not show it.
+//!
+//! **Call setup time** (2026-09-29): while the call rings, its answer is prepared (connection,
+//! offer taken, candidates gathered) and made again every 15 s, sending nothing and checking
+//! nothing towards the caller; answering sends it at once. The caller opens the direct connection
+//! while its offer gathers. `timings.rs` measures each step (temporary diagnostics).
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
