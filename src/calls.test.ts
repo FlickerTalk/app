@@ -644,12 +644,67 @@ describe("native video", () => {
     await calls.startCalls();
   });
 
-  it("means the camera on for a video call until the core says otherwise", async () => {
+  /** The core's view of call-1, as `core_current_call` says it. */
+  const going = (phase: string, patch: Record<string, unknown> = {}) => {
+    current = { call: "call-1", contact: "ft_bob", video: snapshot(patch), outgoing: true, phase, native: true, muted: false };
+  };
+
+  // Found by QA on the emulators (2026-09-29): the camera was marked on in advance, and when it
+  // failed to start nothing ever corrected it. The camera is what the core says, not a guess.
+  it("shows the camera as the core has it once a video call is placed", async () => {
+    going("calling", { available: false, camera: true });
     await calls.startCall("ft_bob", true);
     expect(calls.call.view).toMatchObject({ available: false, camera: true, remote: false });
     event({ kind: "video", ...snapshot({ camera: true, paused: true }) });
     await flushPromises();
     expect(calls.call.view).toMatchObject({ available: true, camera: true, paused: true });
+  });
+
+  it("guesses nothing about the camera when the core does not say", async () => {
+    await calls.startCall("ft_bob", true);
+    expect(calls.call.view.camera).toBe(false);
+  });
+
+  // The core readies the video after it says the call connected, and says nothing when the
+  // camera fails to start there (an encoder that cannot be configured, on the emulator).
+  it("learns from the core that the camera did not start as the call connected", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    going("calling", { available: false, camera: true });
+    await calls.startCall("ft_bob", true);
+    event({ kind: "answered", sdp: "" });
+    going("active", { available: false, camera: true });
+    event({ kind: "connected" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.call.view.camera).toBe(true);
+    going("active", { available: true, camera: false });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls.call).toMatchObject({ phase: "active", cameraFailed: true });
+    expect(calls.call.view).toMatchObject({ available: true, camera: false });
+  });
+
+  it("learns that a voice call has a video line once it connects", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    going("calling", { available: false });
+    await calls.startCall("ft_bob", false);
+    event({ kind: "answered", sdp: "" });
+    going("active", { available: false });
+    event({ kind: "connected" });
+    await vi.advanceTimersByTimeAsync(0);
+    going("active", { available: true });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls.call.view.available).toBe(true);
+    expect(calls.call.cameraFailed).toBe(false);
+  });
+
+  it("says the camera did not start when the video never gets ready", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    going("calling", { available: false, camera: true });
+    await calls.startCall("ft_bob", true);
+    event({ kind: "answered", sdp: "" });
+    going("active", { available: false, camera: true });
+    event({ kind: "connected" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls.call).toMatchObject({ phase: "active", cameraFailed: true });
   });
 
   it("starts a voice call with the camera off", async () => {
@@ -708,6 +763,22 @@ describe("native video", () => {
     denied = false;
     await calls.toggleCamera();
     expect(calls.call).toMatchObject({ cameraDenied: false });
+    expect(calls.call.view.camera).toBe(true);
+  });
+
+  // Found by QA on the emulators (2026-09-29): any other camera error said nothing at all.
+  it("says so when the camera cannot start for another reason, and keeps the call", async () => {
+    await live();
+    tauri.invoke.mockImplementation((command: string, args?: Record<string, unknown>) =>
+      command === "core_call_set_video" && args?.on ? Promise.reject("the camera cannot start: configure failed") : answers(command, args),
+    );
+    await calls.toggleCamera();
+    expect(calls.call).toMatchObject({ phase: "active", cameraFailed: true, cameraDenied: false });
+    expect(calls.call.view.camera).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_end", expect.anything());
+    tauri.invoke.mockImplementation(answers);
+    await calls.toggleCamera();
+    expect(calls.call.cameraFailed).toBe(false);
     expect(calls.call.view.camera).toBe(true);
   });
 
@@ -788,6 +859,17 @@ describe("native video", () => {
     calls.hideVideo();
     await frame();
     expect(layouts()).toEqual([{ layout: null }]);
+  });
+
+  it("keeps asking the core about the video of a call it restores before its video is ready", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    current = { call: "c9", contact: "ft_bob", video: snapshot({ available: false }), outgoing: false, phase: "active", native: true, muted: false, connectedAt: 1 };
+    calls.reset();
+    await calls.startCalls();
+    expect(calls.call.view.available).toBe(false);
+    current = { ...current, video: snapshot() };
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls.call.view.available).toBe(true);
   });
 
   it("restores a native video call with both cameras", async () => {

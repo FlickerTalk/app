@@ -73,6 +73,8 @@ export interface CallState {
   view: CallVideo;
   /** The camera was asked for and not allowed: the call goes on as voice. */
   cameraDenied: boolean;
+  /** The camera was wanted and could not start (an encoder that cannot be set up, say): voice. */
+  cameraFailed: boolean;
 }
 
 export interface CallEntry {
@@ -118,6 +120,9 @@ export const CALL_EVENT = "ft://call";
 export const CALL_ACTION_EVENT = "ft://call-action";
 /** The caller gives up after this long without an answer. */
 export const RING_LIMIT = 45_000;
+/** How often, and how many times, the core is asked for the video it readies as the call connects. */
+const SETTLE_STEP = 250;
+const SETTLE_TRIES = 20;
 /** The longest wait for ICE candidates before the description goes anyway. */
 const GATHER_LIMIT = 3_000;
 
@@ -185,6 +190,7 @@ const idle = (): CallState => ({
   native: false,
   view: noVideo(),
   cameraDenied: false,
+  cameraFailed: false,
 });
 
 export const call = reactive<CallState>(idle());
@@ -193,6 +199,7 @@ export const history = reactive({ calls: [] as CallEntry[] });
 let peer: RTCPeerConnection | null = null;
 let offer = "";
 let ringTimer: ReturnType<typeof setTimeout> | undefined;
+let settleTimer: ReturnType<typeof setTimeout> | undefined;
 let listening = false;
 /** Whether this phone runs calls in the core (iOS and Android): voice and video alike. */
 let nativeCalls = false;
@@ -281,6 +288,7 @@ function release() {
   cancelAnimationFrame(layoutFrame);
   layoutFrame = 0;
   clearTimeout(ringTimer);
+  clearTimeout(settleTimer);
   media.ringback.stop();
   call.local?.getTracks().forEach((track) => track.stop());
   peer?.close();
@@ -308,9 +316,9 @@ export async function startCall(contact: string, video: boolean): Promise<void> 
   setNative(nativeCalls);
   try {
     if (nativeCall) {
-      // The core turns the camera on once the call connects.
-      call.view.camera = video;
+      // The core turns the camera on once the call connects; until then the camera is its wish.
       call.id = await startNativeCall(contact, video);
+      await followCore();
     } else {
       await startWebCall(contact, video);
     }
@@ -329,7 +337,7 @@ async function startNativeCall(contact: string, video: boolean): Promise<string>
     return await invoke<string>("core_call_start_native", { contact, routing, video });
   } catch (error) {
     if (!video || !cameraDenied(error)) throw error;
-    Object.assign(call, { cameraDenied: true, view: { ...call.view, camera: false } });
+    call.cameraDenied = true;
     return await invoke<string>("core_call_start_native", { contact, routing, video: false });
   }
 }
@@ -445,8 +453,12 @@ export async function toggleCamera(): Promise<void> {
   try {
     applyVideo(await invoke<CallVideo>("core_call_set_video", { call: call.id, on }));
     call.cameraDenied = false;
+    if (on) call.cameraFailed = false;
   } catch (error) {
     if (on && cameraDenied(error)) call.cameraDenied = true;
+    else if (on) call.cameraFailed = true;
+    // Whatever went wrong, the screen shows the camera as the core has it.
+    await followCore();
   }
 }
 
@@ -477,6 +489,37 @@ function applyVideo(update: Partial<CallVideo>) {
     call.speaker = true;
     void invoke("core_call_speaker", { on: true }).catch(() => undefined);
   }
+}
+
+/**
+ * The cameras as the core has them now (`core_current_call`), for what no event says. Returns
+ * them, or `null` when the core has no video for this call to say.
+ */
+async function followCore(): Promise<CallVideo | null> {
+  const id = call.id;
+  const current = await invoke<CurrentCall | null>("core_current_call").catch(() => null);
+  if (!current || current.call !== id || call.id !== id || typeof current.video !== "object" || !current.video) return null;
+  applyVideo(current.video);
+  return call.view;
+}
+
+/**
+ * Found by QA on the emulators (2026-09-29): as the call connects the core readies its video and
+ * turns a video call's camera on, but it says nothing when the video line comes up or when the
+ * camera fails to start. So the core is asked until the video is ready (or a few seconds pass);
+ * a camera it wanted and could not run is said on the screen, and the call goes on as voice.
+ */
+async function settleVideo(wanted = false, tries = SETTLE_TRIES): Promise<void> {
+  clearTimeout(settleTimer);
+  const view = await followCore();
+  if (!view || !busy()) return;
+  // Before the video is ready the core's camera is the wish.
+  const want = wanted || view.camera;
+  if (!view.available && tries > 1) {
+    settleTimer = setTimeout(() => void settleVideo(want, tries - 1), SETTLE_STEP);
+    return;
+  }
+  if (want && !call.cameraDenied && (!view.available || !view.camera)) call.cameraFailed = true;
 }
 
 /** A video's place on the screen, in CSS pixels. */
@@ -541,9 +584,11 @@ async function onEvent(event: CallEvent) {
   } else if (event.call === call.id && event.kind === "connected" && call.phase !== "active") {
     // Answered by CallKit, say, while the app only showed it ringing: the call is on now.
     goLive();
+    if (nativeCall) void settleVideo();
     await showCall();
   } else if (event.call === call.id && event.kind === "video" && nativeCall) {
     applyVideo(event);
+    if (call.view.camera) call.cameraFailed = false;
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
   } else if (event.call === call.id && event.kind === "ended") {
@@ -583,6 +628,8 @@ async function restoreCall(): Promise<void> {
   offer = current.offer ?? "";
   setNative(current.native);
   if (current.phase === "calling") giveUpUnanswered();
+  // Its video may still be getting ready, with no event to say when it is.
+  if (live && current.native) void settleVideo();
   // Without the call screen there is no way to hang up.
   if (live) await showCall();
 }
