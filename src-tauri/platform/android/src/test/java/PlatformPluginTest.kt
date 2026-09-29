@@ -162,6 +162,26 @@ class PlatformPluginTest {
         assertEquals("", callAction("do-something-else"))
     }
 
+    // Bug of 2026-09-29 (QA, emulators): with the app closed, "Answer" on the call notification
+    // opened the app, and the WebView read the answer before the offer had arrived and dropped it;
+    // the phone rang again. The notification's buttons now go to the core, as CallKit's do, through
+    // the call events channel, where they wait until the core listens: the core keeps an early
+    // answer (or decline) for the offer still on its way.
+    @Test
+    fun theNotificationsButtonsGoToTheCore() {
+        assertEquals(CallEvent.Answer, callTapEvent("answer"))
+        assertEquals(CallEvent.Decline, callTapEvent("decline"))
+        assertNull(callTapEvent(null))
+        assertNull(callTapEvent(""))
+        assertNull("the ongoing notification's camera goes its own way", callTapEvent("video"))
+        assertEquals(mapOf("event" to "decline"), callEventPayload(CallEvent.Decline))
+        val queue = CallEventQueue()
+        val heard = mutableListOf<CallEvent>()
+        queue.emit(CallEvent.Answer)
+        queue.register { heard.add(it) }
+        assertEquals(listOf<CallEvent>(CallEvent.Answer), heard)
+    }
+
     // The file picker of the WebView takes the user out of the app; ours copies what was picked
     // into the app's own folder and gives it a name we can show.
     @Test
