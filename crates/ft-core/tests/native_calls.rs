@@ -560,11 +560,36 @@ async fn with_servers_that_never_answer_the_direct_link_opens_while_the_offer_ga
     alice.network.disconnect(&bob.id()).await;
     let alice_id = alice.id();
     until("bob's connection is gone", || async { !bob.network.is_connected(&alice_id).await }).await;
-    timed_call(&alice, &bob, "unreachable servers, link closed").await;
+    let (ringing, _) = timed_call(&alice, &bob, "unreachable servers, link closed").await;
     let caller = alice.core.call_timings().expect("the caller's timings");
     let offered = caller.at(CallStage::LinkOffered).expect("the link was offered");
-    // The link's own gathering waits up to 3 s (ft-webrtc); ours must not come first.
-    assert!(offered < 3_500, "the link was offered {offered} ms after the call started: {}", caller.line());
+    // DataChannel setup time (2026-09-29): the link's gathering is capped as the media's is (a
+    // second here, where it waited the whole 3 s), on both sides.
+    assert!(offered < 1_500, "the link was offered {offered} ms after the call started: {}", caller.line());
+    assert!(ringing < Duration::from_millis(3_500), "it rang after {} ms", ringing.as_millis());
+}
+
+// DataChannel setup timings (2026-09-29, temporary diagnostics): each side times its direct
+// connection's steps, with the candidates its description carried, and says nothing about who.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_side_times_the_steps_of_the_direct_connection() {
+    let hole = blackhole();
+    let (alice, bob) = two_phones_behind(&hole).await;
+    alice.network.disconnect(&bob.id()).await;
+    let alice_id = alice.id();
+    until("bob's connection is gone", || async { !bob.network.is_connected(&alice_id).await }).await;
+    timed_call(&alice, &bob, "link stages").await;
+
+    let caller = alice.core.call_timings().expect("the caller's timings");
+    let callee = bob.core.call_timings().expect("the callee's timings");
+    in_order(&caller, &[CallStarted, LinkGatheringStarted, LinkGatheringDone, LinkOffered, LinkOfferSent, LinkAnswerReceived, LinkOpened, OfferSent]);
+    in_order(&callee, &[LinkOfferReceived, LinkGatheringStarted, LinkGatheringDone, LinkAnswered, LinkOpened, OfferReceived, Ringing]);
+    for (side, timings) in [("caller", &caller), ("callee", &callee)] {
+        let link = timings.link.unwrap_or_else(|| panic!("the {side}'s link candidates: {}", timings.line()));
+        assert!(link.host >= 1 && !link.complete, "the {side}'s link gathering was cut short: {}", timings.line());
+        let line = timings.line();
+        assert!(!line.contains("ft_") && !line.contains("127.0.0.1"), "{line}");
+    }
 }
 
 /// Alice calls Bob behind servers that never answer (gathering takes its whole second); returns

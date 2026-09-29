@@ -231,6 +231,9 @@ impl Network {
         let Some(Description::Sdp(sdp)) = descriptions.recv().await else {
             bail!("no offer was produced");
         };
+        if call {
+            core.mark_link_gathering(&session.gathering());
+        }
 
         let contact = core.store().contact(&peer.device_id).await?;
         let introduced = contact.as_ref().is_some_and(|contact| contact.introduced);
@@ -262,7 +265,12 @@ impl Network {
             self.relay.signal(&peer.device_id, peer.capability.as_bytes(), wrapped).await
         };
         let opened = match delivered {
-            Ok(true) => tokio::time::timeout(CONNECT_WAIT, session.wait_open()).await.is_ok_and(|open| open.is_ok()),
+            Ok(true) => {
+                if call {
+                    core.mark_call_stage(CallStage::LinkOfferSent);
+                }
+                tokio::time::timeout(CONNECT_WAIT, session.wait_open()).await.is_ok_and(|open| open.is_ok())
+            }
             _ => false,
         };
         self.pending.lock().await.remove(&session_id);
@@ -287,11 +295,17 @@ impl Network {
             bail!("the signal is not from who it claims");
         }
         match (signal.kind, body) {
-            (SignalKind::Offer, Body::Offer { sdp, .. }) => self.answer(&core, &from, signal.session, sdp).await,
+            (SignalKind::Offer, Body::Offer { sdp, .. }) => {
+                core.mark_call_stage(CallStage::LinkOfferReceived);
+                self.answer(&core, &from, signal.session, sdp).await
+            }
             (SignalKind::Answer, Body::Answer { sdp }) => {
                 let pending = self.pending.lock().await.get(&signal.session).cloned();
                 match pending {
-                    Some(session) => session.handle_signal(Description::Sdp(sdp)).await,
+                    Some(session) => {
+                        core.mark_call_stage(CallStage::LinkAnswerReceived);
+                        session.handle_signal(Description::Sdp(sdp)).await
+                    }
                     None => Ok(()),
                 }
             }
@@ -306,6 +320,7 @@ impl Network {
         let Some(Description::Sdp(sdp)) = descriptions.recv().await else {
             bail!("no answer was produced");
         };
+        core.mark_link_gathering(&session.gathering());
         let sealed = core.seal_signal(from, Body::Answer { sdp }).await?;
         let peer = core.peer(from).await?;
         let signal = Signal {

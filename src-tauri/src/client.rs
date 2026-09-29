@@ -3513,7 +3513,7 @@ mod tests {
     #[test]
     fn the_call_setup_timings_go_to_the_device_log_as_one_line() {
         use ft_core::timings::{CallStage, CallTimings};
-        let timings = CallTimings { stages: vec![(CallStage::AnswerTapped, 0), (CallStage::Connected, 700)], candidates: None };
+        let timings = CallTimings { stages: vec![(CallStage::AnswerTapped, 0), (CallStage::Connected, 700)], candidates: None, link: None };
         assert_eq!(timings_line(Some(timings)), "timings: answer tapped 0 ms, connected 700 ms");
         assert_eq!(timings_line(None), "timings: no call timings");
         assert_eq!(native_event_stage(NativeCallEvent::Incoming), Some(CallStage::PushReceived));
