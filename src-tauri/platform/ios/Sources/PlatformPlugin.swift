@@ -1,7 +1,6 @@
 import AVFAudio
 import AVFoundation
 import AuthenticationServices
-import OSLog
 import CallKit
 import Foundation
 import PushKit
@@ -382,35 +381,6 @@ func callProviderConfiguration(icon: Data?) -> CXProviderConfiguration {
     return configuration
 }
 
-// ---- Temporary call diagnostics (2026-09-28) ----
-// To find why a native call's voice is one-way on the iPhone. Only state names and port types go
-// to the log, never a name or an identifier. Read them with
-// `log stream --predicate 'subsystem == "com.flickertalk.calls"'` (or Console.app). To remove:
-// set `callDiagnostics` to false, or delete this block, `diagnose(...)` calls and the `diagnose`
-// command (Rust: `CALL_DIAGNOSTICS` in src-tauri/src/client.rs).
-let callDiagnostics = true
-private let callLog = Logger(subsystem: "com.flickertalk.calls", category: "diagnostics")
-
-func diagnose(_ state: String) {
-    guard callDiagnostics else { return }
-    callLog.notice("\(state, privacy: .public)")
-}
-
-/// The audio session by category, mode and port types: never a device's name.
-func audioSessionSummary(category: String, mode: String, outputs: [String], inputs: [String]) -> String {
-    "category=\(category) mode=\(mode) out=\(outputs.joined(separator: ",")) in=\(inputs.joined(separator: ","))"
-}
-
-func currentAudioSession() -> String {
-    let session = AVAudioSession.sharedInstance()
-    return audioSessionSummary(
-        category: session.category.rawValue,
-        mode: session.mode.rawValue,
-        outputs: session.currentRoute.outputs.map { $0.portType.rawValue },
-        inputs: session.currentRoute.inputs.map { $0.portType.rawValue }
-    )
-}
-
 /// The mark CallKit shows on the button of its screen that opens the app: an image set of the
 /// app's asset catalog (`gen/apple/Assets.xcassets`).
 let callKitIconName = "CallKitIcon"
@@ -471,11 +441,6 @@ struct SpeakerArgs: Decodable {
     let on: Bool
 }
 
-/// Arguments of `diagnose`: a state name, never a name or an identifier.
-struct DiagnoseArgs: Decodable {
-    let what: String
-}
-
 /// Arguments of `callStartedOutgoing`.
 struct OutgoingArgs: Decodable {
     let name: String
@@ -522,7 +487,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         provider.setDelegate(self, queue: .main)
         registry.delegate = self
         registry.desiredPushTypes = [.voIP]
-        if callDiagnostics { watchAudioSession() }
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             self?.interrupted(note)
         }
@@ -533,7 +497,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// (Signal's CallAudioService does the same).
     private func interrupted(_ note: Notification) {
         let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
-        diagnose("audio interruption " + (type == .began ? "began" : "ended"))
         guard type == .ended else { return }
         let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
         reactivated = false
@@ -542,7 +505,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
             guard let self else { return }
             let live = call != nil && self.current == call && (self.live || self.outgoing)
             guard restartAfterInterruption(shouldResume: options.contains(.shouldResume), reactivated: self.reactivated, callLive: live) else { return }
-            diagnose("audio restarted after an interruption")
             CallEvents.shared.emit(.audioDeactivated(self.sessionGeneration))
             CallEvents.shared.emit(.audioActivated(self.sessionGeneration))
         }
@@ -556,12 +518,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     }
 
     private func applySpeaker() {
-        do {
-            try AVAudioSession.sharedInstance().overrideOutputAudioPort(outputOverride(speaker: speaker))
-        } catch {
-            diagnose("audio output override refused")
-        }
-        diagnose("audio output speaker=\(speaker) " + currentAudioSession())
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(outputOverride(speaker: speaker))
     }
 
     /// The app's own answer button (2026-09-28): CallKit is asked to answer, so the audio session
@@ -569,29 +526,14 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// answers by itself.
     func requestAnswer() -> Bool {
         guard let call = current, answerThroughCallKit(callKitCall: true, answered: answered, outgoing: outgoing) else {
-            diagnose("app answer: no callkit call to answer, call there=\(current != nil) answered=\(answered)")
             return false
         }
-        diagnose("app answer: through callkit")
         controller.request(CXTransaction(action: CXAnswerCallAction(call: call))) { error in
             guard error != nil else { return }
             // CallKit refused: the core answers all the same, as before.
-            diagnose("callkit refused the answer")
             CallEvents.shared.emit(.answer)
         }
         return true
-    }
-
-    /// Temporary diagnostics: route changes and interruptions of the audio session.
-    private func watchAudioSession() {
-        let center = NotificationCenter.default
-        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { note in
-            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).map(String.init) ?? "?"
-            diagnose("audio route changed reason=\(reason) " + currentAudioSession())
-        }
-        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { _ in
-            diagnose("audio media services were reset")
-        }
     }
 
     /// Before every call is reported or started (see `callProviderConfiguration`).
@@ -617,7 +559,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
             answeredFor: answeredAt.map { now.timeIntervalSince($0) }
         )
         guard let reason = overdue else { return }
-        diagnose(reason == .failed ? "callkit call overdue: never connected" : "callkit call overdue: unanswered")
         finish()
         provider.reportCall(with: uuid, endedAt: nil, reason: reason)
         CallEvents.shared.emit(.end)
@@ -632,7 +573,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// Opening the app when an incoming call is answered (experiment, `OpenAppOnAnswer.swift`):
     /// from the next call on; the call ringing now keeps what CallKit was told.
     func setOpenAppOnAnswer(_ on: Bool) {
-        diagnose("core: open the app on answer=\(on)")
         openAppOnAnswer.on = on
     }
 
@@ -668,10 +608,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         watch(uuid, after: callRingLimit)
         configureProvider()
         let shown = update(caller: caller, video: video)
-        diagnose("callkit reports an incoming call hasVideo=\(shown.hasVideo)")
         provider.reportNewIncomingCall(with: uuid, update: shown) { [weak self] error in
-            if let error {
-                diagnose("callkit refused the incoming call code=\((error as NSError).code)")
+            if error != nil {
                 if self?.current == uuid { self?.current = nil }
             }
             done?()
@@ -682,10 +620,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     func ring(caller: String, video: Bool) {
         switch ringWith(callKitCall: current != nil) {
         case .report:
-            diagnose("core: rings, callkit call reported")
             report(caller: caller, video: video)
         case .update:
-            diagnose("core: rings, callkit call already there answered=\(answered)")
             if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
         }
     }
@@ -693,7 +629,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// The core is answering the call (2026-09-29): answered in CallKit, maybe before its offer came
     /// (PushKit reported it as "FlickerTalk"). CallKit only learns who it is; it never rings again.
     func answering(caller: String, video: Bool) {
-        diagnose("core: answering, callkit call there=\(current != nil) answered=\(answered)")
         guard let current else { return }
         provider.reportCall(with: current, updated: answeringUpdate(caller: caller, video: video, openAppOnAnswer: openAppOnAnswer.on))
     }
@@ -702,7 +637,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// with its audio session, until `ended`.
     func stop() {
         guard let call = current, stopEndsCall(answered: answered, outgoing: outgoing) else { return }
-        diagnose("core: ringing over, callkit call ends")
         finish()
         provider.reportCall(with: call, endedAt: nil, reason: .remoteEnded)
     }
@@ -714,7 +648,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         let uuid = UUID()
         begin(uuid, outgoing: true)
         configureProvider()
-        diagnose("callkit outgoing call starts")
         let shown = name.isEmpty ? "FlickerTalk" : name
         let action = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: shown))
         action.isVideo = video
@@ -733,7 +666,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// (in the app too, through `requestAnswer`) and is live already.
     func connected() {
         voiceConnected = true
-        diagnose("core: call connected " + currentAudioSession())
         switch connectWith(outgoing: outgoing) {
         case .reportConnected:
             live = true
@@ -747,13 +679,11 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// either camera on, so that unlocking the phone opens the app on the call.
     func setVideo(_ on: Bool) {
         guard let current else { return }
-        diagnose("core: call video=\(on)")
         provider.reportCall(with: current, updated: videoUpdate(on, outgoing: outgoing, openAppOnAnswer: openAppOnAnswer.on))
     }
 
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
     func ended() {
-        diagnose("core: call ended, callkit call there=\(current != nil)")
         guard let call = current else {
             finish()
             return
@@ -777,7 +707,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         // Every VoIP push rings, or iOS stops delivering them; ours are only ever calls. The core
         // reconnects to the router at once (after `report`, whose new call forgets older events):
         // its socket died with the suspended app, and the offer and the caller's end come by it.
-        diagnose("voip push, callkit call already there=\(current != nil)")
         if current != nil {
             CallEvents.shared.emit(.incoming)
             completion()
@@ -805,7 +734,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     // connects, `callOverdue` ends the call as failed.
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         configureCallAudio()
-        diagnose("callkit answer, the call going on=\(current == action.callUUID)")
         answeredAt = Date()
         watch(action.callUUID, after: callConnectLimit)
         answered = true
@@ -815,7 +743,6 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        diagnose("callkit end, the call going on=\(current == action.callUUID) answered=\(answered)")
         let event = endEvent(ours: current == action.callUUID, outgoing: outgoing, connected: voiceConnected)
         if current == action.callUUID { finish() }
         CallEvents.shared.emit(event)
@@ -833,12 +760,10 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         sessionGeneration = generation
         reactivated = true
         applySpeaker()
-        diagnose("audio activated generation=\(sessionGeneration) " + currentAudioSession())
         CallEvents.shared.emit(.audioActivated(sessionGeneration))
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        diagnose("audio deactivated generation=\(sessionGeneration)")
         CallEvents.shared.emit(.audioDeactivated(sessionGeneration))
     }
 }
@@ -1127,13 +1052,6 @@ class PlatformPlugin: Plugin {
             Calls.shared.setSpeaker(args.on)
             invoke.resolve()
         }
-    }
-
-    /// Temporary diagnostics (2026-09-28): a state name from the Rust core, to the device log.
-    @objc public func diagnose(_ invoke: Invoke) throws {
-        let args = try invoke.parseArgs(DiagnoseArgs.self)
-        tauri_plugin_ft_platform.diagnose("rust: " + args.what)
-        invoke.resolve()
     }
 
     @objc public func callEnded(_ invoke: Invoke) throws {

@@ -7,7 +7,6 @@ import android.app.Notification
 import android.app.Service
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
-import android.util.Log
 import android.view.WindowManager
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
@@ -332,13 +331,6 @@ fun showOverLockScreen(activity: Activity, on: Boolean) {
     }
 }
 
-/**
- * Temporary call diagnostics (2026-09-28): state names only, never a name or an identifier. Read
- * with `adb logcat -s FtCallDiag`. To remove: set this to false, or delete it with the `diagnose`
- * command (Rust: `CALL_DIAGNOSTICS` in src-tauri/src/client.rs).
- */
-const val CALL_DIAGNOSTICS = true
-
 /** The audio mode to go back to after a call: what it was, unless that was a call's mode too. */
 fun modeAfterCall(previous: Int?): Int = when (previous) {
     null, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> AudioManager.MODE_NORMAL
@@ -491,11 +483,7 @@ object CallEvents {
     private val sender = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     fun register(channel: Channel) = sender.execute {
-        queue.register {
-            val payload = callEventPayload(it)
-            if (CALL_DIAGNOSTICS) Log.i("FtCallDiag", "native event to the core: ${payload["event"]}")
-            channel.sendObject(payload)
-        }
+        queue.register { channel.sendObject(callEventPayload(it)) }
     }
 
     fun emit(event: CallEvent) = sender.execute { queue.emit(event) }
@@ -1025,11 +1013,6 @@ class SpeakerArgs {
 }
 
 @InvokeArg
-class DiagnoseArgs {
-    var what: String = ""
-}
-
-@InvokeArg
 class QuietHoursArgs {
     var week: String = ""
 }
@@ -1296,14 +1279,6 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun setSpeaker(invoke: Invoke) {
         val args = invoke.parseArgs(SpeakerArgs::class.java)
         activity.runOnUiThread { InCall.setSpeaker(activity, args.on) }
-        invoke.resolve()
-    }
-
-    /** Temporary call diagnostics (2026-09-28): a state name from the Rust core, to logcat. */
-    @Command
-    fun diagnose(invoke: Invoke) {
-        val args = invoke.parseArgs(DiagnoseArgs::class.java)
-        if (CALL_DIAGNOSTICS) Log.i("FtCallDiag", args.what)
         invoke.resolve()
     }
 
