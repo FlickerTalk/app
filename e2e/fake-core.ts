@@ -131,8 +131,6 @@ export function installFakeCore() {
         return [];
       case "core_card":
         return "https://flickertalk.com/add#card";
-      case "core_pending_call":
-        return "";
       // Native calls (2026-09-28, video since 2026-09-29): the fake is a browser, so calls stay on
       // the WebView unless a test plays a phone; no call is going on when the app starts.
       case "core_native_calls":

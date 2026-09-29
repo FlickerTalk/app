@@ -260,47 +260,17 @@ describe("calls", () => {
     expect(calls.history.calls.map((entry) => entry.id)).toEqual(["c9"]);
   });
 
-  // §66: the call notification has Answer and Decline; what the user pressed there reaches the
-  // app when it opens.
-  it("answers the call the user accepted on the notification", async () => {
+  // §66, bug of 2026-09-29: the call notification's Answer and Decline, and CallKit's, go to the
+  // core, which may not have the offer yet; the WebView never answers or declines by itself when
+  // it comes back to the screen (it used to read them, drop an answer that came before the offer,
+  // and ring again).
+  it("never answers or declines by itself when it comes back to the screen", async () => {
     incoming(false);
     await flushPromises();
-    tauri.invoke.mockImplementation((command: string) =>
-      Promise.resolve(
-        command === "core_pending_call" ? "answer" : command === "core_call_ice" ? servers : command === "core_calls" ? [] : undefined,
-      ),
-    );
-
-    navigation.push.mockClear();
-    await calls.applyCallNotification();
+    tauri.invoke.mockClear();
+    document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer", expect.objectContaining({ call: "call-1" }));
-    // Without the call screen there is no way to hang up.
-    expect(navigation.push).toHaveBeenCalledWith(`/call/${calls.call.contact}`);
-  });
-
-  it("ends the call the user declined on the notification", async () => {
-    incoming(false);
-    await flushPromises();
-    tauri.invoke.mockImplementation((command: string) =>
-      Promise.resolve(command === "core_pending_call" ? "decline" : command === "core_calls" ? [] : undefined),
-    );
-
-    await calls.applyCallNotification();
-    await flushPromises();
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_end", { call: "call-1", failed: false });
-    expect(calls.call.phase).toBe("ended");
-  });
-
-  it("does nothing when the notification was not pressed", async () => {
-    incoming(false);
-    await flushPromises();
-    tauri.invoke.mockImplementation((command: string) =>
-      Promise.resolve(command === "core_pending_call" ? "" : command === "core_calls" ? [] : undefined),
-    );
-
-    await calls.applyCallNotification();
-    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_answer", expect.anything());
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_end", expect.anything());
     expect(calls.call.phase).toBe("ringing");
   });
@@ -311,7 +281,6 @@ describe("calls", () => {
 // (docs/video-nativo.md): every call on a phone is native.
 describe("native calls", () => {
   let current: Record<string, unknown> | null;
-  let pending: string;
 
   function answers(command: string) {
     switch (command) {
@@ -321,8 +290,6 @@ describe("native calls", () => {
         return "call-1";
       case "core_current_call":
         return current;
-      case "core_pending_call":
-        return pending;
       case "core_call_ice":
         return servers;
       case "core_calls":
@@ -336,7 +303,6 @@ describe("native calls", () => {
 
   beforeEach(async () => {
     current = null;
-    pending = "";
     tauri.invoke.mockReset();
     tauri.invoke.mockImplementation((command: string) => Promise.resolve(answers(command)));
     calls.media.getUserMedia = vi.fn(async () => new FakeStream(false) as unknown as MediaStream);
@@ -370,42 +336,56 @@ describe("native calls", () => {
     expect(navigation.push).not.toHaveBeenCalled();
   });
 
-  // The same bug: CallKit's answer only reached the WebView when the app came back to the screen,
-  // and with the app already there the in-app ringing stayed up. The phone says so at once now.
-  it("follows at once an answer from CallKit with the app on the screen", async () => {
+  // Bug of 2026-09-29 (the iPhone, app on the screen): CallKit's banner answered the call, but for
+  // the seconds the answer took to build, the app kept ringing and asked again. The core says it
+  // is answering the moment it is: the ringing screen goes, wherever the app is, and the call
+  // screen opens. The core answers; the WebView does not answer again.
+  it("stops ringing and opens the call screen the moment the core is answering", async () => {
     event({ kind: "incoming", video: false, sdp: "their-offer" });
     await flushPromises();
-    pending = "answer";
-    tauri.handlers["ft://call-action"]({ payload: null });
+    navigation.currentRoute.value.path = "/tabs/settings";
+    event({ kind: "answering" });
     await flushPromises();
     expect(calls.call.phase).toBe("connecting");
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "call-1", routing: "auto" });
+    expect(calls.call.native).toBe(true);
     expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_answer_native", expect.anything());
+    event({ kind: "connected" });
+    await flushPromises();
+    expect(calls.call.phase).toBe("active");
   });
 
-  // CallKit's answer with the app on the screen used to wait until the app went away and came
-  // back, so a video call was never answered. It is the core's to answer now, as a voice call.
-  it("answers a video call that CallKit answered with the app on the screen", async () => {
-    event({ kind: "incoming", video: true, sdp: "their-offer" });
+  // Bug of 2026-09-29 (Android, app closed): answered on the notification before the offer came,
+  // the call rang again in the app when the offer arrived. The core says it answered it already.
+  it("never rings for a call answered before its offer came", async () => {
+    event({ kind: "incoming", video: true, sdp: "their-offer", answered: true });
     await flushPromises();
-    pending = "answer";
-    tauri.handlers["ft://call-action"]({ payload: null });
-    await flushPromises();
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "call-1", routing: "auto" });
+    expect(calls.call).toMatchObject({ id: "call-1", phase: "connecting", video: true, native: true });
+    expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_answer_native", expect.anything());
     expect(calls.media.createPeer).not.toHaveBeenCalled();
   });
 
-  // A "decline" is for a call that rings: one left behind by an earlier call, or CallKit's end of
-  // a call the core already hangs up, must never hang up the call going on.
-  it("never hangs up a call going on for a decline", async () => {
+  // Coming back to the screen, the app follows what the core did meanwhile.
+  it("follows an answer the core took while the app was away", async () => {
+    event({ kind: "incoming", video: false, sdp: "their-offer" });
+    await flushPromises();
+    current = { call: "call-1", contact: "ft_bob", video: false, outgoing: false, phase: "connecting", native: true, muted: false };
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(calls.call.phase).toBe("connecting");
+    expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_answer_native", expect.anything());
+  });
+
+  // Only a ringing call is answered: an old event never changes a call going on.
+  it("ignores an answer for a call that no longer rings", async () => {
     event({ kind: "incoming", video: false, sdp: "their-offer" });
     await calls.acceptCall();
     event({ kind: "connected" });
     await flushPromises();
-    pending = "decline";
-    await calls.applyCallNotification();
+    event({ kind: "answering" });
     await flushPromises();
-    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_end", expect.anything());
     expect(calls.call.phase).toBe("active");
   });
 
@@ -515,15 +495,15 @@ describe("native calls", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_set_call_routing", { routing: "auto" });
   });
 
-  // The core heard the call before this WebView was there (PushKit woke the app).
-  it("restores a call that rang before the WebView was there and answers it from the notification", async () => {
-    current = { call: "c7", contact: "ft_bob", video: false, outgoing: false, phase: "ringing", offer: "their-offer", native: false, muted: false };
-    pending = "answer";
+  // The core heard the call before this WebView was there (PushKit or FCM woke the app), and the
+  // user answered it on the notification or in CallKit: the core is answering it.
+  it("restores a call the core is answering as connecting, without answering it again", async () => {
+    current = { call: "c7", contact: "ft_bob", video: false, outgoing: false, phase: "connecting", native: true, muted: false };
     calls.reset();
     await calls.startCalls();
     await flushPromises();
-    expect(calls.call).toMatchObject({ id: "c7", contact: "ft_bob", outgoing: false, video: false });
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "c7", routing: "auto" });
+    expect(calls.call).toMatchObject({ id: "c7", contact: "ft_bob", outgoing: false, video: false, phase: "connecting" });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_answer_native", expect.anything());
     expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
   });
 
@@ -540,7 +520,6 @@ describe("native calls", () => {
   // CallKit answered on the locked iPhone; the app opens during the call.
   it("shows a call CallKit already answered", async () => {
     current = { call: "c9", contact: "ft_bob", video: false, outgoing: false, phase: "active", native: true, muted: true, connectedAt: 1234 };
-    pending = "answer";
     calls.reset();
     await calls.startCalls();
     await flushPromises();
@@ -597,8 +576,6 @@ describe("native video", () => {
         return Promise.resolve("call-1");
       case "core_current_call":
         return Promise.resolve(current);
-      case "core_pending_call":
-        return Promise.resolve("");
       case "core_calls":
         return Promise.resolve([]);
       case "core_call_set_video":
