@@ -129,3 +129,65 @@ test("going back from the call screen keeps the call and shows the call bar", as
   await app.getByRole("button", { name: "Back to the call" }).click();
   await expect(app.locator(".ft-call__state")).toHaveText(/^00:\d\d$/);
 });
+
+// One way to answer (2026-09-29, fix-bridge): whoever answers (the app's button, CallKit, the
+// Android notification), the core answers, and the WebView only shows what the core says:
+// `answering`, then `connected`. The fake plays the other phone ringing this one.
+type Ringing = { video?: boolean; answered?: boolean };
+
+async function ring(page: Page, how: Ringing = {}) {
+  await page.evaluate((ringing) => (window as unknown as { __ftFake: { ring: (how: Ringing) => void } }).__ftFake.ring(ringing), how);
+}
+
+async function nativePhone(page: Page) {
+  await page.addInitScript(() => {
+    (window as unknown as { __ftFakeNative: boolean }).__ftFakeNative = true;
+  });
+  await page.goto("/tabs/chats");
+  // Whether the ringing screen ever showed, however briefly.
+  await page.evaluate(() => {
+    const seen = window as unknown as { __ftSawRinging: boolean };
+    seen.__ftSawRinging = false;
+    new MutationObserver(() => {
+      if (document.querySelector('[data-test="incoming"]')) seen.__ftSawRinging = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+const sawRinging = (page: Page) => page.evaluate(() => (window as unknown as { __ftSawRinging: boolean }).__ftSawRinging);
+const answersSent = async (page: Page) => (await callsTo(page)).filter(([command]) => command === "core_call_answer_native").length;
+
+test("an incoming call answered in the app is answered by the core and goes live", async ({ app }) => {
+  await nativePhone(app);
+  await ring(app);
+  await expect(app.getByTestId("incoming")).toBeVisible();
+  await app.getByRole("button", { name: "Answer", exact: true }).click();
+  await expect(app.getByTestId("incoming")).toHaveCount(0);
+  await expect(app.locator(".ft-call__state")).toHaveText(/^00:0\d$/);
+  expect(await answersSent(app)).toBe(1);
+});
+
+// The phone's own call screen (CallKit, the notification) answered while the app rang: the core
+// says `answering`, and the app stops ringing and shows the call; it answers nothing itself.
+test("the phone's own call screen answers while the app rings, and the app follows the core", async ({ app }) => {
+  await nativePhone(app);
+  await ring(app);
+  await expect(app.getByTestId("incoming")).toBeVisible();
+  await app.evaluate(() => (window as unknown as { __ftFake: { phoneAnswers: () => void } }).__ftFake.phoneAnswers());
+  // At once, not when it connects: the call screen, connecting.
+  await expect(app.locator(".ft-call__state")).toHaveText("Connecting…");
+  await expect(app.getByTestId("incoming")).toHaveCount(0);
+  await expect(app.locator(".ft-call__state")).toHaveText(/^00:0\d$/);
+  expect(await answersSent(app)).toBe(0);
+});
+
+// The order seen on the Lenovo tablet (2026-09-29, app closed): "Answer" on the notification came
+// before the offer. The core answers the offer as it arrives and says so (`answered`): the app
+// never rings and never asks for a second answer.
+test("a call answered before its offer came never rings in the app", async ({ app }) => {
+  await nativePhone(app);
+  await ring(app, { answered: true });
+  await expect(app.locator(".ft-call__state")).toHaveText(/^00:0\d$/);
+  expect(await sawRinging(app)).toBe(false);
+  expect(await answersSent(app)).toBe(0);
+});

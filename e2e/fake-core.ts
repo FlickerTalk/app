@@ -12,6 +12,11 @@
  * encoder that cannot be set up), as the real core does: with a `camera_failed` event when a
  * video call connects, with an error when it is turned on.
  *
+ * The other phone may ring this one too (`window.__ftFake.ring`): as the real core since
+ * 2026-09-29, whoever answers (the app's button, `core_call_answer_native`, or the phone's own call
+ * screen, `window.__ftFake.phoneAnswers`), the core answers and says `answering`, then
+ * `connected`; a call answered before its offer came arrives as `incoming` with `answered`.
+ *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
 export function installFakeCore() {
@@ -92,6 +97,7 @@ export function installFakeCore() {
     nativeContact: "",
     // The native call's phase, for `core_current_call`; "" when there is none.
     nativePhase: "",
+    nativeOutgoing: true,
     connectedAt: 0,
     video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
   };
@@ -146,7 +152,7 @@ export function installFakeCore() {
               call: NATIVE_CALL,
               contact: state.nativeContact,
               video: { ...state.video },
-              outgoing: true,
+              outgoing: state.nativeOutgoing,
               phase: state.nativePhase,
               native: true,
               muted: false,
@@ -160,6 +166,7 @@ export function installFakeCore() {
         // turned on, or `camera_failed` when it could not start.
         state.nativeContact = String(a.contact);
         state.nativePhase = "calling";
+        state.nativeOutgoing = true;
         const wanted = Boolean(args?.video);
         Object.assign(state.video, { available: false, camera: wanted, paused: false, facing: "front", remote: false, remotePaused: false });
         setTimeout(() => {
@@ -199,8 +206,11 @@ export function installFakeCore() {
           setTimeout(() => callEvent({ kind: "ended", outcome: "answered" }), 5);
         }
         return undefined;
-      case "core_set_call_routing":
       case "core_call_answer_native":
+        // The app's own answer button: the core answers, as for the phone's own call screen.
+        if (a.call === NATIVE_CALL) answerIncoming();
+        return undefined;
+      case "core_set_call_routing":
       case "core_call_video_layout":
       case "core_call_mute":
       case "core_call_speaker":
@@ -340,10 +350,47 @@ export function installFakeCore() {
     }
   };
 
+  /**
+   * The incoming call connects, with a video line both ways and both cameras off. Building an
+   * answer takes the real core seconds (ICE): the fake takes long enough for any screen shown
+   * meanwhile to be seen.
+   */
+  const connectIncoming = () => {
+    setTimeout(() => {
+      state.nativePhase = "active";
+      state.connectedAt = Date.now();
+      callEvent({ kind: "connected" });
+    }, 300);
+    setTimeout(() => {
+      state.video.available = true;
+      callEvent({ kind: "video", ...state.video });
+    }, 310);
+  };
+
+  /** The core answers the ringing call, whoever asked: `answering` at once, then it connects. */
+  const answerIncoming = () => {
+    if (state.nativePhase !== "ringing") return;
+    state.nativePhase = "connecting";
+    setTimeout(() => callEvent({ kind: "answering" }), 1);
+    connectIncoming();
+  };
+
+  /** The other phone calls this one; `answered`: this phone's own screen answered before the offer. */
+  const ring = ({ video = false, answered = false }: { video?: boolean; answered?: boolean } = {}) => {
+    state.nativeContact = "ft_bob123456789";
+    state.nativeOutgoing = false;
+    state.nativePhase = answered ? "connecting" : "ringing";
+    Object.assign(state.video, { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false });
+    callEvent({ kind: "incoming", video, sdp: "their-offer", ...(answered ? { answered: true } : {}) });
+    if (answered) connectIncoming();
+  };
+
   const fake = {
     calls,
     state,
     emit,
+    ring,
+    phoneAnswers: answerIncoming,
     invoke: (command: string, args?: Args) => {
       calls.push([command, args]);
       try {
