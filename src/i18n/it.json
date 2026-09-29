@@ -293,8 +293,10 @@
     "young": "Gratis · meno di 21 anni",
     "subscribed": "Pagato · fino al {until}",
     "limited": "L'anno gratuito è terminato",
-    "hint": "FlickerTalk costa 1 € all'anno, ed è gratis se hai meno di 21 anni. Il primo anno dall'installazione è gratis per tutti. Senza, puoi comunque ricevere e rispondere; per avviare una nuova conversazione, chiamare e inviare file serve l'euro.",
-    "pay": "1 € all'anno",
+    "hint": "FlickerTalk costa {price} all'anno, ed è gratis se hai meno di 21 anni. Il primo anno dall'installazione è gratis per tutti. Senza, puoi comunque ricevere e rispondere; per avviare una nuova conversazione, chiamare e inviare file serve l'abbonamento.",
+    "hintYearly": "FlickerTalk è un abbonamento annuale, ed è gratis se hai meno di 21 anni. Il primo anno dall'installazione è gratis per tutti. Senza, puoi comunque ricevere e rispondere; per avviare una nuova conversazione, chiamare e inviare file serve l'abbonamento.",
+    "pay": "{price} all'anno",
+    "payYearly": "Abbonamento annuale",
     "iAmYoung": "Ho meno di 21 anni",
     "iAmOlder": "Ho 21 anni o più",
     "trouble": {

@@ -167,7 +167,7 @@ describe("SettingsPage", () => {
     expect(push).toHaveBeenCalledWith("/plugins");
   });
 
-  // §40: the plan is a screen of its own, where the euro is asked for and the age is said.
+  // §40: the plan is a screen of its own, where the subscription is asked for and the age is said.
   it("opens the plan", async () => {
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();

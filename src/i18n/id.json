@@ -293,8 +293,10 @@
     "young": "Gratis · di bawah 21 tahun",
     "subscribed": "Berbayar · sampai {until}",
     "limited": "Tahun gratis sudah berakhir",
-    "hint": "FlickerTalk seharga €1 per tahun, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan euro tersebut.",
-    "pay": "€1 per tahun",
+    "hint": "FlickerTalk seharga {price} per tahun, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan langganan.",
+    "hintYearly": "FlickerTalk adalah langganan tahunan, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan langganan.",
+    "pay": "{price} per tahun",
+    "payYearly": "Langganan tahunan",
     "iAmYoung": "Usia saya di bawah 21 tahun",
     "iAmOlder": "Usia saya 21 tahun atau lebih",
     "trouble": {
