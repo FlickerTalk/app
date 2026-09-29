@@ -3453,6 +3453,23 @@ mod tests {
         }
     }
 
+    // The layout as the WebView sends it to `core_call_video_layout` (`src/calls.ts`,
+    // `VideoLayout`): CSS pixels, a picture it does not show as `null`, and `null` for the whole
+    // layout when it leaves the call screen.
+    #[test]
+    fn the_webview_s_layout_is_read_as_it_sends_it() {
+        let sent = serde_json::json!({
+            "remote": { "x": 0, "y": 0, "width": 390, "height": 844 },
+            "local": { "x": 278, "y": 594, "width": 96, "height": 140 },
+            "mirrorLocal": true,
+            "localRadius": 16
+        });
+        assert_eq!(serde_json::from_value::<Option<VideoLayout>>(sent).unwrap(), Some(laid_out()));
+        let voice = serde_json::json!({ "remote": null, "local": null, "mirrorLocal": false, "localRadius": 0 });
+        assert_eq!(serde_json::from_value::<Option<VideoLayout>>(voice).unwrap(), Some(HIDDEN));
+        assert_eq!(serde_json::from_value::<Option<VideoLayout>>(serde_json::Value::Null).unwrap(), None, "left the call screen");
+    }
+
     const LAYERS: Layers = Layers { remote: 0x10, local: 0x20 };
 
     // Native video (docs/video-nativo.md §4): the bridge hears when the call has video (CallKit's
