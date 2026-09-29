@@ -1,5 +1,10 @@
-//! A voice call's peer connection: one audio track, Opus only, descriptions sent whole with their
-//! ICE candidates (no trickle), as the WebView's calls and the core's data channels do.
+//! A call's peer connection: an audio track (Opus) and a video track (H.264), descriptions sent
+//! whole with their ICE candidates (no trickle), as the WebView's calls and the core's data
+//! channels do.
+//!
+//! Every call negotiates both lines from the start, voice or video (native video, 2026-09-29;
+//! `docs/video-nativo.md`): the video line costs nothing while no camera is on, and turning one on
+//! never needs a new offer.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -12,6 +17,7 @@ use webrtc::peer_connection::{
     RTCSessionDescription,
 };
 use webrtc_engine::rtp::{add_audio_track, peer_connection_builder, AudioSender};
+use webrtc_engine::video::rtp::{add_video_track, h264_payload_type, VideoSender};
 
 use crate::{ice_setup, MediaConfig};
 
@@ -31,6 +37,8 @@ struct Events {
     gathered: watch::Sender<bool>,
     state: Arc<watch::Sender<LinkState>>,
     track: PendingTrack,
+    video: PendingTrack,
+    video_arrived: watch::Sender<bool>,
 }
 
 #[async_trait::async_trait]
@@ -52,21 +60,30 @@ impl PeerConnectionEventHandler for Events {
         let _ = self.state.send(state);
     }
 
+    // webrtc-rs hands each remote track over with its first packet.
     async fn on_track(&self, track: Arc<dyn TrackRemote>) {
-        if track.kind().await != RtpCodecKind::Audio {
-            return;
-        }
-        let pending = self.track.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let pending = match track.kind().await {
+            RtpCodecKind::Audio => &self.track,
+            RtpCodecKind::Video => {
+                let _ = self.video_arrived.send(true);
+                &self.video
+            }
+            _ => return,
+        };
+        let pending = pending.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(pending) = pending {
             let _ = pending.send(track);
         }
     }
 }
 
-/// One side of a voice call's connection.
+/// One side of a call's connection.
 pub struct MediaSession {
     connection: Arc<dyn PeerConnection>,
     sender: Arc<AudioSender>,
+    video: Arc<VideoSender>,
+    remote_video: Mutex<Option<oneshot::Receiver<Arc<dyn TrackRemote>>>>,
+    video_arrived: watch::Receiver<bool>,
     gathered: watch::Receiver<bool>,
     state: watch::Receiver<LinkState>,
     /// Closing says so itself: webrtc-rs does not report its own close.
@@ -76,14 +93,22 @@ pub struct MediaSession {
 }
 
 impl MediaSession {
-    /// A connection with our audio track, ready to offer or to answer.
+    /// A connection with our audio and video tracks, ready to offer or to answer.
     pub async fn open(config: &MediaConfig) -> Result<Self> {
         let (servers, policy) = ice_setup(config);
         let (gathered_tx, gathered) = watch::channel(false);
         let (state_tx, state) = watch::channel(LinkState::Connecting);
         let state_tx = Arc::new(state_tx);
         let (track_tx, track) = oneshot::channel();
-        let events = Events { gathered: gathered_tx, state: state_tx.clone(), track: Mutex::new(Some(track_tx)) };
+        let (video_tx, remote_video) = oneshot::channel();
+        let (video_arrived_tx, video_arrived) = watch::channel(false);
+        let events = Events {
+            gathered: gathered_tx,
+            state: state_tx.clone(),
+            track: Mutex::new(Some(track_tx)),
+            video: Mutex::new(Some(video_tx)),
+            video_arrived: video_arrived_tx,
+        };
         let connection: Arc<dyn PeerConnection> = Arc::new(
             peer_connection_builder()?
                 .with_configuration(
@@ -94,16 +119,25 @@ impl MediaSession {
                 .build()
                 .await?,
         );
-        let sender = match add_audio_track(connection.as_ref()).await {
-            Ok(sender) => sender,
+        // Audio first: the offer's lines follow the order the tracks were added in.
+        let tracks = async {
+            let audio = add_audio_track(connection.as_ref()).await?;
+            let video = add_video_track(connection.as_ref()).await?;
+            anyhow::Ok((audio, video))
+        };
+        let (sender, video) = match tracks.await {
+            Ok(tracks) => tracks,
             Err(error) => {
                 let _ = connection.close().await;
-                return Err(error.into());
+                return Err(error);
             }
         };
         Ok(Self {
             connection,
             sender: Arc::new(sender),
+            video: Arc::new(video),
+            remote_video: Mutex::new(Some(remote_video)),
+            video_arrived,
             gathered,
             state,
             closed: state_tx,
@@ -119,8 +153,8 @@ impl MediaSession {
         self.gathered_description().await
     }
 
-    /// Our answer to `offer`, once gathered. Only the audio is answered: a video line is refused,
-    /// so a WebView's video offer gets a voice call.
+    /// Our answer to `offer`, once gathered: the lines the offer has, audio and, if there is one,
+    /// video (H.264), both ways.
     pub async fn answer(&self, offer: &str) -> Result<String> {
         let offer = RTCSessionDescription::offer(offer.to_owned()).context("invalid offer")?;
         self.connection.set_remote_description(offer).await?;
@@ -163,10 +197,63 @@ impl MediaSession {
         self.remote.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 
+    /// Our video goes out here.
+    pub fn video_sender(&self) -> Arc<VideoSender> {
+        self.video.clone()
+    }
+
+    /// The other side's video track, handed over when its first packet arrives. Only once.
+    pub fn take_remote_video(&self) -> Option<oneshot::Receiver<Arc<dyn TrackRemote>>> {
+        self.remote_video.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+
+    /// Turns `true` when the other side's first video packet arrives.
+    pub fn remote_video_arrived(&self) -> watch::Receiver<bool> {
+        self.video_arrived.clone()
+    }
+
+    /// The connection itself, for what the call's video reads of it.
+    pub(crate) fn connection(&self) -> Arc<dyn PeerConnection> {
+        self.connection.clone()
+    }
+
+    /// Whether the call's video line was negotiated both ways: open, sending and receiving on
+    /// each side, with H.264 we can send. Never with an older app's voice call (no video line).
+    pub async fn video_both_ways(&self) -> bool {
+        video_both_ways(self.connection.as_ref(), &self.video).await
+    }
+
     pub async fn close(&self) {
         let _ = self.connection.close().await;
         let _ = self.closed.send(LinkState::Closed);
     }
+}
+
+/// Whether the video line negotiated on `connection` goes both ways (see
+/// [`MediaSession::video_both_ways`]).
+pub(crate) async fn video_both_ways(connection: &dyn PeerConnection, video: &VideoSender) -> bool {
+    let (Some(local), Some(remote)) = (connection.local_description().await, connection.remote_description().await)
+    else {
+        return false;
+    };
+    if !video_line_both_ways(&local.sdp) || !video_line_both_ways(&remote.sdp) {
+        return false;
+    }
+    let Ok(parameters) = video.rtp_sender().get_parameters().await else { return false };
+    h264_payload_type(&parameters.rtp_parameters.codecs).is_some()
+}
+
+/// Whether the first video line of `sdp` is open (a port other than 0) and neither sends nor
+/// receives only: `sendrecv`, said or by default.
+fn video_line_both_ways(sdp: &str) -> bool {
+    let mut lines = sdp.lines().skip_while(|line| !line.starts_with("m=video "));
+    let Some(media) = lines.next() else { return false };
+    if media.split(' ').nth(1) == Some("0") {
+        return false;
+    }
+    !lines
+        .take_while(|line| !line.starts_with("m="))
+        .any(|line| matches!(line.trim_end(), "a=sendonly" | "a=recvonly" | "a=inactive"))
 }
 
 #[cfg(test)]
@@ -218,22 +305,97 @@ mod tests {
         callee.close().await;
     }
 
-    // Interop: an older app's WebView may offer video; the native side answers the voice only.
+    fn section<'a>(sections: &'a [String], kind: &str) -> Option<&'a String> {
+        sections.iter().find(|section| section.starts_with(&format!("m={kind} ")))
+    }
+
+    // Every native call negotiates video from the start (docs/video-nativo.md, decision 1): Opus
+    // and H.264 Constrained Baseline in packetization mode 1, with the orientation extension, both
+    // ways, so turning a camera on never needs a new offer.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_webview_offer_with_video_is_answered_with_audio_only() {
+    async fn the_offer_carries_opus_and_h264_video_both_ways() {
+        let caller = MediaSession::open(&MediaConfig::default()).await.expect("caller");
+        let offer = caller.offer().await.expect("offer");
+        let sections = sections(&offer);
+
+        let audio = section(&sections, "audio").expect("an audio line");
+        assert!(audio.contains("a=rtpmap:111 opus/48000/2"), "{offer}");
+        assert!(audio.contains("a=sendrecv"), "{offer}");
+
+        let video = section(&sections, "video").expect("a video line");
+        assert!(!video.starts_with("m=video 0 "), "{offer}");
+        assert!(video.contains("H264/90000"), "{offer}");
+        assert!(video.contains("profile-level-id=42e01f"), "{offer}");
+        assert!(video.contains("packetization-mode=1"), "{offer}");
+        assert!(video.contains("urn:3gpp:video-orientation"), "{offer}");
+        assert!(video.contains("a=sendrecv"), "{offer}");
+        assert!(!offer.contains("VP8"), "{offer}");
+        caller.close().await;
+    }
+
+    // Interop: an older app's WebView offers video with H.264 among its codecs; the native side
+    // answers audio and video, both ways, with the WebView's own payload type.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_webview_video_offer_is_answered_with_audio_and_video() {
         let callee = MediaSession::open(&MediaConfig::default()).await.expect("callee");
         let answer = callee.answer(&crate::testing::webview_video_offer()).await.expect("answer");
         let sections = sections(&answer);
 
-        let audio = sections.iter().find(|section| section.starts_with("m=audio")).expect("an audio line");
+        let audio = section(&sections, "audio").expect("an audio line");
         assert!(!audio.starts_with("m=audio 0 "), "{answer}");
         assert!(audio.contains("a=rtpmap:111 opus/48000/2"), "{answer}");
         assert!(audio.contains("a=sendrecv"), "{answer}");
 
-        // A refused line (port 0) or an inactive one: either way no video flows.
-        for video in sections.iter().filter(|section| section.starts_with("m=video")) {
-            assert!(video.starts_with("m=video 0 ") || video.contains("a=inactive"), "video is not refused:\n{answer}");
-        }
+        let video = section(&sections, "video").expect("a video line");
+        assert!(!video.starts_with("m=video 0 "), "video is refused:\n{answer}");
+        assert!(video.contains("a=rtpmap:106 H264/90000"), "{answer}");
+        assert!(video.contains("profile-level-id=42e01f"), "{answer}");
+        assert!(video.contains("a=sendrecv"), "{answer}");
+        assert!(callee.video_both_ways().await, "video goes both ways");
         callee.close().await;
+    }
+
+    // Interop: an older app's WebView offers a voice call with no video line. The native side's
+    // video track must not spoil the answer: audio only, and no video either way.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_webview_voice_offer_is_answered_with_audio_only() {
+        let callee = MediaSession::open(&MediaConfig::default()).await.expect("callee");
+        let answer = callee.answer(&crate::testing::webview_voice_offer()).await.expect("answer");
+        let sections = sections(&answer);
+
+        let audio = section(&sections, "audio").expect("an audio line");
+        assert!(!audio.starts_with("m=audio 0 "), "{answer}");
+        assert!(audio.contains("a=rtpmap:111 opus/48000/2"), "{answer}");
+        assert!(audio.contains("a=sendrecv"), "{answer}");
+        assert!(section(&sections, "video").is_none(), "{answer}");
+        assert!(!callee.video_both_ways().await, "no video line, no video");
+        callee.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn two_native_sessions_have_video_both_ways_once_negotiated() {
+        let caller = MediaSession::open(&MediaConfig::default()).await.expect("caller");
+        let callee = MediaSession::open(&MediaConfig::default()).await.expect("callee");
+        assert!(!caller.video_both_ways().await, "nothing is negotiated yet");
+        let offer = caller.offer().await.expect("offer");
+        let answer = callee.answer(&offer).await.expect("answer");
+        caller.accept(&answer).await.expect("accepted");
+        assert!(caller.video_both_ways().await);
+        assert!(callee.video_both_ways().await);
+        caller.close().await;
+        callee.close().await;
+    }
+
+    // The direction of a description's video line, as the answer or the offer says it.
+    #[test]
+    fn a_video_line_goes_both_ways_only_when_open_and_sendrecv() {
+        let sdp = |video: &str| format!("v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n{video}");
+        assert!(video_line_both_ways(&sdp("m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=sendrecv\r\n")));
+        assert!(video_line_both_ways(&sdp("m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=mid:1\r\n")), "sendrecv is the default");
+        assert!(!video_line_both_ways(&sdp("m=video 0 UDP/TLS/RTP/SAVPF 102\r\na=sendrecv\r\n")), "refused");
+        assert!(!video_line_both_ways(&sdp("m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=recvonly\r\n")));
+        assert!(!video_line_both_ways(&sdp("m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=sendonly\r\n")));
+        assert!(!video_line_both_ways(&sdp("m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=inactive\r\n")));
+        assert!(!video_line_both_ways(&sdp("")), "no video line");
     }
 }
