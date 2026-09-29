@@ -182,6 +182,26 @@ class PlatformPluginTest {
         assertEquals(listOf<CallEvent>(CallEvent.Answer), heard)
     }
 
+    // The order seen on the Lenovo tablet (2026-09-29, app closed): FCM started the process and
+    // rang, the user tapped "Answer" on the notification before Rust listened, and the offer came
+    // seconds later. The tap must reach the core once it registers, whatever came before it in the
+    // new process: the push's `Incoming` and the activity's `Visible` go only to a core that
+    // listens (nothing of them waits), the answer waits and is heard once, in order.
+    @Test
+    fun theNotificationsAnswerTappedAsTheProcessStartsReachesTheCoreWhenItListens() {
+        val queue = CallEventQueue()
+        assertFalse("FCM's wake-up waits for no one", queue.offer(CallEvent.Incoming))
+        assertFalse("the activity's visibility waits for no one", queue.offer(CallEvent.Visible(true)))
+        queue.emit(callTapEvent("answer") ?: error("the notification's answer is an event"))
+        val heard = mutableListOf<CallEvent>()
+        queue.register { heard.add(it) }
+        assertEquals(listOf<CallEvent>(CallEvent.Answer), heard)
+        queue.register { heard.add(it) }
+        assertEquals("heard once", listOf<CallEvent>(CallEvent.Answer), heard)
+        queue.emit(CallEvent.Mute(true))
+        assertEquals(listOf(CallEvent.Answer, CallEvent.Mute(true)), heard)
+    }
+
     // The file picker of the WebView takes the user out of the app; ours copies what was picked
     // into the app's own folder and gives it a name we can show.
     @Test
