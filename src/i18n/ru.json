@@ -43,6 +43,7 @@
     "attachCamera": "Сделать фото",
     "voiceCall": "Аудиозвонок",
     "videoCall": "Видеозвонок",
+    "contactDetails": "Сведения о контакте: {name}, {status}",
     "contactSettings": "Настройки контакта",
     "openWithPlugin": "Открыть в плагине",
     "emoji": "Эмодзи",

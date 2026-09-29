@@ -43,6 +43,7 @@
     "attachCamera": "फ़ोटो लें",
     "voiceCall": "वॉइस कॉल",
     "videoCall": "वीडियो कॉल",
+    "contactDetails": "संपर्क विवरण: {name}, {status}",
     "contactSettings": "संपर्क सेटिंग्स",
     "openWithPlugin": "प्लगइन से खोलें",
     "emoji": "इमोजी",

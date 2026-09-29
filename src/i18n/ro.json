@@ -43,6 +43,7 @@
     "attachCamera": "Fă o fotografie",
     "voiceCall": "Apel vocal",
     "videoCall": "Apel video",
+    "contactDetails": "Detaliile contactului: {name}, {status}",
     "contactSettings": "Setări contact",
     "openWithPlugin": "Deschide cu un plugin",
     "emoji": "Emoji",

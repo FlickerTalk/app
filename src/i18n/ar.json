@@ -43,6 +43,7 @@
     "attachCamera": "التقاط صورة",
     "voiceCall": "مكالمة صوتية",
     "videoCall": "مكالمة فيديو",
+    "contactDetails": "تفاصيل جهة الاتصال: {name}، {status}",
     "contactSettings": "إعدادات جهة الاتصال",
     "openWithPlugin": "فتح باستخدام إضافة",
     "emoji": "إيموجي",

@@ -43,6 +43,7 @@
     "attachCamera": "ถ่ายรูป",
     "voiceCall": "โทรด้วยเสียง",
     "videoCall": "วิดีโอคอล",
+    "contactDetails": "รายละเอียดผู้ติดต่อ: {name}, {status}",
     "contactSettings": "ตั้งค่าผู้ติดต่อ",
     "openWithPlugin": "เปิดด้วยปลั๊กอิน",
     "emoji": "อีโมจิ",

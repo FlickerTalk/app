@@ -43,6 +43,7 @@
     "attachCamera": "Prendre une photo",
     "voiceCall": "Appel vocal",
     "videoCall": "Appel vidéo",
+    "contactDetails": "Détails du contact : {name}, {status}",
     "contactSettings": "Paramètres du contact",
     "openWithPlugin": "Ouvrir avec un plugin",
     "emoji": "Emoji",

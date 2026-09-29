@@ -43,6 +43,7 @@
     "attachCamera": "Fotoğraf çek",
     "voiceCall": "Sesli arama",
     "videoCall": "Görüntülü arama",
+    "contactDetails": "Kişi ayrıntıları: {name}, {status}",
     "contactSettings": "Kişi ayarları",
     "openWithPlugin": "Bir eklentiyle aç",
     "emoji": "Emoji",
