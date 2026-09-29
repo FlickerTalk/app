@@ -680,7 +680,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// (PushKit reported it as "FlickerTalk"). CallKit only learns who it is; it never rings again.
     func answering(caller: String, video: Bool) {
         diagnose("core: answering, callkit call there=\(current != nil) answered=\(answered)")
-        if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
+        guard let current else { return }
+        provider.reportCall(with: current, updated: answeringUpdate(caller: caller, video: video, openAppOnAnswer: openAppOnAnswer.on))
     }
 
     /// The ringing is over. Declined or given up: CallKit lets go. Answered: the call goes on,

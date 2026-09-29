@@ -45,6 +45,21 @@ final class OpenAppOnAnswerTests: XCTestCase {
         XCTAssertTrue(callUpdate(caller: "Ioan", video: true, outgoing: false, openAppOnAnswer: false).hasVideo)
     }
 
+    // `callAnswering` (2026-09-29, `fix-bridge`): the call answered in CallKit, maybe before its
+    // offer came, gets its caller's name. With the switch on it must stay a video call for
+    // CallKit, or the rename of a voice call would take back what opens the app; off, it tells the
+    // call's real media, exactly as without the experiment.
+    func testTheAnsweredCallsRenameKeepsItAVideoCallWithTheSwitchOn() {
+        let on = answeringUpdate(caller: "Ioan", video: false, openAppOnAnswer: true)
+        XCTAssertTrue(on.hasVideo)
+        XCTAssertEqual(on.localizedCallerName, "Ioan")
+        XCTAssertEqual(on.remoteHandle?.value, "Ioan")
+        XCTAssertFalse(answeringUpdate(caller: "Ioan", video: false, openAppOnAnswer: false).hasVideo)
+        XCTAssertTrue(answeringUpdate(caller: "Ioan", video: true, openAppOnAnswer: false).hasVideo)
+        XCTAssertEqual(answeringUpdate(caller: "", video: false, openAppOnAnswer: true).localizedCallerName,
+                       NSLocalizedString("FT_INCOMING_CALL", comment: ""))
+    }
+
     // This phone's own calls are not touched: CallKit hears their real media.
     func testAnOutgoingCallTellsItsRealVideo() {
         XCTAssertFalse(callUpdate(caller: "Ioan", video: false, outgoing: true, openAppOnAnswer: true).hasVideo)
