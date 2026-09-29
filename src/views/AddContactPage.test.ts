@@ -64,6 +64,13 @@ describe("AddContactPage", () => {
     expect(wrapper.findComponent(QrCode).exists()).toBe(false);
   });
 
+  // The big camera square is an icon and nothing else: it says what it does (§84).
+  it("names the camera square for a screen reader", async () => {
+    const wrapper = mount(AddContactPage, { shallow: true });
+    await wrapper.find("[data-test='mode-scan']").trigger("click");
+    expect(wrapper.find("[data-test='scanner']").attributes("aria-label")).toBe("Scan code");
+  });
+
   it("adds the contact whose code the camera reads", async () => {
     scanner.scan.mockResolvedValue({ content: "https://flickertalk.com/add#scanned", format: "QR_CODE" });
     const wrapper = mount(AddContactPage, { shallow: true });
