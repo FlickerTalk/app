@@ -69,6 +69,11 @@ interface CurrentCall {
 }
 
 export const CALL_EVENT = "ft://call";
+/**
+ * The phone's own call screen did something (2026-09-29): CallKit answered, with the app maybe
+ * on the screen. What it was waits in `core_pending_call`, as for a notification.
+ */
+export const CALL_ACTION_EVENT = "ft://call-action";
 /** The caller gives up after this long without an answer. */
 export const RING_LIMIT = 45_000;
 /** The longest wait for ICE candidates before the description goes anyway. */
@@ -286,16 +291,28 @@ export async function acceptCall(): Promise<void> {
 }
 
 /**
- * What the user pressed on the call notification of the phone (§66). The app asks for it when it
- * opens or comes back, because a call may have been answered from the notification while the
- * WebView was not even running.
+ * The call screen, unless the app is on it already: the only place where a call is seen and hung
+ * up (2026-09-29). Whichever way the call was answered (the app, CallKit's banner or lock screen,
+ * the notification), it must end up there.
+ */
+async function showCall(): Promise<void> {
+  const screen = `/call/${call.contact}`;
+  if (call.contact && router.currentRoute.value.path !== screen) await router.push(screen);
+}
+
+/**
+ * What the user pressed on the phone's own call screen or notification (§66). The app asks for
+ * it when it opens or comes back, because a call may have been answered there while the WebView
+ * was not even running, and when the phone says so (`CALL_ACTION_EVENT`). A decline is only ever
+ * for the call that rings: never a hang-up of a call going on.
  */
 export async function applyCallNotification(): Promise<void> {
   const action = (await invoke<string>("core_pending_call").catch(() => "")) ?? "";
-  if (action === "answer" && call.phase === "ringing") {
+  if (call.phase !== "ringing") return;
+  if (action === "answer") {
     // Like the in-app button: the call screen is where the call is seen and hung up.
     const accepting = acceptCall();
-    await router.push(`/call/${call.contact}`);
+    await showCall();
     await accepting;
   } else if (action === "decline") await hangUp();
 }
@@ -346,8 +363,11 @@ async function onEvent(event: CallEvent) {
     call.phase = "connecting";
     // A native call took the answer in the core already.
     await peer?.setRemoteDescription({ type: "answer", sdp: event.sdp ?? "" });
+    await showCall();
   } else if (event.call === call.id && event.kind === "connected" && call.phase !== "active") {
+    // Answered by CallKit, say, while the app only showed it ringing: the call is on now.
     goLive();
+    await showCall();
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
   } else if (event.call === call.id && event.kind === "ended") {
@@ -384,7 +404,7 @@ async function restoreCall(): Promise<void> {
   nativeCall = current.native;
   if (current.phase === "calling") giveUpUnanswered();
   // Without the call screen there is no way to hang up.
-  if (live) await router.push(`/call/${current.contact}`);
+  if (live) await showCall();
 }
 
 /** Listens to the core's call events and picks up the call it may already have; at start. */
@@ -394,6 +414,8 @@ export async function startCalls(): Promise<void> {
   if (!listening) {
     listening = true;
     await listen<CallEvent>(CALL_EVENT, ({ payload }) => void onEvent(payload));
+    // CallKit answered with the app on the screen: no visibility change tells the WebView.
+    await listen(CALL_ACTION_EVENT, () => void applyCallNotification());
     // The user may have answered from the notification before this WebView was even there (§66).
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") void applyCallNotification();
