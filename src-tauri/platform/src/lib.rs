@@ -342,6 +342,22 @@ struct Subscription {
     until: i64,
 }
 
+/// What the Store says a year costs, formatted by the Store; absent when it cannot say.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct SubscriptionPrice {
+    #[serde(default)]
+    price: Option<String>,
+}
+
+#[cfg_attr(not(mobile), allow(dead_code))]
+impl SubscriptionPrice {
+    /// The price as the Store wrote it; a missing or empty one is no price.
+    fn shown(self) -> Option<String> {
+        self.price.map(|price| price.trim().to_owned()).filter(|price| !price.is_empty())
+    }
+}
+
 /// What Kotlin's `pushToken` resolves with.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -394,6 +410,19 @@ impl<R: Runtime> Platform<R> {
         #[cfg(not(mobile))]
         {
             Ok(0)
+        }
+    }
+
+    /// What a year of the subscription costs, as the Store formats it for this phone (currency
+    /// included); `None` when the Store cannot say. Nothing is converted, rounded or kept.
+    pub fn subscription_price(&self) -> Result<Option<String>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<SubscriptionPrice>("subscriptionPrice", ())?.shown())
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(None)
         }
     }
 
@@ -799,6 +828,26 @@ mod tests {
         assert_eq!(pick, serde_json::json!({ "accept": "image/*" }));
         let print = serde_json::to_value(SaveFile { path: "/files/a.pdf", name: "a.pdf", mime: "application/pdf" }).unwrap();
         assert_eq!(print, serde_json::json!({ "path": "/files/a.pdf", "name": "a.pdf", "mime": "application/pdf" }));
+    }
+
+    // 2026-09-29: what a year costs, exactly as the Store formats it (`subscriptionPrice` in
+    // Swift and Kotlin); when the Store cannot say, there is no price at all.
+    #[test]
+    fn the_store_price_comes_back_as_the_store_formats_it() {
+        let said: SubscriptionPrice = serde_json::from_value(serde_json::json!({ "price": "0,99 €" })).unwrap();
+        assert_eq!(said.shown().as_deref(), Some("0,99 €"));
+        for silent in [serde_json::json!({}), serde_json::json!({ "price": null }), serde_json::json!({ "price": "  " })] {
+            let answer: SubscriptionPrice = serde_json::from_value(silent).unwrap();
+            assert_eq!(answer.shown(), None);
+        }
+    }
+
+    // A desktop has no store: no price, and no error either.
+    #[cfg(not(mobile))]
+    #[test]
+    fn a_desktop_has_no_store_price() {
+        let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
+        assert_eq!(platform.subscription_price().ok(), Some(None));
     }
 
     // Native calls (2026-09-28): what Swift and Kotlin send through the channel.
