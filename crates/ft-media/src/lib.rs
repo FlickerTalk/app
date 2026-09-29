@@ -18,7 +18,7 @@ pub mod views;
 pub mod voice;
 
 pub use platform::{device_stats, platform_audio, platform_video, DeviceStats};
-pub use session::{LinkState, MediaSession};
+pub use session::{Gathering, LinkState, MediaSession};
 pub use video::{Facing, Video, VideoDevices, VideoError, VideoFactory, VideoPlatform, VideoState, VideoStats};
 pub use views::{Layers, RemoteShape, ViewSlot};
 pub use voice::{Activation, AudioPlatform, BackendFactory, Voice};
