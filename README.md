@@ -37,6 +37,10 @@ cargo test --workspace   # Rust tests, no network
 npm run tauri android dev
 ```
 
+iOS release builds with Xcode 27 also need `rustup component add llvm-tools`: the patched
+`swift-rs` in `Cargo.toml` uses its `llvm-objcopy` to export the Swift entry points that Xcode 27
+leaves local (see the comment there).
+
 Builds are signed and published by GitHub Actions: every push to `main` produces a `canary`
 prerelease, and every `vX.Y.Z` tag a release.
 
