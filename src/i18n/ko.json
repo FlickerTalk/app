@@ -94,6 +94,7 @@
     "switchCamera": "카메라 전환",
     "cameraPaused": "카메라 일시 중지됨",
     "cameraDenied": "카메라가 허용되지 않았습니다. 휴대폰 설정에서 FlickerTalk의 카메라를 허용하세요.",
+    "cameraFailed": "카메라를 시작할 수 없습니다. 통화는 음성으로 계속됩니다.",
     "videoUnavailable": "이 통화에서는 영상을 사용할 수 없습니다",
     "turnOnCamera": "카메라를 켜세요",
     "hangUp": "끊기",

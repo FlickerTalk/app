@@ -94,6 +94,7 @@
     "switchCamera": "切换摄像头",
     "cameraPaused": "摄像头已暂停",
     "cameraDenied": "未允许使用摄像头。请在手机设置中允许 FlickerTalk 使用摄像头。",
+    "cameraFailed": "无法启动摄像头。通话将以语音继续。",
     "videoUnavailable": "此通话无法使用视频",
     "turnOnCamera": "打开你的摄像头",
     "hangUp": "挂断",

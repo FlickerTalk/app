@@ -229,12 +229,17 @@ describe("CallPage with native video", () => {
     expect(actions.switchCamera).toHaveBeenCalled();
   });
 
-  // Before the call connects the core cannot open the camera yet: the switch waits.
-  it("keeps the switch waiting until the call connects", () => {
-    Object.assign(call, { id: "x", contact: "c1", phase: "calling", native: true, video: true, view: view({ available: false, camera: true }) });
-    const toggle = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
-    expect(toggle.attributes("aria-pressed")).toBe("true");
-    expect(toggle.attributes("aria-disabled")).toBe("true");
+  // Before the call connects the core cannot open the camera yet: the switch waits to turn it on.
+  // A camera already wanted can always be turned off (2026-09-29: it used to be stuck on).
+  it("keeps the switch waiting until the call connects, except to turn the camera off", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "calling", native: true, video: false, view: view({ available: false }) });
+    const off = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
+    expect(off.attributes("aria-pressed")).toBe("false");
+    expect(off.attributes("aria-disabled")).toBe("true");
+    Object.assign(call, { video: true, view: view({ available: false, camera: true }) });
+    const on = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
+    expect(on.attributes("aria-pressed")).toBe("true");
+    expect(on.attributes("aria-disabled")).toBe("false");
   });
 
   it("says video is not available on a call without a video line", async () => {
@@ -286,6 +291,57 @@ describe("CallPage with native video", () => {
     await nextTick();
     expect(wrapper.find("[data-test='remote-slot']").exists()).toBe(false);
     expect(document.documentElement.classList.contains("ft-call-video")).toBe(false);
+  });
+
+  // Found by QA on the emulators (2026-09-29): a video call whose camera never started left the
+  // page see-through with nothing under it, a blank white screen.
+  it("goes see-through only while there is a picture to show", async () => {
+    live({ available: false, camera: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[data-test='local-slot']").exists()).toBe(false);
+    expect(document.documentElement.classList.contains("ft-call-video")).toBe(false);
+    call.view = view({ camera: true });
+    await nextTick();
+    expect(wrapper.find("[data-test='local-slot']").exists()).toBe(true);
+    expect(document.documentElement.classList.contains("ft-call-video")).toBe(true);
+  });
+
+  it("has a dark background on a video call without pictures, never the page's white", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: true, view: view() });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find(".ft-call").classes()).toContain("is-dark");
+    // See-through, the native views paint it; dark, it would hide them.
+    call.view = view({ camera: true });
+    await nextTick();
+    expect(wrapper.find(".ft-call").classes()).not.toContain("is-dark");
+    const styles = source.slice(source.indexOf("<style"));
+    expect(styles).toMatch(/\.ft-call\.is-dark\s*\{[^}]*--background:\s*#0/);
+  });
+
+  it("keeps a voice call on the page's own background", () => {
+    live();
+    expect(mount(CallPage, { shallow: true }).find(".ft-call").classes()).not.toContain("is-dark");
+  });
+
+  it("always lets me turn my camera off, even while it waits", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: true, view: view({ available: false, camera: true }) });
+    const wrapper = mount(CallPage, { shallow: true });
+    const toggle = wrapper.find("[aria-label='Camera']");
+    expect(toggle.attributes("aria-disabled")).toBe("false");
+    await toggle.trigger("click");
+    expect(actions.toggleCamera).toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain("Video isn't available on this call");
+  });
+
+  it("says when the camera could not start, and the call goes on", () => {
+    live();
+    call.cameraFailed = true;
+    const wrapper = mount(CallPage, { shallow: true });
+    const failed = wrapper.find("[data-test='camera-failed']");
+    expect(failed.exists()).toBe(true);
+    expect(failed.attributes("role")).toBe("alert");
+    expect(failed.text()).toContain("The camera couldn't start");
+    expect(wrapper.find("[aria-label='Hang up']").exists()).toBe(true);
   });
 
   // Until their picture comes, mine fills the screen.

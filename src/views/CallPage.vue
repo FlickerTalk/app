@@ -64,16 +64,24 @@ const state = computed(() => {
 // there at all times, and theirs coming on only invites me to turn mine on.
 const native = computed(() => current.value && call.native);
 const live = computed(() => call.phase === "active");
-const stage = computed(() => native.value && live.value && (call.view.camera || call.view.remote));
-const showRemote = computed(() => stage.value && call.view.remote);
-const showLocal = computed(() => stage.value && call.view.camera);
 const cameraReady = computed(() => live.value && call.view.available);
+// My camera runs only once the core has the video line up: before that there is nothing under a
+// see-through page but the window's white (found by QA, 2026-09-29).
+const cameraRunning = computed(() => cameraReady.value && call.view.camera);
+const stage = computed(() => native.value && live.value && (cameraRunning.value || call.view.remote));
+const showRemote = computed(() => stage.value && call.view.remote);
+const showLocal = computed(() => stage.value && cameraRunning.value);
 const invite = computed(() => native.value && cameraReady.value && call.view.remote && !call.view.camera);
+// A video call with no pictures to show sits on a dark call background, not the page's (white in
+// the light theme); see-through, the native views paint it black.
+const dark = computed(() => native.value && !stage.value && (call.video || call.view.camera || call.view.remote));
+// The camera button can always turn my camera off.
+const cameraUsable = computed(() => cameraReady.value || (native.value && call.view.camera));
 
 const unavailable = ref(false);
 let unavailableTimer: ReturnType<typeof setTimeout> | undefined;
 function camera() {
-  if (!native.value || cameraReady.value) {
+  if (!native.value || cameraUsable.value) {
     void toggleCamera();
     return;
   }
@@ -213,7 +221,7 @@ watch(
 
 <template>
   <ion-page>
-    <ion-content class="ft-call">
+    <ion-content class="ft-call" :class="{ 'is-dark': dark }">
       <div
         ref="body"
         class="ft-call__body"
@@ -260,6 +268,10 @@ watch(
             <ion-icon :icon="videocamOffOutline" aria-hidden="true" />
             {{ $t("calls.cameraDenied") }}
           </p>
+          <p v-if="call.cameraFailed" class="ft-call__notice" role="alert" data-test="camera-failed">
+            <ion-icon :icon="videocamOffOutline" aria-hidden="true" />
+            {{ $t("calls.cameraFailed") }}
+          </p>
           <p v-if="unavailable" class="ft-call__notice" role="status">
             <ion-icon :icon="videocamOffOutline" aria-hidden="true" />
             {{ $t("calls.videoUnavailable") }}
@@ -303,10 +315,10 @@ watch(
             v-if="native"
             type="button"
             class="ft-round ft-round--ghost"
-            :class="{ 'is-on': call.view.camera, 'is-invite': invite, 'is-waiting': !cameraReady }"
+            :class="{ 'is-on': call.view.camera, 'is-invite': invite, 'is-waiting': !cameraUsable }"
             :aria-label="$t('calls.camera')"
             :aria-pressed="call.view.camera"
-            :aria-disabled="!cameraReady"
+            :aria-disabled="!cameraUsable"
             @click="camera"
           >
             <ion-icon
@@ -351,6 +363,15 @@ watch(
 <style scoped>
 .ft-call {
   --background: var(--ft-bg);
+}
+/* A video call without pictures: a dark call background whatever the theme, with its own ink. */
+.ft-call.is-dark {
+  --ft-bg: #07090c;
+  --ft-text: #f4f5f7;
+  --ft-muted: rgba(244, 245, 247, 0.65);
+  --ft-surface-2: rgba(255, 255, 255, 0.12);
+  --background: #07090c;
+  color: var(--ft-text);
 }
 .ft-call__body {
   display: flex;
