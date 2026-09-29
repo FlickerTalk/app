@@ -1,8 +1,9 @@
 # La nube del usuario: copia de seguridad y «Mi drive»
 
 Decisión del 2026-09-27 (plan del drive, fase A, con los cambios de la valoración: primero la
-copia de seguridad, «abrir con» general en vez de una acción específica, sin iCloud, código de
-recuperación generado por la app). Implementado en `crates/ft-vault`, `crates/ft-core/src/vault.rs`,
+copia de seguridad, «abrir con» general en vez de una acción específica, sin iCloud). El código de
+recuperación generado por la app pasó a ser una **frase que elige el usuario** (decisión del
+2026-09-28, `plan-recuperacion`). Implementado en `crates/ft-vault`, `crates/ft-core/src/vault.rs`,
 `src-tauri` (`core_vault_*`, `ft.drive.*` en el marco), `src/views/BackupPage.vue` y el plugin
 `plugin-drive`.
 
@@ -20,13 +21,25 @@ vemos nada, porque nuestro servidor no participa (`§100`).
    el navegador del sistema (Custom Tabs / `ASWebAuthenticationSession`) y trae de vuelta la
    redirección al esquema de la app; el núcleo cambia el código por tokens y los guarda sellados
    con la clave de almacenamiento. La WebView nunca los ve.
-2. **Crear el drive** (nube vacía): se genera la clave del drive en el teléfono, se sube sellada
-   con el **código de recuperación** (30 símbolos, generado por la app) y el código se enseña una
-   sola vez. **Abrir el drive de otro teléfono** (nube con drive): con ese código.
+2. **Crear el drive** (nube vacía, solo en Ajustes): el usuario escribe dos veces su **frase de
+   recuperación** (12 a 100 caracteres; se cuenta recortada y en NFC; la app puede sugerir una de
+   30 símbolos, copiarla o compartirla, y avisa de no guardarla en la misma cuenta de Google). La
+   clave del drive se genera en el teléfono y se sube sellada con lo que da la frase estirada con
+   **Argon2id** (64 MiB, 3 pasadas, sal propia): unos 0,7–1 s en el Lenovo. La frase no se guarda
+   en ningún sitio, tampoco en el teléfono. Quien no la configura **no puede recuperar la cuenta**.
+   **Abrir el drive de otro teléfono** (nube con drive): con la frase, solo en Ajustes; **cinco
+   frases malas seguidas bloquean la recuperación 24 h en ese teléfono** (ni la buena abre hasta
+   entonces). El bloqueo solo frena a quien prueba desde la app: lo que protege `key.ftv` en el
+   Drive es la frase larga y Argon2id. La frase se puede **cambiar** desde el teléfono que tiene el
+   drive abierto; la vieja deja de abrirlo. Un drive de la versión 1 (con código) se rehace.
 3. **Copia de seguridad**: instantánea consistente de la base de datos + clave de almacenamiento +
    ficheros, sellados y subidos; la siguiente copia solo sube lo que cambió y borra lo viejo.
-   **Restaurar**: en un teléfono nuevo, tras conectar y abrir con el código, la copia baja a la
-   carpeta de mudanza y la app arranca de nuevo con ella, exactamente como tras una mudanza (`§60`).
+   **Restaurar**: en un teléfono nuevo, tras conectar y abrir con la frase, la copia baja a la
+   carpeta de mudanza y la app arranca de nuevo con ella, como tras una mudanza (`§60`). Sus
+   sesiones Olm son las del día de la copia: el primer arranque abre con cada contacto una sesión
+   nueva desde su tarjeta y se la presenta (mensaje *pre-key*), así que los dos lados vuelven a
+   leerse y ninguna clave de la copia se reutiliza. Lo dicho después de la copia se pierde con el
+   teléfono.
 4. **Mi drive** (plugin, permiso `drive`): carpetas, subir del selector, «abrir con» desde
    cualquier fichero de una burbuja (el plugin recibe nombre y tipo, nunca los bytes, y lo guarda
    por la referencia del mensaje), abrir en el visor, guardar en Descargas, enviar a la
@@ -39,8 +52,17 @@ vemos nada, porque nuestro servidor no participa (`§100`).
 | --- | --- |
 | Google | una carpeta `FlickerTalk` con `vault.json` (versión e id aleatorio), `key.ftv`, `index.ftv` y `blob-<id>`: tamaños, fechas y cuántos hay. Nada de nombres ni contenido. Que el usuario usa FlickerTalk. |
 | Nuestro servidor | nada: no interviene. |
-| El plugin | nombres, tamaños y estados; nunca bytes, tokens ni el código. |
-| La WebView de la app | lo mismo que el plugin, más el código de recuperación **una vez**, en pantalla. |
+| El plugin | nombres, tamaños y estados; nunca bytes, tokens ni la frase (crear y abrir el drive no son suyos). |
+| La WebView de la app | lo mismo que el plugin, más la frase mientras el usuario la escribe en Ajustes. |
+
+## Recuperar la cuenta, probado en el Lenovo (2026-09-28)
+
+Con la cuenta de Google de Ioan: Mark crea el drive con una frase sugerida y hace copia; Mark y
+Lucy (Samsung) se escriben después; se **desinstala** FlickerTalk del Lenovo y se instala de
+nuevo; identidad nueva → Ajustes → Copia de seguridad → conectar Google → una frase mala
+(«Intentos restantes: 4») → la buena (6,5 s) → restaurar. La app arranca como Mark, con sus
+contactos, círculos e historial hasta la copia, y Mark y Lucy se escriben en los dos sentidos con
+acuses de entrega y lectura.
 
 ## Probado en un Google Drive de verdad (2026-09-27)
 

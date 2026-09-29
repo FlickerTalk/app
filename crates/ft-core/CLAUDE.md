@@ -187,3 +187,17 @@ de datos + clave + carpeta de ficheros), `vault_restore` (a la carpeta de mudanz
 al arrancar), `plugin_may_use_drive`. `trait Cloud` abstrae el proveedor (`GoogleCloud` en la
 app, una memoria en los tests) y `trait Authorizer` el navegador. `Event::VaultChanged` y
 `Event::VaultProgress`.
+
+## Estado (2026-09-28, recuperar la cuenta; `plan-recuperacion`, `tests/vault.rs`, `tests/conversation.rs`)
+
+- **Frase**: `vault_setup(frase)`, `vault_unlock(frase)`, `vault_change_phrase`,
+  `vault_suggest_phrase`. La frase no se guarda. Cinco frases malas seguidas (`WrongPhrase`)
+  bloquean la recuperación **24 h en este teléfono** (`vault.tries`); ni la buena abre hasta
+  entonces. `VaultStatus` lleva `tries_left` y `retry_at`, y el estado `Outdated` para un drive de
+  la versión 1 (también si el teléfono guardaba su clave): `vault_setup` lo rehace.
+- **Sesiones tras restaurar** (`§5` del plan): `vault_restore` marca la copia (`sessions_behind`);
+  `Core::open` con esa marca renueva el canal de cada contacto (`Channel::renew`) y pone
+  `card_stale`, así que `online::start` reparte la tarjeta por las sesiones nuevas. Test de
+  aceptación: copia, siguen hablando, se pierde el teléfono, se restaura y los dos se leen en ambos
+  sentidos (sin la renovación, el restaurado no lee al otro). Probado en el Lenovo desinstalando la
+  app (`docs/drive.md`).

@@ -117,10 +117,14 @@ Estado (2026-09-27, plugins fase 3 y la nube del usuario; `docs/drive.md`):
   hace lo de siempre. Antes, con un plugin abierto, sacaba del chat o, en la tableta, de la app.
   Una superposición nueva se registra con `closeOnBackWhile`.
 - **Copia de seguridad** (`BackupPage`, Ajustes → Copia de seguridad): conectar Google Drive
-  (login en el navegador del sistema, por el núcleo), crear el drive y enseñar el **código de
-  recuperación una sola vez**, abrir el drive de otro teléfono con el código, hacer copia,
+  (login en el navegador del sistema, por el núcleo), crear el drive con la **frase de
+  recuperación** que el usuario escribe dos veces (sugerir, copiar, compartir; 2026-09-28), abrir
+  el drive de otro teléfono con la frase (intentos que quedan y bloqueo de 24 h tras cinco
+  fallos, `triesLeft`/`retryAt`), cambiar la frase, hacer copia,
   restaurar (pregunta una vez; la app reinicia) y olvidar la nube (pregunta una vez). Escucha
-  `ft://vault` y `ft://vault-progress`. Los textos están en `backup.*`, 21 idiomas.
+  `ft://vault` y `ft://vault-progress`. Los textos están en `backup.*`, 21 idiomas. La frase solo
+  se escribe aquí: un plugin no puede crear ni abrir el drive (`PluginSheet` rechaza `setup` y
+  `unlock`).
 
 ## Reglas
 

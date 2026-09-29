@@ -30,3 +30,10 @@ cifra con la última que funcionó, así que dos contactos que se escanean a la 
 `accept_first_contact` abre el primer mensaje de un desconocido con la clave que trae su pre-key
 message; quien llama debe comprobarla contra la tarjeta que viene dentro. Un mensaje repetido
 byte a byte se rechaza (protección contra *replay*).
+
+## Estado (2026-09-28, recuperar la cuenta)
+
+`Channel::renew` añade una sesión saliente nueva desde la tarjeta del contacto y la pone la última
+(la que cifra). Es lo que hace el núcleo al arrancar con una copia restaurada: las sesiones de la
+copia van por detrás de las del contacto y sus claves de envío ya se gastaron; la nueva empieza con
+mensajes *pre-key*, el contacto la adopta y las viejas se quedan solo para leer lo que aún encaje.

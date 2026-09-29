@@ -9,7 +9,7 @@ nuestro servidor no participa (`§100`).
 
 ```text
 vault.json    versión del formato e id aleatorio del drive, en claro (no dice nada)
-key.ftv       la clave del drive, sellada con el código de recuperación
+key.ftv       la clave del drive, sellada con lo que da la frase de recuperación (Argon2id)
 index.ftv     carpetas, ficheros y la copia de seguridad: sellado, uno solo
 blob-<id>     un fichero o la base de datos, sellado, con una clave propia
 ```
@@ -20,10 +20,16 @@ blob-<id>     un fichero o la base de datos, sellado, con una clave propia
   forma de `age` con las primitivas que ya están en el árbol: **`age` no se añadió** (decisión
   2026-09-27: ningún crate nuevo que no estuviera ya) y no hay criptografía casera más allá de
   encadenar AEAD estándar.
-- **Código de recuperación** (`recovery.rs`): 30 símbolos de base32 de Crockford (150 bits) que
-  genera la app y se enseñan **una vez**; con esa entropía no hace falta estirar (ni scrypt ni
-  argon2, que tampoco están en el árbol): la clave que envuelve `key.ftv` sale del código con
-  BLAKE3. Al teclearlo se perdonan guiones, espacios, minúsculas y O/I/L.
+- **Frase de recuperación** (`recovery.rs`, decisión 2026-09-28, formato 2): la elige el usuario,
+  de 12 a 100 caracteres, y cuenta recortada y en NFC (mayúsculas, espacios interiores y tildes
+  cuentan). No se guarda en ningún sitio. `key.ftv` es JSON con los parámetros de **Argon2id**
+  (64 MiB, 3 pasadas, 1 carril, sal de 16 bytes) y la clave del drive sellada con el resultado;
+  al abrir, se rechaza lo que pida más de 256 MiB o 10 pasadas (quien pueda escribir en la nube no
+  hace que el teléfono estire sin fin). `WrongPhrase` es el único fallo que cuenta como intento
+  (el núcleo lleva la cuenta); `OldDrive`, un drive de la versión 1 (código de 30 símbolos): no se
+  abre, `create` lo sustituye (`outdated`). `suggest` propone una de 30 símbolos de Crockford.
+  `change_phrase` vuelve a sellar la clave. **Excepción a la regla de no añadir crates**: `argon2`
+  (RustCrypto), compilado optimizado también en debug (`Cargo.toml` del workspace).
 - **Índice** (`index.rs`): carpetas y ficheros por id aleatorio, con `removed` (lápidas) y
   `revision`. Dos teléfonos que escriben (uno recuperado en otro sitio) se **fusionan** por id:
   gana el cambio más nuevo, una lápida gana a lo más viejo que ella, un fichero cuya carpeta

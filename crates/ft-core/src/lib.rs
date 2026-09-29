@@ -169,6 +169,10 @@ const RECEIPTS_DEFAULT: &str = "receipts_default";
 const QUIET_HOURS: &str = "quiet_hours";
 /// Set when the card changed under every contact (a new envelope key, A1): they all get it again.
 const CARD_STALE: &str = "card_stale";
+/// Set in a backup brought down to be swapped in (plan-recuperacion §5, 2026-09-28): its Olm
+/// sessions are those of the day it was made, behind every contact's, so the first start renews
+/// them.
+pub(crate) const SESSIONS_BEHIND: &str = "sessions_behind";
 
 impl Core {
     /// Opens the device's core; the first run creates the identity and route capability.
@@ -188,6 +192,9 @@ impl Core {
                         envelope
                     }
                 };
+                if store.setting(SESSIONS_BEHIND).await?.as_deref() == Some("1") {
+                    renew_sessions(&store, &identity, &key).await?;
+                }
                 (identity, RouteCapability::from_bytes(saved.route_capability), envelope)
             }
             None => {
@@ -1248,6 +1255,27 @@ pub fn clean_name(name: &str) -> String {
         .filter(|c| !matches!(*c, '\u{200e}' | '\u{200f}' | '\u{061c}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'))
         .collect::<String>();
     readable.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(NAME_LIMIT).collect::<String>().trim_end().to_owned()
+}
+
+/// A phone restored from a backup (plan-recuperacion §5): a new outgoing session with every
+/// contact, from their card, which encrypts from now on. Our card goes to each of them over it
+/// (`card_stale`, sent by `online::start`); being a pre-key message, they take the session up, and
+/// no key of the backup's sessions is used again for sending.
+async fn renew_sessions(store: &Store, identity: &Identity, key: &[u8; 32]) -> Result<()> {
+    for contact in store.all_contacts().await? {
+        if contact.blocked {
+            continue;
+        }
+        let Ok(card) = ContactCard::decode(&contact.card) else { continue };
+        let mut channel = match store.channel(&contact.device_id).await? {
+            Some(sealed) => Channel::unseal(&sealed, key)?,
+            None => Channel::default(),
+        };
+        channel.renew(identity, &card.contact_keys())?;
+        store.save_channel(&contact.device_id, &channel.seal(key)).await?;
+    }
+    store.set_setting(CARD_STALE, "1").await?;
+    store.forget_setting(SESSIONS_BEHIND).await
 }
 
 fn now() -> i64 {

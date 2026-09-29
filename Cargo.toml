@@ -15,3 +15,10 @@ strip = true
 # the proc-macro dylibs on macOS with Xcode 27's toolchain ("mis-aligned LINKEDIT string pool").
 [profile.release.build-override]
 strip = false
+
+# The recovery phrase is stretched with Argon2id (64 MiB, 3 passes): unoptimized it takes tens of
+# seconds, in the tests and in a debug build on a phone. Optimized, as in a release, it is ~1 s.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

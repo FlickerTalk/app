@@ -206,15 +206,18 @@ describe("ChatsPage", () => {
       expect(store.sessions).toHaveLength(0);
     });
 
-    // A5: whoever scanned the session's QR waits in its own requests.
-    it("shows the session's requests with a yes and a no", async () => {
+    // A5: whoever scanned the session's QR waits in its own requests; the yes and the no are in
+    // the conversation, as with the main list's requests (2026-09-28).
+    it("shows the session's requests, which open like any conversation", async () => {
       screen(false);
       store.sessions[0].requests = [{ ...store.chats[1], id: "ft_stranger", name: "Someone", unread: 1 }];
       const wrapper = mount(ChatsPage, { shallow: true });
       const rows = wrapper.findAll("[data-test='session-requests'] [data-test='request-row']");
       expect(rows).toHaveLength(1);
-      await rows[0].find("[data-test='request-accept']").trigger("click");
-      expect(calls).toContainEqual(["core_accept_contact", { contact: "ft_stranger" }]);
+      expect(rows[0].find("[data-test='request-accept']").exists()).toBe(false);
+      expect(rows[0].find("[data-test='request-decline']").exists()).toBe(false);
+      await rows[0].find("button").trigger("click");
+      expect(push).toHaveBeenCalledWith("/chat/ft_stranger");
     });
   });
 
@@ -271,13 +274,16 @@ describe("ChatsPage", () => {
       expect(wrapper.findAll("[data-test='chat-row']")).toHaveLength(fixture.chats.length);
     });
 
-    it("accepts or declines through the core", async () => {
+    // Seen on the Lenovo (2026-09-28): a yes and a no on the row, side by side, and on a small
+    // screen the no is easy to hit by mistake. As in WhatsApp, they live in the conversation.
+    it("has no yes or no on the row: it opens the conversation, where they are", async () => {
       screen(false);
       const wrapper = mount(ChatsPage, { shallow: true });
-      await wrapper.find("[data-test='request-accept']").trigger("click");
-      expect(calls).toContainEqual(["core_accept_contact", { contact: "ft_stranger12345" }]);
-      await wrapper.find("[data-test='request-decline']").trigger("click");
-      expect(calls).toContainEqual(["core_decline_contact", { contact: "ft_stranger12345" }]);
+      expect(wrapper.find("[data-test='request-accept']").exists()).toBe(false);
+      expect(wrapper.find("[data-test='request-decline']").exists()).toBe(false);
+      await wrapper.find("[data-test='request-row'] button").trigger("click");
+      expect(push).toHaveBeenCalledWith("/chat/ft_stranger12345");
+      expect(calls.some(([command]) => command === "core_decline_contact" || command === "core_accept_contact")).toBe(false);
     });
 
     it("is not an empty phone while a request waits", () => {

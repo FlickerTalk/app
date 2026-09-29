@@ -1,10 +1,11 @@
 //! The user's own cloud, in the core (plan-drive, 2026-09-27): the login, the drive and the
-//! backup. The plugin and the app only ever see what is here; the tokens, the vault key and the
-//! recovery code never cross to the WebView (§54). Sealing and the cloud itself are `ft-vault`.
+//! backup. The plugin and the app only ever see what is here; the tokens and the vault key never
+//! cross to the WebView (§54). Sealing and the cloud itself are `ft-vault`.
 //!
 //! What this phone keeps, in its settings: which cloud (`vault.provider`), the login's tokens
-//! sealed with the storage key (`vault.tokens`), and the vault key sealed the same way
-//! (`vault.key`). Forgetting the drive removes the three; the cloud is never touched.
+//! sealed with the storage key (`vault.tokens`), the vault key sealed the same way (`vault.key`)
+//! and how many wrong recovery phrases were tried (`vault.tries`). Forgetting the drive removes
+//! the first three; the cloud is never touched. The phrase itself is kept nowhere (2026-09-28).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,6 +23,11 @@ use crate::{Core, Event};
 const PROVIDER: &str = "vault.provider";
 const TOKENS: &str = "vault.tokens";
 const KEY: &str = "vault.key";
+/// Wrong phrases tried here, and until when the recovery is locked (decision 2026-09-28).
+const TRIES: &str = "vault.tries";
+/// How many wrong phrases in a row lock the recovery, and for how long.
+pub const MAX_TRIES: u32 = 5;
+const LOCKED_FOR: i64 = 24 * 3600 * 1000;
 /// The OAuth client of this app, set at build time or in the settings; without it Google Drive
 /// cannot be connected, and the app says so.
 const GOOGLE_CLIENT_ID: &str = "vault.google_client_id";
@@ -102,8 +108,11 @@ pub enum VaultState {
     None,
     /// Logged in to a cloud that has no drive yet: `vault_setup` makes one.
     Empty,
-    /// Logged in to a cloud with a drive this phone has no key for: `vault_unlock` with the code.
+    /// Logged in to a cloud with a drive this phone has no key for: `vault_unlock` with the phrase.
     Locked,
+    /// Logged in to a cloud with a drive of the first version (a generated code): `vault_setup`
+    /// makes it again, and nothing of the old one opens.
+    Outdated,
     /// Open.
     Ready,
 }
@@ -115,6 +124,21 @@ pub struct VaultStatus {
     pub drive: Option<ft_vault::Status>,
     /// Why the drive could not be opened at start, if it could not.
     pub problem: Option<String>,
+    /// Wrong phrases this phone may still try before the recovery locks.
+    pub tries_left: u32,
+    /// Until when (ms) the recovery is locked here after too many wrong phrases.
+    pub retry_at: Option<i64>,
+}
+
+/// Wrong phrases in a row, and the end of the lock they caused.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct Tries {
+    failed: u32,
+    until: i64,
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_millis() as i64).unwrap_or(0)
 }
 
 impl Core {
@@ -180,11 +204,11 @@ impl Core {
     /// Opens the drive from what the phone keeps, at start or after a login. Never asks anyone.
     pub async fn vault_reopen(&self) -> Result<VaultStatus> {
         let Some(provider_name) = self.store.setting(PROVIDER).await? else {
-            return Ok(VaultStatus { state: VaultState::None, provider: None, drive: None, problem: None });
+            return Ok(self.status_of(VaultState::None, None, None, None).await);
         };
         let provider = match self.provider().await {
             Ok(provider) => provider,
-            Err(error) => return Ok(VaultStatus { state: VaultState::Locked, provider: Some(provider_name), drive: None, problem: Some(error.to_string()) }),
+            Err(error) => return Ok(self.status_of(VaultState::Locked, Some(provider_name), None, Some(error.to_string())).await),
         };
         let key = match self.store.setting(KEY).await? {
             Some(sealed) => {
@@ -199,26 +223,53 @@ impl Core {
                 Ok(vault) => {
                     let status = vault.status().await.ok();
                     *self.vault.lock().await = Some(Arc::new(vault));
-                    VaultStatus { state: VaultState::Ready, provider: Some(provider_name), drive: status, problem: None }
+                    self.status_of(VaultState::Ready, Some(provider_name), status, None).await
                 }
-                Err(error) => VaultStatus { state: VaultState::Locked, provider: Some(provider_name), drive: None, problem: Some(error.to_string()) },
+                // The key of a drive of the first version: it is made again, not opened.
+                Err(error) if error.downcast_ref::<ft_vault::recovery::OldDrive>().is_some() => {
+                    self.status_of(VaultState::Outdated, Some(provider_name), None, None).await
+                }
+                Err(error) => self.status_of(VaultState::Locked, Some(provider_name), None, Some(error.to_string())).await,
             },
             None => match Vault::exists(provider.as_ref()).await {
-                Ok(true) => VaultStatus { state: VaultState::Locked, provider: Some(provider_name), drive: None, problem: None },
-                Ok(false) => VaultStatus { state: VaultState::Empty, provider: Some(provider_name), drive: None, problem: None },
-                Err(error) => VaultStatus { state: VaultState::Locked, provider: Some(provider_name), drive: None, problem: Some(error.to_string()) },
+                Ok(true) if Vault::outdated(provider.as_ref()).await.unwrap_or(false) => self.status_of(VaultState::Outdated, Some(provider_name), None, None).await,
+                Ok(true) => self.status_of(VaultState::Locked, Some(provider_name), None, None).await,
+                Ok(false) => self.status_of(VaultState::Empty, Some(provider_name), None, None).await,
+                Err(error) => self.status_of(VaultState::Locked, Some(provider_name), None, Some(error.to_string())).await,
             },
         };
         Ok(status)
     }
 
+    async fn status_of(&self, state: VaultState, provider: Option<String>, drive: Option<ft_vault::Status>, problem: Option<String>) -> VaultStatus {
+        let tries = self.tries().await;
+        let locked = tries.until > now();
+        VaultStatus {
+            state,
+            provider,
+            drive,
+            problem,
+            tries_left: if locked { 0 } else { MAX_TRIES.saturating_sub(tries.failed) },
+            retry_at: locked.then_some(tries.until),
+        }
+    }
+
+    async fn tries(&self) -> Tries {
+        let kept = self.store.setting(TRIES).await.ok().flatten();
+        kept.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default()
+    }
+
+    async fn keep_tries(&self, tries: &Tries) -> Result<()> {
+        self.store.set_setting(TRIES, &serde_json::to_string(tries)?).await
+    }
+
     pub async fn vault_status(&self) -> Result<VaultStatus> {
         let provider = self.store.setting(PROVIDER).await?;
         let Some(provider) = provider else {
-            return Ok(VaultStatus { state: VaultState::None, provider: None, drive: None, problem: None });
+            return Ok(self.status_of(VaultState::None, None, None, None).await);
         };
         if let Some(vault) = self.vault.lock().await.clone() {
-            return Ok(VaultStatus { state: VaultState::Ready, provider: Some(provider), drive: vault.status().await.ok(), problem: None });
+            return Ok(self.status_of(VaultState::Ready, Some(provider), vault.status().await.ok(), None).await);
         }
         self.vault_reopen().await
     }
@@ -228,25 +279,58 @@ impl Core {
         self.store.set_setting(KEY, &STANDARD.encode(sealed)).await
     }
 
-    /// Makes the drive in a cloud that has none. Returns the recovery code: shown once, kept by
-    /// the user, never by the app.
-    pub async fn vault_setup(&self) -> Result<String> {
+    /// A strong phrase for whoever wants the app to suggest one. Never kept.
+    pub fn vault_suggest_phrase(&self) -> String {
+        ft_vault::recovery::suggest()
+    }
+
+    /// Makes the drive in a cloud that has none (or one of the first version), its key sealed
+    /// with the phrase the user chose. The phrase is kept by the user, never by the app.
+    pub async fn vault_setup(&self, phrase: &str) -> Result<()> {
         ensure!(self.vault.lock().await.is_none(), "the drive is already open");
         let provider = self.provider().await?;
-        let (vault, code) = Vault::create(provider, self.vault_dir()?, self.device_id.as_str()).await?;
+        let vault = Vault::create(provider, self.vault_dir()?, self.device_id.as_str(), phrase).await?;
         self.keep_key(&vault.key()).await?;
         *self.vault.lock().await = Some(Arc::new(vault));
         let _ = self.events.send(Event::VaultChanged);
-        Ok(code)
+        Ok(())
     }
 
-    /// Opens, on this phone, a drive made on another: the cloud and the recovery code.
-    pub async fn vault_unlock(&self, code: &str) -> Result<()> {
+    /// Opens, on this phone, a drive made on another: the cloud and the recovery phrase. Five
+    /// wrong phrases in a row lock this for a day (decision 2026-09-28); not even the right one
+    /// opens it until then.
+    pub async fn vault_unlock(&self, phrase: &str) -> Result<()> {
         ensure!(self.vault.lock().await.is_none(), "the drive is already open");
+        let mut tries = self.tries().await;
+        if tries.until > now() {
+            bail!("too many wrong phrases; try again after {}", tries.until);
+        }
         let provider = self.provider().await?;
-        let vault = Vault::recover(provider, self.vault_dir()?, self.device_id.as_str(), code).await?;
+        let vault = match Vault::recover(provider, self.vault_dir()?, self.device_id.as_str(), phrase).await {
+            Ok(vault) => vault,
+            Err(error) => {
+                if error.downcast_ref::<ft_vault::recovery::WrongPhrase>().is_some() {
+                    tries.failed += 1;
+                    if tries.failed >= MAX_TRIES {
+                        tries = Tries { failed: 0, until: now() + LOCKED_FOR };
+                    }
+                    self.keep_tries(&tries).await?;
+                    let _ = self.events.send(Event::VaultChanged);
+                }
+                return Err(error);
+            }
+        };
+        self.store.forget_setting(TRIES).await?;
         self.keep_key(&vault.key()).await?;
         *self.vault.lock().await = Some(Arc::new(vault));
+        let _ = self.events.send(Event::VaultChanged);
+        Ok(())
+    }
+
+    /// Seals the drive's key with a new phrase, from the phone that has it open: the old phrase
+    /// no longer opens it anywhere.
+    pub async fn vault_change_phrase(&self, phrase: &str) -> Result<()> {
+        self.vault().await?.change_phrase(phrase).await?;
         let _ = self.events.send(Event::VaultChanged);
         Ok(())
     }
@@ -359,6 +443,9 @@ impl Core {
         let move_dir = self.move_dir.get().cloned().context("no directory for moving")?;
         let files = self.files_dir()?.to_owned();
         let backup = vault.restore(&move_dir, &files, self.progress().await).await?;
+        // Its sessions are those of the day it was made: the first start with it renews them.
+        let (copy, _) = crate::moving::received_move(&move_dir).context("the backup did not come down whole")?;
+        Store::open(&copy).await?.set_setting(crate::SESSIONS_BEHIND, "1").await?;
         let _ = self.events.send(Event::VaultChanged);
         Ok(backup)
     }

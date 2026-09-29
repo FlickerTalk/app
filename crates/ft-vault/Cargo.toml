@@ -7,6 +7,8 @@ license = "AGPL-3.0-only"
 
 [dependencies]
 anyhow = "1"
+# The phrase is stretched before it opens the drive's key (plan-recuperacion, 2026-09-28).
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 async-trait = "0.1"
 base64 = "0.22"
 blake3 = "1"
@@ -18,6 +20,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 axum = "0.8"
