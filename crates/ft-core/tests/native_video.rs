@@ -344,9 +344,49 @@ async fn the_camera_switches_between_front_and_back() {
     let call = connected_call(&alice, &bob, true).await;
     until("alice's camera runs", || async { alice.video.camera().running }).await;
     assert_eq!(alice.video(&call).facing, Facing::Front);
+    let mut alice_events = alice.core.events();
     assert_eq!(alice.core.switch_call_camera(&call).await.expect("switches").facing, Facing::Back);
+    // The UI hears which camera is on (it mirrors only the front one), and so does a late WebView.
+    let heard = next_video(&mut alice_events, &call, |state| state.facing == Facing::Back).await;
+    assert!(heard.camera, "{heard:?}");
+    let current = alice.core.current_call().await.unwrap().expect("going on");
+    assert_eq!(current.video_state.map(|state| state.facing), Some(Facing::Back));
     until("the camera faces back", || async { alice.video.camera().facing == Some(Facing::Back) }).await;
+    assert!(alice.video.camera().running, "the camera kept running");
     assert_eq!(alice.core.switch_call_camera(&call).await.expect("switches").facing, Facing::Front);
+    next_video(&mut alice_events, &call, |state| state.facing == Facing::Front).await;
+    until("the camera faces front", || async { alice.video.camera().facing == Some(Facing::Front) }).await;
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// Switched with the camera off, or before the call connects: the camera opens facing that way.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_camera_switched_while_off_opens_facing_that_way() {
+    let (alice, bob) = two_phones().await;
+    let mut alice_events = alice.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, true).await.expect("alice calls with video");
+    ringing_call(&bob).await;
+    assert_eq!(alice.core.switch_call_camera(&call).await.expect("switched before connecting").facing, Facing::Back);
+    assert_eq!(alice.video(&call).facing, Facing::Back);
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    until("alice's camera runs facing back", || async {
+        let camera = alice.video.camera();
+        camera.running && camera.facing == Some(Facing::Back)
+    })
+    .await;
+
+    assert!(!alice.core.set_call_camera(&call, false).await.expect("off").camera);
+    until("her camera stops", || async { !alice.video.camera().running }).await;
+    assert_eq!(alice.core.switch_call_camera(&call).await.expect("switched while off").facing, Facing::Front);
+    next_video(&mut alice_events, &call, |state| !state.camera && state.facing == Facing::Front).await;
+    assert!(!alice.video.camera().running, "switching does not turn it on");
+    assert!(alice.core.set_call_camera(&call, true).await.expect("on").camera);
+    until("alice's camera runs facing front", || async {
+        let camera = alice.video.camera();
+        camera.running && camera.facing == Some(Facing::Front)
+    })
+    .await;
     alice.core.end_call(&call, false).await.unwrap();
 }
 
