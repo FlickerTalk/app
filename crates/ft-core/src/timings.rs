@@ -1,8 +1,12 @@
 //! Call setup timings (2026-09-29, temporary diagnostics): how long each step between a call's
 //! start (or its push) and its first audio took, to find where the seconds between answering and
-//! being connected go. Stage names and milliseconds only: never who, never an address.
+//! being connected go, the direct connection's (the DataChannel's) steps included. Stage names and
+//! milliseconds only: never who, never an address.
 
+use std::sync::PoisonError;
 use std::time::{Duration, Instant};
+
+use crate::Core;
 
 /// A step of a call's setup, on either side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +17,17 @@ pub enum CallStage {
     CallStarted,
     /// Our direct connection's offer, for a call, was ready to go through the router.
     LinkOffered,
+    /// Our direct connection's description (offer or answer) was made and set: its gathering began.
+    LinkGatheringStarted,
+    /// That description was taken to be sent, with the candidates gathered by then.
+    LinkGatheringDone,
+    /// The router took our direct connection's offer: the other side is connected to it.
+    LinkOfferSent,
+    /// The other side's answer to our direct connection offer arrived.
+    LinkAnswerReceived,
+    /// The other side's direct connection offer arrived (a call's or a message's: this side
+    /// cannot tell).
+    LinkOfferReceived,
     /// We answered the other side's direct connection offer.
     LinkAnswered,
     /// A direct connection with the contact opened.
@@ -47,6 +62,11 @@ impl CallStage {
             Self::CallStarted => "call started",
             Self::LinkOffered => "link offered",
             Self::LinkAnswered => "link answered",
+            Self::LinkGatheringStarted => "link gathering started",
+            Self::LinkGatheringDone => "link gathering done",
+            Self::LinkOfferSent => "link offer sent",
+            Self::LinkAnswerReceived => "link answer received",
+            Self::LinkOfferReceived => "link offer received",
             Self::LinkOpened => "link open",
             Self::OfferReceived => "offer received",
             Self::Ringing => "ringing",
@@ -81,7 +101,10 @@ pub struct Candidates {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CallTimings {
     pub stages: Vec<(CallStage, u64)>,
+    /// The call's media description.
     pub candidates: Option<Candidates>,
+    /// The direct connection's (the DataChannel's) description, when this call opened one.
+    pub link: Option<Candidates>,
 }
 
 impl CallTimings {
@@ -97,39 +120,69 @@ impl CallTimings {
         }
         let stages: Vec<String> = self.stages.iter().map(|(stage, ms)| format!("{} {ms} ms", stage.name())).collect();
         let mut line = stages.join(", ");
-        if let Some(found) = self.candidates {
-            let how = if found.complete { "complete" } else { "cut short" };
-            line.push_str(&format!("; candidates host {} srflx {} relay {}, {how}", found.host, found.srflx, found.relay));
+        for (what, found) in [("candidates", self.candidates), ("link candidates", self.link)] {
+            if let Some(found) = found {
+                let how = if found.complete { "complete" } else { "cut short" };
+                line.push_str(&format!("; {what} host {} srflx {} relay {}, {how}", found.host, found.srflx, found.relay));
+            }
         }
         line
+    }
+}
+
+impl Core {
+    /// A direct connection's description went out: when its gathering began and ended, and what
+    /// it gave.
+    pub(crate) fn mark_link_gathering(&self, gathering: &ft_webrtc::Gathering) {
+        let mut clock = self.call_clock.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(started) = gathering.started {
+            CallClock::mark(&mut clock, CallStage::LinkGatheringStarted, started);
+        }
+        if let Some(finished) = gathering.finished {
+            CallClock::mark(&mut clock, CallStage::LinkGatheringDone, finished);
+            let found = Candidates { host: gathering.host, srflx: gathering.srflx, relay: gathering.relay, complete: gathering.complete };
+            CallClock::link_gathered(&mut clock, found, finished);
+        }
     }
 }
 
 /// A clock is only joined this long after it started: a call rings for a minute at most.
 const CLOCK_WINDOW: Duration = Duration::from_secs(120);
 
+/// A clock started by a direct connection's offer is the call's only if the call's offer comes
+/// this soon after it: the connection opens within 12 s, and the call's offer goes over it at once.
+const LINK_WINDOW: Duration = Duration::from_secs(15);
+
 /// The stages of the call being set up, as they happen.
 #[derive(Debug, Clone)]
 pub(crate) struct CallClock {
     start: Instant,
     marks: Vec<(CallStage, Instant)>,
+    link: Option<Candidates>,
 }
 
 impl CallClock {
     /// `stage` was reached `at`. A push or our own call starts a new clock; their offer starts one
-    /// unless it follows a push (or its direct connection) that just started one; anything else
-    /// joins a fresh clock, and only its first time counts.
+    /// unless it follows a push or a direct connection's offer that just started one; a direct
+    /// connection's offer starts one unless a push or a call is being timed; anything else joins a
+    /// fresh clock, and only its first time counts.
     pub(crate) fn mark(clock: &mut Option<CallClock>, stage: CallStage, at: Instant) {
         let fresh = clock.as_ref().filter(|current| at.saturating_duration_since(current.start) < CLOCK_WINDOW);
         let starts = match stage {
             CallStage::PushReceived | CallStage::CallStarted => true,
-            CallStage::OfferReceived => {
-                fresh.is_none_or(|current| current.reached(CallStage::OfferReceived) || current.reached(CallStage::CallStarted))
-            }
+            CallStage::OfferReceived => fresh.is_none_or(|current| {
+                current.reached(CallStage::OfferReceived)
+                    || current.reached(CallStage::CallStarted)
+                    || (current.started_by(CallStage::LinkOfferReceived) && at.saturating_duration_since(current.start) >= LINK_WINDOW)
+            }),
+            // A newer connection replaces an older one no call came over.
+            CallStage::LinkOfferReceived => fresh.is_none_or(|current| {
+                current.started_by(CallStage::LinkOfferReceived) && !current.reached(CallStage::OfferReceived)
+            }),
             _ => false,
         };
         if starts {
-            *clock = Some(CallClock { start: at, marks: vec![(stage, at)] });
+            *clock = Some(CallClock { start: at, marks: vec![(stage, at)], link: None });
             return;
         }
         if fresh.is_none() {
@@ -138,6 +191,18 @@ impl CallClock {
         if let Some(current) = clock.as_mut().filter(|current| !current.reached(stage)) {
             current.marks.push((stage, at));
         }
+    }
+
+    /// The direct connection's description went out `at` with these candidates: kept by a fresh
+    /// clock (the last one counts: it is the connection that was used).
+    pub(crate) fn link_gathered(clock: &mut Option<CallClock>, candidates: Candidates, at: Instant) {
+        if let Some(current) = clock.as_mut().filter(|current| at.saturating_duration_since(current.start) < CLOCK_WINDOW) {
+            current.link = Some(candidates);
+        }
+    }
+
+    fn started_by(&self, stage: CallStage) -> bool {
+        self.marks.first().is_some_and(|(first, _)| *first == stage)
     }
 
     fn reached(&self, stage: CallStage) -> bool {
@@ -151,7 +216,7 @@ impl CallClock {
         let mut stages: Vec<(CallStage, Instant)> = self.marks.iter().copied().chain(known).collect();
         stages.sort_by_key(|(_, at)| *at);
         let since = |at: Instant| u64::try_from(at.saturating_duration_since(self.start).as_millis()).unwrap_or(u64::MAX);
-        CallTimings { stages: stages.into_iter().map(|(stage, at)| (stage, since(at))).collect(), candidates }
+        CallTimings { stages: stages.into_iter().map(|(stage, at)| (stage, since(at))).collect(), candidates, link: self.link }
     }
 }
 
@@ -226,12 +291,87 @@ mod tests {
         assert_eq!(clock.as_ref().expect("a clock").timings(&before, None).at(CallStage::ConnectionBuilt), Some(0));
     }
 
+    // DataChannel setup timings (2026-09-29): the answering side cannot tell a call's direct
+    // connection from a message's, so a link offer starts its clock; the call's offer that comes
+    // over that connection joins it, and so the link's stages count from its offer.
+    #[test]
+    fn a_link_offer_starts_the_answering_side_s_clock_and_the_call_s_offer_joins_it() {
+        let start = Instant::now();
+        let mut clock = None;
+        CallClock::mark(&mut clock, CallStage::LinkOfferReceived, start);
+        CallClock::mark(&mut clock, CallStage::LinkGatheringStarted, after(start, 2));
+        CallClock::mark(&mut clock, CallStage::LinkGatheringDone, after(start, 1_002));
+        CallClock::mark(&mut clock, CallStage::LinkAnswered, after(start, 1_005));
+        CallClock::mark(&mut clock, CallStage::LinkOpened, after(start, 1_300));
+        CallClock::mark(&mut clock, CallStage::OfferReceived, after(start, 1_310));
+        let timings = clock.as_ref().expect("a clock").timings(&[], None);
+        assert_eq!(timings.at(CallStage::LinkOfferReceived), Some(0));
+        assert_eq!(timings.at(CallStage::LinkGatheringDone), Some(1_002));
+        assert_eq!(timings.at(CallStage::OfferReceived), Some(1_310), "the call's offer joins the link's clock");
+
+        // After a push, the link's offer joins the push's clock.
+        let mut clock = None;
+        CallClock::mark(&mut clock, CallStage::PushReceived, start);
+        CallClock::mark(&mut clock, CallStage::LinkOfferReceived, after(start, 200));
+        CallClock::mark(&mut clock, CallStage::OfferReceived, after(start, 1_500));
+        let timings = clock.as_ref().expect("a clock").timings(&[], None);
+        assert_eq!(timings.stages, [(CallStage::PushReceived, 0), (CallStage::LinkOfferReceived, 200), (CallStage::OfferReceived, 1_500)]);
+    }
+
+    // A message's connection long before the call is not the call's; nor is an older link offer
+    // once a newer one comes.
+    #[test]
+    fn only_a_recent_link_offer_is_the_call_s() {
+        let start = Instant::now();
+        let mut clock = None;
+        CallClock::mark(&mut clock, CallStage::LinkOfferReceived, start);
+        CallClock::mark(&mut clock, CallStage::OfferReceived, after(start, 30_000));
+        let timings = clock.as_ref().expect("a clock").timings(&[], None);
+        assert_eq!(timings.stages, [(CallStage::OfferReceived, 0)], "a message's connection, long ago");
+
+        let mut clock = None;
+        CallClock::mark(&mut clock, CallStage::LinkOfferReceived, start);
+        CallClock::mark(&mut clock, CallStage::LinkOfferReceived, after(start, 5_000));
+        CallClock::mark(&mut clock, CallStage::OfferReceived, after(start, 6_000));
+        let timings = clock.as_ref().expect("a clock").timings(&[], None);
+        assert_eq!(timings.stages, [(CallStage::LinkOfferReceived, 0), (CallStage::OfferReceived, 1_000)], "the newer link");
+
+        // A call going on keeps its clock when its connection is made again.
+        let mut clock = None;
+        CallClock::mark(&mut clock, CallStage::CallStarted, start);
+        CallClock::mark(&mut clock, CallStage::LinkOfferReceived, after(start, 9_000));
+        assert_eq!(clock.as_ref().expect("a clock").timings(&[], None).at(CallStage::CallStarted), Some(0));
+    }
+
+    // The direct connection's description went out with these candidates: they go to the line
+    // after the media's.
+    #[test]
+    fn the_link_s_candidates_go_with_the_timings() {
+        let start = Instant::now();
+        let mut clock = None;
+        let link = Candidates { host: 1, srflx: 0, relay: 0, complete: false };
+        CallClock::link_gathered(&mut clock, link, start);
+        assert!(clock.is_none(), "nothing to join");
+        CallClock::mark(&mut clock, CallStage::CallStarted, start);
+        CallClock::link_gathered(&mut clock, link, after(start, 1_000));
+        let media = Candidates { host: 2, srflx: 1, relay: 1, complete: true };
+        let timings = clock.as_ref().expect("a clock").timings(&[], Some(media));
+        assert_eq!(timings.link, Some(link));
+        assert_eq!(
+            timings.line(),
+            "call started 0 ms; candidates host 2 srflx 1 relay 1, complete; link candidates host 1 srflx 0 relay 0, cut short"
+        );
+        let without_media = clock.as_ref().expect("a clock").timings(&[], None);
+        assert_eq!(without_media.line(), "call started 0 ms; link candidates host 1 srflx 0 relay 0, cut short");
+    }
+
     // The device log gets names and numbers, nothing else.
     #[test]
     fn the_line_names_stages_and_milliseconds_only() {
         let timings = CallTimings {
             stages: vec![(CallStage::OfferReceived, 0), (CallStage::AnswerSent, 1_250), (CallStage::Connected, 1_900)],
             candidates: Some(Candidates { host: 2, srflx: 1, relay: 1, complete: false }),
+            link: None,
         };
         assert_eq!(
             timings.line(),
@@ -246,7 +386,8 @@ mod tests {
     fn every_stage_has_a_name() {
         use CallStage::*;
         let all = [
-            PushReceived, CallStarted, LinkOffered, LinkAnswered, LinkOpened, OfferReceived, Ringing, AnswerTapped,
+            PushReceived, CallStarted, LinkGatheringStarted, LinkGatheringDone, LinkOffered, LinkOfferSent,
+            LinkAnswerReceived, LinkOfferReceived, LinkAnswered, LinkOpened, OfferReceived, Ringing, AnswerTapped,
             AnswerRequested, ConnectionBuilt, GatheringStarted, GatheringDone, OfferBuilt, OfferSent, AnswerBuilt,
             AnswerSent, AnswerReceived, Connected, AudioDeviceStarted, FirstAudioPacket,
         ];
