@@ -92,6 +92,11 @@ function camera() {
   unavailableTimer = setTimeout(() => (unavailable.value = false), 4000);
 }
 
+// Always on a phone (2026-09-29), but it only flips a camera that runs.
+function flip() {
+  if (cameraRunning.value) void switchCamera();
+}
+
 const body = ref<HTMLElement | null>(null);
 const remoteSlot = ref<HTMLElement | null>(null);
 const localSlot = ref<HTMLElement | null>(null);
@@ -351,11 +356,13 @@ watch(
             />
           </button>
           <button
-            v-if="native && call.view.camera && cameraReady"
+            v-if="native"
             type="button"
             class="ft-round ft-round--ghost"
+            :class="{ 'is-waiting': !cameraRunning }"
             :aria-label="$t('calls.switchCamera')"
-            @click="switchCamera"
+            :aria-disabled="!cameraRunning"
+            @click="flip"
           >
             <ion-icon :icon="cameraReverseOutline" aria-hidden="true" />
           </button>

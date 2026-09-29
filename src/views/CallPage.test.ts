@@ -249,7 +249,9 @@ describe("CallPage", () => {
 
   it("on the desktop, a voice call has no camera switch", () => {
     Object.assign(call, { id: "x", contact: "c1", phase: "active", video: false, native: false });
-    expect(mount(CallPage, { shallow: true }).find("[aria-label='Camera']").exists()).toBe(false);
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[aria-label='Camera']").exists()).toBe(false);
+    expect(wrapper.find("[aria-label='Switch camera']").exists()).toBe(false);
   });
 });
 
@@ -296,14 +298,29 @@ describe("CallPage with native video", () => {
     expect(wrapper.find("[aria-label='Camera']").attributes("aria-pressed")).toBe("true");
   });
 
-  it("offers to switch between the front and back camera only with my camera on", async () => {
+  // The flip button is always there on a phone (2026-09-29: appearing only with the camera on
+  // confused the owner), dimmed and inert while my camera is off.
+  it("always shows the flip button on a phone, usable only with my camera on", async () => {
     live();
     const wrapper = mount(CallPage, { shallow: true });
-    expect(wrapper.find("[aria-label='Switch camera']").exists()).toBe(false);
+    const flip = () => wrapper.find("[aria-label='Switch camera']");
+    expect(flip().exists()).toBe(true);
+    expect(flip().attributes("aria-disabled")).toBe("true");
+    expect(flip().classes()).toContain("is-waiting");
+    await flip().trigger("click");
+    expect(actions.switchCamera).not.toHaveBeenCalled();
     call.view = view({ camera: true });
     await nextTick();
-    await wrapper.find("[aria-label='Switch camera']").trigger("click");
+    expect(flip().attributes("aria-disabled")).toBe("false");
+    expect(flip().classes()).not.toContain("is-waiting");
+    await flip().trigger("click");
     expect(actions.switchCamera).toHaveBeenCalled();
+  });
+
+  it("keeps the flip button inert while my camera waits for the video line", async () => {
+    live({ available: false, camera: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[aria-label='Switch camera']").attributes("aria-disabled")).toBe("true");
   });
 
   // Before the call connects the core cannot open the camera yet: the switch waits to turn it on.
