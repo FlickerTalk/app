@@ -5,6 +5,11 @@
  * emitted with `window.__ftFake.emit`, and every command the UI sent is kept in
  * `window.__ftFake.calls`, so a test can assert what reached the core.
  *
+ * Calls stay on the WebView unless a test sets `window.__ftFakeNative` before the app loads: then
+ * the fake plays a phone whose calls are native (docs/video-nativo.md), connects at once, and keeps
+ * both cameras in `state.video`. `window.__ftFakeCameraDenied` makes turning the camera on fail as
+ * a denied permission does.
+ *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
 export function installFakeCore() {
@@ -81,7 +86,14 @@ export function installFakeCore() {
       ],
     } as Record<string, unknown[]>,
     nextCircle: 2,
+    // The native call's cameras, as the core's `kind: "video"` snapshot.
+    nativeContact: "",
+    video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
   };
+  const flag = (name: string) => Boolean((window as unknown as Record<string, unknown>)[name]);
+  const NATIVE_CALL = "call-e2e";
+  const callEvent = (payload: Record<string, unknown>) =>
+    emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
 
   const handlers = new Map<number, Handler>();
   const listeners = new Map<string, number[]>();
@@ -121,15 +133,35 @@ export function installFakeCore() {
         return "https://flickertalk.com/add#card";
       case "core_pending_call":
         return "";
-      // Native voice calls (2026-09-28): the fake is a browser, so calls stay on the WebView,
-      // and no call is going on when the app starts.
+      // Native calls (2026-09-28, video since 2026-09-29): the fake is a browser, so calls stay on
+      // the WebView unless a test plays a phone; no call is going on when the app starts.
       case "core_native_calls":
-        return false;
+        return flag("__ftFakeNative");
       case "core_current_call":
         return null;
+      case "core_call_start_native": {
+        // The other side answers at once and the call connects with a video line both ways.
+        state.nativeContact = String(a.contact);
+        Object.assign(state.video, { available: true, camera: Boolean(args?.video), paused: false, facing: "front", remote: false, remotePaused: false });
+        setTimeout(() => callEvent({ kind: "answered" }), 10);
+        setTimeout(() => callEvent({ kind: "connected" }), 20);
+        setTimeout(() => callEvent({ kind: "video", ...state.video }), 30);
+        return NATIVE_CALL;
+      }
+      case "core_call_set_video":
+        if (args?.on && flag("__ftFakeCameraDenied")) throw "camera_denied";
+        state.video.camera = Boolean(args?.on);
+        setTimeout(() => callEvent({ kind: "video", ...state.video }), 5);
+        return { ...state.video };
+      case "core_call_switch_camera":
+        state.video.facing = state.video.facing === "front" ? "back" : "front";
+        return { ...state.video };
+      case "core_call_end":
+        if (a.call === NATIVE_CALL) setTimeout(() => callEvent({ kind: "ended", outcome: "answered" }), 5);
+        return undefined;
       case "core_set_call_routing":
-      case "core_call_start_native":
       case "core_call_answer_native":
+      case "core_call_video_layout":
       case "core_call_mute":
       case "core_call_speaker":
         return undefined;

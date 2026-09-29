@@ -307,8 +307,9 @@ describe("calls", () => {
 });
 
 // 2026-09-28: on the phones a voice call's media runs in the Rust core (CallKit on a locked
-// iPhone has no WebView). The WebView only shows the call; video calls keep the WebView's media.
-describe("native voice calls", () => {
+// iPhone has no WebView). The WebView only shows the call. Since 2026-09-29 video calls too
+// (docs/video-nativo.md): every call on a phone is native.
+describe("native calls", () => {
   let current: Record<string, unknown> | null;
   let pending: string;
 
@@ -382,16 +383,16 @@ describe("native voice calls", () => {
     expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
   });
 
-  // A video call is the WebView's to answer: CallKit's answer with the app on the screen used to
-  // wait until the app went away and came back, so the call was never answered.
+  // CallKit's answer with the app on the screen used to wait until the app went away and came
+  // back, so a video call was never answered. It is the core's to answer now, as a voice call.
   it("answers a video call that CallKit answered with the app on the screen", async () => {
     event({ kind: "incoming", video: true, sdp: "their-offer" });
     await flushPromises();
     pending = "answer";
     tauri.handlers["ft://call-action"]({ payload: null });
     await flushPromises();
-    expect(FakePeer.last.remote).toEqual({ type: "offer", sdp: "their-offer" });
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer", expect.objectContaining({ call: "call-1" }));
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "call-1", routing: "auto" });
+    expect(calls.media.createPeer).not.toHaveBeenCalled();
   });
 
   // A "decline" is for a call that rings: one left behind by an earlier call, or CallKit's end of
@@ -411,17 +412,19 @@ describe("native voice calls", () => {
   it("places a voice call in the core, with the routing of the settings and no WebView media", async () => {
     setCallRouting("always");
     await calls.startCall("ft_bob", false);
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_start_native", { contact: "ft_bob", routing: "always" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_start_native", { contact: "ft_bob", routing: "always", video: false });
     expect(calls.media.getUserMedia).not.toHaveBeenCalled();
     expect(calls.media.createPeer).not.toHaveBeenCalled();
     expect(calls.call).toMatchObject({ id: "call-1", phase: "calling", outgoing: true, video: false });
     expect(calls.media.ringback.start).toHaveBeenCalled();
   });
 
-  it("keeps video calls on the WebView", async () => {
+  it("places a video call in the core too, with no WebView camera", async () => {
     await calls.startCall("ft_bob", true);
-    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_start_native", expect.anything());
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_start", expect.objectContaining({ contact: "ft_bob", video: true }));
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_start_native", { contact: "ft_bob", routing: "auto", video: true });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_start", expect.anything());
+    expect(calls.media.getUserMedia).not.toHaveBeenCalled();
+    expect(calls.call).toMatchObject({ native: true, video: true });
   });
 
   it("goes live when the core says the media connected", async () => {
@@ -470,7 +473,8 @@ describe("native voice calls", () => {
     await calls.startCall("ft_bob", true);
     expect(calls.call.speaker).toBe(true);
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_speaker", expect.anything());
-    FakePeer.last.connect("connected");
+    event({ kind: "answered", sdp: "their-answer" });
+    event({ kind: "connected" });
     await flushPromises();
     expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: true });
   });
@@ -523,13 +527,14 @@ describe("native voice calls", () => {
     expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
   });
 
-  it("restores a ringing video call with its offer for the WebView", async () => {
+  it("restores a ringing video call and answers it in the core", async () => {
     current = { call: "c8", contact: "ft_bob", video: true, outgoing: false, phase: "ringing", offer: "their-offer", native: false, muted: false };
     calls.reset();
     await calls.startCalls();
     expect(calls.call).toMatchObject({ id: "c8", phase: "ringing", video: true });
     await calls.acceptCall();
-    expect(FakePeer.last.remote).toEqual({ type: "offer", sdp: "their-offer" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "c8", routing: "auto" });
+    expect(calls.media.createPeer).not.toHaveBeenCalled();
   });
 
   // CallKit answered on the locked iPhone; the app opens during the call.
@@ -563,5 +568,266 @@ describe("native voice calls", () => {
     await calls.startCalls();
     await flushPromises();
     expect(tauri.invoke).toHaveBeenCalledWith("core_call_end", { call: "c10", failed: true });
+  });
+});
+
+// Native video (2026-09-29, docs/video-nativo.md): every native call can go from voice to video
+// and back at any moment. Each side owns its camera; the core says what both cameras do with a
+// whole snapshot (`kind: "video"`), never loose events.
+describe("native video", () => {
+  let current: Record<string, unknown> | null;
+  let view: Record<string, unknown>;
+  let denied: boolean;
+
+  const snapshot = (patch: Record<string, unknown> = {}) => ({
+    available: true,
+    camera: false,
+    paused: false,
+    facing: "front",
+    remote: false,
+    remotePaused: false,
+    ...patch,
+  });
+
+  function answers(command: string, args?: Record<string, unknown>) {
+    switch (command) {
+      case "core_native_calls":
+        return Promise.resolve(true);
+      case "core_call_start_native":
+        return Promise.resolve("call-1");
+      case "core_current_call":
+        return Promise.resolve(current);
+      case "core_pending_call":
+        return Promise.resolve("");
+      case "core_calls":
+        return Promise.resolve([]);
+      case "core_call_set_video":
+        if (denied && args?.on) return Promise.reject("camera_denied");
+        view = { ...view, camera: Boolean(args?.on) };
+        return Promise.resolve(view);
+      case "core_call_switch_camera":
+        view = { ...view, facing: view.facing === "front" ? "back" : "front" };
+        return Promise.resolve(view);
+      default:
+        return Promise.resolve(undefined);
+    }
+  }
+
+  const event = (payload: Record<string, unknown>) => tauri.handlers["ft://call"]({ payload: { contact: "ft_bob", call: "call-1", ...payload } });
+  const video = (patch: Record<string, unknown> = {}) => event({ kind: "video", ...snapshot(patch) });
+  const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  const layouts = () => tauri.invoke.mock.calls.filter(([command]) => command === "core_call_video_layout").map(([, args]) => args);
+
+  /** A voice call going on, on the receiver, with the video line negotiated. */
+  async function live() {
+    await calls.startCall("ft_bob", false);
+    event({ kind: "answered", sdp: "their-answer" });
+    event({ kind: "connected" });
+    video();
+    await flushPromises();
+  }
+
+  beforeEach(async () => {
+    // A test above may have left fake timers, and with them a frame that never comes.
+    vi.useRealTimers();
+    current = null;
+    view = snapshot();
+    denied = false;
+    tauri.invoke.mockReset();
+    tauri.invoke.mockImplementation(answers);
+    calls.media.getUserMedia = vi.fn();
+    calls.media.createPeer = vi.fn();
+    calls.media.ringback = { start: vi.fn(), stop: vi.fn() };
+    navigation.currentRoute.value.path = "/call/ft_bob";
+    localStorage.clear();
+    calls.reset();
+    await calls.startCalls();
+  });
+
+  it("means the camera on for a video call until the core says otherwise", async () => {
+    await calls.startCall("ft_bob", true);
+    expect(calls.call.view).toMatchObject({ available: false, camera: true, remote: false });
+    event({ kind: "video", ...snapshot({ camera: true, paused: true }) });
+    await flushPromises();
+    expect(calls.call.view).toMatchObject({ available: true, camera: true, paused: true });
+  });
+
+  it("starts a voice call with the camera off", async () => {
+    await calls.startCall("ft_bob", false);
+    expect(calls.call.view).toMatchObject({ available: false, camera: false, remote: false });
+  });
+
+  it("follows the snapshots of both cameras", async () => {
+    await live();
+    video({ remote: true });
+    await flushPromises();
+    expect(calls.call.view).toMatchObject({ available: true, camera: false, remote: true, remotePaused: false });
+    // Their phone locked or went to the background: their camera is held.
+    video({ remote: true, remotePaused: true });
+    await flushPromises();
+    expect(calls.call.view.remotePaused).toBe(true);
+    video({ remote: false });
+    await flushPromises();
+    expect(calls.call.view.remote).toBe(false);
+  });
+
+  it("ignores the video of another call", async () => {
+    await live();
+    tauri.handlers["ft://call"]({ payload: { contact: "ft_carol", call: "other", kind: "video", ...snapshot({ remote: true }) } });
+    await flushPromises();
+    expect(calls.call.view.remote).toBe(false);
+  });
+
+  it("turns my camera on and off through the core", async () => {
+    await live();
+    await calls.toggleCamera();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_set_video", { call: "call-1", on: true });
+    expect(calls.call.view.camera).toBe(true);
+    await calls.toggleCamera();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_set_video", { call: "call-1", on: false });
+    expect(calls.call.view.camera).toBe(false);
+    expect(calls.media.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("switches between the front and the back camera", async () => {
+    await live();
+    await calls.toggleCamera();
+    await calls.switchCamera();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_switch_camera", { call: "call-1" });
+    expect(calls.call.view.facing).toBe("back");
+  });
+
+  // §30: the camera is asked for when it is turned on. Denied, the call goes on as a voice call
+  // and the screen says why.
+  it("says so when the camera is not allowed, and keeps the call", async () => {
+    await live();
+    denied = true;
+    await calls.toggleCamera();
+    expect(calls.call).toMatchObject({ phase: "active", cameraDenied: true });
+    expect(calls.call.view.camera).toBe(false);
+    denied = false;
+    await calls.toggleCamera();
+    expect(calls.call).toMatchObject({ cameraDenied: false });
+    expect(calls.call.view.camera).toBe(true);
+  });
+
+  it("places a video call as a voice call when the camera is not allowed", async () => {
+    tauri.invoke.mockImplementation((command: string, args?: Record<string, unknown>) =>
+      command === "core_call_start_native" && args?.video ? Promise.reject("camera_denied") : answers(command, args),
+    );
+    await calls.startCall("ft_bob", true);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_start_native", { contact: "ft_bob", routing: "auto", video: false });
+    expect(calls.call).toMatchObject({ id: "call-1", phase: "calling", cameraDenied: true });
+    expect(calls.call.view.camera).toBe(false);
+  });
+
+  it("answers a video call as a voice call when the camera is not allowed", async () => {
+    tauri.invoke.mockImplementation((command: string, args?: Record<string, unknown>) =>
+      command === "core_call_answer_native" ? Promise.reject("camera_denied") : answers(command, args),
+    );
+    event({ kind: "incoming", video: true, sdp: "their-offer" });
+    await calls.acceptCall();
+    expect(calls.call).toMatchObject({ phase: "connecting", cameraDenied: true });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_end", expect.anything());
+  });
+
+  // With pictures on the screen nobody holds the phone to the ear.
+  it("moves the voice to the speaker when video comes in", async () => {
+    await live();
+    expect(calls.call.speaker).toBe(false);
+    video({ remote: true });
+    await flushPromises();
+    expect(calls.call.speaker).toBe(true);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: true });
+    tauri.invoke.mockClear();
+    video({ remote: true, camera: true });
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_speaker", expect.anything());
+  });
+
+  it("measures a video's place in CSS pixels", () => {
+    const slot = document.createElement("div");
+    slot.getBoundingClientRect = () => ({ x: 278, y: 594, width: 96, height: 140 }) as DOMRect;
+    expect(calls.rectOf(slot)).toEqual({ x: 278, y: 594, width: 96, height: 140 });
+    expect(calls.rectOf(null)).toBeNull();
+  });
+
+  it("tells the core where the video goes, at most once a frame and only when it changes", async () => {
+    await live();
+    const layout = { remote: { x: 0, y: 0, width: 390, height: 844 }, local: null, mirrorLocal: true, localRadius: 16 };
+    calls.layoutVideo(() => layout);
+    calls.layoutVideo(() => layout);
+    expect(layouts()).toEqual([]);
+    await frame();
+    expect(layouts()).toEqual([{ layout }]);
+    calls.layoutVideo(() => layout);
+    await frame();
+    expect(layouts()).toHaveLength(1);
+    const moved = { ...layout, local: { x: 20, y: 600, width: 96, height: 140 } };
+    calls.layoutVideo(() => moved);
+    await frame();
+    expect(layouts()).toEqual([{ layout }, { layout: moved }]);
+  });
+
+  // The native views may come up after the layout was sent: every snapshot sends it again.
+  it("sends the layout again after each video snapshot", async () => {
+    await live();
+    const layout = { remote: null, local: null, mirrorLocal: true, localRadius: 16 };
+    calls.layoutVideo(() => layout);
+    await frame();
+    video({ remote: true });
+    await flushPromises();
+    calls.layoutVideo(() => layout);
+    await frame();
+    expect(layouts()).toHaveLength(2);
+  });
+
+  it("hides the video when the call screen goes", async () => {
+    await live();
+    calls.layoutVideo(() => ({ remote: null, local: null, mirrorLocal: true, localRadius: 16 }));
+    calls.hideVideo();
+    await frame();
+    expect(layouts()).toEqual([{ layout: null }]);
+  });
+
+  it("restores a native video call with both cameras", async () => {
+    current = {
+      call: "c9",
+      contact: "ft_bob",
+      video: snapshot({ camera: true, remote: true }),
+      outgoing: false,
+      phase: "active",
+      native: true,
+      muted: false,
+      connectedAt: 1,
+    };
+    calls.reset();
+    await calls.startCalls();
+    expect(calls.call).toMatchObject({ id: "c9", native: true, video: true, speaker: true });
+    expect(calls.call.view).toMatchObject({ available: true, camera: true, remote: true });
+  });
+});
+
+describe("video on the desktop", () => {
+  beforeEach(async () => {
+    vi.useRealTimers();
+    tauri.invoke.mockReset();
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_call_ice" ? servers : command === "core_call_start" ? "call-1" : command === "core_calls" ? [] : undefined),
+    );
+    calls.media.getUserMedia = vi.fn(async (constraints: MediaStreamConstraints) => new FakeStream(Boolean(constraints.video)) as unknown as MediaStream);
+    calls.media.createPeer = (config: RTCConfiguration) => new FakePeer(config) as unknown as RTCPeerConnection;
+    calls.media.ringback = { start: vi.fn(), stop: vi.fn() };
+    calls.reset();
+    await calls.startCalls();
+  });
+
+  it("keeps the WebView's media and sends no native layout", async () => {
+    await calls.startCall("ft_bob", true);
+    expect(calls.call.native).toBe(false);
+    calls.layoutVideo(() => ({ remote: null, local: null, mirrorLocal: true, localRadius: 16 }));
+    calls.hideVideo();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_video_layout", expect.anything());
   });
 });
