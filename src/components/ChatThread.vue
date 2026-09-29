@@ -69,6 +69,7 @@ import {
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBackWhile } from "../back";
 import { t } from "../i18n";
+import { useStickToEnd, type Scrollable } from "../viewport";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
 
@@ -385,8 +386,8 @@ async function save(id: string) {
   saved.add(id);
 }
 
-type Scrollable = { $el?: { scrollToBottom?: (duration: number) => Promise<void> } };
 const content = ref<Scrollable | null>(null);
+useStickToEnd(content);
 
 async function scrollToEnd() {
   await nextTick();

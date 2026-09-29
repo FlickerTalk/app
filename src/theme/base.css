@@ -5,6 +5,19 @@ body {
   background: var(--ft-bg);
 }
 
+/* The on-screen keyboard (2026-09-29, viewport.ts): the WebViews shrink only what can be seen, not
+   the page, so the app follows what can be seen. The header stays at its top, the content
+   shrinks and the footer sits on the keyboard. `.ion-page` because Ionic places the app with it. */
+ion-app.ion-page {
+  inset-block-start: var(--ft-viewport-top, 0px);
+  inset-block-end: auto;
+  block-size: var(--ft-viewport-height, 100%);
+}
+/* The keyboard covers the home indicator and the navigation bar: no room is kept for them. */
+html.ft-keyboard-open {
+  --ion-safe-area-bottom: 0px;
+}
+
 ion-toolbar {
   --padding-start: 12px;
   --padding-end: 8px;
