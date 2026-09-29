@@ -40,6 +40,14 @@ impl VideoProbe {
         let display = self.display.lock().unwrap_or_else(PoisonError::into_inner).clone();
         display.map(|probe| probe.lock().unwrap_or_else(PoisonError::into_inner).clone()).unwrap_or_default()
     }
+
+    /// Whether the latest fake camera and display are gone (dropped), or none was made.
+    pub fn released(&self) -> bool {
+        let alone = |probe: Option<usize>| probe.is_none_or(|count| count == 1);
+        let camera = self.camera.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(Arc::strong_count);
+        let display = self.display.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(Arc::strong_count);
+        alone(camera) && alone(display)
+    }
 }
 
 /// A video platform on the engine's fakes (a camera that makes up H.264 frames, a display that
@@ -318,6 +326,9 @@ mod tests {
         devices.sink.start().expect("the display starts");
         assert!(probe.display().running);
         assert!(!probe.camera().running, "the camera opens only when started");
+        assert!(!probe.released(), "the devices are alive");
+        drop(devices);
+        assert!(probe.released());
     }
 
     #[test]
