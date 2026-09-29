@@ -404,7 +404,7 @@ impl Core {
         let connected_at = native.as_ref().and_then(|native| native.connected_at());
         let phase = match (record.answered_at.is_some(), record.outgoing, connected_at.is_some()) {
             (false, true, _) => CallPhase::Calling,
-            // Answered on the phone's own screen before its offer came: never ringing again.
+            // Being answered (2026-09-29), maybe before its offer came: never ringing again.
             (false, false, _) if self.answered_early(&call) => CallPhase::Connecting,
             (false, false, _) => CallPhase::Ringing,
             (true, _, true) => CallPhase::Active,
