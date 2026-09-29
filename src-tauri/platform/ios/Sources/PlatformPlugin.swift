@@ -507,6 +507,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private var voiceConnected = false
     /// What the user did in CallKit for this call, for the WebView (`pendingCall`).
     private var choice = CallChoice()
+    /// Whether incoming calls are reported as video calls, so that answering opens the app.
+    private let openAppOnAnswer = OpenAppOnAnswerSetting()
 
     override init() {
         provider = CXProvider(configuration: callProviderConfiguration(icon: callKitIcon))
@@ -623,17 +625,17 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         CallEvents.shared.emit(.end)
     }
 
+    /// The call's name and video for CallKit: `callUpdate`, with this call's direction and the
+    /// switch that opens the app on answer.
     private func update(caller: String, video: Bool) -> CXCallUpdate {
-        let update = CXCallUpdate()
-        let name = caller.isEmpty ? NSLocalizedString("FT_INCOMING_CALL", comment: "") : caller
-        update.remoteHandle = CXHandle(type: .generic, value: name)
-        update.localizedCallerName = name
-        update.hasVideo = video
-        update.supportsHolding = false
-        update.supportsGrouping = false
-        update.supportsUngrouping = false
-        update.supportsDTMF = false
-        return update
+        callUpdate(caller: caller, video: video, outgoing: outgoing, openAppOnAnswer: openAppOnAnswer.on)
+    }
+
+    /// Opening the app when an incoming call is answered (experiment, `OpenAppOnAnswer.swift`):
+    /// from the next call on; the call ringing now keeps what CallKit was told.
+    func setOpenAppOnAnswer(_ on: Bool) {
+        diagnose("core: open the app on answer=\(on)")
+        openAppOnAnswer.on = on
     }
 
     /// A new call: what the last one left behind is forgotten.
@@ -668,7 +670,9 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         ringingSince = Date()
         watch(uuid, after: callRingLimit)
         configureProvider()
-        provider.reportNewIncomingCall(with: uuid, update: update(caller: caller, video: video)) { [weak self] error in
+        let shown = update(caller: caller, video: video)
+        diagnose("callkit reports an incoming call hasVideo=\(shown.hasVideo)")
+        provider.reportNewIncomingCall(with: uuid, update: shown) { [weak self] error in
             if let error {
                 diagnose("callkit refused the incoming call code=\((error as NSError).code)")
                 if self?.current == uuid { self?.current = nil }
@@ -739,7 +743,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     func setVideo(_ on: Bool) {
         guard let current else { return }
         diagnose("core: call video=\(on)")
-        provider.reportCall(with: current, updated: videoUpdate(on))
+        provider.reportCall(with: current, updated: videoUpdate(on, outgoing: outgoing, openAppOnAnswer: openAppOnAnswer.on))
     }
 
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
@@ -1043,6 +1047,16 @@ class PlatformPlugin: Plugin {
     @objc public func detachVideo(_ invoke: Invoke) throws {
         DispatchQueue.main.async {
             CallVideoViews.shared.detach()
+            invoke.resolve()
+        }
+    }
+
+    /// Opening the app when an incoming call is answered (experiment, 2026-09-29): the core says
+    /// whether incoming calls are reported to CallKit as video calls (`OpenAppOnAnswer.swift`).
+    @objc public func setOpenAppOnAnswer(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OpenAppOnAnswerArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.setOpenAppOnAnswer(args.on)
             invoke.resolve()
         }
     }
