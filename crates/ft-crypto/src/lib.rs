@@ -71,6 +71,19 @@ impl Channel {
         Ok(Self { sessions: vec![session] })
     }
 
+    /// A new outgoing session from the peer's card, the one that encrypts from now on (2026-09-28):
+    /// after a restore the sessions are those of the backup, behind the peer's and with keys
+    /// already spent. Its first messages are pre-key ones, so the peer takes it up; the old
+    /// sessions stay to read what still fits them.
+    pub fn renew(&mut self, identity: &Identity, peer: &ContactKeys) -> Result<()> {
+        let fresh = Self::open(identity, peer)?;
+        self.sessions.extend(fresh.sessions);
+        if self.sessions.len() > MAX_SESSIONS {
+            self.sessions.remove(0);
+        }
+        Ok(())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty()
     }
@@ -311,6 +324,52 @@ mod tests {
         at_alice.decrypt(&mut alice.identity, bob.identity.exchange_key(), &ack).expect("reads");
         let normal = at_alice.encrypt(&alice.identity.device_id(), b"normal").expect("encrypts");
         assert!(accept_first_contact(&mut bob.identity, &normal).is_err());
+    }
+
+    // Plan-recuperacion §5 (2026-09-28): a phone restored from a backup has the sessions as they
+    // were then. What the contact sends now does not fit them, and what it would send from them
+    // reuses keys already spent. A new session from the contact's card puts both back in step.
+    #[test]
+    fn a_restored_channel_is_put_back_in_step_with_a_new_session() {
+        let (mut alice, mut bob) = (Device::new(), Device::new());
+        let bob_keys = bob.card_keys();
+        let mut at_alice = Channel::open(&alice.identity, &bob_keys).expect("opens");
+        let mut at_bob = Channel::default();
+        let hello = at_alice.encrypt(&alice.identity.device_id(), b"hello").expect("encrypts");
+        at_bob.decrypt(&mut bob.identity, alice.identity.exchange_key(), &hello).expect("reads");
+        let ack = at_bob.encrypt(&bob.identity.device_id(), b"ok").expect("encrypts");
+        at_alice.decrypt(&mut alice.identity, bob.identity.exchange_key(), &ack).expect("reads");
+
+        // The backup: Alice's identity and channel as they are now.
+        let (backup_identity, backup_channel) = (alice.identity.seal(&KEY), at_alice.seal(&KEY));
+
+        // They keep talking, both ways, on the lost phone.
+        for round in 0..3 {
+            let text = format!("after the backup {round}");
+            let sealed = at_alice.encrypt(&alice.identity.device_id(), text.as_bytes()).expect("encrypts");
+            at_bob.decrypt(&mut bob.identity, alice.identity.exchange_key(), &sealed).expect("reads");
+            let sealed = at_bob.encrypt(&bob.identity.device_id(), text.as_bytes()).expect("encrypts");
+            at_alice.decrypt(&mut alice.identity, bob.identity.exchange_key(), &sealed).expect("reads");
+        }
+
+        // The new phone, from the backup.
+        let mut restored = Identity::unseal(&backup_identity, &KEY).expect("restores");
+        let mut channel = Channel::unseal(&backup_channel, &KEY).expect("restores");
+        let from_bob = at_bob.encrypt(&bob.identity.device_id(), b"are you there?").expect("encrypts");
+        let mut as_backed_up = Channel::unseal(&backup_channel, &KEY).expect("restores");
+        assert!(as_backed_up.decrypt(&mut restored, bob.identity.exchange_key(), &from_bob).is_err(), "the old sessions are behind");
+
+        channel.renew(&restored, &bob_keys).expect("renews");
+        let back = channel.encrypt(&restored.device_id(), b"I am back").expect("encrypts");
+        assert_eq!(back.kind, SealedKind::PreKey, "a new session, so bob can take it up");
+        assert_eq!(at_bob.decrypt(&mut bob.identity, restored.exchange_key(), &back).expect("bob reads it"), b"I am back");
+        for round in 0..3 {
+            let text = format!("in step again {round}");
+            let sealed = at_bob.encrypt(&bob.identity.device_id(), text.as_bytes()).expect("encrypts");
+            assert_eq!(channel.decrypt(&mut restored, bob.identity.exchange_key(), &sealed).expect("alice reads"), text.as_bytes());
+            let sealed = channel.encrypt(&restored.device_id(), text.as_bytes()).expect("encrypts");
+            assert_eq!(at_bob.decrypt(&mut bob.identity, restored.exchange_key(), &sealed).expect("bob reads"), text.as_bytes());
+        }
     }
 
     #[test]

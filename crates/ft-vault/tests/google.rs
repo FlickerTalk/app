@@ -305,11 +305,11 @@ async fn a_whole_drive_lives_on_google() {
     let google: Arc<dyn Provider> = Arc::new(GoogleDrive::at(&base, &format!("{base}/token"), "client", keeper.clone()).unwrap());
     let home = std::env::temp_dir().join(format!("ft-vault-google-{}", ft_vault::index::new_id()));
     std::fs::create_dir_all(&home).unwrap();
-    let (vault, code) = Vault::create(google.clone(), home.join("vault"), "phone-a").await.unwrap();
+    let vault = Vault::create(google.clone(), home.join("vault"), "phone-a", "a long phrase of mine").await.unwrap();
     std::fs::write(home.join("a.txt"), b"hello drive").unwrap();
     let id = vault.upload(&home.join("a.txt"), "a.txt", "text/plain", None, quiet()).await.unwrap().unwrap();
     let again: Arc<dyn Provider> = Arc::new(GoogleDrive::at(&base, &format!("{base}/token"), "client", keeper).unwrap());
-    let recovered = Vault::recover(again, home.join("vault2"), "phone-b", &code).await.unwrap();
+    let recovered = Vault::recover(again, home.join("vault2"), "phone-b", "a long phrase of mine").await.unwrap();
     recovered.download(&id, &home.join("b.txt"), quiet()).await.unwrap();
     assert_eq!(std::fs::read(home.join("b.txt")).unwrap(), b"hello drive");
 }

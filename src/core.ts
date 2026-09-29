@@ -999,14 +999,21 @@ export interface DriveStatus {
   backupAt: number | null;
 }
 
-/** `none`: no cloud; `empty`: logged in, no drive yet; `locked`: a drive from another phone; `ready`. */
-export type VaultState = "none" | "empty" | "locked" | "ready";
+/**
+ * `none`: no cloud; `empty`: logged in, no drive yet; `locked`: a drive from another phone;
+ * `outdated`: a drive of the first version, made again; `ready`.
+ */
+export type VaultState = "none" | "empty" | "locked" | "outdated" | "ready";
 
 export interface VaultStatus {
   state: VaultState;
   provider: string | null;
   drive: DriveStatus | null;
   problem: string | null;
+  /** Wrong recovery phrases this phone may still try (2026-09-28). */
+  triesLeft?: number;
+  /** Until when the recovery is locked here after too many wrong phrases, if it is. */
+  retryAt?: number | null;
 }
 
 export interface DriveFolder {
@@ -1055,14 +1062,29 @@ export async function vaultConnect(provider = "google"): Promise<VaultStatus> {
   return invoke<VaultStatus>("core_vault_connect", { provider });
 }
 
-/** Makes the drive; the recovery code comes back once. */
-export async function vaultSetup(): Promise<string> {
-  return invoke<string>("core_vault_setup");
+/** Makes the drive, its key sealed with the phrase the user chose; the phrase is kept nowhere. */
+export async function vaultSetup(phrase: string): Promise<void> {
+  await invoke("core_vault_setup", { phrase });
 }
 
-export async function vaultUnlock(code: string): Promise<void> {
-  await invoke("core_vault_unlock", { code });
+/** Opens a drive from another phone with its phrase; five wrong ones lock it for a day. */
+export async function vaultUnlock(phrase: string): Promise<void> {
+  await invoke("core_vault_unlock", { phrase });
 }
+
+/** A strong phrase, for whoever wants the app to suggest one. */
+export async function vaultSuggestPhrase(): Promise<string> {
+  return invoke<string>("core_vault_suggest_phrase");
+}
+
+/** Seals the drive's key with a new phrase; the old one stops opening it. */
+export async function vaultChangePhrase(phrase: string): Promise<void> {
+  await invoke("core_vault_change_phrase", { phrase });
+}
+
+/** The limits of a recovery phrase, in characters, as the core counts them. */
+export const PHRASE_MIN = 12;
+export const PHRASE_MAX = 100;
 
 export async function vaultDisconnect(): Promise<void> {
   await invoke("core_vault_disconnect");

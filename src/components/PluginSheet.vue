@@ -38,9 +38,7 @@ import {
   vaultRestore,
   vaultRetry,
   vaultSave,
-  vaultSetup,
   vaultStatus,
-  vaultUnlock,
   vaultUpload,
   vaultUploadMessage,
   PLUGIN_EVENT,
@@ -185,11 +183,11 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
       return vaultStatus();
     case "connect":
       return vaultConnect(said.a || "google");
+    // The recovery phrase is typed only in Settings → Backup (2026-09-28): a plugin can neither
+    // set the drive up nor open it, so the phrase never crosses the frame.
     case "setup":
-      return vaultSetup();
     case "unlock":
-      await vaultUnlock(said.a);
-      return true;
+      return false;
     case "disconnect":
       await vaultDisconnect();
       return true;

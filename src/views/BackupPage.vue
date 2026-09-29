@@ -12,15 +12,31 @@ import {
   IonTitle,
   IonToolbar,
 } from "@ionic/vue";
-import { checkmarkCircleOutline, cloudOutline, cloudUploadOutline, keyOutline, lockClosedOutline, warningOutline } from "ionicons/icons";
+import {
+  checkmarkCircleOutline,
+  cloudOutline,
+  cloudUploadOutline,
+  copyOutline,
+  keyOutline,
+  lockClosedOutline,
+  shareSocialOutline,
+  sparklesOutline,
+  timeOutline,
+  warningOutline,
+} from "ionicons/icons";
 import {
   formatSize,
+  PHRASE_MAX,
+  PHRASE_MIN,
+  shareText,
   vaultBackup,
+  vaultChangePhrase,
   vaultConnect,
   vaultDisconnect,
   vaultRestore,
   vaultSetup,
   vaultStatus,
+  vaultSuggestPhrase,
   vaultUnlock,
   VAULT_EVENT,
   VAULT_PROGRESS_EVENT,
@@ -29,10 +45,15 @@ import {
 import { t } from "../i18n";
 
 // Plan-drive (2026-09-27), §61: a sealed copy of this phone in the user's own cloud. The core
-// logs in through the system browser, seals everything on the phone and shows the recovery
-// code once; this page only asks and shows. Nothing of it reaches our server.
+// logs in through the system browser and seals everything on the phone; this page only asks and
+// shows. Nothing of it reaches our server. The recovery phrase (plan-recuperacion, 2026-09-28)
+// is the user's: written here twice, kept wherever they like, never by the app. It is only ever
+// typed on this page, never in a plugin; whoever does not set it up cannot recover the account.
 const status = ref<VaultStatus>({ state: "none", provider: null, drive: null, problem: null });
-const code = ref("");
+/** The phrase form, when open: for a new drive, or to change the phrase of this one. */
+const form = ref<"setup" | "change" | null>(null);
+const phrase = ref("");
+const again = ref("");
 const typed = ref("");
 const working = ref(false);
 const error = ref("");
@@ -41,6 +62,18 @@ const asksToRestore = ref(false);
 const asksToForget = ref(false);
 const restarting = ref(false);
 const done = ref("");
+
+/** A phrase as the core counts it: trimmed, composed, in characters. */
+const counted = (value: string) => value.trim().normalize("NFC");
+const length = computed(() => [...counted(phrase.value)].length);
+const mismatch = computed(() => again.value !== "" && counted(again.value) !== counted(phrase.value));
+const acceptable = computed(() => length.value >= PHRASE_MIN && length.value <= PHRASE_MAX && !mismatch.value && again.value !== "");
+/** What went wrong, honestly (§84); a wrong phrase is just that, not "something went wrong". */
+const shownError = computed(() => {
+  const said = error.value || status.value.problem || "";
+  return said === t("backup.wrongPhrase") ? said : t("backup.failed", { error: said });
+});
+const retryAt = computed(() => (status.value.retryAt ? new Date(status.value.retryAt).toLocaleString() : ""));
 
 const percent = computed(() => (progress.value?.total ? Math.round((progress.value.done / progress.value.total) * 100) : 0));
 const lastBackup = computed(() => {
@@ -80,7 +113,8 @@ async function step(work: () => Promise<void>) {
   try {
     await work();
   } catch (failure) {
-    error.value = String(failure);
+    const said = String(failure);
+    error.value = said.includes("does not open this drive") ? t("backup.wrongPhrase") : said;
   } finally {
     working.value = false;
     progress.value = null;
@@ -89,14 +123,50 @@ async function step(work: () => Promise<void>) {
 }
 
 const connect = () => step(async () => void (await vaultConnect("google")));
-const setUp = () =>
+function openForm(kind: "setup" | "change") {
+  form.value = kind;
+  phrase.value = "";
+  again.value = "";
+  error.value = "";
+  done.value = "";
+}
+
+function closeForm() {
+  form.value = null;
+  phrase.value = "";
+  again.value = "";
+}
+
+async function suggest() {
+  const suggested = await vaultSuggestPhrase().catch(() => "");
+  phrase.value = suggested;
+  again.value = suggested;
+}
+
+/** To keep it wherever the user likes: a password manager, a note, another account. */
+async function copyPhrase() {
+  await navigator.clipboard?.writeText(phrase.value).catch(() => undefined);
+}
+
+async function sharePhrase() {
+  await shareText(phrase.value).catch(() => undefined);
+}
+
+const savePhrase = () =>
   step(async () => {
-    code.value = await vaultSetup();
+    const kind = form.value;
+    if (kind === "setup") await vaultSetup(phrase.value);
+    else await vaultChangePhrase(phrase.value);
+    closeForm();
+    if (kind === "change") done.value = t("backup.phraseChanged");
   });
 const unlock = () =>
   step(async () => {
-    await vaultUnlock(typed.value);
-    typed.value = "";
+    try {
+      await vaultUnlock(typed.value);
+    } finally {
+      typed.value = "";
+    }
   });
 const backUp = () =>
   step(async () => {
@@ -135,13 +205,55 @@ const forget = () =>
           <p class="ft-backup__hint">{{ $t("move.restarting") }}</p>
         </template>
 
-        <!-- The recovery code, once: the app forgets it the moment this page does. -->
-        <template v-else-if="code">
+        <!-- The recovery phrase: the user's, written twice; the app forgets it once it is used. -->
+        <template v-else-if="form">
           <ion-icon :icon="keyOutline" class="ft-backup__big" aria-hidden="true" />
-          <p class="ft-backup__title">{{ $t("backup.codeTitle") }}</p>
-          <code class="ft-backup__code" data-test="recovery-code">{{ code }}</code>
-          <p class="ft-backup__hint">{{ $t("backup.codeHint") }}</p>
-          <ion-button shape="round" data-test="code-done" @click="code = ''">{{ $t("backup.codeDone") }}</ion-button>
+          <p class="ft-backup__title">{{ $t(form === "setup" ? "backup.phraseTitle" : "backup.changePhrase") }}</p>
+          <p class="ft-backup__hint">{{ $t("backup.phraseHint") }}</p>
+          <input
+            v-model="phrase"
+            type="text"
+            class="ft-backup__input ft-backup__phrase"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            :maxlength="PHRASE_MAX * 2"
+            :placeholder="$t('backup.phrasePlaceholder')"
+            :aria-label="$t('backup.phrasePlaceholder')"
+            data-test="phrase"
+          />
+          <input
+            v-model="again"
+            type="text"
+            class="ft-backup__input ft-backup__phrase"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            :maxlength="PHRASE_MAX * 2"
+            :placeholder="$t('backup.phraseAgain')"
+            :aria-label="$t('backup.phraseAgain')"
+            data-test="phrase-again"
+          />
+          <p class="ft-backup__hint" data-test="phrase-rule">{{ $t("backup.phraseRule", { min: PHRASE_MIN, max: PHRASE_MAX }) }} · {{ length }}</p>
+          <p v-if="mismatch" class="ft-backup__error" data-test="phrase-mismatch">{{ $t("backup.phraseMismatch") }}</p>
+          <div class="ft-backup__tools">
+            <button type="button" class="ft-backup__tool" data-test="suggest" :aria-label="$t('backup.suggest')" @click="suggest">
+              <ion-icon :icon="sparklesOutline" aria-hidden="true" /> {{ $t("backup.suggest") }}
+            </button>
+            <button type="button" class="ft-backup__tool" data-test="copy-phrase" :disabled="!phrase" :aria-label="$t('backup.copy')" @click="copyPhrase">
+              <ion-icon :icon="copyOutline" aria-hidden="true" /> {{ $t("backup.copy") }}
+            </button>
+            <button type="button" class="ft-backup__tool" data-test="share-phrase" :disabled="!phrase" :aria-label="$t('backup.share')" @click="sharePhrase">
+              <ion-icon :icon="shareSocialOutline" aria-hidden="true" /> {{ $t("backup.share") }}
+            </button>
+          </div>
+          <p class="ft-backup__hint ft-backup__warn">{{ $t("backup.notSameGoogle") }}</p>
+          <ion-button shape="round" data-test="phrase-confirm" :disabled="working || !acceptable" @click="savePhrase">
+            {{ $t("backup.phraseConfirm") }}
+          </ion-button>
+          <ion-button fill="clear" size="small" :disabled="working" @click="closeForm">{{ $t("common.cancel") }}</ion-button>
         </template>
 
         <template v-else-if="status.state === 'none'">
@@ -153,32 +265,41 @@ const forget = () =>
           </ion-button>
         </template>
 
-        <template v-else-if="status.state === 'empty'">
+        <template v-else-if="status.state === 'empty' || status.state === 'outdated'">
           <ion-icon :icon="cloudUploadOutline" class="ft-backup__big" aria-hidden="true" />
-          <p class="ft-backup__title">{{ $t("backup.empty") }}</p>
-          <p class="ft-backup__hint">{{ $t("backup.emptyHint") }}</p>
-          <ion-button shape="round" data-test="set-up" :disabled="working" @click="setUp">{{ $t("backup.setUp") }}</ion-button>
+          <p class="ft-backup__title">{{ $t(status.state === "empty" ? "backup.empty" : "backup.outdated") }}</p>
+          <p class="ft-backup__hint">{{ $t(status.state === "empty" ? "backup.emptyHint" : "backup.outdatedHint") }}</p>
+          <ion-button shape="round" data-test="set-up" :disabled="working" @click="openForm('setup')">{{ $t("backup.setUp") }}</ion-button>
         </template>
 
         <template v-else-if="status.state === 'locked'">
-          <ion-icon :icon="lockClosedOutline" class="ft-backup__big" aria-hidden="true" />
+          <ion-icon :icon="retryAt ? timeOutline : lockClosedOutline" class="ft-backup__big" aria-hidden="true" />
           <p class="ft-backup__title">{{ $t("backup.locked") }}</p>
-          <p class="ft-backup__hint">{{ $t("backup.unlockHint") }}</p>
-          <div class="ft-backup__row">
-            <input
-              v-model="typed"
-              type="text"
-              class="ft-backup__input"
-              autocapitalize="characters"
-              autocomplete="off"
-              :placeholder="$t('backup.codePlaceholder')"
-              :aria-label="$t('backup.codePlaceholder')"
-              data-test="code-input"
-            />
-            <button type="button" class="ft-backup__go" data-test="unlock" :disabled="working || !typed.trim()" @click="unlock">
-              {{ $t("backup.unlockNow") }}
-            </button>
-          </div>
+          <!-- Too many wrong phrases on this phone: not even the right one is tried until then. -->
+          <p v-if="retryAt" class="ft-backup__hint" role="status" data-test="retry-at">{{ $t("backup.retryAt", { when: retryAt }) }}</p>
+          <template v-else>
+            <p class="ft-backup__hint">{{ $t("backup.unlockHint") }}</p>
+            <div class="ft-backup__row">
+              <input
+                v-model="typed"
+                type="text"
+                class="ft-backup__input"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                :placeholder="$t('backup.phrasePlaceholder')"
+                :aria-label="$t('backup.phrasePlaceholder')"
+                data-test="phrase-input"
+              />
+              <button type="button" class="ft-backup__go" data-test="unlock" :disabled="working || !typed.trim()" @click="unlock">
+                {{ $t("backup.unlockNow") }}
+              </button>
+            </div>
+            <p v-if="(status.triesLeft ?? 5) < 5" class="ft-backup__hint" data-test="tries-left">
+              {{ $t("backup.triesLeft", { count: status.triesLeft ?? 0 }) }}
+            </p>
+          </template>
         </template>
 
         <template v-else>
@@ -204,6 +325,9 @@ const forget = () =>
             </div>
           </template>
 
+          <ion-button fill="clear" size="small" data-test="change-phrase" :disabled="working" @click="openForm('change')">
+            {{ $t("backup.changePhrase") }}
+          </ion-button>
           <ion-button v-if="!asksToForget" fill="clear" size="small" data-test="forget" :disabled="working" @click="asksToForget = true">
             {{ $t("backup.forget") }}
           </ion-button>
@@ -227,7 +351,7 @@ const forget = () =>
         </span>
         <p v-if="done" class="ft-backup__hint is-done" role="status">{{ done }}</p>
         <p v-if="error || status.problem" class="ft-backup__error" role="alert">
-          <ion-icon :icon="warningOutline" aria-hidden="true" /> {{ $t("backup.failed", { error: error || status.problem }) }}
+          <ion-icon :icon="warningOutline" aria-hidden="true" /> {{ shownError }}
         </p>
         <p class="ft-backup__hint ft-backup__foot">{{ $t("backup.sees") }}</p>
       </div>
@@ -269,14 +393,32 @@ const forget = () =>
   margin-top: var(--ft-space-4);
   font-size: 12px;
 }
-.ft-backup__code {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: var(--ft-surface-2);
-  font-size: 18px;
-  letter-spacing: 1px;
-  user-select: all;
-  word-break: break-all;
+.ft-backup__phrase {
+  flex: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ft-backup__tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.ft-backup__tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  color: var(--ft-text);
+  background: var(--ft-surface);
+}
+.ft-backup__tool:disabled {
+  opacity: 0.5;
+}
+.ft-backup__warn {
+  font-weight: 600;
 }
 .ft-backup__row {
   display: flex;
@@ -298,7 +440,7 @@ const forget = () =>
   border: 0;
   border-radius: 14px;
   font-weight: 600;
-  color: #fff;
+  color: var(--ft-on-accent);
   background: var(--ft-accent);
 }
 .ft-backup__go:disabled {

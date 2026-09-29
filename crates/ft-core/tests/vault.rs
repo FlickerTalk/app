@@ -10,7 +10,7 @@ use ft_core::{Core, Event, Peer, Transport};
 use ft_plugins::{sign_package, Permissions};
 use ft_storage::Store;
 use ft_vault::google::{TokenKeeper, Tokens};
-use ft_vault::{Memory, Provider};
+use ft_vault::{cipher, Memory, Provider};
 use vodozemac::Ed25519SecretKey;
 
 struct Offline;
@@ -70,6 +70,21 @@ impl Authorizer for Browser {
     }
 }
 
+/// Whether any file under `dir` holds these bytes.
+fn anywhere(dir: &std::path::Path, needle: &[u8]) -> bool {
+    std::fs::read_dir(dir).into_iter().flatten().flatten().any(|entry| {
+        let path = entry.path();
+        if path.is_dir() {
+            anywhere(&path, needle)
+        } else {
+            std::fs::read(&path).is_ok_and(|bytes| bytes.windows(needle.len()).any(|window| window == needle))
+        }
+    })
+}
+
+/// The phrase the user chose (plan-recuperacion, 2026-09-28).
+const PHRASE: &str = "a long phrase of mine";
+
 async fn phone(name: &str, cloud: &Arc<Memory>) -> (Arc<Core>, PathBuf) {
     let dir = scratch(name);
     // On disk: the backup takes a snapshot of the database (`VACUUM INTO`), as the app's is.
@@ -98,17 +113,22 @@ async fn the_drive_is_connected_through_the_browser_set_up_and_used() {
     assert_eq!(status.state, VaultState::Empty, "logged in; the cloud has no drive yet");
     assert_eq!(browser.opened.lock().unwrap().len(), 1);
     let mut events = core.events();
-    let code = core.vault_setup().await.unwrap();
-    assert_eq!(code.len(), 35);
+    assert_eq!(core.vault_suggest_phrase().chars().count(), 35, "a strong phrase, for whoever wants one");
+    assert!(core.vault_setup("too short").await.is_err(), "12 characters at least");
+    assert_eq!(core.vault_status().await.unwrap().state, VaultState::Empty);
+    core.vault_setup(PHRASE).await.unwrap();
     assert_eq!(core.vault_status().await.unwrap().state, VaultState::Ready);
     assert!(matches!(events.try_recv(), Ok(Event::VaultChanged)));
-    assert!(core.vault_setup().await.is_err(), "once");
+    assert!(core.vault_setup(PHRASE).await.is_err(), "once");
 
     // Nothing in the settings is readable: the tokens and the key are sealed with the storage key.
     for key in ["vault.tokens", "vault.key"] {
         let value = core.store().setting(key).await.unwrap().expect(key);
         assert!(!value.contains("access_token") && !value.contains('"'), "{key} is sealed");
     }
+    // The phrase is kept nowhere: not on the phone, not in the cloud.
+    assert!(!anywhere(&dir, PHRASE.as_bytes()), "not in the database, its journal or any file");
+    assert!(!cloud.names().iter().any(|name| futures_block(cloud.read(name)).unwrap().is_some_and(|bytes| bytes.windows(PHRASE.len()).any(|w| w == PHRASE.as_bytes()))));
 
     std::fs::create_dir_all(dir.join("files").join("uploads")).unwrap();
     let picked = dir.join("files").join("uploads").join("photo.jpg");
@@ -134,11 +154,11 @@ async fn the_drive_is_connected_through_the_browser_set_up_and_used() {
     assert!(core.store().setting("vault.tokens").await.unwrap().is_none());
     assert!(cloud.names().iter().any(|name| name.starts_with("blob-")));
 
-    // Connected again: the drive is there, and only the code opens it.
+    // Connected again: the drive is there, and only the phrase opens it.
     let status = core.vault_connect("memory", &browser).await.unwrap();
     assert_eq!(status.state, VaultState::Locked);
-    assert!(core.vault_unlock("ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567").await.is_err());
-    core.vault_unlock(&code).await.unwrap();
+    assert!(core.vault_unlock("not my phrase at all").await.is_err());
+    core.vault_unlock(PHRASE).await.unwrap();
     assert_eq!(core.vault_list(None).await.unwrap().files[0].name, "holiday.jpg");
 }
 
@@ -149,7 +169,7 @@ async fn the_phone_is_backed_up_and_a_new_phone_brings_it_down_ready_to_swap_in(
     old.set_name("Alice").await.unwrap();
     let browser = Browser { opened: Default::default(), refuses: false };
     old.vault_connect("memory", &browser).await.unwrap();
-    let code = old.vault_setup().await.unwrap();
+    old.vault_setup(PHRASE).await.unwrap();
     std::fs::create_dir_all(old_dir.join("files").join("m1")).unwrap();
     std::fs::write(old_dir.join("files").join("m1").join("received.pdf"), b"pdf bytes").unwrap();
 
@@ -160,7 +180,7 @@ async fn the_phone_is_backed_up_and_a_new_phone_brings_it_down_ready_to_swap_in(
 
     let (new, new_dir) = phone("new", &cloud).await;
     new.vault_connect("memory", &browser).await.unwrap();
-    new.vault_unlock(&code).await.unwrap();
+    new.vault_unlock(PHRASE).await.unwrap();
     let restored = new.vault_restore().await.unwrap();
     assert_eq!(restored.at, backup.at);
     // What a move leaves: the app swaps it in at the next start (§60), with the old phone's key.
@@ -184,4 +204,99 @@ async fn a_plugin_uses_the_drive_only_if_granted() {
     core.grant_plugin("com.example.drive", Permissions { drive: true, ..Permissions::default() }).await.unwrap();
     assert!(core.plugin_may_use_drive("com.example.drive").await.unwrap());
     assert!(core.plugin_may_use_drive("com.example.other").await.is_err(), "not installed");
+}
+
+// Decision 2026-09-28: five wrong phrases lock the recovery on this phone for 24 hours. It only
+// slows whoever tries from the app; the cloud's copy is guarded by the phrase's stretching.
+#[tokio::test(flavor = "multi_thread")]
+async fn five_wrong_phrases_lock_the_recovery_for_a_day() {
+    let cloud = Memory::new();
+    let browser = Browser { opened: Default::default(), refuses: false };
+    let (made, _) = phone("made", &cloud).await;
+    made.vault_connect("memory", &browser).await.unwrap();
+    made.vault_setup(PHRASE).await.unwrap();
+
+    let (core, _) = phone("tries", &cloud).await;
+    let status = core.vault_connect("memory", &browser).await.unwrap();
+    assert_eq!((status.state, status.tries_left, status.retry_at), (VaultState::Locked, 5, None));
+    assert!(core.vault_unlock("short").await.is_err());
+    assert_eq!(core.vault_status().await.unwrap().tries_left, 5, "not a phrase at all is not a try");
+    for left in (1..5).rev() {
+        assert!(core.vault_unlock("not my phrase at all").await.is_err());
+        assert_eq!(core.vault_status().await.unwrap().tries_left, left);
+    }
+    let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    assert!(core.vault_unlock("not my phrase at all").await.is_err());
+    let status = core.vault_status().await.unwrap();
+    let until = status.retry_at.expect("locked");
+    assert!(until >= before + 24 * 3600 * 1000 && until < before + 24 * 3600 * 1000 + 60_000, "a day");
+    assert_eq!(status.tries_left, 0);
+    let locked = core.vault_unlock(PHRASE).await.unwrap_err();
+    assert!(locked.to_string().contains("try again"), "not even the right one, for a day: {locked}");
+    assert_eq!(core.vault_status().await.unwrap().state, VaultState::Locked);
+
+    // A day later (the phone's own record, moved back): the right phrase opens it, and the
+    // count starts again.
+    core.store().set_setting("vault.tries", &format!(r#"{{"failed":0,"until":{}}}"#, before - 1)).await.unwrap();
+    assert_eq!(core.vault_status().await.unwrap().retry_at, None);
+    core.vault_unlock(PHRASE).await.unwrap();
+    assert_eq!(core.vault_status().await.unwrap().state, VaultState::Ready);
+    assert_eq!(core.vault_status().await.unwrap().tries_left, 5);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_phrase_is_changed_from_the_phone_that_has_the_drive() {
+    let cloud = Memory::new();
+    let browser = Browser { opened: Default::default(), refuses: false };
+    let (core, _) = phone("change", &cloud).await;
+    assert!(core.vault_change_phrase("another phrase, a new one").await.is_err(), "no drive open");
+    core.vault_connect("memory", &browser).await.unwrap();
+    core.vault_setup(PHRASE).await.unwrap();
+    assert!(core.vault_change_phrase("short").await.is_err());
+    core.vault_change_phrase("another phrase, a new one").await.unwrap();
+
+    let (other, _) = phone("change-other", &cloud).await;
+    other.vault_connect("memory", &browser).await.unwrap();
+    assert!(other.vault_unlock(PHRASE).await.is_err(), "the old one no longer opens it");
+    other.vault_unlock("another phrase, a new one").await.unwrap();
+}
+
+// A drive made with the first version's code (never published): the phone says so and makes it
+// again; nothing of it opens.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drive_of_the_first_version_asks_to_be_made_again() {
+    let cloud = Memory::new();
+    cloud.write("vault.json", br#"{"format":"ftvault","version":1,"id":"old"}"#.to_vec()).await.unwrap();
+    cloud.write("key.ftv", cipher::seal(&[9; 32], "key", &[1; 32]).unwrap()).await.unwrap();
+    let browser = Browser { opened: Default::default(), refuses: false };
+    let (core, _) = phone("first", &cloud).await;
+    let status = core.vault_connect("memory", &browser).await.unwrap();
+    assert_eq!(status.state, VaultState::Outdated);
+    assert!(core.vault_unlock(PHRASE).await.is_err());
+    assert_eq!(core.vault_status().await.unwrap().tries_left, 5, "an old drive is not a wrong phrase");
+    core.vault_setup(PHRASE).await.unwrap();
+    assert_eq!(core.vault_status().await.unwrap().state, VaultState::Ready);
+}
+
+// The Samsung of the tests (2026-09-28): it kept the key of a drive made with the first
+// version's code. At the next start the drive is not opened with it: it is to be made again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_that_kept_the_key_of_a_first_version_drive_is_asked_to_make_it_again() {
+    let cloud = Memory::new();
+    let browser = Browser { opened: Default::default(), refuses: false };
+    let (core, dir) = phone("kept", &cloud).await;
+    core.vault_connect("memory", &browser).await.unwrap();
+    core.vault_setup(PHRASE).await.unwrap();
+    drop(core);
+    // As the first version left it.
+    cloud.write("vault.json", br#"{"format":"ftvault","version":1,"id":"old"}"#.to_vec()).await.unwrap();
+    cloud.write("key.ftv", cipher::seal(&[9; 32], "key", &[1; 32]).unwrap()).await.unwrap();
+
+    let again = Core::open(Store::open(&dir.join("phone.db")).await.unwrap(), [4; 32], Arc::new(Offline)).await.unwrap();
+    again.set_vault_dir(dir.join("vault"));
+    again.set_cloud(Arc::new(MemoryCloud(cloud.clone())));
+    let status = again.vault_reopen().await.unwrap();
+    assert_eq!((status.state, status.problem), (VaultState::Outdated, None));
+    again.vault_setup(PHRASE).await.unwrap();
+    assert_eq!(again.vault_status().await.unwrap().state, VaultState::Ready);
 }
