@@ -84,6 +84,7 @@ describe("following the visual viewport", () => {
     viewport = new FakeViewport();
     Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
     Object.defineProperty(window, "innerHeight", { value: 952, configurable: true });
+    Object.defineProperty(root, "clientHeight", { value: 952, configurable: true });
     events.length = 0;
     window.addEventListener("keyboardWillShow", record);
     window.addEventListener("keyboardWillHide", record);
@@ -120,6 +121,16 @@ describe("following the visual viewport", () => {
     expect(root.classList.contains("ft-keyboard-open")).toBe(false);
     // Ionic's keyboard events (Capacitor's names), once per change, not once per frame.
     expect(events).toEqual(["keyboardWillShow:336", "keyboardWillHide"]);
+  });
+
+  it("measures the page by the document, since iOS shrinks innerHeight with the keyboard too", () => {
+    // Measured on the iOS simulator: innerHeight follows the visual viewport, the page scrolls.
+    Object.defineProperty(root, "clientHeight", { value: 956, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 541, configurable: true });
+    viewport.move(541, 415);
+    expect(root.style.getPropertyValue("--ft-viewport-height")).toBe("541px");
+    expect(root.style.getPropertyValue("--ft-viewport-top")).toBe("415px");
+    expect(root.classList.contains("ft-keyboard-open")).toBe(true);
   });
 
   it("lets a conversation note where it was before the size changes and act after", () => {

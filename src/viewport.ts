@@ -15,7 +15,7 @@ const KEYBOARD_MIN = 150;
 const END_SLACK = 32;
 
 export interface ViewportSample {
-  /** `window.innerHeight`: the page, which the keyboard does not shrink. */
+  /** The page (the document element's height), which the keyboard does not shrink. */
   layoutHeight: number;
   /** `visualViewport.height` and `offsetTop`: what can be seen of it. */
   height: number;
@@ -110,7 +110,9 @@ export function startViewportFit(win: Window, root: HTMLElement): () => void {
   let last: ViewportFit | null = null;
 
   const apply = () => {
-    const fit = fitViewport({ layoutHeight: win.innerHeight, height: viewport.height, offsetTop: viewport.offsetTop });
+    // The document's height, not `innerHeight`: WKWebView shrinks that one with the keyboard too.
+    const layoutHeight = root.clientHeight || win.innerHeight;
+    const fit = fitViewport({ layoutHeight, height: viewport.height, offsetTop: viewport.offsetTop });
     const resized = last !== null && fit.height !== last.height;
     if (resized) for (const watcher of watchers) watcher.before();
     root.style.setProperty("--ft-viewport-height", `${fit.height}px`);
