@@ -369,6 +369,15 @@ pantalla mal.
 (`shape` no va al WebView: es asunto de las vistas nativas.) `core_current_call` gana
 `video: CallVideoView` con los mismos campos, para `restoreCall`.
 
+El estado que el núcleo ya tiene al empezar a seguirlo (`available` al conectar) también se
+anuncia, y al acabar la llamada sale el vídeo apagado antes de `ended` (2026-09-29): el WebView no
+pregunta al núcleo en bucle, sigue estos eventos.
+
+- `CallUpdate::CameraFailed` → `kind: "camera_failed"` (2026-09-29): la cámara que se quería al
+  conectar (una videollamada) no pudo arrancar, por ejemplo un codificador que no se deja
+  configurar. La llamada sigue de voz con la cámara apagada y el WebView lo avisa. Encenderla
+  después con `core_call_set_video` sigue contestando con un error, no con este evento.
+
 **Comandos de Tauri** (los define el trabajo 2; el 4 los llama con estos nombres):
 
 | Comando                                                   | Qué hace                                                                                  |

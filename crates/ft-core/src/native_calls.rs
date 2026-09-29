@@ -472,7 +472,10 @@ impl Core {
     async fn video_connected(&self, native: &Arc<NativeCall>) {
         let Some(video) = &native.video else { return };
         if video.connected().await.is_err() {
-            // The voice goes on without video.
+            // The voice goes on without video; a camera wanted cannot run.
+            if native.camera.swap(false, Ordering::SeqCst) {
+                self.announce(native, CallUpdate::CameraFailed);
+            }
             return;
         }
         self.follow_video(native, video);
@@ -484,7 +487,12 @@ impl Core {
         }
         if native.camera.load(Ordering::SeqCst) {
             if native.camera_allowed() {
-                let _ = self.apply_camera(native).await;
+                if self.apply_camera(native).await.is_err() {
+                    // Nobody asked for it right now, so nobody gets an error: the UI hears it,
+                    // and the call goes on as voice with the camera off.
+                    native.camera.store(false, Ordering::SeqCst);
+                    self.announce(native, CallUpdate::CameraFailed);
+                }
             } else {
                 // Kept before the answer, for an older app's voice call: it has no video line.
                 native.camera.store(false, Ordering::SeqCst);
