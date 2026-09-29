@@ -6883,7 +6883,7 @@ dependencies = [
 [[package]]
 name = "webrtc-engine"
 version = "0.1.0"
-source = "git+https://github.com/FlickerTalk/webrtc-engine-rs?branch=main#4f1b6609a4c13d4eb31e75b5768d18e87f9ebc74"
+source = "git+https://github.com/FlickerTalk/webrtc-engine-rs?branch=main#4beeefe5aa15fef4197638b32590e05f6d3d6415"
 dependencies = [
  "bytes",
  "cc",
