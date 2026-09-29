@@ -14,13 +14,14 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use ft_media::{AudioPlatform, CallRouting, LinkState, MediaSession, Video, VideoPlatform, VideoState, Voice};
 use ft_protocol::{Body, MessageId, Packet};
 
 use crate::calls::stale;
+use crate::timings::{CallClock, CallStage, CallTimings, Candidates};
 use crate::{now, CallUpdate, Core, Event};
 
 /// Where a call stands, for a WebView that comes up late (§66).
@@ -143,6 +144,33 @@ const CAMERA_RETRY: Duration = Duration::from_secs(2);
 const CALL_ROUTING: &str = "call_routing";
 
 impl Core {
+    /// A step of the call's setup was reached (temporary diagnostics): the bridge says when the
+    /// push arrived and when the user answered.
+    pub fn mark_call_stage(&self, stage: CallStage) {
+        let mut clock = self.call_clock.lock().unwrap_or_else(PoisonError::into_inner);
+        CallClock::mark(&mut clock, stage, Instant::now());
+    }
+
+    /// How long each step of the call being set up took, so far (temporary diagnostics).
+    pub fn call_timings(&self) -> Option<CallTimings> {
+        let native = self.native_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let gathering = native.as_ref().map(|native| native.session.gathering()).unwrap_or_default();
+        let later = [
+            (CallStage::GatheringStarted, gathering.started),
+            (CallStage::GatheringDone, gathering.finished),
+            (CallStage::AudioDeviceStarted, native.as_ref().and_then(|native| native.voice.device_started())),
+            (CallStage::FirstAudioPacket, native.as_ref().and_then(|native| native.voice.first_packet())),
+        ];
+        let candidates = gathering.finished.map(|_| Candidates {
+            host: gathering.host,
+            srflx: gathering.srflx,
+            relay: gathering.relay,
+            complete: gathering.complete,
+        });
+        let clock = self.call_clock.lock().unwrap_or_else(PoisonError::into_inner);
+        clock.as_ref().map(|clock| clock.timings(&later, candidates))
+    }
+
     /// The phone's audio device for calls; `None` keeps every call on the WebView.
     pub fn set_call_audio(&self, platform: Option<AudioPlatform>) {
         *self.call_audio.write().unwrap_or_else(PoisonError::into_inner) = platform;
@@ -175,6 +203,7 @@ impl Core {
     /// business, asked before); either way the call can switch at any moment.
     pub async fn start_native_call(self: &Arc<Self>, contact: &str, routing: CallRouting, video: bool) -> Result<String> {
         let platform = self.audio_platform()?;
+        self.mark_call_stage(CallStage::CallStarted);
         self.set_call_routing(routing).await?;
         let call = self.place_call(contact, video).await?;
         let (core, id) = (self.clone(), call.clone());
@@ -190,6 +219,7 @@ impl Core {
         // The other side's media version comes with its answer.
         let Some(native) = self.open_native(call, routing, platform, None).await? else { return Ok(()) };
         let sdp = native.session.offer().await?;
+        self.mark_call_stage(CallStage::OfferBuilt);
         self.offer_call_media(call, &sdp, native.media(), crate::calls::CALL_REACH).await
     }
 
@@ -197,6 +227,7 @@ impl Core {
     /// CallKit and the WebView may both answer it.
     pub async fn answer_native_call(self: &Arc<Self>, call: &str, routing: CallRouting) -> Result<()> {
         let platform = self.audio_platform()?;
+        self.mark_call_stage(CallStage::AnswerRequested);
         let _one_at_a_time = self.native_setup.lock().await;
         let Some(record) = self.store.call(call).await? else { bail!("no such call") };
         if record.outgoing || record.ended_at.is_some() {
@@ -216,6 +247,7 @@ impl Core {
     async fn answer_native(self: &Arc<Self>, call: &str, offer: &str, media: u16, routing: CallRouting, platform: AudioPlatform) -> Result<()> {
         let Some(native) = self.open_native(call, routing, platform, Some(media)).await? else { bail!("the call is over") };
         let sdp = native.session.answer(offer).await?;
+        self.mark_call_stage(CallStage::AnswerBuilt);
         self.answer_call_media(call, &sdp, native.media()).await
     }
 
@@ -389,6 +421,7 @@ impl Core {
         let mut config = self.transport.media_config();
         config.routing = routing;
         let session = MediaSession::open(&config).await?;
+        self.mark_call_stage(CallStage::ConnectionBuilt);
         let voice = Voice::for_session(&session, platform);
         let video = self.video_platform().map(|platform| Video::for_session(&session, platform));
         let native = Arc::new(NativeCall {
@@ -458,6 +491,7 @@ impl Core {
         if native.connected_at.compare_exchange(0, now(), Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return;
         }
+        self.mark_call_stage(CallStage::Connected);
         if native.voice.connected().await.is_err() {
             // No microphone or speaker: a call nobody can hear is a failed call.
             let _ = self.end_call(&native.call, true).await;

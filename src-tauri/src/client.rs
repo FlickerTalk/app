@@ -916,11 +916,13 @@ impl Client {
                             let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
                             diagnose_call(&app, &core_for_events, &format!("update {name}")).await;
                             if CALL_DIAGNOSTICS && name == "connected" {
+                                diagnose_call(&app, &core_for_events, &timings_line(core_for_events.call_timings())).await;
                                 // Whether the voice runs a moment later: on iOS it waits for CallKit.
                                 let (app, core) = (app.clone(), core_for_events.clone());
                                 tauri::async_runtime::spawn(async move {
                                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                                     diagnose_call(&app, &core, "3 s after connecting").await;
+                                    diagnose_call(&app, &core, &timings_line(core.call_timings())).await;
                                 });
                             }
                             continue;
@@ -954,6 +956,9 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                 Reconnect::No => {}
             }
             let (core, app) = (core.clone(), app_for_events.clone());
+            if let Some(stage) = native_event_stage(event).filter(|_| CALL_DIAGNOSTICS) {
+                core.mark_call_stage(stage);
+            }
             if tells_the_webview(event) {
                 let _ = app.emit(CALL_ACTION_EVENT, ());
             }
@@ -1050,7 +1055,8 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
 /// iPhone: state names go to the device log through the bridge (`os_log` subsystem
 /// `com.flickertalk.calls` on iOS, `Log` tag `FtCallDiag` on Android). To remove: set this to
 /// false, or delete it with `native_event_name`, `update_name`, `diagnose_call`, `device_counts`,
-/// `speaker_name`, `CAMERA_SWITCHED`, `diagnose_now_and_later` and their calls, and the
+/// `speaker_name`, `CAMERA_SWITCHED`, `diagnose_now_and_later`, `timings_line`,
+/// `native_event_stage` (and `ft_core::timings`) and their calls, and the
 /// `diagnose` command of the bridge.
 const CALL_DIAGNOSTICS: bool = true;
 
@@ -1065,6 +1071,20 @@ fn native_event_name(event: NativeCallEvent) -> &'static str {
         NativeCallEvent::Visible(_) => "visible",
         NativeCallEvent::Orientation(_) => "orientation",
         NativeCallEvent::VideoRequested => "video requested",
+    }
+}
+
+/// The call setup timings, for the device log (diagnostics).
+fn timings_line(timings: Option<ft_core::timings::CallTimings>) -> String {
+    format!("timings: {}", timings.unwrap_or_default().line())
+}
+
+/// The setup stage a native event marks (diagnostics): the push that rang, the user's answer.
+fn native_event_stage(event: NativeCallEvent) -> Option<ft_core::timings::CallStage> {
+    match event {
+        NativeCallEvent::Incoming => Some(ft_core::timings::CallStage::PushReceived),
+        NativeCallEvent::Answer => Some(ft_core::timings::CallStage::AnswerTapped),
+        _ => None,
     }
 }
 
@@ -3487,6 +3507,19 @@ mod tests {
         assert_eq!(native_screen(&CallUpdate::Video(state)), NativeScreen::Nothing);
         assert_eq!(ringing(&CallUpdate::Video(state)), Ring::Nothing);
         assert_eq!(update_name(&CallUpdate::Video(state)), "video");
+    }
+
+    // Call setup timings (2026-09-29): the device log gets the stages and their milliseconds.
+    #[test]
+    fn the_call_setup_timings_go_to_the_device_log_as_one_line() {
+        use ft_core::timings::{CallStage, CallTimings};
+        let timings = CallTimings { stages: vec![(CallStage::AnswerTapped, 0), (CallStage::Connected, 700)], candidates: None };
+        assert_eq!(timings_line(Some(timings)), "timings: answer tapped 0 ms, connected 700 ms");
+        assert_eq!(timings_line(None), "timings: no call timings");
+        assert_eq!(native_event_stage(NativeCallEvent::Incoming), Some(CallStage::PushReceived));
+        assert_eq!(native_event_stage(NativeCallEvent::Answer), Some(CallStage::AnswerTapped));
+        assert_eq!(native_event_stage(NativeCallEvent::End), None);
+        assert_eq!(native_event_stage(NativeCallEvent::AudioActivated(1)), None);
     }
 
     // Temporary call diagnostics: the counters say they are the audio device's (an AAudio or

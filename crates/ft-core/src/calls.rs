@@ -12,6 +12,7 @@ use anyhow::{bail, Result};
 use ft_protocol::{Body, EndReason, MessageId, Packet};
 use ft_storage::{CallOutcome, CallRecord, Contact};
 
+use crate::timings::CallStage;
 use crate::{now, Core, Event};
 
 /// How long a call keeps trying to reach a phone that may be asleep (the router wakes it).
@@ -103,6 +104,7 @@ impl Core {
                 return Ok(());
             }
             if self.transmit_direct_call(&contact, &Packet::new(body.clone())).await? {
+                self.mark_call_stage(CallStage::OfferSent);
                 return Ok(());
             }
             if std::time::Instant::now() >= deadline {
@@ -122,7 +124,9 @@ impl Core {
         let Some((record, contact)) = self.open_call(call, false).await? else { bail!("no such call") };
         self.store.answer_call(call, now()).await?;
         let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), media };
-        if !self.transmit_direct(&contact, &Packet::new(body)).await? {
+        if self.transmit_direct(&contact, &Packet::new(body)).await? {
+            self.mark_call_stage(CallStage::AnswerSent);
+        } else {
             self.close_call(&record, CallOutcome::Failed).await?;
         }
         Ok(())
@@ -244,8 +248,10 @@ impl Core {
             return Ok(());
         }
         if fresh {
+            self.mark_call_stage(CallStage::OfferReceived);
             self.remember_offer(&call_id, &sdp, media);
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
+            self.mark_call_stage(CallStage::Ringing);
             self.answer_if_answered_early(&call_id);
         }
         Ok(())
@@ -257,6 +263,7 @@ impl Core {
         if record.contact != contact.device_id {
             return Ok(());
         }
+        self.mark_call_stage(CallStage::AnswerReceived);
         self.store.answer_call(&record.call_id, now()).await?;
         // A native call takes the answer itself; the UI only learns that it was answered.
         if let Err(error) = self.accept_native_answer(&record.call_id, &sdp, media).await {

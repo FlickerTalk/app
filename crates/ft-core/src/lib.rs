@@ -18,6 +18,7 @@ pub mod files;
 pub mod moving;
 pub mod native_calls;
 pub mod plugins;
+pub mod timings;
 pub mod net;
 pub mod vault;
 pub mod online;
@@ -178,6 +179,8 @@ pub struct Core {
     /// The OS answered before any call rang (2026-09-28): until when (ms) the next voice call's
     /// offer is answered as soon as it arrives.
     early_answer: std::sync::Mutex<Option<i64>>,
+    /// The steps of the call being set up, as they happen (temporary diagnostics).
+    call_clock: std::sync::Mutex<Option<timings::CallClock>>,
     /// The newest CallKit call whose audio session was heard of (`set_call_audio_session`).
     audio_generation: std::sync::atomic::AtomicU64,
     /// This core, for work it hands to the background (a waiting answer, a hang-up to deliver).
@@ -264,6 +267,7 @@ impl Core {
             this: this.clone(),
             early_answer: std::sync::Mutex::default(),
             audio_generation: std::sync::atomic::AtomicU64::new(0),
+            call_clock: std::sync::Mutex::default(),
             device_id: identity.device_id(),
             identity: Mutex::new(identity),
             store,
