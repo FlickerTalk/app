@@ -935,19 +935,7 @@ impl Client {
                                 })
                                 .await;
                             }
-                            let name = update_name(&update);
                             let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update).answered(answered));
-                            diagnose_call(&app, &core_for_events, &format!("update {name}")).await;
-                            if CALL_DIAGNOSTICS && name == "connected" {
-                                diagnose_call(&app, &core_for_events, &timings_line(core_for_events.call_timings())).await;
-                                // Whether the voice runs a moment later: on iOS it waits for CallKit.
-                                let (app, core) = (app.clone(), core_for_events.clone());
-                                tauri::async_runtime::spawn(async move {
-                                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                                    diagnose_call(&app, &core, "3 s after connecting").await;
-                                    diagnose_call(&app, &core, &timings_line(core.call_timings())).await;
-                                });
-                            }
                             continue;
                         }
                     };
@@ -981,44 +969,32 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                 Reconnect::No => {}
             }
             let (core, app) = (core.clone(), app_for_events.clone());
-            if let Some(stage) = native_event_stage(event).filter(|_| CALL_DIAGNOSTICS) {
-                core.mark_call_stage(stage);
-            }
             match event {
-                NativeCallEvent::Incoming => diagnose_call(&app, &core, "event incoming").await,
+                // The push only asks for the socket above; the core rings when the offer comes.
+                NativeCallEvent::Incoming => {}
                 NativeCallEvent::Answer => {
                     tauri::async_runtime::spawn(async move {
-                        diagnose_call(&app, &core, "event answer").await;
                         if !microphone(&app).await {
-                            let failed = fail_current_call(&core).await;
-                            diagnose_outcome(&app, &core, "answer without a microphone", &failed).await;
+                            let _ = fail_current_call(&core).await;
                             return;
                         }
                         // A video call's camera needs its permission: without it the call is voice.
                         let video_call = ringing_video_call(&core).await;
                         let camera_allowed = video_call.is_none() || camera(&app).await;
-                        match core.answer_ringing_call().await {
-                            Ok(answered) => {
-                                if let (true, Some(call), false) = (answered, video_call, camera_allowed) {
-                                    let _ = core.set_call_camera(&call, false).await;
-                                }
-                                diagnose_call(&app, &core, &format!("event answer: {}", answer_state(answered))).await
-                            }
-                            Err(error) => diagnose_outcome(&app, &core, "answer", &Err(error)).await,
+                        if let (Ok(true), Some(call), false) = (core.answer_ringing_call().await, video_call, camera_allowed) {
+                            let _ = core.set_call_camera(&call, false).await;
                         }
                     });
                 }
                 NativeCallEvent::End => {
                     tauri::async_runtime::spawn(async move {
-                        let ended = core.end_current_call().await;
-                        diagnose_outcome(&app, &core, "end", &ended).await;
+                        let _ = core.end_current_call().await;
                     });
                 }
                 // Declined before its offer came, the call is declined as it arrives (2026-09-29).
                 NativeCallEvent::Decline => {
                     tauri::async_runtime::spawn(async move {
-                        let declined = core.decline_ringing_call().await;
-                        diagnose_outcome(&app, &core, "decline", &declined).await;
+                        let _ = core.decline_ringing_call().await;
                     });
                 }
                 NativeCallEvent::Mute(muted) => {
@@ -1026,12 +1002,10 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                 }
                 NativeCallEvent::AudioActivated(generation) => {
                     // A device that will not start is tried again, then fails the call (core).
-                    let started = core.set_call_audio_session(true, generation).await;
-                    diagnose_outcome(&app, &core, native_event_name(event), &started).await;
+                    let _ = core.set_call_audio_session(true, generation).await;
                 }
                 NativeCallEvent::AudioDeactivated(generation) => {
-                    let stopped = core.set_call_audio_session(false, generation).await;
-                    diagnose_outcome(&app, &core, native_event_name(event), &stopped).await;
+                    let _ = core.set_call_audio_session(false, generation).await;
                 }
                 // Native video (docs/video-nativo.md): away from the screen our camera is held.
                 NativeCallEvent::Visible(visible) => {
@@ -1086,147 +1060,6 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
 /// bridge reports every incoming call to CallKit as a video call, so iOS opens the app on answer.
 fn open_app_on_answer(flag: Option<&str>) -> bool {
     matches!(flag.map(str::trim), Some("1" | "true"))
-}
-
-/// Temporary call diagnostics (2026-09-28), to find why a native call's voice is one-way on the
-/// iPhone: state names go to the device log through the bridge (`os_log` subsystem
-/// `com.flickertalk.calls` on iOS, `Log` tag `FtCallDiag` on Android). To remove: set this to
-/// false, or delete it with `native_event_name`, `update_name`, `diagnose_call`, `device_counts`,
-/// `speaker_name`, `CAMERA_SWITCHED`, `diagnose_now_and_later`, `timings_line`,
-/// `native_event_stage` (and `ft_core::timings`) and their calls, and the
-/// `diagnose` command of the bridge.
-const CALL_DIAGNOSTICS: bool = true;
-
-fn native_event_name(event: NativeCallEvent) -> &'static str {
-    match event {
-        NativeCallEvent::Incoming => "incoming",
-        NativeCallEvent::Answer => "answer",
-        NativeCallEvent::End => "end",
-        NativeCallEvent::Decline => "decline",
-        NativeCallEvent::Mute(_) => "mute",
-        NativeCallEvent::AudioActivated(_) => "audio activated",
-        NativeCallEvent::AudioDeactivated(_) => "audio deactivated",
-        NativeCallEvent::Visible(_) => "visible",
-        NativeCallEvent::Orientation(_) => "orientation",
-        NativeCallEvent::VideoRequested => "video requested",
-    }
-}
-
-/// The call setup timings, for the device log (diagnostics).
-fn timings_line(timings: Option<ft_core::timings::CallTimings>) -> String {
-    format!("timings: {}", timings.unwrap_or_default().line())
-}
-
-/// The setup stage a native event marks (diagnostics): the push that rang, the user's answer.
-fn native_event_stage(event: NativeCallEvent) -> Option<ft_core::timings::CallStage> {
-    match event {
-        NativeCallEvent::Incoming => Some(ft_core::timings::CallStage::PushReceived),
-        NativeCallEvent::Answer => Some(ft_core::timings::CallStage::AnswerTapped),
-        _ => None,
-    }
-}
-
-/// What CallKit's answer did in the core (diagnostics).
-fn answer_state(answered: bool) -> &'static str {
-    if answered {
-        "answered"
-    } else {
-        "nothing to answer yet (waits for the offer)"
-    }
-}
-
-/// Where the core's call stands, and whether it is a video call (diagnostics): no identifiers.
-fn phase_name(phase: Option<(CallPhase, bool)>) -> String {
-    let Some((phase, video)) = phase else { return "no call".to_owned() };
-    let name = match phase {
-        CallPhase::Calling => "calling",
-        CallPhase::Ringing => "ringing",
-        CallPhase::Connecting => "connecting",
-        CallPhase::Active => "active",
-    };
-    if video {
-        format!("{name} video")
-    } else {
-        name.to_owned()
-    }
-}
-
-fn update_name(update: &CallUpdate) -> &'static str {
-    match update {
-        CallUpdate::Incoming { .. } => "incoming",
-        CallUpdate::Answered { .. } => "answered",
-        CallUpdate::Answering => "answering",
-        CallUpdate::Ended { .. } => "ended",
-        CallUpdate::Connected => "connected",
-        CallUpdate::Muted { .. } => "muted",
-        CallUpdate::MissedWhileBusy => "missed while busy",
-        CallUpdate::Video(_) => "video",
-        CallUpdate::CameraFailed => "camera failed",
-    }
-}
-
-/// How a native event went, for the device log. Only an audio device's error is written (an
-/// OSStatus, say): others may come from the network and name a device.
-async fn diagnose_outcome(app: &AppHandle, core: &Core, what: &str, outcome: &anyhow::Result<()>) {
-    let audio = what.starts_with("audio");
-    match outcome {
-        Ok(()) => diagnose_call(app, core, &format!("event {what} ok")).await,
-        Err(error) if audio => diagnose_call(app, core, &format!("event {what} failed: {error}")).await,
-        Err(_) => diagnose_call(app, core, &format!("event {what} failed")).await,
-    }
-}
-
-/// The voice's device counters (diagnostics). Dropped capture and underruns start again at zero
-/// each time the streams reopen; the stream errors add up over the call, and on Android each one
-/// reopens both streams (a route or device change, for example). The camera has none here.
-fn device_counts(stats: Option<ft_media::DeviceStats>) -> String {
-    match stats {
-        Some(stats) => format!(
-            "; audio capture dropped={} playout underruns={} audio stream errors={}",
-            stats.capture_dropped, stats.playout_underruns, stats.errors
-        ),
-        None => String::new(),
-    }
-}
-
-/// The speaker change, for the device log: it may move the audio route (diagnostics).
-fn speaker_name(on: bool) -> &'static str {
-    if on {
-        "speaker on"
-    } else {
-        "speaker off"
-    }
-}
-
-/// The camera flip, for the device log (diagnostics).
-const CAMERA_SWITCHED: &str = "camera switched";
-
-/// Writes `what` now and again a second later (diagnostics): AAudio reports a route change on its
-/// own thread, a little after the change.
-fn diagnose_now_and_later(app: &AppHandle, core: Arc<Core>, what: &'static str) {
-    if !CALL_DIAGNOSTICS {
-        return;
-    }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        diagnose_call(&app, &core, what).await;
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        diagnose_call(&app, &core, &format!("1 s after {what}")).await;
-    });
-}
-
-/// Writes a call state and whether the voice's device runs to the device log (diagnostics).
-async fn diagnose_call(app: &AppHandle, core: &Core, what: &str) {
-    if !CALL_DIAGNOSTICS {
-        return;
-    }
-    let running = core.call_device_running().await;
-    let app = app.clone();
-    let counts = device_counts(ft_media::device_stats());
-    let phase = core.current_call().await.ok().flatten().map(|current| (current.phase, current.video));
-    let line = format!("{what}; call {}; device running={running}{counts}", phase_name(phase));
-    // Off the async workers: the bridge blocks until the native side answers.
-    let _ = tauri::async_runtime::spawn_blocking(move || app.platform().diagnose(&line)).await;
 }
 
 /// Whether the app may use the microphone, asking if it has not been asked yet. Off the main
@@ -2588,10 +2421,8 @@ pub async fn core_call_set_video(call: String, on: bool, app: AppHandle, client:
 
 /// The other camera: front to back and back again.
 #[tauri::command]
-pub async fn core_call_switch_camera(call: String, app: AppHandle, client: State<'_, Client>) -> Result<CallVideoView, String> {
-    let core = client.core().await?;
-    let state = core.switch_call_camera(&call).await.map_err(failed)?;
-    diagnose_now_and_later(&app, core, CAMERA_SWITCHED);
+pub async fn core_call_switch_camera(call: String, client: State<'_, Client>) -> Result<CallVideoView, String> {
+    let state = client.core().await?.switch_call_camera(&call).await.map_err(failed)?;
     Ok(CallVideoView::from(state))
 }
 
@@ -2610,12 +2441,8 @@ pub async fn core_call_video_layout(layout: Option<VideoLayout>, app: AppHandle,
 
 /// The call's voice on the speaker or the receiver (2026-09-28).
 #[tauri::command]
-pub async fn core_call_speaker(on: bool, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
-    app.platform().set_speaker(on).map_err(|error| error.to_string())?;
-    if let Ok(core) = client.core().await {
-        diagnose_now_and_later(&app, core, speaker_name(on));
-    }
-    Ok(())
+pub async fn core_call_speaker(on: bool, app: AppHandle) -> Result<(), String> {
+    app.platform().set_speaker(on).map_err(|error| error.to_string())
 }
 
 /// Mutes or unmutes our voice in a native call.
@@ -3492,7 +3319,6 @@ mod tests {
         assert_eq!(ringing(&CallUpdate::MissedWhileBusy, false), Ring::Nothing);
         let event = serde_json::to_value(CallEvent::new("ft_carol", "c2", CallUpdate::MissedWhileBusy)).unwrap();
         assert_eq!(event, serde_json::json!({ "contact": "ft_carol", "call": "c2", "kind": "ended", "outcome": "missed" }));
-        assert_eq!(update_name(&CallUpdate::MissedWhileBusy), "missed while busy");
     }
 
     // Bug of 2026-09-28: a suspended iPhone rang through PushKit and was answered, but its socket
@@ -3523,7 +3349,6 @@ mod tests {
         assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }, true), Ring::Answered);
         assert_eq!(ringing(&CallUpdate::Answering, false), Ring::Answered);
         assert_eq!(native_screen(&CallUpdate::Answering), NativeScreen::Nothing);
-        assert_eq!(update_name(&CallUpdate::Answering), "answering");
     }
 
     // The WebView hears it too, wherever it is: `answering` for a ringing call, and an incoming
@@ -3563,30 +3388,8 @@ mod tests {
 
     // A decline needs the offer to come, to decline it: like an answer, it asks for a fresh socket.
     #[test]
-    fn a_decline_asks_for_the_router_and_is_named() {
+    fn a_decline_asks_for_the_router() {
         assert_eq!(reconnect_for(NativeCallEvent::Decline), Reconnect::UnlessFresh);
-        assert_eq!(native_event_name(NativeCallEvent::Decline), "decline");
-    }
-
-    // Temporary call diagnostics (2026-09-28): state names only, nothing about who.
-    #[test]
-    fn call_diagnostics_name_states_only() {
-        assert_eq!(native_event_name(NativeCallEvent::Incoming), "incoming");
-        assert_eq!(native_event_name(NativeCallEvent::Answer), "answer");
-        assert_eq!(native_event_name(NativeCallEvent::End), "end");
-        assert_eq!(native_event_name(NativeCallEvent::Mute(true)), "mute");
-        assert_eq!(native_event_name(NativeCallEvent::AudioActivated(1)), "audio activated");
-        assert_eq!(native_event_name(NativeCallEvent::AudioDeactivated(1)), "audio deactivated");
-        assert_eq!(update_name(&CallUpdate::Connected), "connected");
-        assert_eq!(update_name(&CallUpdate::Ended { outcome: CallOutcome::Failed }), "ended");
-        assert_eq!(update_name(&CallUpdate::Incoming { video: false, sdp: "v=0 secret".to_owned() }), "incoming");
-        // 2026-09-29: what CallKit's answer did, and where the call stood, for the answers that
-        // sometimes did nothing.
-        assert_eq!(answer_state(true), "answered");
-        assert_eq!(answer_state(false), "nothing to answer yet (waits for the offer)");
-        assert_eq!(phase_name(None), "no call");
-        assert_eq!(phase_name(Some((ft_core::CallPhase::Ringing, false))), "ringing");
-        assert_eq!(phase_name(Some((ft_core::CallPhase::Active, true))), "active video");
     }
 
     // A WebView that comes up after the call started (PushKit launched the app, CallKit answered)
@@ -3667,7 +3470,6 @@ mod tests {
         }));
         assert_eq!(native_screen(&CallUpdate::Video(state)), NativeScreen::Nothing);
         assert_eq!(ringing(&CallUpdate::Video(state), false), Ring::Nothing);
-        assert_eq!(update_name(&CallUpdate::Video(state)), "video");
     }
 
     // A camera that could not start as the call connected (2026-09-29): the WebView says so, and
@@ -3679,37 +3481,6 @@ mod tests {
         }));
         assert_eq!(native_screen(&CallUpdate::CameraFailed), NativeScreen::Nothing);
         assert_eq!(ringing(&CallUpdate::CameraFailed, false), Ring::Nothing);
-    }
-
-    // Call setup timings (2026-09-29): the device log gets the stages and their milliseconds.
-    #[test]
-    fn the_call_setup_timings_go_to_the_device_log_as_one_line() {
-        use ft_core::timings::{CallStage, CallTimings};
-        let timings = CallTimings { stages: vec![(CallStage::AnswerTapped, 0), (CallStage::Connected, 700)], candidates: None, link: None };
-        assert_eq!(timings_line(Some(timings)), "timings: answer tapped 0 ms, connected 700 ms");
-        assert_eq!(timings_line(None), "timings: no call timings");
-        assert_eq!(native_event_stage(NativeCallEvent::Incoming), Some(CallStage::PushReceived));
-        assert_eq!(native_event_stage(NativeCallEvent::Answer), Some(CallStage::AnswerTapped));
-        assert_eq!(native_event_stage(NativeCallEvent::End), None);
-        assert_eq!(native_event_stage(NativeCallEvent::AudioActivated(1)), None);
-    }
-
-    // Temporary call diagnostics: the counters say they are the audio device's (an AAudio or
-    // VoiceProcessingIO stream error, which reopens the streams), not the camera's.
-    #[test]
-    fn the_diagnostic_counts_name_the_audio_streams() {
-        let stats = ft_media::DeviceStats { capture_dropped: 2, playout_underruns: 3, errors: 1 };
-        assert_eq!(device_counts(Some(stats)), "; audio capture dropped=2 playout underruns=3 audio stream errors=1");
-        assert_eq!(device_counts(None), "");
-    }
-
-    // A speaker change or a camera flip may move the audio route: the log marks both, so a
-    // stream error falls between two named lines.
-    #[test]
-    fn the_diagnostics_name_the_speaker_and_the_flip() {
-        assert_eq!(speaker_name(true), "speaker on");
-        assert_eq!(speaker_name(false), "speaker off");
-        assert_eq!(CAMERA_SWITCHED, "camera switched");
     }
 
     // The WebView tells a denied camera by this word (`core_call_set_video`, and a video call's

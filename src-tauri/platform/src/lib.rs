@@ -235,13 +235,6 @@ struct Answered {
     answered: bool,
 }
 
-/// Arguments of the native `diagnose` command (temporary, 2026-09-28): a state name only, never a
-/// name or an identifier.
-#[derive(Serialize)]
-struct Diagnose<'a> {
-    what: &'a str,
-}
-
 /// Arguments of the native `callStartedOutgoing` command.
 #[derive(Serialize)]
 struct Outgoing<'a> {
@@ -513,12 +506,6 @@ impl<R: Runtime> Platform<R> {
     /// on the receiver, like a phone call.
     pub fn set_speaker(&self, on: bool) -> Result<()> {
         self.call("setSpeaker", Speaker { on })
-    }
-
-    /// Temporary call diagnostics (2026-09-28): writes a state name (never a name or an
-    /// identifier) to the device log, `os_log` on iOS and `Log` on Android. Nothing on desktop.
-    pub fn diagnose(&self, what: &str) {
-        let _ = self.call("diagnose", Diagnose { what });
     }
 
     /// The call is over, whoever ended it: CallKit lets go / the service stops and the audio mode
@@ -907,13 +894,6 @@ mod tests {
         assert_eq!(serde_json::to_value(Speaker { on: true }).unwrap(), serde_json::json!({ "on": true }));
         let answered: Answered = serde_json::from_value(serde_json::json!({ "answered": true })).unwrap();
         assert!(answered.answered);
-    }
-
-    // Temporary call diagnostics (2026-09-28): a state name, as Swift's and Kotlin's `diagnose` read it.
-    #[test]
-    fn a_diagnostic_is_a_state_name() {
-        let args = serde_json::to_value(Diagnose { what: "audio activated; device running" }).unwrap();
-        assert_eq!(args, serde_json::json!({ "what": "audio activated; device running" }));
     }
 
     // Native video (2026-09-29, docs/video-nativo.md): what Swift and Kotlin add to the channel.
