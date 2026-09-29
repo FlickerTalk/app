@@ -58,6 +58,20 @@ func activeUntil(_ entitlements: [StoreEntitlement], now: Date) -> Int64 {
         .max() ?? 0
 }
 
+/// One product as the Store handed it back, with none of StoreKit's types in it.
+struct StoreProduct {
+    let id: String
+    let displayPrice: String
+}
+
+/// What a year costs, exactly as the Store formats it for this Apple ID's storefront, or nil when
+/// it cannot say (2026-09-29). Nothing is converted, rounded or kept.
+func yearlyPrice(_ products: [StoreProduct]) -> String? {
+    guard let price = products.first(where: { $0.id == yearly })?.displayPrice
+        .trimmingCharacters(in: .whitespacesAndNewlines), !price.isEmpty else { return nil }
+    return price
+}
+
 /// One reminder as the core wrote it (2026-09-27).
 struct ReminderEntry: Decodable, Equatable {
     let plugin: String
@@ -1303,6 +1317,20 @@ class PlatformPlugin: Plugin {
     @objc public func subscription(_ invoke: Invoke) throws {
         Task {
             invoke.resolve(["until": activeUntil(await entitlements(), now: Date())])
+        }
+    }
+
+    /// What a year costs, as StoreKit formats it (2026-09-29). Answers `{}` when the Store cannot
+    /// say (offline, the product missing): the screen then names no amount at all.
+    @objc public func subscriptionPrice(_ invoke: Invoke) throws {
+        Task {
+            let products = (try? await Product.products(for: [yearly])) ?? []
+            let price = yearlyPrice(products.map { StoreProduct(id: $0.id, displayPrice: $0.displayPrice) })
+            if let price {
+                invoke.resolve(["price": price])
+            } else {
+                invoke.resolve()
+            }
         }
     }
 

@@ -315,6 +315,50 @@ class PlatformPluginTest {
         )
     }
 
+    // One offer of the subscription as Play describes it: its base plan, its own id (none for the
+    // base plan itself), its token and the price of each phase, as Play formats it.
+    private fun offer(
+        basePlan: String = YEARLY_BASE_PLAN,
+        offerId: String? = null,
+        token: String = "base-token",
+        prices: List<String> = listOf("0,99 €"),
+    ) = StoreOffer(basePlan, offerId, token, prices)
+
+    // The Plan screen shows the price as the Store formats it for this phone (currency, commas,
+    // taxes): nothing is converted or rounded here (2026-09-29).
+    @Test
+    fun theYearlyPriceIsTheBasePlansAsPlayFormatsIt() {
+        assertEquals("0,99 €", yearlyPrice(listOf(offer())))
+        assertEquals("US$0.99", yearlyPrice(listOf(offer(prices = listOf("US$0.99")))))
+    }
+
+    // An introductory offer is not what a year costs: the base plan's price is shown, and the
+    // purchase goes through that same base plan.
+    @Test
+    fun aPromotionDoesNotChangeThePriceShown() {
+        val promotion = offer(offerId = "intro", token = "intro-token", prices = listOf("0,49 €", "0,99 €"))
+        val offers = listOf(promotion, offer())
+        assertEquals("0,99 €", yearlyPrice(offers))
+        assertEquals("base-token", yearlyOffer(offers)?.token)
+    }
+
+    // With only an offer of the yearly plan, its last phase is the price that keeps renewing.
+    @Test
+    fun withOnlyAnOfferTheRenewingPriceCounts() {
+        assertEquals("0,99 €", yearlyPrice(listOf(offer(offerId = "intro", prices = listOf("Free", "0,99 €")))))
+    }
+
+    // When the Store cannot say (no product, another plan, an empty price) there is no price, and
+    // the screen says "yearly subscription" without any amount.
+    @Test
+    fun withoutTheYearlyPlanThereIsNoPrice() {
+        assertNull(yearlyPrice(emptyList()))
+        assertNull(yearlyPrice(listOf(offer(basePlan = "monthly-autorenew"))))
+        assertNull(yearlyPrice(listOf(offer(prices = emptyList()))))
+        assertNull(yearlyPrice(listOf(offer(prices = listOf("  ")))))
+        assertNull(yearlyOffer(listOf(offer(basePlan = "monthly-autorenew"))))
+    }
+
     // Local reminders (2026-09-27): what the core sends is read leniently, each reminder keeps
     // the same alarm slot, and only the ones still ahead are set again after a reboot.
     @Test
