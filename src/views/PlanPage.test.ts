@@ -9,12 +9,26 @@ vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** What the core says about this phone's plan (§40–§47). */
-function planning(plan: Record<string, unknown>) {
+/**
+ * What the core says about this phone's plan (§40–§47), and what the Store says a year costs
+ * (`price`, formatted by the Store; `null` when it cannot say).
+ */
+function planning(plan: Record<string, unknown>, price: string | null = "0,99 €") {
   installTauri((command, args) => {
     calls.push([command, args]);
+    if (command === "core_subscription_price") return { price };
     return command === "core_plan" ? plan : undefined;
   });
+}
+
+const catalogues = import.meta.glob<{ plan: Record<string, unknown> }>("../i18n/*.json", {
+  eager: true,
+  import: "default",
+});
+
+function texts(node: unknown): string[] {
+  if (typeof node === "string") return [node];
+  return typeof node === "object" && node !== null ? Object.values(node).flatMap(texts) : [];
 }
 
 describe("PlanPage", () => {
@@ -49,14 +63,60 @@ describe("PlanPage", () => {
     expect(wrapper.html()).not.toContain("birth");
   });
 
-  it("offers the euro when the year is over", async () => {
-    planning({ state: "limited", until: 0, age: "adult" });
+  // 2026-09-29: the price is the Store's, as the Store writes it for this phone (0,99 € in
+  // Spain, something else elsewhere); the app never writes an amount of its own.
+  it("offers the year at the Store's own price when the free year is over", async () => {
+    planning({ state: "limited", until: 0, age: "adult" }, "0,99 €");
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
-    expect(wrapper.text()).toContain("1");
+    expect(wrapper.find("[data-test='pay']").text()).toBe("0,99 € a year");
+    expect(wrapper.find("[data-test='hint']").text()).toContain("0,99 € a year");
     await wrapper.find("[data-test='pay']").trigger("click");
     await flushPromises();
     expect(calls.map(([command]) => command)).toContain("core_subscribe");
+  });
+
+  it("shows another store's price as it comes", async () => {
+    planning({ state: "limited", until: 0, age: "adult" }, "US$0.99");
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe("US$0.99 a year");
+  });
+
+  // Offline, on a desktop, or with the product missing, the Store cannot say: the screen names
+  // no amount at all, and paying still goes to the Store, which shows its own price.
+  it("names no amount when the Store cannot say the price, and still pays", async () => {
+    planning({ state: "limited", until: 0, age: "adult" }, null);
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe(en.plan.payYearly);
+    expect(wrapper.find("[data-test='hint']").text()).toBe(en.plan.hintYearly);
+    expect(wrapper.text()).not.toMatch(/€|\$|euro/i);
+    await wrapper.find("[data-test='pay']").trigger("click");
+    await flushPromises();
+    expect(calls.map(([command]) => command)).toContain("core_subscribe");
+  });
+
+  it("names no amount when asking the Store fails", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscription_price") throw "store_unavailable";
+      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe(en.plan.payYearly);
+  });
+
+  // No language may carry a price of its own: an amount written in a catalogue would be wrong in
+  // every other store, and the day the price changes.
+  it("has no amount of money written in the Plan texts of any language", () => {
+    const money = /[€$£¥₹₩₽]|\beuros?\b|ユーロ|유로|欧元|歐元|ยูโร|यूरो|ইউরো|євро|евро|يورو/i;
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      for (const text of texts(catalogue.plan)) expect(text, path).not.toMatch(money);
+      expect(String(catalogue.plan.pay), path).toContain("{price}");
+      expect(String(catalogue.plan.hint), path).toContain("{price}");
+    }
   });
 
   it("asks for nothing from someone under 21", async () => {

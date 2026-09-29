@@ -293,8 +293,10 @@
     "young": "Free · under 21",
     "subscribed": "Paid · until {until}",
     "limited": "The free year is over",
-    "hint": "FlickerTalk is €1 a year, and free if you are under 21. The first year from the install is free for everyone. Without it you still receive and answer; starting a new conversation, calling and sending files need the euro.",
-    "pay": "€1 a year",
+    "hint": "FlickerTalk is {price} a year, and free if you are under 21. The first year from the install is free for everyone. Without it you still receive and answer; starting a new conversation, calling and sending files need the subscription.",
+    "hintYearly": "FlickerTalk is a yearly subscription, and free if you are under 21. The first year from the install is free for everyone. Without it you still receive and answer; starting a new conversation, calling and sending files need the subscription.",
+    "pay": "{price} a year",
+    "payYearly": "Yearly subscription",
     "iAmYoung": "I am under 21",
     "iAmOlder": "I am 21 or older",
     "trouble": {

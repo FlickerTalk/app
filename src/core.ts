@@ -805,6 +805,20 @@ export function payTrouble(error: unknown): string {
   return `plan.trouble.${known.includes(answer) ? answer : "failed"}`;
 }
 
+/**
+ * What a year costs, exactly as the Store formats it for this phone (2026-09-29), or null when it
+ * cannot say (offline, a desktop, the product missing). Asked every time, never kept: a price
+ * from another store or another country is never shown.
+ */
+export async function subscriptionPrice(): Promise<string | null> {
+  try {
+    const answer = await invoke<{ price: string | null } | null>("core_subscription_price");
+    return answer?.price?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function subscribe(): Promise<void> {
   await invoke("core_subscribe");
 }

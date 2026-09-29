@@ -1,15 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
-import { daysLeft, payTrouble, plan as planOf, setAge, subscribe, type PlanView } from "../core";
+import { daysLeft, payTrouble, plan as planOf, setAge, subscribe, subscriptionPrice, type PlanView } from "../core";
 import { t } from "../i18n";
 
-// Plan §40–§47: the first year is free from the install, then 1 € a year; under 21 it is always
-// free. Everything is decided on this phone, and no date of birth is ever kept (§30, §43).
+// Plan §40–§47: the first year is free from the install, then a yearly subscription at the
+// Store's price (0,99 € in Spain since 2026-09-29); under 21 it is always free. Everything is
+// decided on this phone, and no date of birth is ever kept (§30, §43).
 const plan = ref<PlanView | null>(null);
 const trouble = ref("");
+/** What a year costs, as the Store formats it; null while unknown or when it cannot say. */
+const price = ref<string | null>(null);
 
-onMounted(refresh);
+onMounted(() => {
+  void refresh();
+  // The Store may take a while or not answer at all: the screen does not wait for it.
+  void subscriptionPrice().then((said) => (price.value = said));
+});
+
+/** With the Store's price, or with no amount at all: the app never writes one of its own. */
+const payText = computed(() => (price.value ? t("plan.pay", { price: price.value }) : t("plan.payYearly")));
+const hint = computed(() => (price.value ? t("plan.hint", { price: price.value }) : t("plan.hintYearly")));
 
 async function refresh() {
   plan.value = await planOf().catch(() => null);
@@ -34,7 +45,7 @@ const where = computed(() => {
   }
 });
 
-/** The euro is only asked of an adult whose free year is over (§42). */
+/** The subscription is only asked of an adult whose free year is over (§42). */
 const asksToPay = computed(() => plan.value?.state === "limited");
 
 async function iAm(age: "minor" | "adult") {
@@ -67,10 +78,10 @@ async function pay() {
 
     <ion-content>
       <p class="ft-plan__where" data-test="where">{{ where }}</p>
-      <p class="ft-plan__hint">{{ $t("plan.hint") }}</p>
+      <p class="ft-plan__hint" data-test="hint">{{ hint }}</p>
 
       <div v-if="asksToPay" class="ft-plan__acts">
-        <button type="button" class="ft-plan__pay" data-test="pay" @click="pay">{{ $t("plan.pay") }}</button>
+        <button type="button" class="ft-plan__pay" data-test="pay" @click="pay">{{ payText }}</button>
         <button type="button" class="ft-plan__young" data-test="young" @click="iAm('minor')">
           {{ $t("plan.iAmYoung") }}
         </button>

@@ -556,3 +556,19 @@ describe("the days left", () => {
     expect(core.daysLeft(now - 3 * DAY, now)).toBe(0);
   });
 });
+
+// 2026-09-29: what a year costs comes from the Store, as it formats it, every time it is asked.
+describe("the Store's price", () => {
+  it("is the Store's own text", async () => {
+    tauri.invoke.mockResolvedValueOnce({ price: "0,99 €" });
+    expect(await core.subscriptionPrice()).toBe("0,99 €");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_subscription_price");
+  });
+
+  it("is nothing when the Store cannot say or does not answer", async () => {
+    tauri.invoke.mockResolvedValueOnce({ price: null });
+    expect(await core.subscriptionPrice()).toBeNull();
+    tauri.invoke.mockRejectedValueOnce("store_unavailable");
+    expect(await core.subscriptionPrice()).toBeNull();
+  });
+});
