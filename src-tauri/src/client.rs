@@ -248,16 +248,6 @@ struct Changed {
 
 /// Sent to the UI on `ft://call` (§66).
 pub const CALL_EVENT: &str = "ft://call";
-/// The phone's own call screen did something the WebView must follow at once (2026-09-29):
-/// CallKit answered with the app on the screen, where no visibility change tells the WebView. It
-/// reads what happened with `core_pending_call`.
-pub const CALL_ACTION_EVENT: &str = "ft://call-action";
-
-/// Whether the WebView hears of a native call event at once.
-fn tells_the_webview(event: NativeCallEvent) -> bool {
-    matches!(event, NativeCallEvent::Answer)
-}
-
 /// What happened to a call, as the WebView hears it.
 #[derive(Clone, Serialize)]
 pub struct CallEvent {
@@ -276,6 +266,9 @@ pub struct CallEvent {
     /// `video`: the call's video, a whole state (native video, 2026-09-29).
     #[serde(flatten)]
     view: Option<CallVideoView>,
+    /// `incoming`: answered already on the phone's own screen, before its offer came (2026-09-29).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    answered: bool,
 }
 
 impl CallEvent {
@@ -287,6 +280,7 @@ impl CallEvent {
         let (kind, video, sdp, outcome, muted) = match update {
             CallUpdate::Incoming { video, sdp } => ("incoming", Some(video), Some(sdp), None, None),
             CallUpdate::Answered { sdp } => ("answered", None, Some(sdp), None, None),
+            CallUpdate::Answering => ("answering", None, None, None, None),
             CallUpdate::Ended { outcome } => ("ended", None, None, Some(outcome.as_str()), None),
             CallUpdate::Connected => ("connected", None, None, None, None),
             CallUpdate::Muted { muted } => ("muted", None, None, None, Some(muted)),
@@ -294,7 +288,12 @@ impl CallEvent {
             CallUpdate::MissedWhileBusy => ("ended", None, None, Some(CallOutcome::Missed.as_str()), None),
             CallUpdate::Video(_) => ("video", None, None, None, None),
         };
-        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome, muted, view }
+        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome, muted, view, answered: false }
+    }
+
+    /// An incoming call the core is answering already: the WebView shows it connecting.
+    pub fn answered(self, answered: bool) -> Self {
+        Self { answered, ..self }
     }
 }
 
@@ -311,6 +310,7 @@ pub fn native_screen(update: &CallUpdate) -> NativeScreen {
         CallUpdate::Connected => NativeScreen::Connected,
         CallUpdate::Ended { .. } => NativeScreen::Ended,
         CallUpdate::Incoming { .. }
+        | CallUpdate::Answering
         | CallUpdate::Answered { .. }
         | CallUpdate::Muted { .. }
         | CallUpdate::MissedWhileBusy
@@ -517,12 +517,19 @@ pub fn call_routing(routing: &str) -> Result<CallRouting, String> {
 pub enum Ring {
     /// Ring and show the call on the screen; video calls say so.
     Start { video: bool },
+    /// Answered already, or being answered (2026-09-29): no ringing, on the phone or in the app;
+    /// the phone's own call screen learns who it is.
+    Answered,
     Stop,
     Nothing,
 }
 
-pub fn ringing(update: &CallUpdate) -> Ring {
+/// What the ringing does after `update`. `answered`: the core is answering the call already (it
+/// was answered on the phone's own screen before its offer came).
+pub fn ringing(update: &CallUpdate, answered: bool) -> Ring {
     match update {
+        CallUpdate::Incoming { .. } if answered => Ring::Answered,
+        CallUpdate::Answering => Ring::Answered,
         CallUpdate::Incoming { video, .. } => Ring::Start { video: *video },
         CallUpdate::Ended { .. } => Ring::Stop,
         CallUpdate::Answered { .. } => Ring::Nothing,
@@ -878,7 +885,14 @@ impl Client {
                             continue;
                         }
                         Event::Call { contact, call, update } => {
-                            match ringing(&update) {
+                            // Answered on the phone's own screen before its offer came: the core
+                            // is answering it, so it rings nowhere (2026-09-29).
+                            let current = match update {
+                                CallUpdate::Incoming { .. } | CallUpdate::Answering => core_for_events.current_call().await.ok().flatten(),
+                                _ => None,
+                            };
+                            let answered = matches!(update, CallUpdate::Incoming { .. }) && answered_already(current.as_ref(), &call);
+                            match ringing(&update, answered) {
                                 Ring::Start { video } => {
                                     // The screen says who is calling, so a call in the background
                                     // is more than a ringtone (§66).
@@ -890,6 +904,11 @@ impl Client {
                                 }
                                 Ring::Stop => {
                                     let _ = app.platform().stop_ringing();
+                                }
+                                Ring::Answered => {
+                                    let name = core_for_events.store().contact(&contact).await.ok().flatten().map(|stored| stored.name).unwrap_or_default();
+                                    let video = current.as_ref().is_some_and(|current| current.video);
+                                    let _ = app.platform().call_answering(&name, video);
                                 }
                                 Ring::Nothing => {}
                             }
@@ -913,7 +932,7 @@ impl Client {
                                 .await;
                             }
                             let name = update_name(&update);
-                            let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update));
+                            let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update).answered(answered));
                             diagnose_call(&app, &core_for_events, &format!("update {name}")).await;
                             if CALL_DIAGNOSTICS && name == "connected" {
                                 // Whether the voice runs a moment later: on iOS it waits for CallKit.
@@ -954,9 +973,6 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                 Reconnect::No => {}
             }
             let (core, app) = (core.clone(), app_for_events.clone());
-            if tells_the_webview(event) {
-                let _ = app.emit(CALL_ACTION_EVENT, ());
-            }
             match event {
                 NativeCallEvent::Incoming => diagnose_call(&app, &core, "event incoming").await,
                 NativeCallEvent::Answer => {
@@ -985,6 +1001,13 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                     tauri::async_runtime::spawn(async move {
                         let ended = core.end_current_call().await;
                         diagnose_outcome(&app, &core, "end", &ended).await;
+                    });
+                }
+                // Declined before its offer came, the call is declined as it arrives (2026-09-29).
+                NativeCallEvent::Decline => {
+                    tauri::async_runtime::spawn(async move {
+                        let declined = core.decline_ringing_call().await;
+                        diagnose_outcome(&app, &core, "decline", &declined).await;
                     });
                 }
                 NativeCallEvent::Mute(muted) => {
@@ -1036,7 +1059,8 @@ enum Reconnect {
 fn reconnect_for(event: NativeCallEvent) -> Reconnect {
     match event {
         NativeCallEvent::Incoming => Reconnect::Now,
-        NativeCallEvent::Answer | NativeCallEvent::AudioActivated(_) => Reconnect::UnlessFresh,
+        // A decline waits for the offer as an answer does, to decline it.
+        NativeCallEvent::Answer | NativeCallEvent::Decline | NativeCallEvent::AudioActivated(_) => Reconnect::UnlessFresh,
         NativeCallEvent::End
         | NativeCallEvent::Mute(_)
         | NativeCallEvent::AudioDeactivated(_)
@@ -1058,6 +1082,7 @@ fn native_event_name(event: NativeCallEvent) -> &'static str {
         NativeCallEvent::Incoming => "incoming",
         NativeCallEvent::Answer => "answer",
         NativeCallEvent::End => "end",
+        NativeCallEvent::Decline => "decline",
         NativeCallEvent::Mute(_) => "mute",
         NativeCallEvent::AudioActivated(_) => "audio activated",
         NativeCallEvent::AudioDeactivated(_) => "audio deactivated",
@@ -1096,6 +1121,7 @@ fn update_name(update: &CallUpdate) -> &'static str {
     match update {
         CallUpdate::Incoming { .. } => "incoming",
         CallUpdate::Answered { .. } => "answered",
+        CallUpdate::Answering => "answering",
         CallUpdate::Ended { .. } => "ended",
         CallUpdate::Connected => "connected",
         CallUpdate::Muted { .. } => "muted",
@@ -1179,6 +1205,12 @@ fn tell_bridge(app: &AppHandle, glue: &Mutex<VideoGlue>, step: impl FnOnce(&mut 
             BridgeVideo::Detach => platform.detach_video(),
         };
     }
+}
+
+/// Whether the core is answering `call` already, as it says of the call going on: it rings no
+/// more (answered on the phone's own screen, maybe before its offer came).
+fn answered_already(current: Option<&ft_core::CurrentCall>, call: &str) -> bool {
+    current.is_some_and(|current| current.call == call && !current.outgoing && current.phase != CallPhase::Ringing)
 }
 
 /// Without a microphone the call cannot go on: it ends as failed, which the other side hears.
@@ -2303,12 +2335,6 @@ fn forget_old_prints(dir: &Path, keep: &Path) {
     }
 }
 
-/// What the user pressed on the incoming call notification: "answer", "decline" or nothing (§66).
-#[tauri::command]
-pub async fn core_pending_call(app: AppHandle) -> Result<String, String> {
-    Ok(app.platform().pending_call().unwrap_or_default())
-}
-
 /// Opens the phone's share sheet with a text, such as the Contact Card link (§32). Fails where
 /// there is none (desktop): the UI copies the link instead.
 #[tauri::command]
@@ -3308,7 +3334,7 @@ mod tests {
     #[test]
     fn a_call_refused_as_busy_leaves_the_phone_s_call_screen_alone() {
         assert_eq!(native_screen(&CallUpdate::MissedWhileBusy), NativeScreen::Nothing);
-        assert_eq!(ringing(&CallUpdate::MissedWhileBusy), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::MissedWhileBusy, false), Ring::Nothing);
         let event = serde_json::to_value(CallEvent::new("ft_carol", "c2", CallUpdate::MissedWhileBusy)).unwrap();
         assert_eq!(event, serde_json::json!({ "contact": "ft_carol", "call": "c2", "kind": "ended", "outcome": "missed" }));
         assert_eq!(update_name(&CallUpdate::MissedWhileBusy), "missed while busy");
@@ -3333,18 +3359,58 @@ mod tests {
         assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
     }
 
-    // Bug seen on the iPhone (2026-09-29): with the app on the screen, the call answered from
-    // CallKit's banner had its voice, but the WebView only heard of the answer once the app came
-    // back to the screen: the in-app ringing stayed up, the call screen never came and a video call
-    // was never answered. The answer reaches it at once; the end reaches it from the core.
+    // Bug of 2026-09-29 (Android with the app closed, the iPhone with it open): a call answered on
+    // the phone's own screen rang again, on the phone and in the app, and asked for a second
+    // answer. A call the core answered before its offer came does not ring when the offer
+    // arrives, and a ringing call stops ringing the moment it is answered, not when it connects.
     #[test]
-    fn callkit_s_answer_reaches_the_webview_at_once() {
-        assert!(tells_the_webview(NativeCallEvent::Answer));
-        assert!(!tells_the_webview(NativeCallEvent::End), "the core's end reaches it as `ended`");
-        assert!(!tells_the_webview(NativeCallEvent::Incoming));
-        assert!(!tells_the_webview(NativeCallEvent::Mute(true)), "the core's mute reaches it as `muted`");
-        assert!(!tells_the_webview(NativeCallEvent::AudioActivated(1)));
-        assert!(!tells_the_webview(NativeCallEvent::AudioDeactivated(1)));
+    fn an_answered_call_never_rings() {
+        assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }, true), Ring::Answered);
+        assert_eq!(ringing(&CallUpdate::Answering, false), Ring::Answered);
+        assert_eq!(native_screen(&CallUpdate::Answering), NativeScreen::Nothing);
+        assert_eq!(update_name(&CallUpdate::Answering), "answering");
+    }
+
+    // The WebView hears it too, wherever it is: `answering` for a ringing call, and an incoming
+    // call answered already says so, so that it never shows its ringing screen.
+    #[test]
+    fn the_webview_hears_that_a_call_is_answered_the_moment_it_is() {
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::Answering)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "answering"
+        }));
+        let early = CallEvent::new("ft_bob", "c1", CallUpdate::Incoming { video: false, sdp: "offer".to_owned() }).answered(true);
+        assert_eq!(serde_json::to_value(early).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "incoming", "video": false, "sdp": "offer", "answered": true
+        }));
+    }
+
+    // What the core says of the call whose offer just arrived: answered already when it is not
+    // ringing (it is being answered).
+    #[test]
+    fn a_call_is_answered_already_when_the_core_is_answering_it() {
+        let current = |phase| ft_core::CurrentCall {
+            call: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: false,
+            outgoing: false,
+            phase,
+            offer: None,
+            native: false,
+            muted: false,
+            connected_at: None,
+            video_state: None,
+        };
+        assert!(answered_already(Some(&current(ft_core::CallPhase::Connecting)), "c1"));
+        assert!(!answered_already(Some(&current(ft_core::CallPhase::Ringing)), "c1"));
+        assert!(!answered_already(Some(&current(ft_core::CallPhase::Connecting)), "c2"), "another call");
+        assert!(!answered_already(None, "c1"));
+    }
+
+    // A decline needs the offer to come, to decline it: like an answer, it asks for a fresh socket.
+    #[test]
+    fn a_decline_asks_for_the_router_and_is_named() {
+        assert_eq!(reconnect_for(NativeCallEvent::Decline), Reconnect::UnlessFresh);
+        assert_eq!(native_event_name(NativeCallEvent::Decline), "decline");
     }
 
     // Temporary call diagnostics (2026-09-28): state names only, nothing about who.
@@ -3445,7 +3511,7 @@ mod tests {
             "available": false, "camera": false, "paused": false, "facing": "front", "remote": false, "remotePaused": false
         }));
         assert_eq!(native_screen(&CallUpdate::Video(state)), NativeScreen::Nothing);
-        assert_eq!(ringing(&CallUpdate::Video(state)), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Video(state), false), Ring::Nothing);
         assert_eq!(update_name(&CallUpdate::Video(state)), "video");
     }
 
@@ -3577,12 +3643,12 @@ mod tests {
     // being answered never ring.
     #[test]
     fn only_incoming_calls_ring() {
-        assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }), Ring::Start { video: true });
-        assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }), Ring::Start { video: false });
-        assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }), Ring::Stop);
-        assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }), Ring::Nothing);
-        assert_eq!(ringing(&CallUpdate::Connected), Ring::Nothing);
-        assert_eq!(ringing(&CallUpdate::Muted { muted: false }), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Incoming { video: true, sdp: String::new() }, false), Ring::Start { video: true });
+        assert_eq!(ringing(&CallUpdate::Incoming { video: false, sdp: String::new() }, false), Ring::Start { video: false });
+        assert_eq!(ringing(&CallUpdate::Ended { outcome: CallOutcome::Missed }, false), Ring::Stop);
+        assert_eq!(ringing(&CallUpdate::Answered { sdp: String::new() }, false), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Connected, false), Ring::Nothing);
+        assert_eq!(ringing(&CallUpdate::Muted { muted: false }, false), Ring::Nothing);
     }
 
     // The WebView's WebRTC uses the cluster's STUN and a short-lived TURN user (§16–17).
