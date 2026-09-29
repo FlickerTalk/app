@@ -96,7 +96,7 @@ mod tests {
         assert!(fails(google_client_check("android", "release", &env(&[("FT_GOOGLE_IOS_CLIENT_ID", IOS)])), "FT_GOOGLE_CLIENT_ID"));
         // Empty, or not a client id (a secret pasted wrong), is the same as none.
         assert!(fails(google_client_check("android", "release", &env(&[("FT_GOOGLE_CLIENT_ID", " ")])), "FT_GOOGLE_CLIENT_ID"));
-        assert!(fails(google_client_check("ios", "release", &env(&[("FT_GOOGLE_IOS_CLIENT_ID", "GOCSPX-secret")])), "FT_GOOGLE_IOS_CLIENT_ID"));
+        assert!(fails(google_client_check("ios", "release", &env(&[("FT_GOOGLE_IOS_CLIENT_ID", "a-client-secret-by-mistake")])), "FT_GOOGLE_IOS_CLIENT_ID"));
         assert!(fails(google_client_check("ios", "release", &env(&[("FT_GOOGLE_IOS_CLIENT_ID", ".apps.googleusercontent.com")])), "FT_GOOGLE_IOS_CLIENT_ID"));
     }
 
