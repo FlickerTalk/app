@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
+use ft_core::timings::{CallStage, CallTimings};
 use ft_core::{CallPhase, CallUpdate, Core, Event};
 use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, webview_voice_offer, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, BackendFactory, CallRouting};
@@ -437,4 +438,48 @@ async fn a_call_whose_audio_device_never_starts_fails() {
     assert!(bob.core.set_call_audio_session(true, 1).await.is_err());
     until("alice's call ends", || async { alice.core.current_call().await.unwrap().is_none() }).await;
     assert_eq!(bob.core.store().call(&call).await.unwrap().expect("in the history").outcome, Some(CallOutcome::Failed));
+}
+
+/// Asserts the stages were all reached, in this order (the same millisecond is in order too).
+fn in_order(timings: &CallTimings, stages: &[CallStage]) {
+    let mut last = 0;
+    for stage in stages {
+        let at = timings.at(*stage).unwrap_or_else(|| panic!("{} never reached: {}", stage.name(), timings.line()));
+        assert!(at >= last, "{} before the stage ahead of it: {}", stage.name(), timings.line());
+        last = at;
+    }
+}
+
+// Call setup timings (2026-09-29, temporary diagnostics): each side knows how long each step of
+// the setup took, from its call or its offer to the first audio, and says nothing about who.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_side_times_the_steps_of_the_call_setup() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    assert!(alice.core.call_timings().is_none(), "no call yet");
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    ringing_call(&bob).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let heard = |phone: &Phone| phone.core.call_timings().is_some_and(|timings| timings.at(CallStage::FirstAudioPacket).is_some());
+    until("audio arrives on both sides", || async { heard(&alice) && heard(&bob) }).await;
+
+    let caller = alice.core.call_timings().expect("the caller's timings");
+    let callee = bob.core.call_timings().expect("the callee's timings");
+    eprintln!("caller: {}", caller.line());
+    eprintln!("callee: {}", callee.line());
+    use CallStage::*;
+    in_order(&caller, &[CallStarted, ConnectionBuilt, GatheringStarted, GatheringDone, OfferBuilt, OfferSent, AnswerReceived, Connected]);
+    in_order(&caller, &[Connected, AudioDeviceStarted]);
+    in_order(&caller, &[AnswerReceived, FirstAudioPacket]);
+    in_order(&callee, &[OfferReceived, Ringing, AnswerRequested, AnswerSent, Connected, AudioDeviceStarted]);
+    in_order(&callee, &[ConnectionBuilt, GatheringStarted, GatheringDone, AnswerBuilt, AnswerSent, FirstAudioPacket]);
+    assert!(callee.candidates.is_some_and(|found| found.host >= 1), "{}", callee.line());
+    assert!(caller.candidates.is_some_and(|found| found.host >= 1 && found.complete), "loopback completes: {}", caller.line());
+    for line in [caller.line(), callee.line()] {
+        assert!(!line.contains("ft_") && !line.contains(&call) && !line.contains("127.0.0.1"), "{line}");
+    }
+    alice.core.end_call(&call, false).await.unwrap();
 }

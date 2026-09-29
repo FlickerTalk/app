@@ -24,6 +24,7 @@ use ft_push::{RouterClient, RouterEvent, TurnGrant};
 use ft_webrtc::{Inbox, Role, Session, SessionConfig, Signal as Description, TurnServer};
 use tokio::sync::{mpsc, Mutex};
 
+use crate::timings::CallStage;
 use crate::{Core, Event, Peer, Transport};
 
 /// A transfer quiet for this long when a connection opens is asked for again over it.
@@ -248,6 +249,9 @@ impl Network {
             sealed,
         };
 
+        if call {
+            core.mark_call_stage(CallStage::LinkOffered);
+        }
         self.pending.lock().await.insert(session_id.clone(), session.clone());
         // Through the router the signal goes in an envelope (A1): it names its sender to the
         // recipient alone.
@@ -314,6 +318,7 @@ impl Network {
         };
         let wrapped = core.wrap_for(from, signal.encode()).await?;
         self.relay.signal(from, peer.capability.as_bytes(), wrapped).await?;
+        core.mark_call_stage(CallStage::LinkAnswered);
 
         let network = self.this.get().and_then(Weak::upgrade).ok_or_else(|| anyhow!("the network is gone"))?;
         let contact = from.to_owned();
@@ -332,6 +337,9 @@ impl Network {
         let id = self.next_link.fetch_add(1, Ordering::Relaxed);
         self.links.lock().await.insert(contact.to_owned(), Link { id, session });
         self.announce(contact);
+        if let Ok(core) = self.core() {
+            core.mark_call_stage(CallStage::LinkOpened);
+        }
         // File transfers stopped by the last connection go on over this one (§63).
         if let Ok(core) = self.core() {
             let from = contact.to_owned();
