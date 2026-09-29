@@ -248,6 +248,15 @@ struct Changed {
 
 /// Sent to the UI on `ft://call` (§66).
 pub const CALL_EVENT: &str = "ft://call";
+/// The phone's own call screen did something the WebView must follow at once (2026-09-29):
+/// CallKit answered with the app on the screen, where no visibility change tells the WebView. It
+/// reads what happened with `core_pending_call`.
+pub const CALL_ACTION_EVENT: &str = "ft://call-action";
+
+/// Whether the WebView hears of a native call event at once.
+fn tells_the_webview(event: NativeCallEvent) -> bool {
+    matches!(event, NativeCallEvent::Answer)
+}
 
 /// What happened to a call, as the WebView hears it.
 #[derive(Clone, Serialize)]
@@ -274,6 +283,8 @@ impl CallEvent {
             CallUpdate::Ended { outcome } => ("ended", None, None, Some(outcome.as_str()), None),
             CallUpdate::Connected => ("connected", None, None, None, None),
             CallUpdate::Muted { muted } => ("muted", None, None, None, Some(muted)),
+            // The WebView only logs it: it follows the call it shows.
+            CallUpdate::MissedWhileBusy => ("ended", None, None, Some(CallOutcome::Missed.as_str()), None),
         };
         Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome, muted }
     }
@@ -291,7 +302,9 @@ pub fn native_screen(update: &CallUpdate) -> NativeScreen {
     match update {
         CallUpdate::Connected => NativeScreen::Connected,
         CallUpdate::Ended { .. } => NativeScreen::Ended,
-        CallUpdate::Incoming { .. } | CallUpdate::Answered { .. } | CallUpdate::Muted { .. } => NativeScreen::Nothing,
+        CallUpdate::Incoming { .. } | CallUpdate::Answered { .. } | CallUpdate::Muted { .. } | CallUpdate::MissedWhileBusy => {
+            NativeScreen::Nothing
+        }
     }
 }
 
@@ -355,7 +368,7 @@ pub fn ringing(update: &CallUpdate) -> Ring {
         CallUpdate::Incoming { video, .. } => Ring::Start { video: *video },
         CallUpdate::Ended { .. } => Ring::Stop,
         CallUpdate::Answered { .. } => Ring::Nothing,
-        CallUpdate::Connected | CallUpdate::Muted { .. } => Ring::Nothing,
+        CallUpdate::Connected | CallUpdate::Muted { .. } | CallUpdate::MissedWhileBusy => Ring::Nothing,
     }
 }
 
@@ -767,16 +780,23 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                 Reconnect::No => {}
             }
             let (core, app) = (core.clone(), app_for_events.clone());
+            if tells_the_webview(event) {
+                let _ = app.emit(CALL_ACTION_EVENT, ());
+            }
             match event {
                 NativeCallEvent::Incoming => diagnose_call(&app, &core, "event incoming").await,
                 NativeCallEvent::Answer => {
                     tauri::async_runtime::spawn(async move {
-                        let answered = if microphone(&app).await {
-                            core.answer_ringing_call().await.map(drop)
-                        } else {
-                            fail_current_call(&core).await
-                        };
-                        diagnose_outcome(&app, &core, "answer", &answered).await;
+                        diagnose_call(&app, &core, "event answer").await;
+                        if !microphone(&app).await {
+                            let failed = fail_current_call(&core).await;
+                            diagnose_outcome(&app, &core, "answer without a microphone", &failed).await;
+                            return;
+                        }
+                        match core.answer_ringing_call().await {
+                            Ok(answered) => diagnose_call(&app, &core, &format!("event answer: {}", answer_state(answered))).await,
+                            Err(error) => diagnose_outcome(&app, &core, "answer", &Err(error)).await,
+                        }
                     });
                 }
                 NativeCallEvent::End => {
@@ -844,6 +864,31 @@ fn native_event_name(event: NativeCallEvent) -> &'static str {
     }
 }
 
+/// What CallKit's answer did in the core (diagnostics).
+fn answer_state(answered: bool) -> &'static str {
+    if answered {
+        "answered"
+    } else {
+        "nothing to answer yet (waits for the offer) or a video call"
+    }
+}
+
+/// Where the core's call stands, and whether it is a video call (diagnostics): no identifiers.
+fn phase_name(phase: Option<(CallPhase, bool)>) -> String {
+    let Some((phase, video)) = phase else { return "no call".to_owned() };
+    let name = match phase {
+        CallPhase::Calling => "calling",
+        CallPhase::Ringing => "ringing",
+        CallPhase::Connecting => "connecting",
+        CallPhase::Active => "active",
+    };
+    if video {
+        format!("{name} video")
+    } else {
+        name.to_owned()
+    }
+}
+
 fn update_name(update: &CallUpdate) -> &'static str {
     match update {
         CallUpdate::Incoming { .. } => "incoming",
@@ -851,6 +896,7 @@ fn update_name(update: &CallUpdate) -> &'static str {
         CallUpdate::Ended { .. } => "ended",
         CallUpdate::Connected => "connected",
         CallUpdate::Muted { .. } => "muted",
+        CallUpdate::MissedWhileBusy => "missed while busy",
     }
 }
 
@@ -879,7 +925,8 @@ async fn diagnose_call(app: &AppHandle, core: &Core, what: &str) {
         ),
         None => String::new(),
     };
-    let line = format!("{what}; device running={running}{counts}");
+    let phase = core.current_call().await.ok().flatten().map(|current| (current.phase, current.video));
+    let line = format!("{what}; call {}; device running={running}{counts}", phase_name(phase));
     // Off the async workers: the bridge blocks until the native side answers.
     let _ = tauri::async_runtime::spawn_blocking(move || app.platform().diagnose(&line)).await;
 }
@@ -2964,6 +3011,18 @@ mod tests {
         assert_eq!(native_screen(&CallUpdate::Incoming { video: false, sdp: String::new() }), NativeScreen::Nothing);
     }
 
+    // Bug of 2026-09-29: a contact who called during another call was refused as busy, and its
+    // end also ended the call going on in CallKit (and its audio) and stopped its ringing. Only the
+    // history changes now; the WebView hears an end of another call, which it only logs.
+    #[test]
+    fn a_call_refused_as_busy_leaves_the_phone_s_call_screen_alone() {
+        assert_eq!(native_screen(&CallUpdate::MissedWhileBusy), NativeScreen::Nothing);
+        assert_eq!(ringing(&CallUpdate::MissedWhileBusy), Ring::Nothing);
+        let event = serde_json::to_value(CallEvent::new("ft_carol", "c2", CallUpdate::MissedWhileBusy)).unwrap();
+        assert_eq!(event, serde_json::json!({ "contact": "ft_carol", "call": "c2", "kind": "ended", "outcome": "missed" }));
+        assert_eq!(update_name(&CallUpdate::MissedWhileBusy), "missed while busy");
+    }
+
     // Bug of 2026-09-28: a suspended iPhone rang through PushKit and was answered, but its socket
     // to the router was dead and only the WebView (not running) asked to reconnect: the offer and
     // the caller's end never came. The push, the answer and the audio activation reconnect now.
@@ -2980,6 +3039,20 @@ mod tests {
         assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
     }
 
+    // Bug seen on the iPhone (2026-09-29): with the app on the screen, the call answered from
+    // CallKit's banner had its voice, but the WebView only heard of the answer once the app came
+    // back to the screen: the in-app ringing stayed up, the call screen never came and a video call
+    // was never answered. The answer reaches it at once; the end reaches it from the core.
+    #[test]
+    fn callkit_s_answer_reaches_the_webview_at_once() {
+        assert!(tells_the_webview(NativeCallEvent::Answer));
+        assert!(!tells_the_webview(NativeCallEvent::End), "the core's end reaches it as `ended`");
+        assert!(!tells_the_webview(NativeCallEvent::Incoming));
+        assert!(!tells_the_webview(NativeCallEvent::Mute(true)), "the core's mute reaches it as `muted`");
+        assert!(!tells_the_webview(NativeCallEvent::AudioActivated(1)));
+        assert!(!tells_the_webview(NativeCallEvent::AudioDeactivated(1)));
+    }
+
     // Temporary call diagnostics (2026-09-28): state names only, nothing about who.
     #[test]
     fn call_diagnostics_name_states_only() {
@@ -2992,6 +3065,13 @@ mod tests {
         assert_eq!(update_name(&CallUpdate::Connected), "connected");
         assert_eq!(update_name(&CallUpdate::Ended { outcome: CallOutcome::Failed }), "ended");
         assert_eq!(update_name(&CallUpdate::Incoming { video: false, sdp: "v=0 secret".to_owned() }), "incoming");
+        // 2026-09-29: what CallKit's answer did, and where the call stood, for the answers that
+        // sometimes did nothing.
+        assert_eq!(answer_state(true), "answered");
+        assert_eq!(answer_state(false), "nothing to answer yet (waits for the offer) or a video call");
+        assert_eq!(phase_name(None), "no call");
+        assert_eq!(phase_name(Some((ft_core::CallPhase::Ringing, false))), "ringing");
+        assert_eq!(phase_name(Some((ft_core::CallPhase::Active, true))), "active video");
     }
 
     // A WebView that comes up after the call started (PushKit launched the app, CallKit answered)

@@ -39,6 +39,10 @@ pub enum CallUpdate {
     Connected,
     /// Our voice was muted or unmuted (from the call screen, CallKit or the notification).
     Muted { muted: bool },
+    /// The contact called while another call was going on (2026-09-29): refused as busy and
+    /// logged as missed. Only the history changes: the phone's call screen stays with the call
+    /// going on (an `Ended` here used to end that one in CallKit, and its audio).
+    MissedWhileBusy,
 }
 
 impl Core {
@@ -222,7 +226,7 @@ impl Core {
             let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
             if fresh {
                 // For the history: the UI follows only the call it shows.
-                self.announce_call(&record, CallUpdate::Ended { outcome: CallOutcome::Missed });
+                self.announce_call(&record, CallUpdate::MissedWhileBusy);
             }
             return Ok(());
         }
