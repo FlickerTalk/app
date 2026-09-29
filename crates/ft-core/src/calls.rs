@@ -45,6 +45,10 @@ pub enum CallUpdate {
     MissedWhileBusy,
     /// The call's video changed (native video, 2026-09-29): the whole state, never a change.
     Video(ft_media::VideoState),
+    /// Our camera was wanted and could not start (native video, 2026-09-29): a video call's
+    /// camera as the call connected, an encoder that cannot be set up, say. The call goes on as
+    /// voice; the video state that follows has the camera off.
+    CameraFailed,
 }
 
 impl Core {

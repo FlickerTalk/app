@@ -576,3 +576,54 @@ async fn the_end_of_a_call_announces_its_video_is_gone() {
         assert!(!last.available && !last.any(), "{last:?}");
     }
 }
+
+/// A phone whose camera cannot start: its video devices cannot be made (an encoder that cannot
+/// be set up, say).
+fn broken_camera(phone: &Phone) {
+    let devices: ft_media::VideoFactory = Arc::new(|| Err(ft_media::VideoError::Backend("configure failed".to_owned())));
+    phone.core.set_call_video(Some(ft_media::VideoPlatform { devices }));
+}
+
+// QA on emulators (2026-09-29): a video call whose camera failed to start as the call connected
+// said nothing, and the UI kept asking the core until it gave up. The UI hears it now: the call
+// goes on as voice, the camera off, and it is told the camera did not start.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_video_call_whose_camera_cannot_start_says_so_as_it_connects() {
+    let (alice, bob) = two_phones().await;
+    broken_camera(&alice);
+    let mut alice_events = alice.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, true).await.expect("alice calls");
+    ringing_call(&bob).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::CameraFailed).await;
+    let state = alice.video(&call);
+    assert!(state.available && !state.camera, "{state:?}");
+    let current = alice.core.current_call().await.unwrap().expect("the call goes on");
+    assert_eq!(current.phase, CallPhase::Active);
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// Turning the camera on later answers with an error, as ever: only the camera at the connection
+// (which nobody asked for right then) is said with an event.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_camera_that_cannot_start_later_is_an_error_not_an_event() {
+    let (alice, bob) = two_phones().await;
+    broken_camera(&alice);
+    let call = connected_call(&alice, &bob, false).await;
+    until("video is available", || async { alice.video(&call).available }).await;
+    let mut alice_events = alice.core.events();
+    assert!(alice.core.set_call_camera(&call, true).await.is_err());
+    assert!(!alice.video(&call).camera);
+    alice.core.end_call(&call, false).await.unwrap();
+    let failed = async {
+        loop {
+            match alice_events.recv().await {
+                Ok(Event::Call { update: CallUpdate::CameraFailed, .. }) => return true,
+                Ok(Event::Call { update: CallUpdate::Ended { .. }, .. }) | Err(_) => return false,
+                _ => {}
+            }
+        }
+    };
+    assert!(!tokio::time::timeout(Duration::from_secs(5), failed).await.unwrap_or(false));
+}

@@ -293,6 +293,7 @@ impl CallEvent {
             // The WebView only logs it: it follows the call it shows.
             CallUpdate::MissedWhileBusy => ("ended", None, None, Some(CallOutcome::Missed.as_str()), None),
             CallUpdate::Video(_) => ("video", None, None, None, None),
+            CallUpdate::CameraFailed => ("camera_failed", None, None, None, None),
         };
         Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome, muted, view }
     }
@@ -314,7 +315,8 @@ pub fn native_screen(update: &CallUpdate) -> NativeScreen {
         | CallUpdate::Answered { .. }
         | CallUpdate::Muted { .. }
         | CallUpdate::MissedWhileBusy
-        | CallUpdate::Video(_) => NativeScreen::Nothing,
+        | CallUpdate::Video(_)
+        | CallUpdate::CameraFailed => NativeScreen::Nothing,
     }
 }
 
@@ -526,7 +528,9 @@ pub fn ringing(update: &CallUpdate) -> Ring {
         CallUpdate::Incoming { video, .. } => Ring::Start { video: *video },
         CallUpdate::Ended { .. } => Ring::Stop,
         CallUpdate::Answered { .. } => Ring::Nothing,
-        CallUpdate::Connected | CallUpdate::Muted { .. } | CallUpdate::MissedWhileBusy | CallUpdate::Video(_) => Ring::Nothing,
+        CallUpdate::Connected | CallUpdate::Muted { .. } | CallUpdate::MissedWhileBusy | CallUpdate::Video(_) | CallUpdate::CameraFailed => {
+            Ring::Nothing
+        }
     }
 }
 
@@ -1102,6 +1106,7 @@ fn update_name(update: &CallUpdate) -> &'static str {
         CallUpdate::Muted { .. } => "muted",
         CallUpdate::MissedWhileBusy => "missed while busy",
         CallUpdate::Video(_) => "video",
+        CallUpdate::CameraFailed => "camera failed",
     }
 }
 
@@ -3487,6 +3492,17 @@ mod tests {
         assert_eq!(native_screen(&CallUpdate::Video(state)), NativeScreen::Nothing);
         assert_eq!(ringing(&CallUpdate::Video(state)), Ring::Nothing);
         assert_eq!(update_name(&CallUpdate::Video(state)), "video");
+    }
+
+    // A camera that could not start as the call connected (2026-09-29): the WebView says so, and
+    // the phone's own call screen and ringing are not touched.
+    #[test]
+    fn a_camera_that_could_not_start_reaches_the_webview() {
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", CallUpdate::CameraFailed)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "camera_failed"
+        }));
+        assert_eq!(native_screen(&CallUpdate::CameraFailed), NativeScreen::Nothing);
+        assert_eq!(ringing(&CallUpdate::CameraFailed), Ring::Nothing);
     }
 
     // Temporary call diagnostics: the counters say they are the audio device's (an AAudio or
