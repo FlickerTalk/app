@@ -85,6 +85,11 @@ pub trait Transport: Send + Sync {
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct(to, bytes).await
     }
+    /// Opens a direct connection for a call, sending nothing yet (2026-09-29): the caller opens
+    /// the way while its media offer gathers. `false` when the peer cannot be reached now.
+    async fn open_direct_call(&self, _to: &Peer) -> Result<bool> {
+        Ok(false)
+    }
     /// Leaves the packet, already encrypted, in the peer's mailbox on the router (§19).
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
     /// Closes any direct connection with the device (a blocked contact, §35).
@@ -1249,6 +1254,13 @@ impl Core {
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
         Ok(self.transport.send_direct_call(&peer, bytes).await.unwrap_or(false))
+    }
+
+    /// Opens the way to the contact for a call's offer, sending nothing yet.
+    pub(crate) async fn open_direct_call(&self, contact: &Contact) -> Result<bool> {
+        let card = ContactCard::decode(&contact.card)?;
+        let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
+        Ok(self.transport.open_direct_call(&peer).await.unwrap_or(false))
     }
 
     async fn transmit(&self, contact: &Contact, packet: &Packet) -> Result<Route> {

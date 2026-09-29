@@ -254,11 +254,24 @@ impl Core {
     }
 
     async fn offer_native(self: &Arc<Self>, call: &str, routing: CallRouting, platform: AudioPlatform) -> Result<()> {
+        // The way to the other phone opens (waking it if it sleeps) while our offer gathers
+        // (2026-09-29): the offer, once made, waits for that connection instead of starting it.
+        let (core, id) = (self.clone(), call.to_owned());
+        tokio::spawn(async move {
+            if let Ok(contact) = core.call_contact(&id).await {
+                let _ = core.open_direct_call(&contact).await;
+            }
+        });
         // The other side's media version comes with its answer.
         let Some(native) = self.open_native(call, routing, platform, None).await? else { return Ok(()) };
         let sdp = native.session.offer().await?;
         self.mark_call_stage(CallStage::OfferBuilt);
         self.offer_call_media(call, &sdp, native.media(), crate::calls::CALL_REACH).await
+    }
+
+    async fn call_contact(&self, call: &str) -> Result<ft_storage::Contact> {
+        let Some(record) = self.store.call(call).await? else { bail!("no such call") };
+        self.contact(&record.contact).await
     }
 
     /// Answers the ringing call with our voice. Answering a call already answered does nothing:

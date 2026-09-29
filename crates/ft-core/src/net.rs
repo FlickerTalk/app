@@ -382,6 +382,19 @@ impl Transport for Network {
         self.send_direct_as(to, bytes, true).await
     }
 
+    async fn open_direct_call(&self, to: &Peer) -> Result<bool> {
+        if self.open_link(&to.device_id).await.is_some() {
+            return Ok(true);
+        }
+        // A send that comes meanwhile waits here, and then finds the connection open.
+        let gate = self.gate(&to.device_id).await;
+        let _one_at_a_time = gate.lock().await;
+        if self.open_link(&to.device_id).await.is_some() {
+            return Ok(true);
+        }
+        Ok(self.connect(to, true).await?.is_some())
+    }
+
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()> {
         self.relay.deposit(&to.device_id, to.capability.as_bytes(), bytes).await
     }
