@@ -5,6 +5,7 @@ import { IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import CallPage from "./CallPage.vue";
+import source from "./CallPage.vue?raw";
 
 const route = { params: { id: "c1" }, query: {} as Record<string, string> };
 const nav = { back: vi.fn(), replace: vi.fn() };
@@ -167,5 +168,191 @@ describe("CallPage", () => {
     vi.advanceTimersByTime(3000);
     expect(nav.back).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it("on the desktop, a voice call has no camera switch", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", video: false, native: false });
+    expect(mount(CallPage, { shallow: true }).find("[aria-label='Camera']").exists()).toBe(false);
+  });
+});
+
+// Native video (2026-09-29, docs/video-nativo.md): on a phone every call can go from voice to
+// video and back at any moment. The pictures are native views under the WebView; this screen
+// leaves see-through holes where they go and says where those are.
+describe("CallPage with native video", () => {
+  beforeEach(() => {
+    seed();
+    resetCalls();
+    route.query = {};
+    window.history.replaceState({ back: "/chat/c1" }, "");
+    document.documentElement.className = "";
+  });
+
+  const view = (patch: Partial<typeof call.view> = {}) => ({
+    available: true,
+    camera: false,
+    paused: false,
+    facing: "front" as const,
+    remote: false,
+    remotePaused: false,
+    ...patch,
+  });
+  const live = (patch: Partial<typeof call.view> = {}) =>
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: false, view: view(patch) });
+  const lastMeasure = () => actions.layoutVideo.mock.calls.at(-1)?.[0] as () => Record<string, unknown>;
+
+  it("shows the voice/video switch at all times, even on a voice call", () => {
+    live();
+    const toggle = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
+    expect(toggle.exists()).toBe(true);
+    expect(toggle.attributes("aria-pressed")).toBe("false");
+    expect(toggle.attributes("aria-disabled")).toBe("false");
+  });
+
+  it("turns my camera on and off from the switch", async () => {
+    live();
+    const wrapper = mount(CallPage, { shallow: true });
+    await wrapper.find("[aria-label='Camera']").trigger("click");
+    expect(actions.toggleCamera).toHaveBeenCalled();
+    call.view = view({ camera: true });
+    await nextTick();
+    expect(wrapper.find("[aria-label='Camera']").attributes("aria-pressed")).toBe("true");
+  });
+
+  it("offers to switch between the front and back camera only with my camera on", async () => {
+    live();
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[aria-label='Switch camera']").exists()).toBe(false);
+    call.view = view({ camera: true });
+    await nextTick();
+    await wrapper.find("[aria-label='Switch camera']").trigger("click");
+    expect(actions.switchCamera).toHaveBeenCalled();
+  });
+
+  // Before the call connects the core cannot open the camera yet: the switch waits.
+  it("keeps the switch waiting until the call connects", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "calling", native: true, video: true, view: view({ available: false, camera: true }) });
+    const toggle = mount(CallPage, { shallow: true }).find("[aria-label='Camera']");
+    expect(toggle.attributes("aria-pressed")).toBe("true");
+    expect(toggle.attributes("aria-disabled")).toBe("true");
+  });
+
+  it("says video is not available on a call without a video line", async () => {
+    live({ available: false });
+    const wrapper = mount(CallPage, { shallow: true });
+    const toggle = wrapper.find("[aria-label='Camera']");
+    expect(toggle.attributes("aria-disabled")).toBe("true");
+    await toggle.trigger("click");
+    expect(actions.toggleCamera).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Video isn't available on this call");
+  });
+
+  // Each side owns its camera: theirs coming on only invites me to turn mine on.
+  it("invites me to turn my camera on when theirs comes on", async () => {
+    live({ remote: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.text()).toContain("Turn on your camera");
+    expect(wrapper.find("[aria-label='Camera']").classes()).toContain("is-invite");
+    expect(actions.toggleCamera).not.toHaveBeenCalled();
+    call.view = view({ remote: true, camera: true });
+    await nextTick();
+    expect(wrapper.text()).not.toContain("Turn on your camera");
+  });
+
+  it("says their camera is paused while their phone is locked or in the background", () => {
+    live({ remote: true, remotePaused: true });
+    const paused = mount(CallPage, { shallow: true }).find("[data-test='remote-paused']");
+    expect(paused.exists()).toBe(true);
+    expect(paused.text()).toContain("Camera paused");
+  });
+
+  it("says why the camera did not turn on, and how to allow it", () => {
+    live();
+    call.cameraDenied = true;
+    const denied = mount(CallPage, { shallow: true }).find("[data-test='camera-denied']");
+    expect(denied.exists()).toBe(true);
+    expect(denied.attributes("role")).toBe("alert");
+    expect(denied.text()).toContain("Settings");
+  });
+
+  it("leaves see-through holes for the native pictures, and no WebView video", async () => {
+    live({ remote: true, camera: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[data-test='remote-slot']").exists()).toBe(true);
+    expect(wrapper.find("[data-test='local-slot']").classes()).toContain("is-thumb");
+    expect(wrapper.find("video").exists()).toBe(false);
+    expect(document.documentElement.classList.contains("ft-call-video")).toBe(true);
+    call.view = view();
+    await nextTick();
+    expect(wrapper.find("[data-test='remote-slot']").exists()).toBe(false);
+    expect(document.documentElement.classList.contains("ft-call-video")).toBe(false);
+  });
+
+  // Until their picture comes, mine fills the screen.
+  it("fills the screen with my picture while theirs is off", () => {
+    live({ camera: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    expect(wrapper.find("[data-test='remote-slot']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='local-slot']").classes()).not.toContain("is-thumb");
+  });
+
+  it("tells the core where the pictures go when it shows them", () => {
+    live({ remote: true, camera: true });
+    mount(CallPage, { shallow: true });
+    expect(actions.layoutVideo).toHaveBeenCalled();
+    const layout = lastMeasure()();
+    expect(layout).toEqual({
+      remote: { x: 0, y: 0, width: 0, height: 0 },
+      local: { x: 0, y: 0, width: 0, height: 0 },
+      mirrorLocal: true,
+      localRadius: 16,
+    });
+  });
+
+  it("says no picture goes anywhere on a voice call, and mirrors only the front camera", async () => {
+    live();
+    mount(CallPage, { shallow: true });
+    expect(lastMeasure()()).toMatchObject({ remote: null, local: null });
+    call.view = view({ camera: true, facing: "back" });
+    await nextTick();
+    expect(lastMeasure()()).toMatchObject({ local: { x: 0, y: 0, width: 0, height: 0 }, mirrorLocal: false, localRadius: 0 });
+  });
+
+  it("measures again when the screen turns or changes size", () => {
+    live({ remote: true });
+    mount(CallPage, { shallow: true });
+    actions.layoutVideo.mockClear();
+    window.dispatchEvent(new Event("resize"));
+    expect(actions.layoutVideo).toHaveBeenCalled();
+    actions.layoutVideo.mockClear();
+    window.dispatchEvent(new Event("orientationchange"));
+    expect(actions.layoutVideo).toHaveBeenCalled();
+  });
+
+  it("drags my picture and tells the core where it went", async () => {
+    live({ remote: true, camera: true });
+    const wrapper = mount(CallPage, { shallow: true });
+    const thumb = wrapper.find("[data-test='local-slot']");
+    actions.layoutVideo.mockClear();
+    await thumb.trigger("pointerdown", { clientX: 300, clientY: 600, pointerId: 1 });
+    await thumb.trigger("pointermove", { clientX: 200, clientY: 500, pointerId: 1 });
+    await thumb.trigger("pointerup", { clientX: 200, clientY: 500, pointerId: 1 });
+    expect(thumb.attributes("style")).toContain("translate(-100px, -100px)");
+    expect(actions.layoutVideo).toHaveBeenCalled();
+  });
+
+  it("hides the pictures when the call screen goes", () => {
+    live({ remote: true });
+    mount(CallPage, { shallow: true }).unmount();
+    expect(actions.hideVideo).toHaveBeenCalled();
+    expect(document.documentElement.classList.contains("ft-call-video")).toBe(false);
+  });
+
+  // Arabic reads right to left: no physical sides in the layout (src/CLAUDE.md).
+  it("uses no left or right in its styles", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    expect(styles).not.toMatch(/(^|[\s;{-])(left|right)\s*:/m);
+    expect(styles).not.toMatch(/(margin|padding|border)-(left|right)/);
+    expect(styles).not.toMatch(/text-align:\s*(left|right)/);
   });
 });

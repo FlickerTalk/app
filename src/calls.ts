@@ -3,10 +3,12 @@
  * and the end of each call, encrypted and directly, and keeps the history. Descriptions are sent
  * whole, with their ICE candidates (no trickle).
  *
- * Where the media runs (2026-09-28): on the phones, a voice call's media runs in the Rust core
+ * Where the media runs (2026-09-28): on the phones, a call's media runs in the Rust core
  * (`core_call_*_native`), because CallKit answers on a locked iPhone with no WebView at all; this
- * file only shows it, from the core's events. Video calls and the desktop keep the WebView's
- * WebRTC (`getUserMedia` + `RTCPeerConnection`).
+ * file only shows it, from the core's events. Since 2026-09-29 that includes video
+ * (docs/video-nativo.md): the native views sit under the WebView, which says where they go
+ * (`layoutVideo`), and either side turns its own camera on or off at any moment. The desktop keeps
+ * the WebView's WebRTC (`getUserMedia` + `RTCPeerConnection`), with no switching.
  */
 import { markRaw, reactive } from "vue";
 import { invoke } from "@tauri-apps/api/core";
@@ -17,9 +19,41 @@ import { router } from "./router";
 export type CallPhase = "idle" | "calling" | "ringing" | "connecting" | "active" | "ended";
 export type CallOutcome = "answered" | "missed" | "declined" | "busy" | "cancelled" | "unreachable" | "failed";
 
+/** Both cameras of a native call, as the core last said (`kind: "video"`). */
+export interface CallVideo {
+  /** The call has a video line both ways: the camera can be turned on. */
+  available: boolean;
+  /** My camera is on. */
+  camera: boolean;
+  /** My camera is on but held: the app is not on the screen, or the phone is locked. */
+  paused: boolean;
+  facing: "front" | "back";
+  /** Their camera is on. */
+  remote: boolean;
+  /** Their camera is on but held. */
+  remotePaused: boolean;
+}
+
+/** Where the native pictures go, in CSS pixels (the bridge's `VideoLayout`). */
+export interface VideoRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export interface VideoLayout {
+  remote: VideoRect | null;
+  local: VideoRect | null;
+  /** My picture as in a mirror (the front camera). */
+  mirrorLocal: boolean;
+  /** The corners of my picture, in CSS pixels. */
+  localRadius: number;
+}
+
 export interface CallState {
   id: string;
   contact: string;
+  /** A video call: placed or offered with the camera on. */
   video: boolean;
   outgoing: boolean;
   phase: CallPhase;
@@ -29,9 +63,16 @@ export interface CallState {
   muted: boolean;
   /** The voice on the speaker; otherwise on the receiver, like a phone call. */
   speaker: boolean;
+  /** The WebView's camera is off (the desktop). */
   cameraOff: boolean;
   local: MediaStream | null;
   remote: MediaStream | null;
+  /** The core carries the media (the phones). */
+  native: boolean;
+  /** The native call's cameras. */
+  view: CallVideo;
+  /** The camera was asked for and not allowed: the call goes on as voice. */
+  cameraDenied: boolean;
 }
 
 export interface CallEntry {
@@ -45,10 +86,10 @@ export interface CallEntry {
   outcome: CallOutcome | null;
 }
 
-interface CallEvent {
+interface CallEvent extends Partial<CallVideo> {
   contact: string;
   call: string;
-  kind: "incoming" | "answered" | "connected" | "muted" | "ended";
+  kind: "incoming" | "answered" | "connected" | "muted" | "ended" | "video";
   video?: boolean;
   sdp?: string;
   outcome?: CallOutcome;
@@ -59,7 +100,8 @@ interface CallEvent {
 interface CurrentCall {
   call: string;
   contact: string;
-  video: boolean;
+  /** Whether it is a video call or, from the native video on, both cameras. */
+  video: boolean | CallVideo;
   outgoing: boolean;
   phase: "calling" | "ringing" | "connecting" | "active";
   offer?: string;
@@ -118,6 +160,15 @@ export const media = {
   ringback: webRingback() as Tone,
 };
 
+const noVideo = (): CallVideo => ({
+  available: false,
+  camera: false,
+  paused: false,
+  facing: "front",
+  remote: false,
+  remotePaused: false,
+});
+
 const idle = (): CallState => ({
   id: "",
   contact: "",
@@ -131,6 +182,9 @@ const idle = (): CallState => ({
   cameraOff: false,
   local: null,
   remote: null,
+  native: false,
+  view: noVideo(),
+  cameraDenied: false,
 });
 
 export const call = reactive<CallState>(idle());
@@ -140,12 +194,18 @@ let peer: RTCPeerConnection | null = null;
 let offer = "";
 let ringTimer: ReturnType<typeof setTimeout> | undefined;
 let listening = false;
-/** Whether this phone runs voice calls in the core (iOS and Android). */
-let nativeVoice = false;
+/** Whether this phone runs calls in the core (iOS and Android): voice and video alike. */
+let nativeCalls = false;
 /** Whether the current call's media is the core's. */
 let nativeCall = false;
 
-const runsNatively = (video: boolean) => nativeVoice && !video;
+function setNative(native: boolean) {
+  nativeCall = native;
+  call.native = native;
+}
+
+/** What the core answers when the camera is not allowed (`core_call_set_video`). */
+const cameraDenied = (error: unknown) => String(error).includes("camera_denied");
 
 /**
  * Whether the WebView may play the ringback (2026-09-28). Not during a native call on the
@@ -218,6 +278,8 @@ async function preparePeer(video: boolean): Promise<RTCPeerConnection> {
 
 /** Lets go of the camera, the microphone and the connection. */
 function release() {
+  cancelAnimationFrame(layoutFrame);
+  layoutFrame = 0;
   clearTimeout(ringTimer);
   media.ringback.stop();
   call.local?.getTracks().forEach((track) => track.stop());
@@ -234,18 +296,21 @@ function finish() {
 export function reset() {
   release();
   offer = "";
-  nativeCall = false;
+  sentLayout = undefined;
   Object.assign(call, idle());
+  setNative(false);
 }
 
 /** Calls the contact. If it cannot start (no camera or microphone, say), it ends as failed. */
 export async function startCall(contact: string, video: boolean): Promise<void> {
   if (busy()) throw new Error("already in a call");
   Object.assign(call, idle(), { contact, video, outgoing: true, phase: "calling", speaker: video });
-  nativeCall = runsNatively(video);
+  setNative(nativeCalls);
   try {
     if (nativeCall) {
-      call.id = await invoke<string>("core_call_start_native", { contact, routing: storedCallRouting() });
+      // The core turns the camera on once the call connects.
+      call.view.camera = video;
+      call.id = await startNativeCall(contact, video);
     } else {
       await startWebCall(contact, video);
     }
@@ -255,6 +320,18 @@ export async function startCall(contact: string, video: boolean): Promise<void> 
   }
   if (webViewMayPlay()) media.ringback.start();
   giveUpUnanswered();
+}
+
+/** A native call; without the camera allowed, a video call is placed as a voice call. */
+async function startNativeCall(contact: string, video: boolean): Promise<string> {
+  const routing = storedCallRouting();
+  try {
+    return await invoke<string>("core_call_start_native", { contact, routing, video });
+  } catch (error) {
+    if (!video || !cameraDenied(error)) throw error;
+    Object.assign(call, { cameraDenied: true, view: { ...call.view, camera: false } });
+    return await invoke<string>("core_call_start_native", { contact, routing, video: false });
+  }
 }
 
 /** The caller gives up when nobody answers. */
@@ -275,10 +352,10 @@ async function startWebCall(contact: string, video: boolean) {
 export async function acceptCall(): Promise<void> {
   if (call.phase !== "ringing") return;
   call.phase = "connecting";
-  nativeCall = runsNatively(call.video);
+  setNative(nativeCalls);
   try {
     if (nativeCall) {
-      await invoke("core_call_answer_native", { call: call.id, routing: storedCallRouting() });
+      await answerNativeCall();
       return;
     }
     const pc = await preparePeer(call.video);
@@ -287,6 +364,16 @@ export async function acceptCall(): Promise<void> {
     await invoke("core_call_answer", { call: call.id, sdp: await gathered(pc) });
   } catch {
     await fail();
+  }
+}
+
+/** Answers in the core. A video call with the camera not allowed is answered all the same, as voice. */
+async function answerNativeCall() {
+  try {
+    await invoke("core_call_answer_native", { call: call.id, routing: storedCallRouting() });
+  } catch (error) {
+    if (!call.video || !cameraDenied(error)) throw error;
+    call.cameraDenied = true;
   }
 }
 
@@ -343,9 +430,96 @@ export function toggleSpeaker() {
   void invoke("core_call_speaker", { on: call.speaker }).catch(() => undefined);
 }
 
-export function toggleCamera() {
-  call.cameraOff = !call.cameraOff;
-  call.local?.getVideoTracks().forEach((track) => (track.enabled = !call.cameraOff));
+/**
+ * My camera on or off. On the phones it is the voice/video switch, at any moment: the core asks
+ * for the camera when it is turned on (§30) and tells the other side. On the desktop it only
+ * blanks the WebView's camera of a video call.
+ */
+export async function toggleCamera(): Promise<void> {
+  if (!nativeCall) {
+    call.cameraOff = !call.cameraOff;
+    call.local?.getVideoTracks().forEach((track) => (track.enabled = !call.cameraOff));
+    return;
+  }
+  const on = !call.view.camera;
+  try {
+    applyVideo(await invoke<CallVideo>("core_call_set_video", { call: call.id, on }));
+    call.cameraDenied = false;
+  } catch (error) {
+    if (on && cameraDenied(error)) call.cameraDenied = true;
+  }
+}
+
+/** The front or the back camera (native calls). */
+export async function switchCamera(): Promise<void> {
+  if (!nativeCall) return;
+  const view = await invoke<CallVideo>("core_call_switch_camera", { call: call.id }).catch(() => null);
+  if (view) applyVideo(view);
+}
+
+/** Whether a call shows pictures: either camera on. */
+const anyVideo = (view: CallVideo) => view.camera || view.remote;
+
+/**
+ * The core's snapshot of both cameras. When pictures come into a call the voice goes to the
+ * speaker, if it was on the receiver: nobody holds the phone to the ear to watch. The native
+ * views may have come up only now, so the layout goes again.
+ */
+function applyVideo(update: Partial<CallVideo>) {
+  const before = anyVideo(call.view);
+  const view: CallVideo = { ...call.view };
+  for (const key of Object.keys(view) as (keyof CallVideo)[]) {
+    if (update[key] !== undefined) (view as unknown as Record<string, unknown>)[key] = update[key];
+  }
+  call.view = view;
+  sentLayout = undefined;
+  if (!before && anyVideo(view) && !call.speaker) {
+    call.speaker = true;
+    void invoke("core_call_speaker", { on: true }).catch(() => undefined);
+  }
+}
+
+/** A video's place on the screen, in CSS pixels. */
+export function rectOf(element: Element | null | undefined): VideoRect | null {
+  if (!element) return null;
+  const { x, y, width, height } = element.getBoundingClientRect();
+  return { x, y, width, height };
+}
+
+let layoutFrame = 0;
+let measureLayout: (() => VideoLayout | null) | null = null;
+/** What the core was last told, as JSON; `undefined` when it must be told again. */
+let sentLayout: string | undefined;
+
+function sendLayout(layout: VideoLayout | null) {
+  const said = JSON.stringify(layout);
+  if (said === sentLayout) return;
+  sentLayout = said;
+  void invoke("core_call_video_layout", { layout }).catch(() => undefined);
+}
+
+/**
+ * Tells the core where the native pictures go (§3 of docs/video-nativo.md): at most once an
+ * animation frame, measured then, and only when it changed. For the call screen: on showing,
+ * resizing, turning and dragging.
+ */
+export function layoutVideo(measure: () => VideoLayout | null): void {
+  if (!nativeCall) return;
+  measureLayout = measure;
+  if (layoutFrame) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = 0;
+    const layout = measureLayout?.();
+    if (layout !== undefined && nativeCall) sendLayout(layout);
+  });
+}
+
+/** The call screen is gone: the native views hide and my camera is held. */
+export function hideVideo(): void {
+  cancelAnimationFrame(layoutFrame);
+  layoutFrame = 0;
+  measureLayout = null;
+  if (nativeCall) sendLayout(null);
 }
 
 export async function loadHistory(): Promise<void> {
@@ -368,6 +542,8 @@ async function onEvent(event: CallEvent) {
     // Answered by CallKit, say, while the app only showed it ringing: the call is on now.
     goLive();
     await showCall();
+  } else if (event.call === call.id && event.kind === "video" && nativeCall) {
+    applyVideo(event);
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
   } else if (event.call === call.id && event.kind === "ended") {
@@ -390,18 +566,22 @@ async function restoreCall(): Promise<void> {
     await invoke("core_call_end", { call: current.call, failed: true }).catch(() => undefined);
     return;
   }
+  // A core from before the native video says only whether it is a video call.
+  const view = typeof current.video === "object" && current.video ? { ...noVideo(), ...current.video } : noVideo();
+  const video = typeof current.video === "object" ? anyVideo(view) : Boolean(current.video);
   Object.assign(call, idle(), {
     id: current.call,
     contact: current.contact,
-    video: current.video,
+    video,
     outgoing: current.outgoing,
     phase: current.phase,
     muted: current.muted,
-    speaker: current.video,
+    speaker: video,
     since: current.connectedAt ?? 0,
+    view,
   });
   offer = current.offer ?? "";
-  nativeCall = current.native;
+  setNative(current.native);
   if (current.phase === "calling") giveUpUnanswered();
   // Without the call screen there is no way to hang up.
   if (live) await showCall();
@@ -409,7 +589,7 @@ async function restoreCall(): Promise<void> {
 
 /** Listens to the core's call events and picks up the call it may already have; at start. */
 export async function startCalls(): Promise<void> {
-  nativeVoice = Boolean(await invoke<boolean>("core_native_calls").catch(() => false));
+  nativeCalls = Boolean(await invoke<boolean>("core_native_calls").catch(() => false));
   await syncCallRouting();
   if (!listening) {
     listening = true;

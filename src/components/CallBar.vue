@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { IonIcon } from "@ionic/vue";
-import { callOutline, videocamOutline } from "ionicons/icons";
+import { callOutline, pauseCircleOutline, videocamOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import { chat } from "../core";
 import { call, hangUp } from "../calls";
@@ -15,6 +15,14 @@ const shown = computed(
   () => ["calling", "connecting", "active"].includes(call.phase) && Boolean(call.contact) && route.path !== screen.value,
 );
 const name = computed(() => chat(call.contact)?.name ?? call.contact.slice(0, 9));
+// The call as it is now (2026-09-29): with native video either side may turn a camera on or off at
+// any moment; out of the call screen my camera is held.
+const paused = computed(() => call.native && call.view.camera && call.view.paused);
+const icon = computed(() => {
+  if (paused.value) return pauseCircleOutline;
+  const video = call.native ? call.view.camera || call.view.remote : call.video;
+  return video ? videocamOutline : callOutline;
+});
 
 // The call's clock, only while the bar is on the screen.
 const now = ref(Date.now());
@@ -43,8 +51,15 @@ function back() {
 
 <template>
   <div v-if="shown" class="ft-callbar" data-test="call-bar">
-    <button type="button" class="ft-callbar__back" :aria-label="$t('calls.backToCall')" @click="back">
-      <ion-icon :icon="call.video ? videocamOutline : callOutline" aria-hidden="true" />
+    <button
+      type="button"
+      class="ft-callbar__back"
+      :aria-label="$t('calls.backToCall')"
+      :aria-describedby="paused ? 'ft-callbar-paused' : undefined"
+      @click="back"
+    >
+      <ion-icon :icon="icon" aria-hidden="true" />
+      <span v-if="paused" id="ft-callbar-paused" class="ft-callbar__paused">{{ $t("calls.cameraPaused") }}</span>
       <span class="ft-callbar__name">{{ name }}</span>
       <span v-if="clock" class="ft-callbar__clock">{{ clock }}</span>
     </button>
@@ -90,6 +105,14 @@ function back() {
 .ft-callbar__back ion-icon {
   flex-shrink: 0;
   font-size: 18px;
+}
+/* Only for screen readers: the icon already shows the pause. */
+.ft-callbar__paused {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 .ft-callbar__name {
   white-space: nowrap;
