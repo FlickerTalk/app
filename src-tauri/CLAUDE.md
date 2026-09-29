@@ -183,3 +183,20 @@ WebView, capabilities/permissions y el **platform bridge** (`§5`).
     `false`, o borrar esos bloques y el comando `diagnose`.
   - Pendiente: un id opaco de llamada en el payload de VoIP, el delegado `mustReport` de iOS 26.4 y
     Telecom autogestionado en Android.
+- **Llamadas con la app en pantalla** (2026-09-29, rama `native-calls`):
+  - El `Answer` de CallKit emite además `ft://call-action` al WebView (`tells_the_webview`): con
+    la app delante no hay `visibilitychange` que le haga leer `pendingCall`.
+  - iOS: lo que el usuario hizo en CallKit (`CallChoice`, lo que lee `pendingCall`) es de **su**
+    llamada: una llamada nueva (`begin`) o el fin que manda el núcleo (`ended`) lo olvidan. Antes
+    un «answer» viejo contestaba la siguiente llamada al volver a la app y un «decline» la colgaba.
+  - Una llamada rechazada por ocupado llega como `CallUpdate::MissedWhileBusy`: ya no se trata como
+    un fin en CallKit ni en la notificación (terminaba la llamada en curso y su audio).
+  - Icono de CallKit: `CXProviderConfiguration.iconTemplateImageData` con la marca en plantilla
+    (`gen/apple/Assets.xcassets/CallKitIcon.imageset`, 40 pt a 1x/2x/3x, glifo blanco sobre
+    transparente; el catálogo ya estaba en la fase *Resources*, sin tocar `project.pbxproj`). El
+    nombre que enseña CallKit es el `CFBundleDisplayName` («FlickerTalk»): `localizedName` ya no
+    se admite desde iOS 14.
+  - Diagnóstico temporal ampliado: cada línea de Rust lleva la fase de la llamada (`phase_name`) y
+    qué hizo el «contestar» (`answer_state`); Swift registra si CallKit informó o renombró la
+    llamada, si rechazó informarla (código), si el «contestar»/«colgar» es de la llamada en curso y
+    qué leyó el WebView. Todo con `privacy: .public`, solo nombres de estado.

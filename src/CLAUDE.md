@@ -10,7 +10,7 @@ Diseño aprobado el 2026-09-21 (`§84`). Estructura:
 | ------------------------ | ------------------------------------------------------------------------ |
 | `router.ts`              | `/welcome`, pestañas `/tabs/{chats,calls,settings}`, `/chat/:id`, `/add-contact`, `/contact/:id`, `/call/:id`, `/circle/:id`, `/circle/:id/info`, `/new-circle`, `/plugin/:id`, `/backup`; `onboardingGuard` manda la primera ejecución a `/welcome` |
 | `views/`                 | `TabsPage` (pestañas + rail), `ChatsPage`, `ChatPage`, `CallsPage`, `SettingsPage`, `WelcomePage`, `AddContactPage`, `ContactPage`, `CallPage`, `BlockedPage`, `MovePage`, `PluginsPage`, `PlanPage`, `SessionPage`, `HoursPage`, `CirclePage`, `CircleInfoPage`, `NewCirclePage`, `PluginPage`, `BackupPage` |
-| `components/`            | `NavRail`, `ChatThread`, `CircleThread`, `MessageBubble`, `Avatar`, `QrCode`, `ScannerOverlay`, `EmojiPicker`, `IncomingCall`, `PluginSheet` |
+| `components/`            | `NavRail`, `ChatThread`, `CircleThread`, `MessageBubble`, `Avatar`, `QrCode`, `ScannerOverlay`, `EmojiPicker`, `IncomingCall`, `CallBar`, `PluginSheet` |
 | `theme/`                 | `variables.css` (tokens de Ember, Aurora y Mono, claro y oscuro), `base.css` |
 | `theme.ts`               | color y apariencia elegidos en Ajustes                                    |
 | `core.ts`                | puente con el núcleo Rust: almacén reactivo (`me`, `chats`, mensajes) alimentado por los comandos `core_*` y el evento `ft://changed` |
@@ -197,3 +197,18 @@ Estado (2026-09-28, llamadas de voz nativas):
 - La ruta de llamadas se le dice al núcleo al arrancar y en cada cambio (`syncCallRouting` en
   `preferences.ts`): CallKit contesta sin WebView con esa copia.
 - Sin textos nuevos: la pantalla de llamada (`CallPage`, `IncomingCall`) es la misma.
+
+Estado (2026-09-29, llamadas con la app en pantalla; bugs vistos en el iPhone):
+
+- Con la app delante, contestar desde el banner de CallKit daba voz pero nunca abría `CallPage`:
+  no había forma de colgar. Ahora `calls.ts` abre la pantalla de la llamada (`showCall`, solo si
+  no está ya en ella) cuando la llamada que se enseña pasa a `answered` o `connected`, venga de
+  donde venga la respuesta. Y el núcleo avisa al WebView en el acto cuando CallKit contesta
+  (`ft://call-action`): `applyCallNotification` lee `core_pending_call` sin esperar a un
+  `visibilitychange` (antes una videollamada contestada en el banner con la app delante no se
+  contestaba nunca).
+- `applyCallNotification` solo actúa sobre una llamada que **suena**: un «decline» viejo (o el fin
+  de CallKit de una llamada ya colgada) ya no cuelga la llamada en curso.
+- `CallBar` (en `App.vue`): con una llamada en marcha (`calling`, `connecting` o `active`) y otra
+  pantalla delante, una píldora arriba con el nombre y el reloj vuelve a la llamada
+  (`calls.backToCall`, 21 idiomas) y un botón rojo cuelga (`calls.hangUp`).
