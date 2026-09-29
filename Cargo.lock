@@ -5551,7 +5551,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "swift-rs"
 version = "1.0.8"
-source = "git+https://github.com/alchaplinsky/swift-rs?rev=aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c#aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c"
+source = "git+https://github.com/FlickerTalk/swift-rs?rev=aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c#aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c"
 dependencies = [
  "base64 0.21.7",
  "serde",

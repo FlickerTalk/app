@@ -11,9 +11,11 @@ members = ["src-tauri", "src-tauri/platform", "crates/ft-webrtc", "crates/ft-poc
 # `release_object`, `string_from_bytes`, `data_from_bytes`; Brendonovich/swift-rs#81). This is
 # 1.0.8 plus Brendonovich/swift-rs#80, which also exports them, from the one archive named by
 # `SWIFT_RS_RUNTIME_ARCHIVE` (`.cargo/config.toml`). Needs `rustup component add llvm-tools`.
-# Drop it once a swift-rs release includes the fix.
+# We keep our own copy of that commit (FlickerTalk/swift-rs, branch `flickertalk-xcode27`), so the
+# build does not depend on a third party's repository. Drop it once a swift-rs release includes
+# the fix.
 [patch.crates-io]
-swift-rs = { git = "https://github.com/alchaplinsky/swift-rs", rev = "aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c" }
+swift-rs = { git = "https://github.com/FlickerTalk/swift-rs", rev = "aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c" }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
