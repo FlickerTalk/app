@@ -7,8 +7,15 @@ const tauri = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 // Answering from the notification must open the call screen, as the in-app button does.
-const navigation = vi.hoisted(() => ({ push: vi.fn() }));
-vi.mock("./router", () => ({ router: { push: navigation.push } }));
+// The call screen is opened once: where the app already is counts (`currentRoute`).
+const navigation = vi.hoisted(() => {
+  const currentRoute = { value: { path: "/tabs/chats" } };
+  const push = vi.fn(async (path: string) => {
+    currentRoute.value.path = path;
+  });
+  return { push, currentRoute };
+});
+vi.mock("./router", () => ({ router: { push: navigation.push, currentRoute: navigation.currentRoute } }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, handler: (event: { payload: unknown }) => void) => {
     tauri.handlers[name] = handler;
@@ -104,6 +111,7 @@ describe("calls", () => {
     });
     calls.media.createPeer = (config: RTCConfiguration) => new FakePeer(config) as unknown as RTCPeerConnection;
     calls.media.ringback = { start: vi.fn(), stop: vi.fn() };
+    navigation.currentRoute.value.path = "/tabs/chats";
     localStorage.clear();
     calls.reset();
     await calls.startCalls();
@@ -334,9 +342,70 @@ describe("native voice calls", () => {
     calls.media.createPeer = vi.fn((config: RTCConfiguration) => new FakePeer(config) as unknown as RTCPeerConnection);
     calls.media.ringback = { start: vi.fn(), stop: vi.fn() };
     navigation.push.mockClear();
+    navigation.currentRoute.value.path = "/tabs/chats";
     localStorage.clear();
     calls.reset();
     await calls.startCalls();
+  });
+
+  // Bug seen on the iPhone (2026-09-29): with the app on the screen, the call answered from
+  // CallKit's banner had its voice, but the app never showed the call screen, so there was no way
+  // to hang up. However it was answered, a call that connects is shown.
+  it("shows the call screen when a call answered elsewhere connects", async () => {
+    event({ kind: "incoming", video: false, sdp: "their-offer" });
+    await flushPromises();
+    event({ kind: "connected" });
+    await flushPromises();
+    expect(calls.call.phase).toBe("active");
+    expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
+  });
+
+  it("does not open the call screen again when it is already there", async () => {
+    await calls.startCall("ft_bob", false);
+    navigation.currentRoute.value.path = "/call/ft_bob";
+    event({ kind: "answered", sdp: "their-answer" });
+    event({ kind: "connected" });
+    await flushPromises();
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  // The same bug: CallKit's answer only reached the WebView when the app came back to the screen,
+  // and with the app already there the in-app ringing stayed up. The phone says so at once now.
+  it("follows at once an answer from CallKit with the app on the screen", async () => {
+    event({ kind: "incoming", video: false, sdp: "their-offer" });
+    await flushPromises();
+    pending = "answer";
+    tauri.handlers["ft://call-action"]({ payload: null });
+    await flushPromises();
+    expect(calls.call.phase).toBe("connecting");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer_native", { call: "call-1", routing: "auto" });
+    expect(navigation.push).toHaveBeenCalledWith("/call/ft_bob");
+  });
+
+  // A video call is the WebView's to answer: CallKit's answer with the app on the screen used to
+  // wait until the app went away and came back, so the call was never answered.
+  it("answers a video call that CallKit answered with the app on the screen", async () => {
+    event({ kind: "incoming", video: true, sdp: "their-offer" });
+    await flushPromises();
+    pending = "answer";
+    tauri.handlers["ft://call-action"]({ payload: null });
+    await flushPromises();
+    expect(FakePeer.last.remote).toEqual({ type: "offer", sdp: "their-offer" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_answer", expect.objectContaining({ call: "call-1" }));
+  });
+
+  // A "decline" is for a call that rings: one left behind by an earlier call, or CallKit's end of
+  // a call the core already hangs up, must never hang up the call going on.
+  it("never hangs up a call going on for a decline", async () => {
+    event({ kind: "incoming", video: false, sdp: "their-offer" });
+    await calls.acceptCall();
+    event({ kind: "connected" });
+    await flushPromises();
+    pending = "decline";
+    await calls.applyCallNotification();
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_end", expect.anything());
+    expect(calls.call.phase).toBe("active");
   });
 
   it("places a voice call in the core, with the routing of the settings and no WebView media", async () => {
