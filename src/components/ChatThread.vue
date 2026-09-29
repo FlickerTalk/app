@@ -432,6 +432,12 @@ watch(
           class="ft-peer"
           :class="{ 'has-back': showBack }"
           data-test="peer"
+          :aria-label="
+            $t('chat.contactDetails', {
+              name: chat.name,
+              status: chat.connected ? $t('chat.direct') : $t('chat.notConnected'),
+            })
+          "
           @click="router.push(`/contact/${chat.id}`)"
         >
           <Avatar :name="chat.name" :hue="chat.hue" :size="38" :connected="chat.connected" />

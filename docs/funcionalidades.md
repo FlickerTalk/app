@@ -222,11 +222,15 @@ nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
 
 ## Plan y precio
 
-1 € al año. El **primer año es gratis** desde la instalación, contado en el propio teléfono, sin
+Una suscripción anual: **0,99 €** en España desde el 2026-09-29 (Google no deja poner 1,00 €
+exactos). La pantalla del plan enseña el precio **tal como lo da la tienda** (Play Billing o
+StoreKit, con su moneda y su formato); si la tienda no puede decirlo (sin red, en escritorio, sin
+producto) dice «Suscripción anual» sin ninguna cantidad, y el botón de pagar funciona igual. La
+app no escribe ni guarda ningún importe. El **primer año es gratis** desde la instalación, contado en el propio teléfono, sin
 tarjeta. **Menores de 21, siempre gratis**: la edad se declara en el teléfono y nunca sale de él.
 Sin pagar se sigue **recibiendo y respondiendo** siempre; lo que no se puede es empezar una
-conversación nueva, llamar ni enviar ficheros. La compra dentro de la app está pendiente de dar de
-alta el producto en Google Play.
+conversación nueva, llamar ni enviar ficheros. Ajustes y la pantalla del plan cuentan los días que
+quedan igual (un día empezado cuenta: recién instalada, 365).
 
 ## Cambiar de teléfono
 

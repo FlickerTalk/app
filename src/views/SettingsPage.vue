@@ -41,7 +41,7 @@ import {
   refreshOutline,
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
-import { erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
+import { daysLeft, erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
 import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -57,9 +57,9 @@ const router = useRouter();
 
 // §41: free for a year from the install, counted on this phone.
 const plan = computed(() => {
-  const days = Math.floor((store.me.freeUntil - Date.now()) / (24 * 3600 * 1000));
   if (!store.me.freeUntil) return t("settings.planFree");
-  return days >= 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");
+  const days = daysLeft(store.me.freeUntil);
+  return days > 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");
 });
 
 const version = ref("");
@@ -342,7 +342,7 @@ function chooseAppearance(id: Appearance) {
         </ion-list>
 
         <ion-list inset class="ft-group">
-          <!-- §40: what it costs, what is left of the free year and where the euro is paid. -->
+          <!-- §40: what it costs, what is left of the free year and where the subscription is paid. -->
           <ion-item button detail lines="none" data-test="plan" @click="router.push('/plan')">
             <span slot="start" class="ft-tile"><ion-icon :icon="sparklesOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.plan") }}</ion-label>

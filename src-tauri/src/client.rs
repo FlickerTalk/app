@@ -1798,6 +1798,28 @@ pub async fn core_plan(client: State<'_, Client>) -> Result<PlanView, String> {
     Ok(PlanView { state: state.to_owned(), until, age: plan.age.as_str().to_owned() })
 }
 
+/// What a year costs, as the Store formats it for this phone (2026-09-29); `price` is `null` when
+/// the Store cannot say, and the screen then names no amount.
+#[derive(Serialize)]
+pub struct PriceView {
+    price: Option<String>,
+}
+
+fn price_view(answer: Result<Option<String>, String>) -> PriceView {
+    PriceView { price: answer.ok().flatten() }
+}
+
+/// Asks the Store what a year costs, every time the Plan screen opens: a price is never kept, so
+/// it is never shown from another store or another country.
+#[tauri::command]
+pub async fn core_subscription_price(app: AppHandle) -> Result<PriceView, String> {
+    let answer = tauri::async_runtime::spawn_blocking(move || app.platform().subscription_price().map_err(failed))
+        .await
+        .map_err(failed)
+        .and_then(|answer| answer);
+    Ok(price_view(answer))
+}
+
 /// What the user said about their age. Under 21 is always free (§40); it never leaves the phone.
 #[tauri::command]
 pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), String> {
@@ -3189,6 +3211,52 @@ mod tests {
         assert!(open_app_on_answer(Some(" 1\n")));
     }
 
+    // Release: `version` of tauri.conf.json, the app crate and the core's CORE_VERSION go
+    // together, and Play only takes a versionCode (major·10⁶ + minor·10³ + patch, as Tauri counts
+    // it) above the last one uploaded: 1002000, the 1.2.0.
+    #[test]
+    fn the_versions_go_together_and_play_takes_the_next_one() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let version = conf["version"].as_str().unwrap();
+        assert_eq!(version, ft_core::plugins::CORE_VERSION);
+        assert_eq!(version, env!("CARGO_PKG_VERSION"));
+        let parts: Vec<u64> = version.split('.').map(|part| part.parse().unwrap()).collect();
+        let version_code = parts[0] * 1_000_000 + parts[1] * 1_000 + parts[2];
+        assert!(version_code > 1_002_000, "versionCode {version_code} is not above 1002000");
+    }
+
+    // ITMS-90717 (2026-09-29): the App Store rejects an app icon with an alpha channel, even one
+    // where every pixel is opaque. Every PNG of the iOS app icon is plain RGB (or grey), with no
+    // transparency chunk either.
+    #[test]
+    fn the_ios_app_icons_have_no_alpha_channel() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gen/apple/Assets.xcassets/AppIcon.appiconset");
+        let mut icons = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("png") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "{} is not a PNG", path.display());
+            let mut chunks = Vec::new();
+            let mut at = 8;
+            while at + 8 <= bytes.len() {
+                let length = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+                chunks.push((bytes[at + 4..at + 8].to_vec(), at + 8));
+                at += 12 + length;
+            }
+            let (kind, header) = &chunks[0];
+            assert_eq!(kind.as_slice(), b"IHDR");
+            // Colour types 4 (grey and alpha) and 6 (RGBA) carry an alpha channel.
+            let colour = bytes[header + 9];
+            assert!(![4, 6].contains(&colour), "{} has an alpha channel (colour type {colour})", path.display());
+            assert!(!chunks.iter().any(|(kind, _)| kind.as_slice() == b"tRNS"), "{} has transparency", path.display());
+            icons += 1;
+        }
+        assert!(icons >= 1, "no icons in {}", dir.display());
+    }
+
     // iPhones are woken through APNs, the rest through FCM (2026-09-28): the router is told which.
     #[test]
     fn the_push_provider_is_the_one_of_the_platform() {
@@ -3766,6 +3834,16 @@ mod tests {
         assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
             "id": "ft_me", "name": "Ioan", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
         }));
+    }
+
+    // 2026-09-29: the Plan screen gets the Store's own price, or `null` when the Store cannot
+    // say (offline, desktop, no product); a failing Store is no price, never an error on screen.
+    #[test]
+    fn the_plan_screen_gets_the_store_price_or_none() {
+        let price = |answer| serde_json::to_value(price_view(answer)).unwrap();
+        assert_eq!(price(Ok(Some("0,99 €".to_owned()))), serde_json::json!({ "price": "0,99 €" }));
+        assert_eq!(price(Ok(None)), serde_json::json!({ "price": null }));
+        assert_eq!(price(Err("store_unavailable".to_owned())), serde_json::json!({ "price": null }));
     }
 
     // An incoming call rings until it is answered, declined or given up (§66); our own calls

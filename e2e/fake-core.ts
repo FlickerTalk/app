@@ -12,6 +12,8 @@
  * encoder that cannot be set up), as the real core does: with a `camera_failed` event when a
  * video call connects, with an error when it is turned on.
  *
+ * `window.__ftFakeMeId` gives this phone a real-length FlickerTalk ID instead of `ft_me`.
+ *
  * `window.__ftFakeLongChat` (a number) puts that many older texts before Bob's messages, for a
  * conversation longer than the screen.
  *
@@ -129,7 +131,7 @@ export function installFakeCore() {
       case "plugin:app|version":
         return "1.0.0-e2e";
       case "core_me":
-        return { id: "ft_me", name: "Me", mailbox: true, receipts: true, freeUntil: Date.now() + 1e10, autoDownload: state.autoDownload };
+        return { id: String((window as unknown as Record<string, unknown>).__ftFakeMeId ?? "ft_me"), name: "Me", mailbox: true, receipts: true, freeUntil: Date.now() + 1e10, autoDownload: state.autoDownload };
       case "core_conversations":
         return state.conversations;
       case "core_requests":

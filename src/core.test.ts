@@ -535,3 +535,40 @@ describe("hidden sessions", () => {
     expect(core.chat("ft_pablo")).toBeUndefined();
   });
 });
+
+// §41: one way to count what is left of the free year, for every screen that says it. A day
+// that has started counts, so a phone installed a moment ago has the whole 365 days.
+describe("the days left", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.parse("2026-09-29T10:00:00Z");
+
+  it("counts a year installed a moment ago as 365 days", () => {
+    expect(core.daysLeft(now + 365 * DAY - 5, now)).toBe(365);
+  });
+
+  it("counts a day that has started as a day", () => {
+    expect(core.daysLeft(now + 100.5 * DAY, now)).toBe(101);
+    expect(core.daysLeft(now + 1, now)).toBe(1);
+  });
+
+  it("never counts below nothing", () => {
+    expect(core.daysLeft(now, now)).toBe(0);
+    expect(core.daysLeft(now - 3 * DAY, now)).toBe(0);
+  });
+});
+
+// 2026-09-29: what a year costs comes from the Store, as it formats it, every time it is asked.
+describe("the Store's price", () => {
+  it("is the Store's own text", async () => {
+    tauri.invoke.mockResolvedValueOnce({ price: "0,99 €" });
+    expect(await core.subscriptionPrice()).toBe("0,99 €");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_subscription_price");
+  });
+
+  it("is nothing when the Store cannot say or does not answer", async () => {
+    tauri.invoke.mockResolvedValueOnce({ price: null });
+    expect(await core.subscriptionPrice()).toBeNull();
+    tauri.invoke.mockRejectedValueOnce("store_unavailable");
+    expect(await core.subscriptionPrice()).toBeNull();
+  });
+});

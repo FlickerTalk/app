@@ -108,7 +108,13 @@ async function add(value: string) {
         </template>
 
         <template v-else>
-          <button type="button" class="ft-add__scanner" data-test="scanner" @click="scanCode">
+          <button
+            type="button"
+            class="ft-add__scanner"
+            data-test="scanner"
+            :aria-label="$t('addContact.scanNow')"
+            @click="scanCode"
+          >
             <ion-icon :icon="scanOutline" aria-hidden="true" />
           </button>
           <ion-button shape="round" data-test="scan-now" @click="scanCode">
@@ -171,7 +177,13 @@ async function add(value: string) {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
+/* A whole ID is 47 characters with no spaces: on a narrow phone it breaks anywhere, never runs
+   off the screen (App Store screenshots, 2026-09-29). */
 .ft-add__id {
+  max-width: 100%;
+  /* `break-all` for the WebKit of iOS 15.0-15.3, which has no `overflow-wrap: anywhere`. */
+  word-break: break-all;
+  overflow-wrap: anywhere;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 15px;
   color: var(--ft-muted);

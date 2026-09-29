@@ -184,6 +184,16 @@ describe("ChatThread", () => {
     expect(push).toHaveBeenCalledWith("/call/c1?video=1");
   });
 
+  // Every button of the header says what it does, from the catalogue (§84): the contact's own
+  // button read as the avatar's initial followed by the name (seen in the App Store screenshots).
+  it("names every button in the header", () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1", showBack: true }, shallow: true });
+    const buttons = wrapper.find(".ft-thread__bar").findAll("button, ion-button-stub, ion-back-button-stub");
+    expect(buttons.length).toBeGreaterThanOrEqual(4);
+    for (const button of buttons) expect(button.attributes("aria-label"), button.html()).toBeTruthy();
+    expect(wrapper.find("[data-test='peer']").attributes("aria-label")).toBe("Contact details: Maria López, Direct");
+  });
+
   it("opens the contact details from the header", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     await wrapper.find("[data-test='peer']").trigger("click");

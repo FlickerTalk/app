@@ -774,6 +774,16 @@ export interface PlanView {
   age: "minor" | "adult" | "unknown";
 }
 
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Whole days left until `until` (ms), as every screen says it (§41): a day that has started
+ * counts, so a phone installed a moment ago has 365; nothing is ever below 0.
+ */
+export function daysLeft(until: number, now = Date.now()): number {
+  return Math.max(0, Math.ceil((until - now) / DAY));
+}
+
 export async function plan(): Promise<PlanView> {
   return invoke<PlanView>("core_plan");
 }
@@ -793,6 +803,20 @@ export function payTrouble(error: unknown): string {
   if (answer === "cancelled") return "";
   const known = ["not_on_sale", "store_unavailable", "pending_approval"];
   return `plan.trouble.${known.includes(answer) ? answer : "failed"}`;
+}
+
+/**
+ * What a year costs, exactly as the Store formats it for this phone (2026-09-29), or null when it
+ * cannot say (offline, a desktop, the product missing). Asked every time, never kept: a price
+ * from another store or another country is never shown.
+ */
+export async function subscriptionPrice(): Promise<string | null> {
+  try {
+    const answer = await invoke<{ price: string | null } | null>("core_subscription_price");
+    return answer?.price?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function subscribe(): Promise<void> {
