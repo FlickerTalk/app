@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">Panggilan sedang berlangsung</string>
     <string name="ft_mute">Bisukan</string>
     <string name="ft_unmute">Bunyikan</string>
+    <string name="ft_video">Video</string>
 </resources>

@@ -14,4 +14,5 @@
     <string name="ft_ongoing_call">কল চলছে</string>
     <string name="ft_mute">মিউট করুন</string>
     <string name="ft_unmute">আনমিউট করুন</string>
+    <string name="ft_video">ভিডিও</string>
 </resources>

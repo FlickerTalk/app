@@ -20,6 +20,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <!-- Native video (2026-09-29): the camera is asked for when the user turns it on (§30); the
+         call's service adds the camera type while the call has video. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <application>
         <receiver android:name="com.flickertalk.platform.ReminderReceiver" android:exported="false" />
         <receiver android:name="com.flickertalk.platform.BootReceiver" android:exported="true">
@@ -52,11 +56,12 @@
             </intent-filter>
         </service>
         <!-- A native call in progress (2026-09-28): its ongoing notification, and its hang-up and
-             mute buttons, which go to the core through the call-event channel. -->
+             mute buttons, which go to the core through the call-event channel; camera while the
+             call has video (2026-09-29). -->
         <service
             android:name="com.flickertalk.platform.FtCallService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall|microphone" />
+            android:foregroundServiceType="phoneCall|microphone|camera" />
         <receiver android:name="com.flickertalk.platform.FtCallActionReceiver" android:exported="false" />
         <!-- Lends a file of the app to the viewer the user picks, only for that viewing (§62). -->
         <provider
