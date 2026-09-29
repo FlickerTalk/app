@@ -142,7 +142,7 @@ pub(crate) enum EarlyAnswer {
     Accept { until: i64 },
     /// The next offer, until then (ms), is declined as soon as it arrives: it never rings.
     Decline { until: i64 },
-    /// The call whose offer arrived answered early: it is being answered, never shown ringing.
+    /// The call being answered, early or not: never shown ringing while its answer is built.
     Accepting { call: String },
 }
 
@@ -223,6 +223,8 @@ impl Core {
     /// CallKit and the WebView may both answer it.
     pub async fn answer_native_call(self: &Arc<Self>, call: &str, routing: CallRouting) -> Result<()> {
         let platform = self.audio_platform()?;
+        // From this moment it rings no more (2026-09-29): building the answer takes seconds.
+        let answering = self.offer_of(call).is_some() && self.mark_answering(call);
         let _one_at_a_time = self.native_setup.lock().await;
         let Some(record) = self.store.call(call).await? else { bail!("no such call") };
         if record.outgoing || record.ended_at.is_some() {
@@ -230,6 +232,9 @@ impl Core {
         }
         if record.answered_at.is_some() {
             return Ok(());
+        }
+        if answering {
+            self.announce_call(&record, CallUpdate::Answering);
         }
         let Some((offer, media)) = self.offer_of(call) else { bail!("no offer for this call") };
         let answered = self.answer_native(call, &offer, media, routing, platform).await;
@@ -365,6 +370,16 @@ impl Core {
     /// What the OS said before the offer came: it replaces whatever it said before.
     fn answer_early(&self, answer: EarlyAnswer) {
         *self.early_answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(answer);
+    }
+
+    /// `call` is being answered: the UI shows it connecting. `false` if it already was.
+    fn mark_answering(&self, call: &str) -> bool {
+        let mut early = self.early_answer.lock().unwrap_or_else(PoisonError::into_inner);
+        if matches!(&*early, Some(EarlyAnswer::Accepting { call: accepting }) if accepting == call) {
+            return false;
+        }
+        *early = Some(EarlyAnswer::Accepting { call: call.to_owned() });
+        true
     }
 
     /// Whether `call`, unanswered, is being answered by an early answer (or will be, the moment

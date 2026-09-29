@@ -413,6 +413,41 @@ async fn the_last_early_choice_wins_and_a_decline_is_forgotten_after_its_window(
     alice.core.end_call(&late, false).await.unwrap();
 }
 
+// Bug of 2026-09-29 (the iPhone, with the app on the screen): CallKit answered the ringing call,
+// but for the seconds the answer took to build (ICE), the core still said "ringing", so the app
+// kept ringing and asked again. From the moment a ringing call is answered, by any path, it is
+// connecting, and the UI hears so (`Answering`) before the media connects. Answering again
+// meanwhile does nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ringing_call_is_connecting_from_the_moment_it_is_answered() {
+    let (alice, bob) = two_phones(Activation::Immediate).await;
+    let mut bob_events = bob.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    ringing_call(&bob).await;
+
+    let core = bob.core.clone();
+    let answering = tokio::spawn(async move { core.answer_ringing_call().await });
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Answering).await;
+    assert_ne!(bob.core.current_call().await.unwrap().expect("the call").phase, CallPhase::Ringing);
+    assert!(!bob.core.answer_ringing_call().await.unwrap(), "answered already: a second answer does nothing");
+    assert!(answering.await.expect("runs").expect("answers"));
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    alice.core.end_call(&call, false).await.unwrap();
+    until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+
+    // The app's own answer button says the same.
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
+    ringing_call(&bob).await;
+    let core = bob.core.clone();
+    let answered = call.clone();
+    let answering = tokio::spawn(async move { core.answer_native_call(&answered, CallRouting::Auto).await });
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Answering).await;
+    assert_ne!(bob.core.current_call().await.unwrap().expect("the call").phase, CallPhase::Ringing);
+    answering.await.expect("runs").expect("answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
 // The system's decline with the call ringing declines it at once.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_os_declines_the_ringing_call() {

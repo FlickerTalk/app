@@ -35,6 +35,9 @@ pub enum CallUpdate {
     Incoming { video: bool, sdp: String },
     /// The contact answered our call.
     Answered { sdp: String },
+    /// The call ringing here is being answered (2026-09-29), from the app, the phone's own call
+    /// screen or the notification: it rings no more, and connects next.
+    Answering,
     Ended { outcome: CallOutcome },
     /// The media connected: the call is on (a native call; a WebView call knows by itself).
     Connected,
