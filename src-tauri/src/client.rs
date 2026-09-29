@@ -962,6 +962,8 @@ impl Client {
 /// answers here.
 fn listen_native_calls(app: &AppHandle, online: &Online) {
     let (core, router, app_for_events) = (online.core.clone(), online.router.clone(), app.clone());
+    // iOS experiment: incoming calls reported as video calls, so answering opens the app.
+    let _ = app.platform().set_open_app_on_answer(open_app_on_answer(option_env!("FT_IOS_OPEN_APP_ON_ANSWER")));
     // The handler runs on a native queue: it only hands the event over. They are handled in the
     // order they came (an audio deactivation and activation must not swap); what may take long
     // (answering, hanging up) goes on in the background.
@@ -1072,6 +1074,13 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
         | NativeCallEvent::Orientation(_)
         | NativeCallEvent::VideoRequested => Reconnect::No,
     }
+}
+
+/// Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): a local debug
+/// switch, set at build time with `FT_IOS_OPEN_APP_ON_ANSWER=1`, off by default. With it, the
+/// bridge reports every incoming call to CallKit as a video call, so iOS opens the app on answer.
+fn open_app_on_answer(flag: Option<&str>) -> bool {
+    matches!(flag.map(str::trim), Some("1" | "true"))
 }
 
 /// Temporary call diagnostics (2026-09-28), to find why a native call's voice is one-way on the
@@ -3146,6 +3155,19 @@ mod tests {
     use tauri_plugin_ft_platform::{VideoLayout, VideoRect};
 
     use super::*;
+
+    // Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): off unless
+    // the build set FT_IOS_OPEN_APP_ON_ANSWER to 1 (or true).
+    #[test]
+    fn the_open_app_on_answer_switch_is_off_unless_the_build_turns_it_on() {
+        assert!(!open_app_on_answer(None));
+        assert!(!open_app_on_answer(Some("")));
+        assert!(!open_app_on_answer(Some("0")));
+        assert!(!open_app_on_answer(Some("false")));
+        assert!(open_app_on_answer(Some("1")));
+        assert!(open_app_on_answer(Some("true")));
+        assert!(open_app_on_answer(Some(" 1\n")));
+    }
 
     // iPhones are woken through APNs, the rest through FCM (2026-09-28): the router is told which.
     #[test]

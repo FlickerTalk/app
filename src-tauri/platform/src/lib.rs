@@ -214,6 +214,13 @@ struct CallVideo {
     on: bool,
 }
 
+/// Arguments of the native `setOpenAppOnAnswer` command (iOS only).
+#[derive(Serialize)]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+struct OpenAppOnAnswer {
+    on: bool,
+}
+
 /// What the native `requestCamera` command answers.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -489,6 +496,24 @@ impl<R: Runtime> Platform<R> {
     /// goes back to what it was.
     pub fn call_ended(&self) -> Result<()> {
         self.call("callEnded", ())
+    }
+
+    /// Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): with `on`,
+    /// the bridge reports every incoming call to CallKit as a video call (`hasVideo`), whatever
+    /// its media, because iOS opens the app after the answer (asking to unlock first on the lock
+    /// screen) only for video calls. The call's real media does not change. Remembered by the
+    /// bridge, so a call PushKit reports before the core starts follows it. Nothing elsewhere:
+    /// Android opens the app on its own.
+    pub fn set_open_app_on_answer(&self, on: bool) -> Result<()> {
+        #[cfg(target_os = "ios")]
+        {
+            self.run("setOpenAppOnAnswer", OpenAppOnAnswer { on })
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = on;
+            Ok(())
+        }
     }
 
     /// Whether the microphone may be used, asking the user if it was never asked (2026-09-28).
@@ -883,6 +908,14 @@ mod tests {
         assert_eq!(serde_json::to_value(CallVideo { on: true }).unwrap(), serde_json::json!({ "on": true }));
         let camera: Camera = serde_json::from_value(serde_json::json!({ "granted": false })).unwrap();
         assert!(!camera.granted);
+    }
+
+    // Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): what
+    // Swift's `setOpenAppOnAnswer` reads (`OpenAppOnAnswerArgs`).
+    #[test]
+    fn the_open_app_on_answer_switch_travels_as_swift_reads_it() {
+        assert_eq!(serde_json::to_value(OpenAppOnAnswer { on: true }).unwrap(), serde_json::json!({ "on": true }));
+        assert_eq!(serde_json::to_value(OpenAppOnAnswer { on: false }).unwrap(), serde_json::json!({ "on": false }));
     }
 
     #[test]
