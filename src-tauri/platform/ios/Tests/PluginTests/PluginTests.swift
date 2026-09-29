@@ -109,4 +109,115 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertEqual(item.previewItemTitle, file.lastPathComponent)
         XCTAssertEqual(item.numberOfPreviewItems(in: QLPreviewController()), 1)
     }
+    // APNs (2026-09-28): the token names its gateway and the app, so the router pushes to the
+    // right place. A development profile says so; an App Store build carries no profile.
+    func testTheGatewayComesFromTheProvisioningProfile() {
+        let development = "junk<plist><dict><key>Entitlements</key><dict><key>aps-environment</key>\n\t\t<string>development</string></dict></dict></plist>junk"
+        let production = development.replacingOccurrences(of: ">development<", with: ">production<")
+        XCTAssertEqual(apnsGateway(provisioning: development), "sandbox")
+        XCTAssertEqual(apnsGateway(provisioning: production), "production")
+        XCTAssertEqual(apnsGateway(provisioning: nil), "production", "no profile: the App Store")
+        XCTAssertEqual(apnsGateway(provisioning: "<plist></plist>"), "production")
+    }
+
+    func testThePushTargetIsGatewayBundleAndTokenInHex() {
+        let token = Data([0x00, 0x0f, 0xab, 0xff])
+        XCTAssertEqual(pushTarget(gateway: "sandbox", bundle: "com.flickertalk.app.dev", token: token), "sandbox:com.flickertalk.app.dev:000fabff")
+    }
+
+    // Our wake-up says nothing and needs showing only when the app is not on the screen.
+    func testOnlyOurWakeUpIsRecognised() {
+        XCTAssertTrue(isWakePush(["t": "wake", "s": 0]))
+        XCTAssertFalse(isWakePush(["aps": ["alert": "x"]]))
+        XCTAssertFalse(isWakePush([:]))
+    }
+    // Calls (2026-09-28): with PushKit's token too, the router can ring the phone through CallKit.
+    func testThePushTargetCarriesPushKitsTokenWhenThereIsOne() {
+        let token = Data([0x0a, 0x0b])
+        XCTAssertEqual(pushTarget(gateway: "production", bundle: "com.flickertalk.app", token: token, voip: Data([0xff, 0x01])), "production:com.flickertalk.app:0a0b:ff01")
+        XCTAssertEqual(pushTarget(gateway: "production", bundle: "com.flickertalk.app", token: token, voip: nil), "production:com.flickertalk.app:0a0b")
+    }
+
+    // On the screen the app rings itself; in the background CallKit does, once per call.
+    func testCallKitRingsOnlyWhenTheAppIsNotOnTheScreen() {
+        XCTAssertEqual(ringWith(appActive: true, callKitCall: false), .app)
+        XCTAssertEqual(ringWith(appActive: false, callKitCall: false), .report)
+        XCTAssertEqual(ringWith(appActive: false, callKitCall: true), .update, "PushKit already reported it: say who it is")
+        XCTAssertEqual(ringWith(appActive: true, callKitCall: true), .update)
+    }
+
+    // A push that is not ours is not a call, and ours only when it says so.
+    func testOnlyOurCallPushIsACall() {
+        XCTAssertTrue(isCallPush(["t": "call", "s": 1]))
+        XCTAssertFalse(isCallPush(["t": "wake", "s": 1]))
+        XCTAssertFalse(isCallPush([:]))
+    }
+
+    // Bug of 2026-09-28: iOS hands a tapped notification over off the main thread, and answering
+    // it from there made UIKit stop the app ("Call must be made on main thread").
+    func testATappedNotificationIsAnsweredOnTheMainThread() {
+        let taps = ReminderTaps()
+        let answered = expectation(description: "answered")
+        DispatchQueue.global().async {
+            taps.tapped(identifier: "ft.reminder|com.example.notes|r1") {
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(taps.pending, "com.example.notes\nr1")
+                answered.fulfill()
+            }
+        }
+        wait(for: [answered], timeout: 2)
+    }
+
+    func testANotificationOnTheScreenIsAnsweredOnTheMainThread() {
+        let taps = ReminderTaps()
+        let wake = expectation(description: "wake")
+        let other = expectation(description: "other")
+        DispatchQueue.global().async {
+            taps.presenting(userInfo: ["t": "wake"]) { options in
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(options, [], "the app on the screen already connects")
+                wake.fulfill()
+            }
+            taps.presenting(userInfo: [:]) { options in
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(options, [.banner, .sound, .list])
+                other.fulfill()
+            }
+        }
+        wait(for: [wake, other], timeout: 2)
+    }
+
+    // Bug of 2026-09-28: PushKit's token often comes after Apple's, and the router got only the
+    // latter: a call then showed a notification instead of ringing.
+    func testTheVoipTokenAlreadyThereIsGivenAtOnce() {
+        let voip = VoipToken()
+        voip.update(Data([0x01]))
+        var given: Data?? = .none
+        voip.when(within: 5) { given = .some($0) }
+        XCTAssertEqual(given, .some(Data([0x01])))
+    }
+
+    func testAVoipTokenThatComesSoonIsWaitedFor() {
+        let voip = VoipToken()
+        let given = expectation(description: "given")
+        voip.when(within: 5) { token in
+            XCTAssertEqual(token, Data([0x02]))
+            given.fulfill()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { voip.update(Data([0x02])) }
+        wait(for: [given], timeout: 2)
+    }
+
+    func testWithoutAVoipTokenTheWaitEndsOnceWithNothing() {
+        let voip = VoipToken()
+        let given = expectation(description: "given")
+        given.assertForOverFulfill = true
+        voip.when(within: 0.2) { token in
+            XCTAssertNil(token)
+            given.fulfill()
+        }
+        wait(for: [given], timeout: 2)
+        voip.update(Data([0x03]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    }
 }

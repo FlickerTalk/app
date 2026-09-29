@@ -2,6 +2,7 @@
 //! how answers are understood. The ignored test runs against the live api.flickertalk.com.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::Bytes;
@@ -13,7 +14,7 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 use ft_identity::Identity;
-use ft_push::{canonical, RouterClient, Signer};
+use ft_push::{canonical, RouterClient, RouterEvent, Signer};
 use serde_json::{json, Value};
 
 /// The device identity, exactly as the app signs (vodozemac).
@@ -198,4 +199,74 @@ async fn two_devices_meet_on_the_live_router() {
 
     alice.forget().await.expect("forgets");
     bob.forget().await.expect("forgets");
+}
+
+// iOS suspends the app and cuts its socket, and the phone may not notice for a long while
+// (2026-09-28): coming back to the screen, or tapping a push, reconnects at once and so fetches
+// what waits, without waiting for a dead socket or the backoff.
+#[tokio::test]
+async fn the_socket_is_opened_again_at_once_when_asked() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let counted = counted.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    // Never closes: like a socket iOS cut while the app slept, it just goes quiet.
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    let connected = |event: Option<RouterEvent>| matches!(event, Some(RouterEvent::Connected { .. }));
+    assert!(connected(tokio::time::timeout(Duration::from_secs(5), events.recv()).await.unwrap()));
+
+    client.reconnect_now();
+    let again = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if connected(events.recv().await) {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(again.is_ok(), "connected again at once, not after the socket died");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+// A call's signal says it is one, and nothing else does (2026-09-28): the router rings an
+// offline iPhone only for a call.
+#[tokio::test]
+async fn only_a_call_signal_says_it_is_a_call() {
+    let marked = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let seen = marked.clone();
+    let router = Router::new().route(
+        "/v1/signal/{to}",
+        post(move |headers: HeaderMap| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().unwrap().push(headers.get("ft-call").is_some_and(|value| value == "1"));
+                StatusCode::NOT_FOUND
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let client = RouterClient::new(&format!("http://{address}"), device()).unwrap();
+    assert!(!client.signal("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap());
+    assert!(!client.signal_call("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap());
+    assert_eq!(*marked.lock().unwrap(), [false, true]);
 }

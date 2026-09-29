@@ -1792,7 +1792,7 @@ pub async fn core_save_file(message: String, app: AppHandle, client: State<'_, C
     app.platform().save_to_downloads(&file.path, &file.name, &file.mime).map_err(failed)
 }
 
-/// Lets the router wake this phone when the app is closed (M4): asks to show notifications and
+/// Lets the router wake this phone when the app is closed (M4, and APNs on iOS since 2026-09-28): asks to show notifications and
 /// hands the FCM token over. Where there is no push (iOS for now, desktop) it says so.
 #[tauri::command]
 pub async fn core_enable_push(app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
@@ -1805,7 +1805,26 @@ pub async fn core_enable_push(app: AppHandle, client: State<'_, Client>) -> Resu
     .await
     .map_err(failed)?
     .map_err(failed)?;
-    router.set_push("fcm", &token).await.map_err(failed)
+    router.set_push(push_provider(), &token).await.map_err(failed)
+}
+
+/// Who wakes this phone: APNs on an iPhone (its token names the gateway and the app), FCM
+/// elsewhere (2026-09-28).
+fn push_provider() -> &'static str {
+    if cfg!(target_os = "ios") {
+        "apns"
+    } else {
+        "fcm"
+    }
+}
+
+/// The app is back on the screen (2026-09-28): the socket to the router is opened again at once,
+/// and its welcome fetches the mailbox and retries what waits. iOS cuts the socket of a suspended
+/// app, and the phone may take long to notice on its own.
+#[tauri::command]
+pub async fn core_resume(client: State<'_, Client>) -> Result<(), String> {
+    client.online().await?.router.reconnect_now();
+    Ok(())
 }
 
 /// New phone: the invite to show as a QR code (§60).
@@ -2405,6 +2424,12 @@ mod tests {
     use ft_storage::{Contact, Conversation, Message, MessageState};
 
     use super::*;
+
+    // iPhones are woken through APNs, the rest through FCM (2026-09-28): the router is told which.
+    #[test]
+    fn the_push_provider_is_the_one_of_the_platform() {
+        assert_eq!(push_provider(), if cfg!(target_os = "ios") { "apns" } else { "fcm" });
+    }
 
     // The recovery phrase (2026-09-28): the page learns a drive of the first version, how many
     // tries are left and until when the recovery is locked.
