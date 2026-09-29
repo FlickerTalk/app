@@ -31,6 +31,13 @@ func callUpdate(caller: String, video: Bool, outgoing: Bool, openAppOnAnswer: Bo
     return update
 }
 
+/// What `callAnswering` tells CallKit of the incoming call being answered (2026-09-29): its name
+/// and, as for every incoming call, `reportedAsVideo`. With the switch on the rename keeps it a
+/// video call, so answering still opens the app.
+func answeringUpdate(caller: String, video: Bool, openAppOnAnswer: Bool) -> CXCallUpdate {
+    callUpdate(caller: caller, video: video, outgoing: false, openAppOnAnswer: openAppOnAnswer)
+}
+
 /// What `callVideo` tells CallKit: whether the call has video, as `reportedAsVideo` decides.
 func videoUpdate(_ on: Bool, outgoing: Bool, openAppOnAnswer: Bool) -> CXCallUpdate {
     videoUpdate(reportedAsVideo(callHasVideo: on, openAppOnAnswer: openAppOnAnswer, outgoing: outgoing))
