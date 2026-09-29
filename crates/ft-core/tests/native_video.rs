@@ -517,3 +517,62 @@ async fn an_older_app_s_video_call_has_video_from_the_start() {
     bob.core.end_call(&call, false).await.unwrap();
     session.close().await;
 }
+
+// QA on emulators (2026-09-29): in a voice call the camera button stayed disabled because the
+// video became available before the core followed it, and the UI never heard. As it connects,
+// each side hears that video is available, with no camera touched.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_voice_call_announces_its_video_is_available_as_it_connects() {
+    let (alice, bob) = two_phones().await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    ringing_call(&bob).await;
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    for events in [&mut alice_events, &mut bob_events] {
+        let state = next_video(events, &call, |state| state.available).await;
+        assert!(!state.camera && !state.remote, "{state:?}");
+    }
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// With an older app's voice call the UI hears it too: no video, so the button shows disabled for
+// that reason (not for a call still connecting).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_older_app_s_voice_call_announces_there_is_no_video() {
+    let (alice, bob) = two_phones().await;
+    let mut bob_events = bob.core.events();
+    let (call, session) = older_app_calls(&alice, &bob, false).await;
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let state = next_video(&mut bob_events, &call, |_| true).await;
+    assert!(!state.available && !state.camera && !state.remote, "{state:?}");
+    bob.core.end_call(&call, false).await.unwrap();
+    session.close().await;
+}
+
+/// The last video state `call` announced before it ended, if any.
+async fn video_before_the_end(events: &mut broadcast::Receiver<Event>, call: &str) -> Option<VideoState> {
+    let mut last = None;
+    loop {
+        match next_update(events, call, |update| matches!(update, CallUpdate::Video(_) | CallUpdate::Ended { .. })).await {
+            CallUpdate::Video(state) => last = Some(state),
+            _ => return last,
+        }
+    }
+}
+
+// At the end of a call, whoever hangs up, the UI hears the video is gone before the call ends:
+// nothing available, no camera on either side.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_end_of_a_call_announces_its_video_is_gone() {
+    let (alice, bob) = two_phones().await;
+    let call = connected_call(&alice, &bob, false).await;
+    until("video is available", || async { alice.video(&call).available && bob.video(&call).available }).await;
+    alice.core.set_call_camera(&call, true).await.expect("alice's camera on");
+    until("bob sees alice", || async { bob.video(&call).remote }).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+    bob.core.end_call(&call, false).await.expect("bob hangs up");
+    for events in [&mut alice_events, &mut bob_events] {
+        let last = video_before_the_end(events, &call).await.expect("a video state before the end");
+        assert!(!last.available && !last.any(), "{last:?}");
+    }
+}
