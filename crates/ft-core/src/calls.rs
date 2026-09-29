@@ -1,5 +1,5 @@
-//! Voice and video calls (Plan §66, §106 M6), one to one. The media is the WebView's WebRTC; the
-//! core carries its descriptions (offer, answer) and the end of the call, encrypted with Olm and
+//! Voice and video calls (Plan §66, §106 M6), one to one. The media is the WebView's WebRTC, or
+//! Rust's on the phones (`native_calls.rs`); the core carries its descriptions (offer, answer) and the end of the call, encrypted with Olm and
 //! only over a direct connection (opened on demand through the router): never through the mailbox.
 //! It also keeps the call history, which never leaves the phone.
 //!
@@ -43,6 +43,8 @@ pub enum CallUpdate {
     /// logged as missed. Only the history changes: the phone's call screen stays with the call
     /// going on (an `Ended` here used to end that one in CallKit, and its audio).
     MissedWhileBusy,
+    /// The call's video changed (native video, 2026-09-29): the whole state, never a change.
+    Video(ft_media::VideoState),
 }
 
 impl Core {
@@ -86,8 +88,14 @@ impl Core {
 
     /// Like `offer_call`, trying for `reach`.
     pub async fn offer_call_within(&self, call: &str, sdp: &str, reach: Duration) -> Result<()> {
+        // The WebView's calls speak media version 0: no switching between voice and video.
+        self.offer_call_media(call, sdp, 0, reach).await
+    }
+
+    /// Like `offer_call_within`, saying our call media version (`CALL_MEDIA_VERSION`).
+    pub(crate) async fn offer_call_media(&self, call: &str, sdp: &str, media: u16, reach: Duration) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, true).await? else { bail!("no such call") };
-        let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video, media: 0 };
+        let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video, media };
         let deadline = std::time::Instant::now() + reach;
         loop {
             // The caller may have given up meanwhile.
@@ -104,11 +112,16 @@ impl Core {
         }
     }
 
-    /// Accepts an incoming call with our answer.
+    /// Accepts an incoming call with our answer (the WebView's: media version 0).
     pub async fn answer_call(&self, call: &str, sdp: &str) -> Result<()> {
+        self.answer_call_media(call, sdp, 0).await
+    }
+
+    /// Like `answer_call`, saying our call media version.
+    pub(crate) async fn answer_call_media(&self, call: &str, sdp: &str, media: u16) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, false).await? else { bail!("no such call") };
         self.store.answer_call(call, now()).await?;
-        let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), media: 0 };
+        let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), media };
         if !self.transmit_direct(&contact, &Packet::new(body)).await? {
             self.close_call(&record, CallOutcome::Failed).await?;
         }
@@ -173,8 +186,8 @@ impl Core {
         }
     }
 
-    /// The contact calls us.
-    pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool) -> Result<()> {
+    /// The contact calls us, at call media version `media`.
+    pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool, media: u16) -> Result<()> {
         let call_id = call.to_string();
         if !contact.rules.accepts_calls || !contact.accepted {
             // Calls off (app#5), or a stranger still in the requests (A5): busy for them, and not
@@ -231,22 +244,22 @@ impl Core {
             return Ok(());
         }
         if fresh {
-            self.remember_offer(&call_id, &sdp);
+            self.remember_offer(&call_id, &sdp, media);
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
-            self.answer_if_answered_early(&call_id, video);
+            self.answer_if_answered_early(&call_id);
         }
         Ok(())
     }
 
-    /// The contact answered our call.
-    pub(crate) async fn call_answered(&self, contact: &Contact, call: MessageId, sdp: String) -> Result<()> {
+    /// The contact answered our call, at call media version `media`.
+    pub(crate) async fn call_answered(&self, contact: &Contact, call: MessageId, sdp: String, media: u16) -> Result<()> {
         let Some((record, _)) = self.open_call(&call.to_string(), true).await? else { return Ok(()) };
         if record.contact != contact.device_id {
             return Ok(());
         }
         self.store.answer_call(&record.call_id, now()).await?;
         // A native call takes the answer itself; the UI only learns that it was answered.
-        if let Err(error) = self.accept_native_answer(&record.call_id, &sdp).await {
+        if let Err(error) = self.accept_native_answer(&record.call_id, &sdp, media).await {
             self.end_call(&record.call_id, true).await?;
             return Err(error);
         }

@@ -96,7 +96,7 @@ pub trait Transport: Send + Sync {
 }
 
 pub use calls::CallUpdate;
-pub use native_calls::{CallPhase, CurrentCall};
+pub use native_calls::{CallPhase, CurrentCall, VideoDetach};
 pub use files::MAX_FILE_SIZE;
 pub use ft_push::{RouterClient, TurnGrant};
 
@@ -161,8 +161,18 @@ pub struct Core {
     native_call: std::sync::Mutex<Option<Arc<native_calls::NativeCall>>>,
     /// One native answer at a time: CallKit and the WebView may both answer the same call.
     native_setup: Mutex<()>,
-    /// The offer of the call ringing here: (call, SDP), for a WebView that comes up late.
-    ringing_offer: std::sync::Mutex<Option<(String, String)>>,
+    /// The offer of the call ringing here: (call, SDP, the caller's call media version), for a
+    /// WebView that comes up late and for the native answer.
+    ringing_offer: std::sync::Mutex<Option<(String, String, u16)>>,
+    /// The phone's camera and display for native calls (native video, 2026-09-29); none on the
+    /// desktop.
+    call_video: RwLock<Option<ft_media::VideoPlatform>>,
+    /// What the app runs before a call's video devices go: the bridge takes the views away.
+    video_detach: RwLock<Option<native_calls::VideoDetach>>,
+    /// Whether the app is on the screen (the bridge's `Visible`): away, our camera is held.
+    app_visible: std::sync::atomic::AtomicBool,
+    /// Whether the call screen shows the video (the WebView's layout): off it, our camera is held.
+    call_shown: std::sync::atomic::AtomicBool,
     /// Whether the OS has the call's audio session active (CallKit's `didActivate` on iOS).
     call_audio_active: std::sync::atomic::AtomicBool,
     /// The OS answered before any call rang (2026-09-28): until when (ms) the next voice call's
@@ -270,6 +280,10 @@ impl Core {
             native_call: std::sync::Mutex::default(),
             native_setup: Mutex::new(()),
             ringing_offer: std::sync::Mutex::default(),
+            call_video: RwLock::new(ft_media::platform_video()),
+            video_detach: RwLock::new(None),
+            app_visible: std::sync::atomic::AtomicBool::new(true),
+            call_shown: std::sync::atomic::AtomicBool::new(true),
             call_audio_active: std::sync::atomic::AtomicBool::new(false),
             move_dir: OnceLock::new(),
             moving: std::sync::Mutex::default(),
@@ -1117,8 +1131,9 @@ impl Core {
             Body::FileChunk { file, index, data } => self.take_chunk(contact, file, index, data).await?,
             Body::FileDone { file } => self.file_done(contact, file).await?,
             Body::FileFailed { file } => self.file_failed(contact, file).await?,
-            Body::CallOffer { call, sdp, video, .. } => self.call_offered(contact, call, sdp, video).await?,
-            Body::CallAnswer { call, sdp, .. } => self.call_answered(contact, call, sdp).await?,
+            Body::CallOffer { call, sdp, video, media } => self.call_offered(contact, call, sdp, video, media).await?,
+            Body::CallAnswer { call, sdp, media } => self.call_answered(contact, call, sdp, media).await?,
+            Body::CallMedia { call, seq, video, paused } => self.call_media_received(contact, call, seq, video, paused).await?,
             Body::CallEnd { call, reason } => self.call_ended(contact, call, reason).await?,
             Body::MoveOffer { proof, key, size, hash } => self.move_offered(contact, proof, key, size, hash).await?,
             Body::MoveRequest { from, count } => self.move_requested(contact, from, count).await?,
@@ -1128,9 +1143,8 @@ impl Core {
             Body::CircleMessage { circle, text } => self.circle_text_received(contact, packet.id, packet.sent_at, &circle, text).await?,
             Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
             Body::PluginEvent { plugin, data } => self.plugin_event_received(contact, plugin, data).await?,
-            // Offers and answers travel as signals (see `open_signal`), never as packets. The other
-            // side's camera (`CallMedia`) is not followed yet: native video (docs/video-nativo.md).
-            Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::CallMedia { .. } | Body::Unknown => {}
+            // Offers and answers travel as signals (see `open_signal`), never as packets.
+            Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }
