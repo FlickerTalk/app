@@ -7,6 +7,8 @@ import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { chat, store } from "../core";
 import { refreshPlugins } from "../plugins";
+import { defineComponent, h } from "vue";
+import { startViewportFit } from "../viewport";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -42,6 +44,27 @@ vi.mock("../recorder", async () => {
 
 // Each thread goes when its test ends, as a page does: what it left open must not linger.
 enableAutoUnmount(afterEach);
+
+
+/** A visual viewport the test moves, as the on-screen keyboard would (2026-09-29). */
+class FakeViewport extends EventTarget {
+  height = 900;
+  offsetTop = 0;
+  move(height: number) {
+    this.height = height;
+    this.dispatchEvent(new Event("resize"));
+  }
+}
+/** `ion-content` whose element hands out a scroller the test can read. */
+const contentWith = (scroller: { scrollHeight: number; clientHeight: number; scrollTop: number }) =>
+  defineComponent({
+    mounted() {
+      (this.$el as { getScrollElement?: () => Promise<unknown> }).getScrollElement = async () => scroller;
+    },
+    render() {
+      return h("div", this.$slots.default?.());
+    },
+  });
 
 describe("ChatThread", () => {
   beforeEach(() => seed());
@@ -605,5 +628,31 @@ describe("ChatThread", () => {
     await flushPromises();
     expect(calls).toContainEqual(["core_forward", { message: id, contact: other }]);
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+  });
+
+  // The keyboard shrinks the conversation: the last message stays in sight above the composer.
+  it("keeps the last message in sight when the keyboard opens", async () => {
+    const viewport = new FakeViewport();
+    Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+    const stop = startViewportFit(window, document.documentElement);
+    const scroller = { scrollHeight: 2000, clientHeight: 800, scrollTop: 1200 };
+    const wrapper = mount(ChatThread, {
+      props: { chatId: "c1" },
+      shallow: true,
+      global: { stubs: { IonContent: contentWith(scroller) } },
+    });
+    await flushPromises();
+    viewport.move(560);
+    expect(scroller.scrollTop).toBe(2000);
+
+    // Once it is gone, it no longer moves anything.
+    wrapper.unmount();
+    scroller.scrollTop = 1200;
+    viewport.move(900);
+    viewport.move(560);
+    expect(scroller.scrollTop).toBe(1200);
+    stop();
+    document.documentElement.removeAttribute("style");
   });
 });

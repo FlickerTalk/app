@@ -8,6 +8,7 @@ import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { circle as circleOf, loadCircleMessages, markCircleRead, sendCircleText, type CircleMessage } from "../core";
 import { t } from "../i18n";
+import { useStickToEnd, type Scrollable } from "../viewport";
 
 // A circle's conversation (2026-09-27): like a chat, with who said what over each bubble that is
 // not ours, and what happened (who joined, who left) as a line between them. Texts only: files
@@ -42,8 +43,8 @@ function eventText(message: CircleMessage): string {
   return t(`circle.events.${message.kind}`, { who, what: message.text });
 }
 
-type Scrollable = { $el?: { scrollToBottom?: (duration: number) => Promise<void> } };
 const content = ref<Scrollable | null>(null);
+useStickToEnd(content);
 
 async function scrollToEnd() {
   await nextTick();
