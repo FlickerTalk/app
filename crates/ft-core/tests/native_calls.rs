@@ -154,7 +154,7 @@ async fn a_native_voice_call_carries_each_voice_to_the_other_side() {
     let (alice, bob) = two_phones(Activation::Immediate).await;
     let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
 
-    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
     assert_eq!(ringing_call(&bob).await, call);
     // A WebView that comes up late finds the ringing call and its offer in the core.
     let ringing = bob.core.current_call().await.unwrap().expect("ringing");
@@ -204,7 +204,7 @@ async fn a_native_voice_call_carries_each_voice_to_the_other_side() {
 async fn on_ios_the_device_starts_only_after_callkit_activates_the_audio_session() {
     let (alice, bob) = two_phones(Activation::WhenSessionActive).await;
     let mut bob_events = bob.core.events();
-    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
     ringing_call(&bob).await;
     bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
     next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
@@ -228,9 +228,11 @@ async fn on_ios_the_device_starts_only_after_callkit_activates_the_audio_session
     until("alice's call ends", || async { alice.core.current_call().await.unwrap().is_none() }).await;
 }
 
-// An older app's WebView offers video: the native side answers the voice only.
+// An older app's WebView offers video: the native side answers audio and video (native video,
+// 2026-09-29: every native call has a video line). Waits for ft-media's `Video` (worker 1 of
+// docs/video-nativo.md): the contract's session still refuses the video line.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_webview_video_offer_is_answered_with_audio_only() {
+async fn a_webview_video_offer_is_answered_with_audio_and_video() {
     let (alice, bob) = two_phones(Activation::Immediate).await;
     let mut alice_events = alice.core.events();
     let call = alice.core.place_call(&bob.id(), true).await.expect("alice calls like a WebView");
@@ -244,27 +246,30 @@ async fn a_webview_video_offer_is_answered_with_audio_only() {
     };
     assert!(sdp.contains("a=rtpmap:111 opus/48000/2"), "{sdp}");
     let video: Vec<&str> = sdp.lines().filter(|line| line.starts_with("m=video")).collect();
-    assert!(video.iter().all(|line| line.starts_with("m=video 0 ")), "video is refused: {sdp}");
+    assert_eq!(video.len(), 1, "{sdp}");
+    assert!(!video[0].starts_with("m=video 0 "), "video is answered: {sdp}");
     bob.core.end_call(&call, false).await.unwrap();
 }
 
-// CallKit's answer on a locked iPhone, with no WebView: the core answers the ringing voice call
-// with the routing it keeps. A video call is left to the WebView.
+// CallKit's answer on a locked iPhone, with no WebView: the core answers the ringing call with the
+// routing it keeps, a video call too since native video (2026-09-29).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_os_answers_the_ringing_voice_call_without_a_webview() {
     let (alice, bob) = two_phones(Activation::Immediate).await;
     let mut alice_events = alice.core.events();
     assert!(!bob.core.answer_ringing_call().await.unwrap(), "nothing rings");
+    // That answer would wait for the next offer (a video call's too): CallKit's end takes it back.
+    bob.core.end_current_call().await.unwrap();
 
-    let video = alice.core.place_call(&bob.id(), true).await.unwrap();
-    alice.core.offer_call_within(&video, &webview_video_offer(), Duration::from_secs(5)).await.unwrap();
+    let video = alice.core.start_native_call(&bob.id(), CallRouting::Auto, true).await.unwrap();
     ringing_call(&bob).await;
-    assert!(!bob.core.answer_ringing_call().await.unwrap(), "a video call is the WebView's");
+    assert!(bob.core.answer_ringing_call().await.unwrap(), "a video call is answered natively too");
+    next_update(&mut alice_events, &video, |update| *update == CallUpdate::Connected).await;
     alice.core.end_call(&video, false).await.unwrap();
     until("the video call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
 
     bob.core.set_call_routing(CallRouting::Direct).await.unwrap();
-    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.unwrap();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
     ringing_call(&bob).await;
     let mut bob_events = bob.core.events();
     assert!(bob.core.answer_ringing_call().await.unwrap());
@@ -299,7 +304,7 @@ async fn an_answer_that_comes_before_the_offer_answers_it_when_it_arrives() {
     let mut alice_events = alice.core.events();
     assert!(!bob.core.answer_ringing_call().await.unwrap(), "nothing rings yet: the answer waits");
 
-    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
     next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
     until("both devices run", || async { alice.probe.running() && bob.probe.running() }).await;
     alice.core.end_call(&call, false).await.unwrap();
@@ -312,7 +317,7 @@ async fn an_early_answer_is_forgotten_after_its_window_or_a_hang_up() {
     let (alice, bob) = two_phones(Activation::Immediate).await;
     assert!(!bob.core.answer_ringing_call_within(Duration::from_millis(300)).await.unwrap());
     tokio::time::sleep(Duration::from_millis(600)).await;
-    let late = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.unwrap();
+    let late = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
     ringing_call(&bob).await;
     tokio::time::sleep(Duration::from_millis(1_500)).await;
     assert_eq!(bob.core.current_call().await.unwrap().expect("rings").phase, CallPhase::Ringing, "it just rings");
@@ -321,7 +326,7 @@ async fn an_early_answer_is_forgotten_after_its_window_or_a_hang_up() {
 
     assert!(!bob.core.answer_ringing_call().await.unwrap());
     bob.core.end_current_call().await.expect("CallKit's end, with nothing going on");
-    let declined = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.unwrap();
+    let declined = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.unwrap();
     ringing_call(&bob).await;
     tokio::time::sleep(Duration::from_millis(1_500)).await;
     assert_eq!(bob.core.current_call().await.unwrap().expect("rings").phase, CallPhase::Ringing, "the hang-up took the answer back");
@@ -340,7 +345,7 @@ async fn a_hang_up_reaches_the_other_phone_once_it_is_back() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
 
-    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
     ringing_call(&bob).await;
     // Bob's phone is suspended: off the router, and its direct connection is gone.
     bus.online.lock().unwrap().remove(&bob.id());
@@ -364,7 +369,7 @@ async fn a_hang_up_reaches_the_other_phone_once_it_is_back() {
 async fn a_late_audio_event_of_an_older_call_changes_nothing() {
     let (alice, bob) = two_phones(Activation::WhenSessionActive).await;
     let mut bob_events = bob.core.events();
-    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
     ringing_call(&bob).await;
     bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
     next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
@@ -389,7 +394,7 @@ async fn activated_call_with(device: BackendFactory) -> (Phone, Phone, String) {
     let (alice, bob) = two_phones(Activation::WhenSessionActive).await;
     bob.core.set_call_audio(Some(AudioPlatform { backend: device, activation: Activation::WhenSessionActive }));
     let mut bob_events = bob.core.events();
-    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto).await.expect("alice calls");
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
     ringing_call(&bob).await;
     bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
     next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
