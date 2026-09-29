@@ -91,8 +91,10 @@ export interface CallEntry {
 interface CallEvent extends Partial<CallVideo> {
   contact: string;
   call: string;
-  kind: "incoming" | "answered" | "connected" | "muted" | "ended" | "video" | "camera_failed";
+  kind: "incoming" | "answering" | "answered" | "connected" | "muted" | "ended" | "video" | "camera_failed";
   video?: boolean;
+  /** `incoming`: the core answered it already, on the phone's own screen, before its offer came. */
+  answered?: boolean;
   sdp?: string;
   outcome?: CallOutcome;
   muted?: boolean;
@@ -113,11 +115,6 @@ interface CurrentCall {
 }
 
 export const CALL_EVENT = "ft://call";
-/**
- * The phone's own call screen did something (2026-09-29): CallKit answered, with the app maybe
- * on the screen. What it was waits in `core_pending_call`, as for a notification.
- */
-export const CALL_ACTION_EVENT = "ft://call-action";
 /** The caller gives up after this long without an answer. */
 export const RING_LIMIT = 45_000;
 /** The longest wait for ICE candidates before the description goes anyway. */
@@ -391,20 +388,15 @@ async function showCall(): Promise<void> {
 }
 
 /**
- * What the user pressed on the phone's own call screen or notification (§66). The app asks for
- * it when it opens or comes back, because a call may have been answered there while the WebView
- * was not even running, and when the phone says so (`CALL_ACTION_EVENT`). A decline is only ever
- * for the call that rings: never a hang-up of a call going on.
+ * The ringing call is answered, by the core (2026-09-29): on the phone's own call screen or its
+ * notification (§66), maybe before its offer came. Those answers and declines go to the core,
+ * never through the WebView, which only shows it: no more ringing, and the call screen, wherever
+ * the app is.
  */
-export async function applyCallNotification(): Promise<void> {
-  const action = (await invoke<string>("core_pending_call").catch(() => "")) ?? "";
-  if (call.phase !== "ringing") return;
-  if (action === "answer") {
-    // Like the in-app button: the call screen is where the call is seen and hung up.
-    const accepting = acceptCall();
-    await showCall();
-    await accepting;
-  } else if (action === "decline") await hangUp();
+async function answeredByTheCore(): Promise<void> {
+  call.phase = "connecting";
+  setNative(true);
+  await showCall();
 }
 
 /** Hangs up, declines or gives up, whichever it is by now. */
@@ -487,14 +479,19 @@ function applyVideo(update: Partial<CallVideo>) {
 }
 
 /**
- * The cameras as the core has them now (`core_current_call`), read once after a command whose
- * answer does not say them. From then on the core's events (`video`, `camera_failed`) say them.
+ * The call as the core has it now (`core_current_call`), read once where the WebView may have
+ * missed something: back on the screen (the ringing call may have been answered meanwhile on the
+ * phone's own call screen or its notification) and after a command whose answer does not say the
+ * cameras. From then on the core's events say it; the WebView never asks in a loop.
  */
 async function followCore(): Promise<void> {
   const id = call.id;
+  if (!id || !busy()) return;
   const current = await invoke<CurrentCall | null>("core_current_call").catch(() => null);
-  if (!current || current.call !== id || call.id !== id || typeof current.video !== "object" || !current.video) return;
-  applyVideo(current.video);
+  if (!current || current.call !== id || call.id !== id) return;
+  const live = current.phase === "connecting" || current.phase === "active";
+  if (call.phase === "ringing" && live) await answeredByTheCore();
+  if (typeof current.video === "object" && current.video) applyVideo(current.video);
 }
 
 /** A video's place on the screen, in CSS pixels. */
@@ -549,6 +546,9 @@ async function onEvent(event: CallEvent) {
     const video = Boolean(event.video);
     Object.assign(call, idle(), { id: event.call, contact: event.contact, video, phase: "ringing", speaker: video });
     offer = event.sdp ?? "";
+    if (event.answered) await answeredByTheCore();
+  } else if (event.call === call.id && event.kind === "answering" && call.phase === "ringing") {
+    await answeredByTheCore();
   } else if (event.call === call.id && event.kind === "answered" && (peer || nativeCall)) {
     clearTimeout(ringTimer);
     media.ringback.stop();
@@ -617,13 +617,9 @@ export async function startCalls(): Promise<void> {
   if (!listening) {
     listening = true;
     await listen<CallEvent>(CALL_EVENT, ({ payload }) => void onEvent(payload));
-    // CallKit answered with the app on the screen: no visibility change tells the WebView.
-    await listen(CALL_ACTION_EVENT, () => void applyCallNotification());
-    // The user may have answered from the notification before this WebView was even there (§66).
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") void applyCallNotification();
+      if (document.visibilityState === "visible") void followCore();
     });
   }
   await restoreCall();
-  await applyCallNotification();
 }

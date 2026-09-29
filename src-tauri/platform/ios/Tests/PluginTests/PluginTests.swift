@@ -380,23 +380,18 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertEqual(summary, "category=AVAudioSessionCategoryPlayAndRecord mode=AVAudioSessionModeVoiceChat out=Receiver in=MicrophoneBuiltIn")
     }
 
-    // Bug of 2026-09-29: what the user did in CallKit waited for the WebView across calls. An old
-    // "answer" answered the next call when the app came back to the screen, and an old "decline"
-    // (also CallKit's end of a call already over) hung the next one up. A choice belongs to its
-    // call: a new call, or the end of this one, forgets it.
-    func testACallKitChoiceNeverReachesAnotherCall() {
-        var choice = CallChoice()
-        choice.answered()
-        XCTAssertEqual(choice.take(), "answer")
-        XCTAssertEqual(choice.take(), "", "read once")
-        choice.answered()
-        choice.forget()
-        XCTAssertEqual(choice.take(), "", "a new call starts clean")
-        choice.declined()
-        choice.forget()
-        XCTAssertEqual(choice.take(), "", "an ended call leaves nothing behind")
-        choice.declined()
-        XCTAssertEqual(choice.take(), "decline")
+    // Bug of 2026-09-29: with the app closed, CallKit (rung by PushKit) was declined before the
+    // offer came; the core had nothing to end, and the offer then rang again. CallKit's end of an
+    // incoming call whose voice never connected is a decline, which waits for the offer and
+    // declines it. The end of a connected call, of this phone's own call or of an older call is
+    // an end, as before. (What the user did in CallKit no longer waits for the WebView at all: it
+    // goes to the core, and the WebView shows what the core does.)
+    func testCallKitsEndOfACallThatNeverConnectedIsADecline() {
+        XCTAssertEqual(json(.decline), ["event": "decline"])
+        XCTAssertEqual(endEvent(ours: true, outgoing: false, connected: false), .decline)
+        XCTAssertEqual(endEvent(ours: true, outgoing: false, connected: true), .end)
+        XCTAssertEqual(endEvent(ours: true, outgoing: true, connected: false), .end)
+        XCTAssertEqual(endEvent(ours: false, outgoing: false, connected: false), .end, "an older call's end")
     }
 
     // The button of CallKit's screen that opens the app shows our mark (2026-09-29): a monochrome

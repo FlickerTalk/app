@@ -12,6 +12,7 @@ use anyhow::{bail, Result};
 use ft_protocol::{Body, EndReason, MessageId, Packet};
 use ft_storage::{CallOutcome, CallRecord, Contact};
 
+use crate::native_calls::EarlyOutcome;
 use crate::{now, Core, Event};
 
 /// How long a call keeps trying to reach a phone that may be asleep (the router wakes it).
@@ -34,6 +35,9 @@ pub enum CallUpdate {
     Incoming { video: bool, sdp: String },
     /// The contact answered our call.
     Answered { sdp: String },
+    /// The call ringing here is being answered (2026-09-29), from the app, the phone's own call
+    /// screen or the notification: it rings no more, and connects next.
+    Answering,
     Ended { outcome: CallOutcome },
     /// The media connected: the call is on (a native call; a WebView call knows by itself).
     Connected,
@@ -249,8 +253,14 @@ impl Core {
         }
         if fresh {
             self.remember_offer(&call_id, &sdp, media);
+            // Answered or declined on the phone's own screen before the offer came (2026-09-29):
+            // decided before the UI hears of it, so it never rings again.
+            match self.take_early_answer(&call_id) {
+                EarlyOutcome::Decline => return self.end_call(&call_id, false).await,
+                EarlyOutcome::Answer => self.answer_offered_early(&call_id),
+                EarlyOutcome::Ring => {}
+            }
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
-            self.answer_if_answered_early(&call_id);
         }
         Ok(())
     }
