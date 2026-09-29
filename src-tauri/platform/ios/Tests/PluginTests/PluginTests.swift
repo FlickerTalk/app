@@ -1,5 +1,6 @@
 import AVFAudio
 import CallKit
+import UIKit
 import QuickLook
 import XCTest
 @testable import tauri_plugin_ft_platform
@@ -364,7 +365,7 @@ final class PlatformPluginTests: XCTestCase {
     // iOS 18.4.1 and later (Apple DTS, developer forums thread 783870): the configuration is set
     // again right before every call is reported or started, or `didActivate` may never come.
     func testTheProviderConfigurationIsOneCallAtATime() {
-        let configuration = callProviderConfiguration()
+        let configuration = callProviderConfiguration(icon: nil)
         XCTAssertTrue(configuration.supportsVideo)
         XCTAssertEqual(configuration.maximumCallsPerCallGroup, 1)
         XCTAssertEqual(configuration.maximumCallGroups, 1)
@@ -377,6 +378,56 @@ final class PlatformPluginTests: XCTestCase {
     func testTheAudioSessionIsDescribedWithoutNames() {
         let summary = audioSessionSummary(category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeVoiceChat", outputs: ["Receiver"], inputs: ["MicrophoneBuiltIn"])
         XCTAssertEqual(summary, "category=AVAudioSessionCategoryPlayAndRecord mode=AVAudioSessionModeVoiceChat out=Receiver in=MicrophoneBuiltIn")
+    }
+
+    // Bug of 2026-09-29: what the user did in CallKit waited for the WebView across calls. An old
+    // "answer" answered the next call when the app came back to the screen, and an old "decline"
+    // (also CallKit's end of a call already over) hung the next one up. A choice belongs to its
+    // call: a new call, or the end of this one, forgets it.
+    func testACallKitChoiceNeverReachesAnotherCall() {
+        var choice = CallChoice()
+        choice.answered()
+        XCTAssertEqual(choice.take(), "answer")
+        XCTAssertEqual(choice.take(), "", "read once")
+        choice.answered()
+        choice.forget()
+        XCTAssertEqual(choice.take(), "", "a new call starts clean")
+        choice.declined()
+        choice.forget()
+        XCTAssertEqual(choice.take(), "", "an ended call leaves nothing behind")
+        choice.declined()
+        XCTAssertEqual(choice.take(), "decline")
+    }
+
+    // The button of CallKit's screen that opens the app shows our mark (2026-09-29): a monochrome
+    // template, as CallKit wants it.
+    func testCallKitShowsOurMark() {
+        let icon = Data([0x89, 0x50, 0x4E, 0x47])
+        XCTAssertEqual(callProviderConfiguration(icon: icon).iconTemplateImageData, icon)
+        XCTAssertNil(callProviderConfiguration(icon: nil).iconTemplateImageData)
+    }
+
+    // The mark is in the app's asset catalog (`gen/apple`, which the build keeps): 40 pt at 1x, 2x
+    // and 3x, rendered as a template, a white glyph on a transparent background.
+    func testTheCallKitMarkIsATemplateInTheAppsAssets() throws {
+        let set = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("gen/apple/Assets.xcassets/\(callKitIconName).imageset")
+        let contents = try JSONSerialization.jsonObject(with: Data(contentsOf: set.appendingPathComponent("Contents.json"))) as? [String: Any]
+        let properties = contents?["properties"] as? [String: Any]
+        XCTAssertEqual(properties?["template-rendering-intent"] as? String, "template")
+        let images = contents?["images"] as? [[String: Any]] ?? []
+        XCTAssertEqual(Set(images.compactMap { $0["scale"] as? String }), ["1x", "2x", "3x"])
+        for image in images {
+            let scale = Int((image["scale"] as? String ?? "1x").dropLast()) ?? 1
+            let file = try XCTUnwrap(image["filename"] as? String)
+            let png = try XCTUnwrap(UIImage(data: Data(contentsOf: set.appendingPathComponent(file))))
+            XCTAssertEqual(png.size.width * png.scale, CGFloat(40 * scale))
+            XCTAssertEqual(png.size.height * png.scale, CGFloat(40 * scale))
+            let alpha = try XCTUnwrap(png.cgImage?.alphaInfo)
+            XCTAssertTrue([.premultipliedLast, .last, .premultipliedFirst, .first].contains(alpha), "a transparent background")
+        }
     }
 
     // The call's audio: Bluetooth headsets work, both hands-free and high quality output.
