@@ -3,6 +3,18 @@ resolver = "2"
 # Crates are added here as they appear (Plan §82).
 members = ["src-tauri", "src-tauri/platform", "crates/ft-webrtc", "crates/ft-poc", "crates/ft-identity", "crates/ft-protocol", "crates/ft-crypto", "crates/ft-contacts", "crates/ft-storage", "crates/ft-core", "crates/ft-push", "crates/ft-plugins", "crates/ft-billing", "crates/ft-circles", "crates/ft-vault", "crates/ft-media"]
 
+# iOS release builds with Xcode 27 (Swift 6.4). SwiftPM now builds with Swift Build, which in the
+# release configuration prelinks each Swift module (`ld -r`) and so turns the non-`public`
+# `@_cdecl` entry points of Tauri, its plugins and swift-rs into local symbols: the link fails
+# with "Undefined symbols" (tauri-apps/tauri#16130). swift-rs 1.0.8 makes each package's own
+# entry points global again, but not those of its shared runtime (`SwiftRs.o`: `retain_object`,
+# `release_object`, `string_from_bytes`, `data_from_bytes`; Brendonovich/swift-rs#81). This is
+# 1.0.8 plus Brendonovich/swift-rs#80, which also exports them, from the one archive named by
+# `SWIFT_RS_RUNTIME_ARCHIVE` (`.cargo/config.toml`). Needs `rustup component add llvm-tools`.
+# Drop it once a swift-rs release includes the fix.
+[patch.crates-io]
+swift-rs = { git = "https://github.com/alchaplinsky/swift-rs", rev = "aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c" }
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

@@ -5,3 +5,8 @@ rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
 
 [target.x86_64-linux-android]
 rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+# swift-rs (patched in Cargo.toml) exports its runtime's `@_cdecl` symbols from this one Swift
+# archive only: every Tauri iOS app links `Tauri` once, and a second global copy is not wanted.
+[env]
+SWIFT_RS_RUNTIME_ARCHIVE = "Tauri"
