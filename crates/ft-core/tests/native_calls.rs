@@ -13,7 +13,7 @@ use ft_core::timings::CallTimings;
 use ft_core::{CallPhase, CallUpdate, Core, Event};
 use ft_media::testing::{broken_device, mean_heard, rms, test_voice, webview_video_offer, webview_voice_offer, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, BackendFactory, CallRouting};
-use ft_push::{RouterEvent, TurnGrant};
+use ft_push::{RouterEvent, Signalled, TurnGrant};
 use ft_storage::{CallOutcome, Store};
 use ft_webrtc::SessionConfig;
 use tokio::sync::{broadcast, mpsc};
@@ -23,6 +23,10 @@ use tokio::sync::{broadcast, mpsc};
 struct Bus {
     online: Mutex<HashMap<String, mpsc::UnboundedSender<RouterEvent>>>,
     capabilities: Mutex<HashMap<String, [u8; 32]>>,
+    /// Router 0.4.0 (2026-09-29): a signal for a device that is not connected waits for its next
+    /// connection. Off: a router before 0.4, which loses it.
+    retaining: std::sync::atomic::AtomicBool,
+    held: Mutex<HashMap<String, Vec<Vec<u8>>>>,
 }
 
 struct FakeRelay {
@@ -38,6 +42,17 @@ impl Relay for FakeRelay {
         }
         let online = self.bus.online.lock().unwrap().get(to).cloned();
         Ok(online.is_some_and(|device| device.send(RouterEvent::Signal(bytes)).is_ok()))
+    }
+
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, _call: bool) -> anyhow::Result<Signalled> {
+        if self.signal(to, capability, bytes.clone()).await? {
+            return Ok(Signalled::Delivered);
+        }
+        if !self.bus.retaining.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(Signalled::NotConnected);
+        }
+        self.bus.held.lock().unwrap().entry(to.to_owned()).or_default().push(bytes);
+        Ok(Signalled::Retained)
     }
 
     async fn deposit(&self, _to: &str, _capability: &[u8; 32], _blob: Vec<u8>) -> anyhow::Result<()> {
@@ -80,6 +95,10 @@ impl Phone {
             }
         });
         let _ = events.send(RouterEvent::Connected { stun, turn });
+        // Router 0.4.0: what waited for this device comes right after the welcome.
+        for bytes in bus.held.lock().unwrap().remove(&self.id()).unwrap_or_default() {
+            let _ = events.send(RouterEvent::Signal(bytes));
+        }
     }
 }
 
@@ -511,7 +530,11 @@ fn blackhole() -> Blackhole {
 
 /// Two paired phones whose router names servers that never answer.
 async fn two_phones_behind(hole: &Blackhole) -> (Phone, Phone) {
-    let bus = Arc::new(Bus::default());
+    two_phones_behind_on(&Arc::new(Bus::default()), hole).await
+}
+
+async fn two_phones_behind_on(bus: &Arc<Bus>, hole: &Blackhole) -> (Phone, Phone) {
+    let bus = bus.clone();
     let alice = phone(&bus, "Alice", false, Activation::Immediate).await;
     let bob = phone(&bus, "Bob", true, Activation::Immediate).await;
     alice.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
@@ -672,4 +695,53 @@ async fn a_long_ring_keeps_its_prepared_answer_fresh() {
     let (gathered, answered) = (callee.at(GatheringStarted).expect("gathered"), callee.at(AnswerRequested).expect("answered"));
     assert!(gathered < answered && answered - gathered < 1_200, "the answer used an old preparation: {}", callee.line());
     alice.core.end_call(&call, false).await.unwrap();
+}
+
+/// Alice calls Bob behind servers that never answer, with Bob's app closed (no router socket, no
+/// direct connection); it opens 4 s later. Returns (connected to the router → ringing,
+/// connected to the router → call connected), with both sides' timings printed.
+async fn call_to_a_closed_app(retaining: bool) -> (Duration, Duration) {
+    let hole = blackhole();
+    let bus = Arc::new(Bus::default());
+    bus.retaining.store(retaining, std::sync::atomic::Ordering::SeqCst);
+    let (alice, bob) = two_phones_behind_on(&bus, &hole).await;
+    bus.online.lock().unwrap().remove(&bob.id());
+    bob.network.disconnect(&alice.id()).await;
+    alice.network.disconnect(&bob.id()).await;
+
+    let mut bob_events = bob.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    // Well after the first offer went (its gathering takes a second here), and halfway between
+    // two of the retries a router before 0.4 needs (every 2 s): the average case.
+    tokio::time::sleep(Duration::from_millis(4_000)).await;
+    let back = std::time::Instant::now();
+    bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Incoming { .. })).await;
+    let ringing = back.elapsed();
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let connected = back.elapsed();
+    let router = if retaining { "retaining router" } else { "router before 0.4" };
+    eprintln!("closed app, {router}: ringing {} ms and connected {} ms after its app connected", ringing.as_millis(), connected.as_millis());
+    eprintln!("  caller: {}", alice.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    eprintln!("  callee: {}", bob.core.call_timings().map(|timings| timings.line()).unwrap_or_default());
+    alice.core.end_call(&call, false).await.unwrap();
+    (ringing, connected)
+}
+
+// A call to a phone whose app is closed (2026-09-29): the router (0.4.0) keeps the direct
+// connection's offer and wakes the phone; the offer is answered as soon as its app connects, with
+// no retry round and no new gathering on the caller's side.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_closed_app_rings_as_soon_as_it_connects() {
+    let (ringing, _) = call_to_a_closed_app(true).await;
+    // Bob's side gathers its link answer (a second here) and the channel opens.
+    assert!(ringing < Duration::from_millis(2_000), "it rang {} ms after the app connected", ringing.as_millis());
+}
+
+// Interop: a router before 0.4 loses the offer; the caller keeps trying every 2 s, as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_closed_app_still_rings_through_a_router_before_0_4() {
+    let (ringing, _) = call_to_a_closed_app(false).await;
+    assert!(ringing < Duration::from_millis(5_000), "it rang {} ms after the app connected", ringing.as_millis());
 }
