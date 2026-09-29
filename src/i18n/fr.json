@@ -55,7 +55,8 @@
     "deleteSure": "Supprimer",
     "forwardTo": "Transférer à",
     "download": "Télécharger",
-    "discardAttachment": "Retirer la pièce jointe"
+    "discardAttachment": "Retirer la pièce jointe",
+    "otherApp": "Une autre app"
   },
   "status": {
     "pending": "En attente de l’appareil",
@@ -259,7 +260,13 @@
     "remove": "Retirer",
     "none": "Aucun plugin",
     "available": "Outils à ajouter",
-    "install": "Installer"
+    "install": "Installer",
+    "live": "Parler au même plugin de l'autre côté de la conversation",
+    "remind": "Programmer des rappels sur ce téléphone",
+    "drive": "Garder des fichiers dans votre propre cloud",
+    "storageLarge": "Garder beaucoup de données sur ce téléphone (jusqu'à 256 Mo)",
+    "opens": "Ouvre : {kinds}",
+    "open": "Ouvrir"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} a retiré {what}",
       "renamed": "{who} a renommé le cercle « {what} »"
     }
+  },
+  "backup": {
+    "title": "Sauvegarde",
+    "none": "Aucun cloud connecté",
+    "noneHint": "Gardez une copie scellée de ce téléphone dans votre propre Google Drive. Tout est chiffré ici avant de partir ; Google voit des fichiers scellés et nous ne voyons rien.",
+    "connectGoogle": "Connecter Google Drive",
+    "empty": "Votre cloud n'a pas encore de drive FlickerTalk",
+    "emptyHint": "Le créer génère une clé sur ce téléphone et vous montre un code de récupération.",
+    "setUp": "Créer",
+    "codeTitle": "Votre code de récupération",
+    "codeHint": "Notez-le et gardez-le en lieu sûr : il ouvre votre drive sur un nouveau téléphone. Il n'est montré qu'une fois et personne ne peut le retrouver pour vous.",
+    "codeDone": "Je l'ai noté",
+    "locked": "Ce cloud contient un drive d'un autre téléphone",
+    "unlockHint": "Saisissez son code de récupération pour l'ouvrir ici.",
+    "codePlaceholder": "Code de récupération",
+    "unlockNow": "Ouvrir",
+    "ready": "Votre drive est prêt",
+    "backupNow": "Sauvegarder maintenant",
+    "lastBackup": "Dernière sauvegarde : {when}",
+    "noBackup": "Pas encore de sauvegarde",
+    "done": "Sauvegardé",
+    "restore": "Restaurer depuis la sauvegarde",
+    "restoreAsk": "Remplacer tout ce téléphone par la sauvegarde ? L'application redémarre.",
+    "restoreConfirm": "Restaurer",
+    "restored": "La sauvegarde est là",
+    "forget": "Oublier ce cloud sur ce téléphone",
+    "forgetHint": "Vos fichiers restent dans votre cloud, scellés. Il faudra le code de récupération pour les rouvrir.",
+    "forgetConfirm": "Oublier",
+    "used": "Dans le drive : {size}",
+    "pending": "En attente d'envoi : {count}",
+    "working": "En cours…",
+    "failed": "Un problème est survenu : {error}",
+    "sees": "Votre cloud voit combien de fichiers scellés il y a, leur taille et leurs dates. Jamais leurs noms ni leur contenu."
   }
 }

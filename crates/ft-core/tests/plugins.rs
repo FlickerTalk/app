@@ -52,6 +52,22 @@ fn signed(id: &str, version: &str, permissions: &str, catalogue: &Ed25519SecretK
     )
 }
 
+// §51: a capability the plugin needs and this FlickerTalk lacks is a plugin that does not install.
+#[tokio::test]
+async fn a_plugin_that_needs_a_newer_core_does_not_install() {
+    let (core, _) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.example.future","name":"Future","version":"1.0.0","minCoreVersion":"99.0.0","components":["ft-future"]}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    let refused = core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await;
+    assert!(refused.unwrap_err().to_string().contains("99.0.0"));
+    assert!(core.plugins().await.unwrap().is_empty());
+    // What is new enough, and what this very version brought, installs.
+    let manifest = format!(r#"{{"id":"com.example.now","name":"Now","version":"1.0.0","minCoreVersion":"{}","components":["ft-now"]}}"#, ft_core::plugins::CORE_VERSION);
+    let package = sign_package(&[("module.json".to_owned(), manifest.into_bytes()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+}
+
 #[tokio::test]
 async fn installs_a_signed_plugin_and_grants_it_only_what_the_user_said() {
     let (core, dir) = core().await;
@@ -94,7 +110,7 @@ async fn never_grants_more_than_the_plugin_asked_for() {
     core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
 
     // The user grants the network it asked for: fine.
-    let granted = Permissions { network: vec!["api.openai.com".to_owned()], reads_given_messages: true, send: Sending::Nothing, print: false };
+    let granted = Permissions { network: vec!["api.openai.com".to_owned()], reads_given_messages: true, send: Sending::Nothing, ..Permissions::default() };
     core.grant_plugin("com.example.ai", granted.clone()).await.expect("grants");
     assert_eq!(core.plugins().await.unwrap()[0].granted, granted);
 
@@ -158,6 +174,86 @@ async fn a_plugin_cannot_fill_the_phone_nor_write_for_another() {
     assert!(core.plugin_remember("com.example.code", "one-more", "v").await.is_err(), "too many keys");
     // What it already remembers it can still change.
     core.plugin_remember("com.example.code", "key0", "w").await.expect("remembers");
+}
+
+// 2026-09-27: a plugin's records are bigger than its settings and fit the room the user granted.
+#[tokio::test]
+async fn a_plugin_keeps_records_within_the_room_it_was_granted() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"storage":"large"}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+
+    // Installed with nothing granted: the small room, and a value beyond a setting still fits.
+    let (used, quota) = core.plugin_records_usage("com.example.notes").await.unwrap();
+    assert_eq!((used, quota), (0, ft_plugins::Storage::Small.quota()));
+    core.plugin_record_set("com.example.notes", "note/1", &vec![7u8; 100_000]).await.expect("keeps");
+    assert_eq!(core.plugin_record("com.example.notes", "note/1").await.unwrap().map(|v| v.len()), Some(100_000));
+    assert_eq!(core.plugin_record_keys("com.example.notes", "note/").await.unwrap(), ["note/1"]);
+    // The small room is 4 MB: one more of 4 MB does not fit; with the large room it does.
+    let big = vec![1u8; 4 * 1024 * 1024];
+    assert!(core.plugin_record_set("com.example.notes", "board", &big).await.is_err(), "no room");
+    core.grant_plugin("com.example.notes", Permissions { storage: ft_plugins::Storage::Large, ..Permissions::default() }).await.unwrap();
+    core.plugin_record_set("com.example.notes", "board", &big).await.expect("now it fits");
+    let (used, quota) = core.plugin_records_usage("com.example.notes").await.unwrap();
+    assert_eq!((used, quota), (100_000 + big.len() as u64, ft_plugins::Storage::Large.quota()));
+    // Replacing a record counts the new size, not both.
+    core.plugin_record_set("com.example.notes", "board", &big[..10]).await.expect("smaller");
+    assert_eq!(core.plugin_records_usage("com.example.notes").await.unwrap().0, 100_010);
+    assert!(core.plugin_record_set("com.example.notes", "huge", &vec![0u8; ft_core::plugins::RECORD_VALUE + 1]).await.is_err());
+    assert!(core.plugin_record_set("com.example.never", "x", b"y").await.is_err(), "not installed");
+    core.plugin_record_forget("com.example.notes", "board").await.unwrap();
+    assert_eq!(core.plugin_record("com.example.notes", "board").await.unwrap(), None);
+}
+
+// 2026-09-27: reminders are a permission of their own; the phone's alarm clock is told.
+#[tokio::test]
+async fn a_plugin_sets_reminders_only_if_granted_and_the_app_hears_of_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    assert!(core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.is_err(), "not granted yet");
+
+    core.grant_plugin("com.example.notes", Permissions { remind: true, ..Permissions::default() }).await.unwrap();
+    let mut events = core.events();
+    core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.expect("sets");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::RemindersChanged));
+    core.set_reminder("com.example.notes", "r2", 1_000, &"x".repeat(500)).await.expect("sets");
+    let reminders = core.plugin_reminders("com.example.notes").await.unwrap();
+    assert_eq!(reminders.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r2", "r1"], "soonest first");
+    assert_eq!(reminders[0].text.chars().count(), 200, "the text is cut");
+    assert_eq!(core.due_reminders(2_000).await.unwrap().len(), 1);
+    assert_eq!(core.reminders().await.unwrap().len(), 2);
+    assert!(core.cancel_reminder("com.example.notes", "r1").await.unwrap());
+    assert!(!core.cancel_reminder("com.example.notes", "r1").await.unwrap());
+    assert!(core.set_reminder("com.example.notes", "", 5_000, "").await.is_err());
+}
+
+// A reminder already handed to the phone's alarm clock must not outlive the plugin, nor the
+// permission: the app hears of it and tells the alarm clock again.
+#[tokio::test]
+async fn removing_a_plugin_or_its_remind_permission_takes_its_reminders_off_the_alarm_clock() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let remind = Permissions { remind: true, ..Permissions::default() };
+    let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), remind.clone()).await.expect("installs");
+
+    core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.expect("sets");
+    let mut events = core.events();
+    core.grant_plugin("com.example.notes", Permissions::default()).await.unwrap();
+    assert!(core.reminders().await.unwrap().is_empty(), "revoking remind drops its reminders");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
+
+    core.grant_plugin("com.example.notes", remind).await.unwrap();
+    core.set_reminder("com.example.notes", "r2", 5_000, "bread").await.expect("sets");
+    let mut events = core.events();
+    core.remove_plugin("com.example.notes").await.unwrap();
+    assert!(core.reminders().await.unwrap().is_empty());
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
 }
 
 /// A web that answers whatever is asked, and writes down what it was asked.
@@ -241,17 +337,25 @@ fn shop(package: &[u8], catalogue: &Ed25519SecretKey) -> (Shop, String) {
         blake3::hash(package).to_hex()
     );
     let mut files = std::collections::HashMap::new();
-    files.insert(format!("{}/index.json", ft_core::CATALOGUE_HOME), index.clone().into_bytes());
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
     files.insert(
-        format!("{}/index.json.sig", ft_core::CATALOGUE_HOME),
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
         catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+    // What the app 1.0.0 reads lists nothing here: this core must not read it.
+    let legacy = r#"{"plugins":[]}"#;
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::LEGACY_INDEX), legacy.as_bytes().to_vec());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::LEGACY_INDEX),
+        catalogue.sign(legacy.as_bytes()).to_base64().into_bytes(),
     );
     files.insert(url.clone(), package.to_vec());
     (Shop { files }, url)
 }
 
 // §56: nothing travels inside the app. The phone reads a signed index, and only then downloads a
-// package, which has to be exactly the bytes the index listed.
+// package, which has to be exactly the bytes the index listed. Since 2026-09-28 it is the index
+// for cores from 1.1.0 on, not the one the app 1.0.0 reads (that one lists only what runs there).
 #[tokio::test]
 async fn installs_from_the_catalogue_only_what_the_catalogue_signed() {
     let (core, dir) = core().await;

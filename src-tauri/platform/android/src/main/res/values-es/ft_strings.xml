@@ -6,4 +6,7 @@
     <string name="ft_channel_calls">Llamadas</string>
     <string name="ft_channel_messages">Mensajes y llamadas</string>
     <string name="ft_something_new">Tienes algo nuevo esperándote</string>
+    <string name="ft_channel_reminders">Recordatorios</string>
+    <string name="ft_reminder">Recordatorio</string>
+    <string name="ft_reminder_generic">Tienes un recordatorio</string>
 </resources>

@@ -15,5 +15,6 @@ export function installTauri(answer: Answer = emptyAnswers): void {
     convertFileSrc: (path: string, protocol = "asset") => `http://${protocol}.localhost/${path}`,
     transformCallback: () => 0,
     unregisterCallback: () => undefined,
+    unregisterListener: () => undefined,
   };
 }

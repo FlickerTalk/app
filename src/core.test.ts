@@ -326,6 +326,34 @@ describe("core bridge", () => {
   });
 });
 
+// Plugins, phase 3 (2026-09-27): records travel as base64 of the plugin's text, and the reminder
+// the user tapped comes as `plugin\nid`.
+describe("plugin records and reminders", () => {
+  beforeEach(() => tauri.invoke.mockReset());
+
+  it("keeps a plugin's text as bytes and brings it back whole", async () => {
+    expect(core.fromBase64(core.toBase64Text("milk ñ 🎉"))).toBe("milk ñ 🎉");
+    tauri.invoke.mockResolvedValue(core.toBase64Text("{\"a\":1}"));
+    expect(await core.pluginRecordGet("com.flickertalk.notes", "note/1")).toBe("{\"a\":1}");
+    tauri.invoke.mockResolvedValue(null);
+    expect(await core.pluginRecordGet("com.flickertalk.notes", "note/9")).toBeNull();
+    await core.pluginRecordSet("com.flickertalk.notes", "note/1", "x");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_record_set", { plugin: "com.flickertalk.notes", key: "note/1", value: core.toBase64Text("x") });
+    tauri.invoke.mockResolvedValue([12, 4096]);
+    expect(await core.pluginRecordUsage("com.flickertalk.notes")).toEqual({ used: 12, quota: 4096 });
+  });
+
+  it("says which reminder opened the app, once", async () => {
+    tauri.invoke.mockResolvedValue("com.flickertalk.notes\nr1");
+    expect(await core.pendingReminder()).toEqual({ plugin: "com.flickertalk.notes", id: "r1" });
+    tauri.invoke.mockResolvedValue("");
+    expect(await core.pendingReminder()).toBeNull();
+    tauri.invoke.mockImplementation(() => Promise.reject(new Error("no bridge")));
+    expect(await core.pendingReminder()).toBeNull();
+    tauri.invoke.mockReset();
+  });
+});
+
 // Circles (2026-09-27): the core lists them with the conversations; their messages say who said
 // what, and a change in one reloads it if it is on screen.
 describe("circles", () => {

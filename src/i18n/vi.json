@@ -55,7 +55,8 @@
     "deleteSure": "Xóa",
     "forwardTo": "Chuyển tiếp đến",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Ứng dụng khác"
   },
   "status": {
     "pending": "Đang chờ thiết bị",
@@ -259,7 +260,13 @@
     "remove": "Gỡ",
     "none": "Chưa có plugin nào",
     "available": "Công cụ bạn có thể thêm",
-    "install": "Cài đặt"
+    "install": "Cài đặt",
+    "live": "Trò chuyện với cùng plugin ở phía bên kia cuộc trò chuyện",
+    "remind": "Đặt lời nhắc trên điện thoại này",
+    "drive": "Giữ tệp trong đám mây của riêng bạn",
+    "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
+    "opens": "Mở: {kinds}",
+    "open": "Mở"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "Sao lưu",
+    "none": "Chưa kết nối đám mây",
+    "noneHint": "Giữ một bản sao đã niêm phong của điện thoại này trong Google Drive của bạn. Mọi thứ được mã hóa tại đây trước khi rời đi; Google thấy các tệp niêm phong, còn chúng tôi không thấy gì.",
+    "connectGoogle": "Kết nối Google Drive",
+    "empty": "Đám mây của bạn chưa có ổ FlickerTalk",
+    "emptyHint": "Thiết lập sẽ tạo một khóa trên điện thoại này và hiện cho bạn một mã khôi phục.",
+    "setUp": "Thiết lập",
+    "codeTitle": "Mã khôi phục của bạn",
+    "codeHint": "Hãy ghi lại và cất giữ an toàn: mã này mở ổ của bạn trên điện thoại mới. Chỉ hiện một lần, và không ai lấy lại được cho bạn.",
+    "codeDone": "Tôi đã ghi lại",
+    "locked": "Đám mây này có một ổ từ điện thoại khác",
+    "unlockHint": "Nhập mã khôi phục của nó để mở tại đây.",
+    "codePlaceholder": "Mã khôi phục",
+    "unlockNow": "Mở",
+    "ready": "Ổ của bạn đã sẵn sàng",
+    "backupNow": "Sao lưu ngay",
+    "lastBackup": "Sao lưu gần nhất: {when}",
+    "noBackup": "Chưa có bản sao lưu",
+    "done": "Đã sao lưu",
+    "restore": "Khôi phục từ bản sao lưu",
+    "restoreAsk": "Thay toàn bộ trên điện thoại này bằng bản sao lưu? Ứng dụng sẽ khởi động lại.",
+    "restoreConfirm": "Khôi phục",
+    "restored": "Bản sao lưu đã về",
+    "forget": "Quên đám mây này trên điện thoại này",
+    "forgetHint": "Tệp của bạn vẫn ở trong đám mây, đã niêm phong. Bạn sẽ cần mã khôi phục để mở lại.",
+    "forgetConfirm": "Quên",
+    "used": "Trong ổ: {size}",
+    "pending": "Đang chờ tải lên: {count}",
+    "working": "Đang xử lý…",
+    "failed": "Có lỗi xảy ra: {error}",
+    "sees": "Đám mây của bạn thấy có bao nhiêu tệp niêm phong, kích thước và ngày tháng. Không bao giờ thấy tên hay nội dung."
   }
 }

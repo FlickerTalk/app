@@ -45,7 +45,27 @@ export type FrameMessage =
   | { type: "ft.fetch"; id: string; url: string; method: string; headers: [string, string][]; body: string | null }
   | { type: "ft.read"; id: string; key: string }
   | { type: "ft.write"; id: string; key: string; value: string }
-  | { type: "ft.forget"; id: string; key: string };
+  | { type: "ft.forget"; id: string; key: string }
+  // 2026-09-27: records, reminders, the live channel and the way back to a conversation.
+  | { type: "ft.recordGet"; id: string; key: string }
+  | { type: "ft.recordSet"; id: string; key: string; value: string }
+  | { type: "ft.recordForget"; id: string; key: string }
+  | { type: "ft.recordKeys"; id: string; prefix: string }
+  | { type: "ft.recordUsage"; id: string }
+  | { type: "ft.remindSet"; id: string; reminder: string; at: number; text: string }
+  | { type: "ft.remindCancel"; id: string; reminder: string }
+  | { type: "ft.remindList"; id: string }
+  | { type: "ft.liveSend"; id: string; data: string }
+  | { type: "ft.openChat"; id: string; ref: string }
+  // The user's cloud (plan-drive): one question with an operation and up to two strings.
+  | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string };
+
+/** What a plugin may ask of the drive. Anything else is ignored. */
+export const DRIVE_OPS = [
+  "status", "connect", "setup", "unlock", "disconnect", "list", "mkdir", "rename", "move", "remove",
+  "upload", "keep", "open", "save", "send", "retry", "cancel", "backup", "backupInfo", "restore",
+] as const;
+export type DriveOp = (typeof DRIVE_OPS)[number];
 
 const text = (value: unknown): value is string => typeof value === "string";
 
@@ -95,7 +115,69 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
         : null;
     case "ft.forget":
       return text(id) && text(said.key) ? { type: "ft.forget", id, key: said.key } : null;
+    case "ft.recordGet":
+    case "ft.recordForget":
+      return text(id) && text(said.key) ? { type: said.type, id, key: said.key } : null;
+    case "ft.recordSet":
+      return text(id) && text(said.key) && text(said.value) ? { type: "ft.recordSet", id, key: said.key, value: said.value } : null;
+    case "ft.recordKeys":
+      return text(id) ? { type: "ft.recordKeys", id, prefix: text(said.prefix) ? said.prefix : "" } : null;
+    case "ft.recordUsage":
+    case "ft.remindList":
+      return text(id) ? { type: said.type, id } : null;
+    case "ft.remindSet":
+      return text(id) && text(said.reminder) && typeof said.at === "number" && Number.isFinite(said.at)
+        ? { type: "ft.remindSet", id, reminder: said.reminder, at: said.at, text: text(said.text) ? said.text : "" }
+        : null;
+    case "ft.remindCancel":
+      return text(id) && text(said.reminder) ? { type: "ft.remindCancel", id, reminder: said.reminder } : null;
+    case "ft.liveSend":
+      return text(id) && text(said.data) ? { type: "ft.liveSend", id, data: said.data } : null;
+    case "ft.openChat":
+      return text(id) && text(said.ref) ? { type: "ft.openChat", id, ref: said.ref } : null;
+    case "ft.drive": {
+      const op = DRIVE_OPS.find((one) => one === said.op);
+      return text(id) && op ? { type: "ft.drive", id, op, a: text(said.a) ? said.a : "", b: text(said.b) ? said.b : "" } : null;
+    }
     default:
       return null;
   }
+}
+
+/** A file as a plugin is handed it: name, kind and bytes as base64 (2026-09-27). */
+export interface HandedFile {
+  name: string;
+  mime: string;
+  data: string;
+}
+
+/** Whether a plugin says it opens a file of this kind (`opens` in its manifest). */
+export function opensKind(opens: string[] | undefined, mime: string): boolean {
+  const kind = mime.split(";")[0].trim().toLowerCase();
+  const top = kind.split("/")[0];
+  return (opens ?? []).some((one) => one === "*/*" || one === kind || one === `${top}/*`);
+}
+
+/**
+ * The plugins that can open a message (2026-09-27): a text goes to those that open `text/plain`
+ * and were granted reading what they are handed; a file, to those that open its kind.
+ */
+export function openersOf(plugins: PluginView[], message: { kind?: string; text?: string; file?: { mime?: string } }): PluginView[] {
+  if (message.kind === "file") {
+    const mime = message.file?.mime || "application/octet-stream";
+    return plugins.filter((one) => opensKind(one.opens, mime));
+  }
+  return plugins.filter((one) => one.granted.messages && opensKind(one.opens, "text/plain"));
+}
+
+/**
+ * The viewer of a file of this kind (2026-09-27): the plugin whose manifest `views` the exact
+ * type. Opening (`opens`) is not viewing: the drive opens anything and the board opens pictures,
+ * and neither is what a tap should show. Between two viewers, the one installed last.
+ */
+export function viewerOf(plugins: PluginView[], mime: string): PluginView | undefined {
+  const kind = mime.split(";")[0].trim().toLowerCase();
+  return plugins
+    .filter((one) => (one.views ?? []).includes(kind))
+    .sort((a, b) => b.installedAt - a.installedAt)[0];
 }

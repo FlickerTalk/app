@@ -55,7 +55,8 @@
     "deleteSure": "Elimina",
     "forwardTo": "Inoltra a",
     "download": "Scarica",
-    "discardAttachment": "Scarta l'allegato"
+    "discardAttachment": "Scarta l'allegato",
+    "otherApp": "Un'altra app"
   },
   "status": {
     "pending": "In attesa del dispositivo",
@@ -259,7 +260,13 @@
     "remove": "Rimuovi",
     "none": "Ancora nessun plugin",
     "available": "Strumenti che puoi aggiungere",
-    "install": "Installa"
+    "install": "Installa",
+    "live": "Parlare con lo stesso plugin dall'altra parte della chat",
+    "remind": "Impostare promemoria su questo telefono",
+    "drive": "Conservare file nel tuo cloud",
+    "storageLarge": "Conservare molti dati su questo telefono (fino a 256 MB)",
+    "opens": "Apre: {kinds}",
+    "open": "Apri"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} ha tolto {what}",
       "renamed": "{who} ha rinominato il cerchio in «{what}»"
     }
+  },
+  "backup": {
+    "title": "Copia di sicurezza",
+    "none": "Nessun cloud collegato",
+    "noneHint": "Conserva una copia sigillata di questo telefono nel tuo Google Drive. Tutto viene cifrato qui prima di uscire; Google vede file sigillati e noi non vediamo nulla.",
+    "connectGoogle": "Collega Google Drive",
+    "empty": "Il tuo cloud non ha ancora un drive FlickerTalk",
+    "emptyHint": "Crearlo genera una chiave su questo telefono e ti mostra un codice di recupero.",
+    "setUp": "Crea",
+    "codeTitle": "Il tuo codice di recupero",
+    "codeHint": "Annotalo e conservalo bene: apre il tuo drive su un telefono nuovo. Viene mostrato una sola volta e nessuno può recuperarlo per te.",
+    "codeDone": "L'ho annotato",
+    "locked": "Questo cloud ha un drive di un altro telefono",
+    "unlockHint": "Scrivi il suo codice di recupero per aprirlo qui.",
+    "codePlaceholder": "Codice di recupero",
+    "unlockNow": "Apri",
+    "ready": "Il tuo drive è pronto",
+    "backupNow": "Fai la copia ora",
+    "lastBackup": "Ultima copia: {when}",
+    "noBackup": "Ancora nessuna copia",
+    "done": "Copia fatta",
+    "restore": "Ripristina dalla copia",
+    "restoreAsk": "Sostituire tutto su questo telefono con la copia? L'app si riavvia.",
+    "restoreConfirm": "Ripristina",
+    "restored": "La copia è qui",
+    "forget": "Dimentica questo cloud su questo telefono",
+    "forgetHint": "I tuoi file restano nel tuo cloud, sigillati. Servirà il codice di recupero per aprirli di nuovo.",
+    "forgetConfirm": "Dimentica",
+    "used": "Nel drive: {size}",
+    "pending": "In attesa di caricamento: {count}",
+    "working": "In corso…",
+    "failed": "Qualcosa è andato storto: {error}",
+    "sees": "Il tuo cloud vede quanti file sigillati ci sono, la loro dimensione e le date. Mai i nomi né il contenuto."
   }
 }

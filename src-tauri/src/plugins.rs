@@ -39,23 +39,48 @@ impl Plugins {
 /// (`mask-image` + `currentColor`), which is why they are served as they are: one path, no fill.
 const ICONS: &[(&str, &[u8])] = &[
     ("add-outline", include_bytes!("../resources/icons/add-outline.svg")),
+    ("alarm-outline", include_bytes!("../resources/icons/alarm-outline.svg")),
+    ("arrow-back-outline", include_bytes!("../resources/icons/arrow-back-outline.svg")),
+    ("arrow-redo-outline", include_bytes!("../resources/icons/arrow-redo-outline.svg")),
     ("arrow-undo-outline", include_bytes!("../resources/icons/arrow-undo-outline.svg")),
     ("arrow-up-outline", include_bytes!("../resources/icons/arrow-up-outline.svg")),
     ("brush-outline", include_bytes!("../resources/icons/brush-outline.svg")),
+    ("calculator-outline", include_bytes!("../resources/icons/calculator-outline.svg")),
+    ("chatbubble-outline", include_bytes!("../resources/icons/chatbubble-outline.svg")),
+    ("checkmark-outline", include_bytes!("../resources/icons/checkmark-outline.svg")),
     ("close-outline", include_bytes!("../resources/icons/close-outline.svg")),
+    ("cloud-done-outline", include_bytes!("../resources/icons/cloud-done-outline.svg")),
+    ("cloud-outline", include_bytes!("../resources/icons/cloud-outline.svg")),
+    ("cloud-upload-outline", include_bytes!("../resources/icons/cloud-upload-outline.svg")),
+    ("color-palette-outline", include_bytes!("../resources/icons/color-palette-outline.svg")),
     ("crop-outline", include_bytes!("../resources/icons/crop-outline.svg")),
     ("document-text-outline", include_bytes!("../resources/icons/document-text-outline.svg")),
     ("download-outline", include_bytes!("../resources/icons/download-outline.svg")),
+    ("ellipsis-horizontal-outline", include_bytes!("../resources/icons/ellipsis-horizontal-outline.svg")),
+    ("expand-outline", include_bytes!("../resources/icons/expand-outline.svg")),
     ("eye-outline", include_bytes!("../resources/icons/eye-outline.svg")),
     ("folder-open-outline", include_bytes!("../resources/icons/folder-open-outline.svg")),
+    ("folder-outline", include_bytes!("../resources/icons/folder-outline.svg")),
     ("grid-outline", include_bytes!("../resources/icons/grid-outline.svg")),
+    ("hand-left-outline", include_bytes!("../resources/icons/hand-left-outline.svg")),
     ("image-outline", include_bytes!("../resources/icons/image-outline.svg")),
+    ("key-outline", include_bytes!("../resources/icons/key-outline.svg")),
+    ("link-outline", include_bytes!("../resources/icons/link-outline.svg")),
+    ("lock-closed-outline", include_bytes!("../resources/icons/lock-closed-outline.svg")),
+    ("move-outline", include_bytes!("../resources/icons/move-outline.svg")),
     ("options-outline", include_bytes!("../resources/icons/options-outline.svg")),
+    ("pause-outline", include_bytes!("../resources/icons/pause-outline.svg")),
     ("pencil-outline", include_bytes!("../resources/icons/pencil-outline.svg")),
+    ("play-outline", include_bytes!("../resources/icons/play-outline.svg")),
     ("refresh-outline", include_bytes!("../resources/icons/refresh-outline.svg")),
+    ("remove-outline", include_bytes!("../resources/icons/remove-outline.svg")),
     ("resize-outline", include_bytes!("../resources/icons/resize-outline.svg")),
+    ("save-outline", include_bytes!("../resources/icons/save-outline.svg")),
+    ("search-outline", include_bytes!("../resources/icons/search-outline.svg")),
     ("send-outline", include_bytes!("../resources/icons/send-outline.svg")),
     ("square-outline", include_bytes!("../resources/icons/square-outline.svg")),
+    ("text-outline", include_bytes!("../resources/icons/text-outline.svg")),
+    ("time-outline", include_bytes!("../resources/icons/time-outline.svg")),
     ("trash-outline", include_bytes!("../resources/icons/trash-outline.svg")),
 ];
 
@@ -142,11 +167,68 @@ globalThis.ft = {
     set: (key, value) => ask("ft.write", { key: String(key), value: String(value) }),
     forget: (key) => ask("ft.forget", { key: String(key) }),
   },
+  /** What this plugin keeps beyond its settings (2026-09-27): notes, boards; within the room the
+   *  user granted it. Values are strings (JSON, or base64 for bytes). */
+  records: {
+    get: (key) => ask("ft.recordGet", { key: String(key) }),
+    set: (key, value) => ask("ft.recordSet", { key: String(key), value: String(value) }),
+    forget: (key) => ask("ft.recordForget", { key: String(key) }),
+    keys: (prefix) => ask("ft.recordKeys", { prefix: String(prefix ?? "") }),
+    usage: () => ask("ft.recordUsage", {}),
+  },
+  /** A notification on this phone at a time this plugin picks (2026-09-27). Needs `remind`. */
+  remind: {
+    set: (id, at, text) => ask("ft.remindSet", { reminder: String(id), at: Number(at), text: String(text ?? "") }),
+    cancel: (id) => ask("ft.remindCancel", { reminder: String(id) }),
+    list: () => ask("ft.remindList", {}),
+  },
+  /** What this plugin says to its twin on the other side of the conversation (2026-09-27), over
+   *  the direct connection only. Needs `live`. `data` is base64; what arrives is base64 too. */
+  live: {
+    send: (data) => ask("ft.liveSend", { data: String(data) }),
+    onMessage(handler) {
+      heard.push(handler);
+    },
+  },
+  /** The user's own cloud (plan-drive, 2026-09-27). Needs `drive`. Every call resolves with what
+   *  the core says, or false when it could not be done; the plugin only ever sees names and sizes.
+   *  `status`: {state: none|empty|locked|ready, provider, drive: {files, folders, used, pending,
+   *  quota, backupAt}, problem}. `list(parent)`: {folders, files, pending}. */
+  drive: {
+    status: () => ask("ft.drive", { op: "status" }),
+    connect: (provider) => ask("ft.drive", { op: "connect", a: String(provider ?? "google") }),
+    setup: () => ask("ft.drive", { op: "setup" }),
+    unlock: (code) => ask("ft.drive", { op: "unlock", a: String(code) }),
+    disconnect: () => ask("ft.drive", { op: "disconnect" }),
+    list: (parent) => ask("ft.drive", { op: "list", a: parent ? String(parent) : "" }),
+    mkdir: (name, parent) => ask("ft.drive", { op: "mkdir", a: String(name), b: parent ? String(parent) : "" }),
+    rename: (id, name) => ask("ft.drive", { op: "rename", a: String(id), b: String(name) }),
+    move: (id, parent) => ask("ft.drive", { op: "move", a: String(id), b: parent ? String(parent) : "" }),
+    remove: (id) => ask("ft.drive", { op: "remove", a: String(id) }),
+    /** The app opens the picker; what the user picks goes up. Resolves with how many went. */
+    upload: (parent) => ask("ft.drive", { op: "upload", a: parent ? String(parent) : "" }),
+    /** Keeps the file this plugin was opened with (`onOpen`'s `ref`), without its bytes. */
+    keep: (parent) => ask("ft.drive", { op: "keep", a: parent ? String(parent) : "" }),
+    open: (id) => ask("ft.drive", { op: "open", a: String(id) }),
+    save: (id) => ask("ft.drive", { op: "save", a: String(id) }),
+    /** Sends a file of the drive to the conversation, as the `send` permission allows. */
+    send: (id) => ask("ft.drive", { op: "send", a: String(id) }),
+    retry: () => ask("ft.drive", { op: "retry" }),
+    cancel: (blob) => ask("ft.drive", { op: "cancel", a: String(blob) }),
+    backup: () => ask("ft.drive", { op: "backup" }),
+    backupInfo: () => ask("ft.drive", { op: "backupInfo" }),
+    restore: () => ask("ft.drive", { op: "restore" }),
+  },
+  /** Goes back to the conversation a `ref` came from. Resolves false if it is gone. */
+  openChat(ref) {
+    return ask("ft.openChat", { ref: String(ref) });
+  },
   /** Closes the plugin's window. */
   close() {
     post({ type: "ft.close" });
   },
 };
+const heard = [];
 
 await import("./dist/index.js");
 
@@ -163,8 +245,22 @@ addEventListener("message", (event) => {
     const text = String(said.text ?? "");
     if (view) view.setAttribute("text", text);
     if (said.dark) document.documentElement.dataset.dark = "1";
-    for (const handler of opened) handler({ text, dark: Boolean(said.dark) });
+    const lang = String(said.lang ?? "en");
+    document.documentElement.lang = lang;
+    const file = said.file && said.file.name ? { name: String(said.file.name), mime: String(said.file.mime), data: String(said.file.data) } : null;
+    const opening = {
+      text,
+      dark: Boolean(said.dark),
+      lang,
+      file,
+      ref: said.ref ? String(said.ref) : null,
+      reminder: said.reminder ? String(said.reminder) : null,
+      live: Boolean(said.live),
+    };
+    for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);
+  } else if (said.type === "ft.live") {
+    for (const handler of heard) handler(String(said.data ?? ""));
   } else if (said.type === "ft.file") {
     const answer = waiting.get(said.id);
     waiting.delete(said.id);
@@ -297,9 +393,17 @@ mod tests {
         assert!(script.contains("ft.file"), "the app answers the file the plugin asked for");
         assert!(script.contains("ft.ready"), "the plugin says when it is up");
         // The whole surface a plugin has: everything else it might try is not there (§53).
-        for call in ["pickFile", "send", "say", "save", "print", "fetch", "store", "close"] {
+        for call in ["pickFile", "send", "say", "save", "print", "fetch", "store", "close", "records", "remind", "live", "openChat"] {
             assert!(script.contains(call), "a plugin cannot {call}");
         }
+        // 2026-09-27: what the plugin is opened with says the language, a file, a ref and
+        // whether the live channel is there; what the other side says comes as `ft.live`.
+        for given in ["lang", "file", "ref", "reminder", "live"] {
+            assert!(script.contains(given), "onOpen says nothing of {given}");
+        }
+        assert!(script.contains(r#"said.type === "ft.live""#));
+        // The user's cloud, one question with an operation, never bytes.
+        assert!(script.contains(r#"ask("ft.drive", { op: "list""#));
         assert!(!script.contains("__TAURI"), "a plugin never reaches the app's own bridge");
     }
 
@@ -328,7 +432,7 @@ mod tests {
         assert!(icon("../../secret").is_none(), "an icon is a name, never a path");
         assert!(icon("not-an-icon").is_none());
         // Everything the tools ask for is really there.
-        for wanted in ["eye-outline", "folder-open-outline", "send-outline", "trash-outline", "image-outline"] {
+        for wanted in ["eye-outline", "folder-open-outline", "send-outline", "trash-outline", "image-outline", "alarm-outline", "calculator-outline", "cloud-outline", "search-outline"] {
             assert!(icon(wanted).is_some(), "{wanted} is missing");
         }
     }

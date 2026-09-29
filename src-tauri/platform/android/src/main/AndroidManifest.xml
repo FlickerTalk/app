@@ -6,7 +6,34 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- §66: an incoming call shows on the screen, over the lock screen if the phone is locked. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Local reminders (2026-09-27): exact alarms where the user allows them, and setting them
+         again after a reboot. USE_EXACT_ALARM is not asked for: Play keeps it for alarm apps. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application>
+        <receiver android:name="com.flickertalk.platform.ReminderReceiver" android:exported="false" />
+        <receiver android:name="com.flickertalk.platform.BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <!-- A login (drive) sends the user back here; the URL goes to the app and this closes. -->
+        <activity
+            android:name="com.flickertalk.platform.AuthRedirectActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.flickertalk.app" />
+                <!-- Google's OAuth clients for Android redirect to the client id, reversed; the
+                     app's build fills it in from FT_GOOGLE_CLIENT_ID (plan-drive). -->
+                <data android:scheme="${googleRedirectScheme}" />
+            </intent-filter>
+        </activity>
         <service
             android:name="com.flickertalk.platform.FtMessagingService"
             android:exported="false">

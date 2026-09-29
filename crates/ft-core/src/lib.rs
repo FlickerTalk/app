@@ -18,6 +18,7 @@ pub mod files;
 pub mod moving;
 pub mod plugins;
 pub mod net;
+pub mod vault;
 pub mod online;
 pub mod web;
 
@@ -105,6 +106,14 @@ pub enum Event {
     CirclesChanged,
     /// Something was said or happened in the circle.
     CircleMessagesChanged { circle: String },
+    /// A plugin on the other side said something to its twin here (2026-09-27, `ft.live`).
+    PluginEvent { plugin: String, contact: String, data: Vec<u8> },
+    /// A plugin set or cancelled a reminder: the phone's alarm clock is told again.
+    RemindersChanged,
+    /// The user's cloud (plan-drive): connected, set up, changed, backed up or forgotten.
+    VaultChanged,
+    /// How far a transfer with the cloud is: (done, total) bytes.
+    VaultProgress { done: u64, total: u64 },
 }
 
 pub(crate) enum Route {
@@ -141,6 +150,12 @@ pub struct Core {
     /// The hidden sessions open right now, with their slot. Only in memory: the app starts with
     /// all of them closed.
     open_sessions: std::sync::Mutex<HashMap<String, u8>>,
+    /// The user's cloud (plan-drive), once connected and open.
+    vault: Mutex<Option<Arc<ft_vault::Vault>>>,
+    /// How clouds are reached: Google Drive in the app, a memory in the tests.
+    cloud: OnceLock<Arc<dyn vault::Cloud>>,
+    /// Where the vault keeps what waits to go up (set by the app).
+    vault_dir: OnceLock<PathBuf>,
 }
 
 /// What a session's PIN is hashed with, so the hash is bound to this phone's key.
@@ -216,6 +231,9 @@ impl Core {
             move_dir: OnceLock::new(),
             moving: std::sync::Mutex::default(),
             open_sessions: std::sync::Mutex::default(),
+            vault: Mutex::new(None),
+            cloud: OnceLock::new(),
+            vault_dir: OnceLock::new(),
         }))
     }
 
@@ -1066,6 +1084,7 @@ impl Core {
             Body::CircleCard { card } => self.circle_card_received(contact, packet.id, &card).await?,
             Body::CircleMessage { circle, text } => self.circle_text_received(contact, packet.id, packet.sent_at, &circle, text).await?,
             Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
+            Body::PluginEvent { plugin, data } => self.plugin_event_received(contact, plugin, data).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
             Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }

@@ -29,6 +29,8 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    // A login page in the system's browser sheet (drive, 2026-09-27), never in the WebView.
+    implementation("androidx.browser:browser:1.8.0")
     // Printing a picture: the print service takes a PDF, this one makes it (§53).
     implementation("androidx.print:print:1.0.0")
     // The yearly subscription (§40-42, §47). Play Console only lets a subscription product be
@@ -37,5 +39,7 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
+    // android.jar only carries stubs of org.json: the JVM unit tests need the real one.
+    testImplementation("org.json:json:20240303")
     implementation(project(":tauri-android"))
 }

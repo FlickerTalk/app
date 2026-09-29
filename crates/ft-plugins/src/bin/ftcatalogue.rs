@@ -11,7 +11,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use ft_plugins::packing::{files_of, key_from, plugin_folders};
-use ft_plugins::{open, sign_package, CatalogueEntry, Manifest};
+use ft_plugins::{open, sign_package, CatalogueEntry, Manifest, INDEX, LEGACY_CORE, LEGACY_INDEX};
 use vodozemac::Ed25519SecretKey;
 
 /// Where the catalogue is served from, unless another is asked for.
@@ -54,11 +54,20 @@ fn build(dir: &Path, out: &Path, key: &Ed25519SecretKey, base: &str) -> Result<V
         std::fs::write(home.join(format!("{}.ftplugin", plugin.manifest.version)), &package)?;
         entries.push(entry);
     }
-    let index = index_of(&entries)?;
     std::fs::create_dir_all(out)?;
-    std::fs::write(out.join("index.json"), &index)?;
-    std::fs::write(out.join("index.json.sig"), key.sign(index.as_bytes()).to_base64())?;
+    write_index(out, INDEX, &entries, key)?;
+    // What the app 1.0.0 reads: it does not look at minCoreVersion, so only what runs there.
+    let legacy: Vec<CatalogueEntry> = entries.iter().filter(|entry| entry.runs_on(LEGACY_CORE)).cloned().collect();
+    write_index(out, LEGACY_INDEX, &legacy, key)?;
     Ok(entries)
+}
+
+/// Writes one index and its signature next to it.
+fn write_index(out: &Path, name: &str, entries: &[CatalogueEntry], key: &Ed25519SecretKey) -> Result<()> {
+    let index = index_of(entries)?;
+    std::fs::write(out.join(name), &index)?;
+    std::fs::write(out.join(format!("{name}.sig")), key.sign(index.as_bytes()).to_base64())?;
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -73,7 +82,8 @@ fn main() -> Result<()> {
     for entry in &entries {
         println!("{} v{} ({} bytes) {}", entry.id, entry.version, entry.size, entry.url);
     }
-    println!("{}/index.json: {} plugins", out, entries.len());
+    let legacy = entries.iter().filter(|entry| entry.runs_on(LEGACY_CORE)).count();
+    println!("{out}/{INDEX}: {} plugins; {out}/{LEGACY_INDEX} (app {LEGACY_CORE}): {legacy}", entries.len());
     Ok(())
 }
 
@@ -83,11 +93,15 @@ mod tests {
     use ft_plugins::catalogue_entries;
 
     fn a_plugin(dir: &Path, id: &str) {
+        a_plugin_for(dir, id, "0.1.0");
+    }
+
+    fn a_plugin_for(dir: &Path, id: &str, min_core: &str) {
         std::fs::create_dir_all(dir.join("dist")).unwrap();
         std::fs::write(
             dir.join("module.json"),
             format!(
-                r#"{{"id":"{id}","name":"Sketch","version":"1.2.0","minCoreVersion":"0.1.0","components":["ft-sketch"],"summary":"Draw with a finger."}}"#
+                r#"{{"id":"{id}","name":"Sketch","version":"1.2.0","minCoreVersion":"{min_core}","components":["ft-sketch"],"summary":"Draw with a finger."}}"#
             ),
         )
         .unwrap();
@@ -118,6 +132,30 @@ mod tests {
         assert_eq!(listed[0].size, package.len() as u64);
         assert_eq!(listed[0].hash, blake3::hash(&package).to_hex().to_string());
         ft_plugins::download(&listed[0], &package, &key.public_key()).expect("the package is what was listed");
+    }
+
+    // 2026-09-28: the app 1.0.0 reads index.json and ignores minCoreVersion, so a plugin that needs
+    // a newer core would be offered there and break. index.json keeps only what 1.0.0 runs; every
+    // newer core reads catalogue.json, signed the same way, with everything.
+    #[test]
+    fn what_needs_a_newer_core_is_listed_only_where_a_newer_core_reads() {
+        let home = std::env::temp_dir().join(format!("ftcat-{}", blake3::hash(b"two indexes").to_hex()));
+        let _ = std::fs::remove_dir_all(&home);
+        a_plugin_for(&home.join("src/sketch"), "com.flickertalk.sketch", "0.1.0");
+        a_plugin_for(&home.join("src/notes"), "com.flickertalk.notes", "1.1.0");
+        let key = Ed25519SecretKey::new();
+        build(&home.join("src"), &home.join("site"), &key, BASE).unwrap();
+
+        let listed = |name: &str| {
+            let index = std::fs::read_to_string(home.join("site").join(name)).unwrap();
+            let signature = std::fs::read_to_string(home.join("site").join(format!("{name}.sig"))).unwrap();
+            let mut ids: Vec<String> =
+                catalogue_entries(&index, &signature, &key.public_key()).expect("signed").into_iter().map(|entry| entry.id).collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(listed(ft_plugins::LEGACY_INDEX), ["com.flickertalk.sketch"], "1.0.0 is offered only what runs there");
+        assert_eq!(listed(ft_plugins::INDEX), ["com.flickertalk.notes", "com.flickertalk.sketch"]);
     }
 
     #[test]

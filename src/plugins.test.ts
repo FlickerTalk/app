@@ -6,9 +6,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
-import { fromFrame, frameUrl, installed, refreshPlugins } from "./plugins";
+import { fromFrame, frameUrl, installed, openersOf, opensKind, refreshPlugins, viewerOf } from "./plugins";
+import type { PluginView } from "./core";
 
-const CODE = {
+const CODE: PluginView = {
   id: "com.flickertalk.code",
   name: "Code block",
   version: "1.0.0",
@@ -16,7 +17,7 @@ const CODE = {
   granted: { network: [], messages: true, send: "nothing" },
   installedAt: 1,
 };
-const LOCKED = { ...CODE, id: "com.example.locked", granted: { network: [], messages: false, send: "nothing" } };
+const LOCKED: PluginView = { ...CODE, id: "com.example.locked", granted: { network: [], messages: false, send: "nothing" } };
 
 describe("plugins in the app", () => {
   beforeEach(() => tauri.invoke.mockReset());
@@ -121,5 +122,55 @@ describe("plugins in the app", () => {
     expect(said({ type: "ft.read", key: "pen" })).toBeNull();
     expect(said({ type: "ft.fetch", id: "q7" })).toBeNull();
     expect(said({ type: "ft.save", id: "q8", name: "a.pdf" })).toBeNull();
+
+    // 2026-09-27: records, reminders, the live channel and the way back.
+    expect(said({ type: "ft.recordSet", id: "r1", key: "note/1", value: "{}" })).toEqual({ type: "ft.recordSet", id: "r1", key: "note/1", value: "{}" });
+    expect(said({ type: "ft.recordGet", id: "r2", key: "note/1" })).toEqual({ type: "ft.recordGet", id: "r2", key: "note/1" });
+    expect(said({ type: "ft.recordKeys", id: "r3" })).toEqual({ type: "ft.recordKeys", id: "r3", prefix: "" });
+    expect(said({ type: "ft.recordUsage", id: "r4" })).toEqual({ type: "ft.recordUsage", id: "r4" });
+    expect(said({ type: "ft.remindSet", id: "r5", reminder: "n1", at: 1700, text: "milk" })).toEqual({ type: "ft.remindSet", id: "r5", reminder: "n1", at: 1700, text: "milk" });
+    expect(said({ type: "ft.remindSet", id: "r6", reminder: "n1", at: "soon" })).toBeNull();
+    expect(said({ type: "ft.remindCancel", id: "r7", reminder: "n1" })).toEqual({ type: "ft.remindCancel", id: "r7", reminder: "n1" });
+    expect(said({ type: "ft.liveSend", id: "r8", data: "AQ==" })).toEqual({ type: "ft.liveSend", id: "r8", data: "AQ==" });
+    expect(said({ type: "ft.liveSend", id: "r9", data: 7 })).toBeNull();
+    expect(said({ type: "ft.openChat", id: "r10", ref: "ref_1" })).toEqual({ type: "ft.openChat", id: "r10", ref: "ref_1" });
+    // The drive: an operation it knows and up to two strings; anything else is not a question.
+    expect(said({ type: "ft.drive", id: "r11", op: "mkdir", a: "Docs", b: "" })).toEqual({ type: "ft.drive", id: "r11", op: "mkdir", a: "Docs", b: "" });
+    expect(said({ type: "ft.drive", id: "r12", op: "status" })).toEqual({ type: "ft.drive", id: "r12", op: "status", a: "", b: "" });
+    expect(said({ type: "ft.drive", id: "r13", op: "format" })).toBeNull();
+    expect(said({ type: "ft.drive", op: "list" })).toBeNull();
+  });
+
+  // 2026-09-27: "open with": a plugin says which kinds of file it opens; a text goes only to
+  // one that may read what it is handed.
+  it("knows which plugins open a message", () => {
+    expect(opensKind(["image/*"], "image/png")).toBe(true);
+    expect(opensKind(["image/*"], "IMAGE/JPEG; charset=x")).toBe(true);
+    expect(opensKind(["application/x-ftboard"], "application/x-ftboard")).toBe(true);
+    expect(opensKind(["*/*"], "video/mp4")).toBe(true);
+    expect(opensKind(["image/*"], "video/mp4")).toBe(false);
+    expect(opensKind(undefined, "image/png")).toBe(false);
+
+    const board = { ...CODE, id: "com.flickertalk.board", opens: ["application/x-ftboard", "image/*"] };
+    const notes = { ...CODE, id: "com.flickertalk.notes", opens: ["text/plain"] };
+    const deaf = { ...LOCKED, opens: ["text/plain"] };
+    const drive = { ...LOCKED, id: "com.flickertalk.drive", opens: ["*/*"] };
+    const ids = (list: { id: string }[]) => list.map((one) => one.id);
+    expect(ids(openersOf([board, notes, deaf, drive], { text: "hi" }))).toEqual([notes.id]);
+    expect(ids(openersOf([board, notes, deaf, drive], { kind: "file", file: { mime: "image/png" } }))).toEqual([board.id, drive.id]);
+    expect(ids(openersOf([board, notes, deaf, drive], { kind: "file", file: { mime: "application/x-ftboard" } }))).toEqual([board.id, drive.id]);
+    expect(ids(openersOf([board, notes], { kind: "file", file: {} }))).toEqual([]);
+  });
+
+  // 2026-09-27: a tap shows a file in its viewer; opening is not viewing.
+  it("finds the viewer of a file, never a plugin that merely opens it, the latest first", () => {
+    const drive = { ...CODE, id: "com.flickertalk.drive", opens: ["*/*"], installedAt: 9 };
+    const board = { ...CODE, id: "com.flickertalk.board", opens: ["image/*", "application/pdf"], installedAt: 9 };
+    const older = { ...CODE, id: "com.example.pdf-old", opens: ["application/pdf"], views: ["application/pdf"], installedAt: 1 };
+    const newer = { ...CODE, id: "com.flickertalk.pdfviewer", opens: ["application/pdf"], views: ["application/pdf"], installedAt: 5 };
+    expect(viewerOf([drive, board], "application/pdf")).toBeUndefined();
+    expect(viewerOf([drive, board, older, newer], "application/pdf")?.id).toBe(newer.id);
+    expect(viewerOf([drive, board, older, newer], "APPLICATION/PDF; charset=x")?.id).toBe(newer.id);
+    expect(viewerOf([newer], "image/png")).toBeUndefined();
   });
 });

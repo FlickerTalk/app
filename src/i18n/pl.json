@@ -55,7 +55,8 @@
     "deleteSure": "Usuń",
     "forwardTo": "Przekaż do",
     "download": "Download",
-    "discardAttachment": "Discard attachment"
+    "discardAttachment": "Discard attachment",
+    "otherApp": "Inna aplikacja"
   },
   "status": {
     "pending": "Czeka na urządzenie",
@@ -259,7 +260,13 @@
     "remove": "Usuń",
     "none": "Brak wtyczek",
     "available": "Narzędzia do dodania",
-    "install": "Zainstaluj"
+    "install": "Zainstaluj",
+    "live": "Rozmawiać z tą samą wtyczką po drugiej stronie czatu",
+    "remind": "Ustawiać przypomnienia na tym telefonie",
+    "drive": "Przechowywać pliki w twojej własnej chmurze",
+    "storageLarge": "Przechowywać dużo danych na tym telefonie (do 256 MB)",
+    "opens": "Otwiera: {kinds}",
+    "open": "Otwórz"
   },
   "emoji": {
     "open": "Emoji",
@@ -329,5 +336,38 @@
       "removed": "{who} removed {what}",
       "renamed": "{who} renamed the circle to «{what}»"
     }
+  },
+  "backup": {
+    "title": "Kopia zapasowa",
+    "none": "Brak połączonej chmury",
+    "noneHint": "Trzymaj zapieczętowaną kopię tego telefonu we własnym Dysku Google. Wszystko jest szyfrowane tutaj, zanim wyjdzie; Google widzi zapieczętowane pliki, a my nie widzimy nic.",
+    "connectGoogle": "Połącz Dysk Google",
+    "empty": "Twoja chmura nie ma jeszcze dysku FlickerTalk",
+    "emptyHint": "Konfiguracja tworzy klucz na tym telefonie i pokazuje kod odzyskiwania.",
+    "setUp": "Skonfiguruj",
+    "codeTitle": "Twój kod odzyskiwania",
+    "codeHint": "Zapisz go i przechowuj bezpiecznie: otwiera twój dysk na nowym telefonie. Jest pokazywany tylko raz i nikt nie odzyska go za ciebie.",
+    "codeDone": "Zapisałem/am",
+    "locked": "Ta chmura ma dysk z innego telefonu",
+    "unlockHint": "Wpisz jego kod odzyskiwania, aby otworzyć go tutaj.",
+    "codePlaceholder": "Kod odzyskiwania",
+    "unlockNow": "Otwórz",
+    "ready": "Twój dysk jest gotowy",
+    "backupNow": "Zrób kopię teraz",
+    "lastBackup": "Ostatnia kopia: {when}",
+    "noBackup": "Nie ma jeszcze kopii",
+    "done": "Kopia zrobiona",
+    "restore": "Przywróć z kopii",
+    "restoreAsk": "Zastąpić wszystko na tym telefonie kopią? Aplikacja uruchomi się ponownie.",
+    "restoreConfirm": "Przywróć",
+    "restored": "Kopia jest tutaj",
+    "forget": "Zapomnij tę chmurę na tym telefonie",
+    "forgetHint": "Twoje pliki zostają w chmurze, zapieczętowane. Do ponownego otwarcia potrzebny będzie kod odzyskiwania.",
+    "forgetConfirm": "Zapomnij",
+    "used": "Na dysku: {size}",
+    "pending": "Czeka na wysłanie: {count}",
+    "working": "Pracuję…",
+    "failed": "Coś poszło nie tak: {error}",
+    "sees": "Twoja chmura widzi, ile jest zapieczętowanych plików, ich rozmiar i daty. Nigdy ich nazw ani treści."
   }
 }
