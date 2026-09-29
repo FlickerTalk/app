@@ -63,6 +63,7 @@ import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.PendingPurchasesParams
+import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
@@ -1063,6 +1064,37 @@ fun shareableText(text: String): String? = text.trim().ifEmpty { null }
 /** The yearly subscription, as it is named in the Play Console (§40-42). */
 const val YEARLY = "yearly"
 
+/** The yearly subscription's base plan in the Play Console. */
+const val YEARLY_BASE_PLAN = "yearly-autorenew"
+
+/**
+ * One offer of the subscription as Play describes it, with none of Google's classes in it: its
+ * base plan, its own id (null for the base plan itself), the token a purchase names and the price
+ * of each phase, formatted by the Store.
+ */
+data class StoreOffer(
+    val basePlan: String,
+    val offerId: String?,
+    val token: String,
+    val prices: List<String>,
+)
+
+/**
+ * The offer the year is sold with: the yearly base plan itself, or else an offer of that plan;
+ * null when Play lists neither (2026-09-29).
+ */
+fun yearlyOffer(offers: List<StoreOffer>): StoreOffer? {
+    val yearly = offers.filter { it.basePlan == YEARLY_BASE_PLAN }
+    return yearly.firstOrNull { it.offerId == null } ?: yearly.firstOrNull()
+}
+
+/**
+ * What a year costs, exactly as the Store formats it for this phone, or null when it cannot say.
+ * An offer's last phase is the price that keeps renewing, so an introductory price never shows.
+ */
+fun yearlyPrice(offers: List<StoreOffer>): String? =
+    yearlyOffer(offers)?.prices?.lastOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+
 /** One purchase as the Store handed it back, with none of Google's classes in it. */
 data class StorePurchase(
     val product: String,
@@ -1771,6 +1803,49 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /** Play's question for the yearly subscription. */
+    private fun yearlyQuery(): QueryProductDetailsParams =
+        QueryProductDetailsParams.newBuilder()
+            .setProductList(
+                listOf(
+                    QueryProductDetailsParams.Product.newBuilder()
+                        .setProductId(YEARLY)
+                        .setProductType(BillingClient.ProductType.SUBS)
+                        .build(),
+                ),
+            )
+            .build()
+
+    /** The subscription's offers, without any of Google's classes going further in. */
+    private fun storeOffers(details: ProductDetails?): List<StoreOffer> =
+        details?.subscriptionOfferDetails.orEmpty().map { offer ->
+            StoreOffer(
+                offer.basePlanId,
+                offer.offerId,
+                offer.offerToken,
+                offer.pricingPhases.pricingPhaseList.map { it.formattedPrice },
+            )
+        }
+
+    /**
+     * What a year costs, as Play formats it for this phone (2026-09-29). Answers `{}` when the
+     * Store cannot say (no product, no yearly plan): the screen then names no amount at all.
+     */
+    @Command
+    fun subscriptionPrice(invoke: Invoke) {
+        withBilling(invoke) { client ->
+            client.queryProductDetailsAsync(yearlyQuery()) { result, found ->
+                val details = found.productDetailsList.firstOrNull { it.productId == YEARLY }
+                val price = if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                    yearlyPrice(storeOffers(details))
+                } else {
+                    null
+                }
+                invoke.resolve(JSObject().apply { price?.let { put("price", it) } })
+            }
+        }
+    }
+
     /**
      * The yearly subscription (§45, §47): asks Play for the product, opens its window and answers
      * until when the phone is paid up. Nothing about the payment ever reaches FlickerTalk.
@@ -1778,19 +1853,11 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun subscribe(invoke: Invoke) {
         withBilling(invoke) { client ->
-            val wanted = QueryProductDetailsParams.newBuilder()
-                .setProductList(
-                    listOf(
-                        QueryProductDetailsParams.Product.newBuilder()
-                            .setProductId(YEARLY)
-                            .setProductType(BillingClient.ProductType.SUBS)
-                            .build(),
-                    ),
-                )
-                .build()
-            client.queryProductDetailsAsync(wanted) { result, found ->
+            client.queryProductDetailsAsync(yearlyQuery()) { result, found ->
                 val details = found.productDetailsList.firstOrNull()
-                val offer = details?.subscriptionOfferDetails?.firstOrNull()?.offerToken
+                // The offer whose price the Plan screen shows; any other only if Play lists none.
+                val offer = yearlyOffer(storeOffers(details))?.token
+                    ?: details?.subscriptionOfferDetails?.firstOrNull()?.offerToken
                 if (result.responseCode != BillingClient.BillingResponseCode.OK || details == null || offer == null) {
                     invoke.reject("not_on_sale")
                     return@queryProductDetailsAsync
