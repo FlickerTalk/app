@@ -1049,8 +1049,9 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
 /// Temporary call diagnostics (2026-09-28), to find why a native call's voice is one-way on the
 /// iPhone: state names go to the device log through the bridge (`os_log` subsystem
 /// `com.flickertalk.calls` on iOS, `Log` tag `FtCallDiag` on Android). To remove: set this to
-/// false, or delete it with `native_event_name`, `update_name`, `diagnose_call` and their calls,
-/// and the `diagnose` command of the bridge.
+/// false, or delete it with `native_event_name`, `update_name`, `diagnose_call`, `device_counts`,
+/// `speaker_name`, `CAMERA_SWITCHED`, `diagnose_now_and_later` and their calls, and the
+/// `diagnose` command of the bridge.
 const CALL_DIAGNOSTICS: bool = true;
 
 fn native_event_name(event: NativeCallEvent) -> &'static str {
@@ -1115,6 +1116,45 @@ async fn diagnose_outcome(app: &AppHandle, core: &Core, what: &str, outcome: &an
     }
 }
 
+/// The voice's device counters (diagnostics). Dropped capture and underruns start again at zero
+/// each time the streams reopen; the stream errors add up over the call, and on Android each one
+/// reopens both streams (a route or device change, for example). The camera has none here.
+fn device_counts(stats: Option<ft_media::DeviceStats>) -> String {
+    match stats {
+        Some(stats) => format!(
+            "; audio capture dropped={} playout underruns={} audio stream errors={}",
+            stats.capture_dropped, stats.playout_underruns, stats.errors
+        ),
+        None => String::new(),
+    }
+}
+
+/// The speaker change, for the device log: it may move the audio route (diagnostics).
+fn speaker_name(on: bool) -> &'static str {
+    if on {
+        "speaker on"
+    } else {
+        "speaker off"
+    }
+}
+
+/// The camera flip, for the device log (diagnostics).
+const CAMERA_SWITCHED: &str = "camera switched";
+
+/// Writes `what` now and again a second later (diagnostics): AAudio reports a route change on its
+/// own thread, a little after the change.
+fn diagnose_now_and_later(app: &AppHandle, core: Arc<Core>, what: &'static str) {
+    if !CALL_DIAGNOSTICS {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        diagnose_call(&app, &core, what).await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        diagnose_call(&app, &core, &format!("1 s after {what}")).await;
+    });
+}
+
 /// Writes a call state and whether the voice's device runs to the device log (diagnostics).
 async fn diagnose_call(app: &AppHandle, core: &Core, what: &str) {
     if !CALL_DIAGNOSTICS {
@@ -1122,13 +1162,7 @@ async fn diagnose_call(app: &AppHandle, core: &Core, what: &str) {
     }
     let running = core.call_device_running().await;
     let app = app.clone();
-    let counts = match ft_media::device_stats() {
-        Some(stats) => format!(
-            "; capture dropped={} playout underruns={} device errors={}",
-            stats.capture_dropped, stats.playout_underruns, stats.errors
-        ),
-        None => String::new(),
-    };
+    let counts = device_counts(ft_media::device_stats());
     let phase = core.current_call().await.ok().flatten().map(|current| (current.phase, current.video));
     let line = format!("{what}; call {}; device running={running}{counts}", phase_name(phase));
     // Off the async workers: the bridge blocks until the native side answers.
@@ -2472,8 +2506,10 @@ pub async fn core_call_set_video(call: String, on: bool, app: AppHandle, client:
 
 /// The other camera: front to back and back again.
 #[tauri::command]
-pub async fn core_call_switch_camera(call: String, client: State<'_, Client>) -> Result<CallVideoView, String> {
-    let state = client.core().await?.switch_call_camera(&call).await.map_err(failed)?;
+pub async fn core_call_switch_camera(call: String, app: AppHandle, client: State<'_, Client>) -> Result<CallVideoView, String> {
+    let core = client.core().await?;
+    let state = core.switch_call_camera(&call).await.map_err(failed)?;
+    diagnose_now_and_later(&app, core, CAMERA_SWITCHED);
     Ok(CallVideoView::from(state))
 }
 
@@ -2492,8 +2528,12 @@ pub async fn core_call_video_layout(layout: Option<VideoLayout>, app: AppHandle,
 
 /// The call's voice on the speaker or the receiver (2026-09-28).
 #[tauri::command]
-pub async fn core_call_speaker(on: bool, app: AppHandle) -> Result<(), String> {
-    app.platform().set_speaker(on).map_err(|error| error.to_string())
+pub async fn core_call_speaker(on: bool, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+    app.platform().set_speaker(on).map_err(|error| error.to_string())?;
+    if let Ok(core) = client.core().await {
+        diagnose_now_and_later(&app, core, speaker_name(on));
+    }
+    Ok(())
 }
 
 /// Mutes or unmutes our voice in a native call.
@@ -3447,6 +3487,24 @@ mod tests {
         assert_eq!(native_screen(&CallUpdate::Video(state)), NativeScreen::Nothing);
         assert_eq!(ringing(&CallUpdate::Video(state)), Ring::Nothing);
         assert_eq!(update_name(&CallUpdate::Video(state)), "video");
+    }
+
+    // Temporary call diagnostics: the counters say they are the audio device's (an AAudio or
+    // VoiceProcessingIO stream error, which reopens the streams), not the camera's.
+    #[test]
+    fn the_diagnostic_counts_name_the_audio_streams() {
+        let stats = ft_media::DeviceStats { capture_dropped: 2, playout_underruns: 3, errors: 1 };
+        assert_eq!(device_counts(Some(stats)), "; audio capture dropped=2 playout underruns=3 audio stream errors=1");
+        assert_eq!(device_counts(None), "");
+    }
+
+    // A speaker change or a camera flip may move the audio route: the log marks both, so a
+    // stream error falls between two named lines.
+    #[test]
+    fn the_diagnostics_name_the_speaker_and_the_flip() {
+        assert_eq!(speaker_name(true), "speaker on");
+        assert_eq!(speaker_name(false), "speaker off");
+        assert_eq!(CAMERA_SWITCHED, "camera switched");
     }
 
     // The WebView tells a denied camera by this word (`core_call_set_video`, and a video call's
