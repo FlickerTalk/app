@@ -33,6 +33,10 @@ struct Bus {
     held: Mutex<HashMap<String, Vec<Vec<u8>>>>,
     /// The offers and answers sent to each device, connected or not.
     signalled: Mutex<HashMap<String, usize>>,
+    /// While set, collecting finds the mailbox empty (the recipient has not got round to it).
+    mail_held: std::sync::atomic::AtomicBool,
+    /// While set, what waited for a device is not handed over when it connects (`release`).
+    signals_held: std::sync::atomic::AtomicBool,
 }
 
 impl Bus {
@@ -98,6 +102,9 @@ impl Relay for FakeRelay {
     }
 
     async fn collect(&self) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+        if self.bus.mail_held.load(Ordering::SeqCst) {
+            return Ok(Vec::new());
+        }
         Ok(self.bus.mail.lock().unwrap().get(self.me.get().unwrap()).cloned().unwrap_or_default())
     }
 
@@ -136,8 +143,23 @@ impl Phone {
         });
         let _ = events.send(RouterEvent::Connected { stun, turn });
         // Router 0.4.0: what waited for this device comes right after the welcome.
+        if !bus.signals_held.load(Ordering::SeqCst) {
+            self.release(bus);
+        }
+    }
+
+    /// Hands over what waited at the router for this device.
+    fn release(&self, bus: &Arc<Bus>) {
+        let Some(events) = bus.online.lock().unwrap().get(&self.id()).cloned() else { return };
         for bytes in bus.held.lock().unwrap().remove(&self.id()).unwrap_or_default() {
             let _ = events.send(RouterEvent::Signal(bytes));
+        }
+    }
+
+    /// The router tells it mail arrived (it collects it).
+    fn mail_notice(&self, bus: &Arc<Bus>) {
+        if let Some(events) = bus.online.lock().unwrap().get(&self.id()) {
+            let _ = events.send(RouterEvent::Mail);
         }
     }
 
@@ -365,52 +387,130 @@ async fn bob_asleep() -> (Arc<Bus>, Phone, Phone) {
     (bus, alice, bob)
 }
 
-// Router 0.4.0 (2026-09-29): an offer for a phone whose app is closed waits at the router, which
-// wakes it. The offer is kept open and answered as soon as the phone connects: the message goes
-// directly, nothing through the mailbox, and no second offer is made.
+/// Sends a text to Bob, whose app is closed; returns its id once `send_text` is done, and how long
+/// that took.
+async fn text_to_bob(alice: &Phone, bob: &Phone, text: &str) -> (String, Duration) {
+    let started = std::time::Instant::now();
+    let sent = alice.core.send_text(&bob.id(), text).await.expect("sends");
+    (sent, started.elapsed())
+}
+
+// The message gets delivered first (§17, §19; 2026-09-29): a text to a phone that is not
+// connected goes to its mailbox at once, as it always did, whether the router keeps our
+// connection offer (0.4.0) or not. It never waits for the direct connection first: a sender who
+// closes the app right after writing leaves it in the mailbox, not in the outbox.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_retained_offer_opens_the_connection_as_soon_as_the_contact_is_back() {
+async fn a_text_to_a_closed_app_goes_to_the_mailbox_at_once() {
+    for retaining in [true, false] {
+        let (bus, alice, bob) = bob_asleep().await;
+        bus.retaining.store(retaining, Ordering::SeqCst);
+        let (sent, took) = text_to_bob(&alice, &bob, "are you there?").await;
+        eprintln!("text to a closed app, retaining {retaining}: in the mailbox after {} ms", took.as_millis());
+        assert!(took < Duration::from_secs(1), "retaining {retaining}: it waited {took:?}");
+        assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Sent, "in the mailbox");
+        assert_eq!(bus.mail_for(&bob.id()), 1, "retaining {retaining}");
+    }
+}
+
+// The sender closes its app right after writing: the message is already in the mailbox, and Bob
+// gets it when he opens his, once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sender_that_closes_right_after_writing_leaves_the_text_in_the_mailbox() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let (core, to) = (alice.core.clone(), bob.id());
+    let sending = tokio::spawn(async move { core.send_text(&to, "bye").await });
+    // The app is closed a second later: whatever the send was still doing stops there.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    sending.abort();
+    assert_eq!(bus.mail_for(&bob.id()), 1, "already in the mailbox");
+    bus.online.lock().unwrap().remove(&alice.id());
+    alice.network.disconnect(&bob.id()).await;
+    drop(alice.core.clone());
+    bob.go_online(&bus);
+    until("bob has it", || async { texts(&bob, &alice.id()).await == ["bye"] }).await;
+    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
+}
+
+// Bob wakes and answers our kept offer before he gets round to his mailbox: the text goes
+// directly too, is shown once, and becomes delivered with his receipt. The copy in the mailbox is
+// still collected and removed from the router.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_in_the_mailbox_also_goes_directly_when_the_connection_opens_first() {
     let (bus, alice, bob) = bob_asleep().await;
     let before = bus.signalled_to(&bob.id());
-    let deposits = bus.next_id.load(Ordering::SeqCst);
-    let (core, to) = (alice.core.clone(), bob.id());
-    let sending = tokio::spawn(async move { core.send_text(&to, "wake up").await });
-    tokio::time::sleep(Duration::from_millis(1_000)).await;
-
+    let (sent, _) = text_to_bob(&alice, &bob, "wake up").await;
+    bus.mail_held.store(true, Ordering::SeqCst);
     let back = std::time::Instant::now();
     bob.go_online(&bus);
     until("bob has it", || async { texts(&bob, &alice.id()).await == ["wake up"] }).await;
-    let delivered = back.elapsed();
-    eprintln!("retained offer: the message arrived {} ms after bob connected", delivered.as_millis());
-    let sent = sending.await.unwrap().expect("sent");
+    eprintln!("the kept offer: the text arrived directly {} ms after bob connected", back.elapsed().as_millis());
+    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
+    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
+    assert_eq!(bus.mail_for(&bob.id()), 1, "the copy still waits in the mailbox");
+
+    bus.mail_held.store(false, Ordering::SeqCst);
+    bob.mail_notice(&bus);
+    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
+    assert_eq!(texts(&bob, &alice.id()).await, ["wake up"], "shown once");
+    assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Delivered);
+}
+
+// Bob gets his mailbox before our kept offer reaches him: the text is shown once, delivered with
+// his receipt, and the connection that opens later changes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_in_the_mailbox_that_arrives_first_is_not_shown_twice() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let (sent, _) = text_to_bob(&alice, &bob, "hello").await;
+    bus.signals_held.store(true, Ordering::SeqCst);
+    bob.go_online(&bus);
+    until("bob has it", || async { texts(&bob, &alice.id()).await == ["hello"] }).await;
+    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
+    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
+
+    bus.signals_held.store(false, Ordering::SeqCst);
+    bob.release(&bus);
+    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(texts(&bob, &alice.id()).await, ["hello"], "shown once");
+    assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Delivered);
+    assert_eq!(bus.mail_for(&bob.id()), 0);
+}
+
+// Both at once, as it happens when Bob opens his app: the mailbox and our kept offer come right
+// after the welcome. Shown once, delivered, nothing left at the router.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_that_comes_both_ways_is_shown_once() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let (sent, _) = text_to_bob(&alice, &bob, "twice?").await;
+    bob.go_online(&bus);
+    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
+    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(texts(&bob, &alice.id()).await, ["twice?"], "shown once");
+}
+
+// With the mailbox off (strict P2P) nothing goes to the router: the text waits in the outbox and
+// the kept offer delivers it directly as soon as Bob answers it, even after the connection window.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_mailbox_off_the_kept_offer_delivers_the_waiting_text() {
+    let (bus, alice, bob) = bob_asleep().await;
+    // Telling Bob the mailbox is off already makes the offer (it waits at the router too).
+    let before = bus.signalled_to(&bob.id());
+    let deposits = bus.next_id.load(Ordering::SeqCst);
+    alice.core.set_mailbox(false).await.unwrap();
+    let (sent, _) = text_to_bob(&alice, &bob, "only directly").await;
+    assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Pending, "waits in the outbox");
+
+    let back = std::time::Instant::now();
+    bob.go_online(&bus);
+    until("bob has it", || async { texts(&bob, &alice.id()).await == ["only directly"] }).await;
+    let arrived = back.elapsed();
+    eprintln!("mailbox off: the waiting text arrived {} ms after bob connected", arrived.as_millis());
     until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
     assert_eq!(bus.next_id.load(Ordering::SeqCst), deposits, "nothing went through the mailbox");
     assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
-    assert!(delivered < Duration::from_millis(1_500), "{} ms", delivered.as_millis());
-}
-
-// A retained offer nobody answers within the connection window falls back as before: to the
-// mailbox. The next message does not wait again behind a new offer: the first is still out there.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_retained_offer_nobody_answers_falls_back_to_the_mailbox() {
-    let (bus, alice, bob) = bob_asleep().await;
-    let before = bus.signalled_to(&bob.id());
-    let started = std::time::Instant::now();
-    let first = alice.core.send_text(&bob.id(), "are you there?").await.expect("sends");
-    let waited = started.elapsed();
-    assert!(waited >= Duration::from_secs(11), "it waited {waited:?} for the answer");
-    assert_eq!(state(&alice, &bob.id(), &first).await, MessageState::Sent, "in the mailbox");
-    assert!(bus.mail_for(&bob.id()) >= 1);
-
-    let started = std::time::Instant::now();
-    alice.core.send_text(&bob.id(), "hello?").await.expect("sends");
-    assert!(started.elapsed() < Duration::from_secs(1), "the second waited {:?}", started.elapsed());
-    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "no second offer while the first waits");
-
-    // Bob wakes later: the offer still waiting at the router opens the connection.
-    bob.go_online(&bus);
-    until("bob caught up", || async { texts(&bob, &alice.id()).await.len() == 2 }).await;
-    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+    assert!(arrived < Duration::from_millis(1_500), "{} ms", arrived.as_millis());
 }
 
 // A call to a phone whose app is closed (2026-09-29): its connection's offer waits at the router,
@@ -491,4 +591,27 @@ async fn without_retention_a_retry_reuses_the_offer_already_gathered() {
     until("bob caught up", || async { texts(&bob, &alice.id()).await.len() == 2 }).await;
     alice.core.send_text(&bob.id(), "three").await.expect("sends");
     until("bob has the third", || async { texts(&bob, &alice.id()).await.len() == 3 }).await;
+}
+
+// With servers that never answer, the offer's gathering is all a text to a closed app waits
+// before the mailbox: a second at most (3 s before 2026-09-29), with a router that keeps the
+// offer or not; a retry does not gather again.
+#[tokio::test(flavor = "multi_thread")]
+async fn behind_servers_that_never_answer_a_text_reaches_the_mailbox_within_a_second() {
+    for retaining in [true, false] {
+        let hole = blackhole();
+        let bus = Arc::new(Bus::default());
+        bus.retaining.store(retaining, Ordering::SeqCst);
+        let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+        alice.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+        bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
+        pair(&alice, &bob).await;
+        bob.go_offline(&bus, &alice).await;
+        let (_, first) = text_to_bob(&alice, &bob, "one").await;
+        let (_, second) = text_to_bob(&alice, &bob, "two").await;
+        eprintln!("unreachable servers, retaining {retaining}: in the mailbox after {} ms, the next after {} ms", first.as_millis(), second.as_millis());
+        assert!(first < Duration::from_millis(1_500), "retaining {retaining}: {first:?}");
+        assert!(second < Duration::from_millis(400), "retaining {retaining}: {second:?}");
+        assert_eq!(bus.mail_for(&bob.id()), 2);
+    }
 }
