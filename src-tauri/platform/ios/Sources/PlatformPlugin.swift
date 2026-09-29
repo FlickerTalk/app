@@ -1,4 +1,5 @@
 import AVFAudio
+import AVFoundation
 import AuthenticationServices
 import OSLog
 import CallKit
@@ -245,6 +246,13 @@ enum CallEvent: Equatable {
     /// of an older call apart.
     case audioActivated(UInt64)
     case audioDeactivated(UInt64)
+    /// Native video (2026-09-29): the app came to the screen or left it; the core holds our
+    /// camera while it is away (iOS stops it anyway).
+    case visible(Bool)
+    /// The phone turned: `UIDeviceOrientation.rawValue`, for the rotation our frames carry.
+    case orientation(Int)
+    /// CallKit's "Video" button opened the app with a video call intent: our camera turns on.
+    case videoRequested
 }
 
 /// The event as the channel carries it: `{"event": "mute", "muted": true}`.
@@ -256,6 +264,9 @@ func callEventPayload(_ event: CallEvent) -> JsonObject {
     case .mute(let muted): return ["event": "mute", "muted": muted]
     case .audioActivated(let generation): return ["event": "audioActivated", "generation": generation]
     case .audioDeactivated(let generation): return ["event": "audioDeactivated", "generation": generation]
+    case .visible(let visible): return ["event": "visible", "visible": visible]
+    case .orientation(let orientation): return ["event": "orientation", "orientation": orientation]
+    case .videoRequested: return ["event": "video"]
     }
 }
 
@@ -291,6 +302,15 @@ final class CallEventQueue {
     /// A new call starts: what an old one left unheard is no longer true.
     func forget() {
         waiting = []
+    }
+
+    /// Only to a core that listens now; nothing waits (native video: visibility and orientation
+    /// are told again when the core registers or the video is attached).
+    @discardableResult
+    func offer(_ event: CallEvent) -> Bool {
+        guard let sink else { return false }
+        sink(event)
+        return true
     }
 }
 
@@ -422,6 +442,10 @@ final class CallEvents {
 
     func emit(_ event: CallEvent) {
         queue.async { self.events.emit(event) }
+    }
+
+    func offer(_ event: CallEvent) {
+        queue.async { self.events.offer(event) }
     }
 
     func forget() {
@@ -710,6 +734,14 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         }
     }
 
+    /// Whether the call has video now (native video, 2026-09-29): CallKit's `hasVideo`, with
+    /// either camera on, so that unlocking the phone opens the app on the call.
+    func setVideo(_ on: Bool) {
+        guard let current else { return }
+        diagnose("core: call video=\(on)")
+        provider.reportCall(with: current, updated: videoUpdate(on))
+    }
+
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
     func ended() {
         diagnose("core: call ended, callkit call there=\(current != nil)")
@@ -929,11 +961,22 @@ class PlatformPlugin: Plugin {
     /// A login sheet waiting for the provider to send the user back (drive, 2026-09-27).
     private var authSession: ASWebAuthenticationSession?
     private let authAnchor = AuthAnchor()
+    /// The WebView the call's video goes under (native video).
+    private weak var webView: WKWebView?
 
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = ReminderTaps.shared
         _ = callsAtLaunch
+        let install = {
+            AppVisibility.install()
+            CallIntentActivities.install()
+        }
+        if Thread.isMainThread { install() } else { DispatchQueue.main.async(execute: install) }
+    }
+
+    override func load(webview: WKWebView) {
+        webView = webview
     }
 
     /// An incoming call rings: CallKit when the app is not on the screen (2026-09-28).
@@ -956,7 +999,74 @@ class PlatformPlugin: Plugin {
     @objc public func registerCallEvents(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(CallEventsArgs.self)
         CallEvents.shared.register(args.channel)
+        // Whether the app is on the screen now: the core holds our camera while it is not.
+        DispatchQueue.main.async { AppVisibility.tellNow() }
         invoke.resolve()
+    }
+
+    // ---- Native video (2026-09-29, docs/video-nativo.md) ----
+
+    /// The call's layers under the WebView, which turns transparent; hidden until `videoLayout`.
+    @objc public func attachVideo(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(AttachVideoArgs.self)
+        DispatchQueue.main.async { [weak self] in
+            guard let web = self?.webView else {
+                invoke.reject("no webview")
+                return
+            }
+            CallVideoViews.shared.attach(webView: web, remote: rustLayer(args.remoteLayer), local: rustLayer(args.localLayer))
+            CallVideoViews.shared.startOrientation()
+            invoke.resolve()
+        }
+    }
+
+    /// Where the WebView leaves room for each picture, and whether ours is mirrored.
+    @objc public func videoLayout(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(VideoLayoutArgs.self)
+        DispatchQueue.main.async {
+            CallVideoViews.shared.layout(args)
+            invoke.resolve()
+        }
+    }
+
+    /// The turn of the other side's picture: its layer is laid out by it.
+    @objc public func videoShape(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(VideoShapeArgs.self)
+        DispatchQueue.main.async {
+            CallVideoViews.shared.shape(rotation: args.rotation)
+            invoke.resolve()
+        }
+    }
+
+    /// Takes the layers away and gives the WebView its look back; resolves only once they are out
+    /// of the view hierarchy, so Rust may then drop the video devices that own them.
+    @objc public func detachVideo(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            CallVideoViews.shared.detach()
+            invoke.resolve()
+        }
+    }
+
+    /// Whether the call has video now: CallKit's `hasVideo`.
+    @objc public func callVideo(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(CallVideoArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.setVideo(args.on)
+            invoke.resolve()
+        }
+    }
+
+    /// The camera before our camera turns on (§30): asks only if it was never asked; `granted`
+    /// says whether it may be used.
+    @objc public func requestCamera(_ invoke: Invoke) throws {
+        switch cameraAccess(AVCaptureDevice.authorizationStatus(for: .video)) {
+        case .granted:
+            invoke.resolve(["granted": true])
+        case .denied:
+            invoke.resolve(["granted": false])
+        case .ask:
+            AVCaptureDevice.requestAccess(for: .video) { invoke.resolve(["granted": $0]) }
+        }
     }
 
     /// This phone calls: CallKit takes the call and its audio session (native calls, 2026-09-28).
