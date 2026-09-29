@@ -262,14 +262,19 @@ impl Core {
             self.remember_offer(&call_id, &sdp, media);
             // Answered or declined on the phone's own screen before the offer came (2026-09-29):
             // decided before the UI hears of it, so it never rings again.
-            match self.take_early_answer(&call_id) {
+            let early = self.take_early_answer(&call_id);
+            match early {
                 EarlyOutcome::Decline => return self.end_call(&call_id, false).await,
                 EarlyOutcome::Answer => self.answer_offered_early(&call_id),
                 EarlyOutcome::Ring => {}
             }
             self.announce_call(&record, CallUpdate::Incoming { video, sdp });
             self.mark_call_stage(CallStage::Ringing);
-            self.prepare_while_ringing(&call_id);
+            // Its answer is prepared while it rings; one answered already goes at once, without
+            // waiting for a preparation (2026-09-29).
+            if early == EarlyOutcome::Ring {
+                self.prepare_while_ringing(&call_id);
+            }
         }
         Ok(())
     }
