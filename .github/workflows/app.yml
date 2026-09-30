@@ -1,9 +1,10 @@
 # Tests every change. Every push to main publishes a signed "canary" APK (a prerelease); every
 # version tag (vX.Y.Z) publishes a release with the signed APK and AAB (Plan §105).
 #
-# The signing key and Firebase's file live only in the `release` environment, which only main and
-# v* tags can use: pull requests (forks included) build unsigned and never see them. The job that
-# signs cannot write to the repo, and the one that publishes never sees a secret.
+# The signing key, Firebase's file and the Google OAuth client ids live only in the `release`
+# environment, which only main and v* tags can use: pull requests (forks included) build unsigned
+# and never see them. The job that signs cannot write to the repo, and the one that publishes never
+# sees a secret. (FT_GOOGLE_IOS_CLIENT_ID waits there for an iOS job; iOS is built on a Mac.)
 name: app
 
 on:
@@ -110,6 +111,11 @@ jobs:
         env:
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ANDROID_UPLOAD_PASSWORD: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
+          # Google Drive sign-in (docs/drive.md): the Android OAuth client goes into the core and
+          # the bridge's manifest. A release without it does not build (src-tauri/build.rs), except
+          # a pull request's, which is never published and has no secrets.
+          FT_GOOGLE_CLIENT_ID: ${{ secrets.FT_GOOGLE_CLIENT_ID }}
+          FT_ALLOW_NO_GOOGLE_CLIENT: ${{ github.event_name == 'pull_request' && '1' || '' }}
         # The runner's own variables are not in the `env` context: the NDK comes from the shell.
         run: |
           export NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
