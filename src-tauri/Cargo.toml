@@ -16,10 +16,12 @@ name = "flickertalk_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+# 2.12 at least: it brings tao 0.37, whose iOS scene configuration is no longer freed before UIKit
+# takes it (tauri-apps/tao#1244, #1245). With tao 0.35 every release build crashed at launch.
+tauri = { version = "2.12", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-ft-platform = { path = "platform" }
 serde = { version = "1", features = ["derive"] }
