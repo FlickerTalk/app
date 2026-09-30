@@ -313,6 +313,23 @@ async fn the_network_reports_open_connections() {
     until("bob sees it closed", || async { !bob.network.is_connected(&alice.id()).await }).await;
 }
 
+// Erasing the phone (2026-09-30): the running app lets go of every direct connection, and the
+// contact sees it close.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_the_network_closes_every_connection() {
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    alice.core.send_text(&bob.id(), "hi").await.unwrap();
+    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+
+    alice.network.close().await;
+    assert!(alice.network.connected().await.is_empty());
+    until("bob sees it closed", || async { !bob.network.is_connected(&alice.id()).await }).await;
+}
+
 // §62: whole chunks, sealed with Olm, fit the real DataChannel's messages.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_crosses_a_real_data_channel() {

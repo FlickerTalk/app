@@ -18,7 +18,6 @@ use ft_webrtc::SessionConfig;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_ft_platform::{NativeCallEvent, PlatformExt, VideoLayout};
-use tokio::sync::OnceCell;
 
 /// The router of the cluster, behind the load balancer (Plan §75).
 pub const ROUTER: &str = "https://api.flickertalk.com";
@@ -604,7 +603,9 @@ pub fn apply_move(dir: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
-/// Erases this phone's identity, contacts, history and files: it moved to another phone (§60).
+/// Erases this phone's identity, contacts, history and files (it moved to another phone, §60,
+/// or the user erased it, §78): also the tools and what they kept, the drive's waiting uploads
+/// and what was picked or photographed.
 pub fn erase(dir: &Path) -> std::io::Result<()> {
     for file in database_files(dir).into_iter().chain([dir.join(KEY_FILE), dir.join(SEALED_KEY_FILE)]) {
         match std::fs::remove_file(file) {
@@ -612,13 +613,31 @@ pub fn erase(dir: &Path) -> std::io::Result<()> {
             _ => {}
         }
     }
-    for folder in [dir.join("files"), dir.join(MOVE_DIR)] {
+    for folder in ["files", MOVE_DIR, "plugins", "vault", "uploads"].map(|name| dir.join(name)) {
         match std::fs::remove_dir_all(folder) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
             _ => {}
         }
     }
     Ok(())
+}
+
+/// Erases this phone (`erase`) and has the OS key store forget the storage key (§94): on iOS
+/// the Keychain outlives the app, even its removal.
+pub fn wipe(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<()> {
+    erase(dir)?;
+    if let Some(vault) = vault {
+        vault.forget()?;
+    }
+    Ok(())
+}
+
+/// The app's first page, on the WebView's own origin.
+fn first_page(mut url: tauri::Url) -> tauri::Url {
+    url.set_path("/");
+    url.set_query(None);
+    url.set_fragment(None);
+    url
 }
 
 /// The router's STUN servers and short-lived TURN user, for the WebView's calls (§16–17).
@@ -672,6 +691,8 @@ impl CallView {
 pub trait KeyVault {
     fn seal(&self, key: &[u8; 32]) -> anyhow::Result<Vec<u8>>;
     fn open(&self, sealed: &[u8]) -> anyhow::Result<[u8; 32]>;
+    /// Deletes the storage key from the key store (erasing the phone).
+    fn forget(&self) -> anyhow::Result<()>;
 }
 
 const SEALED_KEY_FILE: &str = "storage.key.sealed";
@@ -756,7 +777,9 @@ pub fn openable(file: Option<FileRecord>, outgoing: bool) -> Result<FileRecord, 
 /// The running core, started once.
 #[derive(Default)]
 pub struct Client {
-    online: OnceCell<Online>,
+    /// The running core, once started. iOS cannot start the app again, so erasing the phone (or
+    /// a move, or a restore) stops it and starts a new one in the same process (2026-09-30).
+    running: tokio::sync::Mutex<Running>,
     dir: OnceLock<PathBuf>,
     app: OnceLock<AppHandle>,
     /// The OS key store on phones; none on desktop.
@@ -774,6 +797,14 @@ impl Client {
     }
 }
 
+/// The core as the app holds it.
+#[derive(Default)]
+struct Running {
+    online: Option<Arc<Online>>,
+    /// Stopped to start again: nothing may start a core until the app does.
+    stopped: bool,
+}
+
 /// The key store through the native bridge (Android Keystore, iOS Keychain).
 struct PlatformVault(AppHandle);
 
@@ -784,6 +815,10 @@ impl KeyVault for PlatformVault {
 
     fn open(&self, sealed: &[u8]) -> anyhow::Result<[u8; 32]> {
         Ok(self.0.platform().open_key(sealed)?)
+    }
+
+    fn forget(&self) -> anyhow::Result<()> {
+        Ok(self.0.platform().forget_key()?)
     }
 }
 
@@ -798,8 +833,36 @@ impl Client {
         Ok(())
     }
 
-    async fn online(&self) -> Result<&Online, String> {
-        self.online.get_or_try_init(|| self.start()).await.map_err(|error| error.to_string())
+    async fn online(&self) -> Result<Arc<Online>, String> {
+        let mut running = self.running.lock().await;
+        if running.stopped {
+            return Err("the app is starting again".to_owned());
+        }
+        if let Some(online) = &running.online {
+            return Ok(online.clone());
+        }
+        let online = Arc::new(self.start().await.map_err(|error| error.to_string())?);
+        running.online = Some(online.clone());
+        Ok(online)
+    }
+
+    /// Stops the running core for good (2026-09-30): it lets go of the router, the connections
+    /// and the database, and no other starts until `start_again`.
+    async fn stop(&self) {
+        let stopped = {
+            let mut running = self.running.lock().await;
+            running.stopped = true;
+            running.online.take()
+        };
+        if let Some(online) = stopped {
+            online.shutdown().await;
+        }
+    }
+
+    /// Erases this phone once its core has stopped (§78): files, database and the key in the OS
+    /// key store.
+    fn wipe(&self) -> Result<(), String> {
+        wipe(self.dir()?, self.vault.get().map(|vault| vault.as_ref() as &dyn KeyVault)).map_err(failed)
     }
 
     async fn core(&self) -> Result<Arc<Core>, String> {
@@ -857,11 +920,16 @@ impl Client {
             listen_native_calls(&app, &online);
             let glue_for_events = self.video.clone();
             let mut events = online.core.events();
-            let dir_for_events = dir.to_owned();
+            let stopped = online.stopped();
             let router_for_events = online.router.clone();
             let core_for_events = online.core.clone();
             tauri::async_runtime::spawn(async move {
-                while let Ok(event) = events.recv().await {
+                tokio::pin!(stopped);
+                // A stopped core's events end here (erasing the phone): the new one has its own.
+                while let Some(Ok(event)) = tokio::select! {
+                    event = events.recv() => Some(event),
+                    _ = &mut stopped => None,
+                } {
                     let (contact, circle) = match event {
                         Event::MessagesChanged { contact } => (Some(contact), None),
                         Event::CircleMessagesChanged { circle } => (None, Some(circle)),
@@ -885,7 +953,7 @@ impl Client {
                         }
                         Event::Move(update) => {
                             let _ = app.emit(MOVE_EVENT, MoveEvent::from(update.clone()));
-                            after_move(&app, &dir_for_events, &router_for_events, update);
+                            after_move(&app, &router_for_events, update);
                             continue;
                         }
                         Event::Call { contact, call, update } => {
@@ -1176,33 +1244,49 @@ pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, 
 /// After a move (§60): the new phone forgets its temporary identity on the router and starts
 /// again with the one it received; the old phone erases itself and starts again empty. The UI
 /// gets a moment to say so first.
-fn after_move(app: &AppHandle, dir: &Path, router: &Arc<ft_core::RouterClient>, update: MoveUpdate) {
-    let (app, dir, router) = (app.clone(), dir.to_owned(), router.clone());
+fn after_move(app: &AppHandle, router: &Arc<ft_core::RouterClient>, update: MoveUpdate) {
+    let (app, router) = (app.clone(), router.clone());
     match update {
         MoveUpdate::Received => {
             tauri::async_runtime::spawn(async move {
                 let _ = router.forget().await;
                 tokio::time::sleep(RESTART_PAUSE).await;
-                restart(&app);
+                restart(&app).await;
             });
         }
         MoveUpdate::Sent => {
-            let _ = erase(&dir);
             tauri::async_runtime::spawn(async move {
+                let client = app.state::<Client>();
+                client.stop().await;
+                let _ = client.wipe();
                 tokio::time::sleep(RESTART_PAUSE).await;
-                restart(&app);
+                restart(&app).await;
             });
         }
         MoveUpdate::Progress { .. } | MoveUpdate::Failed => {}
     }
 }
 
-/// How long the UI shows the end of a move before the app starts again.
+/// How long the UI shows the end of a move (or that the phone is being erased) before the app
+/// starts again.
 const RESTART_PAUSE: std::time::Duration = std::time::Duration::from_millis(2500);
 
-fn restart(app: &AppHandle) {
-    if app.platform().restart_app().is_err() {
-        app.restart();
+/// Starts the app again with what is left on disk. Android starts a new process, as before. iOS
+/// cannot (and Apple does not let an app quit, 2026-09-30): the core stops and a new one starts
+/// in place, and the WebView goes back to its first page, where a phone with no identity yet
+/// gets the welcome, as at the first start.
+async fn restart(app: &AppHandle) {
+    if cfg!(target_os = "android") && app.platform().restart_app().is_ok() {
+        return;
+    }
+    let client = app.state::<Client>();
+    client.stop().await;
+    client.running.lock().await.stopped = false;
+    start_in_background(app);
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(url) = window.url() {
+            let _ = window.navigate(first_page(url));
+        }
     }
 }
 
@@ -1270,7 +1354,7 @@ pub async fn core_requests(session: Option<String>, client: State<'_, Client>) -
         None => online.core.requests().await.map_err(failed)?,
         Some(session) => online.core.session_requests(session).await.map_err(failed)?,
     };
-    conversation_views(online, requests).await
+    conversation_views(&online, requests).await
 }
 
 #[tauri::command]
@@ -1325,7 +1409,7 @@ pub async fn core_add_contact(link: String, session: Option<String>, client: Sta
 pub async fn core_conversations(client: State<'_, Client>) -> Result<Vec<ConversationView>, String> {
     let online = client.online().await?;
     let conversations = online.core.store().conversations().await.map_err(failed)?;
-    conversation_views(online, conversations).await
+    conversation_views(&online, conversations).await
 }
 
 async fn conversation_views(online: &Online, conversations: Vec<Conversation>) -> Result<Vec<ConversationView>, String> {
@@ -1511,7 +1595,7 @@ pub async fn core_session_open(pin: String, app: AppHandle, client: State<'_, Cl
     let Some(session) = online.core.open_session(&pin).await.map_err(failed)? else { return Ok(None) };
     // Its wake-ups are heard from now on (app#9).
     let _ = app.platform().set_open_slots(&online.core.open_slots());
-    Ok(Some(session_view(online, session).await?))
+    Ok(Some(session_view(&online, session).await?))
 }
 
 /// Takes an open hidden session away for good, with its contacts and history (A3).
@@ -1520,7 +1604,7 @@ pub async fn core_session_remove(session: String, app: AppHandle, client: State<
     let online = client.online().await?;
     online.core.remove_session(&session).await.map_err(failed)?;
     let _ = app.platform().set_open_slots(&online.core.open_slots());
-    reregister(online);
+    reregister(&online);
     Ok(())
 }
 
@@ -1531,7 +1615,7 @@ pub async fn core_session_close(session: String, app: AppHandle, client: State<'
     let gone = online.core.close_session(&session).await.map_err(failed)?;
     let _ = app.platform().set_open_slots(&online.core.open_slots());
     if gone {
-        reregister(online);
+        reregister(&online);
     }
     Ok(())
 }
@@ -1554,7 +1638,7 @@ pub async fn core_sessions(client: State<'_, Client>) -> Result<Vec<SessionView>
     let online = client.online().await?;
     let mut views = Vec::new();
     for session in online.core.open_sessions() {
-        views.push(session_view(online, session).await?);
+        views.push(session_view(&online, session).await?);
     }
     Ok(views)
 }
@@ -1705,21 +1789,22 @@ pub async fn core_share_message(message: String, app: AppHandle, client: State<'
     }
 }
 
-/// Erases this phone (§78): the router forgets the device and its mail, everything FlickerTalk
-/// keeps here is deleted, and the app starts again at the welcome. The router is best effort: a
-/// phone with no network still erases itself.
+/// Erases this phone (§78): the router forgets the device, its mail and its push target; the
+/// core stops, everything FlickerTalk keeps here is deleted, the storage key too (the iOS
+/// Keychain outlives the app), and the app starts again at the welcome. The router is best
+/// effort: a phone with no network still erases itself.
 #[tauri::command]
 pub async fn core_erase(app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     if let Ok(online) = client.online().await {
         let _ = online.router.forget().await;
     }
-    erase(client.dir()?).map_err(failed)?;
-    let app = app.clone();
+    client.stop().await;
+    let wiped = client.wipe();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(RESTART_PAUSE).await;
-        restart(&app);
+        restart(&app).await;
     });
-    Ok(())
+    wiped
 }
 
 /// A plugin as the screen shows it (issue app#3).
@@ -3005,7 +3090,7 @@ pub async fn core_vault_restore(app: AppHandle, client: State<'_, Client>) -> Re
     }
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(RESTART_PAUSE).await;
-        restart(&app);
+        restart(&app).await;
     });
     Ok(backup.into())
 }
@@ -3756,6 +3841,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // §78, 2026-09-30: erasing the phone leaves nothing of the user's, not only the identity:
+    // the tools and what they kept, the drive's waiting uploads, what was picked or photographed.
+    #[test]
+    fn an_erased_phone_keeps_nothing_of_the_user() {
+        let dir = scratch("erase-all");
+        std::fs::write(dir.join("flickertalk.db"), b"x").unwrap();
+        for folder in ["plugins/com.flickertalk.notes", "vault/queue", "uploads", "files/uploads"] {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+        }
+        erase(&dir).unwrap();
+        for name in ["flickertalk.db", "plugins", "vault", "uploads", "files"] {
+            assert!(!dir.join(name).exists(), "{name} is gone");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // §94, 2026-09-30: the storage key goes from the OS key store too. On iOS the Keychain
+    // outlives the app, even its removal.
+    #[test]
+    fn wiping_forgets_the_storage_key_in_the_key_store() {
+        let dir = scratch("wipe-key");
+        let vault = FakeVault::default();
+        storage_key(&dir, Some(&vault)).expect("creates");
+        wipe(&dir, Some(&vault)).expect("wipes");
+        assert!(!dir.join("storage.key.sealed").exists());
+        assert!(vault.forgotten.load(std::sync::atomic::Ordering::SeqCst), "the key store forgot the key");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // iOS cannot start the app again (2026-09-30): the WebView goes back to the app's first page,
+    // on whatever path it was, and the router sends a phone with no identity to the welcome.
+    #[test]
+    fn starting_again_goes_back_to_the_first_page() {
+        let first = |url: &str| first_page(url.parse().unwrap()).to_string();
+        assert_eq!(first("tauri://localhost/tabs/settings"), "tauri://localhost/");
+        assert_eq!(first("http://tauri.localhost/chat/ft_x?y=1#z"), "http://tauri.localhost/");
+        assert_eq!(first("http://localhost:1420/"), "http://localhost:1420/");
+    }
+
     #[test]
     fn move_updates_reach_the_ui() {
         use ft_core::moving::MoveUpdate;
@@ -3771,6 +3895,7 @@ mod tests {
     #[derive(Default)]
     struct FakeVault {
         broken: bool,
+        forgotten: std::sync::atomic::AtomicBool,
     }
 
     impl KeyVault for FakeVault {
@@ -3785,6 +3910,11 @@ mod tests {
             let mut key: [u8; 32] = sealed.strip_prefix(b"sealed:").ok_or_else(|| anyhow::anyhow!("not sealed"))?.try_into()?;
             key.reverse();
             Ok(key)
+        }
+
+        fn forget(&self) -> anyhow::Result<()> {
+            self.forgotten.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -3829,7 +3959,7 @@ mod tests {
         let dir = scratch("broken-key");
         storage_key(&dir, Some(&FakeVault::default())).expect("creates");
         let sealed = std::fs::read(dir.join("storage.key.sealed")).unwrap();
-        assert!(storage_key(&dir, Some(&FakeVault { broken: true })).is_err());
+        assert!(storage_key(&dir, Some(&FakeVault { broken: true, ..Default::default() })).is_err());
         assert_eq!(std::fs::read(dir.join("storage.key.sealed")).unwrap(), sealed, "left as it was");
         let _ = std::fs::remove_dir_all(&dir);
     }

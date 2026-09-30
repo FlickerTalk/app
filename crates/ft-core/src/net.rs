@@ -286,6 +286,23 @@ impl Network {
         }
     }
 
+    /// Closes every direct connection and every offer still waiting (erasing the phone,
+    /// 2026-09-30).
+    pub async fn close(&self) {
+        let mut contacts: Vec<String> = self.links.lock().await.keys().cloned().collect();
+        contacts.extend(self.retained.lock().await.keys().cloned());
+        contacts.extend(self.spare.lock().await.keys().cloned());
+        contacts.sort();
+        contacts.dedup();
+        for contact in contacts {
+            self.disconnect(&contact).await;
+        }
+        let pending: Vec<Session> = self.pending.lock().await.drain().map(|(_, session)| session).collect();
+        for session in pending {
+            let _ = session.close().await;
+        }
+    }
+
     fn announce(&self, contact: &str) {
         if let Ok(core) = self.core() {
             let _ = core.events.send(Event::ConnectionChanged { contact: contact.to_owned() });
