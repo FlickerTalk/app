@@ -148,7 +148,9 @@ jobs:
   # the release for the simulator, unsigned and without secrets, and fails if it does not stay up.
   ios:
     needs: [web, rust]
-    runs-on: macos-26
+    # Xcode 27.0 (27A266a), as the store builds: with the macos-26 image's Xcode 26.6 the app does
+    # not link (VideoToolbox's symbols from webrtc-engine are left undefined).
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
