@@ -153,15 +153,22 @@ async function pick(accept: string) {
   }
 }
 
-/** A photo taken now with the camera app; nothing happens if the user backs out of it. */
+/**
+ * A photo taken now with the camera app; nothing happens if the user backs out of it. With no
+ * camera (the iOS simulator), or none allowed, the composer says so (2026-09-30).
+ */
 async function snap() {
   attaching.value = false;
+  composerError.value = "";
+  let taken: Awaited<ReturnType<typeof takePhoto>>;
   try {
-    for (const file of await takePhoto()) {
-      await sendPicked(props.chatId, file);
-    }
+    taken = await takePhoto();
   } catch {
-    // No camera, or not allowed: the option simply does nothing this time.
+    composerError.value = t("chat.cannotTakePhoto");
+    return;
+  }
+  for (const file of taken) {
+    await sendPicked(props.chatId, file);
   }
 }
 
@@ -173,13 +180,13 @@ const elapsed = computed(() => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 });
 
-const voiceError = ref("");
+const composerError = ref("");
 
 async function record() {
-  voiceError.value = "";
+  composerError.value = "";
   const started = await startRecording();
   if (started !== "recording") {
-    voiceError.value = started === "unsupported" ? t("chat.cannotRecordHere") : t("chat.cannotRecord");
+    composerError.value = started === "unsupported" ? t("chat.cannotRecordHere") : t("chat.cannotRecord");
     return;
   }
   now.value = Date.now();
@@ -610,7 +617,7 @@ watch(
       </div>
     </ion-footer>
     <ion-footer v-else class="ion-no-border">
-      <p v-if="voiceError" class="ft-composer__error" role="alert">{{ voiceError }}</p>
+      <p v-if="composerError" class="ft-composer__error" role="alert">{{ composerError }}</p>
       <!-- A2: what a plugin made, waiting for the user to send it or throw it away. -->
       <div v-if="staged" class="ft-staged" data-test="staged">
         <ion-icon :icon="documentOutline" aria-hidden="true" />

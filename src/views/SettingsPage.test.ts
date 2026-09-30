@@ -3,6 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
 import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
+import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => Promise.resolve("0.3.1") }));
@@ -150,6 +151,32 @@ describe("SettingsPage", () => {
     await wrapper.find("[data-test='erase-confirm']").trigger("click");
     await flushPromises();
     expect(calls.map(([command]) => command)).toContain("core_erase");
+  });
+
+  // 2026-09-30: on the iPhone the app starts again in place, after a moment; meanwhile the screen
+  // says the phone is being erased instead of looking as if nothing happened.
+  it("says the phone is being erased once it is confirmed", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='erase']").trigger("click");
+    await wrapper.find("[data-test='erase-confirm']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='erasing']").text()).toContain("Erasing this phone");
+    expect(wrapper.find("[data-test='erase']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='erase-confirm']").exists()).toBe(false);
+  });
+
+  it("says so when the phone could not be erased, and lets the user try again", async () => {
+    installTauri((command) => {
+      if (command === "core_erase") throw new Error("disk");
+      return undefined;
+    });
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='erase']").trigger("click");
+    await wrapper.find("[data-test='erase-confirm']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='erasing']").exists()).toBe(false);
+    expect(wrapper.text()).toContain("This phone could not be erased");
+    expect(wrapper.find("[data-test='erase']").exists()).toBe(true);
   });
 
   it("can change its mind about erasing", async () => {

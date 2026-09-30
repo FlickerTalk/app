@@ -127,6 +127,8 @@ pub struct RouterClient {
     again: Arc<tokio::sync::Notify>,
     /// Where the socket stands, for `reconnect_unless_fresh`.
     link: std::sync::Mutex<Link>,
+    /// Closed for good (`close`).
+    closed: tokio::sync::watch::Sender<bool>,
 }
 
 /// The router's socket, and since when (wall clock).
@@ -157,7 +159,14 @@ pub fn https_client(timeout: Duration) -> Result<reqwest::Client> {
 impl RouterClient {
     pub fn new(base: &str, signer: Arc<dyn Signer>) -> Result<Self> {
         let http = https_client(Duration::from_secs(20))?;
-        Ok(Self { base: base.trim_end_matches('/').to_owned(), http, signer, again: Arc::default(), link: std::sync::Mutex::new(Link::Down) })
+        Ok(Self {
+            base: base.trim_end_matches('/').to_owned(),
+            http,
+            signer,
+            again: Arc::default(),
+            link: std::sync::Mutex::new(Link::Down),
+            closed: tokio::sync::watch::Sender::new(false),
+        })
     }
 
     /// Drops the socket and opens it again at once, skipping any wait (2026-09-28). iOS cuts the
@@ -181,6 +190,24 @@ impl RouterClient {
         if !young {
             self.reconnect_now();
         }
+    }
+
+    /// Closes this client for good (erasing the phone, 2026-09-30): its socket goes and is not
+    /// opened again, and every request fails without reaching the router. iOS cannot start the
+    /// app again, so the old identity's client is closed in the running app instead.
+    pub fn close(&self) {
+        self.closed.send_replace(true);
+    }
+
+    pub fn is_closed(&self) -> bool {
+        *self.closed.borrow()
+    }
+
+    async fn send(&self, request: RequestBuilder) -> Result<reqwest::Response> {
+        if self.is_closed() {
+            bail!("the router client is closed");
+        }
+        send(request).await
     }
 
     fn set_link(&self, link: Link) {
@@ -207,7 +234,7 @@ impl RouterClient {
         for (name, value) in self.signed_headers(method.as_str(), path, &body).await {
             request = request.header(name, value);
         }
-        send(request.body(body)).await
+        self.send(request.body(body)).await
     }
 
     /// Registers (again) this device and the hash of its route capability.
@@ -258,7 +285,7 @@ impl RouterClient {
         if call {
             request = request.header("ft-call", "1");
         }
-        let response = send(request.body(bytes)).await?;
+        let response = self.send(request.body(bytes)).await?;
         let retained = response.headers().get("ft-retained").is_some_and(|value| value == "1");
         match response.status() {
             StatusCode::ACCEPTED => Ok(Signalled::Delivered),
@@ -271,7 +298,7 @@ impl RouterClient {
     /// Leaves an already encrypted blob in the recipient's mailbox (§19).
     pub async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()> {
         let request = self.http.post(format!("{}/v1/mailbox/{to}", self.base)).header("ft-capability", encode(capability));
-        expect(send(request.body(blob)).await?, StatusCode::CREATED)
+        expect(self.send(request.body(blob)).await?, StatusCode::CREATED)
     }
 
     pub async fn collect(&self) -> Result<Vec<Mail>> {
@@ -301,13 +328,14 @@ impl RouterClient {
     }
 
     /// Keeps a signed WebSocket open with the router, reconnecting when it drops, until the
-    /// receiver is dropped.
+    /// receiver is dropped or the client is closed (then the events end).
     pub fn listen(self: &Arc<Self>) -> mpsc::Receiver<RouterEvent> {
         let (events, receiver) = mpsc::channel(64);
         let client = self.clone();
+        let mut closed = self.closed.subscribe();
         tokio::spawn(async move {
             let mut backoff = Duration::from_secs(1);
-            loop {
+            while !client.is_closed() {
                 client.set_link(Link::Opening(SystemTime::now()));
                 let asked = tokio::select! {
                     result = client.connection(&events) => {
@@ -318,9 +346,10 @@ impl RouterClient {
                         false
                     }
                     _ = client.again.notified() => true,
+                    _ = closed.wait_for(|closed| *closed) => false,
                 };
                 client.set_link(Link::Down);
-                if events.send(RouterEvent::Disconnected).await.is_err() {
+                if client.is_closed() || events.send(RouterEvent::Disconnected).await.is_err() {
                     return;
                 }
                 if asked {
@@ -330,6 +359,7 @@ impl RouterClient {
                 tokio::select! {
                     _ = tokio::time::sleep(backoff) => {}
                     _ = client.again.notified() => backoff = Duration::from_secs(1),
+                    _ = closed.wait_for(|closed| *closed) => return,
                 }
             }
         });

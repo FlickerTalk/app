@@ -642,11 +642,13 @@ export async function myCardLink(session?: string): Promise<string> {
 }
 
 /**
- * Takes this device off the router and wipes everything FlickerTalk keeps on the phone (§78).
- * The app starts again empty; there is no way back.
+ * Takes this device off the router and wipes everything FlickerTalk keeps on the phone (§78),
+ * and what the WebView keeps too: the app starts again empty, at the welcome, like a new install
+ * (2026-09-30). There is no way back.
  */
 export async function erasePhone(): Promise<void> {
   await invoke("core_erase");
+  localStorage.clear();
 }
 
 /** Reconnects to the router at once (2026-09-28): the app is back on the screen. Never fails. */

@@ -23,6 +23,8 @@ pub struct Online {
     pub core: Arc<Core>,
     pub router: Arc<RouterClient>,
     pub network: Arc<Network>,
+    /// Set once, by `shutdown`: the background work of this client ends.
+    stop: tokio::sync::watch::Sender<bool>,
 }
 
 /// The router client is created before the core, so it reaches the identity through this slot.
@@ -66,7 +68,8 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         let later = router.clone();
         tokio::spawn(async move {
             let mut wait = Duration::from_secs(2);
-            while later.register(&capabilities).await.is_err() {
+            // A closed client (the phone was erased) stops trying.
+            while !later.is_closed() && later.register(&capabilities).await.is_err() {
                 tokio::time::sleep(wait).await;
                 wait = (wait * 2).min(Duration::from_secs(60));
             }
@@ -83,11 +86,16 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         });
     }
 
+    let stop = tokio::sync::watch::Sender::new(false);
+    let mut stopping = stop.subscribe();
     let retrying = Arc::downgrade(&core);
     tokio::spawn(async move {
         let mut every = tokio::time::interval(RETRY_EVERY);
         loop {
-            every.tick().await;
+            tokio::select! {
+                _ = every.tick() => {}
+                _ = stopping.wait_for(|stopped| *stopped) => break,
+            }
             let Some(core) = retrying.upgrade() else { break };
             let _ = core.retry_due().await;
             let _ = core.resume_files().await;
@@ -96,7 +104,31 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         }
     });
 
-    Ok(Online { core, router, network })
+    Ok(Online { core, router, network, stop })
+}
+
+impl Online {
+    /// Stops this client for good (erasing the phone, 2026-09-30). iOS cannot start the app
+    /// again, so the running client stops in place and a new one starts from what is left on
+    /// disk: a call going on ends, the router socket and the direct connections close, the
+    /// background work ends and the database is closed, so that it can be deleted.
+    pub async fn shutdown(&self) {
+        if let Ok(Some(call)) = self.core.current_call().await {
+            let _ = self.core.end_call(&call.call, false).await;
+        }
+        self.stop.send_replace(true);
+        self.router.close();
+        self.network.close().await;
+        self.core.store().close().await;
+    }
+
+    /// Resolves once the client is stopped: whoever follows its events lets them go.
+    pub fn stopped(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let mut stop = self.stop.subscribe();
+        async move {
+            let _ = stop.wait_for(|stopped| *stopped).await;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -106,5 +138,21 @@ mod tests {
     #[test]
     fn due_messages_are_checked_every_few_seconds() {
         assert!(RETRY_EVERY <= Duration::from_secs(5));
+    }
+
+    // Erasing the phone (2026-09-30): iOS cannot start the app again, so the running core stops
+    // in place. Nothing of the old identity may reach the router or the database afterwards.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_stopped_client_lets_go_of_the_router_and_the_database() {
+        let store = Store::open_in_memory().await.unwrap();
+        // Nothing listens there: registering is left retrying in the background.
+        let online = start(store, [7; 32], "http://127.0.0.1:9", SessionConfig::default()).await.unwrap();
+        assert!(online.core.store().contacts().await.is_ok());
+
+        online.shutdown().await;
+        assert!(online.router.is_closed());
+        assert!(online.core.store().contacts().await.is_err(), "the database is closed");
+        let stopped = tokio::time::timeout(Duration::from_secs(1), online.stopped()).await;
+        assert!(stopped.is_ok(), "whoever waits for the stop hears it");
     }
 }

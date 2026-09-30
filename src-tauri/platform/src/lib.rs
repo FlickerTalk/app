@@ -712,6 +712,20 @@ impl<R: Runtime> Platform<R> {
         BASE64.decode(key.value).ok().and_then(|bytes| bytes.try_into().ok()).ok_or(Error::Corrupt)
     }
 
+    /// Deletes the storage key from the OS key store (erasing the phone, 2026-09-30): the
+    /// Keychain item on iOS, which outlives the app; the Keystore key on Android. Nothing to do
+    /// on desktop, where the key is only a file.
+    pub fn forget_key(&self) -> Result<()> {
+        #[cfg(mobile)]
+        {
+            self.run("forgetKey", ())
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(())
+        }
+    }
+
     #[cfg(mobile)]
     fn ask(&self, command: &str, args: KeyBytes) -> Result<KeyBytes> {
         Ok(self.handle.run_mobile_plugin::<KeyBytes>(command, args)?)
