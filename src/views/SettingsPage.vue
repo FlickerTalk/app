@@ -13,6 +13,7 @@ import {
   IonPage,
   IonSelect,
   IonSelectOption,
+  IonSpinner,
   IonTitle,
   IonToggle,
   IonToolbar,
@@ -125,10 +126,22 @@ async function renew() {
   renewed.value = true;
 }
 
-// §78: it takes this device off the router and wipes the phone, so it asks first.
+// §78: it takes this device off the router and wipes the phone, so it asks first. Then the app
+// starts again at the welcome; until it does, the screen says the phone is being erased
+// (2026-09-30), and says so if it could not be.
+const erasing = ref(false);
+const eraseFailed = ref(false);
+
 async function erase() {
   asksToErase.value = false;
-  await erasePhone();
+  eraseFailed.value = false;
+  erasing.value = true;
+  try {
+    await erasePhone();
+  } catch {
+    erasing.value = false;
+    eraseFailed.value = true;
+  }
 }
 const appearance = ref(storedAppearance());
 
@@ -320,11 +333,16 @@ function chooseAppearance(id: Appearance) {
             <ion-label>{{ $t("settings.backup") }}</ion-label>
           </ion-item>
           <!-- §78: the router forgets this device and the phone is wiped. It asks first. -->
-          <ion-item v-if="!asksToErase" button lines="none" data-test="erase" @click="asksToErase = true">
+          <ion-item v-if="erasing" lines="none" data-test="erasing" role="status">
+            <span slot="start" class="ft-tile"><ion-spinner name="crescent" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.erasing") }}</ion-label>
+          </ion-item>
+          <ion-item v-else-if="!asksToErase" button lines="none" data-test="erase" @click="asksToErase = true">
             <span slot="start" class="ft-tile"><ion-icon :icon="trashOutline" aria-hidden="true" /></span>
             <ion-label>
               {{ $t("settings.erase") }}
               <p class="ft-muted">{{ $t("settings.eraseHint") }}</p>
+              <p v-if="eraseFailed" class="ft-erase__failed" role="alert">{{ $t("settings.eraseFailed") }}</p>
             </ion-label>
           </ion-item>
           <ion-item v-else lines="none" class="ft-erase">
@@ -412,6 +430,10 @@ function chooseAppearance(id: Appearance) {
   background: color-mix(in srgb, var(--ft-accent) 14%, transparent);
   color: var(--ft-accent);
   font-size: 18px;
+}
+
+.ft-erase__failed {
+  color: var(--ion-color-danger);
 }
 
 .ft-erase__cancel,

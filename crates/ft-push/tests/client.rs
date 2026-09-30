@@ -340,3 +340,55 @@ async fn only_a_call_signal_says_it_is_a_call() {
     assert_eq!(client.signal_call("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap(), Signalled::NotConnected);
     assert_eq!(*marked.lock().unwrap(), [false, true]);
 }
+
+// Erasing the phone (2026-09-30): iOS cannot start the app again, so the old identity's client is
+// closed in the running app. Its socket goes and is not opened again, and it asks nothing more.
+#[tokio::test]
+async fn a_closed_client_lets_its_socket_go_and_asks_nothing_more() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (counted, registered) = (connections.clone(), Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    let registrations = registered.clone();
+    let router = Router::new()
+        .route(
+            "/v1/connect",
+            get(move |upgrade: WebSocketUpgrade| {
+                let counted = counted.clone();
+                async move {
+                    upgrade.on_upgrade(move |mut socket| async move {
+                        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                        let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                    })
+                }
+            }),
+        )
+        .route(
+            "/v1/device/register",
+            post(move || {
+                let registrations = registrations.clone();
+                async move {
+                    registrations.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+
+    client.close();
+    assert!(client.is_closed());
+    let ended = tokio::time::timeout(Duration::from_secs(3), async { while events.recv().await.is_some() {} }).await;
+    assert!(ended.is_ok(), "the socket's events end");
+    client.reconnect_now();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1, "never opened again");
+    assert!(client.register(&eight()).await.is_err());
+    assert_eq!(registered.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reaches the router");
+}

@@ -1462,6 +1462,18 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /** Erasing the phone (2026-09-30): the Keystore key that sealed the storage key goes too. A
+     *  new one is made the next time a key is sealed. */
+    @Command
+    fun forgetKey(invoke: Invoke) {
+        try {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot forget the key")
+        }
+    }
+
     @Command
     fun openKey(invoke: Invoke) {
         try {

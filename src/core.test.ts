@@ -312,6 +312,23 @@ describe("core bridge", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_erase");
   });
 
+  // §78, 2026-09-30: an erased phone starts again like a new install, at the welcome, with
+  // nothing this phone chose before (the call routing, the colours).
+  it("forgets what this phone chose once it is erased, so the welcome comes again", async () => {
+    localStorage.setItem("ft-onboarded", "1");
+    localStorage.setItem("ft-call-routing", "always");
+    await core.erasePhone();
+    expect(localStorage.getItem("ft-onboarded")).toBeNull();
+    expect(localStorage.getItem("ft-call-routing")).toBeNull();
+  });
+
+  it("keeps what this phone chose when the core could not erase it", async () => {
+    localStorage.setItem("ft-onboarded", "1");
+    tauri.invoke.mockRejectedValueOnce(new Error("disk"));
+    await expect(core.erasePhone()).rejects.toThrow();
+    expect(localStorage.getItem("ft-onboarded")).toBe("1");
+  });
+
   // The WebView's own file input leaves the user outside the app on Android; the phone's picker
   // hands back files that are already in the app's folder.
   it("sends what the system picker gave, without passing the bytes through the WebView", async () => {
