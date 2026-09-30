@@ -47,4 +47,25 @@ describe("scanner", () => {
     expect(await reading).toBeNull();
     expect(scanner.active).toBe(false);
   });
+
+  // tauri-plugin-barcode-scanner 2.4.6 (and 2.5.0) on Android forgets the pending scan before
+  // rejecting it in `cancel`, so `scan` never settles: the camera closed but the see-through
+  // overlay stayed on screen with no way out.
+  it("gets out on cancel even when the plugin never settles the scan (Android)", async () => {
+    plugin.cancel.mockImplementationOnce(async () => {});
+    const reading = scanQr();
+    await cancelScan();
+    expect(await reading).toBeNull();
+    expect(scanner.active).toBe(false);
+    expect(document.documentElement.classList.contains("ft-scanning")).toBe(false);
+  });
+
+  it("a late result from a cancelled scan does not reopen the overlay", async () => {
+    plugin.cancel.mockImplementationOnce(async () => {});
+    const reading = scanQr();
+    await cancelScan();
+    plugin.read("https://flickertalk.com/add#late");
+    expect(await reading).toBeNull();
+    expect(scanner.active).toBe(false);
+  });
 });

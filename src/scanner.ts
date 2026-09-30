@@ -15,19 +15,29 @@ function show(active: boolean) {
   document.documentElement.classList.toggle(SCANNING_CLASS, active);
 }
 
+/** Ends the scan in progress with `null`; set while one is open. */
+let giveUp: (() => void) | null = null;
+
 /** What the camera read, or `null` if cancelled (or there is no camera). */
 export async function scanQr(): Promise<string | null> {
   show(true);
+  const cancelled = new Promise<null>((resolve) => {
+    giveUp = () => resolve(null);
+  });
   try {
-    const read = await scan({ windowed: true, formats: [Format.QRCode] });
-    return read.content;
+    // The cancel wins by itself: on Android the plugin (2.4.6, 2.5.0) drops the pending scan
+    // before rejecting it, so `scan` never settles after `cancel`.
+    const read = await Promise.race([scan({ windowed: true, formats: [Format.QRCode] }), cancelled]);
+    return read?.content ?? null;
   } catch {
     return null;
   } finally {
+    giveUp = null;
     show(false);
   }
 }
 
 export async function cancelScan(): Promise<void> {
+  giveUp?.();
   await cancel();
 }
