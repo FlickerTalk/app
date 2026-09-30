@@ -143,6 +143,44 @@ jobs:
           path: out/
           retention-days: 14
 
+  # The App Store gets a release build, and the 1.2.1 one died at every launch while the debug
+  # build ran fine (tao freed the UISceneConfiguration it handed to UIKit, 2026-09-30). This builds
+  # the release for the simulator, unsigned and without secrets, and fails if it does not stay up.
+  ios:
+    needs: [web, rust]
+    # Xcode 27.0 (27A266a), as the store builds: with the macos-26 image's Xcode 26.6 the app does
+    # not link (VideoToolbox's symbols from webrtc-engine are left undefined).
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios-sim
+          # swift-rs (patched in Cargo.toml) re-exports its runtime with llvm-objcopy.
+          components: llvm-tools
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ios-sim
+      - run: npm ci
+      - name: Release build for the simulator
+        env:
+          # Never published: no Google client id (src-tauri/google_client_check.rs).
+          TAURI_FT_ALLOW_NO_GOOGLE_CLIENT: "1"
+        run: npm run tauri ios build -- --target aarch64-sim --ci
+      - name: Launch check
+        run: scripts/ios-sim-smoke.sh "" 30
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-crash-reports
+          path: ~/Library/Logs/DiagnosticReports/FlickerTalk*.ips
+          retention-days: 7
+
   publish:
     needs: android
     if: github.event_name == 'push'
