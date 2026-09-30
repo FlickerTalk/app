@@ -75,14 +75,49 @@ entropía, y ninguno lleva ni el nombre ni un byte del documento.
 
 ## Lo que falta y lo que está sin probar en dispositivo
 
-- **Cliente OAuth de Google** (2026-09-27): cliente de tipo Android en el proyecto de Firebase, con
-  «Enable custom URI scheme» activado (Google lo marca como no recomendado en Android; así un solo
-  cliente vale para cualquier firma), redirección `com.googleusercontent.apps.<id>:/oauth2redirect`.
-  Se pasa en `FT_GOOGLE_CLIENT_ID` al compilar. La pantalla de consentimiento está **en pruebas**:
-  solo entran los usuarios de prueba dados de alta; falta la verificación de Google para publicar.
-  Pasar Android a `AuthorizationClient` de Play Services y el cliente de iOS van después de
-  producción (decisión de Ioan).
-- **Swift** (`authorize` en iOS) sin compilar: no hay Xcode aquí. El Kotlin está probado.
+- **Clientes OAuth de Google** (actualizado el 2026-09-30, versión 1.2.2): uno **por plataforma**,
+  en el proyecto de Google Cloud `flickertalk-64858`. Los id de cliente de una app instalada son
+  identificadores públicos, no secretos, pero no se escriben en el código: se inyectan al compilar.
+  - **Android**: cliente de tipo Android con «Enable custom URI scheme» activado (Google lo marca
+    como no recomendado en Android; así un solo cliente vale para cualquier firma). Variable
+    `FT_GOOGLE_CLIENT_ID`; la lee el núcleo (`option_env!`) y `build.gradle.kts` pone su esquema en
+    el manifiesto del puente (`${googleRedirectScheme}`).
+  - **iOS** (creado el 2026-09-30): cliente de tipo iOS, bundle `com.flickertalk.app`. Variable
+    `FT_GOOGLE_IOS_CLIENT_ID`. En iOS el núcleo usa este y **nunca** cae en el de Android
+    (`google_client_for` en `crates/ft-core/src/vault.rs`).
+  - **Redirección**, igual en las dos: el id del cliente al revés,
+    `com.googleusercontent.apps.<prefijo del id>:/oauth2redirect` (la forma que documenta Google
+    para apps instaladas: «OAuth 2.0 for Mobile & Desktop Apps», *Custom URI scheme*). La
+    construye `google_login`, con PKCE S256 y solo el ámbito `drive.file`; tests para cada
+    plataforma.
+  - **iOS no necesita `CFBundleURLTypes`**: `ASWebAuthenticationSession` recibe la vuelta porque el
+    puente le pasa el esquema en `callbackURLScheme`. Lo dice la cabecera del SDK de Apple
+    (`AuthenticationServices/ASWebAuthenticationSession.h`, iOS 27): «For the app to receive the
+    callback URL, it needs to either register the custom URL scheme in its Info.plist, or set the
+    scheme to callbackURLScheme argument in the initializer». Por eso `Info.ios.plist` no cambia.
+  - **Dónde están**: `infra/.env` (`FT_GOOGLE_CLIENT_ID`, `FT_GOOGLE_IOS_CLIENT_ID`; el JSON del
+    cliente de Android en `infra/secrets/google-oauth-android-client.json`) y, para CI, los dos
+    como secretos del entorno `release` de GitHub. El job de Android recibe `FT_GOOGLE_CLIENT_ID`;
+    no hay job de iOS (se compila en un Mac con la variable exportada).
+  - **`tauri ios build` no pasa las variables**: la CLI de Tauri (2.11, `mobile::env_vars`) da al
+    build de Xcode, y con él a cargo, un entorno limpio con solo `TAURI*`, `WRY*`, `CARGO_*`,
+    `RUST_*`, `TMPDIR` y `PATH`. Por eso el núcleo y la comprobación leen también
+    `TAURI_FT_GOOGLE_IOS_CLIENT_ID` (y `TAURI_FT_GOOGLE_CLIENT_ID`, `TAURI_FT_ALLOW_NO_GOOGLE_CLIENT`);
+    el nombre sin prefijo gana. Para iOS: `export TAURI_FT_GOOGLE_IOS_CLIENT_ID=$FT_GOOGLE_IOS_CLIENT_ID`
+    antes de `tauri ios build` (`scripts/ios-build.sh` lo hace solo). En Android, Gradle hereda el
+    entorno entero y basta `FT_GOOGLE_CLIENT_ID`.
+  - **Comprobación al compilar** (`src-tauri/build.rs`, lógica y tests en
+    `src-tauri/google_client_check.rs`): una build **release** para Android o iOS **no compila**
+    si falta el id de su plataforma o no tiene la forma `<id>.apps.googleusercontent.com`; una
+    **debug** solo avisa. Una release que nunca se publica (el build sin firmar de un PR, sin
+    secretos) lo dice con `FT_ALLOW_NO_GOOGLE_CLIENT=1`. Las builds de tienda de la 1.2.1 salieron
+    sin el id y «Conectar Google Drive» fallaba en las dos plataformas.
+  - **Pantalla de consentimiento**: **en producción** desde el 2026-09-30, solo con el ámbito no
+    sensible `https://www.googleapis.com/auth/drive.file`, así que entra cualquier cuenta sin
+    verificación de Google. La app pide ese ámbito y ningún otro (test). Pasar Android a
+    `AuthorizationClient` de Play Services queda para después.
+- El login en iOS se probó en el simulador hasta el selector de cuentas de Google (2026-09-30);
+  el ciclo completo con una cuenta, en el iPhone, sin probar.
 - Restaurar una copia en otro teléfono, sin probar en dispositivo.
 - **Subidas largas en segundo plano** (servicio en primer plano en Android): pendiente; hoy una
   subida grande necesita la app en pantalla y, si Android la mata, queda pendiente y se reintenta.

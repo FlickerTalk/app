@@ -7,7 +7,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 
 /*
  * Taps on our notifications' buttons (2026-09-29). They used to ride as an extra on the launcher's
@@ -116,9 +115,7 @@ fun handOver(context: Context, intent: Intent?) {
         NotificationTap.REMINDER -> tappedReminder.put(intent?.getStringExtra(REMINDER_KEY))
     }
     tapCallEvent(tap)?.let { CallEvents.emit(it) }
-    val opens = tapOpensApp(tap, listening)
-    if (CALL_DIAGNOSTICS) Log.i("FtCallDiag", "notification tap: ${tap.name.lowercase()}; core listening=$listening; opens app=$opens")
-    if (opens) openApp(context)
+    if (tapOpensApp(tap, listening)) openApp(context)
 }
 
 /**

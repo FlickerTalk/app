@@ -365,7 +365,6 @@ enum CallIntentActivities {
 
     static func heard(_ activity: NSUserActivity) {
         guard asksForVideo(activity) else { return }
-        diagnose("callkit video button: video asked for")
         CallEvents.shared.emit(.videoRequested)
     }
 

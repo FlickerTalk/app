@@ -388,13 +388,6 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertFalse(configuration.includesCallsInRecents)
     }
 
-    // Temporary diagnostics (2026-09-28): the audio session is described by state and port types
-    // only, never by a device's name.
-    func testTheAudioSessionIsDescribedWithoutNames() {
-        let summary = audioSessionSummary(category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeVoiceChat", outputs: ["Receiver"], inputs: ["MicrophoneBuiltIn"])
-        XCTAssertEqual(summary, "category=AVAudioSessionCategoryPlayAndRecord mode=AVAudioSessionModeVoiceChat out=Receiver in=MicrophoneBuiltIn")
-    }
-
     // Bug of 2026-09-29: with the app closed, CallKit (rung by PushKit) was declined before the
     // offer came; the core had nothing to end, and the offer then rang again. CallKit's end of an
     // incoming call whose voice never connected is a decline, which waits for the offer and
