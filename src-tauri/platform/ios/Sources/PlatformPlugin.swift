@@ -130,7 +130,7 @@ enum KeychainError: Error {
     case notFound
 }
 
-private func keyQuery() -> [String: Any] {
+func keyQuery() -> [String: Any] {
     [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: keyService,
@@ -138,7 +138,7 @@ private func keyQuery() -> [String: Any] {
     ]
 }
 
-private func storeKey(_ key: Data) throws {
+func storeKey(_ key: Data) throws {
     SecItemDelete(keyQuery() as CFDictionary)
     var item = keyQuery()
     item[kSecValueData as String] = key
@@ -147,7 +147,7 @@ private func storeKey(_ key: Data) throws {
     guard status == errSecSuccess else { throw KeychainError.status(status) }
 }
 
-private func loadKey() throws -> Data {
+func loadKey() throws -> Data {
     var query = keyQuery()
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne

@@ -237,6 +237,18 @@ describe("ChatThread", () => {
     ]);
   });
 
+  // 2026-09-30: a phone with no camera (the iOS simulator) or that does not allow it says so,
+  // instead of a button that does nothing.
+  it("says so when no photo can be taken", async () => {
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const answer = internals.invoke;
+    internals.invoke = (command, args) => (command === "core_take_photo" ? Promise.reject(new Error("no camera on this device")) : answer(command, args));
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    await wrapper.find("[aria-label='Take a photo']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[role='alert']").text()).toBe("Can't take a photo: the camera is not available or not allowed");
+  });
+
   // Issue app#3: the plugins live behind the apps button of the header, and each one does its
   // thing inside its own window.
   it("opens a plugin from the apps button", async () => {
