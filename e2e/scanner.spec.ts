@@ -72,6 +72,12 @@ test("a camera refused for good points to the system settings", async ({ app }) 
   await camera(app, "denied");
   await tapScan(app);
   await expect(app.getByTestId("camera-refused")).toContainText("Settings");
+  // The close button stays at the top corner, not pushed under the settings button (seen on a
+  // Samsung, 2026-10-01).
+  const close = await app.getByTestId("camera-refused").getByLabel("Close").boundingBox();
+  const settings = await app.getByTestId("camera-settings").boundingBox();
+  expect(close!.y + close!.height).toBeLessThanOrEqual(settings!.y);
+  expect(close!.x).toBeGreaterThan(settings!.x + settings!.width);
   await app.getByTestId("camera-settings").click();
   expect(await commandsSent(app)).toContain("plugin:barcode-scanner|open_app_settings");
   await expect(app.getByTestId("camera-refused")).toBeHidden();
