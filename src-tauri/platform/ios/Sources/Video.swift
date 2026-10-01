@@ -318,22 +318,50 @@ final class CallVideoViews {
     }
 }
 
+/// What a lifecycle notification tells the core (2026-10-01): entering the background, the app
+/// left the foreground (the core holds our camera and lets go of the router, so that the router
+/// pushes what comes); becoming active, it is back. Resigning active (CallKit's screen over the
+/// app, the notification centre pulled down) is neither: the app is still on the screen.
+func visibilityEvent(_ name: Notification.Name) -> CallEvent? {
+    switch name {
+    case UIApplication.didEnterBackgroundNotification: return .visible(false)
+    case UIApplication.didBecomeActiveNotification: return .visible(true)
+    default: return nil
+    }
+}
+
+/// How long the app asks iOS to keep running after it enters the background: the core lets go of
+/// the router and the other phones in milliseconds, but iOS may suspend the app sooner than that.
+let leavingHold: TimeInterval = 3
+
 /// Whether the app is on the screen, for the core (`NativeCallEvent::Visible`): the camera only
-/// runs with the app in front. Installed when the plugin loads; main thread.
+/// runs with the app in front, and out of the foreground the core lets go of the router
+/// (2026-10-01). Installed when the plugin loads; main thread.
 enum AppVisibility {
     private static var observers: [NSObjectProtocol] = []
 
     static func install() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
-        observers = [
-            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-                CallEvents.shared.offer(.visible(true))
-            },
-            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
-                CallEvents.shared.offer(.visible(false))
-            },
-        ]
+        observers = [UIApplication.didBecomeActiveNotification, UIApplication.didEnterBackgroundNotification].map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { note in
+                guard let event = visibilityEvent(note.name) else { return }
+                if event == .visible(false) { holdWhileLeaving() }
+                CallEvents.shared.offer(event)
+            }
+        }
+    }
+
+    /// A moment of background time, so that the core has let go before iOS suspends the app.
+    private static func holdWhileLeaving() {
+        var task = UIBackgroundTaskIdentifier.invalid
+        let end = {
+            guard task != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
+        task = UIApplication.shared.beginBackgroundTask(withName: "ft.leaving", expirationHandler: end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + leavingHold, execute: end)
     }
 
     /// The core registered: it hears where the app is now.

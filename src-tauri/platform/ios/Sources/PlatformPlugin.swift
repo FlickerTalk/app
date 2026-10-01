@@ -269,7 +269,7 @@ enum CallEvent: Equatable {
     case audioActivated(UInt64)
     case audioDeactivated(UInt64)
     /// Native video (2026-09-29): the app came to the screen or left it; the core holds our
-    /// camera while it is away (iOS stops it anyway).
+    /// camera while it is away (iOS stops it anyway), and lets go of the router (2026-10-01).
     case visible(Bool)
     /// The phone turned: `UIDeviceOrientation.rawValue`, for the rotation our frames carry.
     case orientation(Int)

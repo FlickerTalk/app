@@ -1275,7 +1275,10 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         if (InCall.active) InCall.service?.promote()
     }
 
-    /** Off the screen: the core holds our camera until the app is back (native video). */
+    /**
+     * Off the screen: the core holds our camera until the app is back (native video), and lets go
+     * of the router and the other phones unless a call is going on (2026-10-01).
+     */
     override fun onPause() {
         super.onPause()
         InCall.appVisible = false
