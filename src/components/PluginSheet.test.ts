@@ -143,6 +143,56 @@ describe("PluginSheet", () => {
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q8", answer: true }, "*");
   });
 
+  // 2026-10-01 (§108): opened inside a hidden session, everything the plugin keeps, sets or looks
+  // up is the session's: the core is told where, the plugin is not.
+  it("tells the core the session the plugin is open in, for all it keeps", async () => {
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_plugin_record_usage") return Promise.resolve([0, 4096]);
+      if (command === "core_plugin_open_chat") return Promise.resolve(null);
+      return Promise.resolve(command === "core_remind_list" ? [] : null);
+    });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", session: "s1" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    const asked = [
+      { type: "ft.recordSet", id: "q1", key: "board/1", value: "x" },
+      { type: "ft.recordGet", id: "q2", key: "board/1" },
+      { type: "ft.recordKeys", id: "q3", prefix: "" },
+      { type: "ft.recordUsage", id: "q4" },
+      { type: "ft.recordForget", id: "q5", key: "board/1" },
+      { type: "ft.write", id: "q6", key: "pen", value: "black" },
+      { type: "ft.read", id: "q7", key: "pen" },
+      { type: "ft.forget", id: "q8", key: "pen" },
+      { type: "ft.remindSet", id: "q9", reminder: "r1", at: 5, text: "milk" },
+      { type: "ft.remindCancel", id: "q10", reminder: "r1" },
+      { type: "ft.remindList", id: "q11" },
+      { type: "ft.openChat", id: "q12", ref: "ref_1" },
+    ];
+    for (const question of asked) says(question);
+    await flushPromises();
+
+    const commands = [
+      "core_plugin_record_set",
+      "core_plugin_record_get",
+      "core_plugin_record_keys",
+      "core_plugin_record_usage",
+      "core_plugin_record_forget",
+      "core_plugin_write",
+      "core_plugin_read",
+      "core_plugin_forget",
+      "core_remind_set",
+      "core_remind_cancel",
+      "core_remind_list",
+      "core_plugin_open_chat",
+    ];
+    for (const command of commands) {
+      expect(tauri.invoke).toHaveBeenCalledWith(command, expect.objectContaining({ plugin: plugin.id, session: "s1" }));
+    }
+    // What the frame hears says nothing of a session.
+    for (const [message] of post.mock.calls) expect(JSON.stringify(message)).not.toContain("s1");
+  });
+
   // 2026-09-27: what the plugin says over the channel goes through the core, only with the
   // grant and a contact; what the other side said is handed to the frame.
   it("carries the live channel both ways, only when it may", async () => {

@@ -2090,10 +2090,13 @@ async fn update_installed_plugins(core: &Arc<ft_core::Core>) {
     }
 }
 
+// `session` (2026-10-01, §108): the hidden session the plugin is open in, if any. What it keeps,
+// sets or looks up belongs to that place, and the core refuses a session that is not open.
+
 /// What a plugin remembers between two openings; its frame has no storage of its own (§53).
 #[tauri::command]
-pub async fn core_plugin_read(plugin: String, key: String, client: State<'_, Client>) -> Result<Option<String>, String> {
-    client.core().await?.plugin_remembers(&plugin, None, &key).await.map_err(failed)
+pub async fn core_plugin_read(plugin: String, key: String, session: Option<String>, client: State<'_, Client>) -> Result<Option<String>, String> {
+    client.core().await?.plugin_remembers(&plugin, session.as_deref(), &key).await.map_err(failed)
 }
 
 #[tauri::command]
@@ -2101,45 +2104,52 @@ pub async fn core_plugin_write(
     plugin: String,
     key: String,
     value: String,
+    session: Option<String>,
     client: State<'_, Client>,
 ) -> Result<(), String> {
-    client.core().await?.plugin_remember(&plugin, None, &key, &value).await.map_err(failed)
+    client.core().await?.plugin_remember(&plugin, session.as_deref(), &key, &value).await.map_err(failed)
 }
 
 #[tauri::command]
-pub async fn core_plugin_forget(plugin: String, key: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.plugin_forget(&plugin, None, &key).await.map_err(failed)
+pub async fn core_plugin_forget(plugin: String, key: String, session: Option<String>, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.plugin_forget(&plugin, session.as_deref(), &key).await.map_err(failed)
 }
 
 // ---- Records, refs, reminders, the live channel and "open with" (2026-09-27) ----
 
 /// A record of a plugin, as base64: bytes the core never reads.
 #[tauri::command]
-pub async fn core_plugin_record_get(plugin: String, key: String, client: State<'_, Client>) -> Result<Option<String>, String> {
-    let value = client.core().await?.plugin_record(&plugin, None, &key).await.map_err(failed)?;
+pub async fn core_plugin_record_get(plugin: String, key: String, session: Option<String>, client: State<'_, Client>) -> Result<Option<String>, String> {
+    let value = client.core().await?.plugin_record(&plugin, session.as_deref(), &key).await.map_err(failed)?;
     Ok(value.map(|bytes| BASE64.encode(bytes)))
 }
 
 #[tauri::command]
-pub async fn core_plugin_record_set(plugin: String, key: String, value: String, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_plugin_record_set(
+    plugin: String,
+    key: String,
+    value: String,
+    session: Option<String>,
+    client: State<'_, Client>,
+) -> Result<(), String> {
     let bytes = BASE64.decode(value.as_bytes()).map_err(|_| "that value is not base64".to_owned())?;
-    client.core().await?.plugin_record_set(&plugin, None, &key, &bytes).await.map_err(failed)
+    client.core().await?.plugin_record_set(&plugin, session.as_deref(), &key, &bytes).await.map_err(failed)
 }
 
 #[tauri::command]
-pub async fn core_plugin_record_forget(plugin: String, key: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.plugin_record_forget(&plugin, None, &key).await.map_err(failed)
+pub async fn core_plugin_record_forget(plugin: String, key: String, session: Option<String>, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.plugin_record_forget(&plugin, session.as_deref(), &key).await.map_err(failed)
 }
 
 #[tauri::command]
-pub async fn core_plugin_record_keys(plugin: String, prefix: String, client: State<'_, Client>) -> Result<Vec<String>, String> {
-    client.core().await?.plugin_record_keys(&plugin, None, &prefix).await.map_err(failed)
+pub async fn core_plugin_record_keys(plugin: String, prefix: String, session: Option<String>, client: State<'_, Client>) -> Result<Vec<String>, String> {
+    client.core().await?.plugin_record_keys(&plugin, session.as_deref(), &prefix).await.map_err(failed)
 }
 
-/// How much of its room a plugin uses and how much it has, in bytes.
+/// How much of its room a plugin uses in that place and how much it has, in bytes.
 #[tauri::command]
-pub async fn core_plugin_record_usage(plugin: String, client: State<'_, Client>) -> Result<(u64, u64), String> {
-    client.core().await?.plugin_records_usage(&plugin, None).await.map_err(failed)
+pub async fn core_plugin_record_usage(plugin: String, session: Option<String>, client: State<'_, Client>) -> Result<(u64, u64), String> {
+    client.core().await?.plugin_records_usage(&plugin, session.as_deref()).await.map_err(failed)
 }
 
 /// An opaque handle for the message the user hands a plugin (2026-09-27).
@@ -2157,35 +2167,64 @@ pub struct RefTargetView {
 }
 
 #[tauri::command]
-pub async fn core_plugin_open_chat(plugin: String, reference: String, client: State<'_, Client>) -> Result<Option<RefTargetView>, String> {
-    let target = client.core().await?.plugin_ref_target(&plugin, None, &reference).await.map_err(failed)?;
+pub async fn core_plugin_open_chat(
+    plugin: String,
+    reference: String,
+    session: Option<String>,
+    client: State<'_, Client>,
+) -> Result<Option<RefTargetView>, String> {
+    let target = client.core().await?.plugin_ref_target(&plugin, session.as_deref(), &reference).await.map_err(failed)?;
     Ok(target.map(|target| RefTargetView { contact: target.contact, message: target.message_id }))
 }
 
 /// A reminder a plugin sets or moves (2026-09-27); the phone's alarm clock is told through the event.
 #[tauri::command]
-pub async fn core_remind_set(plugin: String, id: String, at: i64, text: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.set_reminder(&plugin, None, &id, at, &text).await.map_err(failed)
+pub async fn core_remind_set(
+    plugin: String,
+    id: String,
+    at: i64,
+    text: String,
+    session: Option<String>,
+    client: State<'_, Client>,
+) -> Result<(), String> {
+    client.core().await?.set_reminder(&plugin, session.as_deref(), &id, at, &text).await.map_err(failed)
 }
 
 #[tauri::command]
-pub async fn core_remind_cancel(plugin: String, id: String, client: State<'_, Client>) -> Result<bool, String> {
-    client.core().await?.cancel_reminder(&plugin, None, &id).await.map_err(failed)
+pub async fn core_remind_cancel(plugin: String, id: String, session: Option<String>, client: State<'_, Client>) -> Result<bool, String> {
+    client.core().await?.cancel_reminder(&plugin, session.as_deref(), &id).await.map_err(failed)
 }
 
 #[tauri::command]
-pub async fn core_remind_list(plugin: String, client: State<'_, Client>) -> Result<Vec<ReminderView>, String> {
-    let reminders = client.core().await?.plugin_reminders(&plugin, None).await.map_err(failed)?;
+pub async fn core_remind_list(plugin: String, session: Option<String>, client: State<'_, Client>) -> Result<Vec<ReminderView>, String> {
+    let reminders = client.core().await?.plugin_reminders(&plugin, session.as_deref()).await.map_err(failed)?;
     Ok(reminders
         .into_iter()
         .map(|reminder| ReminderView { plugin: reminder.plugin, id: reminder.id, at: reminder.at, text: reminder.text })
         .collect())
 }
 
-/// The reminder the user tapped to open the app, as `plugin\nid`, once.
+/// The reminder the user tapped to open the app, once.
+#[derive(Serialize)]
+pub struct TappedReminderView {
+    plugin: String,
+    id: String,
+    /// The hidden session it was set in (2026-10-01, §108): the plugin opens there.
+    session: Option<String>,
+}
+
+/// The native side says which reminder was tapped as `plugin\nid`; the core says where it was set,
+/// if it may still ring (a closed session's never does).
 #[tauri::command]
-pub async fn core_pending_reminder(app: AppHandle) -> Result<String, String> {
-    Ok(app.platform().pending_reminder().unwrap_or_default())
+pub async fn core_pending_reminder(app: AppHandle, client: State<'_, Client>) -> Result<Option<TappedReminderView>, String> {
+    let tapped = app.platform().pending_reminder().unwrap_or_default();
+    let Some((plugin, id)) = tapped.split_once('\n') else { return Ok(None) };
+    // The tap is taken already: a core that cannot answer opens the plugin in the main list.
+    let ringing = match client.core().await {
+        Ok(core) => core.ringing_reminder(plugin, id).await.ok().flatten(),
+        Err(_) => None,
+    };
+    Ok(Some(TappedReminderView { plugin: plugin.to_owned(), id: id.to_owned(), session: ringing.and_then(|reminder| reminder.session) }))
 }
 
 /// What a plugin says to its twin on the contact's phone (2026-09-27, `ft.live`): only over

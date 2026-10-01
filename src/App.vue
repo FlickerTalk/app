@@ -8,12 +8,15 @@ import ScannerOverlay from "./components/ScannerOverlay.vue";
 import { enablePush, pendingReminder, resumeRouter } from "./core";
 import { isOnboarded } from "./preferences";
 
-// A reminder notification opened the app (2026-09-27): straight to the plugin that set it. Asked
-// when the app starts and each time it comes back, since a tap may only bring it to the front.
+// A reminder notification opened the app (2026-09-27): straight to the plugin that set it, in the
+// hidden session it was set in if it was (2026-10-01, §108). Asked when the app starts and each
+// time it comes back, since a tap may only bring it to the front.
 const router = useRouter();
 async function openTappedReminder() {
   const tapped = await pendingReminder();
-  if (tapped) await router.push(`/plugin/${tapped.plugin}?reminder=${encodeURIComponent(tapped.id)}`);
+  if (!tapped) return;
+  const session = tapped.session ? `&session=${encodeURIComponent(tapped.session)}` : "";
+  await router.push(`/plugin/${tapped.plugin}?reminder=${encodeURIComponent(tapped.id)}${session}`);
 }
 // iOS cuts the socket of a suspended app (2026-09-28): back on the screen, or opened from a push,
 // reconnect at once, and the router's welcome fetches what waits. The push token goes over again
