@@ -2093,7 +2093,7 @@ async fn update_installed_plugins(core: &Arc<ft_core::Core>) {
 /// What a plugin remembers between two openings; its frame has no storage of its own (§53).
 #[tauri::command]
 pub async fn core_plugin_read(plugin: String, key: String, client: State<'_, Client>) -> Result<Option<String>, String> {
-    client.core().await?.plugin_remembers(&plugin, &key).await.map_err(failed)
+    client.core().await?.plugin_remembers(&plugin, None, &key).await.map_err(failed)
 }
 
 #[tauri::command]
@@ -2103,12 +2103,12 @@ pub async fn core_plugin_write(
     value: String,
     client: State<'_, Client>,
 ) -> Result<(), String> {
-    client.core().await?.plugin_remember(&plugin, &key, &value).await.map_err(failed)
+    client.core().await?.plugin_remember(&plugin, None, &key, &value).await.map_err(failed)
 }
 
 #[tauri::command]
 pub async fn core_plugin_forget(plugin: String, key: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.plugin_forget(&plugin, &key).await.map_err(failed)
+    client.core().await?.plugin_forget(&plugin, None, &key).await.map_err(failed)
 }
 
 // ---- Records, refs, reminders, the live channel and "open with" (2026-09-27) ----
@@ -2158,24 +2158,24 @@ pub struct RefTargetView {
 
 #[tauri::command]
 pub async fn core_plugin_open_chat(plugin: String, reference: String, client: State<'_, Client>) -> Result<Option<RefTargetView>, String> {
-    let target = client.core().await?.plugin_ref_target(&plugin, &reference).await.map_err(failed)?;
+    let target = client.core().await?.plugin_ref_target(&plugin, None, &reference).await.map_err(failed)?;
     Ok(target.map(|target| RefTargetView { contact: target.contact, message: target.message_id }))
 }
 
 /// A reminder a plugin sets or moves (2026-09-27); the phone's alarm clock is told through the event.
 #[tauri::command]
 pub async fn core_remind_set(plugin: String, id: String, at: i64, text: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.set_reminder(&plugin, &id, at, &text).await.map_err(failed)
+    client.core().await?.set_reminder(&plugin, None, &id, at, &text).await.map_err(failed)
 }
 
 #[tauri::command]
 pub async fn core_remind_cancel(plugin: String, id: String, client: State<'_, Client>) -> Result<bool, String> {
-    client.core().await?.cancel_reminder(&plugin, &id).await.map_err(failed)
+    client.core().await?.cancel_reminder(&plugin, None, &id).await.map_err(failed)
 }
 
 #[tauri::command]
 pub async fn core_remind_list(plugin: String, client: State<'_, Client>) -> Result<Vec<ReminderView>, String> {
-    let reminders = client.core().await?.plugin_reminders(&plugin).await.map_err(failed)?;
+    let reminders = client.core().await?.plugin_reminders(&plugin, None).await.map_err(failed)?;
     Ok(reminders
         .into_iter()
         .map(|reminder| ReminderView { plugin: reminder.plugin, id: reminder.id, at: reminder.at, text: reminder.text })
