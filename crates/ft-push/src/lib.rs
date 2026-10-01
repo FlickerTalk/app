@@ -129,6 +129,8 @@ pub struct RouterClient {
     link: std::sync::Mutex<Link>,
     /// Closed for good (`close`).
     closed: tokio::sync::watch::Sender<bool>,
+    /// The app is away from the foreground (`set_away`): no socket until it is back.
+    away: tokio::sync::watch::Sender<bool>,
 }
 
 /// The router's socket, and since when (wall clock).
@@ -166,6 +168,7 @@ impl RouterClient {
             again: Arc::default(),
             link: std::sync::Mutex::new(Link::Down),
             closed: tokio::sync::watch::Sender::new(false),
+            away: tokio::sync::watch::Sender::new(false),
         })
     }
 
@@ -173,6 +176,9 @@ impl RouterClient {
     /// socket of a suspended app and the phone may take long to notice; when the app is back on
     /// the screen, or a push was tapped, the welcome of a fresh connection fetches what waits.
     pub fn reconnect_now(&self) {
+        if self.is_away() {
+            return;
+        }
         self.again.notify_one();
     }
 
@@ -201,6 +207,19 @@ impl RouterClient {
 
     pub fn is_closed(&self) -> bool {
         *self.closed.borrow()
+    }
+
+    /// The app left the foreground, or came back (2026-10-01). Away, the socket goes at once and
+    /// is not opened again (not even by `reconnect_now`): the router knows this phone is gone and
+    /// pushes for what comes, instead of handing it to a socket a suspended app cannot read. Back,
+    /// it opens at once. Requests (registering, signals, the mailbox) still go. Returns whether it
+    /// changed anything.
+    pub fn set_away(&self, away: bool) -> bool {
+        self.away.send_if_modified(|now| std::mem::replace(now, away) != away)
+    }
+
+    pub fn is_away(&self) -> bool {
+        *self.away.borrow()
     }
 
     async fn send(&self, request: RequestBuilder) -> Result<reqwest::Response> {
@@ -331,14 +350,24 @@ impl RouterClient {
     }
 
     /// Keeps a signed WebSocket open with the router, reconnecting when it drops, until the
-    /// receiver is dropped or the client is closed (then the events end).
+    /// receiver is dropped or the client is closed (then the events end). None while away.
     pub fn listen(self: &Arc<Self>) -> mpsc::Receiver<RouterEvent> {
         let (events, receiver) = mpsc::channel(64);
         let client = self.clone();
         let mut closed = self.closed.subscribe();
+        let mut away = self.away.subscribe();
         tokio::spawn(async move {
             let mut backoff = Duration::from_secs(1);
             while !client.is_closed() {
+                if client.is_away() {
+                    // Asking to reconnect means nothing while away.
+                    tokio::select! {
+                        _ = away.wait_for(|away| !*away) => backoff = Duration::from_secs(1),
+                        _ = client.again.notified() => {}
+                        _ = closed.wait_for(|closed| *closed) => return,
+                    }
+                    continue;
+                }
                 client.set_link(Link::Opening(SystemTime::now()));
                 let asked = tokio::select! {
                     result = client.connection(&events) => {
@@ -349,6 +378,7 @@ impl RouterClient {
                         false
                     }
                     _ = client.again.notified() => true,
+                    _ = away.wait_for(|away| *away) => true,
                     _ = closed.wait_for(|closed| *closed) => false,
                 };
                 client.set_link(Link::Down);
@@ -362,6 +392,7 @@ impl RouterClient {
                 tokio::select! {
                     _ = tokio::time::sleep(backoff) => {}
                     _ = client.again.notified() => backoff = Duration::from_secs(1),
+                    _ = away.wait_for(|away| *away) => {}
                     _ = closed.wait_for(|closed| *closed) => return,
                 }
             }
