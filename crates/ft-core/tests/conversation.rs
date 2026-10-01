@@ -973,6 +973,40 @@ async fn a_closed_session_leaves_no_calls_in_the_history() {
     assert_eq!(bob.visible_calls(100).await.expect("lists").len(), 1, "the session's history is back");
 }
 
+// 2026-10-01 (§108): a session the user left open is still open after the app starts again
+// (closed, killed, the phone restarted): its messages make noise and its calls ring, as the main
+// list's, with no PIN typed.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_session_still_notifies_and_rings_after_a_restart() {
+    let net = Net::new();
+    let path = scratch("open-session-restart").join("flickertalk.db");
+    let alice = device(&net, "Alice").await;
+    {
+        let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+        let work = bob.open_session("246810").await.expect("opens").expect("a session");
+        let link = alice.my_card().await.expect("card").to_link();
+        bob.add_contact_in(&link, None, Some(&work)).await.expect("adds");
+        until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+    }
+
+    let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+    let mut at_bob = bob.events();
+    alice.send_text(&id(&bob), "still at work?").await.expect("sends");
+    let heard = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if at_bob.recv().await.expect("events") == (Event::MessagesChanged { contact: id(&alice) }) {
+                break;
+            }
+        }
+    })
+    .await;
+    assert!(heard.is_ok(), "the open session's message makes noise");
+
+    let call = alice.place_call(&id(&bob), false).await.expect("places");
+    alice.offer_call(&call, "offer-sdp").await.expect("offers");
+    assert!(matches!(next_call(&mut at_bob).await.2, CallUpdate::Incoming { .. }), "its call rings");
+}
+
 async fn outbox_len(core: &Core) -> usize {
     core.store().outbox().await.expect("reads").len()
 }
