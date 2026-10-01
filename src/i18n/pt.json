@@ -128,6 +128,11 @@
     "invalid": "Esse não é um link de contato do FlickerTalk",
     "scanNow": "Escanear código"
   },
+  "scanner": {
+    "cameraDenied": "O acesso à câmera está desativado, então o código não pode ser lido. Permita da próxima vez ou cole o link.",
+    "cameraBlocked": "O acesso à câmera está desativado para o FlickerTalk. Ative-o nas Configurações ou cole o link.",
+    "openSettings": "Abrir Configurações"
+  },
   "contact": {
     "fingerprint": "Código de segurança",
     "verify": "Verificar pessoalmente",
