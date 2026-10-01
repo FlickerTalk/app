@@ -21,6 +21,14 @@ pub const CALL_REACH: Duration = Duration::from_secs(40);
 /// Between attempts.
 const CALL_RETRY: Duration = Duration::from_secs(2);
 
+/// How long a call's offer, once handed to a direct connection, may go unacknowledged before that
+/// connection is taken for dead (2026-10-01). A ping follows the offer on the same ordered
+/// channel, and every version of the app answers it with a pong (M1): the pong proves the offer
+/// arrived. Over a live connection it comes back in one round trip, well under a second even
+/// through TURN; a connection to an app that was suspended or killed looks open for many seconds
+/// more, and everything sent into it is lost.
+pub(crate) const CALL_OFFER_ACK: Duration = Duration::from_secs(3);
+
 /// A call nobody answers stops ringing after this long.
 pub const RING_LIMIT: Duration = Duration::from_secs(60);
 
@@ -102,6 +110,13 @@ impl Core {
     }
 
     /// Like `offer_call_within`, saying our call media version (`CALL_MEDIA_VERSION`).
+    ///
+    /// An offer handed to a direct connection counts only once the contact acknowledges it
+    /// (`CALL_OFFER_ACK`, 2026-10-01). A connection that looks open may be dead (the other app was
+    /// suspended or killed and our side has not noticed yet): the offer would reach nobody and the
+    /// call would sit on "calling". Unacknowledged, that connection is dropped and the next
+    /// attempt goes through the router marked as a call, which rings the contact. The same call
+    /// sent again over a new connection is the same call there: its id is known and it rings once.
     pub(crate) async fn offer_call_media(&self, call: &str, sdp: &str, media: u16, reach: Duration) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, true).await? else { bail!("no such call") };
         let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video, media };
@@ -111,15 +126,32 @@ impl Core {
             if self.store.call(call).await?.is_none_or(|current| current.ended_at.is_some()) {
                 return Ok(());
             }
+            let (heard, pongs) = self.pongs_from(&contact.device_id);
             if self.transmit_direct_call(&contact, &Packet::new(body.clone())).await? {
-                self.mark_call_stage(CallStage::OfferSent);
-                return Ok(());
+                if self.acknowledged(&contact, heard, pongs, CALL_OFFER_ACK).await {
+                    self.mark_call_stage(CallStage::OfferSent);
+                    return Ok(());
+                }
+                self.drop_connection(&contact.device_id).await;
+                if std::time::Instant::now() < deadline {
+                    continue;
+                }
             }
             if std::time::Instant::now() >= deadline {
                 return self.close_call(&record, CallOutcome::Unreachable).await;
             }
             tokio::time::sleep(CALL_RETRY.min(reach)).await;
         }
+    }
+
+    /// Whether the contact answers a ping sent now over the open direct connection with a pong
+    /// within `within`: what was sent before the ping on that ordered channel has arrived.
+    async fn acknowledged(&self, contact: &Contact, heard: u64, mut pongs: tokio::sync::watch::Receiver<std::collections::HashMap<String, u64>>, within: Duration) -> bool {
+        if !self.transmit_open(contact, &Packet::new(Body::Ping)).await.unwrap_or(false) {
+            return false;
+        }
+        let answered = pongs.wait_for(|pongs| pongs.get(&contact.device_id).copied().unwrap_or(0) > heard);
+        tokio::time::timeout(within, answered).await.is_ok_and(|answered| answered.is_ok())
     }
 
     /// Accepts an incoming call with our answer (the WebView's: media version 0).

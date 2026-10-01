@@ -292,6 +292,16 @@ impl Network {
         }
     }
 
+    /// Drops the direct connection with the contact without telling them, as an app that is
+    /// killed or suspended does. For tests of what the contact sees then.
+    #[doc(hidden)]
+    pub async fn vanish(&self, contact: &str) {
+        let link = self.links.lock().await.remove(contact);
+        if let Some(link) = link {
+            link.session.vanish().await;
+        }
+    }
+
     /// Closes every direct connection and every offer still waiting (erasing the phone,
     /// 2026-09-30).
     pub async fn close(&self) {
@@ -625,6 +635,13 @@ impl Transport for Network {
 
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct_as(to, bytes, Reach::Call).await
+    }
+
+    async fn send_open(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        match self.open_link(&to.device_id).await {
+            Some(session) => Ok(session.send_bytes(&bytes).await.is_ok()),
+            None => Ok(false),
+        }
     }
 
     async fn open_direct_call(&self, to: &Peer) -> Result<bool> {

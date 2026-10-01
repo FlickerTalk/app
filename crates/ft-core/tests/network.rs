@@ -642,6 +642,72 @@ async fn a_message_sent_while_a_call_waits_at_the_router_does_not_hold_the_call_
     let _ = alice.core.end_call(&call, false).await;
 }
 
+// A connection that looks open but is dead (2026-10-01, seen on an iPhone after a recent chat: its
+// app was suspended or killed, and the caller's side has not noticed yet): a call's offer sent
+// into it reaches nobody. The caller notices within a few seconds that the offer is not
+// acknowledged, drops that connection and goes through the router, marked as a call, so the
+// phone rings; once it wakes, a single connection opens.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_into_a_dead_connection_goes_through_the_router_within_seconds() {
+    let bus = Arc::new(Bus::default());
+    bus.retaining.store(true, Ordering::SeqCst);
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    alice.core.send_text(&bob.id(), "talk soon").await.unwrap();
+    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+
+    // Bob's app is killed: its socket to the router and its connection stop without a word.
+    bus.online.lock().unwrap().remove(&bob.id());
+    bob.network.vanish(&alice.id()).await;
+    assert!(alice.network.is_connected(&bob.id()).await, "alice's side still looks open");
+    let mut bob_events = bob.core.events();
+
+    let placed = std::time::Instant::now();
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let (core, id) = (alice.core.clone(), call.clone());
+    tokio::spawn(async move { core.offer_call(&id, "offer").await });
+    let rung = until_rung(&bus, placed, Duration::from_secs(15)).await;
+    eprintln!("call into a dead connection: the router was asked to ring after {} ms", rung.as_millis());
+    assert!(rung < Duration::from_secs(5), "{} ms", rung.as_millis());
+
+    bob.go_online(&bus);
+    rings(&mut bob_events, Duration::from_secs(10)).await;
+    until("one connection each", || async {
+        alice.network.connected().await == [bob.id()] && bob.network.connected().await == [alice.id()]
+    })
+    .await;
+    assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "one ring for one call");
+    let _ = alice.core.end_call(&call, false).await;
+}
+
+// A live connection acknowledges the call's offer: it is kept, nothing goes through the router and
+// nothing rings twice.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_over_a_live_connection_keeps_it() {
+    let bus = Arc::new(Bus::default());
+    bus.retaining.store(true, Ordering::SeqCst);
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    alice.core.send_text(&bob.id(), "about to call").await.unwrap();
+    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+    let (signals, mut bob_events) = (bus.signals.load(Ordering::SeqCst), bob.core.events());
+
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let offered = std::time::Instant::now();
+    alice.core.offer_call(&call, "offer").await.expect("offers");
+    assert!(offered.elapsed() < ft_core::net::CONNECT_WAIT / 4, "acknowledged in {:?}", offered.elapsed());
+    rings(&mut bob_events, Duration::from_secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert_eq!(bus.signals.load(Ordering::SeqCst), signals, "nothing through the router");
+    assert_eq!(bus.rings.load(Ordering::SeqCst), 0);
+    assert!(alice.network.is_connected(&bob.id()).await, "the connection is kept");
+    let _ = alice.core.end_call(&call, false).await;
+}
+
 // A blocked contact's call (§35, §109): its offer is dropped unread, and the phone hears that a
 // call may have been refused. With the app closed, a push has set the iPhone's call screen
 // ringing before the core could know who called: it stops at once, and nothing shows.
