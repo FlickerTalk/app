@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { gameIdFromText, gameUrl, gamesAvailable, isGame } from "./games";
+import { gameGrant, gameIdFromText, gameUrl, gamesAvailable, isGame, needsGameGrant } from "./games";
+import type { PluginView } from "./core";
 
 const CHESS = "com.flickertalk.game.chess";
+const CHESS_ID = CHESS;
 
 describe("games", () => {
   // Plan 10.6: the invitation is plain text with a link to the game's page on our site.
@@ -72,5 +74,35 @@ describe("games", () => {
     // An iPad's WebView says it is a Mac; a Mac has no touch screen.
     expect(gamesAvailable(ipad, 5)).toBe(false);
     expect(gamesAvailable(ipad, 0)).toBe(true);
+  });
+
+  // Plan decision 11: installing grants nothing (§53); the first time a game is played one sheet
+  // grants the two things a game asks for, talking to its twin and leaving the result in the chat.
+  describe("what a game is granted to be played", () => {
+    const CHESS: PluginView = {
+      id: CHESS_ID,
+      name: "Chess",
+      version: "1.0.0",
+      kind: "game",
+      asks: { network: [], messages: false, send: "propose", live: true },
+      granted: { network: [], messages: false, send: "nothing", live: false },
+      installedAt: 1,
+    };
+
+    it("needs the grant until both are on", () => {
+      expect(needsGameGrant(CHESS)).toBe(true);
+      expect(needsGameGrant({ ...CHESS, granted: { ...CHESS.granted, live: true } })).toBe(true);
+      expect(needsGameGrant({ ...CHESS, granted: { ...CHESS.granted, send: "propose" } })).toBe(true);
+      expect(needsGameGrant({ ...CHESS, granted: { ...CHESS.granted, live: true, send: "propose" } })).toBe(false);
+      // What it never asked for is never missing.
+      expect(needsGameGrant({ ...CHESS, asks: { network: [], messages: false, send: "nothing" } })).toBe(false);
+    });
+
+    it("grants the live channel and proposing in the chat together, never more than asked", () => {
+      expect(gameGrant(CHESS)).toEqual({ ...CHESS.granted, live: true, send: "propose" });
+      // Asked to send by itself, a game still only proposes: the user sends.
+      expect(gameGrant({ ...CHESS, asks: { ...CHESS.asks, send: "auto" } }).send).toBe("propose");
+      expect(gameGrant({ ...CHESS, asks: { network: [], messages: false, send: "nothing" } })).toEqual({ ...CHESS.granted, live: false, send: "nothing" });
+    });
   });
 });
