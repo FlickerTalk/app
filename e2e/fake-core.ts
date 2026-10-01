@@ -136,6 +136,23 @@ export function installFakeCore() {
 
   const sessionView = (id: string) => ({ id, conversations: [], requests: [], circles: [] });
 
+  // The sessions survive a reload, as the core keeps them on disk: a reload is the app starting
+  // again. Each test has a fresh browser context, so a fresh disk.
+  const KEPT_SESSIONS = "ft-fake-sessions";
+  const keepSessions = () => {
+    try {
+      localStorage.setItem(KEPT_SESSIONS, JSON.stringify({ sessions: state.sessions, open: state.open, next: state.nextSession }));
+    } catch {
+      // A page without storage forgets them, like a phone erased.
+    }
+  };
+  try {
+    const kept = JSON.parse(localStorage.getItem(KEPT_SESSIONS) ?? "null") as { sessions: typeof state.sessions; open: string[]; next: number } | null;
+    if (kept) Object.assign(state, { sessions: kept.sessions, open: kept.open, nextSession: kept.next });
+  } catch {
+    // Nothing kept: no session.
+  }
+
   const answer = (command: string, args: Args): unknown => {
     const a = (args ?? {}) as Record<string, string | number | undefined>;
     switch (command) {
@@ -273,7 +290,8 @@ export function installFakeCore() {
       case "core_plan":
         return { state: "trial", until: Date.now() + 1e10, age: "unknown" };
       // Like the core (A3): every PIN opens its session or a new empty one, up to seven; an
-      // empty one goes when it is closed, and the fake's sessions are always empty.
+      // empty one goes when it is closed, and the fake's sessions are always empty. An open one
+      // stays open across a reload (2026-10-01), as the core keeps it on disk.
       case "core_session_open": {
         const pin = String(a.pin);
         let found = Object.values(state.sessions).find((s) => s.pin === pin);
@@ -283,15 +301,18 @@ export function installFakeCore() {
           state.sessions[found.id] = found;
         }
         if (!state.open.includes(found.id)) state.open.push(found.id);
+        keepSessions();
         return sessionView(found.id);
       }
       case "core_session_close":
         delete state.sessions[String(a.session)];
         state.open = state.open.filter((id) => id !== a.session);
+        keepSessions();
         return undefined;
       case "core_session_remove":
         delete state.sessions[String(a.session)];
         state.open = state.open.filter((id) => id !== a.session);
+        keepSessions();
         return undefined;
       case "core_accept_contact": {
         const index = state.requests.findIndex((r) => r.id === a.contact);
