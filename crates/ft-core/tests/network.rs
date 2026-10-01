@@ -618,6 +618,38 @@ async fn a_call_rings_although_an_offer_for_a_message_waits_at_the_router() {
     assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "still one ring");
 }
 
+// The same with the mailbox off (strict P2P): the message waits in the outbox for its offer to be
+// answered, holding the way to the contact, and the call does not wait behind it to ring.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_mailbox_off_a_call_rings_although_a_message_waits_for_its_offer() {
+    let (bus, alice, bob) = bob_asleep().await;
+    // Telling Bob the mailbox is off makes the offer, and waits for its connection for a while.
+    let before = bus.signalled_to(&bob.id());
+    let (core, to) = (alice.core.clone(), bob.id());
+    tokio::spawn(async move {
+        core.set_mailbox(false).await.unwrap();
+        core.send_text(&to, "only directly").await
+    });
+    until("the offer waits at the router", || async { bus.signalled_to(&bob.id()) > before }).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(bus.rings.load(Ordering::SeqCst), 0, "a message never rings");
+    let mut bob_events = bob.core.events();
+
+    let placed = std::time::Instant::now();
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let (core, id) = (alice.core.clone(), call.clone());
+    tokio::spawn(async move { core.offer_call(&id, "offer").await });
+    let rung = until_rung(&bus, placed, Duration::from_secs(15)).await;
+    eprintln!("mailbox off, call behind a waiting message: the router was asked to ring after {} ms", rung.as_millis());
+    assert!(rung < Duration::from_secs(2), "{} ms", rung.as_millis());
+
+    bob.go_online(&bus);
+    rings(&mut bob_events, Duration::from_secs(10)).await;
+    until("bob has the text", || async { texts(&bob, &alice.id()).await == ["only directly"] }).await;
+    assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "one ring for one call");
+    let _ = alice.core.end_call(&call, false).await;
+}
+
 // The opposite order: a message sent while a call's offer waits at the router goes to the
 // mailbox at once, makes no offer of its own, and the call still rings when the phone wakes.
 #[tokio::test(flavor = "multi_thread")]
