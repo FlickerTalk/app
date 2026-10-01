@@ -36,4 +36,4 @@ axum = { version = "0.8", features = ["ws"] }
 # SHA-256, to check the login's PKCE challenge (already in the tree through ft-vault).
 ring = "0.17"
 ft-media = { path = "../ft-media", features = ["testing"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "test-util"] }
