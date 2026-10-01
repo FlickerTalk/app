@@ -759,7 +759,12 @@ export interface PluginView {
   opens?: string[];
   /** The kinds of file it is the viewer of: exact media types; a tap opens them here. */
   views?: string[];
+  /** A tool or a game (plan 10, app 1.3.0); missing or unknown is a tool (`isGame`). */
+  kind?: PluginKind;
 }
+
+/** What a plugin is for: a tool of the chat, or a game in its own section (plan 10.1). */
+export type PluginKind = "tool" | "game";
 
 export async function plugins(): Promise<PluginView[]> {
   return invoke<PluginView[]>("core_plugins");
@@ -775,6 +780,8 @@ export interface OfferedPlugin {
   installed: boolean;
   /** Whether the app already carries it; if not, adding it downloads it (§52). */
   carried: boolean;
+  /** A tool or a game; missing or unknown is a tool. */
+  kind?: PluginKind;
 }
 
 export async function offeredPlugins(): Promise<OfferedPlugin[]> {
