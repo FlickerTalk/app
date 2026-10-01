@@ -139,6 +139,9 @@ describe("plugins in the app", () => {
     expect(said({ type: "ft.drive", id: "r12", op: "status" })).toEqual({ type: "ft.drive", id: "r12", op: "status", a: "", b: "" });
     expect(said({ type: "ft.drive", id: "r13", op: "format" })).toBeNull();
     expect(said({ type: "ft.drive", op: "list" })).toBeNull();
+    // 2026-10-02: where the phone is, once; a question with nothing but its id.
+    expect(said({ type: "ft.location", id: "l1" })).toEqual({ type: "ft.location", id: "l1" });
+    expect(said({ type: "ft.location" })).toBeNull();
   });
 
   // 2026-09-27: "open with": a plugin says which kinds of file it opens; a text goes only to
