@@ -618,7 +618,9 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         CallEvents.shared.forget()
     }
 
+    /// Every end of a call comes here (main thread).
     private func finish() {
+        if current != nil { AppVisibility.holdAfterCall() }
         current = nil
         named = false
         answered = false
