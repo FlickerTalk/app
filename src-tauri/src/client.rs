@@ -1352,7 +1352,7 @@ pub async fn core_accept_file(message: String, client: State<'_, Client>) -> Res
 pub async fn core_renew_link(session: Option<String>, client: State<'_, Client>) -> Result<String, String> {
     let online = client.online().await?;
     let hashes = online.core.renew_link(session.as_deref()).await.map_err(failed)?;
-    online.router.register(&hashes).await.map_err(failed)?;
+    online.router.register(&hashes, 0).await.map_err(failed)?;
     Ok(online.core.my_card_in(session.as_deref()).await.map_err(failed)?.to_link())
 }
 
@@ -1637,7 +1637,7 @@ fn reregister(online: &Online) {
     let (core, router) = (online.core.clone(), online.router.clone());
     tauri::async_runtime::spawn(async move {
         if let Ok(hashes) = core.route_capability_hashes().await {
-            let _ = router.register(&hashes).await;
+            let _ = router.register(&hashes, 0).await;
         }
     });
 }
