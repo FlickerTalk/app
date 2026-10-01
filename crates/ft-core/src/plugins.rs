@@ -291,8 +291,12 @@ impl Core {
         let signature = fetch.get(&format!("{CATALOGUE_HOME}/{}.sig", ft_plugins::INDEX), 1024).await?;
         let index = String::from_utf8(index).context("the index is not text")?;
         let signature = String::from_utf8(signature).context("the signature is not text")?;
-        // What needs a newer FlickerTalk is not offered: it would not install (§51).
-        Ok(ft_plugins::catalogue_entries(&index, signature.trim(), catalogue)?.into_iter().filter(|entry| entry.runs_on(CORE_VERSION)).collect())
+        // What needs a newer FlickerTalk is not offered, nor a kind of plugin this one does not
+        // know: neither would install (§51).
+        Ok(ft_plugins::catalogue_entries(&index, signature.trim(), catalogue)?
+            .into_iter()
+            .filter(|entry| entry.runs_on(CORE_VERSION) && entry.kind != ft_plugins::Kind::Unknown)
+            .collect())
     }
 
     /// Downloads what the catalogue listed and installs it. Installing grants nothing (§53), and

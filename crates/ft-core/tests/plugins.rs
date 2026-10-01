@@ -395,6 +395,38 @@ async fn refuses_a_listing_that_points_anywhere_else() {
     assert!(core.catalogue(&shop, &theirs.public_key()).await.is_err());
 }
 
+// 2026-10-02 (plan of the games): the catalogue says what is a game, and the app shows it apart.
+// A kind a newer FlickerTalk adds is not offered here: this one would not know where to show it,
+// and would not install it either.
+#[tokio::test]
+async fn the_catalogue_offers_tools_and_games_but_no_kind_this_core_does_not_know() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let entry = |id: &str, kind: &str| {
+        format!(
+            r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","size":1,"hash":"{}","url":"{}/{id}/1.0.0.ftplugin","kind":"{kind}"}}"#,
+            "ab".repeat(32),
+            ft_core::CATALOGUE_HOME
+        )
+    };
+    let index = format!(
+        r#"{{"plugins":[{},{},{}]}}"#,
+        entry("com.example.code", "tool"),
+        entry("com.example.chess", "game"),
+        entry("com.example.widget", "widget")
+    );
+    let mut files = std::collections::HashMap::new();
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+
+    let offered = core.catalogue(&Shop { files }, &catalogue.public_key()).await.expect("reads the catalogue");
+    let kinds: Vec<(&str, ft_plugins::Kind)> = offered.iter().map(|entry| (entry.id.as_str(), entry.kind)).collect();
+    assert_eq!(kinds, [("com.example.code", ft_plugins::Kind::Tool), ("com.example.chess", ft_plugins::Kind::Game)]);
+}
+
 // ---- Hidden sessions (2026-10-01, §108): what a plugin keeps inside one stays inside it ----
 
 /// A core with a plugin that keeps records, and a hidden session open.
