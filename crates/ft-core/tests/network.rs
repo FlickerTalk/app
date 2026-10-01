@@ -214,6 +214,19 @@ async fn pair(alice: &Phone, bob: &Phone) {
     bob.core.accept_contact(&id).await.expect("bob accepts alice");
 }
 
+/// Like `until`, for at most `secs` seconds.
+async fn until_within_secs<F, Fut>(what: &str, secs: u64, condition: F)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let started = std::time::Instant::now();
+    while !condition().await {
+        assert!(started.elapsed() < Duration::from_secs(secs), "timed out waiting until {what}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 async fn texts(phone: &Phone, contact: &str) -> Vec<String> {
     phone.core.store().messages(contact, 100).await.unwrap().into_iter().map(|m| m.body).collect()
 }
@@ -647,6 +660,76 @@ async fn with_the_mailbox_off_a_call_rings_although_a_message_waits_for_its_offe
     rings(&mut bob_events, Duration::from_secs(10)).await;
     until("bob has the text", || async { texts(&bob, &alice.id()).await == ["only directly"] }).await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "one ring for one call");
+    let _ = alice.core.end_call(&call, false).await;
+}
+
+/// Calls Bob, who is asleep, until the router has been asked to ring him `rung` times in all.
+async fn call_bob(bus: &Bus, alice: &Phone, bob: &Phone, reach: Duration, rung: usize) -> String {
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let (core, id) = (alice.core.clone(), call.clone());
+    tokio::spawn(async move { core.offer_call_within(&id, "offer", reach).await });
+    let asked = std::time::Instant::now();
+    while bus.rings.load(Ordering::SeqCst) < rung {
+        assert!(asked.elapsed() < Duration::from_secs(5), "the router was not asked to ring for call {rung}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    call
+}
+
+// A redial (2026-10-01): Alice calls, nobody answers, she hangs up and calls again within the
+// minute the router keeps her first offer. The first offer rang for the first call only: the
+// second call asks the router to ring again, with an offer of its own, and the first one goes,
+// leaving nothing waiting for it. Hanging up sends nothing through the router.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_redial_after_hanging_up_rings_again() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let offers = bus.signalled_to(&bob.id());
+    let first = call_bob(&bus, &alice, &bob, ft_core::calls::CALL_REACH, 1).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    alice.core.end_call(&first, false).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(bus.signalled_to(&bob.id()) - offers, 1, "hanging up signals nothing");
+
+    let mut bob_events = bob.core.events();
+    let second = call_bob(&bus, &alice, &bob, ft_core::calls::CALL_REACH, 2).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(bus.rings.load(Ordering::SeqCst), 2, "once per call");
+    assert_eq!(bus.signalled_to(&bob.id()) - offers, 2, "one offer per call");
+    assert_eq!(alice.network.offers_waiting().await, 1, "only the second call's offer waits");
+
+    bob.go_online(&bus);
+    rings(&mut bob_events, Duration::from_secs(10)).await;
+    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+    assert_eq!(bob.core.current_call().await.unwrap().map(|current| current.call), Some(second.clone()), "the second call rings");
+    let _ = alice.core.end_call(&second, false).await;
+}
+
+// The same when the first call gave up by itself, nobody having answered in its time.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_redial_after_a_call_gave_up_rings_again() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let first = call_bob(&bus, &alice, &bob, Duration::from_secs(1), 1).await;
+    until_within_secs("the first call gave up", 20, || async {
+        alice.core.store().call(&first).await.unwrap().is_some_and(|call| call.ended_at.is_some())
+    })
+    .await;
+    assert_eq!(alice.core.store().call(&first).await.unwrap().unwrap().outcome, Some(ft_storage::CallOutcome::Unreachable));
+
+    let second = call_bob(&bus, &alice, &bob, ft_core::calls::CALL_REACH, 2).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(bus.rings.load(Ordering::SeqCst), 2, "once per call");
+    assert_eq!(alice.network.offers_waiting().await, 1, "only the second call's offer waits");
+    let _ = alice.core.end_call(&second, false).await;
+}
+
+// A call that keeps trying while the phone sleeps (each attempt waits for the connection, then
+// tries again) asks the router to ring once: its offer waits there for the whole call.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_that_keeps_trying_rings_once() {
+    let (bus, alice, bob) = bob_asleep().await;
+    let call = call_bob(&bus, &alice, &bob, ft_core::calls::CALL_REACH, 1).await;
+    tokio::time::sleep(ft_core::net::CONNECT_WAIT + Duration::from_secs(4)).await;
+    assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "a retry never rings again");
     let _ = alice.core.end_call(&call, false).await;
 }
 

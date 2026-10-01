@@ -368,6 +368,10 @@ impl Core {
 
     pub(crate) async fn close_call(&self, record: &CallRecord, outcome: CallOutcome) -> Result<()> {
         self.store.finish_call(&record.call_id, now(), outcome).await?;
+        if record.outgoing {
+            // Whichever way it ended, a redial rings again (2026-10-01).
+            self.transport.call_over(&record.contact).await;
+        }
         // The voice stops with the call, whichever side ended it.
         self.drop_native(&record.call_id).await;
         {
