@@ -147,6 +147,66 @@ impl Watch {
     }
 }
 
+/// Whether the app's core keeps its connection to the router and to other phones (2026-10-01).
+///
+/// A socket left open by an app that goes to the background looks alive to the router until
+/// long after iOS suspends the app (or Android freezes it): the router hands it what comes and
+/// sends no push, so calls and notices were missed. So the connection is kept only while the app
+/// is in the foreground, while a call is going on, and for what a start or a push came for (the
+/// same rule as a core a push starts, `Watch`); otherwise the app lets go at once and a push
+/// brings it back.
+#[derive(Debug, Clone, Copy)]
+pub struct Presence {
+    foreground: bool,
+    /// What a start or a push came for, until it is done; also the moment after a call ends.
+    watch: Option<Watch>,
+}
+
+impl Presence {
+    /// A start counts as a push: the app is taken to be in the foreground until the platform says
+    /// otherwise, and a process a push started stays for its call.
+    pub fn started(now: Instant) -> Self {
+        Self { foreground: true, watch: Some(Watch::new(now)) }
+    }
+
+    /// The platform says the app is in the foreground or not. In front, what a push waited for
+    /// is forgotten: leaving again lets go at once.
+    pub fn set_foreground(&mut self, foreground: bool) {
+        self.foreground = foreground;
+        if foreground {
+            self.watch = None;
+        }
+    }
+
+    /// A push came: a call or a message is on its way.
+    pub fn woken(&mut self, now: Instant) {
+        match &mut self.watch {
+            Some(watch) => watch.pushed(now),
+            None => self.watch = Some(Watch::new(now)),
+        }
+    }
+
+    /// What the core said: a call that ends keeps the connection a moment longer (`LINGER`).
+    pub fn saw(&mut self, event: &Event, now: Instant) {
+        match &mut self.watch {
+            Some(watch) => watch.saw(event, now),
+            None => {
+                let mut watch = Watch::new(now);
+                watch.saw(event, now);
+                if watch.settled.is_some() {
+                    self.watch = Some(watch);
+                }
+            }
+        }
+    }
+
+    /// Whether to stay connected now. `call_going_on`: a call rings, is being answered, is on, or
+    /// ours is being placed.
+    pub fn connected(&self, now: Instant, call_going_on: bool) -> bool {
+        self.foreground || call_going_on || self.watch.is_some_and(|watch| watch.stops(now, false).is_none())
+    }
+}
+
 /// The running client: the core, its router client and its network.
 pub struct Online {
     pub core: Arc<Core>,
@@ -328,6 +388,102 @@ mod tests {
         assert_eq!(watch.stops(start + LINGER, false), None);
     }
 
+
+    // In front, the app is always connected, call or not.
+    #[test]
+    fn in_the_foreground_it_stays_connected() {
+        let start = Instant::now();
+        let mut presence = Presence::started(start);
+        presence.set_foreground(true);
+        assert!(presence.connected(start + WAIT_FOR_CALL * 10, false));
+        presence.saw(&ended(), start);
+        assert!(presence.connected(start + WAIT_FOR_CALL * 10, false));
+    }
+
+    // Leaving the foreground with no call lets go at once: the router pushes what comes, and the
+    // other phones see this one gone.
+    #[test]
+    fn leaving_the_foreground_lets_go_at_once() {
+        let start = Instant::now();
+        let mut presence = Presence::started(start);
+        presence.set_foreground(true);
+        let left = start + Duration::from_secs(1);
+        presence.set_foreground(false);
+        assert!(!presence.connected(left, false));
+        presence.set_foreground(false);
+        assert!(!presence.connected(left, false), "leaving twice is leaving");
+    }
+
+    // A call (ringing, being answered, on, or ours being placed) keeps the connection whatever
+    // the app does; once it is over, a moment for what still goes out (the hang-up), then it goes.
+    #[test]
+    fn a_call_keeps_it_out_of_the_foreground_until_a_moment_after_it_ends() {
+        let start = Instant::now();
+        let mut presence = Presence::started(start);
+        presence.set_foreground(true);
+        presence.set_foreground(false);
+        assert!(presence.connected(start + WAIT_FOR_CALL * 3, true));
+        let over = start + WAIT_FOR_CALL * 3;
+        presence.saw(&ended(), over);
+        assert!(presence.connected(over + LINGER - Duration::from_millis(1), false));
+        assert!(!presence.connected(over + LINGER, false));
+    }
+
+    // A process a push started out of the foreground (iOS PushKit, with no scene): the start is
+    // for a call, so it stays until that call is over, or until nobody can be calling any more.
+    #[test]
+    fn a_start_out_of_the_foreground_waits_for_its_call() {
+        let start = Instant::now();
+        let mut presence = Presence::started(start);
+        presence.set_foreground(false);
+        assert!(presence.connected(start + WAIT_FOR_CALL - Duration::from_millis(1), false));
+        assert!(!presence.connected(start + WAIT_FOR_CALL, false), "no call came");
+
+        let mut presence = Presence::started(start);
+        presence.set_foreground(false);
+        presence.saw(&incoming(), start + Duration::from_secs(2));
+        let over = start + Duration::from_secs(9);
+        presence.saw(&ended(), over);
+        assert!(presence.connected(over + LINGER - Duration::from_millis(1), false));
+        assert!(!presence.connected(over + LINGER, false), "the call is over");
+    }
+
+    // Out of the foreground and let go, a push (a call's, or a wake) brings the connection back
+    // for what it announces, as a start does: a redial rings.
+    #[test]
+    fn a_push_brings_it_back_for_what_it_announces() {
+        let start = Instant::now();
+        let mut presence = Presence::started(start);
+        presence.set_foreground(true);
+        presence.set_foreground(false);
+        let pushed = start + Duration::from_secs(20);
+        assert!(!presence.connected(pushed, false));
+        presence.woken(pushed);
+        assert!(presence.connected(pushed, false));
+        assert!(presence.connected(pushed + WAIT_FOR_CALL - Duration::from_millis(1), false));
+        assert!(!presence.connected(pushed + WAIT_FOR_CALL, false));
+
+        presence.woken(pushed);
+        let over = pushed + Duration::from_secs(8);
+        presence.saw(&incoming(), pushed + Duration::from_secs(1));
+        presence.saw(&ended(), over);
+        assert!(!presence.connected(over + LINGER, false), "the redial is over");
+    }
+
+    // Back in front, whatever a push or the start was waiting for is forgotten: leaving again
+    // lets go at once.
+    #[test]
+    fn coming_back_forgets_what_a_push_waited_for() {
+        let start = Instant::now();
+        let mut presence = Presence::started(start);
+        presence.set_foreground(false);
+        presence.woken(start);
+        presence.set_foreground(true);
+        presence.set_foreground(true);
+        assert!(presence.connected(start, false));
+        presence.set_foreground(false);
+        assert!(!presence.connected(start + Duration::from_millis(1), false));
+    }
 
     #[test]
     fn due_messages_are_checked_every_few_seconds() {
