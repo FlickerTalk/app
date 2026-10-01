@@ -90,6 +90,9 @@ struct Wire {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContactCard {
     body: Body,
+    /// The body exactly as it was signed. A card is encoded from these bytes, never from `body`,
+    /// so a field this version does not know survives being stored or passed on.
+    signed_body: Vec<u8>,
     signing_key: Ed25519PublicKey,
     exchange_key: Curve25519PublicKey,
     fallback_key: Curve25519PublicKey,
@@ -118,9 +121,11 @@ impl ContactCard {
             mailbox,
             envelope_key: envelope.map(|key| key.as_bytes().to_vec()),
         };
-        let signature = identity.sign(&cbor(&body)).to_bytes().to_vec();
+        let signed_body = cbor(&body);
+        let signature = identity.sign(&signed_body).to_bytes().to_vec();
         Self {
             body,
+            signed_body,
             signing_key: identity.signing_key(),
             exchange_key: keys.exchange_key,
             fallback_key: keys.fallback_key,
@@ -160,7 +165,7 @@ impl ContactCard {
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        cbor(&Wire { body: cbor(&self.body), signature: self.signature.clone() })
+        cbor(&Wire { body: self.signed_body.clone(), signature: self.signature.clone() })
     }
 
     /// Only a card whose signature matches its own identity key is accepted.
@@ -185,6 +190,7 @@ impl ContactCard {
             envelope_key,
             signature: wire.signature,
             body,
+            signed_body: wire.body,
         })
     }
 
@@ -203,7 +209,7 @@ impl ContactCard {
 
     #[cfg(test)]
     fn signed_by(mut self, other: &Identity) -> Self {
-        self.signature = other.sign(&cbor(&self.body)).to_bytes().to_vec();
+        self.signature = other.sign(&self.signed_body).to_bytes().to_vec();
         self
     }
 }
@@ -330,6 +336,55 @@ mod tests {
         let without = ContactCard::create(&mut bob, None, RouteCapability::generate(), true, None);
         assert_eq!(ContactCard::decode(&without.encode()).expect("decodes").envelope_key(), None);
         assert!(with.to_link().len() < 600, "{} characters", with.to_link().len());
+    }
+
+    // A card made by a newer app, with a field this version does not know: what a future version
+    // would send once it adds one to the body.
+    fn card_with_an_unknown_field(identity: &mut Identity) -> Vec<u8> {
+        #[derive(Serialize)]
+        struct FutureBody {
+            version: u16,
+            name: Option<String>,
+            #[serde(with = "serde_bytes")]
+            signing_key: Vec<u8>,
+            #[serde(with = "serde_bytes")]
+            exchange_key: Vec<u8>,
+            #[serde(with = "serde_bytes")]
+            fallback_key: Vec<u8>,
+            #[serde(with = "serde_bytes")]
+            route_capability: Vec<u8>,
+            mailbox: bool,
+            #[serde(with = "serde_bytes")]
+            envelope_key: Option<Vec<u8>>,
+            avatar_colour: u32,
+        }
+        let keys = contact_keys(identity);
+        let body = cbor(&FutureBody {
+            version: CARD_VERSION,
+            name: Some("Bob".to_owned()),
+            signing_key: identity.signing_key().as_bytes().to_vec(),
+            exchange_key: keys.exchange_key.to_bytes().to_vec(),
+            fallback_key: keys.fallback_key.to_bytes().to_vec(),
+            route_capability: RouteCapability::generate().as_bytes().to_vec(),
+            mailbox: true,
+            envelope_key: Some(ft_identity::EnvelopeKey::generate().public_key().as_bytes().to_vec()),
+            avatar_colour: 0x00ff_8800,
+        });
+        let signature = identity.sign(&body).to_bytes().to_vec();
+        cbor(&Wire { body, signature })
+    }
+
+    // A card is kept and passed on as it was signed: a field this version does not know is not
+    // dropped, or the card would no longer verify once stored or forwarded.
+    #[test]
+    fn a_card_with_an_unknown_field_survives_being_passed_on() {
+        let mut bob = Identity::generate();
+        let bytes = card_with_an_unknown_field(&mut bob);
+        let card = ContactCard::decode(&bytes).expect("a newer card reads");
+        assert_eq!(card.device_id(), bob.device_id());
+        assert_eq!(card.encode(), bytes, "encoded as it was signed");
+        let again = ContactCard::decode(&card.encode()).expect("still verifies once passed on");
+        assert_eq!(again, card);
     }
 
     #[test]
