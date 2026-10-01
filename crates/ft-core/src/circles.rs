@@ -354,8 +354,20 @@ impl Core {
 
     // ---- delivery ----
 
-    /// One delivery attempt of a circle packet to one member, like `deliver` for a contact.
+    /// One delivery attempt of a circle packet to one member, like `deliver` for a contact. When
+    /// it fails, a router refusal included, that member's entry waits for a later try like one
+    /// that cannot be reached, instead of coming due again on every pass of the queue.
     pub(crate) async fn deliver_circle(&self, entry: &CircleOutboxEntry) -> Result<()> {
+        let result = self.deliver_to_member(entry).await;
+        if result.is_err() {
+            let attempts = entry.attempts + 1;
+            let next = now() + retry_delay(attempts).as_millis() as i64;
+            self.store.circle_reschedule(&entry.message_id, &entry.contact, attempts, next, entry.in_mailbox).await?;
+        }
+        result
+    }
+
+    async fn deliver_to_member(&self, entry: &CircleOutboxEntry) -> Result<()> {
         let Some(message) = self.store.circle_message(&entry.message_id).await? else {
             self.store.circle_dequeue(&entry.message_id, &entry.contact).await?;
             return Ok(());
