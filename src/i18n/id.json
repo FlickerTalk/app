@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "Chat",
     "calls": "Panggilan",
-    "settings": "Pengaturan"
+    "settings": "Pengaturan",
+    "games": "Game"
   },
   "chats": {
     "empty": "Belum ada chat",
@@ -405,5 +406,23 @@
     "working": "Sedang bekerja…",
     "failed": "Ada yang salah: {error}",
     "sees": "Cloud-mu melihat berapa banyak berkas tersegel, ukuran dan tanggalnya. Tidak pernah nama atau isinya."
+  },
+  "games": {
+    "mine": "Game saya",
+    "more": "Game lainnya",
+    "install": "Pasang",
+    "remove": "Hapus",
+    "removeWarning": "Menghapusnya juga menghapus permainan tersimpan di ponsel ini.",
+    "play": "Main",
+    "pickContact": "Main dengan",
+    "noContacts": "Tambahkan kontak untuk bermain",
+    "invite": "Undang",
+    "inviteText": "🎮 Main {game} yuk? {url}",
+    "installAndPlay": "Pasang dan main",
+    "permissionsBody": "Game ini berbicara dengan ponsel orang lain dan bisa meninggalkan hasilnya di obrolan.",
+    "permissionsAllow": "Izinkan dan main",
+    "none": "Belum ada game",
+    "offline": "Saat ini tidak ada game untuk ditambahkan. Periksa koneksi Anda lalu coba lagi.",
+    "installFailed": "Game tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi."
   }
 }

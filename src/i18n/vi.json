@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "Trò chuyện",
     "calls": "Cuộc gọi",
-    "settings": "Cài đặt"
+    "settings": "Cài đặt",
+    "games": "Trò chơi"
   },
   "chats": {
     "empty": "Chưa có cuộc trò chuyện nào",
@@ -405,5 +406,23 @@
     "working": "Đang xử lý…",
     "failed": "Có lỗi xảy ra: {error}",
     "sees": "Đám mây của bạn thấy có bao nhiêu tệp niêm phong, kích thước và ngày tháng. Không bao giờ thấy tên hay nội dung."
+  },
+  "games": {
+    "mine": "Trò chơi của tôi",
+    "more": "Thêm trò chơi",
+    "install": "Cài đặt",
+    "remove": "Gỡ",
+    "removeWarning": "Gỡ trò chơi sẽ xóa các ván đã lưu trên điện thoại này.",
+    "play": "Chơi",
+    "pickContact": "Chơi với",
+    "noContacts": "Thêm một liên hệ để chơi",
+    "invite": "Mời",
+    "inviteText": "🎮 Mình chơi {game} nhé? {url}",
+    "installAndPlay": "Cài đặt và chơi",
+    "permissionsBody": "Trò chơi này trao đổi với điện thoại của người kia và có thể để lại kết quả trong cuộc trò chuyện.",
+    "permissionsAllow": "Cho phép và chơi",
+    "none": "Chưa có trò chơi nào",
+    "offline": "Hiện không có trò chơi nào để thêm. Hãy kiểm tra kết nối rồi thử lại.",
+    "installFailed": "Không thể cài đặt trò chơi. Hãy kiểm tra kết nối rồi thử lại."
   }
 }
