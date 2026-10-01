@@ -743,6 +743,26 @@ impl Store {
         Ok(rows.iter().map(|row| row.get("message_id")).collect())
     }
 
+    /// What the contact sent that this phone stored without confirming (a session the user left,
+    /// 2026-10-01): their texts and their texts in circles, still at `Sent`, oldest first.
+    pub async fn unacknowledged(&self, contact: &str) -> Result<Vec<String>> {
+        let sent = MessageState::Sent as i64;
+        let rows = sqlx::query(
+            "SELECT message_id FROM (
+                 SELECT message_id, received_at FROM messages WHERE contact = ? AND outgoing = 0 AND state = ?
+                 UNION ALL
+                 SELECT message_id, received_at FROM circle_messages WHERE sender = ? AND outgoing = 0 AND kind = 'text' AND state = ?
+             ) ORDER BY received_at, message_id",
+        )
+        .bind(contact)
+        .bind(sent)
+        .bind(contact)
+        .bind(sent)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|row| row.get("message_id")).collect())
+    }
+
     /// Every contact with its last message and unread count, most recent first.
     /// The conversations of the main list, newest first.
     pub async fn conversations(&self) -> Result<Vec<Conversation>> {
@@ -1971,6 +1991,53 @@ mod tests {
         store.advance(&["m1".to_owned()], MessageState::Delivered).await.expect("ignored");
         let state = store.messages("ft_bob", 10).await.expect("lists")[0].state;
         assert_eq!(state, MessageState::Read);
+    }
+
+    // 2026-10-01 (§108): what a contact of a session the user left sent is kept as only "sent" here,
+    // its receipt owed until the session is opened again: their texts and what they said in a
+    // circle, not ours, not what was confirmed already, not a circle's notes.
+    #[tokio::test]
+    async fn what_a_contact_sent_without_a_receipt_is_listed_until_confirmed() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.add_contact(&contact("ft_carol")).await.expect("adds");
+        let owed = |id: &str, contact: &str| Message { state: MessageState::Sent, ..message(id, contact, false, 1) };
+        store.insert_message(&owed("m1", "ft_bob")).await.expect("inserts");
+        store.insert_message(&owed("m2", "ft_carol")).await.expect("inserts");
+        store.insert_message(&message("m3", "ft_bob", false, 2)).await.expect("inserts");
+        store.insert_message(&message("m4", "ft_bob", true, 3)).await.expect("inserts");
+        store.advance(&["m4".to_owned()], MessageState::Sent).await.expect("ours, sent");
+        let circle = CircleRecord {
+            id: "c1".to_owned(),
+            name: "Friends".to_owned(),
+            card: vec![1],
+            revision: 1,
+            admins_only: false,
+            session: None,
+            left: false,
+            created_at: 5,
+        };
+        store.save_circle(&circle).await.expect("saves");
+        let said = |id: &str, sender: &str, kind: &str, state: MessageState| CircleMessage {
+            message_id: id.to_owned(),
+            circle: "c1".to_owned(),
+            sender: sender.to_owned(),
+            outgoing: false,
+            kind: kind.to_owned(),
+            body: String::new(),
+            sent_at: 4,
+            received_at: 4,
+            state,
+        };
+        store.insert_circle_message(&said("k1", "ft_bob", "text", MessageState::Sent)).await.expect("inserts");
+        store.insert_circle_message(&said("k2", "ft_bob", "text", MessageState::Delivered)).await.expect("inserts");
+        store.insert_circle_message(&said("k3", "ft_bob", "joined", MessageState::Sent)).await.expect("inserts");
+
+        assert_eq!(store.unacknowledged("ft_bob").await.expect("lists"), ["m1", "k1"]);
+        assert_eq!(store.unacknowledged("ft_carol").await.expect("lists"), ["m2"]);
+        store.advance(&["m1".to_owned()], MessageState::Delivered).await.expect("confirmed");
+        store.advance_circle(&["k1".to_owned()], MessageState::Delivered).await.expect("confirmed");
+        assert!(store.unacknowledged("ft_bob").await.expect("lists").is_empty());
     }
 
     #[tokio::test]
