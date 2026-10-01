@@ -7,10 +7,10 @@ describe("routes", () => {
     expect(routes.find((route) => route.path === "/")?.redirect).toBe("/tabs/chats");
   });
 
-  it("exposes chats, calls and settings as tabs", () => {
+  it("exposes chats, calls, games and settings as tabs", () => {
     const tabs = routes.find((route) => route.path === "/tabs/");
     expect(tabs?.children?.map((child) => child.path)).toEqual(
-      expect.arrayContaining(["chats", "calls", "settings"]),
+      expect.arrayContaining(["chats", "calls", "games", "settings"]),
     );
   });
 
