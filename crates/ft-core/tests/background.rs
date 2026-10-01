@@ -461,3 +461,109 @@ async fn nothing_is_retried_in_the_background() {
     until("alice has it", || async { texts(&alice, &bob.id()).await == ["later"] }).await;
     until("bob sees it delivered", || async { state(&bob, &sent).await == MessageState::Delivered }).await;
 }
+
+// Leaving a session (2026-10-01). The router (0.6.0) stops what would come for a session the phone
+// declared silent, but it cannot close a direct connection already open: the phone closes those
+// with the session's contacts itself, at once.
+
+const LEFT_PIN: &str = "482915";
+
+/// Bob scans the other phone's card into his session; they say yes.
+async fn pair_in(fake: &Fake, bob: &Phone, other: &Phone, session: &str) {
+    until("they are connected", || async { fake.is_connected(&other.id()) }).await;
+    let link = other.core().my_card().await.unwrap().to_link();
+    bob.core().add_contact_in(&link, None, Some(session)).await.expect("bob adds them in the session");
+    let id = bob.id();
+    until("they know bob", || async { other.core().store().contact(&id).await.unwrap().is_some() }).await;
+    other.core().accept_contact(&id).await.expect("they accept bob");
+}
+
+/// A text from Bob, delivered over a direct connection both sides see open.
+async fn linked(bob: &Phone, other: &Phone) {
+    let sent = bob.core().send_text(&other.id(), "hi").await.unwrap();
+    until("delivered", || async { state(bob, &sent).await == MessageState::Delivered }).await;
+    until("both see the direct connection", || async { both_connected(bob, other).await }).await;
+}
+
+async fn both_connected(bob: &Phone, other: &Phone) -> bool {
+    bob.online.network.is_connected(&other.id()).await && other.online.network.is_connected(&bob.id()).await
+}
+
+/// Bob with Alice in his main list, Carol in the session he will leave and Dave in another open
+/// one, a direct connection open with each. Returns (Bob, Alice, Carol, Dave, the session to leave).
+async fn bob_with_sessions() -> (Phone, Phone, Phone, Phone, String) {
+    let (base, fake) = fake_router().await;
+    let bob = phone(&base, "Bob", true).await;
+    let (alice, carol, dave) = (phone(&base, "Alice", true).await, phone(&base, "Carol", true).await, phone(&base, "Dave", true).await);
+    pair(&fake, &alice, &bob).await;
+    let left = bob.core().open_session(LEFT_PIN).await.unwrap().expect("a session");
+    let kept = bob.core().open_session("135790").await.unwrap().expect("another");
+    pair_in(&fake, &bob, &carol, &left).await;
+    pair_in(&fake, &bob, &dave, &kept).await;
+    for other in [&alice, &carol, &dave] {
+        linked(&bob, other).await;
+    }
+    (bob, alice, carol, dave, left)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn leaving_a_session_closes_its_direct_connections_and_no_other() {
+    let (bob, alice, carol, dave, left) = bob_with_sessions().await;
+
+    assert!(!bob.core().close_session(&left).await.unwrap(), "carol is in it: it stays");
+    until_within("carol sees it closed", Duration::from_secs(3), || async { !carol.online.network.is_connected(&bob.id()).await }).await;
+    assert!(!bob.online.network.is_connected(&carol.id()).await);
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!both_connected(&bob, &carol).await, "it stays closed");
+    assert!(both_connected(&bob, &alice).await, "the main list's connection stays");
+    assert!(both_connected(&bob, &dave).await, "another open session's connection stays");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_session_closes_its_direct_connections_and_no_other() {
+    let (bob, alice, carol, dave, left) = bob_with_sessions().await;
+
+    bob.core().remove_session(&left).await.unwrap();
+    until_within("carol sees it closed", Duration::from_secs(3), || async { !carol.online.network.is_connected(&bob.id()).await }).await;
+    assert!(!bob.online.network.is_connected(&carol.id()).await);
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(both_connected(&bob, &alice).await, "the main list's connection stays");
+    assert!(both_connected(&bob, &dave).await, "another open session's connection stays");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_opened_again_opens_a_connection_when_it_needs_one() {
+    let (bob, _alice, carol, _dave, left) = bob_with_sessions().await;
+    bob.core().close_session(&left).await.unwrap();
+    until("carol sees it closed", || async { !carol.online.network.is_connected(&bob.id()).await }).await;
+
+    assert_eq!(bob.core().open_session(LEFT_PIN).await.unwrap(), Some(left));
+    let sent = bob.core().send_text(&carol.id(), "back").await.unwrap();
+    until("carol has it", || async { texts(&carol, &bob.id()).await.last().map(String::as_str) == Some("back") }).await;
+    until("delivered", || async { state(&bob, &sent).await == MessageState::Delivered }).await;
+    until("both see the direct connection again", || async { both_connected(&bob, &carol).await }).await;
+}
+
+// A call with one of the session's contacts when it is left: leaving means nothing more from them
+// reaches the phone, and the router would hold back their hang-up from now on, so the call is hung
+// up first, as the red button would, and its end goes out before the connection closes.
+#[tokio::test(flavor = "multi_thread")]
+async fn leaving_a_session_hangs_up_a_call_with_one_of_its_contacts() {
+    let (bob, _alice, carol, _dave, left) = bob_with_sessions().await;
+    let call = call(&carol, &bob).await;
+    until("bob's phone rings", || rings(&bob, &call)).await;
+    bob.core().answer_call(&call, "v=0 answer").await.expect("bob answers");
+    until("carol hears the answer", || async {
+        carol.core().store().call(&call).await.unwrap().is_some_and(|record| record.answered_at.is_some())
+    })
+    .await;
+
+    bob.core().close_session(&left).await.unwrap();
+    assert!(bob.core().current_call().await.unwrap().is_none(), "bob's call is over");
+    until_within("carol's call is over", Duration::from_secs(3), || async { carol.core().current_call().await.unwrap().is_none() }).await;
+    let ended = carol.core().store().call(&call).await.unwrap().expect("the call");
+    assert_eq!(ended.outcome, Some(ft_storage::CallOutcome::Answered), "hung up, not failed");
+    until_within("carol sees the connection closed", Duration::from_secs(3), || async { !carol.online.network.is_connected(&bob.id()).await }).await;
+}
