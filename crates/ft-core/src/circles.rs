@@ -334,7 +334,7 @@ impl Core {
         }
         let Some(message) = self.store.circle_message(id).await? else { return Ok(true) };
         let reached = match state {
-            MessageState::Sent | MessageState::Pending => MessageState::Sent,
+            MessageState::NotSent | MessageState::Pending | MessageState::Sent => MessageState::Sent,
             MessageState::Delivered | MessageState::Read => MessageState::Delivered,
         };
         if reached == MessageState::Delivered && !self.store.circle_pending(id).await?.is_empty() {
