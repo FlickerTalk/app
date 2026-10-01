@@ -1721,6 +1721,7 @@ dependencies = [
  "ft-storage",
  "ft-vault",
  "ft-webrtc",
+ "jni 0.21.1",
  "rand 0.9.5",
  "serde",
  "serde_json",
