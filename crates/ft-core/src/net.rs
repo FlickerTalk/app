@@ -134,6 +134,8 @@ struct Retained {
     window: Instant,
     /// When the router drops it: from then on a new offer is needed.
     until: Instant,
+    /// Whether it was sent marked as a call: only then did the router ring the contact.
+    call: bool,
 }
 
 pub struct Network {
@@ -324,15 +326,25 @@ impl Network {
     /// and the connection is kept when it opens. Meanwhile no new offer is made. What may go to the
     /// mailbox never waits for it (the message gets delivered first, §17); a call waits the usual
     /// window each time, and what needs the connection waits the window of the offer's first send.
+    ///
+    /// A call never waits on an offer that was not sent as a call (2026-10-01): the router only
+    /// woke the contact for it (an iPhone shows a notice and does not start the app), so the call
+    /// would never ring. That offer is dropped and the call makes its own, marked as a call. One
+    /// offer per contact at a time keeps it to one connection: the dropped one cannot open, since
+    /// our side of it is closed.
     async fn connect(&self, peer: &Peer, reach: Reach) -> Result<Option<Session>> {
         let call = reach == Reach::Call;
         if let Some(retained) = self.retained_offer(&peer.device_id).await {
-            let limit = match reach {
-                Reach::Call => CONNECT_WAIT,
-                Reach::Direct => retained.window.saturating_duration_since(Instant::now()),
-                Reach::Fallback => Duration::ZERO,
-            };
-            return Ok(wait_open(&retained.session, limit).await.then_some(retained.session));
+            if call && !retained.call && !retained.session.is_open() {
+                self.drop_retained(&peer.device_id, &retained).await;
+            } else {
+                let limit = match reach {
+                    Reach::Call => CONNECT_WAIT,
+                    Reach::Direct => retained.window.saturating_duration_since(Instant::now()),
+                    Reach::Fallback => Duration::ZERO,
+                };
+                return Ok(wait_open(&retained.session, limit).await.then_some(retained.session));
+            }
         }
         let core = self.core()?;
         let (session, inbox, sdp) = match self.take_spare(&peer.device_id).await {
@@ -380,7 +392,7 @@ impl Network {
             if call {
                 core.mark_call_stage(CallStage::LinkOfferRetained);
             }
-            self.keep_retained(&peer.device_id, session_id, session.clone(), inbox, Instant::now()).await;
+            self.keep_retained(&peer.device_id, session_id, session.clone(), inbox, Instant::now(), call).await;
             let limit = if reach == Reach::Fallback { Duration::ZERO } else { CONNECT_WAIT };
             return Ok(wait_open(&session, limit).await.then_some(session));
         }
@@ -450,9 +462,9 @@ impl Network {
 
     /// Keeps a retained offer open until the router drops it (and a last answer has had time to
     /// come): the contact may wake and answer it at any moment, and its connection is kept then.
-    async fn keep_retained(&self, contact: &str, id: String, session: Session, inbox: Inbox, signalled_at: Instant) {
+    async fn keep_retained(&self, contact: &str, id: String, session: Session, inbox: Inbox, signalled_at: Instant, call: bool) {
         let until = signalled_at + RETAINED_FOR;
-        let retained = Retained { id: id.clone(), session: session.clone(), window: signalled_at + CONNECT_WAIT, until };
+        let retained = Retained { id: id.clone(), session: session.clone(), window: signalled_at + CONNECT_WAIT, until, call };
         self.retained.lock().await.insert(contact.to_owned(), retained);
         let network = self.this.get().cloned().unwrap_or_default();
         let contact = contact.to_owned();
@@ -475,6 +487,20 @@ impl Network {
                 let _ = session.close().await;
             }
         });
+    }
+
+    /// Gives up our offer the router keeps for the contact: an answer to it is ignored from now on
+    /// and its connection can no longer open. The router may still hand it over; the contact's
+    /// side of it then never opens either, and is closed after `CONNECT_WAIT`.
+    async fn drop_retained(&self, contact: &str, dropped: &Retained) {
+        {
+            let mut retained = self.retained.lock().await;
+            if retained.get(contact).is_some_and(|retained| retained.id == dropped.id) {
+                retained.remove(contact);
+            }
+        }
+        self.pending.lock().await.remove(&dropped.id);
+        let _ = dropped.session.close().await;
     }
 
     async fn on_signal(&self, bytes: &[u8]) -> Result<()> {
