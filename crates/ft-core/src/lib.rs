@@ -111,7 +111,7 @@ pub trait Transport: Send + Sync {
 pub use calls::CallUpdate;
 pub use native_calls::{CallPhase, CurrentCall, VideoDetach};
 pub use files::MAX_FILE_SIZE;
-pub use ft_push::{RouterClient, TurnGrant};
+pub use ft_push::{MailboxRejected, RouterClient, TurnGrant};
 
 /// What the UI listens to, to refresh itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1007,9 +1007,23 @@ impl Core {
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
 
         if let Some(entry) = self.store.outbox().await?.into_iter().find(|e| e.message_id == message_id) {
-            self.deliver(&entry).await?;
+            self.attempt(&entry).await;
         }
         Ok(message_id)
+    }
+
+    /// Queues again a message the router refused (§84), with the same id: the recipient keeps
+    /// it once even if an earlier try did reach them. Only a message that was not sent goes again.
+    pub async fn resend(&self, message_id: &str) -> Result<()> {
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        ensure!(message.outgoing && message.state == MessageState::NotSent, "only a message that was not sent goes again");
+        self.store.advance(std::slice::from_ref(&message.message_id), MessageState::Pending).await?;
+        self.store.enqueue(message_id, &message.contact, now()).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: message.contact.clone() });
+        if let Some(entry) = self.store.outbox().await?.into_iter().find(|e| e.message_id == message_id) {
+            self.attempt(&entry).await;
+        }
+        Ok(())
     }
 
     /// Sends one packet as it is, once, by whichever way works. For tests and tools that need
@@ -1270,14 +1284,20 @@ impl Core {
         Ok(())
     }
 
-    /// One delivery attempt that never holds back the rest of the queue: whatever goes wrong,
-    /// the entry is tried again later, like a contact that cannot be reached.
-    async fn attempt(&self, entry: &OutboxEntry) {
-        if self.deliver(entry).await.is_err() {
-            let attempts = entry.attempts + 1;
-            let next = now() + retry_delay(attempts).as_millis() as i64;
-            let _ = self.store.reschedule(&entry.message_id, attempts, next, entry.in_mailbox).await;
+    /// One delivery attempt that never holds back the rest of the queue. A router that refuses
+    /// the contact for good takes the message out of the queue as not sent, for the user to send
+    /// again (§84); anything else is tried again later, like a contact that cannot be reached.
+    pub(crate) async fn attempt(&self, entry: &OutboxEntry) {
+        let Err(error) = self.deliver(entry).await else { return };
+        if error.downcast_ref::<MailboxRejected>().is_some() {
+            if self.store.mark_not_sent(&entry.message_id).await.is_ok() {
+                let _ = self.events.send(Event::MessagesChanged { contact: entry.contact.clone() });
+            }
+            return;
         }
+        let attempts = entry.attempts + 1;
+        let next = now() + retry_delay(attempts).as_millis() as i64;
+        let _ = self.store.reschedule(&entry.message_id, attempts, next, entry.in_mailbox).await;
     }
 
     /// One delivery attempt for an outbox entry.

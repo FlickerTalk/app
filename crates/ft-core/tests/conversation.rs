@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::moving::{received_move, MoveUpdate};
-use ft_core::{CallUpdate, Core, Event, Peer, Transport};
+use ft_core::{CallUpdate, Core, Event, MailboxRejected, Peer, Transport};
 use ft_storage::{CallOutcome, ContactRules, FileRecord, MessageState, Store};
 use tokio::sync::mpsc;
 
@@ -27,6 +27,8 @@ struct Net {
     /// Devices whose mailbox the router refuses (403: not registered, or the capability was
     /// withdrawn).
     rejecting: Mutex<HashSet<String>>,
+    /// Devices whose mailbox fails for now (no network, 5xx, 429, a full mailbox).
+    failing: Mutex<HashSet<String>>,
     /// Every packet handed to the direct link, to replay duplicates.
     sent: Mutex<Vec<(String, Vec<u8>)>>,
     /// The direct link goes down once this many packets have gone to that device.
@@ -86,7 +88,10 @@ impl Transport for Link {
 
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> anyhow::Result<()> {
         if self.net.rejecting.lock().unwrap().contains(&to.device_id) {
-            anyhow::bail!("the router answered 403 Forbidden");
+            return Err(MailboxRejected.into());
+        }
+        if self.net.failing.lock().unwrap().contains(&to.device_id) {
+            anyhow::bail!("the router answered 507 Insufficient Storage");
         }
         self.net.mailboxes.lock().unwrap().entry(to.device_id.clone()).or_default().push(bytes);
         Ok(())
@@ -286,6 +291,108 @@ async fn a_rejected_mailbox_does_not_hold_back_other_contacts() {
     let _ = alice.retry_now().await;
     until("carol gets it", || async { texts(&carol, &id(&alice)).await.contains(&"for carol".to_owned()) }).await;
     until("delivered to carol", || async { state_of(&alice, &id(&carol), &for_carol).await == MessageState::Delivered }).await;
+}
+
+// §84: a message the router refuses for good leaves the queue and says it was not sent; it never
+// claims to be in the mailbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rejected_message_leaves_the_queue_as_not_sent() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.unreachable.lock().unwrap().insert(id(&bob));
+    net.rejecting.lock().unwrap().insert(id(&bob));
+
+    let message = alice.send_text(&id(&bob), "for bob").await.expect("stored");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::NotSent);
+    assert_eq!(outbox_len(&alice).await, 0, "out of the queue");
+    alice.retry_now().await.expect("retries");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::NotSent);
+    assert_eq!(net.mailbox_len(&id(&bob)), 0);
+}
+
+// Already in the mailbox, then refused on a retry (they deleted their phone): it can no longer be
+// said to wait there, so it is not sent either.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_in_the_mailbox_refused_on_a_retry_is_not_sent() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.unreachable.lock().unwrap().insert(id(&bob));
+
+    let message = alice.send_text(&id(&bob), "for bob").await.expect("sends");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+    net.rejecting.lock().unwrap().insert(id(&bob));
+    alice.retry_now().await.expect("retries");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::NotSent);
+    assert_eq!(outbox_len(&alice).await, 0);
+}
+
+// Sending it again queues the same message (the recipient deduplicates by its id) and it is
+// delivered once the contact can be reached. Only a message that was not sent goes again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_not_sent_goes_again_when_resent() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.unreachable.lock().unwrap().insert(id(&bob));
+    net.rejecting.lock().unwrap().insert(id(&bob));
+    let message = alice.send_text(&id(&bob), "for bob").await.expect("stored");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::NotSent);
+
+    net.rejecting.lock().unwrap().remove(&id(&bob));
+    alice.resend(&message).await.expect("sends it again");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+    net.collect(&bob).await;
+    assert!(bob.store().message(&message).await.unwrap().is_some_and(|m| m.body == "for bob"), "the same message");
+    until("delivered", || async { state_of(&alice, &id(&bob), &message).await == MessageState::Delivered }).await;
+    assert!(alice.resend(&message).await.is_err(), "a delivered message is not sent again");
+}
+
+// A failure that may pass (a full mailbox, no network) keeps the message queued for later, and
+// the rest of the queue goes on meanwhile.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_passing_failure_keeps_the_message_queued_and_holds_back_no_one() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    carol.set_mailbox(false).await.expect("carol turns the mailbox off");
+    pair(&alice, &bob).await;
+    pair(&alice, &carol).await;
+    net.unreachable.lock().unwrap().extend([id(&bob), id(&carol)]);
+    net.failing.lock().unwrap().insert(id(&bob));
+
+    let for_bob = alice.send_text(&id(&bob), "for bob").await.expect("stored");
+    let for_carol = alice.send_text(&id(&carol), "for carol").await.expect("stored");
+    net.unreachable.lock().unwrap().remove(&id(&carol));
+    alice.retry_now().await.expect("retries");
+    until("delivered to carol", || async { state_of(&alice, &id(&carol), &for_carol).await == MessageState::Delivered }).await;
+
+    let entry = alice.store().outbox().await.unwrap().into_iter().find(|e| e.message_id == for_bob).expect("still queued");
+    assert_eq!(entry.attempts, 2);
+    assert!(entry.next_attempt > now(), "rescheduled, not due at once");
+    assert_eq!(state_of(&alice, &id(&bob), &for_bob).await, MessageState::Pending);
+
+    net.failing.lock().unwrap().remove(&id(&bob));
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&id(&bob)), 1);
+    assert_eq!(state_of(&alice, &id(&bob), &for_bob).await, MessageState::Sent);
+}
+
+// Files never go to the mailbox, but our card does while the contact has not answered: if the
+// router refuses it, the file is not sent either.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_for_a_contact_the_router_refuses_is_not_sent() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    net.unreachable.lock().unwrap().insert(id(&bob));
+    let link = bob.my_card().await.expect("card").to_link();
+    alice.add_contact(&link, None).await.expect("alice adds bob");
+    net.rejecting.lock().unwrap().insert(id(&bob));
+
+    let (path, _) = some_file(1000);
+    let message = alice.send_file(&id(&bob), &path, "photo.jpg", "image/jpeg").await.expect("stored");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::NotSent);
+    assert_eq!(outbox_len(&alice).await, 0);
 }
 
 // §19: a message only goes to the mailbox if both use it; otherwise it waits on the phone.
