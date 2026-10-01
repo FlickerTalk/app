@@ -40,6 +40,11 @@ rand = "0.9"
 tokio = { version = "1", features = ["sync", "fs", "io-util", "time"] }
 base64 = "0.22"
 
+# A call push starts the core with the app closed (2026-10-01, src/push_core.rs): Kotlin and Rust
+# call each other over JNI. The same version Tauri and tao already use.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
 # QR codes of Contact Cards (Plan §32): the camera scanner exists on phones only.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"

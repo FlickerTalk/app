@@ -189,22 +189,29 @@ class FtMessagingService : FirebaseMessagingService() {
 
     /**
      * A call with the app closed (native calls, 2026-09-28): the incoming-call notification, with
-     * the generic text (the name comes when the app opens and reads the offer), ringing for what
-     * is left of its 45 s. The system plays the ringtone on the ringing channel, as the ringer mode
-     * says: a process woken by FCM may be frozen long before the call stops ringing.
+     * the generic text, ringing for what is left of its 45 s. The system plays the ringtone on the
+     * ringing channel, as the ringer mode says. Since 2026-10-01 the push also starts the core
+     * (`PushCore`), with no activity: it connects at once, the notification learns who calls, and
+     * the caller's hang-up, a refusal or a missed call end it as with the app open. A foreground
+     * service of type phone call keeps the process awake meanwhile: one FCM woke is frozen within
+     * seconds otherwise.
      */
     private fun incomingCall(message: RemoteMessage, openSlots: Set<Int>) {
         val state = ActivityManager.RunningAppProcessInfo()
         ActivityManager.getMyMemoryState(state)
         val push = callPush(message.data, openSlots, !shouldNotify(state.importance), mayDisturbNow(this))
         if (push == CallPush.IGNORE) return
-        showCall(
+        val left = callRingMillis(message.sentTime, System.currentTimeMillis())
+        val notification = callNotification(
             this,
             getString(R.string.ft_someone),
             getString(R.string.ft_incoming_call),
             ringing = push == CallPush.RING,
-            timeoutMs = callRingMillis(message.sentTime, System.currentTimeMillis()),
-        )
+            timeoutMs = left,
+        ) ?: return
+        IncomingCall.ring(this, notification, left)
+        pushLog(this, if (push == CallPush.RING) "call push: ringing" else "call push: quiet")
+        PushCore.start(this)
     }
 
     // A new token reaches the router the next time the app starts.
@@ -277,16 +284,43 @@ fun callEventPayload(event: CallEvent): Map<String, Any> = when (event) {
     CallEvent.VideoRequested -> mapOf("event" to "video")
 }
 
-/** Events wait here until the core listens, then go out in order. */
+/**
+ * Events wait here until the core listens, then go out in order. Before the app, a core a call
+ * push started (2026-10-01, `PushCore`) takes what `pushCoreTakes` says; the rest (an answer)
+ * waits for the app, whose core then takes everything.
+ */
 class CallEventQueue(private val limit: Int = 16) {
     private var sink: ((CallEvent) -> Unit)? = null
+    /** A core a call push started, before the app: `false` when it could not take the event. */
+    private var pushCore: ((CallEvent) -> Boolean)? = null
     private val waiting = ArrayDeque<CallEvent>()
 
     /** The core listens: what waited goes out now, in order; a previous listener hears no more. */
     @Synchronized
     fun register(sink: (CallEvent) -> Unit) {
         this.sink = sink
+        pushCore = null
         while (waiting.isNotEmpty()) sink(waiting.removeFirst())
+    }
+
+    /** A core a call push started is up: what it takes of what waited goes to it now. Never
+     *  over the app's core. */
+    @Synchronized
+    fun registerPushCore(take: (CallEvent) -> Boolean) {
+        if (sink != null) return
+        pushCore = take
+        val kept = ArrayDeque<CallEvent>()
+        while (waiting.isNotEmpty()) {
+            val event = waiting.removeFirst()
+            if (!toPushCore(event)) kept.addLast(event)
+        }
+        waiting.addAll(kept)
+    }
+
+    /** The push's core stopped: events wait for the app again. */
+    @Synchronized
+    fun forgetPushCore() {
+        pushCore = null
     }
 
     @Synchronized
@@ -296,13 +330,18 @@ class CallEventQueue(private val limit: Int = 16) {
             listening(event)
             return
         }
+        if (toPushCore(event)) return
         waiting.addLast(event)
         while (waiting.size > limit) waiting.removeFirst()
     }
 
-    /** Whether the core listens now (it runs only with the app: Tauri starts Rust with it). */
+    /** Whether the app's core listens now (it runs with the app: Tauri starts Rust with it). */
     @Synchronized
     fun listening(): Boolean = sink != null
+
+    /** Whether a core hears `event` now: the app's, or the push's for what it takes. */
+    @Synchronized
+    fun hears(event: CallEvent): Boolean = sink != null || (pushCore != null && pushCoreTakes(event))
 
     /** A new call starts: what an old one left unheard is no longer true. */
     @Synchronized
@@ -311,10 +350,15 @@ class CallEventQueue(private val limit: Int = 16) {
     /** Only to a core that listens now; nothing waits (a process FCM started has no core yet). */
     @Synchronized
     fun offer(event: CallEvent): Boolean {
-        val listening = sink ?: return false
-        listening(event)
-        return true
+        val listening = sink
+        if (listening != null) {
+            listening(event)
+            return true
+        }
+        return toPushCore(event)
     }
+
+    private fun toPushCore(event: CallEvent): Boolean = pushCoreTakes(event) && pushCore?.invoke(event) == true
 }
 
 /**
@@ -413,7 +457,24 @@ private fun ringtoneAttributes(): AudioAttributes = AudioAttributes.Builder()
  * weekly hours keep the call quiet.
  */
 fun showCall(context: Context, title: String, text: String, ringing: Boolean = false, timeoutMs: Long = 0, video: Boolean = false) {
-    val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    callNotification(context, title, text, ringing, timeoutMs, video)?.let { IncomingCall.post(context, it) }
+}
+
+/**
+ * The incoming call notification (`showCall`). `alertOnce`: a quiet update of one already shown
+ * (the push's call learns its caller is muted, 2026-10-01). A ringing one is never updated: Android
+ * then stops the insistent ringtone (`pushRing`).
+ */
+fun callNotification(
+    context: Context,
+    title: String,
+    text: String,
+    ringing: Boolean = false,
+    timeoutMs: Long = 0,
+    video: Boolean = false,
+    alertOnce: Boolean = false,
+): Notification? {
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return null
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         manager.createNotificationChannel(
             NotificationChannel(CALL_CHANNEL, context.getString(R.string.ft_channel_calls), NotificationManager.IMPORTANCE_HIGH).apply {
@@ -431,7 +492,7 @@ fun showCall(context: Context, title: String, text: String, ringing: Boolean = f
             )
         }
     }
-    val open = openAppIntent(context, 1) ?: return
+    val open = openAppIntent(context, 1) ?: return null
     // The buttons hand the tap to the process at once, whatever state the app is in (2026-09-29).
     val answer = tapIntent(context, NotificationTap.CALL_ANSWER)
     val decline = tapIntent(context, NotificationTap.CALL_DECLINE)
@@ -444,6 +505,9 @@ fun showCall(context: Context, title: String, text: String, ringing: Boolean = f
         .setCategory(NotificationCompat.CATEGORY_CALL)
         .setOngoing(true)
         .setAutoCancel(true)
+        .setOnlyAlertOnce(alertOnce)
+        // Shown at once even as a foreground service's notification (the push's, 2026-10-01).
+        .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         .setContentIntent(open)
         .setFullScreenIntent(open, true)
         // Answer and decline from the notification itself: the user should not have to open the
@@ -457,11 +521,7 @@ fun showCall(context: Context, title: String, text: String, ringing: Boolean = f
     }
     val notification = builder.build()
     if (ringing) notification.flags = notification.flags or Notification.FLAG_INSISTENT
-    try {
-        manager.notify(CALL_NOTIFICATION, notification)
-    } catch (_: SecurityException) {
-        // Notifications not allowed: the ringtone still plays.
-    }
+    return notification
 }
 
 private fun showActivityNotification(context: Context) {
@@ -518,8 +578,16 @@ object CallEvents {
 
     fun forget() = sender.execute { queue.forget() }
 
+    /** A core a call push started is up (2026-10-01): it takes a decline, a hang-up, the push. */
+    fun registerPushCore(take: (CallEvent) -> Boolean) = sender.execute { queue.registerPushCore(take) }
+
+    fun forgetPushCore() = sender.execute { queue.forgetPushCore() }
+
     /** Whether the core listens now; a registration still on its way counts as not yet. */
     fun listening(): Boolean = queue.listening()
+
+    /** Whether a core hears `event` now (the app's, or the push's for what it takes). */
+    fun hears(event: CallEvent): Boolean = queue.hears(event)
 }
 
 /**
@@ -578,7 +646,7 @@ object InCall {
             active = true
             muted = false
             CallEvents.forget()
-            context.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+            IncomingCall.dismiss(context)
             takeAudio(context)
         }
         val running = service
@@ -965,6 +1033,21 @@ class KeyArgs {
     lateinit var value: String
 }
 
+/** Seals the storage key with the Keystore's AES key (§94): the nonce, then the ciphertext. */
+fun sealStorageKey(key: ByteArray): ByteArray {
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, keystoreKey()) }
+    return cipher.iv + cipher.doFinal(key)
+}
+
+/** Opens a sealed storage key. No activity needed: a core a call push started opens it too. */
+fun openStorageKey(sealed: ByteArray): ByteArray {
+    val (iv, ciphertext) = splitSealed(sealed) ?: throw IllegalArgumentException("not a sealed key")
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+        init(Cipher.DECRYPT_MODE, keystoreKey(), GCMParameterSpec(128, iv))
+    }
+    return cipher.doFinal(ciphertext)
+}
+
 /** How an incoming call rings. */
 data class Ringing(val sound: Boolean, val vibrate: Boolean)
 
@@ -1177,6 +1260,9 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         this.webView = webView
         InCall.appVisible = true
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
+        // Opened while a push's call rings (2026-10-01): the core a push started told the
+        // notification, not this activity, so it shows over the lock screen from here.
+        if (IncomingCall.showing) showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))
     }
 
     /**
@@ -1190,7 +1276,10 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         if (InCall.active) InCall.service?.promote()
     }
 
-    /** Off the screen: the core holds our camera until the app is back (native video). */
+    /**
+     * Off the screen: the core holds our camera until the app is back (native video), and lets go
+     * of the router and the other phones unless a call is going on (2026-10-01).
+     */
     override fun onPause() {
         super.onPause()
         InCall.appVisible = false
@@ -1260,7 +1349,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(AnsweringArgs::class.java)
         InCall.ringingName = args.caller
         CallRinger.coreRinging = false
-        activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        IncomingCall.dismiss(activity)
         silence()
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
         invoke.resolve()
@@ -1485,8 +1574,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun sealKey(invoke: Invoke) {
         try {
             val key = Base64.decode(invoke.parseArgs(KeyArgs::class.java).value, Base64.NO_WRAP)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, keystoreKey()) }
-            val sealed = cipher.iv + cipher.doFinal(key)
+            val sealed = sealStorageKey(key)
             invoke.resolve(JSObject().apply { put("value", Base64.encodeToString(sealed, Base64.NO_WRAP)) })
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot seal the key")
@@ -1509,11 +1597,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun openKey(invoke: Invoke) {
         try {
             val sealed = Base64.decode(invoke.parseArgs(KeyArgs::class.java).value, Base64.NO_WRAP)
-            val (iv, ciphertext) = splitSealed(sealed) ?: throw IllegalArgumentException("not a sealed key")
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
-                init(Cipher.DECRYPT_MODE, keystoreKey(), GCMParameterSpec(128, iv))
-            }
-            invoke.resolve(JSObject().apply { put("value", Base64.encodeToString(cipher.doFinal(ciphertext), Base64.NO_WRAP)) })
+            invoke.resolve(JSObject().apply { put("value", Base64.encodeToString(openStorageKey(sealed), Base64.NO_WRAP)) })
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot open the key")
         }
@@ -1577,12 +1661,12 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /**
      * The core refused an incoming call without a trace (2026-10-01): the call notification a
      * call push started for it, before the core knew who called, goes at once, and its ringing
-     * with it. With the app closed the core does not run, so this only reaches a live process.
+     * with it. With the app closed, the core a call push started tells `PushCore.refused` instead.
      */
     @Command
     fun callRefused(invoke: Invoke) {
         if (refusalCancels(CallRinger.coreRinging, InCall.active)) {
-            activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+            IncomingCall.dismiss(activity)
             silence()
         }
         invoke.resolve()
@@ -1591,7 +1675,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun stopRinging(invoke: Invoke) {
         CallRinger.coreRinging = false
-        activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+        IncomingCall.dismiss(activity)
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = InCall.active))
         silence()
         invoke.resolve()

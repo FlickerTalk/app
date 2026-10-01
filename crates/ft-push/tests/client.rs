@@ -447,3 +447,62 @@ async fn a_closed_client_lets_its_socket_go_and_asks_nothing_more() {
     assert!(client.register(&eight(), 0).await.is_err());
     assert_eq!(registered.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reaches the router");
 }
+
+// The app left the foreground (2026-10-01): the socket goes at once, so the router knows this
+// phone is gone and pushes for what comes; it is not opened again, not even when asked, until
+// the app is back, and then at once.
+#[tokio::test]
+async fn an_away_client_lets_its_socket_go_and_opens_it_again_when_back() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let (opened, closed) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let (counted, ended) = (opened.clone(), closed.clone());
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let (counted, ended) = (counted.clone(), ended.clone());
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, SeqCst);
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    // The router hears the socket go as soon as the phone lets it go.
+                    while let Some(Ok(message)) = socket.recv().await {
+                        if matches!(message, WsMessage::Close(_)) {
+                            break;
+                        }
+                    }
+                    ended.fetch_add(1, SeqCst);
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+    assert!(!client.is_away());
+
+    assert!(client.set_away(true), "it was here");
+    assert!(!client.set_away(true), "away twice is away");
+    assert!(client.is_away());
+    let gone = tokio::time::timeout(Duration::from_secs(1), async {
+        while closed.load(SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(gone.is_ok(), "the router saw the socket go at once");
+    client.reconnect_now();
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(opened.load(SeqCst), 1, "not opened again while away");
+
+    assert!(client.set_away(false), "back");
+    assert!(!client.set_away(false), "back twice is back");
+    assert!(welcomed(&mut events).await, "connected again at once");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(opened.load(SeqCst), 2, "one socket, not one per call");
+}
