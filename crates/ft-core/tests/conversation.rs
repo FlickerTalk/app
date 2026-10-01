@@ -937,9 +937,13 @@ async fn a_closed_session_answers_calls_as_busy_and_an_open_one_rings() {
     alice.offer_call(&call, "offer-sdp").await.expect("offers");
     assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
     until("bob logged it as missed", || async { outcome_of(&bob, &call).await == Some(CallOutcome::Missed) }).await;
+    let mut refused = false;
     while let Ok(event) = at_bob.try_recv() {
         assert!(!matches!(event, Event::Call { .. }), "a closed session never rings");
+        refused |= event == Event::CallRefused;
     }
+    // The phone's own call screen may already ring from the push (iOS): it is told to stop.
+    assert!(refused, "the phone hears that a call was refused");
 
     bob.open_session("246810").await.expect("opens again").expect("it exists");
     let second = alice.place_call(&id(&bob), false).await.expect("places");
@@ -967,6 +971,95 @@ async fn a_closed_session_leaves_no_calls_in_the_history() {
     assert!(bob.visible_calls(100).await.expect("lists").is_empty(), "nothing shows while the session is closed");
     bob.open_session("246810").await.expect("opens again").expect("it exists");
     assert_eq!(bob.visible_calls(100).await.expect("lists").len(), 1, "the session's history is back");
+}
+
+// 2026-10-01 (§108): a session the user left open is still open after the app starts again
+// (closed, killed, the phone restarted): its messages make noise and its calls ring, as the main
+// list's, with no PIN typed.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_session_still_notifies_and_rings_after_a_restart() {
+    let net = Net::new();
+    let path = scratch("open-session-restart").join("flickertalk.db");
+    let alice = device(&net, "Alice").await;
+    {
+        let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+        let work = bob.open_session("246810").await.expect("opens").expect("a session");
+        let link = alice.my_card().await.expect("card").to_link();
+        bob.add_contact_in(&link, None, Some(&work)).await.expect("adds");
+        until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+    }
+
+    let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+    let mut at_bob = bob.events();
+    alice.send_text(&id(&bob), "still at work?").await.expect("sends");
+    let heard = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if at_bob.recv().await.expect("events") == (Event::MessagesChanged { contact: id(&alice) }) {
+                break;
+            }
+        }
+    })
+    .await;
+    assert!(heard.is_ok(), "the open session's message makes noise");
+
+    let call = alice.place_call(&id(&bob), false).await.expect("places");
+    alice.offer_call(&call, "offer-sdp").await.expect("offers");
+    assert!(matches!(next_call(&mut at_bob).await.2, CallUpdate::Incoming { .. }), "its call rings");
+}
+
+// 2026-10-01 (§108, §19): a session the user left, with the mailbox off on either side. While
+// the recipient's app is not running the message waits in the sender's outbox ("waiting for the
+// device"): nothing goes to the server and nothing is lost. Once the recipient's core runs again
+// it is delivered, and stored without a sound, because the session is still closed.
+async fn a_left_session_without_the_mailbox_gets_it_later_in_silence(mailbox_off_at_sender: bool) {
+    let net = Net::new();
+    let path = scratch(&format!("left-no-mailbox-{mailbox_off_at_sender}")).join("flickertalk.db");
+    let alice = device(&net, "Alice").await;
+    let bob_id = {
+        let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+        let work = bob.open_session("246810").await.expect("opens").expect("a session");
+        bob.add_contact_in(&alice.my_card().await.expect("card").to_link(), None, Some(&work)).await.expect("adds");
+        until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+        if mailbox_off_at_sender {
+            alice.set_mailbox(false).await.expect("alice turns the mailbox off");
+        } else {
+            bob.set_mailbox(false).await.expect("bob turns the mailbox off");
+            until("alice learns it", || async { !alice.store().contact(&id(&bob)).await.unwrap().unwrap().mailbox }).await;
+        }
+        assert!(!bob.close_session(&work).await.expect("bob leaves work"));
+        id(&bob)
+    };
+    // Bob's app is not running: nothing reaches his phone.
+    net.unreachable.lock().unwrap().insert(bob_id.clone());
+
+    let message = alice.send_text(&bob_id, "see you on monday").await.expect("sends");
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&bob_id), 0, "nothing goes to the server");
+    assert_eq!(state_of(&alice, &bob_id, &message).await, MessageState::Pending, "waiting for the device");
+    assert_eq!(outbox_len(&alice).await, 1, "kept on alice's phone");
+
+    let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+    assert!(bob.open_sessions().is_empty(), "the session is still closed");
+    let mut at_bob = bob.events();
+    net.unreachable.lock().unwrap().remove(&bob_id);
+    alice.retry_now().await.expect("retries");
+    until("delivered", || async { state_of(&alice, &bob_id, &message).await == MessageState::Delivered }).await;
+    assert_eq!(texts(&bob, &id(&alice)).await, ["see you on monday"]);
+    assert_eq!(outbox_len(&alice).await, 0);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    while let Ok(event) = at_bob.try_recv() {
+        assert_ne!(event, Event::MessagesChanged { contact: id(&alice) }, "a closed session makes no noise");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_left_session_with_the_senders_mailbox_off_gets_it_later_in_silence() {
+    a_left_session_without_the_mailbox_gets_it_later_in_silence(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_left_session_with_the_recipients_mailbox_off_gets_it_later_in_silence() {
+    a_left_session_without_the_mailbox_gets_it_later_in_silence(false).await;
 }
 
 async fn outbox_len(core: &Core) -> usize {
@@ -1028,9 +1121,13 @@ async fn with_calls_off_a_call_is_busy_and_leaves_no_trace() {
     assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(bob.store().call(&call).await.unwrap().is_none(), "no trace in the history");
+    let mut refused = false;
     while let Ok(event) = at_bob.try_recv() {
         assert!(!matches!(event, Event::Call { .. }), "it never rings");
+        refused |= event == Event::CallRefused;
     }
+    // A ring the push started before the core knew (iOS, Android) stops at once.
+    assert!(refused, "the phone hears that a call was refused");
 }
 
 // Issue app#7: the weekly hours are kept on the phone, and only well-formed ones.

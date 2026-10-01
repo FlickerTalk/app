@@ -123,7 +123,7 @@ async fn fake_router() -> (String, Arc<Seen>) {
 async fn registration_is_signed_so_the_router_accepts_it() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight()).await.expect("registers");
+    client.register(&eight(), 0).await.expect("registers");
     assert_eq!(seen.verified.lock().unwrap().as_slice(), ["register"]);
 }
 
@@ -137,7 +137,7 @@ fn eight() -> [[u8; 32]; 8] {
 async fn registration_hands_over_eight_capabilities() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight()).await.expect("registers");
+    client.register(&eight(), 0).await.expect("registers");
     let registration = seen.registration.lock().unwrap().clone().expect("registered");
     let hashes = registration["capability_hashes"].as_array().expect("a list").clone();
     assert_eq!(hashes.len(), 8);
@@ -145,12 +145,38 @@ async fn registration_hands_over_eight_capabilities() {
     assert_eq!(hashes[3], json!(STANDARD_NO_PAD.encode([8u8; 32])));
 }
 
+// 2026-10-01 (§108): the router sends no push for a silent slot. Bit i of `silent_slots` is slot i;
+// the phone sets it for a session that is closed (and at random for a spare one), never for the
+// main list. Every registration replaces the last one, so it always goes, 0 included.
+#[tokio::test]
+async fn registration_says_which_slots_are_silent() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0b1010_0100).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(registration["silent_slots"], json!(0b1010_0100));
+
+    client.register(&eight(), 0).await.expect("registers again");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(registration["silent_slots"], json!(0), "nothing silent is said too");
+}
+
+// The main list (slot 0) is never silent, whatever the caller passes.
+#[tokio::test]
+async fn the_main_list_is_never_registered_as_silent() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0b1111_1111).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(registration["silent_slots"], json!(0b1111_1110));
+}
+
 // §8: where this device can be woken, signed like every request.
 #[tokio::test]
 async fn the_push_token_is_left_signed() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight()).await.expect("registers");
+    client.register(&eight(), 0).await.expect("registers");
     client.set_push("fcm", "fcm-token-1").await.expect("leaves the token");
     assert_eq!(seen.push.lock().unwrap().as_slice(), [json!({ "provider": "fcm", "token": "fcm-token-1" })]);
 }
@@ -194,8 +220,8 @@ async fn two_devices_meet_on_the_live_router() {
     let base = "https://api.flickertalk.com";
     let (alice, bob) = (RouterClient::new(base, device()).unwrap(), Arc::new(RouterClient::new(base, device()).unwrap()));
     let bob_capability = [7u8; 32];
-    alice.register(&[[8; 32]; 8]).await.expect("alice registers");
-    bob.register(&[*blake3::hash(&bob_capability).as_bytes(); 8]).await.expect("bob registers");
+    alice.register(&[[8; 32]; 8], 0).await.expect("alice registers");
+    bob.register(&[*blake3::hash(&bob_capability).as_bytes(); 8], 0).await.expect("bob registers");
 
     let mut events = bob.listen();
     let Some(RouterEvent::Connected { stun, turn }) = events.recv().await else { panic!("a welcome") };
@@ -389,6 +415,6 @@ async fn a_closed_client_lets_its_socket_go_and_asks_nothing_more() {
     client.reconnect_now();
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1, "never opened again");
-    assert!(client.register(&eight()).await.is_err());
+    assert!(client.register(&eight(), 0).await.is_err());
     assert_eq!(registered.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reaches the router");
 }

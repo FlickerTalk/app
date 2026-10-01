@@ -559,6 +559,34 @@ async fn a_call_to_a_phone_that_wakes_rings_as_soon_as_it_connects() {
     let _ = alice.core.end_call(&call, false).await;
 }
 
+// A blocked contact's call (§35, §109): its offer is dropped unread, and the phone hears that a
+// call may have been refused. With the app closed, a push has set the iPhone's call screen
+// ringing before the core could know who called: it stops at once, and nothing shows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blocked_contacts_call_is_refused_without_ringing() {
+    let (bus, alice, bob) = bob_asleep().await;
+    bob.core.block(&alice.id(), true).await.expect("blocks");
+    let mut bob_events = bob.core.events();
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let (core, id) = (alice.core.clone(), call.clone());
+    tokio::spawn(async move { core.offer_call_within(&id, "offer", Duration::from_secs(3)).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    bob.go_online(&bus);
+    let refused = async {
+        loop {
+            match bob_events.recv().await {
+                Ok(Event::CallRefused) => return,
+                Ok(Event::Call { .. }) => panic!("a blocked contact's call never rings"),
+                _ => {}
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), refused).await.expect("the phone hears it was refused");
+    assert!(bob.core.current_call().await.unwrap().is_none());
+    assert!(bob.core.visible_calls(10).await.unwrap().is_empty(), "no trace in the history");
+}
+
 /// STUN and TURN servers that never answer: local UDP sockets nobody reads (a server behind a
 /// network that drops the packets). Gathering takes its whole second. Nothing leaves the machine.
 struct Blackhole {

@@ -120,16 +120,34 @@ fun isWake(data: Map<String, String>): Boolean = data["t"] == "wake"
 /**
  * Whether a wake-up should be heard (app#9). `slot` says which of the device's eight route
  * capabilities the sender used: 0 (or none, from an older router) is the device's own; 1–7 belong
- * to hidden sessions, heard only while open. A process that was not running has none open.
+ * to hidden sessions, heard only while open. A process a push starts reads the open ones from
+ * preferences (`openSlotsNow`): a session stays open until the user leaves it (2026-10-01).
  */
 fun wakeIsHeard(slot: String?, open: Set<Int>): Boolean {
     if (slot == null || slot == "0") return true
     return slot.toIntOrNull()?.let { it in open } ?: false
 }
 
-/** The hidden sessions open right now, by slot, as the core last said; empty when the app starts. */
-@Volatile
-var openSlots: Set<Int> = emptySet()
+/** The open slots as preferences keep them. */
+fun keptSlots(slots: Set<Int>): String = slots.sorted().joinToString(",")
+
+/** The open slots read back from preferences: only 1–7; nothing kept is none open. */
+fun slotsKept(kept: String?): Set<Int> =
+    kept.orEmpty().split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..7 }.toSet()
+
+private const val OPEN_SLOTS = "open_slots"
+
+/**
+ * The hidden sessions open now, by slot, as the core last said (2026-10-01): kept in preferences,
+ * so a process a push starts before the core knows them too. Never which session, only the slot.
+ */
+fun openSlotsNow(context: Context): Set<Int> =
+    slotsKept(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(OPEN_SLOTS, null))
+
+/** Written at once: a push may start a new process right after. */
+fun keepOpenSlots(context: Context, slots: Set<Int>) {
+    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(OPEN_SLOTS, keptSlots(slots)).commit()
+}
 
 /** An app on screen is already connected and gets everything: no notification then. */
 fun shouldNotify(importance: Int): Boolean =
@@ -154,9 +172,10 @@ fun callText(video: Boolean): Int = if (video) R.string.ft_incoming_video_call e
 class FtMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         // A live core reconnects now: its socket to the router is dead (2026-09-28).
+        val openSlots = openSlotsNow(this)
         if (reconnectsOnPush(message.data, openSlots)) CallEvents.offer(CallEvent.Incoming)
         if (isCall(message.data)) {
-            incomingCall(message)
+            incomingCall(message, openSlots)
             return
         }
         if (!isWake(message.data)) return
@@ -174,7 +193,7 @@ class FtMessagingService : FirebaseMessagingService() {
      * is left of its 45 s. The system plays the ringtone on the ringing channel, as the ringer mode
      * says: a process woken by FCM may be frozen long before the call stops ringing.
      */
-    private fun incomingCall(message: RemoteMessage) {
+    private fun incomingCall(message: RemoteMessage, openSlots: Set<Int>) {
         val state = ActivityManager.RunningAppProcessInfo()
         ActivityManager.getMyMemoryState(state)
         val push = callPush(message.data, openSlots, !shouldNotify(state.importance), mayDisturbNow(this))
@@ -208,6 +227,13 @@ fun callPush(data: Map<String, String>, open: Set<Int>, appOnScreen: Boolean, ma
     !mayDisturb -> CallPush.SILENT
     else -> CallPush.RING
 }
+
+/**
+ * Whether the core's refusal of a call without a trace (2026-10-01: Calls off, a stranger, a
+ * blocked contact; §109) ends the call notification: only the one a call push started before the
+ * core knew who called. A call the core rings itself (`startRinging`) or one going on is another.
+ */
+fun refusalCancels(coreRinging: Boolean, inCall: Boolean): Boolean = !coreRinging && !inCall
 
 /** How long a call rings, in ms, at most. The router gives the push the same 45 s to live. */
 const val CALL_RING_MS = 45_000L
@@ -503,6 +529,9 @@ object CallEvents {
 object CallRinger {
     var ringtone: Ringtone? = null
     var vibrator: Vibrator? = null
+    /** The core rings a call it knows (`startRinging`), until `stopRinging` or an answer. */
+    @Volatile
+    var coreRinging = false
 
     fun silence() {
         ringtone?.stop()
@@ -1230,6 +1259,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun callAnswering(invoke: Invoke) {
         val args = invoke.parseArgs(AnsweringArgs::class.java)
         InCall.ringingName = args.caller
+        CallRinger.coreRinging = false
         activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
         silence()
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
@@ -1418,6 +1448,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         try {
             val args = invoke.parseArgs(RingingArgs::class.java)
             InCall.ringingName = args.caller
+            CallRinger.coreRinging = true
             showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))
             silence()
             showCall(
@@ -1527,10 +1558,11 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         Runtime.getRuntime().exit(0)
     }
 
-    /** Which hidden sessions are open, by slot (app#9): their wake-ups are heard. */
+    /** Which hidden sessions are open, by slot (app#9): their wake-ups are heard, also by a
+     *  process a push starts later (2026-10-01). */
     @Command
     fun setOpenSlots(invoke: Invoke) {
-        openSlots = invoke.parseArgs(OpenSlotsArgs::class.java).slots.toSet()
+        keepOpenSlots(activity, invoke.parseArgs(OpenSlotsArgs::class.java).slots.toSet())
         invoke.resolve()
     }
 
@@ -1542,8 +1574,23 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /**
+     * The core refused an incoming call without a trace (2026-10-01): the call notification a
+     * call push started for it, before the core knew who called, goes at once, and its ringing
+     * with it. With the app closed the core does not run, so this only reaches a live process.
+     */
+    @Command
+    fun callRefused(invoke: Invoke) {
+        if (refusalCancels(CallRinger.coreRinging, InCall.active)) {
+            activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+            silence()
+        }
+        invoke.resolve()
+    }
+
     @Command
     fun stopRinging(invoke: Invoke) {
+        CallRinger.coreRinging = false
         activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = InCall.active))
         silence()
