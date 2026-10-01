@@ -94,6 +94,17 @@ final class VideoTests: XCTestCase {
         XCTAssertFalse(appVisible(.background))
     }
 
+    // 2026-10-01: entering the background tells the core the app left the foreground (it lets go
+    // of the router, so the router pushes what comes); becoming active, that it is back. Resigning
+    // active (CallKit's screen over the app, the notification centre pulled down) is neither: the
+    // app is still on the screen.
+    func testTheLifecycleSaysWhenTheAppLeavesTheForegroundAndComesBack() {
+        XCTAssertEqual(visibilityEvent(UIApplication.didEnterBackgroundNotification), .visible(false))
+        XCTAssertEqual(visibilityEvent(UIApplication.didBecomeActiveNotification), .visible(true))
+        XCTAssertNil(visibilityEvent(UIApplication.willResignActiveNotification))
+        XCTAssertNil(visibilityEvent(UIApplication.willEnterForegroundNotification))
+    }
+
     // Native video's events, as Rust's `NativeCallEvent` reads them.
     func testVideoEventsTravelAsTheCoreReadsThem() {
         XCTAssertEqual(callEventPayload(.visible(true)) as NSDictionary, ["event": "visible", "visible": true] as NSDictionary)
