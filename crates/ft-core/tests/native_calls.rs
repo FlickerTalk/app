@@ -896,6 +896,44 @@ async fn a_call_to_a_closed_app_still_rings_through_a_router_before_0_4() {
     assert!(ringing < Duration::from_millis(5_000), "it rang {} ms after the app connected", ringing.as_millis());
 }
 
+// Bug of 2026-10-01 (Samsung, app closed): the push rang the phone, and the caller gave up before
+// the phone's core connected, after its offer's last try. Only the hang-up reached the phone, for a
+// call it had never heard of: nothing was kept and nothing stopped the push's ringing. The caller
+// did call: it is a missed call, and the phone's own call screen hears that it ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_given_up_before_the_closed_app_connects_is_missed_when_it_does() {
+    let bus = Arc::new(Bus::default());
+    bus.retaining.store(true, std::sync::atomic::Ordering::SeqCst);
+    let alice = phone(&bus, "Alice", false, Activation::Immediate).await;
+    let bob = phone(&bus, "Bob", true, Activation::Immediate).await;
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    bus.online.lock().unwrap().remove(&bob.id());
+    bob.network.disconnect(&alice.id()).await;
+    alice.network.disconnect(&bob.id()).await;
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    alice.core.end_call(&call, false).await.expect("alice gives up");
+    // The offer's try waits for the link as long as a connection may take; Bob comes after it.
+    tokio::time::sleep(ft_core::net::CONNECT_WAIT + Duration::from_millis(500)).await;
+
+    let mut bob_events = bob.core.events();
+    let back = std::time::Instant::now();
+    bob.go_online(&bus);
+    let update = next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Ended { .. })).await;
+    let stopped = back.elapsed();
+    eprintln!("given up before the closed app connected: it ended {} ms after the app connected", stopped.as_millis());
+    assert!(stopped < Duration::from_secs(5), "it rang {} ms after the app connected", stopped.as_millis());
+    assert_eq!(update, CallUpdate::Ended { outcome: CallOutcome::Missed });
+    let record = bob.core.store().call(&call).await.unwrap().expect("in Bob's history");
+    assert_eq!(record.outcome, Some(CallOutcome::Missed));
+    assert!(!record.outgoing);
+    assert_eq!(record.contact, alice.id());
+    assert!(bob.core.current_call().await.unwrap().is_none(), "nothing rings");
+}
+
 // The two lines of work meet in the answer (2026-09-29): `fix-bridge` (a call is connecting from
 // the moment it is answered; an answer or a decline given before the offer counts when it comes)
 // and `call-setup-time` (the answer is prepared while the phone rings, sending nothing). What
