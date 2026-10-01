@@ -435,6 +435,7 @@ impl<R: Runtime> Platform<R> {
     }
 
     /// Tells the native side which hidden sessions are open, so their wake-ups are heard (app#9).
+    /// It keeps them (preferences, UserDefaults) for a process a push starts before the core.
     pub fn set_open_slots(&self, slots: &[u8]) -> Result<()> {
         self.run("setOpenSlots", OpenSlots { slots })
     }

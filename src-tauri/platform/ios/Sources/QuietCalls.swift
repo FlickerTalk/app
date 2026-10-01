@@ -84,7 +84,8 @@ struct OpenSlotsArgs: Decodable {
 
 /// Whether a push for slot `raw` (the router's `s`, app#9) may make the phone ring: 0, or none
 /// from an older router, is the main list; 1–7 are hidden sessions, heard only while open. A
-/// process that just started has none open. Kotlin's `wakeIsHeard`.
+/// process that just started reads the open ones kept by `OpenSlots` (2026-10-01). Kotlin's
+/// `wakeIsHeard`.
 func slotIsHeard(_ raw: Any?, open: Set<Int>) -> Bool {
     let slot: Int?
     switch raw {
