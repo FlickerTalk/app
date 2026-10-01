@@ -311,10 +311,11 @@ async fn a_rejected_message_leaves_the_queue_as_not_sent() {
     assert_eq!(net.mailbox_len(&id(&bob)), 0);
 }
 
-// Already in the mailbox, then refused on a retry (they deleted their phone): it can no longer be
-// said to wait there, so it is not sent either.
+// Already in the mailbox, then refused on a retry (they deleted their phone): "sent" was true when
+// it was shown and never claimed delivery, so it stays sent (no messenger takes it back), but it
+// leaves the queue so a router that refuses it is not asked again (2026-10-01).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_message_in_the_mailbox_refused_on_a_retry_is_not_sent() {
+async fn a_message_in_the_mailbox_refused_on_a_retry_stays_sent() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
     pair(&alice, &bob).await;
@@ -324,8 +325,8 @@ async fn a_message_in_the_mailbox_refused_on_a_retry_is_not_sent() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
     net.rejecting.lock().unwrap().insert(id(&bob));
     alice.retry_now().await.expect("retries");
-    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::NotSent);
-    assert_eq!(outbox_len(&alice).await, 0);
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+    assert_eq!(outbox_len(&alice).await, 0, "out of the queue");
 }
 
 // Sending it again queues the same message (the recipient deduplicates by its id) and it is

@@ -813,14 +813,16 @@ impl Store {
         Ok(())
     }
 
-    /// The router refused the message for good: out of the outbox, shown as not sent (§84). A
-    /// message that already reached the contact is left alone; `false` then.
+    /// The router refused the message for good: it leaves the outbox and, if it was still
+    /// pending, is shown as not sent (§84). A message already shown as sent stays sent (it was
+    /// true and never claimed delivery, 2026-10-01), and one that reached the contact is left
+    /// alone. Returns whether the state changed to not sent.
     pub async fn mark_not_sent(&self, message_id: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
-        let marked = sqlx::query("UPDATE messages SET state = ? WHERE message_id = ? AND state < ?")
+        let marked = sqlx::query("UPDATE messages SET state = ? WHERE message_id = ? AND state = ?")
             .bind(MessageState::NotSent as i64)
             .bind(message_id)
-            .bind(MessageState::Delivered as i64)
+            .bind(MessageState::Pending as i64)
             .execute(&mut *tx)
             .await?
             .rows_affected()
@@ -1995,28 +1997,32 @@ mod tests {
         assert_eq!(state, MessageState::Read);
     }
 
-    // The router refused it (§84): out of the outbox and shown as not sent. Sending it again makes
-    // it pending, and a receipt that comes late still moves it on. What was delivered stays so.
+    // The router refused it (§84): out of the outbox, and a pending message is shown as not sent.
+    // One already shown as sent stays sent (it was true and never claimed delivery, 2026-10-01),
+    // and what was delivered stays so. Sending it again makes it pending, and a receipt that comes
+    // late still moves it on.
     #[tokio::test]
     async fn a_message_not_sent_leaves_the_outbox_and_may_go_again() {
         let store = store().await;
         store.add_contact(&contact("ft_bob")).await.expect("adds");
-        for id in ["m1", "m2"] {
+        for id in ["m1", "m2", "m3"] {
             store.insert_message(&message(id, "ft_bob", true, 1)).await.expect("inserts");
             store.enqueue(id, "ft_bob", 100).await.expect("queues");
         }
-        store.advance(&["m1".to_owned()], MessageState::Sent).await.expect("advances");
         store.advance(&["m2".to_owned()], MessageState::Delivered).await.expect("advances");
+        store.advance(&["m3".to_owned()], MessageState::Sent).await.expect("advances");
 
         assert!(store.mark_not_sent("m1").await.expect("marks"));
         assert!(!store.mark_not_sent("m2").await.expect("leaves it"), "a delivered message was sent");
+        assert!(!store.mark_not_sent("m3").await.expect("leaves it"), "a sent message stays sent");
         let state = |id: &'static str| {
             let store = store.clone();
             async move { store.message(id).await.expect("reads").expect("exists").state }
         };
         assert_eq!(state("m1").await, MessageState::NotSent);
         assert_eq!(state("m2").await, MessageState::Delivered);
-        assert!(store.outbox().await.expect("lists").iter().all(|entry| entry.message_id != "m1"));
+        assert_eq!(state("m3").await, MessageState::Sent);
+        assert!(store.outbox().await.expect("lists").iter().all(|entry| entry.message_id != "m1" && entry.message_id != "m3"));
 
         store.advance(&["m1".to_owned()], MessageState::Pending).await.expect("sent again");
         assert_eq!(state("m1").await, MessageState::Pending);

@@ -1285,12 +1285,13 @@ impl Core {
     }
 
     /// One delivery attempt that never holds back the rest of the queue. A router that refuses
-    /// the contact for good takes the message out of the queue as not sent, for the user to send
-    /// again (§84); anything else is tried again later, like a contact that cannot be reached.
+    /// the contact for good takes the message out of the queue; a pending one is shown as not
+    /// sent, for the user to send again (§84), while one already shown as sent stays so. Anything
+    /// else is tried again later, like a contact that cannot be reached.
     pub(crate) async fn attempt(&self, entry: &OutboxEntry) {
         let Err(error) = self.deliver(entry).await else { return };
         if error.downcast_ref::<MailboxRejected>().is_some() {
-            if self.store.mark_not_sent(&entry.message_id).await.is_ok() {
+            if let Ok(true) = self.store.mark_not_sent(&entry.message_id).await {
                 let _ = self.events.send(Event::MessagesChanged { contact: entry.contact.clone() });
             }
             return;
