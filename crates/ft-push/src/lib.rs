@@ -30,6 +30,20 @@ use tokio_tungstenite::tungstenite::Message;
 /// Reconnection waits grow up to this.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
+/// The router refuses a blob for good (403): the recipient is no longer registered or the route
+/// capability we hold was withdrawn (they deleted their phone, or renewed their link). Trying
+/// again with the same capability will not help, unlike a full mailbox or a network failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MailboxRejected;
+
+impl std::fmt::Display for MailboxRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the router refuses mail for that recipient")
+    }
+}
+
+impl std::error::Error for MailboxRejected {}
+
 /// The device identity, which signs the requests (ft-core implements it).
 #[async_trait]
 pub trait Signer: Send + Sync {
@@ -298,10 +312,16 @@ impl RouterClient {
         }
     }
 
-    /// Leaves an already encrypted blob in the recipient's mailbox (§19).
+    /// Leaves an already encrypted blob in the recipient's mailbox (§19). A `403` is
+    /// `MailboxRejected`; any other failure (no network, `429`, `413`, `5xx`, `507` full) may pass
+    /// later.
     pub async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()> {
         let request = self.http.post(format!("{}/v1/mailbox/{to}", self.base)).header("ft-capability", encode(capability));
-        expect(self.send(request.body(blob)).await?, StatusCode::CREATED)
+        let response = self.send(request.body(blob)).await?;
+        if response.status() == StatusCode::FORBIDDEN {
+            return Err(MailboxRejected.into());
+        }
+        expect(response, StatusCode::CREATED)
     }
 
     pub async fn collect(&self) -> Result<Vec<Mail>> {
