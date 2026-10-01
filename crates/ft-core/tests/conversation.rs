@@ -24,6 +24,9 @@ struct Net {
     /// Devices the direct link cannot reach, one way.
     unreachable: Mutex<HashSet<String>>,
     mailboxes: Mutex<HashMap<String, Vec<Vec<u8>>>>,
+    /// Devices whose mailbox the router refuses (403: not registered, or the capability was
+    /// withdrawn).
+    rejecting: Mutex<HashSet<String>>,
     /// Every packet handed to the direct link, to replay duplicates.
     sent: Mutex<Vec<(String, Vec<u8>)>>,
     /// The direct link goes down once this many packets have gone to that device.
@@ -82,6 +85,9 @@ impl Transport for Link {
     }
 
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> anyhow::Result<()> {
+        if self.net.rejecting.lock().unwrap().contains(&to.device_id) {
+            anyhow::bail!("the router answered 403 Forbidden");
+        }
         self.net.mailboxes.lock().unwrap().entry(to.device_id.clone()).or_default().push(bytes);
         Ok(())
     }
@@ -258,6 +264,28 @@ async fn without_a_direct_connection_the_mailbox_carries_it() {
     until("the receipt is in alice's mailbox", || async { net.mailbox_len(&id(&alice)) == 1 }).await;
     net.collect(&alice).await;
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Delivered);
+}
+
+// A mailbox that refuses one contact (they deleted their phone) holds back no one else: a later
+// message to another contact still goes out when the queue is retried.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rejected_mailbox_does_not_hold_back_other_contacts() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    carol.set_mailbox(false).await.expect("carol turns the mailbox off");
+    pair(&alice, &bob).await;
+    pair(&alice, &carol).await;
+    net.unreachable.lock().unwrap().extend([id(&bob), id(&carol)]);
+    net.rejecting.lock().unwrap().insert(id(&bob));
+
+    let _ = alice.send_text(&id(&bob), "for bob").await;
+    let for_carol = alice.send_text(&id(&carol), "for carol").await.expect("waits on the phone");
+    assert_eq!(state_of(&alice, &id(&carol), &for_carol).await, MessageState::Pending);
+
+    net.unreachable.lock().unwrap().remove(&id(&carol));
+    let _ = alice.retry_now().await;
+    until("carol gets it", || async { texts(&carol, &id(&alice)).await.contains(&"for carol".to_owned()) }).await;
+    until("delivered to carol", || async { state_of(&alice, &id(&carol), &for_carol).await == MessageState::Delivered }).await;
 }
 
 // §19: a message only goes to the mailbox if both use it; otherwise it waits on the phone.
