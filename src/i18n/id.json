@@ -128,6 +128,11 @@
     "invalid": "Itu bukan tautan kontak FlickerTalk",
     "scanNow": "Pindai kode"
   },
+  "scanner": {
+    "cameraDenied": "Akses kamera nonaktif, jadi kode tidak bisa dibaca. Izinkan lain kali, atau tempel tautannya saja.",
+    "cameraBlocked": "Akses kamera untuk FlickerTalk nonaktif. Aktifkan di Pengaturan, atau tempel tautannya saja.",
+    "openSettings": "Buka Pengaturan"
+  },
   "contact": {
     "fingerprint": "Sidik jari keamanan",
     "verify": "Verifikasi saat bertemu",

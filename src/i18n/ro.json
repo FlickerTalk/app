@@ -128,6 +128,11 @@
     "invalid": "Acesta nu este un link de contact FlickerTalk",
     "scanNow": "Scanează codul"
   },
+  "scanner": {
+    "cameraDenied": "Accesul la cameră este oprit, așa că codul nu poate fi citit. Permite-l data viitoare sau lipește linkul.",
+    "cameraBlocked": "Accesul la cameră este oprit pentru FlickerTalk. Activează-l în Setări sau lipește linkul.",
+    "openSettings": "Deschide Setările"
+  },
   "contact": {
     "fingerprint": "Amprentă de securitate",
     "verify": "Verifică în persoană",
