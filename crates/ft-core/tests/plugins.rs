@@ -146,15 +146,15 @@ async fn a_plugin_remembers_through_the_core_and_only_its_own() {
         core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
     }
 
-    assert_eq!(core.plugin_remembers("com.example.code", "pen").await.unwrap(), None);
-    core.plugin_remember("com.example.code", "pen", "black").await.expect("remembers");
-    core.plugin_remember("com.example.ai", "pen", "blue").await.expect("remembers");
-    assert_eq!(core.plugin_remembers("com.example.code", "pen").await.unwrap().as_deref(), Some("black"));
-    assert_eq!(core.plugin_memory_keys("com.example.code").await.unwrap(), ["pen"]);
+    assert_eq!(core.plugin_remembers("com.example.code", None, "pen").await.unwrap(), None);
+    core.plugin_remember("com.example.code", None, "pen", "black").await.expect("remembers");
+    core.plugin_remember("com.example.ai", None, "pen", "blue").await.expect("remembers");
+    assert_eq!(core.plugin_remembers("com.example.code", None, "pen").await.unwrap().as_deref(), Some("black"));
+    assert_eq!(core.plugin_memory_keys("com.example.code", None).await.unwrap(), ["pen"]);
 
-    core.plugin_forget("com.example.code", "pen").await.expect("forgets");
-    assert_eq!(core.plugin_remembers("com.example.code", "pen").await.unwrap(), None);
-    assert_eq!(core.plugin_remembers("com.example.ai", "pen").await.unwrap().as_deref(), Some("blue"));
+    core.plugin_forget("com.example.code", None, "pen").await.expect("forgets");
+    assert_eq!(core.plugin_remembers("com.example.code", None, "pen").await.unwrap(), None);
+    assert_eq!(core.plugin_remembers("com.example.ai", None, "pen").await.unwrap().as_deref(), Some("blue"));
 }
 
 #[tokio::test]
@@ -164,16 +164,16 @@ async fn a_plugin_cannot_fill_the_phone_nor_write_for_another() {
     let package = signed("com.example.code", "1.0.0", "{}", &catalogue);
     core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
 
-    assert!(core.plugin_remember("com.example.code", "big", &"x".repeat(70_000)).await.is_err(), "too much");
-    assert!(core.plugin_remember("com.example.code", &"k".repeat(200), "v").await.is_err(), "too long a key");
-    assert!(core.plugin_remember("com.example.never", "pen", "black").await.is_err(), "it is not installed");
+    assert!(core.plugin_remember("com.example.code", None, "big", &"x".repeat(70_000)).await.is_err(), "too much");
+    assert!(core.plugin_remember("com.example.code", None, &"k".repeat(200), "v").await.is_err(), "too long a key");
+    assert!(core.plugin_remember("com.example.never", None, "pen", "black").await.is_err(), "it is not installed");
 
     for number in 0..64 {
-        core.plugin_remember("com.example.code", &format!("key{number}"), "v").await.expect("remembers");
+        core.plugin_remember("com.example.code", None, &format!("key{number}"), "v").await.expect("remembers");
     }
-    assert!(core.plugin_remember("com.example.code", "one-more", "v").await.is_err(), "too many keys");
+    assert!(core.plugin_remember("com.example.code", None, "one-more", "v").await.is_err(), "too many keys");
     // What it already remembers it can still change.
-    core.plugin_remember("com.example.code", "key0", "w").await.expect("remembers");
+    core.plugin_remember("com.example.code", None, "key0", "w").await.expect("remembers");
 }
 
 // 2026-09-27: a plugin's records are bigger than its settings and fit the room the user granted.
@@ -185,25 +185,25 @@ async fn a_plugin_keeps_records_within_the_room_it_was_granted() {
     core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
 
     // Installed with nothing granted: the small room, and a value beyond a setting still fits.
-    let (used, quota) = core.plugin_records_usage("com.example.notes").await.unwrap();
+    let (used, quota) = core.plugin_records_usage("com.example.notes", None).await.unwrap();
     assert_eq!((used, quota), (0, ft_plugins::Storage::Small.quota()));
-    core.plugin_record_set("com.example.notes", "note/1", &vec![7u8; 100_000]).await.expect("keeps");
-    assert_eq!(core.plugin_record("com.example.notes", "note/1").await.unwrap().map(|v| v.len()), Some(100_000));
-    assert_eq!(core.plugin_record_keys("com.example.notes", "note/").await.unwrap(), ["note/1"]);
+    core.plugin_record_set("com.example.notes", None, "note/1", &vec![7u8; 100_000]).await.expect("keeps");
+    assert_eq!(core.plugin_record("com.example.notes", None, "note/1").await.unwrap().map(|v| v.len()), Some(100_000));
+    assert_eq!(core.plugin_record_keys("com.example.notes", None, "note/").await.unwrap(), ["note/1"]);
     // The small room is 4 MB: one more of 4 MB does not fit; with the large room it does.
     let big = vec![1u8; 4 * 1024 * 1024];
-    assert!(core.plugin_record_set("com.example.notes", "board", &big).await.is_err(), "no room");
+    assert!(core.plugin_record_set("com.example.notes", None, "board", &big).await.is_err(), "no room");
     core.grant_plugin("com.example.notes", Permissions { storage: ft_plugins::Storage::Large, ..Permissions::default() }).await.unwrap();
-    core.plugin_record_set("com.example.notes", "board", &big).await.expect("now it fits");
-    let (used, quota) = core.plugin_records_usage("com.example.notes").await.unwrap();
+    core.plugin_record_set("com.example.notes", None, "board", &big).await.expect("now it fits");
+    let (used, quota) = core.plugin_records_usage("com.example.notes", None).await.unwrap();
     assert_eq!((used, quota), (100_000 + big.len() as u64, ft_plugins::Storage::Large.quota()));
     // Replacing a record counts the new size, not both.
-    core.plugin_record_set("com.example.notes", "board", &big[..10]).await.expect("smaller");
-    assert_eq!(core.plugin_records_usage("com.example.notes").await.unwrap().0, 100_010);
-    assert!(core.plugin_record_set("com.example.notes", "huge", &vec![0u8; ft_core::plugins::RECORD_VALUE + 1]).await.is_err());
-    assert!(core.plugin_record_set("com.example.never", "x", b"y").await.is_err(), "not installed");
-    core.plugin_record_forget("com.example.notes", "board").await.unwrap();
-    assert_eq!(core.plugin_record("com.example.notes", "board").await.unwrap(), None);
+    core.plugin_record_set("com.example.notes", None, "board", &big[..10]).await.expect("smaller");
+    assert_eq!(core.plugin_records_usage("com.example.notes", None).await.unwrap().0, 100_010);
+    assert!(core.plugin_record_set("com.example.notes", None, "huge", &vec![0u8; ft_core::plugins::RECORD_VALUE + 1]).await.is_err());
+    assert!(core.plugin_record_set("com.example.never", None, "x", b"y").await.is_err(), "not installed");
+    core.plugin_record_forget("com.example.notes", None, "board").await.unwrap();
+    assert_eq!(core.plugin_record("com.example.notes", None, "board").await.unwrap(), None);
 }
 
 // 2026-09-27: reminders are a permission of their own; the phone's alarm clock is told.
@@ -213,21 +213,21 @@ async fn a_plugin_sets_reminders_only_if_granted_and_the_app_hears_of_it() {
     let catalogue = Ed25519SecretKey::new();
     let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
     core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
-    assert!(core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.is_err(), "not granted yet");
+    assert!(core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.is_err(), "not granted yet");
 
     core.grant_plugin("com.example.notes", Permissions { remind: true, ..Permissions::default() }).await.unwrap();
     let mut events = core.events();
-    core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.expect("sets");
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.expect("sets");
     assert_eq!(events.try_recv().ok(), Some(ft_core::Event::RemindersChanged));
-    core.set_reminder("com.example.notes", "r2", 1_000, &"x".repeat(500)).await.expect("sets");
-    let reminders = core.plugin_reminders("com.example.notes").await.unwrap();
+    core.set_reminder("com.example.notes", None, "r2", 1_000, &"x".repeat(500)).await.expect("sets");
+    let reminders = core.plugin_reminders("com.example.notes", None).await.unwrap();
     assert_eq!(reminders.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r2", "r1"], "soonest first");
     assert_eq!(reminders[0].text.chars().count(), 200, "the text is cut");
     assert_eq!(core.due_reminders(2_000).await.unwrap().len(), 1);
     assert_eq!(core.reminders().await.unwrap().len(), 2);
-    assert!(core.cancel_reminder("com.example.notes", "r1").await.unwrap());
-    assert!(!core.cancel_reminder("com.example.notes", "r1").await.unwrap());
-    assert!(core.set_reminder("com.example.notes", "", 5_000, "").await.is_err());
+    assert!(core.cancel_reminder("com.example.notes", None, "r1").await.unwrap());
+    assert!(!core.cancel_reminder("com.example.notes", None, "r1").await.unwrap());
+    assert!(core.set_reminder("com.example.notes", None, "", 5_000, "").await.is_err());
 }
 
 // A reminder already handed to the phone's alarm clock must not outlive the plugin, nor the
@@ -240,7 +240,7 @@ async fn removing_a_plugin_or_its_remind_permission_takes_its_reminders_off_the_
     let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
     core.install_plugin(&package, &catalogue.public_key(), remind.clone()).await.expect("installs");
 
-    core.set_reminder("com.example.notes", "r1", 5_000, "milk").await.expect("sets");
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.expect("sets");
     let mut events = core.events();
     core.grant_plugin("com.example.notes", Permissions::default()).await.unwrap();
     assert!(core.reminders().await.unwrap().is_empty(), "revoking remind drops its reminders");
@@ -248,7 +248,7 @@ async fn removing_a_plugin_or_its_remind_permission_takes_its_reminders_off_the_
     assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
 
     core.grant_plugin("com.example.notes", remind).await.unwrap();
-    core.set_reminder("com.example.notes", "r2", 5_000, "bread").await.expect("sets");
+    core.set_reminder("com.example.notes", None, "r2", 5_000, "bread").await.expect("sets");
     let mut events = core.events();
     core.remove_plugin("com.example.notes").await.unwrap();
     assert!(core.reminders().await.unwrap().is_empty());
@@ -393,4 +393,208 @@ async fn refuses_a_listing_that_points_anywhere_else() {
     // Someone else's signature on the index is no signature at all.
     let theirs = Ed25519SecretKey::new();
     assert!(core.catalogue(&shop, &theirs.public_key()).await.is_err());
+}
+
+// ---- Hidden sessions (2026-10-01, §108): what a plugin keeps inside one stays inside it ----
+
+/// A core with a plugin that keeps records, and a hidden session open.
+async fn notes_and_a_session() -> (Arc<Core>, String) {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"storage":"large","remind":true}"#, &catalogue);
+    let granted = Permissions { remind: true, ..Permissions::default() };
+    core.install_plugin(&package, &catalogue.public_key(), granted).await.expect("installs");
+    let session = core.open_session("123456").await.expect("opens").expect("there is room for it");
+    (core, session)
+}
+
+#[tokio::test]
+async fn a_record_kept_inside_a_session_is_not_seen_from_the_main_list() {
+    let (core, session) = notes_and_a_session().await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap(), None, "not its value");
+    assert!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap().is_empty(), "not its key");
+    assert_eq!(core.plugin_records_usage("com.example.notes", None).await.unwrap().0, 0, "not its size");
+}
+
+/// Someone to keep a hidden session from going when it is closed: one with nobody in it goes.
+async fn someone_in(core: &Core, session: &str) -> String {
+    let (bob, _dir) = self::core().await;
+    let link = bob.my_card().await.expect("card").to_link();
+    core.add_contact_in(&link, None, Some(session)).await.expect("adds inside").device_id
+}
+
+#[tokio::test]
+async fn a_record_kept_inside_a_session_is_seen_inside_it_and_nowhere_else() {
+    let (core, session) = notes_and_a_session().await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    assert_eq!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.unwrap().as_deref(), Some(&b"the secret board"[..]));
+    assert_eq!(core.plugin_record_keys("com.example.notes", Some(&session), "board/").await.unwrap(), ["board/1"]);
+    assert_eq!(core.plugin_records_usage("com.example.notes", Some(&session)).await.unwrap().0, 16);
+
+    // Another session sees nothing of it either.
+    let other = core.open_session("654321").await.expect("opens").expect("room");
+    assert_eq!(core.plugin_record("com.example.notes", Some(&other), "board/1").await.unwrap(), None);
+    assert!(core.plugin_record_keys("com.example.notes", Some(&other), "").await.unwrap().is_empty());
+    assert_eq!(core.plugin_records_usage("com.example.notes", Some(&other)).await.unwrap().0, 0);
+}
+
+#[tokio::test]
+async fn a_closed_session_lends_its_records_to_nobody_and_has_them_back_when_opened() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    assert!(!core.close_session(&session).await.expect("closes"), "it holds a contact: it stays");
+    assert!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.is_err(), "closed: not even with its id");
+    assert!(core.plugin_record_keys("com.example.notes", Some(&session), "").await.is_err());
+    assert!(core.plugin_records_usage("com.example.notes", Some(&session)).await.is_err());
+    assert!(core.plugin_record_set("com.example.notes", Some(&session), "board/2", b"x").await.is_err());
+    assert!(core.plugin_record_forget("com.example.notes", Some(&session), "board/1").await.is_err());
+    assert!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap().is_empty());
+
+    assert_eq!(core.open_session("123456").await.unwrap().as_deref(), Some(session.as_str()));
+    assert_eq!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.unwrap().as_deref(), Some(&b"the secret board"[..]));
+}
+
+#[tokio::test]
+async fn a_sessions_records_go_with_it() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    core.remove_session(&session).await.expect("removes");
+    assert_eq!(core.store().plugin_records_size("com.example.notes", Some(&session)).await.unwrap(), 0, "nothing left on the phone");
+    let again = core.open_session("123456").await.expect("opens").expect("room");
+    assert_ne!(again, session, "a new, empty session");
+    assert!(core.plugin_record_keys("com.example.notes", Some(&again), "").await.unwrap().is_empty());
+    assert!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn what_the_main_list_keeps_is_seen_there_as_before_and_not_inside_a_session() {
+    let (core, session) = notes_and_a_session().await;
+    core.plugin_record_set("com.example.notes", None, "board/1", b"a board").await.expect("keeps");
+
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap().as_deref(), Some(&b"a board"[..]));
+    assert_eq!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap(), ["board/1"]);
+    assert_eq!(core.plugin_records_usage("com.example.notes", None).await.unwrap().0, 7);
+    // Each place has its own: the same key inside the session is another record.
+    assert_eq!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.unwrap(), None);
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"another").await.expect("keeps");
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap().as_deref(), Some(&b"a board"[..]));
+    core.plugin_record_forget("com.example.notes", Some(&session), "board/1").await.unwrap();
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap().as_deref(), Some(&b"a board"[..]), "forgetting inside leaves the main list's");
+}
+
+// The room a plugin has is counted for each place apart: a session that fills it must not show in
+// the main list's counter, nor in a "no room left" there.
+#[tokio::test]
+async fn a_session_using_the_room_does_not_show_in_the_main_lists_counter() {
+    let (core, session) = notes_and_a_session().await;
+    let three_mb = vec![1u8; 3 * 1024 * 1024];
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", &three_mb).await.expect("keeps");
+
+    let (used, quota) = core.plugin_records_usage("com.example.notes", None).await.unwrap();
+    assert_eq!((used, quota), (0, ft_plugins::Storage::Small.quota()));
+    core.plugin_record_set("com.example.notes", None, "board/1", &three_mb).await.expect("the main list has all its room");
+    assert!(core.plugin_record_set("com.example.notes", Some(&session), "board/2", &three_mb).await.is_err(), "the session's own room is full");
+}
+
+// The plugin's settings (`ft.store`) follow the same rule: a choice made inside a session is that
+// session's.
+#[tokio::test]
+async fn what_a_plugin_remembers_inside_a_session_stays_inside_it() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    core.plugin_remember("com.example.notes", None, "showText", "0").await.expect("remembers");
+    core.plugin_remember("com.example.notes", Some(&session), "showText", "1").await.expect("remembers");
+    core.plugin_remember("com.example.notes", Some(&session), "lastBoard", "the secret board").await.expect("remembers");
+
+    assert_eq!(core.plugin_remembers("com.example.notes", None, "showText").await.unwrap().as_deref(), Some("0"));
+    assert_eq!(core.plugin_remembers("com.example.notes", None, "lastBoard").await.unwrap(), None);
+    assert_eq!(core.plugin_memory_keys("com.example.notes", None).await.unwrap(), ["showText"]);
+    assert_eq!(core.plugin_remembers("com.example.notes", Some(&session), "showText").await.unwrap().as_deref(), Some("1"));
+    core.plugin_forget("com.example.notes", Some(&session), "showText").await.unwrap();
+    assert_eq!(core.plugin_remembers("com.example.notes", None, "showText").await.unwrap().as_deref(), Some("0"), "the main list's stays");
+
+    core.close_session(&session).await.expect("closes");
+    assert!(core.plugin_remembers("com.example.notes", Some(&session), "lastBoard").await.is_err(), "closed: lent to nobody");
+    assert!(core.plugin_remember("com.example.notes", Some(&session), "x", "y").await.is_err());
+    assert!(core.plugin_memory_keys("com.example.notes", Some(&session)).await.is_err());
+
+    core.open_session("123456").await.expect("opens");
+    core.remove_session(&session).await.expect("removes");
+    assert!(core.store().plugin_keys("com.example.notes", Some(&session)).await.unwrap().is_empty(), "gone with the session");
+}
+
+// A reminder set inside a session: its text and its ring belong to the session. While it is closed
+// the phone's alarm clock does not hold it, and the app is told so it can tell the alarm clock.
+#[tokio::test]
+async fn a_reminder_set_inside_a_session_never_rings_nor_shows_while_it_is_closed() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    let ids = |reminders: Vec<ft_storage::Reminder>| reminders.into_iter().map(|reminder| reminder.id).collect::<Vec<_>>();
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.expect("sets");
+    core.set_reminder("com.example.notes", Some(&session), "r2", 4_000, "the secret").await.expect("sets");
+    core.set_reminder("com.example.notes", Some(&session), "r1", 6_000, "another secret").await.expect("the same id inside is another");
+
+    assert_eq!(ids(core.plugin_reminders("com.example.notes", None).await.unwrap()), ["r1"]);
+    assert_eq!(core.plugin_reminders("com.example.notes", None).await.unwrap()[0].text, "milk");
+    assert_eq!(ids(core.plugin_reminders("com.example.notes", Some(&session)).await.unwrap()), ["r2", "r1"]);
+    assert_eq!(core.reminders().await.unwrap().len(), 3, "open: all of them ring");
+    assert_eq!(core.ringing_reminder("com.example.notes", "r2").await.unwrap().and_then(|reminder| reminder.session), Some(session.clone()), "a tap opens it where it was set");
+
+    let mut events = core.events();
+    core.close_session(&session).await.expect("closes");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
+    let told = core.reminders().await.unwrap();
+    assert_eq!(ids(told.clone()), ["r1"]);
+    assert!(told.iter().all(|reminder| !reminder.text.contains("secret")));
+    assert_eq!(ids(core.due_reminders(10_000).await.unwrap()), ["r1"]);
+    assert_eq!(core.ringing_reminder("com.example.notes", "r2").await.unwrap(), None);
+    assert!(core.plugin_reminders("com.example.notes", Some(&session)).await.is_err());
+    assert!(core.set_reminder("com.example.notes", Some(&session), "r3", 7_000, "x").await.is_err());
+    assert!(core.cancel_reminder("com.example.notes", Some(&session), "r2").await.is_err());
+    assert!(core.cancel_reminder("com.example.notes", None, "r2").await.is_ok_and(|gone| !gone), "nothing of it from outside");
+
+    let mut events = core.events();
+    core.open_session("123456").await.expect("opens");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "opened: the alarm clock is told again: {heard:?}");
+    assert_eq!(core.reminders().await.unwrap().len(), 3);
+    assert!(core.cancel_reminder("com.example.notes", Some(&session), "r1").await.unwrap());
+    assert_eq!(ids(core.plugin_reminders("com.example.notes", None).await.unwrap()), ["r1"], "cancelling inside leaves the main list's");
+
+    let mut events = core.events();
+    core.remove_session(&session).await.expect("removes");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "removed: the alarm clock is told: {heard:?}");
+    assert_eq!(ids(core.store().reminders(None).await.unwrap()), ["r1"], "its reminders went with it");
+}
+
+// A ref is a way back to a message: one to a message inside a session leads there only from inside
+// that session while it is open, and goes with the session.
+#[tokio::test]
+async fn a_ref_to_a_message_inside_a_session_leads_nowhere_from_outside_it() {
+    let (core, session) = notes_and_a_session().await;
+    let bob = someone_in(&core, &session).await;
+    let message = core.send_text(&bob, "hello").await.expect("writes");
+    let reference = core.plugin_ref("com.example.notes", &message).await.expect("a ref");
+
+    assert_eq!(core.plugin_ref_target("com.example.notes", Some(&session), &reference).await.unwrap().map(|target| target.contact), Some(bob.clone()));
+    assert_eq!(core.plugin_ref_target("com.example.notes", None, &reference).await.unwrap(), None, "not from the main list");
+    let other = core.open_session("654321").await.expect("opens").expect("room");
+    assert_eq!(core.plugin_ref_target("com.example.notes", Some(&other), &reference).await.unwrap(), None, "not from another session");
+
+    core.close_session(&session).await.expect("closes");
+    assert!(core.plugin_ref_target("com.example.notes", Some(&session), &reference).await.is_err(), "closed: lent to nobody");
+    assert_eq!(core.plugin_ref_target("com.example.notes", None, &reference).await.unwrap(), None);
+
+    core.open_session("123456").await.expect("opens");
+    core.remove_session(&session).await.expect("removes");
+    assert_eq!(core.store().plugin_ref(&reference).await.unwrap(), None, "gone with the session");
 }

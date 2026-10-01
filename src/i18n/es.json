@@ -57,6 +57,7 @@
     "deleteSure": "Borrar",
     "forwardTo": "Reenviar a",
     "download": "Descargar",
+    "resend": "Volver a enviar",
     "discardAttachment": "Descartar el adjunto",
     "otherApp": "Otra app"
   },
@@ -68,7 +69,8 @@
     "connected": "Conectado directamente",
     "paused": "En pausa",
     "failed": "Fallido",
-    "waiting": "Toca para descargar"
+    "waiting": "Toca para descargar",
+    "unsent": "No enviado"
   },
   "calls": {
     "callBack": "Devolver llamada",

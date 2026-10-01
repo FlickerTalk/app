@@ -2,14 +2,14 @@
 //! network. Each test states one promise the app makes about a circle: who gets what, who may
 //! change it, and what the router sees. Written before the code that makes them pass.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use ft_core::{Core, Event, Peer, Transport};
+use ft_core::{Core, Event, MailboxRejected, Peer, Transport};
 use ft_storage::{MessageState, Store};
 use tokio::sync::mpsc;
 
@@ -19,6 +19,8 @@ struct Net {
     direct: AtomicBool,
     queues: Mutex<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>,
     mailboxes: Mutex<HashMap<String, Vec<Vec<u8>>>>,
+    /// Devices whose mailbox the router refuses (403).
+    rejecting: Mutex<HashSet<String>>,
 }
 
 impl Net {
@@ -60,6 +62,9 @@ impl Transport for Link {
     }
 
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> anyhow::Result<()> {
+        if self.net.rejecting.lock().unwrap().contains(&to.device_id) {
+            return Err(MailboxRejected.into());
+        }
         self.net.mailboxes.lock().unwrap().entry(to.device_id.clone()).or_default().push(bytes);
         Ok(())
     }
@@ -265,6 +270,27 @@ async fn through_the_mailbox_the_router_sees_one_envelope_per_member_and_no_circ
         said(&bob, &circle).await == ["secret plan"] && said(&carol, &circle).await == ["secret plan"]
     })
     .await;
+}
+
+// A member the router refuses does not stop the others, and their entry waits like one that
+// cannot be reached instead of being tried again on every pass of the queue.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_the_router_refuses_is_tried_again_later_not_on_every_pass() {
+    let net = Net::new();
+    let (alice, bob, carol) = three(&net).await;
+    let circle = friends(&alice, &bob, &carol).await;
+    net.set_direct(false);
+    net.rejecting.lock().unwrap().insert(id(&bob));
+
+    let sent = alice.send_circle_text(&circle, "secret plan").await.expect("sends");
+    until("carol's envelope is in her mailbox", || async { net.mailbox(&id(&carol)).len() == 1 }).await;
+    alice.retry_due().await.expect("retries");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let pending = alice.store().circle_pending(&sent).await.expect("pending");
+    let bobs = pending.iter().find(|entry| entry.contact == id(&bob)).expect("bob is still to be reached");
+    assert!(bobs.attempts >= 1 && bobs.next_attempt > now, "bob waits for a later try");
+    let state = alice.store().circle_message(&sent).await.expect("reads").expect("there").state;
+    assert_ne!(state, MessageState::Delivered, "bob never got it");
 }
 
 // ---------------------------------------------------------------------------------------------

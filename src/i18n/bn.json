@@ -57,6 +57,7 @@
     "deleteSure": "মুছুন",
     "forwardTo": "ফরওয়ার্ড করুন",
     "download": "Download",
+    "resend": "আবার পাঠান",
     "discardAttachment": "Discard attachment",
     "otherApp": "অন্য অ্যাপ"
   },
@@ -68,7 +69,8 @@
     "connected": "সরাসরি সংযুক্ত",
     "paused": "থেমে আছে",
     "failed": "ব্যর্থ",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "পাঠানো হয়নি"
   },
   "calls": {
     "callBack": "কল ব্যাক",
