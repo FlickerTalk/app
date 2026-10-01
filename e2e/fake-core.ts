@@ -35,6 +35,11 @@
  * screen, `window.__ftFake.phoneAnswers`), the core answers and says `answering`, then
  * `connected`; a call answered before its offer came arrives as `incoming` with `answered`.
  *
+ * Games (plan 10, app 1.3.0): one game is installed (Tic-tac-toe, granted nothing yet) and the
+ * catalogue offers another (Chess); installing, granting and removing change the fake's lists as
+ * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
+ * `window.__ftFakeBobSays` (texts) adds Bob's messages after his others: an invitation, say.
+ *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
 export function installFakeCore() {
@@ -91,6 +96,19 @@ export function installFakeCore() {
         granted: { network: [], messages: false, send: "nothing" },
         installedAt: Date.now(),
       },
+      {
+        id: "com.flickertalk.game.tictactoe",
+        name: "Tic-tac-toe",
+        version: "1.0.0",
+        kind: "game",
+        asks: { network: [], messages: false, send: "propose", live: true },
+        granted: { network: [], messages: false, send: "nothing", live: false },
+        installedAt: Date.now(),
+      },
+    ] as Array<Record<string, unknown> & { id: string; name: string; granted: Record<string, unknown> }>,
+    /** What the catalogue offers besides what is installed (2026-10-02, plan 10). */
+    catalogue: [
+      { id: "com.flickertalk.game.chess", name: "Chess", version: "1.0.0", summary: "Chess for two, move by move.", size: 412_000, carried: false, kind: "game" },
     ],
     nextSession: 1,
     // Circles (2026-09-27): one of Bob and me, made by me.
@@ -254,11 +272,41 @@ export function installFakeCore() {
           sentAt: Date.now() - 3_600_000 + at * 1000,
           state: "read",
         }));
-        return [...filler, ...(state.messages[String(a.contact)] ?? [])];
+        const said = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeBobSays as string[]) ?? []) : [];
+        const extra = said.map((text, at) => ({ id: `said${at}`, outgoing: false, text, sentAt: Date.now() - 1000 + at, state: "delivered" }));
+        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra];
       }
       case "core_plugins":
-        return state.plugins;
+        // A copy, as the real bridge hands over: what the app keeps is never the core's own list.
+        return JSON.parse(JSON.stringify(state.plugins));
       case "core_catalogue":
+        return state.catalogue.map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
+      case "core_plugin_add": {
+        if (flag("__ftFakeInstallFails")) throw new Error("the catalogue could not be reached");
+        const entry = state.catalogue.find((one) => one.id === a.plugin);
+        if (!entry) throw new Error("that tool is not offered here");
+        if (!state.plugins.some((p) => p.id === entry.id)) {
+          state.plugins.push({
+            id: entry.id,
+            name: entry.name,
+            version: entry.version,
+            kind: entry.kind,
+            asks: { network: [], messages: false, send: "propose", live: true },
+            granted: { network: [], messages: false, send: "nothing", live: false },
+            installedAt: Date.now(),
+          });
+        }
+        return undefined;
+      }
+      case "core_plugin_grant": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        // As JSON, as the real bridge carries it: never the app's own (reactive) object.
+        if (plugin) plugin.granted = JSON.parse(JSON.stringify(args?.granted ?? {}));
+        return undefined;
+      }
+      case "core_plugin_remove":
+        state.plugins = state.plugins.filter((p) => p.id !== a.plugin);
+        return undefined;
       case "core_calls":
         return [];
       case "core_card":
