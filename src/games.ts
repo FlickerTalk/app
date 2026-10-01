@@ -5,6 +5,8 @@
  * or an iPhone shows the link, this one turns it into a way to play (plan 10.6).
  */
 
+import type { PluginPermissions, PluginView } from "./core";
+
 const PREFIX = "com.flickertalk.game.";
 const HOME = "https://flickertalk.com/games/";
 /** What a plugin id allows in one of its parts (`is_id` in `ft-plugins`): no dots, no capitals. */
@@ -42,4 +44,26 @@ export function isGame(plugin: { kind?: "tool" | "game" }): boolean {
 export function gamesAvailable(agent = navigator.userAgent, touch = navigator.maxTouchPoints ?? 0): boolean {
   if (/iPhone|iPad|iPod/.test(agent)) return false;
   return !(/Macintosh/.test(agent) && touch > 1);
+}
+
+/**
+ * Whether a game still lacks what it needs to be played (plan decision 11): talking to its twin
+ * on the other phone and leaving the result in the chat. Only what it asked for counts.
+ */
+export function needsGameGrant(plugin: PluginView): boolean {
+  const live = Boolean(plugin.asks.live) && !plugin.granted.live;
+  const send = plugin.asks.send !== "nothing" && plugin.granted.send === "nothing";
+  return live || send;
+}
+
+/**
+ * What one "allow" grants a game: the live channel and proposing in the chat, together, and
+ * never more than it asked for. A game never sends by itself: it proposes, the user sends (§53).
+ */
+export function gameGrant(plugin: PluginView): PluginPermissions {
+  return {
+    ...plugin.granted,
+    live: Boolean(plugin.asks.live),
+    send: plugin.asks.send === "nothing" ? "nothing" : "propose",
+  };
 }
