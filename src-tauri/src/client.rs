@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_ft_platform::{NativeCallEvent, PlatformExt, VideoLayout};
 
+use crate::push_core::{may_start_from_push, CallScreen, Host, PushSide};
+
 /// The router of the cluster, behind the load balancer (Plan §75).
 pub const ROUTER: &str = "https://api.flickertalk.com";
 /// Sent to the UI whenever contacts or messages change; `contact` says which conversation.
@@ -775,12 +777,9 @@ pub fn openable(file: Option<FileRecord>, outgoing: bool) -> Result<FileRecord, 
     }
 }
 
-/// The running core, started once.
+/// The app's side of the core: where it keeps its files, the key store and the web it lends.
 #[derive(Default)]
 pub struct Client {
-    /// The running core, once started. iOS cannot start the app again, so erasing the phone (or
-    /// a move, or a restore) stops it and starts a new one in the same process (2026-09-30).
-    running: tokio::sync::Mutex<Running>,
     dir: OnceLock<PathBuf>,
     app: OnceLock<AppHandle>,
     /// The OS key store on phones; none on desktop.
@@ -798,13 +797,19 @@ impl Client {
     }
 }
 
-/// The core as the app holds it.
-#[derive(Default)]
+/// The core as the process holds it: one per process (2026-10-01). The app starts it, or adopts
+/// the one a call push started before it (Android, `push_core.rs`). iOS cannot start the app again,
+/// so erasing the phone (or a move, or a restore) stops it and starts a new one in the same process
+/// (2026-09-30).
 struct Running {
     online: Option<Arc<Online>>,
+    /// Who the running core answers to: the app, or the push that started it.
+    host: Option<Arc<Host<AppHandle>>>,
     /// Stopped to start again: nothing may start a core until the app does.
     stopped: bool,
 }
+
+static RUNNING: tokio::sync::Mutex<Running> = tokio::sync::Mutex::const_new(Running { online: None, host: None, stopped: false });
 
 /// The key store through the native bridge (Android Keystore, iOS Keychain).
 struct PlatformVault(AppHandle);
@@ -835,14 +840,32 @@ impl Client {
     }
 
     async fn online(&self) -> Result<Arc<Online>, String> {
-        let mut running = self.running.lock().await;
+        let mut running = RUNNING.lock().await;
         if running.stopped {
             return Err("the app is starting again".to_owned());
         }
-        if let Some(online) = &running.online {
-            return Ok(online.clone());
+        if let Some(online) = running.online.clone() {
+            // A call push started this core before the app (Android, 2026-10-01): the app takes
+            // it, and from now on the WebView and the app's bridge hear it. Never a second core.
+            if let (Some(host), Some(app)) = (running.host.clone(), self.app.get()) {
+                if host.adopt(app.clone()) {
+                    if let Some(push) = host.push_side() {
+                        push.adopted();
+                    }
+                    forget_push_events();
+                    self.attach(app, &online, &host, false).await;
+                }
+            }
+            return Ok(online);
         }
-        let online = Arc::new(self.start().await.map_err(|error| error.to_string())?);
+        let dir = self.dir.get().ok_or_else(|| "the app is not set up yet".to_owned())?;
+        let key = opened_key(dir, self.vault.get().map(|vault| vault.as_ref() as &dyn KeyVault)).map_err(|error| error.to_string())?;
+        let online = Arc::new(boot(dir, key).await.map_err(|error| error.to_string())?);
+        if let Some(app) = self.app.get() {
+            let host = Arc::new(Host::for_app(app.clone()));
+            self.attach(app, &online, &host, true).await;
+            running.host = Some(host);
+        }
         running.online = Some(online.clone());
         Ok(online)
     }
@@ -851,8 +874,9 @@ impl Client {
     /// and the database, and no other starts until `start_again`.
     async fn stop(&self) {
         let stopped = {
-            let mut running = self.running.lock().await;
+            let mut running = RUNNING.lock().await;
             running.stopped = true;
+            running.host = None;
             running.online.take()
         };
         if let Some(online) = stopped {
@@ -874,19 +898,14 @@ impl Client {
         self.dir.get().map(PathBuf::as_path).ok_or_else(|| "the app is not set up yet".to_owned())
     }
 
-    async fn start(&self) -> anyhow::Result<Online> {
-        let dir = self.dir.get().context("the app is not set up yet")?;
-        apply_move(dir)?;
-        let key = storage_key(dir, self.vault.get().map(|vault| vault.as_ref() as &dyn KeyVault))?;
-        let store = Store::open(&dir.join(DATABASE)).await?;
-        let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
-        online.core.set_files_dir(dir.join("files"));
-        online.core.set_move_dir(dir.join(MOVE_DIR));
-        online.core.set_plugins_dir(dir.join("plugins"));
-        // The user's cloud (plan-drive): what waits to go up lives here; the drive opens in the
-        // background from what the phone keeps, and tries what waited.
-        online.core.set_vault_dir(dir.join("vault"));
-        online.core.set_cloud(Arc::new(ft_core::vault::GoogleCloud));
+    /// What the app adds to a running core, once: the drive, the tools it carries, the
+    /// subscription, what the native side keeps (weekly hours, open sessions, reminders), the
+    /// call's video views and the native call events. `follow`: the app follows the core's events
+    /// itself (a core a push started follows them already, and tells the app once it has it).
+    async fn attach(&self, app: &AppHandle, online: &Online, host: &Arc<Host<AppHandle>>, follow: bool) {
+        let Ok(dir) = self.dir() else { return };
+        // The user's cloud (plan-drive): the drive opens in the background from what the phone
+        // keeps, and tries what waited.
         let core_for_vault = online.core.clone();
         tauri::async_runtime::spawn(async move {
             if core_for_vault.vault_reopen().await.is_ok() {
@@ -897,162 +916,242 @@ impl Client {
         update_installed_plugins(&online.core).await;
         // What the Store says about the subscription, every time the app opens (§45): a renewal
         // shows up on its own, and one that was cancelled stops counting.
-        if let Some(app) = self.app.get() {
-            if let Ok(until) = app.platform().subscription() {
-                let _ = online.core.set_entitlement(until).await;
-            }
+        if let Ok(until) = app.platform().subscription() {
+            let _ = online.core.set_entitlement(until).await;
         }
-        if let Some(app) = self.app.get() {
-            refresh_served_plugins(app, &online.core, dir).await;
-            // The weekly hours live in the core; the native side keeps its own copy (app#7).
-            if let Ok(week) = online.core.quiet_week().await {
-                let _ = app.platform().set_quiet_hours(&week);
-            }
-            // The sessions the user left open are open again (2026-10-01, §108): the native side
-            // keeps the slots for a process a push starts before the core. A new core after
-            // erasing the phone (iOS, the same process) has none.
-            let _ = app.platform().set_open_slots(&online.core.open_slots());
-            // The phone's alarm clock is told every reminder again (2026-09-27): the core is
-            // the truth, and an alarm lost to a reboot or an update comes back here.
-            sync_reminders(app, &online.core).await;
+        refresh_served_plugins(app, &online.core, dir).await;
+        // The weekly hours live in the core; the native side keeps its own copy (app#7).
+        if let Ok(week) = online.core.quiet_week().await {
+            let _ = app.platform().set_quiet_hours(&week);
         }
+        // The sessions the user left open are open again (2026-10-01, §108): the native side
+        // keeps the slots for a process a push starts before the core. A new core after
+        // erasing the phone (iOS, the same process) has none.
+        let _ = app.platform().set_open_slots(&online.core.open_slots());
+        // The phone's alarm clock is told every reminder again (2026-09-27): the core is
+        // the truth, and an alarm lost to a reboot or an update comes back here.
+        sync_reminders(app, &online.core).await;
 
-        if let Some(app) = self.app.get().cloned() {
-            // The call's video views go before its devices (on iOS the layers are theirs): the
-            // core runs this, off the async workers, right before it lets them go.
-            let (glue, app_for_views) = (self.video.clone(), app.clone());
-            online.core.set_video_detach(Some(Arc::new(move || tell_bridge(&app_for_views, &glue, VideoGlue::end))));
-            listen_native_calls(&app, &online);
-            let glue_for_events = self.video.clone();
-            let mut events = online.core.events();
-            let stopped = online.stopped();
-            let router_for_events = online.router.clone();
-            let core_for_events = online.core.clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::pin!(stopped);
-                // A stopped core's events end here (erasing the phone): the new one has its own.
-                while let Some(Ok(event)) = tokio::select! {
-                    event = events.recv() => Some(event),
-                    _ = &mut stopped => None,
-                } {
-                    let (contact, circle) = match event {
-                        Event::MessagesChanged { contact } => (Some(contact), None),
-                        Event::CircleMessagesChanged { circle } => (None, Some(circle)),
-                        Event::ContactsChanged | Event::ConnectionChanged { .. } | Event::PluginsChanged | Event::CirclesChanged => (None, None),
+        // The call's video views go before its devices (on iOS the layers are theirs): the
+        // core runs this, off the async workers, right before it lets them go.
+        let (glue, app_for_views) = (self.video.clone(), app.clone());
+        online.core.set_video_detach(Some(Arc::new(move || tell_bridge(&app_for_views, &glue, VideoGlue::end))));
+        listen_native_calls(app, online);
+        if follow {
+            follow_events(online, host.clone());
+        }
+    }
+}
+
+/// The storage key of what this phone keeps in `dir`, once a move that came is in place.
+fn opened_key(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<[u8; 32]> {
+    apply_move(dir)?;
+    storage_key(dir, vault)
+}
+
+/// Opens the core over what this phone keeps in `dir` and connects it to the router, for the app
+/// or for a call push before it (Android, 2026-10-01).
+async fn boot(dir: &Path, key: [u8; 32]) -> anyhow::Result<Online> {
+    let store = Store::open(&dir.join(DATABASE)).await?;
+    let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
+    online.core.set_files_dir(dir.join("files"));
+    online.core.set_move_dir(dir.join(MOVE_DIR));
+    online.core.set_plugins_dir(dir.join("plugins"));
+    // The user's cloud (plan-drive): what waits to go up lives here.
+    online.core.set_vault_dir(dir.join("vault"));
+    online.core.set_cloud(Arc::new(ft_core::vault::GoogleCloud));
+    Ok(online)
+}
+
+/// The app's bridge as the phone's own call screen.
+struct BridgeScreen(AppHandle);
+
+impl CallScreen for BridgeScreen {
+    fn ring(&self, caller: &str, video: bool, muted: bool) {
+        let _ = self.0.platform().start_ringing(caller, video, muted);
+    }
+
+    fn stop_ringing(&self) {
+        let _ = self.0.platform().stop_ringing();
+    }
+
+    fn refused(&self) {
+        let _ = self.0.platform().call_refused();
+    }
+
+    fn answering(&self, caller: &str, video: bool) {
+        let _ = self.0.platform().call_answering(caller, video);
+    }
+
+    fn connected(&self) {
+        let _ = self.0.platform().call_connected();
+    }
+
+    fn ended(&self) {
+        let _ = self.0.platform().call_ended();
+    }
+}
+
+fn bridge_screen(app: &AppHandle) -> Arc<dyn CallScreen> {
+    Arc::new(BridgeScreen(app.clone()))
+}
+
+/// Follows what the core says, for the app (the WebView, the bridge) and, before the app has a
+/// core a push started, for the push's call screen. One follower per core: the app takes over the
+/// push's in place, so nothing said in between is lost or told twice.
+fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
+    let mut events = online.core.events();
+    let stopped = online.stopped();
+    let router_for_events = online.router.clone();
+    let core_for_events = online.core.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::pin!(stopped);
+        // A stopped core's events end here (erasing the phone): the new one has its own.
+        while let Some(Ok(event)) = tokio::select! {
+            event = events.recv() => Some(event),
+            _ = &mut stopped => None,
+        } {
+            host.saw(&event, std::time::Instant::now());
+            let app = host.app().cloned();
+            let (contact, circle) = match event {
+                Event::MessagesChanged { contact } => (Some(contact), None),
+                Event::CircleMessagesChanged { circle } => (None, Some(circle)),
+                Event::ContactsChanged | Event::ConnectionChanged { .. } | Event::PluginsChanged | Event::CirclesChanged => (None, None),
+                // Calls off, a stranger, a blocked contact, a closed session (§108, §109): a push
+                // may have set the phone's own call screen ringing before the core knew who
+                // called. It stops now; the WebView never hears of it.
+                Event::CallRefused => {
+                    if let Some(screen) = host.screen(bridge_screen) {
+                        screen.refused();
+                    }
+                    continue;
+                }
+                Event::Call { contact, call, update } => {
+                    // Answered on the phone's own screen before its offer came: the core
+                    // is answering it, so it rings nowhere (2026-09-29).
+                    let current = match update {
+                        CallUpdate::Incoming { .. } | CallUpdate::Answering => core_for_events.current_call().await.ok().flatten(),
+                        _ => None,
+                    };
+                    let answered = matches!(update, CallUpdate::Incoming { .. }) && answered_already(current.as_ref(), &call);
+                    if let Some(screen) = host.screen(bridge_screen) {
+                        match ringing(&update, answered) {
+                            Ring::Start { video } => {
+                                // The screen says who is calling, so a call in the background is
+                                // more than a ringtone (§66); a push's "Someone" learns the name.
+                                let stored = core_for_events.store().contact(&contact).await.ok().flatten();
+                                let name = stored.as_ref().map(|stored| stored.name.clone()).unwrap_or_default();
+                                // A muted contact shows but makes no noise (app#4).
+                                let muted = stored.is_some_and(|stored| stored.rules.muted);
+                                screen.ring(&name, video, muted);
+                            }
+                            Ring::Stop => screen.stop_ringing(),
+                            Ring::Answered => {
+                                let name = core_for_events.store().contact(&contact).await.ok().flatten().map(|stored| stored.name).unwrap_or_default();
+                                let video = current.as_ref().is_some_and(|current| current.video);
+                                screen.answering(&name, video);
+                            }
+                            Ring::Nothing => {}
+                        }
+                        // CallKit or the ongoing call notification shows the call too.
+                        match native_screen(&update) {
+                            NativeScreen::Connected => screen.connected(),
+                            NativeScreen::Ended => screen.ended(),
+                            NativeScreen::Nothing => {}
+                        }
+                    }
+                    let Some(app) = app else { continue };
+                    if let CallUpdate::Video(state) = update.clone() {
+                        // CallKit's `hasVideo`, the views under the WebView, the other
+                        // picture's shape (docs/video-nativo.md §4).
+                        let (app, glue, call) = (app.clone(), app.state::<Client>().video.clone(), call.clone());
+                        let _ = tauri::async_runtime::spawn_blocking(move || {
+                            tell_bridge(&app, &glue, |glue| glue.state(&call, &state, video_layers()))
+                        })
+                        .await;
+                    }
+                    let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update).answered(answered));
+                    continue;
+                }
+                // What follows is the app's alone: a core a push started has no WebView, no
+                // plugins and no drive to tell.
+                other => {
+                    let Some(app) = app else { continue };
+                    match other {
                         // A plugin on the other side said something to its twin here (2026-09-27).
                         Event::PluginEvent { plugin, contact, data } => {
                             let _ = app.emit(PLUGIN_EVENT, PluginEventView { plugin, contact, data: BASE64.encode(data) });
-                            continue;
                         }
-                        Event::RemindersChanged => {
-                            sync_reminders(&app, &core_for_events).await;
-                            continue;
-                        }
+                        Event::RemindersChanged => sync_reminders(&app, &core_for_events).await,
                         Event::VaultChanged => {
                             let _ = app.emit(VAULT_EVENT, ());
-                            continue;
-                        }
-                        // Calls off, a stranger, a blocked contact, a closed session (§108,
-                        // §109): a push may have set the phone's own call screen ringing before
-                        // the core knew who called. It stops now; the WebView never hears of it.
-                        Event::CallRefused => {
-                            let _ = app.platform().call_refused();
-                            continue;
                         }
                         Event::VaultProgress { done, total } => {
                             let _ = app.emit(VAULT_PROGRESS_EVENT, VaultProgressView { done, total });
-                            continue;
                         }
                         Event::Move(update) => {
                             let _ = app.emit(MOVE_EVENT, MoveEvent::from(update.clone()));
                             after_move(&app, &router_for_events, update);
-                            continue;
                         }
-                        Event::Call { contact, call, update } => {
-                            // Answered on the phone's own screen before its offer came: the core
-                            // is answering it, so it rings nowhere (2026-09-29).
-                            let current = match update {
-                                CallUpdate::Incoming { .. } | CallUpdate::Answering => core_for_events.current_call().await.ok().flatten(),
-                                _ => None,
-                            };
-                            let answered = matches!(update, CallUpdate::Incoming { .. }) && answered_already(current.as_ref(), &call);
-                            match ringing(&update, answered) {
-                                Ring::Start { video } => {
-                                    // The screen says who is calling, so a call in the background
-                                    // is more than a ringtone (§66).
-                                    let stored = core_for_events.store().contact(&contact).await.ok().flatten();
-                                    let name = stored.as_ref().map(|stored| stored.name.clone()).unwrap_or_default();
-                                    // A muted contact shows but makes no noise (app#4).
-                                    let muted = stored.is_some_and(|stored| stored.rules.muted);
-                                    let _ = app.platform().start_ringing(&name, video, muted);
-                                }
-                                Ring::Stop => {
-                                    let _ = app.platform().stop_ringing();
-                                }
-                                Ring::Answered => {
-                                    let name = core_for_events.store().contact(&contact).await.ok().flatten().map(|stored| stored.name).unwrap_or_default();
-                                    let video = current.as_ref().is_some_and(|current| current.video);
-                                    let _ = app.platform().call_answering(&name, video);
-                                }
-                                Ring::Nothing => {}
-                            }
-                            // CallKit or the ongoing call notification shows the call too.
-                            match native_screen(&update) {
-                                NativeScreen::Connected => {
-                                    let _ = app.platform().call_connected();
-                                }
-                                NativeScreen::Ended => {
-                                    let _ = app.platform().call_ended();
-                                }
-                                NativeScreen::Nothing => {}
-                            }
-                            if let CallUpdate::Video(state) = update {
-                                // CallKit's `hasVideo`, the views under the WebView, the other
-                                // picture's shape (docs/video-nativo.md §4).
-                                let (app, glue, call) = (app.clone(), glue_for_events.clone(), call.clone());
-                                let _ = tauri::async_runtime::spawn_blocking(move || {
-                                    tell_bridge(&app, &glue, |glue| glue.state(&call, &state, video_layers()))
-                                })
-                                .await;
-                            }
-                            let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update).answered(answered));
-                            continue;
-                        }
-                    };
-                    let _ = app.emit(CHANGED_EVENT, Changed { contact, circle });
+                        _ => {}
+                    }
+                    continue;
                 }
-            });
+            };
+            if let Some(app) = app {
+                let _ = app.emit(CHANGED_EVENT, Changed { contact, circle });
+            }
         }
-        Ok(online)
-    }
+    });
 }
 
 /// What the phone's own call screen says (2026-09-28): CallKit on iOS, the ongoing call
 /// notification on Android. It works with no WebView at all: a locked iPhone that PushKit woke
 /// answers here.
 fn listen_native_calls(app: &AppHandle, online: &Online) {
-    let (core, router, app_for_events) = (online.core.clone(), online.router.clone(), app.clone());
     // iOS experiment: incoming calls reported as video calls, so answering opens the app.
     let _ = app.platform().set_open_app_on_answer(open_app_on_answer(option_env!("FT_IOS_OPEN_APP_ON_ANSWER")));
-    // The handler runs on a native queue: it only hands the event over. They are handled in the
-    // order they came (an audio deactivation and activation must not swap); what may take long
-    // (answering, hanging up) goes on in the background.
-    let (events, mut queue) = tokio::sync::mpsc::unbounded_channel::<NativeCallEvent>();
+    let events = native_call_queue(online, Some(app.clone()));
     app.platform().listen_calls(move |event| {
         let _ = events.send(event);
     });
+}
+
+/// Where native call events go, in order: the handler of the bridge (or of JNI, for a core a push
+/// started) only hands them over. A deactivation and an activation of the audio must not swap;
+/// what may take long (answering, hanging up) goes on in the background. With no `app` (a core a
+/// push started, before the app), only the events that need no screen are acted on: the push
+/// itself, a decline and a hang-up (Kotlin's `pushCoreTakes`).
+fn native_call_queue(online: &Online, app: Option<AppHandle>) -> tokio::sync::mpsc::UnboundedSender<NativeCallEvent> {
+    let (core, router, lifecycle) = (online.core.clone(), online.router.clone(), online.lifecycle());
+    let (events, mut queue) = tokio::sync::mpsc::unbounded_channel::<NativeCallEvent>();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = queue.recv().await {
-            match reconnect_for(event) {
-                Reconnect::Now => router.reconnect_now(),
-                Reconnect::UnlessFresh => router.reconnect_unless_fresh(CALL_SOCKET_FRESH),
-                Reconnect::No => {}
+            if app.is_none() && !push_core_handles(event) {
+                continue;
             }
-            let (core, app) = (core.clone(), app_for_events.clone());
+            // Out of the foreground the app lets go of the router and the other phones, unless a
+            // call is going on, and back in front it connects again (2026-10-01). Awaited: iOS
+            // may suspend the app moments after it leaves.
+            if let Some(foreground) = foreground_of(event) {
+                lifecycle.set_foreground(foreground).await;
+            }
+            // A push (or CallKit's answer, before the offer came) brings the connection back for
+            // its call; if it was there, a fresh socket as before.
+            let reconnect = reconnect_for(event);
+            if reconnect != Reconnect::No && !lifecycle.woken().await {
+                match reconnect {
+                    Reconnect::Now => router.reconnect_now(),
+                    Reconnect::UnlessFresh => router.reconnect_unless_fresh(CALL_SOCKET_FRESH),
+                    Reconnect::No => {}
+                }
+            }
+            let core = core.clone();
             match event {
                 // The push only asks for the socket above; the core rings when the offer comes.
                 NativeCallEvent::Incoming => {}
                 NativeCallEvent::Answer => {
+                    let Some(app) = app.clone() else { continue };
                     tauri::async_runtime::spawn(async move {
                         if !microphone(&app).await {
                             let _ = fail_current_call(&core).await;
@@ -1094,6 +1193,7 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
                 NativeCallEvent::Orientation(raw) => ft_media::views::set_orientation(raw),
                 // CallKit's video button, the notification's camera action: our camera, if allowed.
                 NativeCallEvent::VideoRequested => {
+                    let Some(app) = app.clone() else { continue };
                     tauri::async_runtime::spawn(async move {
                         if camera(&app).await {
                             let _ = core.request_call_video().await;
@@ -1103,6 +1203,101 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
             }
         }
     });
+    events
+}
+
+/// Whether a core a call push started acts on a native event before the app has it (2026-10-01):
+/// the push itself (reconnect), the notification's decline and a hang-up. Answering waits for the
+/// app, which the notification's answer opens.
+fn push_core_handles(event: NativeCallEvent) -> bool {
+    matches!(event, NativeCallEvent::Incoming | NativeCallEvent::Decline | NativeCallEvent::End)
+}
+
+/// Where Kotlin's notification buttons reach a core a call push started (Android), while it is up
+/// and the app does not have it.
+static PUSH_EVENTS: Mutex<Option<tokio::sync::mpsc::UnboundedSender<NativeCallEvent>>> = Mutex::new(None);
+
+fn forget_push_events() {
+    PUSH_EVENTS.lock().unwrap_or_else(PoisonError::into_inner).take();
+}
+
+/// Hands a notification button's event to a core a call push started; `false` if none listens.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn push_event(event: NativeCallEvent) -> bool {
+    PUSH_EVENTS.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|events| events.send(event).is_ok())
+}
+
+/// How often a core a push started looks whether its job is done.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+const PUSH_CORE_LOOK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// A call push came with the app closed (Android, 2026-10-01, `push_core.rs`): the core starts
+/// here with no app, connects at once and takes the offer the router kept; the push's call screen
+/// (`side`) hears who calls, the hang-up and a refusal. If a core runs already (the app's, or one
+/// an earlier push started) it is only told that a call is on its way. Nothing starts on a phone
+/// with no identity: the push never makes one.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub async fn start_for_push(dir: PathBuf, vault: Box<dyn KeyVault + Send + Sync>, side: Arc<dyn PushSide>) {
+    let mut running = RUNNING.lock().await;
+    if running.stopped {
+        side.stopped("stopped");
+        return;
+    }
+    if running.online.is_some() {
+        if let Some(host) = &running.host {
+            host.pushed(std::time::Instant::now());
+        }
+        return;
+    }
+    if !may_start_from_push(&dir, SEALED_KEY_FILE, DATABASE) {
+        side.stopped("no identity");
+        return;
+    }
+    let Ok(key) = opened_key(&dir, Some(vault.as_ref())) else {
+        side.stopped("failed");
+        return;
+    };
+    let online = match boot(&dir, key).await {
+        Ok(online) => Arc::new(online),
+        Err(_) => {
+            side.stopped("failed");
+            return;
+        }
+    };
+    let host = Arc::new(Host::for_push(side.clone(), std::time::Instant::now()));
+    follow_events(&online, host.clone());
+    *PUSH_EVENTS.lock().unwrap_or_else(PoisonError::into_inner) = Some(native_call_queue(&online, None));
+    running.online = Some(online.clone());
+    running.host = Some(host.clone());
+    drop(running);
+    side.up();
+    tauri::async_runtime::spawn(watch_push_core(online, host));
+}
+
+/// Ends a core a push started once its call is over, or no call came (`push_core::Watch`), unless
+/// the app took it: the router hears at once that this phone is gone, and the next call pushes
+/// again. Under the lock: an app that opens meanwhile waits, then starts its own core.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+async fn watch_push_core(online: Arc<Online>, host: Arc<Host<AppHandle>>) {
+    loop {
+        tokio::time::sleep(PUSH_CORE_LOOK).await;
+        let mut running = RUNNING.lock().await;
+        let ours = running.online.as_ref().is_some_and(|running| Arc::ptr_eq(running, &online));
+        if !ours || host.app().is_some() {
+            return;
+        }
+        let going_on = online.core.current_call().await.ok().flatten().is_some();
+        let Some(stop) = host.stops(std::time::Instant::now(), going_on) else { continue };
+        running.online = None;
+        running.host = None;
+        forget_push_events();
+        online.shutdown().await;
+        drop(running);
+        if let Some(side) = host.push_side() {
+            side.stopped(stop.word());
+        }
+        return;
+    }
 }
 
 /// A socket to the router opened this recently is kept when a call event asks for one.
@@ -1132,6 +1327,16 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
         | NativeCallEvent::Visible(_)
         | NativeCallEvent::Orientation(_)
         | NativeCallEvent::VideoRequested => Reconnect::No,
+    }
+}
+
+/// Whether a native event says the app is in the foreground (2026-10-01): the platform's own
+/// lifecycle, which the bridge already reports for our camera (`Visible`). The WebView's
+/// `visibilitychange` may come too late, or not at all, on a phone about to suspend the app.
+fn foreground_of(event: NativeCallEvent) -> Option<bool> {
+    match event {
+        NativeCallEvent::Visible(visible) => Some(visible),
+        _ => None,
     }
 }
 
@@ -1293,7 +1498,7 @@ async fn restart(app: &AppHandle) {
     }
     let client = app.state::<Client>();
     client.stop().await;
-    client.running.lock().await.stopped = false;
+    RUNNING.lock().await.stopped = false;
     start_in_background(app);
     if let Some(window) = app.get_webview_window("main") {
         if let Ok(url) = window.url() {
@@ -2420,12 +2625,16 @@ fn push_provider() -> &'static str {
     }
 }
 
-/// The app is back on the screen (2026-09-28): the socket to the router is opened again at once,
-/// and its welcome fetches the mailbox and retries what waits. iOS cuts the socket of a suspended
-/// app, and the phone may take long to notice on its own.
+/// The WebView is back on the screen (2026-09-28): the connection the app let go of when it left
+/// the foreground comes back (2026-10-01; usually the platform said so first), and its welcome
+/// fetches the mailbox and retries what waits. If it never went, a socket that is not fresh is
+/// opened again: iOS may have cut it while the app was suspended.
 #[tauri::command]
 pub async fn core_resume(client: State<'_, Client>) -> Result<(), String> {
-    client.online().await?.router.reconnect_now();
+    let online = client.online().await?;
+    if !online.set_foreground(true).await {
+        online.router.reconnect_unless_fresh(CALL_SOCKET_FRESH);
+    }
     Ok(())
 }
 
@@ -3473,6 +3682,28 @@ mod tests {
         assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
     }
 
+    // 2026-10-01: whether the app is in the foreground comes from the platform's own lifecycle, the
+    // events that already hold our camera (iOS: entering the background, becoming active; Android:
+    // the activity's pause and resume). Nothing else says it.
+    #[test]
+    fn the_platform_says_whether_the_app_is_in_the_foreground() {
+        assert_eq!(foreground_of(NativeCallEvent::Visible(false)), Some(false));
+        assert_eq!(foreground_of(NativeCallEvent::Visible(true)), Some(true));
+        for other in [
+            NativeCallEvent::Incoming,
+            NativeCallEvent::Answer,
+            NativeCallEvent::End,
+            NativeCallEvent::Decline,
+            NativeCallEvent::Mute(false),
+            NativeCallEvent::AudioActivated(1),
+            NativeCallEvent::AudioDeactivated(1),
+            NativeCallEvent::Orientation(1),
+            NativeCallEvent::VideoRequested,
+        ] {
+            assert_eq!(foreground_of(other), None, "{other:?}");
+        }
+    }
+
     // Bug of 2026-09-29 (Android with the app closed, the iPhone with it open): a call answered on
     // the phone's own screen rang again, on the phone and in the app, and asked for a second
     // answer. A call the core answered before its offer came does not ring when the offer
@@ -3523,6 +3754,27 @@ mod tests {
     #[test]
     fn a_decline_asks_for_the_router() {
         assert_eq!(reconnect_for(NativeCallEvent::Decline), Reconnect::UnlessFresh);
+    }
+
+    // 2026-10-01: a core a call push started (Android, app closed) acts on the push itself, the
+    // notification's decline and a hang-up. Answering waits for the app (the microphone may need
+    // asking, the call's service its screen), and the rest belongs to a call the app shows.
+    #[test]
+    fn a_core_a_push_started_acts_only_on_the_push_a_decline_and_a_hang_up() {
+        assert!(push_core_handles(NativeCallEvent::Incoming));
+        assert!(push_core_handles(NativeCallEvent::Decline));
+        assert!(push_core_handles(NativeCallEvent::End));
+        for waits in [
+            NativeCallEvent::Answer,
+            NativeCallEvent::Mute(true),
+            NativeCallEvent::AudioActivated(1),
+            NativeCallEvent::AudioDeactivated(1),
+            NativeCallEvent::Visible(true),
+            NativeCallEvent::Orientation(90),
+            NativeCallEvent::VideoRequested,
+        ] {
+            assert!(!push_core_handles(waits), "{waits:?} is the app's");
+        }
     }
 
     // A WebView that comes up after the call started (PushKit launched the app, CallKit answered)

@@ -63,6 +63,13 @@
             android:exported="false"
             android:foregroundServiceType="phoneCall|microphone|camera" />
         <receiver android:name="com.flickertalk.platform.FtCallActionReceiver" android:exported="false" />
+        <!-- A call push with the app closed (2026-10-01): while its call rings, this keeps the
+             process (and the core the push started in it) awake, holding the call notification.
+             Type phoneCall, which MANAGE_OWN_CALLS allows; started within FCM's allowance. -->
+        <service
+            android:name="com.flickertalk.platform.FtIncomingCallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall" />
         <!-- The notifications' buttons (2026-09-29): answer, decline, the call's camera and a
              reminder land here. It hands the tap to the process at once, then opens the app if it
              must: an extra on the launcher's intent got lost when the process had died. Private,

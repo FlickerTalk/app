@@ -104,7 +104,8 @@ pub enum NativeCallEvent {
     /// The system took the audio session away: the audio unit stops (iOS).
     AudioDeactivated(u64),
     /// The app came to the screen (`true`) or left it (native video, 2026-09-29): the phone
-    /// holds our camera while the app is away (iOS stops it anyway), and gives it back.
+    /// holds our camera while the app is away (iOS stops it anyway), and gives it back. Away, the
+    /// core also lets go of the router and the other phones unless a call is going on (2026-10-01).
     Visible(bool),
     /// The phone turned (native video): iOS `UIDeviceOrientation.rawValue`, Android the display
     /// rotation in degrees. The rotation our frames carry follows it.
@@ -116,18 +117,29 @@ pub enum NativeCallEvent {
 }
 
 /// One event as Swift and Kotlin send it: `{"event": "mute", "muted": true}`.
+#[derive(Deserialize)]
+struct CallEventWire {
+    event: String,
+    muted: Option<bool>,
+    #[serde(default)]
+    generation: u64,
+    visible: Option<bool>,
+    orientation: Option<i32>,
+}
+
+/// One event through the channel.
 #[cfg_attr(not(mobile), allow(dead_code))]
 fn call_event(body: tauri::ipc::InvokeResponseBody) -> Option<NativeCallEvent> {
-    #[derive(Deserialize)]
-    struct Wire {
-        event: String,
-        muted: Option<bool>,
-        #[serde(default)]
-        generation: u64,
-        visible: Option<bool>,
-        orientation: Option<i32>,
-    }
-    let wire: Wire = body.deserialize().ok()?;
+    call_event_of(body.deserialize().ok()?)
+}
+
+/// One event as the JSON text Kotlin hands over JNI to a core a call push started, before the
+/// app (Android, 2026-10-01): the same form the channel carries.
+pub fn parse_call_event(json: &str) -> Option<NativeCallEvent> {
+    call_event_of(serde_json::from_str(json).ok()?)
+}
+
+fn call_event_of(wire: CallEventWire) -> Option<NativeCallEvent> {
     match (wire.event.as_str(), wire.muted) {
         ("visible", _) => wire.visible.map(NativeCallEvent::Visible),
         ("orientation", _) => wire.orientation.map(NativeCallEvent::Orientation),
@@ -884,6 +896,18 @@ mod tests {
         assert_eq!(read(r#"{"event":"decline"}"#), Some(NativeCallEvent::Decline));
         let answering = serde_json::to_value(Answering { caller: "Ioan", video: true }).unwrap();
         assert_eq!(answering, serde_json::json!({ "caller": "Ioan", "video": true }));
+    }
+
+    // 2026-10-01: a core a call push started on Android, before the app, hears the notification's
+    // buttons over JNI, as the text Kotlin's channel would have carried.
+    #[test]
+    fn a_call_event_is_read_from_the_text_kotlin_hands_over() {
+        assert_eq!(parse_call_event(r#"{"event":"decline"}"#), Some(NativeCallEvent::Decline));
+        assert_eq!(parse_call_event(r#"{"event":"end"}"#), Some(NativeCallEvent::End));
+        assert_eq!(parse_call_event(r#"{"event":"incoming"}"#), Some(NativeCallEvent::Incoming));
+        assert_eq!(parse_call_event(r#"{"event":"mute","muted":true}"#), Some(NativeCallEvent::Mute(true)));
+        assert_eq!(parse_call_event(r#"{"event":"hold"}"#), None);
+        assert_eq!(parse_call_event("not json"), None);
     }
 
     // Anything else is ignored, never a panic on the phone's main thread.

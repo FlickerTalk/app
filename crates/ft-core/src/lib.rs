@@ -92,6 +92,12 @@ pub trait Transport: Send + Sync {
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct(to, bytes).await
     }
+    /// Hands the packet to the direct connection already open with the peer, and never opens one
+    /// (2026-10-01): `false` without one. What checks that an open connection still reaches the
+    /// peer must not make an offer of its own through the router.
+    async fn send_open(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct(to, bytes).await
+    }
     /// Opens a direct connection for a call, sending nothing yet (2026-09-29): the caller opens
     /// the way while its media offer gathers. `false` when the peer cannot be reached now.
     async fn open_direct_call(&self, _to: &Peer) -> Result<bool> {
@@ -99,6 +105,9 @@ pub trait Transport: Send + Sync {
     }
     /// Leaves the packet, already encrypted, in the peer's mailbox on the router (§19).
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
+    /// Our call to the device is over (2026-10-01): an offer of ours that rang for it rings no more,
+    /// so the next call makes its own and the device rings again.
+    async fn call_over(&self, _device_id: &str) {}
     /// Closes any direct connection with the device (a blocked contact, §35).
     async fn disconnect(&self, _device_id: &str) {}
     /// Where a native call's media listens and the servers that help it: the router's STUN and
@@ -214,6 +223,9 @@ pub struct Core {
     keeping_sessions: Mutex<()>,
     /// Bumped whenever the router must be told something new: the hashes or the silent slots.
     registration: tokio::sync::watch::Sender<u64>,
+    /// How many pongs each contact has sent us (2026-10-01): a call's offer sent over a direct
+    /// connection is known to have arrived once a ping sent after it is answered.
+    pongs: tokio::sync::watch::Sender<HashMap<String, u64>>,
     /// Woken when the router can be reached again, so a registration that failed is tried now.
     registration_retry: Arc<tokio::sync::Notify>,
     /// The user's cloud (plan-drive), once connected and open.
@@ -325,6 +337,7 @@ impl Core {
             open_sessions: std::sync::Mutex::new(open_sessions),
             keeping_sessions: Mutex::new(()),
             registration: tokio::sync::watch::Sender::new(0),
+            pongs: tokio::sync::watch::Sender::new(HashMap::new()),
             registration_retry: Arc::default(),
             vault: Mutex::new(None),
             cloud: OnceLock::new(),
@@ -1243,6 +1256,7 @@ impl Core {
             Body::Ping => {
                 let _ = self.send_control(contact, Body::Pong).await;
             }
+            Body::Pong => self.pongs.send_modify(|pongs| *pongs.entry(id.to_owned()).or_default() += 1),
             Body::File { name, size, mime, hash, chunk } => {
                 self.offered(contact, packet.id, packet.sent_at, name, size, mime, hash, chunk).await?
             }
@@ -1263,7 +1277,7 @@ impl Core {
             Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
             Body::PluginEvent { plugin, data } => self.plugin_event_received(contact, plugin, data).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
+            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }
@@ -1376,6 +1390,27 @@ impl Core {
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
         Ok(self.transport.send_direct_call(&peer, bytes).await.unwrap_or(false))
+    }
+
+    /// Sends over the direct connection already open with the contact, never opening one.
+    pub(crate) async fn transmit_open(&self, contact: &Contact, packet: &Packet) -> Result<bool> {
+        let bytes = self.seal_for(contact, packet).await?;
+        let card = ContactCard::decode(&contact.card)?;
+        let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
+        Ok(self.transport.send_open(&peer, bytes).await.unwrap_or(false))
+    }
+
+    /// The pongs the contact has sent so far, and a way to wait for the next.
+    pub(crate) fn pongs_from(&self, contact: &str) -> (u64, tokio::sync::watch::Receiver<HashMap<String, u64>>) {
+        let pongs = self.pongs.subscribe();
+        let heard = pongs.borrow().get(contact).copied().unwrap_or(0);
+        (heard, pongs)
+    }
+
+    /// Drops the direct connection with the contact (one found dead), so that the next send opens
+    /// a new one through the router.
+    pub(crate) async fn drop_connection(&self, contact: &str) {
+        self.transport.disconnect(contact).await;
     }
 
     /// Opens the way to the contact for a call's offer, sending nothing yet.
