@@ -92,7 +92,7 @@ impl Core {
     /// What a plugin remembers between two openings. Its frame has no origin of its own, so the
     /// browser gives it no storage: the core keeps it, apart from every other plugin (§53).
     pub async fn plugin_remembers(&self, id: &str, key: &str) -> Result<Option<String>> {
-        self.store.plugin_value(id, key).await
+        self.store.plugin_value(id, None, key).await
     }
 
     /// Keeps one value for a plugin. Small, few, and only for a plugin that is installed here.
@@ -100,52 +100,67 @@ impl Core {
         ensure!(!key.is_empty() && key.len() <= MEMORY_KEY, "that key is too long");
         ensure!(value.len() <= MEMORY_VALUE, "a plugin may not keep that much");
         ensure!(self.store.plugin(id).await?.is_some(), "{id} is not installed here");
-        let keys = self.store.plugin_keys(id).await?;
+        let keys = self.store.plugin_keys(id, None).await?;
         ensure!(
             keys.len() < MEMORY_KEYS || keys.iter().any(|known| known == key),
             "a plugin may not keep that many things"
         );
-        self.store.set_plugin_value(id, key, value).await
+        self.store.set_plugin_value(id, None, key, value).await
     }
 
     pub async fn plugin_forget(&self, id: &str, key: &str) -> Result<()> {
-        self.store.forget_plugin_value(id, key).await
+        self.store.forget_plugin_value(id, None, key).await
     }
 
     pub async fn plugin_memory_keys(&self, id: &str) -> Result<Vec<String>> {
-        self.store.plugin_keys(id).await
+        self.store.plugin_keys(id, None).await
+    }
+
+    /// Where a plugin is open (2026-10-01, §108): the main list (`None`) or a hidden session,
+    /// which must be open right now. What a plugin keeps belongs to the place it was kept in, and
+    /// a closed session lends it to nobody, not even to whoever names it. The plugin never learns
+    /// any of this: the app says where it opened it, and the core keeps each place apart.
+    fn place<'a>(&self, session: Option<&'a str>) -> Result<Option<&'a str>> {
+        if let Some(session) = session {
+            ensure!(self.is_session_open(session), "that session is not open");
+        }
+        Ok(session)
     }
 
     // ---- Records (2026-09-27): what a plugin keeps beyond its settings ----
 
-    pub async fn plugin_record(&self, id: &str, key: &str) -> Result<Option<Vec<u8>>> {
-        self.store.plugin_record(id, key).await
+    pub async fn plugin_record(&self, id: &str, session: Option<&str>, key: &str) -> Result<Option<Vec<u8>>> {
+        self.store.plugin_record(id, self.place(session)?, key).await
     }
 
     /// Keeps one record, within the room the user granted the plugin (`storage`): the value
-    /// replaces what the key held, and the whole of the plugin's records must fit the quota.
-    pub async fn plugin_record_set(&self, id: &str, key: &str, value: &[u8]) -> Result<()> {
+    /// replaces what the key held, and the plugin's records in that place must fit the quota.
+    /// Each place has the whole quota: what a session holds never shows in another's room.
+    pub async fn plugin_record_set(&self, id: &str, session: Option<&str>, key: &str, value: &[u8]) -> Result<()> {
+        let session = self.place(session)?;
         ensure!(!key.is_empty() && key.len() <= RECORD_KEY, "that key is too long");
         ensure!(value.len() <= RECORD_VALUE, "a record may not hold that much");
         let quota = self.granted_to(id).await?.storage.quota();
-        let held = self.store.plugin_record(id, key).await?.map_or(0, |old| old.len() as i64);
-        let used = self.store.plugin_records_size(id).await? - held;
+        let held = self.store.plugin_record(id, session, key).await?.map_or(0, |old| old.len() as i64);
+        let used = self.store.plugin_records_size(id, session).await? - held;
         ensure!(used + value.len() as i64 <= quota as i64, "the plugin has no room left for that");
-        self.store.set_plugin_record(id, key, value).await
+        self.store.set_plugin_record(id, session, key, value).await
     }
 
-    pub async fn plugin_record_forget(&self, id: &str, key: &str) -> Result<()> {
-        self.store.forget_plugin_record(id, key).await
+    pub async fn plugin_record_forget(&self, id: &str, session: Option<&str>, key: &str) -> Result<()> {
+        self.store.forget_plugin_record(id, self.place(session)?, key).await
     }
 
-    pub async fn plugin_record_keys(&self, id: &str, prefix: &str) -> Result<Vec<String>> {
-        self.store.plugin_record_keys(id, prefix).await
+    pub async fn plugin_record_keys(&self, id: &str, session: Option<&str>, prefix: &str) -> Result<Vec<String>> {
+        self.store.plugin_record_keys(id, self.place(session)?, prefix).await
     }
 
-    /// How much of its room a plugin uses, and how much it has: (used, quota), in bytes.
-    pub async fn plugin_records_usage(&self, id: &str) -> Result<(u64, u64)> {
+    /// How much of its room a plugin uses in that place, and how much it has: (used, quota), in
+    /// bytes.
+    pub async fn plugin_records_usage(&self, id: &str, session: Option<&str>) -> Result<(u64, u64)> {
+        let session = self.place(session)?;
         let quota = self.granted_to(id).await?.storage.quota();
-        Ok((self.store.plugin_records_size(id).await? as u64, quota))
+        Ok((self.store.plugin_records_size(id, session).await? as u64, quota))
     }
 
     // ---- Refs: a way back to the message a plugin was opened with, and nothing more ----
@@ -184,13 +199,13 @@ impl Core {
         ensure!(!reminder.is_empty() && reminder.len() <= RECORD_KEY, "that reminder id is too long");
         ensure!(at > 0, "a reminder needs a time");
         let text: String = text.chars().take(REMINDER_TEXT).collect();
-        self.store.set_reminder(&Reminder { plugin: id.to_owned(), id: reminder.to_owned(), at, text }).await?;
+        self.store.set_reminder(&Reminder { plugin: id.to_owned(), session: None, id: reminder.to_owned(), at, text }).await?;
         let _ = self.events.send(Event::RemindersChanged);
         Ok(())
     }
 
     pub async fn cancel_reminder(&self, id: &str, reminder: &str) -> Result<bool> {
-        let gone = self.store.cancel_reminder(id, reminder).await?;
+        let gone = self.store.cancel_reminder(id, None, reminder).await?;
         if gone {
             let _ = self.events.send(Event::RemindersChanged);
         }
