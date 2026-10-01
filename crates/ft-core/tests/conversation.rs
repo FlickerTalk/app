@@ -320,7 +320,9 @@ async fn a_rejected_message_leaves_the_queue_as_not_sent() {
 
 // Already in the mailbox, then refused on a retry (they deleted their phone): "sent" was true when
 // it was shown and never claimed delivery, so it stays sent (no messenger takes it back), but it
-// leaves the queue so a router that refuses it is not asked again (2026-10-01).
+// leaves the queue so a router that refuses it is not asked again (2026-10-01). A message in the
+// mailbox gets a new copy there only once a day, so the refusal is heard at that copy: until then
+// it waits in the queue and is tried directly.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_in_the_mailbox_refused_on_a_retry_stays_sent() {
     let net = Net::new();
@@ -331,6 +333,11 @@ async fn a_message_in_the_mailbox_refused_on_a_retry_stays_sent() {
     let message = alice.send_text(&id(&bob), "for bob").await.expect("sends");
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
     net.rejecting.lock().unwrap().insert(id(&bob));
+    alice.retry_now().await.expect("retries");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+    assert_eq!(outbox_len(&alice).await, 1, "no copy within the day: the router was not asked");
+
+    alice.store().mailed(&message, now() - DAY).await.unwrap();
     alice.retry_now().await.expect("retries");
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
     assert_eq!(outbox_len(&alice).await, 0, "out of the queue");
@@ -511,6 +518,30 @@ async fn with_the_mailbox_off_retries_leave_nothing_in_it() {
     assert_eq!(net.mailbox_len(&id(&bob)), 0);
     assert!(!outbox_entry(&alice, &message).await.in_mailbox);
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Pending);
+}
+
+// A failure that may pass on the daily copy (a full mailbox, 507) keeps the message queued and
+// sent, still in the mailbox, and the copy goes at the next retry that the mailbox takes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_passing_failure_on_the_daily_copy_tries_the_copy_again() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let message = in_bobs_mailbox(&net, &alice, &bob).await;
+    let day_ago = now() - DAY;
+    alice.store().mailed(&message, day_ago).await.unwrap();
+
+    net.failing.lock().unwrap().insert(id(&bob));
+    alice.retry_now().await.expect("retries");
+    let entry = outbox_entry(&alice, &message).await;
+    assert!(entry.in_mailbox && entry.next_attempt > now(), "rescheduled, still in the mailbox");
+    assert_eq!(entry.mailed_at, Some(day_ago), "the copy did not go");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+
+    net.failing.lock().unwrap().remove(&id(&bob));
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&id(&bob)), 2, "the copy goes");
+    assert!(outbox_entry(&alice, &message).await.mailed_at.is_some_and(|at| at > day_ago));
 }
 
 #[tokio::test(flavor = "multi_thread")]
