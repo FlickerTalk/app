@@ -105,6 +105,17 @@ final class VideoTests: XCTestCase {
         XCTAssertNil(visibilityEvent(UIApplication.willEnterForegroundNotification))
     }
 
+    // 2026-10-01, measured: a call that ends with the app in the background (locked, or started by
+    // PushKit) leaves it suspended 1.5 s later, before the core's moment after the call (3 s, then
+    // up to 1 s for its next look) lets go of the router: the router kept handing the next call to
+    // a socket nobody read. Then the app asks for background time to let go first.
+    func testACallThatEndsInTheBackgroundHoldsTheAppUntilTheCoreLetsGo() {
+        XCTAssertTrue(holdsAfterCall(.background))
+        XCTAssertFalse(holdsAfterCall(.active), "in front, the app stays connected")
+        XCTAssertFalse(holdsAfterCall(.inactive), "still on the screen (CallKit's own over it)")
+        XCTAssertGreaterThan(afterCallHold, 3 + 1)
+    }
+
     // Native video's events, as Rust's `NativeCallEvent` reads them.
     func testVideoEventsTravelAsTheCoreReadsThem() {
         XCTAssertEqual(callEventPayload(.visible(true)) as NSDictionary, ["event": "visible", "visible": true] as NSDictionary)

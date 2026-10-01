@@ -330,6 +330,17 @@ func visibilityEvent(_ name: Notification.Name) -> CallEvent? {
     }
 }
 
+/// Whether a call that ends now holds the app a while (2026-10-01): out of the foreground, the
+/// core lets go of the router a moment after the call (`LINGER`, 3 s, then its next look, 1 s),
+/// and iOS suspends an app whose CallKit call ended within about 1.5 s. Suspended first, it would
+/// leave the router a socket nobody reads, and the next call would not ring.
+func holdsAfterCall(_ state: UIApplication.State) -> Bool {
+    state == .background
+}
+
+/// How long a call that ended out of the foreground holds the app.
+let afterCallHold: TimeInterval = 6
+
 /// How long the app asks iOS to keep running after it enters the background: the core lets go of
 /// the router and the other phones in milliseconds, but iOS may suspend the app sooner than that.
 let leavingHold: TimeInterval = 3
@@ -354,14 +365,25 @@ enum AppVisibility {
 
     /// A moment of background time, so that the core has let go before iOS suspends the app.
     private static func holdWhileLeaving() {
+        hold(leavingHold, name: "ft.leaving")
+    }
+
+    /// A call ended: out of the foreground, time for the core to let go after it. Main thread.
+    static func holdAfterCall() {
+        guard holdsAfterCall(UIApplication.shared.applicationState) else { return }
+        hold(afterCallHold, name: "ft.call.over")
+    }
+
+    /// Asks iOS to keep the app running `seconds` more. Main thread.
+    private static func hold(_ seconds: TimeInterval, name: String) {
         var task = UIBackgroundTaskIdentifier.invalid
         let end = {
             guard task != .invalid else { return }
             UIApplication.shared.endBackgroundTask(task)
             task = .invalid
         }
-        task = UIApplication.shared.beginBackgroundTask(withName: "ft.leaving", expirationHandler: end)
-        DispatchQueue.main.asyncAfter(deadline: .now() + leavingHold, execute: end)
+        task = UIApplication.shared.beginBackgroundTask(withName: name, expirationHandler: end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: end)
     }
 
     /// The core registered: it hears where the app is now.
