@@ -2116,30 +2116,30 @@ pub async fn core_plugin_forget(plugin: String, key: String, client: State<'_, C
 /// A record of a plugin, as base64: bytes the core never reads.
 #[tauri::command]
 pub async fn core_plugin_record_get(plugin: String, key: String, client: State<'_, Client>) -> Result<Option<String>, String> {
-    let value = client.core().await?.plugin_record(&plugin, &key).await.map_err(failed)?;
+    let value = client.core().await?.plugin_record(&plugin, None, &key).await.map_err(failed)?;
     Ok(value.map(|bytes| BASE64.encode(bytes)))
 }
 
 #[tauri::command]
 pub async fn core_plugin_record_set(plugin: String, key: String, value: String, client: State<'_, Client>) -> Result<(), String> {
     let bytes = BASE64.decode(value.as_bytes()).map_err(|_| "that value is not base64".to_owned())?;
-    client.core().await?.plugin_record_set(&plugin, &key, &bytes).await.map_err(failed)
+    client.core().await?.plugin_record_set(&plugin, None, &key, &bytes).await.map_err(failed)
 }
 
 #[tauri::command]
 pub async fn core_plugin_record_forget(plugin: String, key: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.plugin_record_forget(&plugin, &key).await.map_err(failed)
+    client.core().await?.plugin_record_forget(&plugin, None, &key).await.map_err(failed)
 }
 
 #[tauri::command]
 pub async fn core_plugin_record_keys(plugin: String, prefix: String, client: State<'_, Client>) -> Result<Vec<String>, String> {
-    client.core().await?.plugin_record_keys(&plugin, &prefix).await.map_err(failed)
+    client.core().await?.plugin_record_keys(&plugin, None, &prefix).await.map_err(failed)
 }
 
 /// How much of its room a plugin uses and how much it has, in bytes.
 #[tauri::command]
 pub async fn core_plugin_record_usage(plugin: String, client: State<'_, Client>) -> Result<(u64, u64), String> {
-    client.core().await?.plugin_records_usage(&plugin).await.map_err(failed)
+    client.core().await?.plugin_records_usage(&plugin, None).await.map_err(failed)
 }
 
 /// An opaque handle for the message the user hands a plugin (2026-09-27).
