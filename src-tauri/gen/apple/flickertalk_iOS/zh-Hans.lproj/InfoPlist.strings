@@ -1,3 +1,4 @@
 /* Permission texts of the iPhone app (2026-09-28). */
 "NSCameraUsageDescription" = "FlickerTalk 使用相机进行视频通话和扫描联系人二维码。";
 "NSMicrophoneUsageDescription" = "FlickerTalk 使用麦克风进行通话。";
+"NSLocationWhenInUseUsageDescription" = "FlickerTalk 仅在你选择在聊天中分享所在位置时使用你的位置。";

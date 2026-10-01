@@ -1167,6 +1167,15 @@ class PlatformPlugin: Plugin {
         }
     }
 
+    /// The phone's current position, once (the location plugin, 2026-10-02): asks "when in use"
+    /// the first time, then one fix within ~15 s; `found` false when refused, off or no fix. The
+    /// core already checked that the plugin was granted `location`.
+    @objc public func currentLocation(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            LocationRequest.start { payload in invoke.resolve(payload.mapValues { $0 as Any? }) }
+        }
+    }
+
     /// This phone calls: CallKit takes the call and its audio session (native calls, 2026-09-28).
     @objc public func callStartedOutgoing(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(OutgoingArgs.self)
