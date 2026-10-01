@@ -15,19 +15,7 @@ import {
   IonToggle,
   IonToolbar,
 } from "@ionic/vue";
-import {
-  alarmOutline,
-  archiveOutline,
-  cloudOutline,
-  extensionPuzzleOutline,
-  globeOutline,
-  openOutline,
-  chatbubbleEllipsesOutline,
-  createOutline,
-  downloadOutline,
-  swapHorizontalOutline,
-  trashOutline,
-} from "ionicons/icons";
+import { downloadOutline, extensionPuzzleOutline, openOutline, trashOutline } from "ionicons/icons";
 import {
   formatSize,
   grantPlugin,
@@ -35,12 +23,12 @@ import {
   offeredPlugins,
   removePlugin,
   type OfferedPlugin,
-  type PluginPermissions,
   type PluginView,
 } from "../core";
 import { useRouter } from "vue-router";
+import { isGame } from "../games";
+import { permissionsOf, withPermission } from "../permissions";
 import { refreshPlugins } from "../plugins";
-import { t } from "../i18n";
 
 const router = useRouter();
 
@@ -52,9 +40,10 @@ const asksToRemove = ref("");
 
 onMounted(refresh);
 
+// Plan 10.3: games have their own section; here, tools only.
 async function refresh() {
-  installed.value = await refreshPlugins();
-  offered.value = (await offeredPlugins().catch(() => [])).filter((one) => !one.installed);
+  installed.value = (await refreshPlugins()).filter((one) => !isGame(one));
+  offered.value = (await offeredPlugins().catch(() => [])).filter((one) => !one.installed && !isGame(one));
 }
 
 /** What a tool costs to bring in. The app already carries some of them: those cost nothing. */
@@ -68,65 +57,8 @@ async function install(id: string) {
   await refresh();
 }
 
-/** What a plugin asks for, one line per permission. */
-function permissionsOf(plugin: PluginView) {
-  const lines: { key: string; label: string; icon: string; on: boolean }[] = [];
-  if (plugin.asks.messages) {
-    lines.push({
-      key: "messages",
-      label: t("plugins.readsGiven"),
-      icon: chatbubbleEllipsesOutline,
-      on: plugin.granted.messages,
-    });
-  }
-  for (const host of plugin.asks.network) {
-    lines.push({
-      key: `network:${host}`,
-      label: host,
-      icon: globeOutline,
-      on: plugin.granted.network.includes(host),
-    });
-  }
-  if (plugin.asks.send !== "nothing") {
-    lines.push({
-      key: "send",
-      label: plugin.asks.send === "auto" ? t("plugins.sendsAlone") : t("plugins.writes"),
-      icon: createOutline,
-      on: plugin.granted.send !== "nothing",
-    });
-  }
-  // 2026-09-27: what the board, the notes and the drive ask for, each on its own switch.
-  if (plugin.asks.live) lines.push({ key: "live", label: t("plugins.live"), icon: swapHorizontalOutline, on: !!plugin.granted.live });
-  if (plugin.asks.remind) lines.push({ key: "remind", label: t("plugins.remind"), icon: alarmOutline, on: !!plugin.granted.remind });
-  if (plugin.asks.drive) lines.push({ key: "drive", label: t("plugins.drive"), icon: cloudOutline, on: !!plugin.granted.drive });
-  if (plugin.asks.storage === "large") {
-    lines.push({ key: "storage", label: t("plugins.storageLarge"), icon: archiveOutline, on: plugin.granted.storage === "large" });
-  }
-  return lines;
-}
-
 async function toggle(plugin: PluginView, key: string, on: boolean) {
-  const granted: PluginPermissions = {
-    network: [...plugin.granted.network],
-    messages: plugin.granted.messages,
-    send: plugin.granted.send,
-    print: plugin.granted.print,
-    live: plugin.granted.live,
-    remind: plugin.granted.remind,
-    drive: plugin.granted.drive,
-    storage: plugin.granted.storage,
-  };
-  if (key === "messages") granted.messages = on;
-  else if (key === "send") granted.send = on ? plugin.asks.send : "nothing";
-  else if (key === "live") granted.live = on;
-  else if (key === "remind") granted.remind = on;
-  else if (key === "drive") granted.drive = on;
-  else if (key === "storage") granted.storage = on ? "large" : "small";
-  else {
-    const host = key.slice("network:".length);
-    granted.network = on ? [...new Set([...granted.network, host])] : granted.network.filter((one) => one !== host);
-  }
-  await grantPlugin(plugin.id, granted);
+  await grantPlugin(plugin.id, withPermission(plugin, key, on));
   await refresh();
 }
 
