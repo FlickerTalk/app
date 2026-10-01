@@ -2714,6 +2714,17 @@ pub async fn core_send(contact: String, text: String, client: State<'_, Client>)
     Ok(())
 }
 
+/// Sends again a message the router refused (§84): the same message, queued again and tried in
+/// the background; the UI hears how it goes.
+#[tauri::command]
+pub async fn core_resend(message: String, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.resend(&message).await;
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn core_mark_read(contact: String, client: State<'_, Client>) -> Result<(), String> {
     let core = client.core().await?;
