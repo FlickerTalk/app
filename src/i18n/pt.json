@@ -59,7 +59,10 @@
     "download": "Transferir",
     "resend": "Enviar de novo",
     "discardAttachment": "Descartar o anexo",
-    "otherApp": "Outra app"
+    "otherApp": "Outra app",
+    "location": "Localização",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: abrir nos mapas"
   },
   "status": {
     "pending": "Aguardando o dispositivo",

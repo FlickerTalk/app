@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "再送信",
     "discardAttachment": "Discard attachment",
-    "otherApp": "別のアプリ"
+    "otherApp": "別のアプリ",
+    "location": "位置情報",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}：マップで開く"
   },
   "status": {
     "pending": "相手の端末を待っています",

@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "重新发送",
     "discardAttachment": "Discard attachment",
-    "otherApp": "其他应用"
+    "otherApp": "其他应用",
+    "location": "位置",
+    "accuracy": "±{metres} 米",
+    "openLocation": "{place}：在地图中打开"
   },
   "status": {
     "pending": "等待对方设备",

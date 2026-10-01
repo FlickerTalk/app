@@ -59,7 +59,10 @@
     "download": "Télécharger",
     "resend": "Renvoyer",
     "discardAttachment": "Retirer la pièce jointe",
-    "otherApp": "Une autre app"
+    "otherApp": "Une autre app",
+    "location": "Position",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place} : ouvrir dans Plans"
   },
   "status": {
     "pending": "En attente de l’appareil",

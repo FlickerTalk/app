@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "ส่งอีกครั้ง",
     "discardAttachment": "Discard attachment",
-    "otherApp": "แอปอื่น"
+    "otherApp": "แอปอื่น",
+    "location": "ตำแหน่ง",
+    "accuracy": "±{metres} ม.",
+    "openLocation": "{place}: เปิดในแผนที่"
   },
   "status": {
     "pending": "รออุปกรณ์",

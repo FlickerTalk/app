@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "Kirim ulang",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Aplikasi lain"
+    "otherApp": "Aplikasi lain",
+    "location": "Lokasi",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: buka di peta"
   },
   "status": {
     "pending": "Menunggu perangkat",

@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "फिर से भेजें",
     "discardAttachment": "Discard attachment",
-    "otherApp": "दूसरा ऐप"
+    "otherApp": "दूसरा ऐप",
+    "location": "स्थान",
+    "accuracy": "±{metres} मी",
+    "openLocation": "{place}: मैप्स में खोलें"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",

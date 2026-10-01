@@ -332,6 +332,35 @@ describe("MessageBubble", () => {
     expect(wrapper.find("img[src^='http']").exists()).toBe(false);
   });
 
+  // 2026-10-02: a place the location plugin wrote is a card, never a map: 📍, "Location" and how
+  // far off it may be. Nothing is fetched until the tap, which opens the phone's maps app.
+  it("shows a place as a card that opens the phone's maps app", async () => {
+    opener.openUrl.mockReset();
+    const wrapper = mount(MessageBubble, {
+      props: { message: { ...base, mine: false, text: "geo:40.41680,-3.70380;u=35" } },
+      shallow: true,
+    });
+    const place = wrapper.find("[data-test='place']");
+    expect(place.exists()).toBe(true);
+    expect(place.text()).toContain("📍");
+    expect(place.text()).toContain("Location");
+    expect(place.text()).toContain("±35 m");
+    expect(place.text()).not.toContain("geo:");
+    expect(place.attributes("aria-label")).toBe("Location ±35 m: open in maps");
+    expect(wrapper.find("img").exists()).toBe(false);
+    expect(opener.openUrl).not.toHaveBeenCalled();
+    await place.trigger("click");
+    expect(opener.openUrl).toHaveBeenCalledWith("https://maps.apple.com/?ll=40.4168,-3.7038&q=40.4168,-3.7038");
+  });
+
+  it("shows a place without an accuracy, and leaves a malformed one as text", () => {
+    const plain = mount(MessageBubble, { props: { message: { ...base, text: "geo:48.2010,16.3695" } }, shallow: true });
+    expect(plain.find("[data-test='place']").text()).not.toContain("±");
+    const broken = mount(MessageBubble, { props: { message: { ...base, text: "geo:91.0,10.0" } }, shallow: true });
+    expect(broken.find("[data-test='place']").exists()).toBe(false);
+    expect(broken.text()).toContain("geo:91.0,10.0");
+  });
+
   // A long press is how a message is acted on (Ioan, 2026-09-23); a tap is not.
   it("asks for the actions of a message after a long press, not a tap", async () => {
     vi.useFakeTimers();

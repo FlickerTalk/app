@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "Trimite din nou",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Altă aplicație"
+    "otherApp": "Altă aplicație",
+    "location": "Locație",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: deschide în hărți"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
