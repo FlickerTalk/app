@@ -283,6 +283,7 @@
     "remind": "Impostare promemoria su questo telefono",
     "drive": "Conservare file nel tuo cloud",
     "storageLarge": "Conservare molti dati su questo telefono (fino a 256 MB)",
+    "location": "La tua posizione, solo quando la chiedi",
     "opens": "Apre: {kinds}",
     "open": "Apri"
   },

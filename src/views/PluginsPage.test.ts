@@ -154,4 +154,35 @@ describe("PluginsPage", () => {
     const granted = calls.find(([command]) => command === "core_plugin_grant");
     expect(granted?.[1]).toMatchObject({ plugin: "com.flickertalk.board", granted: { storage: "large", live: false } });
   });
+
+  // 2026-10-02: the location plugin asks for the phone's position on a switch of its own, off
+  // until the user turns it on; turning it on grants just that.
+  it("shows a switch for the phone's position and grants it when turned on", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_plugins") {
+        return [
+          {
+            id: "com.flickertalk.location",
+            name: "Location",
+            version: "1.0.0",
+            asks: { network: [], messages: false, send: "propose", location: true },
+            granted: { network: [], messages: false, send: "propose", location: false },
+            installedAt: 1,
+          },
+        ];
+      }
+      return command === "core_catalogue" ? [] : undefined;
+    });
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Your location, only when you ask");
+    // Writing, then the position.
+    const toggles = wrapper.findAllComponents(IonToggle);
+    expect(toggles).toHaveLength(2);
+    toggles[1].vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: true } }));
+    await flushPromises();
+    const granted = calls.find(([command]) => command === "core_plugin_grant");
+    expect(granted?.[1]).toMatchObject({ plugin: "com.flickertalk.location", granted: { location: true, send: "propose" } });
+  });
 });
