@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "다시 보내기",
     "discardAttachment": "Discard attachment",
-    "otherApp": "다른 앱"
+    "otherApp": "다른 앱",
+    "location": "위치",
+    "accuracy": "±{metres}m",
+    "openLocation": "{place}: 지도에서 열기"
   },
   "status": {
     "pending": "상대 기기 대기 중",

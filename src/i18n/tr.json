@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "Yeniden gönder",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Başka bir uygulama"
+    "otherApp": "Başka bir uygulama",
+    "location": "Konum",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: haritalarda aç"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

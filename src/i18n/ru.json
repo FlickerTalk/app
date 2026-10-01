@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "Отправить снова",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Другое приложение"
+    "otherApp": "Другое приложение",
+    "location": "Местоположение",
+    "accuracy": "±{metres} м",
+    "openLocation": "{place}: открыть на карте"
   },
   "status": {
     "pending": "Ожидание устройства",

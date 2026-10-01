@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "Send again",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Another app"
+    "otherApp": "Another app",
+    "location": "Location",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: open in maps"
   },
   "status": {
     "pending": "Waiting for device",
