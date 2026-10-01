@@ -461,8 +461,9 @@ fun showCall(context: Context, title: String, text: String, ringing: Boolean = f
 }
 
 /**
- * The incoming call notification (`showCall`). `alertOnce`: an update of one already ringing
- * (the push's call learns its caller, 2026-10-01): the ringtone goes on, it does not start over.
+ * The incoming call notification (`showCall`). `alertOnce`: a quiet update of one already shown
+ * (the push's call learns its caller is muted, 2026-10-01). A ringing one is never updated: Android
+ * then stops the insistent ringtone (`pushRing`).
  */
 fun callNotification(
     context: Context,

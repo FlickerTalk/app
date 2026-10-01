@@ -112,11 +112,22 @@ class PushCoreTest {
     // whose push has run out, is not shown again.
     @Test
     fun thePushsCallIsShownAsTheCallerAndTheHoursSay() {
-        assertEquals(PushRing.RING, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 30_000))
         assertEquals(PushRing.QUIET, pushRing(muted = true, mayDisturb = true, answered = false, leftMs = 30_000))
         assertEquals(PushRing.QUIET, pushRing(muted = false, mayDisturb = false, answered = false, leftMs = 30_000))
         assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = true, leftMs = 30_000))
         assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 0))
+        assertEquals(PushRing.NONE, pushRing(muted = true, mayDisturb = false, answered = true, leftMs = 30_000))
+    }
+
+    // Bug of 2026-10-01 (Samsung S20+, Android 13): the ringtone stopped 0.3 s in, when the
+    // caller's name was posted over the ringing notification. With only-alert-once Android mutes
+    // the update; without it, the update comes within a second of the first alert and Android
+    // mutes it as "recently noisy". Either way the insistent ringtone stopped and only the
+    // vibration went on. A normal caller's ringing notification is therefore left alone: it says
+    // "Someone" for the whole ring, and the system keeps ringing.
+    @Test
+    fun aNormalCallersRingingNotificationIsLeftAlone() {
+        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 30_000))
     }
 
     // How long the push's call still rings: what is left of its time, never less than nothing.
