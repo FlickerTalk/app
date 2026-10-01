@@ -115,6 +115,13 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_send_file", { contact: "c1", upload: "up1", name: "menu.pdf", mime: "application/pdf" }]);
   });
 
+  it("sends again through the core a message that was not sent", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    wrapper.findAllComponents(MessageBubble)[0].vm.$emit("resend", "m3");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_resend", { message: "m3" }]);
+  });
+
   it("opens and saves files through the core", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     const bubble = wrapper.findAllComponents(MessageBubble)[0];
@@ -266,6 +273,24 @@ describe("ChatThread", () => {
     // The way out is always there, with the name of the tool next to it.
     expect(wrapper.find("[data-test='close-app']").exists()).toBe(true);
     expect(wrapper.find(".ft-app__name").text()).toBe("Code block");
+  });
+
+  // 2026-10-01 (§108): a plugin opened from a conversation of a hidden session is open in that
+  // session; from the main list, in none.
+  it("opens a plugin in the hidden session the conversation lives in", async () => {
+    const open = async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      await wrapper.find("[data-test='apps']").trigger("click");
+      await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
+      await flushPromises();
+      return wrapper.findComponent({ name: "PluginSheet" }).props("session");
+    };
+    expect(await open()).toBeUndefined();
+    const c1 = store.chats.find((one) => one.id === "c1")!;
+    store.sessions = [{ id: "s1", chats: [c1], requests: [], circles: [] }];
+    store.chats = store.chats.filter((one) => one.id !== "c1");
+    expect(await open()).toBe("s1");
   });
 
   // The apps button follows what is installed. Adding or removing a tool in Settings has to show

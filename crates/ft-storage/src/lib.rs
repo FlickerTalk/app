@@ -13,6 +13,10 @@ use sqlx::Row;
 /// Outgoing: pending → sent → delivered → read. Incoming messages start as delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MessageState {
+    /// The router refused it for good (a 403): out of the outbox until the user sends it again
+    /// (§84). Below `Pending`, so sending again and any late receipt move it forward; the column
+    /// already held integers, so rows from before keep their state.
+    NotSent = -1,
     Pending = 0,
     /// In the recipient's mailbox or handed to the DataChannel.
     Sent = 1,
@@ -23,6 +27,7 @@ pub enum MessageState {
 impl MessageState {
     fn from_rank(rank: i64) -> Self {
         match rank {
+            -1 => Self::NotSent,
             0 => Self::Pending,
             1 => Self::Sent,
             2 => Self::Delivered,
@@ -99,6 +104,8 @@ pub struct Contact {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reminder {
     pub plugin: String,
+    /// The hidden session it was set in (2026-10-01, §108); `None` for the main list.
+    pub session: Option<String>,
     pub id: String,
     /// Milliseconds since the epoch.
     pub at: i64,
@@ -540,8 +547,13 @@ impl Store {
     }
 
     /// Takes a hidden session away with everything in it: its contacts (and so their messages,
-    /// files and calls, which cascade) and its slot (A3). The bytes of the files are the caller's.
+    /// files and calls, which cascade), what plugins kept in it (cascades too), the refs plugins
+    /// were handed to its messages, and its slot (A3). The bytes of the files are the caller's.
     pub async fn remove_session(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM plugin_refs WHERE contact IN (SELECT device_id FROM contacts WHERE session = ?)")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         sqlx::query("DELETE FROM pending_outbox WHERE contact IN (SELECT device_id FROM contacts WHERE session = ?)")
             .bind(id)
             .execute(&self.pool)
@@ -808,6 +820,25 @@ impl Store {
         Ok(())
     }
 
+    /// The router refused the message for good: it leaves the outbox and, if it was still
+    /// pending, is shown as not sent (§84). A message already shown as sent stays sent (it was
+    /// true and never claimed delivery, 2026-10-01), and one that reached the contact is left
+    /// alone. Returns whether the state changed to not sent.
+    pub async fn mark_not_sent(&self, message_id: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let marked = sqlx::query("UPDATE messages SET state = ? WHERE message_id = ? AND state = ?")
+            .bind(MessageState::NotSent as i64)
+            .bind(message_id)
+            .bind(MessageState::Pending as i64)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+            > 0;
+        sqlx::query("DELETE FROM pending_outbox WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(marked)
+    }
+
     pub async fn dequeue(&self, message_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM pending_outbox WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
         Ok(())
@@ -994,22 +1025,26 @@ impl Store {
     }
 
     // ---- Plugin records, reminders and refs (2026-09-27) ----
+    // Since 2026-10-01 (§108) each belongs to a place: the main list (`session` `None`) or one
+    // hidden session. The same key in two places is two things.
 
-    pub async fn plugin_record(&self, plugin: &str, key: &str) -> Result<Option<Vec<u8>>> {
-        let row = sqlx::query("SELECT value FROM plugin_records WHERE plugin = ? AND key = ?")
+    pub async fn plugin_record(&self, plugin: &str, session: Option<&str>, key: &str) -> Result<Option<Vec<u8>>> {
+        let row = sqlx::query("SELECT value FROM plugin_records WHERE plugin = ? AND session IS ? AND key = ?")
             .bind(plugin)
+            .bind(session)
             .bind(key)
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|row| row.get::<Vec<u8>, _>("value")))
     }
 
-    pub async fn set_plugin_record(&self, plugin: &str, key: &str, value: &[u8]) -> Result<()> {
+    pub async fn set_plugin_record(&self, plugin: &str, session: Option<&str>, key: &str, value: &[u8]) -> Result<()> {
         sqlx::query(
-            "INSERT INTO plugin_records (plugin, key, value, updated_at) VALUES (?, ?, ?, ?)
-             ON CONFLICT (plugin, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            "INSERT INTO plugin_records (plugin, session, key, value, updated_at) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (plugin, ifnull(session, ''), key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
         )
         .bind(plugin)
+        .bind(session)
         .bind(key)
         .bind(value)
         .bind(now())
@@ -1018,15 +1053,21 @@ impl Store {
         Ok(())
     }
 
-    pub async fn forget_plugin_record(&self, plugin: &str, key: &str) -> Result<()> {
-        sqlx::query("DELETE FROM plugin_records WHERE plugin = ? AND key = ?").bind(plugin).bind(key).execute(&self.pool).await?;
+    pub async fn forget_plugin_record(&self, plugin: &str, session: Option<&str>, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM plugin_records WHERE plugin = ? AND session IS ? AND key = ?")
+            .bind(plugin)
+            .bind(session)
+            .bind(key)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     /// The keys of a plugin's records that start with `prefix`, in order.
-    pub async fn plugin_record_keys(&self, plugin: &str, prefix: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query("SELECT key FROM plugin_records WHERE plugin = ? AND substr(key, 1, ?) = ? ORDER BY key")
+    pub async fn plugin_record_keys(&self, plugin: &str, session: Option<&str>, prefix: &str) -> Result<Vec<String>> {
+        let rows = sqlx::query("SELECT key FROM plugin_records WHERE plugin = ? AND session IS ? AND substr(key, 1, ?) = ? ORDER BY key")
             .bind(plugin)
+            .bind(session)
             .bind(prefix.len() as i64)
             .bind(prefix)
             .fetch_all(&self.pool)
@@ -1034,10 +1075,11 @@ impl Store {
         Ok(rows.iter().map(|row| row.get::<String, _>("key")).collect())
     }
 
-    /// How many bytes a plugin keeps in its records.
-    pub async fn plugin_records_size(&self, plugin: &str) -> Result<i64> {
-        let row = sqlx::query("SELECT COALESCE(SUM(length(value)), 0) AS n FROM plugin_records WHERE plugin = ?")
+    /// How many bytes a plugin keeps in its records, in that place.
+    pub async fn plugin_records_size(&self, plugin: &str, session: Option<&str>) -> Result<i64> {
+        let row = sqlx::query("SELECT COALESCE(SUM(length(value)), 0) AS n FROM plugin_records WHERE plugin = ? AND session IS ?")
             .bind(plugin)
+            .bind(session)
             .fetch_one(&self.pool)
             .await?;
         Ok(row.get("n"))
@@ -1045,10 +1087,11 @@ impl Store {
 
     pub async fn set_reminder(&self, reminder: &Reminder) -> Result<()> {
         sqlx::query(
-            "INSERT INTO reminders (plugin, id, at, text) VALUES (?, ?, ?, ?)
-             ON CONFLICT (plugin, id) DO UPDATE SET at = excluded.at, text = excluded.text",
+            "INSERT INTO reminders (plugin, session, id, at, text) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (plugin, ifnull(session, ''), id) DO UPDATE SET at = excluded.at, text = excluded.text",
         )
         .bind(&reminder.plugin)
+        .bind(&reminder.session)
         .bind(&reminder.id)
         .bind(reminder.at)
         .bind(&reminder.text)
@@ -1057,8 +1100,13 @@ impl Store {
         Ok(())
     }
 
-    pub async fn cancel_reminder(&self, plugin: &str, id: &str) -> Result<bool> {
-        let gone = sqlx::query("DELETE FROM reminders WHERE plugin = ? AND id = ?").bind(plugin).bind(id).execute(&self.pool).await?;
+    pub async fn cancel_reminder(&self, plugin: &str, session: Option<&str>, id: &str) -> Result<bool> {
+        let gone = sqlx::query("DELETE FROM reminders WHERE plugin = ? AND session IS ? AND id = ?")
+            .bind(plugin)
+            .bind(session)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(gone.rows_affected() > 0)
     }
 
@@ -1068,11 +1116,12 @@ impl Store {
         Ok(gone.rows_affected() > 0)
     }
 
-    /// A plugin's reminders, soonest first; every plugin's when `plugin` is `None`.
+    /// A plugin's reminders, soonest first; every plugin's when `plugin` is `None`. Of every place:
+    /// which of them may be shown is the caller's to decide (a closed session's may not).
     pub async fn reminders(&self, plugin: Option<&str>) -> Result<Vec<Reminder>> {
         let rows = match plugin {
-            Some(plugin) => sqlx::query("SELECT * FROM reminders WHERE plugin = ? ORDER BY at, id").bind(plugin).fetch_all(&self.pool).await?,
-            None => sqlx::query("SELECT * FROM reminders ORDER BY at, id").fetch_all(&self.pool).await?,
+            Some(plugin) => sqlx::query("SELECT * FROM reminders WHERE plugin = ? ORDER BY at, id, ifnull(session, '')").bind(plugin).fetch_all(&self.pool).await?,
+            None => sqlx::query("SELECT * FROM reminders ORDER BY at, id, ifnull(session, '')").fetch_all(&self.pool).await?,
         };
         Ok(rows.iter().map(reminder_from).collect())
     }
@@ -1105,21 +1154,23 @@ impl Store {
     }
 
     /// What a plugin left under that key, if anything (§53).
-    pub async fn plugin_value(&self, plugin: &str, key: &str) -> Result<Option<String>> {
-        let row = sqlx::query("SELECT value FROM plugin_memory WHERE plugin = ? AND key = ?")
+    pub async fn plugin_value(&self, plugin: &str, session: Option<&str>, key: &str) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT value FROM plugin_memory WHERE plugin = ? AND session IS ? AND key = ?")
             .bind(plugin)
+            .bind(session)
             .bind(key)
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|row| row.get::<String, _>("value")))
     }
 
-    pub async fn set_plugin_value(&self, plugin: &str, key: &str, value: &str) -> Result<()> {
+    pub async fn set_plugin_value(&self, plugin: &str, session: Option<&str>, key: &str, value: &str) -> Result<()> {
         sqlx::query(
-            "INSERT INTO plugin_memory (plugin, key, value) VALUES (?, ?, ?)
-             ON CONFLICT (plugin, key) DO UPDATE SET value = excluded.value",
+            "INSERT INTO plugin_memory (plugin, session, key, value) VALUES (?, ?, ?, ?)
+             ON CONFLICT (plugin, ifnull(session, ''), key) DO UPDATE SET value = excluded.value",
         )
         .bind(plugin)
+        .bind(session)
         .bind(key)
         .bind(value)
         .execute(&self.pool)
@@ -1127,18 +1178,20 @@ impl Store {
         Ok(())
     }
 
-    /// Everything that plugin remembers, by key, in a stable order.
-    pub async fn plugin_keys(&self, plugin: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query("SELECT key FROM plugin_memory WHERE plugin = ? ORDER BY key")
+    /// Everything that plugin remembers in that place, by key, in a stable order.
+    pub async fn plugin_keys(&self, plugin: &str, session: Option<&str>) -> Result<Vec<String>> {
+        let rows = sqlx::query("SELECT key FROM plugin_memory WHERE plugin = ? AND session IS ? ORDER BY key")
             .bind(plugin)
+            .bind(session)
             .fetch_all(&self.pool)
             .await?;
         Ok(rows.iter().map(|row| row.get::<String, _>("key")).collect())
     }
 
-    pub async fn forget_plugin_value(&self, plugin: &str, key: &str) -> Result<()> {
-        sqlx::query("DELETE FROM plugin_memory WHERE plugin = ? AND key = ?")
+    pub async fn forget_plugin_value(&self, plugin: &str, session: Option<&str>, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM plugin_memory WHERE plugin = ? AND session IS ? AND key = ?")
             .bind(plugin)
+            .bind(session)
             .bind(key)
             .execute(&self.pool)
             .await?;
@@ -1416,7 +1469,7 @@ fn now() -> i64 {
 }
 
 fn reminder_from(row: &SqliteRow) -> Reminder {
-    Reminder { plugin: row.get("plugin"), id: row.get("id"), at: row.get("at"), text: row.get("text") }
+    Reminder { plugin: row.get("plugin"), session: row.get("session"), id: row.get("id"), at: row.get("at"), text: row.get("text") }
 }
 
 fn plugin_from(row: &SqliteRow) -> InstalledPlugin {
@@ -1973,6 +2026,40 @@ mod tests {
         assert_eq!(state, MessageState::Read);
     }
 
+    // The router refused it (§84): out of the outbox, and a pending message is shown as not sent.
+    // One already shown as sent stays sent (it was true and never claimed delivery, 2026-10-01),
+    // and what was delivered stays so. Sending it again makes it pending, and a receipt that comes
+    // late still moves it on.
+    #[tokio::test]
+    async fn a_message_not_sent_leaves_the_outbox_and_may_go_again() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        for id in ["m1", "m2", "m3"] {
+            store.insert_message(&message(id, "ft_bob", true, 1)).await.expect("inserts");
+            store.enqueue(id, "ft_bob", 100).await.expect("queues");
+        }
+        store.advance(&["m2".to_owned()], MessageState::Delivered).await.expect("advances");
+        store.advance(&["m3".to_owned()], MessageState::Sent).await.expect("advances");
+
+        assert!(store.mark_not_sent("m1").await.expect("marks"));
+        assert!(!store.mark_not_sent("m2").await.expect("leaves it"), "a delivered message was sent");
+        assert!(!store.mark_not_sent("m3").await.expect("leaves it"), "a sent message stays sent");
+        let state = |id: &'static str| {
+            let store = store.clone();
+            async move { store.message(id).await.expect("reads").expect("exists").state }
+        };
+        assert_eq!(state("m1").await, MessageState::NotSent);
+        assert_eq!(state("m2").await, MessageState::Delivered);
+        assert_eq!(state("m3").await, MessageState::Sent);
+        assert!(store.outbox().await.expect("lists").iter().all(|entry| entry.message_id != "m1" && entry.message_id != "m3"));
+
+        store.advance(&["m1".to_owned()], MessageState::Pending).await.expect("sent again");
+        assert_eq!(state("m1").await, MessageState::Pending);
+        store.mark_not_sent("m1").await.expect("marks");
+        store.advance(&["m1".to_owned()], MessageState::Delivered).await.expect("late receipt");
+        assert_eq!(state("m1").await, MessageState::Delivered);
+    }
+
     #[tokio::test]
     async fn the_outbox_retries_until_delivered() {
         let store = store().await;
@@ -2130,22 +2217,22 @@ mod tests {
     #[tokio::test]
     async fn keeps_what_each_plugin_remembers_apart_from_the_others() {
         let store = store().await;
-        assert_eq!(store.plugin_value("com.example.code", "pen").await.unwrap(), None);
+        assert_eq!(store.plugin_value("com.example.code", None, "pen").await.unwrap(), None);
 
-        store.set_plugin_value("com.example.code", "pen", "black").await.unwrap();
-        store.set_plugin_value("com.example.ai", "pen", "blue").await.unwrap();
-        assert_eq!(store.plugin_value("com.example.code", "pen").await.unwrap().as_deref(), Some("black"));
-        assert_eq!(store.plugin_value("com.example.ai", "pen").await.unwrap().as_deref(), Some("blue"));
+        store.set_plugin_value("com.example.code", None, "pen", "black").await.unwrap();
+        store.set_plugin_value("com.example.ai", None, "pen", "blue").await.unwrap();
+        assert_eq!(store.plugin_value("com.example.code", None, "pen").await.unwrap().as_deref(), Some("black"));
+        assert_eq!(store.plugin_value("com.example.ai", None, "pen").await.unwrap().as_deref(), Some("blue"));
 
-        store.set_plugin_value("com.example.code", "pen", "red").await.unwrap();
-        store.set_plugin_value("com.example.code", "size", "3").await.unwrap();
-        assert_eq!(store.plugin_value("com.example.code", "pen").await.unwrap().as_deref(), Some("red"));
-        assert_eq!(store.plugin_keys("com.example.code").await.unwrap(), ["pen", "size"]);
+        store.set_plugin_value("com.example.code", None, "pen", "red").await.unwrap();
+        store.set_plugin_value("com.example.code", None, "size", "3").await.unwrap();
+        assert_eq!(store.plugin_value("com.example.code", None, "pen").await.unwrap().as_deref(), Some("red"));
+        assert_eq!(store.plugin_keys("com.example.code", None).await.unwrap(), ["pen", "size"]);
 
         // Taking a plugin out takes what it remembered with it.
         store.install_plugin("com.example.code", "1.0.0", "{}").await.unwrap();
         store.remove_plugin("com.example.code").await.unwrap();
-        assert_eq!(store.plugin_keys("com.example.code").await.unwrap(), Vec::<String>::new());
+        assert_eq!(store.plugin_keys("com.example.code", None).await.unwrap(), Vec::<String>::new());
     }
 
     // Hidden sessions (Plan, 2026-09-23): a contact belongs to the main list or to one session,
@@ -2341,31 +2428,31 @@ mod tests {
     async fn keeps_records_reminders_and_refs_for_each_plugin_and_takes_them_with_it() {
         let store = store().await;
         store.install_plugin("com.example.notes", "1.0.0", "{}").await.unwrap();
-        assert_eq!(store.plugin_record("com.example.notes", "note/1").await.unwrap(), None);
-        store.set_plugin_record("com.example.notes", "note/1", b"milk").await.unwrap();
-        store.set_plugin_record("com.example.notes", "note/2", b"eggs and bread").await.unwrap();
-        store.set_plugin_record("com.example.notes", "settings", b"{}").await.unwrap();
-        store.set_plugin_record("com.example.other", "note/1", b"theirs").await.unwrap();
-        assert_eq!(store.plugin_record("com.example.notes", "note/1").await.unwrap().as_deref(), Some(&b"milk"[..]));
-        assert_eq!(store.plugin_record_keys("com.example.notes", "note/").await.unwrap(), ["note/1", "note/2"]);
-        assert_eq!(store.plugin_record_keys("com.example.notes", "").await.unwrap().len(), 3);
-        assert_eq!(store.plugin_records_size("com.example.notes").await.unwrap(), 4 + 14 + 2);
-        store.set_plugin_record("com.example.notes", "note/1", b"oat milk").await.unwrap();
-        assert_eq!(store.plugin_records_size("com.example.notes").await.unwrap(), 8 + 14 + 2, "a changed record counts once");
-        store.forget_plugin_record("com.example.notes", "note/2").await.unwrap();
-        assert_eq!(store.plugin_record_keys("com.example.notes", "note/").await.unwrap(), ["note/1"]);
+        assert_eq!(store.plugin_record("com.example.notes", None, "note/1").await.unwrap(), None);
+        store.set_plugin_record("com.example.notes", None, "note/1", b"milk").await.unwrap();
+        store.set_plugin_record("com.example.notes", None, "note/2", b"eggs and bread").await.unwrap();
+        store.set_plugin_record("com.example.notes", None, "settings", b"{}").await.unwrap();
+        store.set_plugin_record("com.example.other", None, "note/1", b"theirs").await.unwrap();
+        assert_eq!(store.plugin_record("com.example.notes", None, "note/1").await.unwrap().as_deref(), Some(&b"milk"[..]));
+        assert_eq!(store.plugin_record_keys("com.example.notes", None, "note/").await.unwrap(), ["note/1", "note/2"]);
+        assert_eq!(store.plugin_record_keys("com.example.notes", None, "").await.unwrap().len(), 3);
+        assert_eq!(store.plugin_records_size("com.example.notes", None).await.unwrap(), 4 + 14 + 2);
+        store.set_plugin_record("com.example.notes", None, "note/1", b"oat milk").await.unwrap();
+        assert_eq!(store.plugin_records_size("com.example.notes", None).await.unwrap(), 8 + 14 + 2, "a changed record counts once");
+        store.forget_plugin_record("com.example.notes", None, "note/2").await.unwrap();
+        assert_eq!(store.plugin_record_keys("com.example.notes", None, "note/").await.unwrap(), ["note/1"]);
 
-        let soon = Reminder { plugin: "com.example.notes".to_owned(), id: "r1".to_owned(), at: 2_000, text: String::new() };
-        let later = Reminder { plugin: "com.example.notes".to_owned(), id: "r2".to_owned(), at: 5_000, text: "call mum".to_owned() };
+        let soon = Reminder { plugin: "com.example.notes".to_owned(), session: None, id: "r1".to_owned(), at: 2_000, text: String::new() };
+        let later = Reminder { plugin: "com.example.notes".to_owned(), session: None, id: "r2".to_owned(), at: 5_000, text: "call mum".to_owned() };
         store.set_reminder(&later).await.unwrap();
         store.set_reminder(&soon).await.unwrap();
-        store.set_reminder(&Reminder { plugin: "com.example.other".to_owned(), id: "x".to_owned(), at: 1, text: String::new() }).await.unwrap();
+        store.set_reminder(&Reminder { plugin: "com.example.other".to_owned(), session: None, id: "x".to_owned(), at: 1, text: String::new() }).await.unwrap();
         assert_eq!(store.reminders(Some("com.example.notes")).await.unwrap(), vec![soon.clone(), later.clone()]);
         assert_eq!(store.reminders(None).await.unwrap().len(), 3);
         store.set_reminder(&Reminder { at: 9_000, ..soon.clone() }).await.unwrap();
         assert_eq!(store.reminders(Some("com.example.notes")).await.unwrap()[1].id, "r1", "moved later");
-        assert!(store.cancel_reminder("com.example.notes", "r2").await.unwrap());
-        assert!(!store.cancel_reminder("com.example.notes", "r2").await.unwrap());
+        assert!(store.cancel_reminder("com.example.notes", None, "r2").await.unwrap());
+        assert!(!store.cancel_reminder("com.example.notes", None, "r2").await.unwrap());
 
         store.add_plugin_ref("ref-1", "com.example.notes", "ft_bob", "m1").await.unwrap();
         assert_eq!(store.plugin_ref_for("com.example.notes", "m1").await.unwrap().as_deref(), Some("ref-1"));
@@ -2373,9 +2460,84 @@ mod tests {
         assert_eq!(store.plugin_ref("ref-9").await.unwrap(), None);
 
         store.remove_plugin("com.example.notes").await.unwrap();
-        assert!(store.plugin_record_keys("com.example.notes", "").await.unwrap().is_empty());
+        assert!(store.plugin_record_keys("com.example.notes", None, "").await.unwrap().is_empty());
         assert!(store.reminders(Some("com.example.notes")).await.unwrap().is_empty());
         assert_eq!(store.plugin_ref("ref-1").await.unwrap(), None);
-        assert_eq!(store.plugin_record("com.example.other", "note/1").await.unwrap().as_deref(), Some(&b"theirs"[..]), "another plugin's stay");
+        assert_eq!(store.plugin_record("com.example.other", None, "note/1").await.unwrap().as_deref(), Some(&b"theirs"[..]), "another plugin's stay");
+    }
+
+    // 2026-10-01 (§108): what plugins kept before records said where they came from stays where
+    // everyone saw it, in the main list.
+    #[tokio::test]
+    async fn what_plugins_kept_before_sessions_counted_stays_in_the_main_list() {
+        let path = std::env::temp_dir().join(format!("ft-storage-plugin-places-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let options = SqliteConnectOptions::new().filename(&path).create_if_missing(true).foreign_keys(true);
+            let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+            let mut before = sqlx::migrate!("./migrations");
+            before.migrations = before.migrations.iter().filter(|migration| migration.version <= 12).cloned().collect::<Vec<_>>().into();
+            before.run(&pool).await.unwrap();
+            sqlx::query("INSERT INTO plugin_records (plugin, key, value, updated_at) VALUES ('com.example.notes', 'board/1', x'01', 1)").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO plugin_memory (plugin, key, value) VALUES ('com.example.notes', 'showText', '1')").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO reminders (plugin, id, at, text) VALUES ('com.example.notes', 'r1', 5, 'milk')").execute(&pool).await.unwrap();
+            pool.close().await;
+        }
+        let store = Store::open(&path).await.expect("migrates");
+        assert_eq!(store.plugin_record("com.example.notes", None, "board/1").await.unwrap().as_deref(), Some(&[1u8][..]));
+        assert_eq!(store.plugin_value("com.example.notes", None, "showText").await.unwrap().as_deref(), Some("1"));
+        assert_eq!(store.reminders(None).await.unwrap()[0].session, None);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // 2026-10-01 (§108): what a plugin keeps inside a hidden session is that session's alone: the
+    // same key elsewhere is another thing, each place counts its own size, and it all goes with
+    // the session, the refs to its messages too.
+    #[tokio::test]
+    async fn keeps_a_plugins_data_apart_for_each_session_and_drops_it_with_the_session() {
+        let store = store().await;
+        store.install_plugin("com.example.notes", "1.0.0", "{}").await.unwrap();
+        store.add_session("s1", &[1; 32], 1).await.unwrap();
+        store.add_session("s2", &[2; 32], 2).await.unwrap();
+        let notes = "com.example.notes";
+
+        store.set_plugin_record(notes, None, "board/1", b"main").await.unwrap();
+        store.set_plugin_record(notes, Some("s1"), "board/1", b"hidden one").await.unwrap();
+        store.set_plugin_record(notes, Some("s1"), "board/1", b"hidden").await.unwrap();
+        assert_eq!(store.plugin_record(notes, None, "board/1").await.unwrap().as_deref(), Some(&b"main"[..]));
+        assert_eq!(store.plugin_record(notes, Some("s1"), "board/1").await.unwrap().as_deref(), Some(&b"hidden"[..]));
+        assert_eq!(store.plugin_record(notes, Some("s2"), "board/1").await.unwrap(), None);
+        assert_eq!(store.plugin_record_keys(notes, Some("s2"), "").await.unwrap(), Vec::<String>::new());
+        assert_eq!(store.plugin_records_size(notes, None).await.unwrap(), 4);
+        assert_eq!(store.plugin_records_size(notes, Some("s1")).await.unwrap(), 6, "a changed record counts once");
+
+        store.set_plugin_value(notes, None, "showText", "0").await.unwrap();
+        store.set_plugin_value(notes, Some("s1"), "showText", "1").await.unwrap();
+        assert_eq!(store.plugin_value(notes, None, "showText").await.unwrap().as_deref(), Some("0"));
+        assert_eq!(store.plugin_value(notes, Some("s1"), "showText").await.unwrap().as_deref(), Some("1"));
+        assert!(store.plugin_keys(notes, Some("s2")).await.unwrap().is_empty());
+
+        let main = Reminder { plugin: notes.to_owned(), session: None, id: "r1".to_owned(), at: 1_000, text: "milk".to_owned() };
+        let hidden = Reminder { session: Some("s1".to_owned()), text: "the secret".to_owned(), ..main.clone() };
+        store.set_reminder(&main).await.unwrap();
+        store.set_reminder(&hidden).await.unwrap();
+        assert_eq!(store.reminders(Some(notes)).await.unwrap(), vec![main.clone(), hidden.clone()], "the same id in two places is two reminders");
+        assert!(store.cancel_reminder(notes, Some("s1"), "r1").await.unwrap());
+        assert_eq!(store.reminders(Some(notes)).await.unwrap(), vec![main.clone()], "the main list's stays");
+        store.set_reminder(&hidden).await.unwrap();
+
+        store.add_contact(&NewContact { session: Some("s1".to_owned()), ..contact("ft_bob") }).await.unwrap();
+        store.add_contact(&contact("ft_carol")).await.unwrap();
+        store.add_plugin_ref("ref-hidden", notes, "ft_bob", "m1").await.unwrap();
+        store.add_plugin_ref("ref-main", notes, "ft_carol", "m2").await.unwrap();
+
+        store.remove_session("s1").await.unwrap();
+        assert!(store.plugin_record_keys(notes, Some("s1"), "").await.unwrap().is_empty());
+        assert!(store.plugin_keys(notes, Some("s1")).await.unwrap().is_empty());
+        assert_eq!(store.reminders(None).await.unwrap(), vec![main], "its reminders went with it");
+        assert_eq!(store.plugin_ref("ref-hidden").await.unwrap(), None, "and the refs to its messages");
+        assert!(store.plugin_ref("ref-main").await.unwrap().is_some());
+        assert_eq!(store.plugin_record(notes, None, "board/1").await.unwrap().as_deref(), Some(&b"main"[..]));
+        assert_eq!(store.plugin_value(notes, None, "showText").await.unwrap().as_deref(), Some("0"));
     }
 }

@@ -59,6 +59,9 @@ import { frameUrl, fromFrame, type FrameMessage, type HandedFile } from "../plug
 // from (`reference`), from a reminder it set (`reminder`), and, with the `live` permission, it
 // hears what its twin on the other side says and answers it. Without a contact (a plugin opened
 // from Settings) there is no chat to write in and no other side.
+// 2026-10-01 (§108): `session` is the hidden session it is open in (a conversation of that
+// session, or a reminder set there). All it keeps, sets or looks up through the core belongs to
+// that place; the core keeps each place apart and the plugin never hears of sessions.
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -69,8 +72,17 @@ const props = withDefaults(
     reference?: string;
     reminder?: string;
     live?: boolean;
+    session?: string;
   }>(),
-  { text: undefined, sending: "nothing", file: undefined, reference: undefined, reminder: undefined, live: false },
+  {
+    text: undefined,
+    sending: "nothing",
+    file: undefined,
+    reference: undefined,
+    reminder: undefined,
+    live: false,
+    session: undefined,
+  },
 );
 const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: []; openChat: [contact: string] }>();
 
@@ -143,23 +155,24 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
     try {
       let value: unknown = true;
       const id = props.plugin.id;
+      const session = props.session;
       if (said.type === "ft.save") await pluginSave(said.name, said.mime, said.data);
       else if (said.type === "ft.print") await pluginPrint(id, said.name, said.mime, said.data);
       else if (said.type === "ft.fetch") value = await pluginFetch(id, said.url, said.method, said.headers, said.body);
-      else if (said.type === "ft.read") value = await pluginRead(id, said.key);
-      else if (said.type === "ft.write") await pluginWrite(id, said.key, said.value);
-      else if (said.type === "ft.forget") await pluginForget(id, said.key);
-      else if (said.type === "ft.recordGet") value = await pluginRecordGet(id, said.key);
-      else if (said.type === "ft.recordSet") await pluginRecordSet(id, said.key, said.value);
-      else if (said.type === "ft.recordForget") await pluginRecordForget(id, said.key);
-      else if (said.type === "ft.recordKeys") value = await pluginRecordKeys(id, said.prefix);
-      else if (said.type === "ft.recordUsage") value = await pluginRecordUsage(id);
-      else if (said.type === "ft.remindSet") await remindSet(id, said.reminder, said.at, said.text);
-      else if (said.type === "ft.remindCancel") value = await remindCancel(id, said.reminder);
-      else if (said.type === "ft.remindList") value = await remindList(id);
+      else if (said.type === "ft.read") value = await pluginRead(id, said.key, session);
+      else if (said.type === "ft.write") await pluginWrite(id, said.key, said.value, session);
+      else if (said.type === "ft.forget") await pluginForget(id, said.key, session);
+      else if (said.type === "ft.recordGet") value = await pluginRecordGet(id, said.key, session);
+      else if (said.type === "ft.recordSet") await pluginRecordSet(id, said.key, said.value, session);
+      else if (said.type === "ft.recordForget") await pluginRecordForget(id, said.key, session);
+      else if (said.type === "ft.recordKeys") value = await pluginRecordKeys(id, said.prefix, session);
+      else if (said.type === "ft.recordUsage") value = await pluginRecordUsage(id, session);
+      else if (said.type === "ft.remindSet") await remindSet(id, said.reminder, said.at, said.text, session);
+      else if (said.type === "ft.remindCancel") value = await remindCancel(id, said.reminder, session);
+      else if (said.type === "ft.remindList") value = await remindList(id, session);
       else if (said.type === "ft.liveSend") value = props.live && props.contact ? await pluginLiveSend(id, props.contact, said.data) : false;
       else if (said.type === "ft.openChat") {
-        const target = await pluginOpenChat(id, said.ref);
+        const target = await pluginOpenChat(id, said.ref, session);
         if (target) emit("openChat", target.contact);
         value = Boolean(target);
       } else if (said.type === "ft.drive") value = await drive(said);
@@ -217,7 +230,7 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
     case "keep": {
       // The file this plugin was opened with, by its ref: the bytes never pass through the frame.
       if (!props.reference) return false;
-      const target = await pluginOpenChat(id, props.reference);
+      const target = await pluginOpenChat(id, props.reference, props.session);
       if (!target) return false;
       await vaultUploadMessage(target.message, parent(said.a));
       return true;

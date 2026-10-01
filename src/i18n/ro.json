@@ -57,6 +57,7 @@
     "deleteSure": "Șterge",
     "forwardTo": "Redirecționează către",
     "download": "Download",
+    "resend": "Trimite din nou",
     "discardAttachment": "Discard attachment",
     "otherApp": "Altă aplicație"
   },
@@ -68,7 +69,8 @@
     "connected": "Conectat direct",
     "paused": "În pauză",
     "failed": "Eșuat",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "Netrimis"
   },
   "calls": {
     "callBack": "Sună înapoi",

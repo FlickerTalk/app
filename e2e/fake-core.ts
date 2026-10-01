@@ -24,6 +24,12 @@
  * `window.__ftFakeLongChat` (a number) puts that many older texts before Bob's messages, for a
  * conversation longer than the screen.
  *
+ * Hidden sessions (2026-10-01, §108): the PIN `777777` opens, the first time, a session with a
+ * contact in it (Ana, `ft_hidden1234567`), so it stays when it is closed, as the core's would. What
+ * plugins keep (records, settings, reminders) is kept as the core keeps it: apart for each place
+ * (the main list, or one session), refused for a session that is not open, and gone with its
+ * session.
+ *
  * The other phone may ring this one too (`window.__ftFake.ring`): as the real core since
  * 2026-09-29, whoever answers (the app's button, `core_call_answer_native`, or the phone's own call
  * screen, `window.__ftFake.phoneAnswers`), the core answers and says `answering`, then
@@ -50,6 +56,11 @@ export function installFakeCore() {
     requests: [conversation("ft_stranger12345", "Mamá", "hey, it's me, new number", 1)],
     sessions: {} as Record<string, { id: string; pin: string }>,
     open: [] as string[],
+    /** The conversations of each session; only the one of PIN 777777 has any. */
+    sessionChats: {} as Record<string, ReturnType<typeof conversation>[]>,
+    seededHidden: false,
+    /** What plugins keep, by `kind|plugin|session|key` ("" for the main list). */
+    pluginData: {} as Record<string, string>,
     messages: {
       ft_bob123456789: [
         { id: "m1", outgoing: false, text: "see you at six", sentAt: Date.now() - 60_000, state: "delivered" },
@@ -134,21 +145,61 @@ export function installFakeCore() {
   let scanning: { resolve: (read: unknown) => void; reject: (reason: unknown) => void } | null = null;
   let back: { channel: number; index: number } | null = null;
 
-  const sessionView = (id: string) => ({ id, conversations: [], requests: [], circles: [] });
+  const sessionView = (id: string) => ({ id, conversations: state.sessionChats[id] ?? [], requests: [], circles: [] });
 
-  // The sessions survive a reload, as the core keeps them on disk: a reload is the app starting
-  // again. Each test has a fresh browser context, so a fresh disk.
+  // Where a plugin is open, as the core checks it: the main list (""), or a session that is open.
+  const place = (a: Record<string, unknown>) => {
+    const session = a.session ? String(a.session) : "";
+    if (session && !state.open.includes(session)) throw new Error("that session is not open");
+    return session;
+  };
+  const dataKey = (kind: string, a: Record<string, unknown>, key: unknown) => `${kind}|${String(a.plugin)}|${place(a)}|${String(key)}`;
+  const dataKeys = (kind: string, a: Record<string, unknown>, prefix = "") => {
+    const start = `${kind}|${String(a.plugin)}|${place(a)}|`;
+    return Object.keys(state.pluginData)
+      .filter((key) => key.startsWith(start + prefix))
+      .map((key) => key.slice(start.length))
+      .sort();
+  };
+  const forgetSession = (id: string) => {
+    delete state.sessions[id];
+    delete state.sessionChats[id];
+    for (const key of Object.keys(state.pluginData)) if (key.split("|")[2] === id) delete state.pluginData[key];
+  };
+
+  // The sessions, and what plugins keep, survive a reload, as the core keeps them on disk: a reload
+  // is the app starting again. Each test has a fresh browser context, so a fresh disk.
   const KEPT_SESSIONS = "ft-fake-sessions";
   const keepSessions = () => {
     try {
-      localStorage.setItem(KEPT_SESSIONS, JSON.stringify({ sessions: state.sessions, open: state.open, next: state.nextSession }));
+      localStorage.setItem(
+        KEPT_SESSIONS,
+        JSON.stringify({
+          sessions: state.sessions,
+          open: state.open,
+          next: state.nextSession,
+          chats: state.sessionChats,
+          seeded: state.seededHidden,
+          data: state.pluginData,
+        }),
+      );
     } catch {
       // A page without storage forgets them, like a phone erased.
     }
   };
   try {
-    const kept = JSON.parse(localStorage.getItem(KEPT_SESSIONS) ?? "null") as { sessions: typeof state.sessions; open: string[]; next: number } | null;
-    if (kept) Object.assign(state, { sessions: kept.sessions, open: kept.open, nextSession: kept.next });
+    const kept = JSON.parse(localStorage.getItem(KEPT_SESSIONS) ?? "null") as {
+      sessions: typeof state.sessions;
+      open: string[];
+      next: number;
+      chats?: typeof state.sessionChats;
+      seeded?: boolean;
+      data?: typeof state.pluginData;
+    } | null;
+    if (kept) {
+      Object.assign(state, { sessions: kept.sessions, open: kept.open, nextSession: kept.next });
+      Object.assign(state, { sessionChats: kept.chats ?? {}, seededHidden: Boolean(kept.seeded), pluginData: kept.data ?? {} });
+    }
   } catch {
     // Nothing kept: no session.
   }
@@ -290,8 +341,8 @@ export function installFakeCore() {
       case "core_plan":
         return { state: "trial", until: Date.now() + 1e10, age: "unknown" };
       // Like the core (A3): every PIN opens its session or a new empty one, up to seven; an
-      // empty one goes when it is closed, and the fake's sessions are always empty. An open one
-      // stays open across a reload (2026-10-01), as the core keeps it on disk.
+      // empty one goes when it is closed. Only the first session of PIN 777777 holds a contact.
+      // An open one stays open across a reload (2026-10-01), as the core keeps it on disk.
       case "core_session_open": {
         const pin = String(a.pin);
         let found = Object.values(state.sessions).find((s) => s.pin === pin);
@@ -299,21 +350,65 @@ export function installFakeCore() {
           if (Object.keys(state.sessions).length >= 7) return null;
           found = { id: `s${state.nextSession++}`, pin };
           state.sessions[found.id] = found;
+          if (pin === "777777" && !state.seededHidden) {
+            state.seededHidden = true;
+            state.sessionChats[found.id] = [conversation("ft_hidden1234567", "Ana", "the secret plan")];
+          }
         }
         if (!state.open.includes(found.id)) state.open.push(found.id);
         keepSessions();
         return sessionView(found.id);
       }
       case "core_session_close":
-        delete state.sessions[String(a.session)];
+        if (!state.sessionChats[String(a.session)]?.length) forgetSession(String(a.session));
         state.open = state.open.filter((id) => id !== a.session);
         keepSessions();
         return undefined;
       case "core_session_remove":
-        delete state.sessions[String(a.session)];
+        forgetSession(String(a.session));
         state.open = state.open.filter((id) => id !== a.session);
         keepSessions();
         return undefined;
+      // What plugins keep (2026-10-01, §108): apart for each place, as the core keeps it.
+      case "core_plugin_record_get":
+        return state.pluginData[dataKey("record", a, a.key)] ?? null;
+      case "core_plugin_record_set":
+        state.pluginData[dataKey("record", a, a.key)] = String(a.value);
+        keepSessions();
+        return undefined;
+      case "core_plugin_record_forget":
+        delete state.pluginData[dataKey("record", a, a.key)];
+        keepSessions();
+        return undefined;
+      case "core_plugin_record_keys":
+        return dataKeys("record", a, String(a.prefix ?? ""));
+      case "core_plugin_record_usage": {
+        const used = dataKeys("record", a).reduce((sum, key) => sum + atob(state.pluginData[dataKey("record", a, key)]).length, 0);
+        return [used, 4 * 1024 * 1024];
+      }
+      case "core_plugin_read":
+        return state.pluginData[dataKey("memory", a, a.key)] ?? null;
+      case "core_plugin_write":
+        state.pluginData[dataKey("memory", a, a.key)] = String(a.value);
+        keepSessions();
+        return undefined;
+      case "core_plugin_forget":
+        delete state.pluginData[dataKey("memory", a, a.key)];
+        keepSessions();
+        return undefined;
+      case "core_remind_set":
+        state.pluginData[dataKey("reminder", a, a.id)] = JSON.stringify({ plugin: a.plugin, id: a.id, at: a.at, text: a.text });
+        keepSessions();
+        return undefined;
+      case "core_remind_cancel": {
+        const key = dataKey("reminder", a, a.id);
+        const had = key in state.pluginData;
+        delete state.pluginData[key];
+        keepSessions();
+        return had;
+      }
+      case "core_remind_list":
+        return dataKeys("reminder", a).map((id) => JSON.parse(state.pluginData[dataKey("reminder", a, id)]));
       case "core_accept_contact": {
         const index = state.requests.findIndex((r) => r.id === a.contact);
         if (index >= 0) state.conversations.push(...state.requests.splice(index, 1));

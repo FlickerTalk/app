@@ -136,7 +136,7 @@ impl Core {
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
 
         if let Some(entry) = self.store.outbox().await?.into_iter().find(|e| e.message_id == message_id) {
-            self.deliver(&entry).await?;
+            self.attempt(&entry).await;
         }
         Ok(message_id)
     }
