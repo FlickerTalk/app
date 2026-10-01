@@ -128,6 +128,11 @@
     "invalid": "Bu bir FlickerTalk kişi bağlantısı değil",
     "scanNow": "Kodu tara"
   },
+  "scanner": {
+    "cameraDenied": "Kamera erişimi kapalı, bu yüzden kod okunamıyor. Bir dahaki sefere izin verin ya da bağlantıyı yapıştırın.",
+    "cameraBlocked": "FlickerTalk için kamera erişimi kapalı. Ayarlar'dan açın ya da bağlantıyı yapıştırın.",
+    "openSettings": "Ayarlar'ı aç"
+  },
   "contact": {
     "fingerprint": "Güvenlik parmak izi",
     "verify": "Yüz yüze doğrula",

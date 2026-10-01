@@ -128,6 +128,11 @@
     "invalid": "FlickerTalkの連絡先リンクではありません",
     "scanNow": "コードをスキャン"
   },
+  "scanner": {
+    "cameraDenied": "カメラへのアクセスがオフのため、コードを読み取れません。次回は許可するか、代わりにリンクを貼り付けてください。",
+    "cameraBlocked": "FlickerTalk のカメラへのアクセスがオフです。設定でオンにするか、代わりにリンクを貼り付けてください。",
+    "openSettings": "設定を開く"
+  },
   "contact": {
     "fingerprint": "セキュリティ指紋",
     "verify": "対面で確認",

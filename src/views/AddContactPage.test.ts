@@ -9,8 +9,11 @@ const replace = vi.fn();
 const query: Record<string, string> = {};
 vi.mock("vue-router", () => ({ useRouter: () => ({ replace }), useRoute: () => ({ query }) }));
 const scanner = vi.hoisted(() => ({ scan: vi.fn() }));
+// The camera was already allowed: asking for it is `scanner.test.ts`'s business.
 vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
   scan: scanner.scan,
+  checkPermissions: async () => "granted",
+  requestPermissions: async () => "granted",
   Format: { QRCode: "QR_CODE" },
 }));
 

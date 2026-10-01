@@ -128,6 +128,11 @@
     "invalid": "这不是 FlickerTalk 联系人链接",
     "scanNow": "扫描二维码"
   },
+  "scanner": {
+    "cameraDenied": "相机权限已关闭，无法读取二维码。下次请允许，或改为粘贴链接。",
+    "cameraBlocked": "FlickerTalk 的相机权限已关闭。请在设置中开启，或改为粘贴链接。",
+    "openSettings": "打开设置"
+  },
   "contact": {
     "fingerprint": "安全指纹",
     "verify": "当面验证",
