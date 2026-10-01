@@ -395,6 +395,33 @@ describe("PluginSheet", () => {
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "r1", answer: "black" }, "*");
   });
 
+  // 2026-10-02: the location plugin. The core checks the grant and asks the phone; the plugin
+  // gets the fix, or null for anything else (refused, off, no fix, not granted).
+  it("asks the core where the phone is, and answers null when there is no place", async () => {
+    const fix = { lat: 40.41678, lon: -3.70379, accuracy: 35, at: 1_790_000_000_000 };
+    tauri.invoke.mockResolvedValue(fix);
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.location", id: "l1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_location", { plugin: plugin.id });
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l1", answer: fix }, "*");
+
+    tauri.invoke.mockResolvedValue(null);
+    says({ type: "ft.location", id: "l2" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l2", answer: null }, "*");
+
+    tauri.invoke.mockImplementation((command: string) =>
+      command === "core_plugin_location" ? Promise.reject(new Error("may not ask where the phone is")) : Promise.resolve(undefined),
+    );
+    says({ type: "ft.location", id: "l3" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l3", answer: null }, "*");
+  });
+
   it("makes the call the plugin asked for through the core, never itself", async () => {
     tauri.invoke.mockResolvedValue({ status: 200, body: "QUJD" });
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
