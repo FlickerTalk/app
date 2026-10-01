@@ -493,8 +493,12 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private var quiet: (caller: String, video: Bool)?
     /// Grows with each quiet call, so that a late timer leaves a newer one alone.
     private var quietRings = 0
-    /// The hidden sessions open now, by slot, as the core last said (app#9); none after a start.
-    var openSlots: Set<Int> = []
+    /// The hidden sessions open now, by slot, as the core last said (app#9), kept across starts
+    /// (2026-10-01): a session stays open until the user leaves it.
+    var openSlots: Set<Int> {
+        get { OpenSlots.kept() }
+        set { OpenSlots.keep(Array(newValue)) }
+    }
 
     override init() {
         provider = CXProvider(configuration: callProviderConfiguration(icon: callKitIcon))
