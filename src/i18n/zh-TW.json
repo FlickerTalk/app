@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "聊天",
     "calls": "通話",
-    "settings": "設定"
+    "settings": "設定",
+    "games": "遊戲"
   },
   "chats": {
     "empty": "還沒有聊天",
@@ -405,5 +406,23 @@
     "working": "處理中…",
     "failed": "出了點問題：{error}",
     "sees": "你的雲端只看到密封檔案的數量、大小和日期，永遠看不到名稱或內容。"
+  },
+  "games": {
+    "mine": "我的遊戲",
+    "more": "更多遊戲",
+    "install": "安裝",
+    "remove": "移除",
+    "removeWarning": "移除後，這支手機上儲存的對局也會被刪除。",
+    "play": "開始玩",
+    "pickContact": "和誰一起玩",
+    "noContacts": "新增一位聯絡人才能一起玩",
+    "invite": "邀請",
+    "inviteText": "🎮 一起玩{game}吧？{url}",
+    "installAndPlay": "安裝並開始玩",
+    "permissionsBody": "這個遊戲會與對方的手機通訊，並可能把結果留在聊天中。",
+    "permissionsAllow": "允許並開始玩",
+    "none": "還沒有遊戲",
+    "offline": "現在沒有可新增的遊戲。請檢查網路連線後再試一次。",
+    "installFailed": "無法安裝這個遊戲。請檢查網路連線後再試一次。"
   }
 }

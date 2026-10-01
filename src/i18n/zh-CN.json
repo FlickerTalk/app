@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "聊天",
     "calls": "通话",
-    "settings": "设置"
+    "settings": "设置",
+    "games": "游戏"
   },
   "chats": {
     "empty": "还没有聊天",
@@ -405,5 +406,23 @@
     "working": "处理中…",
     "failed": "出了点问题：{error}",
     "sees": "你的云端只看到密封文件的数量、大小和日期，永远看不到名称或内容。"
+  },
+  "games": {
+    "mine": "我的游戏",
+    "more": "更多游戏",
+    "install": "安装",
+    "remove": "移除",
+    "removeWarning": "移除后，这台手机上保存的对局也会被删除。",
+    "play": "开始玩",
+    "pickContact": "和谁一起玩",
+    "noContacts": "添加一个联系人才能一起玩",
+    "invite": "邀请",
+    "inviteText": "🎮 一起玩{game}吧？{url}",
+    "installAndPlay": "安装并开始玩",
+    "permissionsBody": "这个游戏会与对方的手机通信，并可能把结果留在聊天中。",
+    "permissionsAllow": "允许并开始玩",
+    "none": "还没有游戏",
+    "offline": "现在没有可添加的游戏。请检查网络连接后重试。",
+    "installFailed": "无法安装这个游戏。请检查网络连接后重试。"
   }
 }

@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "Sohbetler",
     "calls": "Aramalar",
-    "settings": "Ayarlar"
+    "settings": "Ayarlar",
+    "games": "Oyunlar"
   },
   "chats": {
     "empty": "Henüz sohbet yok",
@@ -405,5 +406,23 @@
     "working": "Çalışıyor…",
     "failed": "Bir şeyler ters gitti: {error}",
     "sees": "Bulutun kaç mühürlü dosya olduğunu, boyutlarını ve tarihlerini görür. Adlarını ya da içeriklerini asla."
+  },
+  "games": {
+    "mine": "Oyunlarım",
+    "more": "Daha fazla oyun",
+    "install": "Yükle",
+    "remove": "Kaldır",
+    "removeWarning": "Kaldırırsanız bu telefondaki kayıtlı oyunları silinir.",
+    "play": "Oyna",
+    "pickContact": "Şununla oyna",
+    "noContacts": "Oynamak için bir kişi ekleyin",
+    "invite": "Davet et",
+    "inviteText": "🎮 {game} oynayalım mı? {url}",
+    "installAndPlay": "Yükle ve oyna",
+    "permissionsBody": "Bu oyun karşı tarafın telefonuyla konuşur ve sonucu sohbete bırakabilir.",
+    "permissionsAllow": "İzin ver ve oyna",
+    "none": "Henüz oyun yok",
+    "offline": "Şu anda eklenecek oyun yok. Bağlantınızı kontrol edip tekrar deneyin.",
+    "installFailed": "Oyun yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin."
   }
 }

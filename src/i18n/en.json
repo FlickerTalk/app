@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "Chats",
     "calls": "Calls",
-    "settings": "Settings"
+    "settings": "Settings",
+    "games": "Games"
   },
   "chats": {
     "empty": "No chats yet",
@@ -405,5 +406,23 @@
     "working": "Working…",
     "failed": "Something went wrong: {error}",
     "sees": "Your cloud sees how many sealed files there are, their sizes and dates. Never their names or contents."
+  },
+  "games": {
+    "mine": "My games",
+    "more": "More games",
+    "install": "Install",
+    "remove": "Remove",
+    "removeWarning": "Removing it deletes its saved games on this phone.",
+    "play": "Play",
+    "pickContact": "Play with",
+    "noContacts": "Add a contact to play with",
+    "invite": "Invite",
+    "inviteText": "🎮 Shall we play {game}? {url}",
+    "installAndPlay": "Install and play",
+    "permissionsBody": "This game talks to the other person's phone and can leave the result in the chat.",
+    "permissionsAllow": "Allow and play",
+    "none": "No games yet",
+    "offline": "No games to add right now. Check your connection and try again.",
+    "installFailed": "The game could not be installed. Check your connection and try again."
   }
 }
