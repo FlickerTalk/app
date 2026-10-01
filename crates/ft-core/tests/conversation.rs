@@ -28,6 +28,8 @@ struct Net {
     sent: Mutex<Vec<(String, Vec<u8>)>>,
     /// The direct link goes down once this many packets have gone to that device.
     cut_after: Mutex<Option<(String, usize)>>,
+    /// Every device the direct link was asked to reach, reached or not.
+    tried: Mutex<Vec<String>>,
 }
 
 impl Net {
@@ -43,6 +45,10 @@ impl Net {
 
     fn sent_to(&self, device: &str) -> usize {
         self.sent.lock().unwrap().iter().filter(|(to, _)| to == device).count()
+    }
+
+    fn tried(&self, device: &str) -> usize {
+        self.tried.lock().unwrap().iter().filter(|to| *to == device).count()
     }
 
     fn mailbox_len(&self, device: &str) -> usize {
@@ -65,6 +71,7 @@ struct Link {
 #[async_trait]
 impl Transport for Link {
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> anyhow::Result<bool> {
+        self.net.tried.lock().unwrap().push(to.device_id.clone());
         if !self.net.direct.load(Ordering::SeqCst) || self.net.unreachable.lock().unwrap().contains(&to.device_id) {
             return Ok(false);
         }
@@ -280,6 +287,94 @@ async fn without_the_mailbox_the_message_waits_on_the_phone() {
         state_of(&alice, &id(&bob), &message).await == MessageState::Delivered
     })
     .await;
+}
+
+/// A day, and what the outbox says of the message.
+const DAY: i64 = 24 * 3600 * 1000;
+
+async fn outbox_entry(core: &Core, message_id: &str) -> ft_storage::OutboxEntry {
+    core.store().outbox().await.unwrap().into_iter().find(|entry| entry.message_id == message_id).expect("in the outbox")
+}
+
+/// A text to Bob with no direct path: it goes to his mailbox, as it always did.
+async fn in_bobs_mailbox(net: &Net, alice: &Core, bob: &Core) -> String {
+    net.set_direct(false);
+    let message = alice.send_text(&id(bob), "are you there?").await.expect("sends");
+    assert_eq!(net.mailbox_len(&id(bob)), 1, "the first copy");
+    let entry = outbox_entry(alice, &message).await;
+    assert!(entry.in_mailbox);
+    assert!(entry.mailed_at.is_some_and(|at| (now() - at).abs() < 5_000), "and when it went");
+    message
+}
+
+// 2026-10-01: a message the mailbox took is still tried directly at each retry (every 10 min), but
+// a new copy goes there only once a day: with router 0.6.0 a left session's slot holds 200 blobs,
+// and a copy every 10 min filled it in a day and a half. The mailbox keeps a blob for 7 days; the
+// daily copy is for a router that lost its table. The receiver shows the copies once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_in_the_mailbox_is_tried_directly_at_each_retry_and_copied_there_once_a_day() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let message = in_bobs_mailbox(&net, &alice, &bob).await;
+
+    for _ in 0..3 {
+        let tried = net.tried(&id(&bob));
+        alice.retry_now().await.expect("retries");
+        assert!(net.tried(&id(&bob)) > tried, "tried directly");
+        assert_eq!(net.mailbox_len(&id(&bob)), 1, "no new copy within the day");
+        let entry = outbox_entry(&alice, &message).await;
+        assert!(entry.in_mailbox);
+        assert!(entry.next_attempt >= now() + 590_000, "next try in 10 minutes, as before");
+    }
+
+    alice.store().mailed(&message, now() - DAY).await.unwrap();
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&id(&bob)), 2, "a day later, a new copy");
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&id(&bob)), 2, "and then none for another day");
+
+    net.collect(&bob).await;
+    assert_eq!(texts(&bob, &id(&alice)).await, ["are you there?"], "two copies, shown once");
+    until("both receipts wait for alice", || async { net.mailbox_len(&id(&alice)) == 2 }).await;
+    net.collect(&alice).await;
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Delivered);
+}
+
+// A direct path that appears delivers the message in the mailbox, and nothing more is tried.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_direct_path_delivers_a_message_in_the_mailbox_and_ends_its_retries() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let message = in_bobs_mailbox(&net, &alice, &bob).await;
+
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until("delivered", || async { state_of(&alice, &id(&bob), &message).await == MessageState::Delivered }).await;
+    assert!(alice.store().outbox().await.unwrap().is_empty());
+    let tried = net.tried(&id(&bob));
+    alice.store().mailed(&message, now() - DAY).await.unwrap();
+    alice.retry_now().await.expect("retries");
+    assert_eq!((net.tried(&id(&bob)), net.mailbox_len(&id(&bob))), (tried, 1), "nothing more");
+}
+
+// With the mailbox off, the retries leave nothing in it, whatever the time.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_mailbox_off_retries_leave_nothing_in_it() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    bob.set_mailbox(false).await.expect("bob turns the mailbox off");
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+
+    let message = alice.send_text(&id(&bob), "later").await.expect("sends");
+    alice.retry_now().await.expect("retries");
+    alice.store().mailed(&message, now() - DAY).await.unwrap();
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&id(&bob)), 0);
+    assert!(!outbox_entry(&alice, &message).await.in_mailbox);
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Pending);
 }
 
 #[tokio::test(flavor = "multi_thread")]
