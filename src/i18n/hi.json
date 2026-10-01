@@ -57,6 +57,7 @@
     "deleteSure": "हटाएँ",
     "forwardTo": "किसे फ़ॉरवर्ड करें",
     "download": "Download",
+    "resend": "फिर से भेजें",
     "discardAttachment": "Discard attachment",
     "otherApp": "दूसरा ऐप"
   },
@@ -68,7 +69,8 @@
     "connected": "सीधे कनेक्टेड",
     "paused": "रुका हुआ",
     "failed": "विफल",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "नहीं भेजा गया"
   },
   "calls": {
     "callBack": "वापस कॉल करें",

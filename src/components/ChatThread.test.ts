@@ -115,6 +115,13 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_send_file", { contact: "c1", upload: "up1", name: "menu.pdf", mime: "application/pdf" }]);
   });
 
+  it("sends again through the core a message that was not sent", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    wrapper.findAllComponents(MessageBubble)[0].vm.$emit("resend", "m3");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_resend", { message: "m3" }]);
+  });
+
   it("opens and saves files through the core", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     const bubble = wrapper.findAllComponents(MessageBubble)[0];

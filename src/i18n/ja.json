@@ -57,6 +57,7 @@
     "deleteSure": "削除",
     "forwardTo": "転送先",
     "download": "Download",
+    "resend": "再送信",
     "discardAttachment": "Discard attachment",
     "otherApp": "別のアプリ"
   },
@@ -68,7 +69,8 @@
     "connected": "直接接続中",
     "paused": "一時停止中",
     "failed": "失敗",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "送信できませんでした"
   },
   "calls": {
     "callBack": "かけ直す",

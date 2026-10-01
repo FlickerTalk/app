@@ -57,6 +57,7 @@
     "deleteSure": "Xóa",
     "forwardTo": "Chuyển tiếp đến",
     "download": "Download",
+    "resend": "Gửi lại",
     "discardAttachment": "Discard attachment",
     "otherApp": "Ứng dụng khác"
   },
@@ -68,7 +69,8 @@
     "connected": "Kết nối trực tiếp",
     "paused": "Tạm dừng",
     "failed": "Thất bại",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "Chưa gửi được"
   },
   "calls": {
     "callBack": "Gọi lại",
