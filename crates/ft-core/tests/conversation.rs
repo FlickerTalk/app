@@ -937,9 +937,13 @@ async fn a_closed_session_answers_calls_as_busy_and_an_open_one_rings() {
     alice.offer_call(&call, "offer-sdp").await.expect("offers");
     assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
     until("bob logged it as missed", || async { outcome_of(&bob, &call).await == Some(CallOutcome::Missed) }).await;
+    let mut refused = false;
     while let Ok(event) = at_bob.try_recv() {
         assert!(!matches!(event, Event::Call { .. }), "a closed session never rings");
+        refused |= event == Event::CallRefused;
     }
+    // The phone's own call screen may already ring from the push (iOS): it is told to stop.
+    assert!(refused, "the phone hears that a call was refused");
 
     bob.open_session("246810").await.expect("opens again").expect("it exists");
     let second = alice.place_call(&id(&bob), false).await.expect("places");
@@ -1028,9 +1032,13 @@ async fn with_calls_off_a_call_is_busy_and_leaves_no_trace() {
     assert_eq!(next_call(&mut at_alice).await.2, CallUpdate::Ended { outcome: CallOutcome::Busy });
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(bob.store().call(&call).await.unwrap().is_none(), "no trace in the history");
+    let mut refused = false;
     while let Ok(event) = at_bob.try_recv() {
         assert!(!matches!(event, Event::Call { .. }), "it never rings");
+        refused |= event == Event::CallRefused;
     }
+    // A ring the push started before the core knew (iOS, Android) stops at once.
+    assert!(refused, "the phone hears that a call was refused");
 }
 
 // Issue app#7: the weekly hours are kept on the phone, and only well-formed ones.
