@@ -791,7 +791,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
             slotHeard: slotIsHeard(payload.dictionaryPayload["s"], open: openSlots),
             mayDisturb: QuietHours.mayDisturbNow()
         )
-        quietLog("call push: \(push)")
+        quietLog("call push: \(push.logName)")
         switch push {
         case .alreadyRinging:
             CallEvents.shared.emit(.incoming)
