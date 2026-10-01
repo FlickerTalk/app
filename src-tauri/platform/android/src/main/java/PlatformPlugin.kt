@@ -209,6 +209,13 @@ fun callPush(data: Map<String, String>, open: Set<Int>, appOnScreen: Boolean, ma
     else -> CallPush.RING
 }
 
+/**
+ * Whether the core's refusal of a call without a trace (2026-10-01: Calls off, a stranger, a
+ * blocked contact; §109) ends the call notification: only the one a call push started before the
+ * core knew who called. A call the core rings itself (`startRinging`) or one going on is another.
+ */
+fun refusalCancels(coreRinging: Boolean, inCall: Boolean): Boolean = !coreRinging && !inCall
+
 /** How long a call rings, in ms, at most. The router gives the push the same 45 s to live. */
 const val CALL_RING_MS = 45_000L
 
@@ -503,6 +510,9 @@ object CallEvents {
 object CallRinger {
     var ringtone: Ringtone? = null
     var vibrator: Vibrator? = null
+    /** The core rings a call it knows (`startRinging`), until `stopRinging` or an answer. */
+    @Volatile
+    var coreRinging = false
 
     fun silence() {
         ringtone?.stop()
@@ -1230,6 +1240,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun callAnswering(invoke: Invoke) {
         val args = invoke.parseArgs(AnsweringArgs::class.java)
         InCall.ringingName = args.caller
+        CallRinger.coreRinging = false
         activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
         silence()
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
@@ -1418,6 +1429,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         try {
             val args = invoke.parseArgs(RingingArgs::class.java)
             InCall.ringingName = args.caller
+            CallRinger.coreRinging = true
             showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))
             silence()
             showCall(
@@ -1542,8 +1554,23 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /**
+     * The core refused an incoming call without a trace (2026-10-01): the call notification a
+     * call push started for it, before the core knew who called, goes at once, and its ringing
+     * with it. With the app closed the core does not run, so this only reaches a live process.
+     */
+    @Command
+    fun callRefused(invoke: Invoke) {
+        if (refusalCancels(CallRinger.coreRinging, InCall.active)) {
+            activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+            silence()
+        }
+        invoke.resolve()
+    }
+
     @Command
     fun stopRinging(invoke: Invoke) {
+        CallRinger.coreRinging = false
         activity.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = InCall.active))
         silence()

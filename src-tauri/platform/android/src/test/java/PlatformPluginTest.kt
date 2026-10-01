@@ -558,4 +558,14 @@ class PlatformPluginTest {
     fun aCallPushedWithTheAppClosedRingsOnItsOwnChannel() {
         assertEquals("ft.call.ringing", RINGING_CALL_CHANNEL)
     }
+
+    // 2026-10-01: the core refused a call without a trace (Calls off, a stranger, a blocked
+    // contact). The ringing a call push started before the core knew who called ends at once; a
+    // call the core rings itself, or one going on, is another call and is left alone.
+    @Test
+    fun aRefusedCallCancelsOnlyThePushsRinging() {
+        assertTrue(refusalCancels(coreRinging = false, inCall = false))
+        assertFalse(refusalCancels(coreRinging = true, inCall = false))
+        assertFalse(refusalCancels(coreRinging = false, inCall = true))
+    }
 }
