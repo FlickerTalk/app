@@ -23,6 +23,7 @@ pub mod net;
 pub mod vault;
 pub mod online;
 pub mod web;
+mod sessions;
 
 pub use plugins::CATALOGUE_HOME;
 pub use web::{Fetch, Web, WebAnswer, WebRequest};
@@ -206,9 +207,11 @@ pub struct Core {
     /// Where a move to a new phone writes its copies (set by the app).
     move_dir: OnceLock<PathBuf>,
     moving: std::sync::Mutex<moving::MoveState>,
-    /// The hidden sessions open right now, with their slot. Only in memory: the app starts with
-    /// all of them closed.
+    /// The hidden sessions open right now, with their slot. Kept, sealed, across starts
+    /// (2026-10-01): a session stays open until the user leaves it (`sessions.rs`).
     open_sessions: std::sync::Mutex<HashMap<String, u8>>,
+    /// One write of the kept list at a time, each with the list as it is then.
+    keeping_sessions: Mutex<()>,
     /// The user's cloud (plan-drive), once connected and open.
     vault: Mutex<Option<Arc<ft_vault::Vault>>>,
     /// How clouds are reached: Google Drive in the app, a memory in the tests.
@@ -273,9 +276,13 @@ impl Core {
                 store.add_spare_capability(slot, RouteCapability::generate().as_bytes()).await?;
             }
         }
-        // A session left empty when the app stopped (killed, a crash) goes now, as if closed (A3).
+        // The sessions the user left open are open again, with no PIN (2026-10-01, §108). An empty
+        // one that is not open (a leftover of an app from before) goes now, as if closed (A3).
+        let open_sessions = sessions::restore(&store, &key).await?;
         for session in store.empty_sessions().await? {
-            forget_session(&store, &session).await?;
+            if !open_sessions.contains_key(&session) {
+                forget_session(&store, &session).await?;
+            }
         }
         if store.setting(INSTALLED_AT).await?.is_none() {
             store.set_setting(INSTALLED_AT, &now().to_string()).await?;
@@ -311,7 +318,8 @@ impl Core {
             call_audio_active: std::sync::atomic::AtomicBool::new(false),
             move_dir: OnceLock::new(),
             moving: std::sync::Mutex::default(),
-            open_sessions: std::sync::Mutex::default(),
+            open_sessions: std::sync::Mutex::new(open_sessions),
+            keeping_sessions: Mutex::new(()),
             vault: Mutex::new(None),
             cloud: OnceLock::new(),
             vault_dir: OnceLock::new(),
@@ -585,13 +593,21 @@ impl Core {
     pub async fn open_session(&self, pin: &str) -> Result<Option<String>> {
         let hash = self.pin_hash(pin)?;
         if let Some(id) = self.open_session_with(&hash).await? {
+            self.keep_open_sessions().await?;
             return Ok(Some(id));
         }
         let Some(slot) = self.free_slot().await? else { return Ok(None) };
         let id = MessageId::new().to_string();
         self.store.add_session(&id, &hash, slot).await?;
         self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
+        self.keep_open_sessions().await?;
         Ok(Some(id))
+    }
+
+    /// Keeps which sessions are open, for the next start (2026-10-01, §108).
+    async fn keep_open_sessions(&self) -> Result<()> {
+        let _one_at_a_time = self.keeping_sessions.lock().await;
+        sessions::keep(&self.store, &self.key, &self.open_sessions()).await
     }
 
     async fn open_session_with(&self, hash: &[u8; 32]) -> Result<Option<String>> {
@@ -628,6 +644,7 @@ impl Core {
             let _ = std::fs::remove_file(self.file_path(&file));
         }
         self.open_sessions.lock().expect("sessions poisoned").remove(session);
+        self.keep_open_sessions().await?;
         let _ = self.events.send(Event::ContactsChanged);
         Ok(())
     }
@@ -637,11 +654,13 @@ impl Core {
         Ok((1..=SPARE_SLOTS).find(|slot| !used.contains(slot)))
     }
 
-    /// Leaves the session: from now on it receives in silence, until its PIN opens it again. One
-    /// with nobody in it goes for good, with its link, so that PINs never fill the slots (A3).
-    /// Returns whether it went: then the router must get the new hashes.
+    /// Leaves the session: from now on it receives in silence, until its PIN opens it again; only
+    /// this closes it (2026-10-01: a start does not). One with nobody in it goes for good, with
+    /// its link, so that PINs never fill the slots (A3). Returns whether it went: then the router
+    /// must get the new hashes.
     pub async fn close_session(&self, session: &str) -> Result<bool> {
         self.open_sessions.lock().expect("sessions poisoned").remove(session);
+        self.keep_open_sessions().await?;
         if !self.store.empty_sessions().await?.iter().any(|empty| empty == session) {
             return Ok(false);
         }
@@ -1339,7 +1358,6 @@ impl ft_push::Signer for Core {
     }
 }
 
-/// A readable default name for a contact whose card has none.
 /// Takes a hidden session away and gives its slot a new link (A3): whoever kept the old QR
 /// reaches nobody, not even the session that takes the slot next. What was in it is the caller's.
 async fn forget_session(store: &Store, session: &str) -> Result<()> {
@@ -1349,6 +1367,7 @@ async fn forget_session(store: &Store, session: &str) -> Result<()> {
     store.remove_session(session).await
 }
 
+/// A readable default name for a contact whose card has none.
 fn short_name(device_id: &DeviceId) -> String {
     device_id.as_str().chars().take(9).collect()
 }
