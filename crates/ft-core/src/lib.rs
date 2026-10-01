@@ -1023,7 +1023,7 @@ impl Core {
     /// Retries the outbox entries that are due, of contacts and of circles.
     pub async fn retry_due(&self) -> Result<()> {
         for entry in self.store.due(now()).await? {
-            self.deliver(&entry).await?;
+            self.attempt(&entry).await;
         }
         for entry in self.store.circle_due(now()).await? {
             let _ = self.deliver_circle(&entry).await;
@@ -1037,7 +1037,7 @@ impl Core {
     pub(crate) async fn retry_contact_now(&self, contact: &str) -> Result<()> {
         for entry in self.store.outbox().await? {
             if entry.contact == contact && entry.attempts > 0 {
-                self.deliver(&entry).await?;
+                self.attempt(&entry).await;
             }
         }
         for entry in self.store.circle_outbox().await? {
@@ -1051,7 +1051,7 @@ impl Core {
     /// Retries every pending message now (the contact came online, say).
     pub async fn retry_now(&self) -> Result<()> {
         for entry in self.store.outbox().await? {
-            self.deliver(&entry).await?;
+            self.attempt(&entry).await;
         }
         self.deliver_circle_queue().await;
         Ok(())
@@ -1268,6 +1268,16 @@ impl Core {
         }
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
         Ok(())
+    }
+
+    /// One delivery attempt that never holds back the rest of the queue: whatever goes wrong,
+    /// the entry is tried again later, like a contact that cannot be reached.
+    async fn attempt(&self, entry: &OutboxEntry) {
+        if self.deliver(entry).await.is_err() {
+            let attempts = entry.attempts + 1;
+            let next = now() + retry_delay(attempts).as_millis() as i64;
+            let _ = self.store.reschedule(&entry.message_id, attempts, next, entry.in_mailbox).await;
+        }
     }
 
     /// One delivery attempt for an outbox entry.
