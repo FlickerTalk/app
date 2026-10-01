@@ -49,6 +49,9 @@ pub const MAX_RETRY_DELAY: Duration = Duration::from_secs(300);
 pub(crate) const RECEIPT_WAIT: Duration = Duration::from_secs(30);
 /// After leaving it in the mailbox, how long before trying again.
 pub(crate) const MAILBOX_WAIT: Duration = Duration::from_secs(600);
+/// How often a message already in the mailbox gets a new copy there (2026-10-01): the router keeps
+/// a blob for 7 days, and the copy is for a router that lost its table.
+pub(crate) const MAILBOX_COPY: Duration = Duration::from_secs(24 * 3600);
 
 const NAME: &str = "name";
 const MAILBOX: &str = "mailbox";
@@ -63,6 +66,11 @@ const PAID_UNTIL: &str = "paid_until";
 const ASK_FOR_THE_EURO: &str = "a subscription is needed to start something new";
 
 pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 3600);
+
+/// Whether this attempt may leave a copy in the mailbox: the first time, and then once a day.
+fn mail_copy_due(in_mailbox: bool, mailed_at: Option<i64>, now: i64) -> bool {
+    !in_mailbox || mailed_at.is_none_or(|at| now - at >= MAILBOX_COPY.as_millis() as i64)
+}
 
 pub fn retry_delay(attempts: i64) -> Duration {
     let exponent = attempts.clamp(1, 16) as u32 - 1;
@@ -667,8 +675,8 @@ impl Core {
         let mut files = Vec::new();
         for contact in self.store.session_contacts(session).await? {
             files.extend(self.store.files(&contact.device_id).await?);
-            self.transport.disconnect(&contact.device_id).await;
         }
+        self.cut_off(session).await?;
         forget_session(&self.store, session).await?;
         for file in files {
             let _ = std::fs::remove_file(self.file_path(&file));
@@ -691,12 +699,27 @@ impl Core {
     pub async fn close_session(&self, session: &str) -> Result<bool> {
         self.open_sessions.lock().expect("sessions poisoned").remove(session);
         self.keep_open_sessions().await?;
+        self.cut_off(session).await?;
         if !self.store.empty_sessions().await?.iter().any(|empty| empty == session) {
             return Ok(false);
         }
         forget_session(&self.store, session).await?;
         self.registration_changed();
         Ok(true)
+    }
+
+    /// A session left or deleted closes its direct connections at once (2026-10-01): the router
+    /// stops what comes for a silent slot, but cannot close a connection already open. A call with
+    /// one of its contacts is hung up first, so that its end still goes out by that connection;
+    /// from now on the router would hold back their side of it.
+    async fn cut_off(&self, session: &str) -> Result<()> {
+        let all = self.store.all_contacts().await?;
+        let contacts: Vec<String> = all.into_iter().filter(|contact| contact.session.as_deref() == Some(session)).map(|contact| contact.device_id).collect();
+        self.hang_up_with(&contacts).await?;
+        for contact in &contacts {
+            self.transport.disconnect(contact).await;
+        }
+        Ok(())
     }
 
     /// The sessions open right now, oldest first.
@@ -1332,7 +1355,12 @@ impl Core {
         }
         let packet = Packet::resend(MessageId::parse(&message.message_id)?, message.sent_at as u64, Body::Message { text: message.body });
         let attempts = entry.attempts + 1;
-        let (next, in_mailbox) = match self.transmit(&contact, &packet).await? {
+        let copy = mail_copy_due(entry.in_mailbox, entry.mailed_at, now());
+        let route = self.transmit_as(&contact, &packet, copy).await?;
+        if copy && matches!(route, Route::Mailbox) {
+            self.store.mailed(&entry.message_id, now()).await?;
+        }
+        let (next, in_mailbox) = match route {
             Route::Direct => (RECEIPT_WAIT, entry.in_mailbox),
             Route::Mailbox => (MAILBOX_WAIT, true),
             Route::Unreachable => (retry_delay(attempts), entry.in_mailbox),
@@ -1421,6 +1449,12 @@ impl Core {
     }
 
     async fn transmit(&self, contact: &Contact, packet: &Packet) -> Result<Route> {
+        self.transmit_as(contact, packet, true).await
+    }
+
+    /// Like `transmit`; with `copy` false, a packet already in the mailbox gets no new copy there,
+    /// and `Mailbox` says it is still there.
+    async fn transmit_as(&self, contact: &Contact, packet: &Packet, copy: bool) -> Result<Route> {
         let bytes = self.seal_for(contact, packet).await?;
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
@@ -1431,6 +1465,9 @@ impl Core {
         let direct = if mailbox { self.transport.try_direct(&peer, bytes.clone()).await } else { self.transport.send_direct(&peer, bytes.clone()).await };
         if direct.unwrap_or(false) {
             return Ok(Route::Direct);
+        }
+        if mailbox && !copy {
+            return Ok(Route::Mailbox);
         }
         if mailbox {
             // Through the router it goes in an envelope (A1): the router sees only who it is for.
@@ -1591,6 +1628,17 @@ mod tests {
         assert_eq!(clean_name(&"x".repeat(100)).chars().count(), NAME_LIMIT);
         assert_eq!(clean_name("\t\n"), "");
         assert_eq!(clean_name("Zoë 😀"), "Zoë 😀");
+    }
+
+    // 2026-10-01: a message the mailbox took gets a new copy there once a day, not at every retry.
+    #[test]
+    fn a_message_in_the_mailbox_gets_a_new_copy_there_once_a_day() {
+        let day = MAILBOX_COPY.as_millis() as i64;
+        assert!(mail_copy_due(false, None, 1_000), "the first copy goes as always");
+        assert!(mail_copy_due(true, None, 1_000), "queued before the time was kept: a copy now");
+        assert!(!mail_copy_due(true, Some(1_000), 1_000 + MAILBOX_WAIT.as_millis() as i64));
+        assert!(!mail_copy_due(true, Some(1_000), 1_000 + day - 1));
+        assert!(mail_copy_due(true, Some(1_000), 1_000 + day));
     }
 
     #[test]
