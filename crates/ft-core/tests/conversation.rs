@@ -1007,6 +1007,61 @@ async fn an_open_session_still_notifies_and_rings_after_a_restart() {
     assert!(matches!(next_call(&mut at_bob).await.2, CallUpdate::Incoming { .. }), "its call rings");
 }
 
+// 2026-10-01 (§108, §19): a session the user left, with the mailbox off on either side. While
+// the recipient's app is not running the message waits in the sender's outbox ("waiting for the
+// device"): nothing goes to the server and nothing is lost. Once the recipient's core runs again
+// it is delivered, and stored without a sound, because the session is still closed.
+async fn a_left_session_without_the_mailbox_gets_it_later_in_silence(mailbox_off_at_sender: bool) {
+    let net = Net::new();
+    let path = scratch(&format!("left-no-mailbox-{mailbox_off_at_sender}")).join("flickertalk.db");
+    let alice = device(&net, "Alice").await;
+    let bob_id = {
+        let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+        let work = bob.open_session("246810").await.expect("opens").expect("a session");
+        bob.add_contact_in(&alice.my_card().await.expect("card").to_link(), None, Some(&work)).await.expect("adds");
+        until("alice has bob's card", || async { alice.store().contact(&id(&bob)).await.unwrap().is_some_and(|c| c.introduced) }).await;
+        if mailbox_off_at_sender {
+            alice.set_mailbox(false).await.expect("alice turns the mailbox off");
+        } else {
+            bob.set_mailbox(false).await.expect("bob turns the mailbox off");
+            until("alice learns it", || async { !alice.store().contact(&id(&bob)).await.unwrap().unwrap().mailbox }).await;
+        }
+        assert!(!bob.close_session(&work).await.expect("bob leaves work"));
+        id(&bob)
+    };
+    // Bob's app is not running: nothing reaches his phone.
+    net.unreachable.lock().unwrap().insert(bob_id.clone());
+
+    let message = alice.send_text(&bob_id, "see you on monday").await.expect("sends");
+    alice.retry_now().await.expect("retries");
+    assert_eq!(net.mailbox_len(&bob_id), 0, "nothing goes to the server");
+    assert_eq!(state_of(&alice, &bob_id, &message).await, MessageState::Pending, "waiting for the device");
+    assert_eq!(outbox_len(&alice).await, 1, "kept on alice's phone");
+
+    let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+    assert!(bob.open_sessions().is_empty(), "the session is still closed");
+    let mut at_bob = bob.events();
+    net.unreachable.lock().unwrap().remove(&bob_id);
+    alice.retry_now().await.expect("retries");
+    until("delivered", || async { state_of(&alice, &bob_id, &message).await == MessageState::Delivered }).await;
+    assert_eq!(texts(&bob, &id(&alice)).await, ["see you on monday"]);
+    assert_eq!(outbox_len(&alice).await, 0);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    while let Ok(event) = at_bob.try_recv() {
+        assert_ne!(event, Event::MessagesChanged { contact: id(&alice) }, "a closed session makes no noise");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_left_session_with_the_senders_mailbox_off_gets_it_later_in_silence() {
+    a_left_session_without_the_mailbox_gets_it_later_in_silence(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_left_session_with_the_recipients_mailbox_off_gets_it_later_in_silence() {
+    a_left_session_without_the_mailbox_gets_it_later_in_silence(false).await;
+}
+
 async fn outbox_len(core: &Core) -> usize {
     core.store().outbox().await.expect("reads").len()
 }
