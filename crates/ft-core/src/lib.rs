@@ -599,6 +599,7 @@ impl Core {
         let Some(slot) = self.free_slot().await? else { return Ok(None) };
         let id = MessageId::new().to_string();
         self.store.add_session(&id, &hash, slot).await?;
+        sessions::redraw(&self.store, slot).await?;
         self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
         self.keep_open_sessions().await?;
         Ok(Some(id))
@@ -618,6 +619,7 @@ impl Core {
                 // Made before slots: it gets one now and tells its contacts the new way in.
                 let slot = self.free_slot().await?.ok_or_else(|| anyhow!("no room for another session"))?;
                 self.store.set_session_slot(&id, slot).await?;
+                sessions::redraw(&self.store, slot).await?;
                 self.open_sessions.lock().expect("sessions poisoned").insert(id.clone(), slot);
                 for contact in self.store.session_contacts(&id).await? {
                     let _ = self.introduce(&contact).await;
@@ -680,6 +682,12 @@ impl Core {
         let mut slots: Vec<u8> = self.open_sessions.lock().expect("sessions poisoned").values().copied().collect();
         slots.sort();
         slots
+    }
+
+    /// The slots the router must not push for (2026-10-01, §108): bit i for slot i.
+    pub async fn silent_slots(&self) -> Result<u8> {
+        let (used, noise) = (self.store.used_slots().await?, sessions::noise(&self.store).await?);
+        Ok(sessions::silent_mask(&used, &self.open_slots(), noise))
     }
 
     /// The hashes the router gets (app#9): our own capability first, then the seven spares,

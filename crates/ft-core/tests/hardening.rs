@@ -480,6 +480,45 @@ async fn an_empty_session_that_is_not_open_is_gone_after_a_restart() {
     assert!(alice.open_sessions().is_empty());
 }
 
+// 2026-10-01 (§108): the router is told which slots are silent and sends no push for them. A
+// closed session's slot is silent, an open one's is not, and the main list never is.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_router_is_told_which_sessions_are_closed() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let before = alice.silent_slots().await.unwrap();
+    assert_eq!(before & 1, 0, "the main list is never silent");
+
+    let session = open(&alice, "123456").await;
+    let bit = 1u8 << alice.store().session_slot(&session).await.unwrap().unwrap();
+    assert_eq!(alice.silent_slots().await.unwrap() & bit, 0, "open: its pushes come");
+    alice.add_contact_in(&bob.my_card().await.expect("card").to_link(), None, Some(&session)).await.expect("adds inside");
+    assert!(!alice.close_session(&session).await.expect("closes"));
+    assert_eq!(alice.silent_slots().await.unwrap() & bit, bit, "closed: silent");
+    open(&alice, "123456").await;
+    assert_eq!(alice.silent_slots().await.unwrap() & bit, 0, "open again");
+    assert_eq!(alice.silent_slots().await.unwrap() & !bit, before & !bit, "the other slots did not move");
+}
+
+// A spare slot shows a random bit, chosen once and kept: the mask says nothing of how many
+// sessions there are, and does not flicker from one registration to the next.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spare_slot_is_silent_or_not_at_random_and_stays_so() {
+    let net = Net::new();
+    let path = scratch("noise").join("flickertalk.db");
+    let first = restarted(&net, &path).await.silent_slots().await.unwrap();
+    let alice = restarted(&net, &path).await;
+    assert_eq!(alice.silent_slots().await.unwrap(), first, "the same after a restart");
+    assert_eq!(alice.silent_slots().await.unwrap(), first, "and from one asking to the next");
+
+    let mut masks = std::collections::HashSet::new();
+    for _ in 0..12 {
+        masks.insert(device(&net, "Any").await.silent_slots().await.unwrap());
+    }
+    assert!(masks.len() > 1, "phones with no session do not all say the same");
+    assert!(masks.iter().all(|mask| mask & 1 == 0));
+}
+
 // A slot's link must die with its session: otherwise whoever kept the old QR would land in the
 // next session to take the slot, or in the main list.
 #[tokio::test(flavor = "multi_thread")]

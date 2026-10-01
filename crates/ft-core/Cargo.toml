@@ -26,6 +26,8 @@ serde_json = "1"
 vodozemac = "0.11"
 ft-webrtc = { path = "../ft-webrtc" }
 ft-media = { path = "../ft-media" }
+# The OS random generator, for the noise of the spare slots (2026-10-01).
+rand = "0.9"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
 
 [dev-dependencies]

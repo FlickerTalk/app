@@ -1843,6 +1843,7 @@ dependencies = [
  "ft-storage",
  "ft-vault",
  "ft-webrtc",
+ "rand 0.9.5",
  "reqwest",
  "ring",
  "serde",

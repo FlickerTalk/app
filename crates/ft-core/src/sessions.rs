@@ -19,6 +19,8 @@ use ft_vault::cipher;
 /// The settings key of the sealed list, and the label it is sealed under.
 const OPEN_SESSIONS: &str = "open_sessions";
 const LABEL: &str = "open sessions";
+/// The random bits the unused slots show the router, one per slot (bit i for slot i).
+const SLOT_NOISE: &str = "slot_noise";
 
 /// The sessions the user left open, with their slots. Anything that cannot be read (no list, a
 /// list sealed with another key, a session gone) counts as closed: never as open.
@@ -32,6 +34,43 @@ pub(crate) async fn restore(store: &Store, key: &[u8; 32]) -> Result<HashMap<Str
         }
     }
     Ok(open)
+}
+
+/// What the router is told is silent (2026-10-01): bit i for slot i. The main list (slot 0) never
+/// is; a used slot is silent while its session is closed; an unused slot shows its bit of `noise`,
+/// so that the router cannot count the sessions from the mask.
+pub(crate) fn silent_mask(used: &[u8], open: &[u8], noise: u8) -> u8 {
+    (1..8u8).fold(0, |mask, slot| {
+        let silent = match used.contains(&slot) {
+            true => !open.contains(&slot),
+            false => noise & (1 << slot) != 0,
+        };
+        if silent { mask | 1 << slot } else { mask }
+    })
+}
+
+/// The bits the unused slots show the router: drawn once from the OS's random generator, then
+/// kept, so that the mask does not change from one registration to the next.
+pub(crate) async fn noise(store: &Store) -> Result<u8> {
+    if let Some(noise) = store.setting(SLOT_NOISE).await?.and_then(|kept| kept.parse().ok()) {
+        return Ok(noise);
+    }
+    let noise = os_random();
+    store.set_setting(SLOT_NOISE, &noise.to_string()).await?;
+    Ok(noise)
+}
+
+/// A slot just taken by a session gets a new random bit for when it is free again: what it shows
+/// then says nothing of what it showed before.
+pub(crate) async fn redraw(store: &Store, slot: u8) -> Result<()> {
+    let bit = 1u8 << slot;
+    let noise = (noise(store).await? & !bit) | (os_random() & bit);
+    store.set_setting(SLOT_NOISE, &noise.to_string()).await
+}
+
+fn os_random() -> u8 {
+    use rand::TryRngCore;
+    rand::rngs::OsRng.try_next_u32().map(|value| value as u8).unwrap_or_else(|_| rand::random())
 }
 
 /// Keeps the open sessions, sealed, in place of the last list.
@@ -62,6 +101,15 @@ mod tests {
         assert_eq!(unseal(&[9; 32], &kept), Some(open));
         assert_eq!(unseal(&[8; 32], &kept), None, "another key reads nothing");
         assert_eq!(unseal(&[9; 32], "not sealed"), None);
+    }
+
+    #[test]
+    fn a_closed_session_is_silent_an_open_one_is_not_and_a_spare_slot_is_noise() {
+        assert_eq!(silent_mask(&[], &[], 0), 0);
+        assert_eq!(silent_mask(&[], &[], 0b1111_1111), 0b1111_1110, "the main list is never silent");
+        assert_eq!(silent_mask(&[2], &[], 0), 0b0000_0100, "closed: silent");
+        assert_eq!(silent_mask(&[2], &[2], 0b1111_1111), 0b1111_1010, "open: heard, whatever the noise");
+        assert_eq!(silent_mask(&[1, 3, 7], &[3], 0b0101_0000), 0b1101_0010);
     }
 
     #[tokio::test]
