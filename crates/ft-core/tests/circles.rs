@@ -175,8 +175,14 @@ async fn three(net: &Arc<Net>) -> (Arc<Core>, Arc<Core>, Arc<Core>) {
 /// Alice makes the circle and everyone has it.
 async fn friends(alice: &Core, bob: &Core, carol: &Core) -> String {
     let circle = alice.create_circle("Friends", &[id(bob), id(carol)], None).await.expect("creates");
-    until("bob and carol have the circle", || async {
-        circle_of(bob, &circle).await == Some((3, false)) && circle_of(carol, &circle).await == Some((3, false))
+    // The members are kept before each one is met as a contact; the "created" line is the last
+    // thing a phone writes when it takes the card, so only then is everything in place.
+    let made = "created:Friends".to_owned();
+    until("bob and carol have taken the circle in", || async {
+        circle_of(bob, &circle).await == Some((3, false))
+            && circle_of(carol, &circle).await == Some((3, false))
+            && happened(bob, &circle).await.contains(&made)
+            && happened(carol, &circle).await.contains(&made)
     })
     .await;
     circle
@@ -327,7 +333,11 @@ async fn only_an_admin_changes_the_circle() {
     })
     .await;
     until("alice sees dave join", || async { happened(&alice, &circle).await.contains(&"joined:Dave".to_owned()) }).await;
-    assert!(dave.store().contact(&id(&alice)).await.expect("reads").is_some_and(|c| c.via_circle));
+    // Dave keeps the members before he meets each one: the contact comes a moment later.
+    until("dave meets alice through the circle", || async {
+        dave.store().contact(&id(&alice)).await.expect("reads").is_some_and(|c| c.via_circle)
+    })
+    .await;
 
     // The last admin cannot step down; an admin can hand over.
     assert!(alice.set_circle_admin(&circle, &id(&alice), false).await.is_ok(), "bob remains");
