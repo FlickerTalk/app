@@ -21,7 +21,7 @@ import org.json.JSONObject
  * no core, so the push's notification rang "Someone" until its own 45 s limit, the caller's
  * hang-up never arrived and no missed call was kept. Now the push loads the library and starts the
  * core with no activity and no WebView (`PushCore`, `src-tauri/src/push_core.rs`): it connects at
- * once, the notification learns who calls (or turns quiet, or goes, as the core decides), and the
+ * once, the notification turns quiet (saying who calls) or goes, as the core decides, and the
  * call is kept as with the app open. When the app opens it takes this core; there is never a
  * second one. A foreground service of type phone call (`FtIncomingCallService`) keeps the process
  * awake while the push's call rings.
@@ -39,16 +39,19 @@ fun pushCoreTakes(event: CallEvent): Boolean =
 fun callEventJson(event: CallEvent): String = JSONObject(callEventPayload(event)).toString()
 
 /** How the push's call shows once the core knows who calls. */
-enum class PushRing { NONE, RING, QUIET }
+enum class PushRing { NONE, QUIET }
 
 /**
  * A muted contact (app#4) or the weekly hours (app#7) make it quiet: no sound, no vibration. A
  * call the user answered from the notification already, or whose push has run out, is not shown.
+ * A normal caller's ringing notification is left alone, saying "Someone": posting the name over it
+ * stopped the system's ringtone (Samsung S20+, Android 13, 2026-10-01; with only-alert-once, and
+ * without it as an update "recently noisy" within a second of the first alert).
  */
 fun pushRing(muted: Boolean, mayDisturb: Boolean, answered: Boolean, leftMs: Long): PushRing = when {
     answered || leftMs <= 0 -> PushRing.NONE
     muted || !mayDisturb -> PushRing.QUIET
-    else -> PushRing.RING
+    else -> PushRing.NONE
 }
 
 /** What is left of the push's ring time at `now`; nothing once it is over. */
@@ -246,7 +249,7 @@ object PushCore {
         context?.let { pushLog(it, "core: stopped ($why)") }
     }
 
-    /** The core knows who calls: the push's notification says so, quiet if it must. */
+    /** The core knows who calls: a muted or out-of-hours call goes quiet and says who; a ringing one is left alone (`pushRing`). */
     @JvmStatic
     fun ring(caller: String, video: Boolean, muted: Boolean) {
         val context = context ?: return
@@ -257,7 +260,7 @@ object PushCore {
         pushLog(context, "caller known: " + shown.name.lowercase())
         if (shown == PushRing.NONE) return
         val title = callTitle(caller) ?: context.getString(R.string.ft_someone)
-        callNotification(context, title, context.getString(callText(video)), ringing = shown == PushRing.RING, timeoutMs = left, video = video, alertOnce = true)
+        callNotification(context, title, context.getString(callText(video)), timeoutMs = left, video = video, alertOnce = true)
             ?.let { IncomingCall.update(context, it) }
     }
 
