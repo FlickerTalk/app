@@ -26,6 +26,7 @@ pub const CHANGED_EVENT: &str = "ft://changed";
 
 pub fn state_name(state: MessageState) -> &'static str {
     match state {
+        MessageState::NotSent => "unsent",
         MessageState::Pending => "pending",
         MessageState::Sent => "sent",
         MessageState::Delivered => "delivered",
@@ -2713,6 +2714,17 @@ pub async fn core_send(contact: String, text: String, client: State<'_, Client>)
     Ok(())
 }
 
+/// Sends again a message the router refused (§84): the same message, queued again and tried in
+/// the background; the UI hears how it goes.
+#[tauri::command]
+pub async fn core_resend(message: String, client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    tauri::async_runtime::spawn(async move {
+        let _ = core.resend(&message).await;
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn core_mark_read(contact: String, client: State<'_, Client>) -> Result<(), String> {
     let core = client.core().await?;
@@ -3270,11 +3282,11 @@ mod tests {
 
     #[test]
     fn message_states_have_the_names_the_ui_uses() {
-        let names: Vec<_> = [MessageState::Pending, MessageState::Sent, MessageState::Delivered, MessageState::Read]
+        let names: Vec<_> = [MessageState::NotSent, MessageState::Pending, MessageState::Sent, MessageState::Delivered, MessageState::Read]
             .into_iter()
             .map(state_name)
             .collect();
-        assert_eq!(names, ["pending", "sent", "delivered", "read"]);
+        assert_eq!(names, ["unsent", "pending", "sent", "delivered", "read"]);
     }
 
     #[test]

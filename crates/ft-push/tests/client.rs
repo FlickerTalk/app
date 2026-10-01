@@ -15,7 +15,7 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 use ft_identity::Identity;
-use ft_push::{canonical, RouterClient, RouterEvent, Signalled, Signer};
+use ft_push::{canonical, MailboxRejected, RouterClient, RouterEvent, Signalled, Signer};
 use serde_json::{json, Value};
 
 /// The device identity, exactly as the app signs (vodozemac).
@@ -109,7 +109,19 @@ async fn fake_router() -> (String, Arc<Seen>) {
         )
         .route(
             "/v1/mailbox/{target}",
-            post(|| async { StatusCode::CREATED }).delete(|| async { StatusCode::NO_CONTENT }),
+            // The router's answers to a deposit (ft-router `deposit`), one recipient each.
+            post(|Path(target): Path<String>| async move {
+                match target.as_str() {
+                    "ft_gone" => StatusCode::FORBIDDEN,
+                    "ft_busy" => StatusCode::TOO_MANY_REQUESTS,
+                    "ft_huge" => StatusCode::PAYLOAD_TOO_LARGE,
+                    "ft_broken" => StatusCode::INTERNAL_SERVER_ERROR,
+                    "ft_full" => StatusCode::INSUFFICIENT_STORAGE,
+                    "ft_moved" => StatusCode::NOT_FOUND,
+                    _ => StatusCode::CREATED,
+                }
+            })
+            .delete(|| async { StatusCode::NO_CONTENT }),
         )
         .with_state(seen.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -210,6 +222,23 @@ async fn mail_is_deposited_collected_and_acknowledged() {
     assert_eq!(mail.len(), 1);
     assert_eq!(mail[0].blob, b"sealed");
     client.acknowledge(&mail[0].id).await.expect("acknowledges");
+}
+
+// A 403 is the router refusing the recipient for good: the core takes the message out of its
+// queue. Anything else that fails may work later and is tried again.
+#[tokio::test]
+async fn only_a_refused_recipient_is_a_rejection() {
+    let (base, _) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    let refused = client.deposit("ft_gone", &[1; 32], b"sealed".to_vec()).await.expect_err("refused");
+    assert_eq!(refused.downcast_ref::<MailboxRejected>(), Some(&MailboxRejected));
+    for passing in ["ft_busy", "ft_huge", "ft_broken", "ft_full", "ft_moved"] {
+        let failed = client.deposit(passing, &[1; 32], b"sealed".to_vec()).await.expect_err("fails");
+        assert!(failed.downcast_ref::<MailboxRejected>().is_none(), "{passing} may work later");
+    }
+    let unreachable = RouterClient::new("http://127.0.0.1:9", device()).expect("client");
+    let offline = unreachable.deposit("ft_bob", &[1; 32], b"sealed".to_vec()).await.expect_err("no network");
+    assert!(offline.downcast_ref::<MailboxRejected>().is_none());
 }
 
 /// Against the real router: `cargo test -p ft-push -- --ignored`.

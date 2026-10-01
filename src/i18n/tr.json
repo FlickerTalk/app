@@ -57,6 +57,7 @@
     "deleteSure": "Sil",
     "forwardTo": "Şuna ilet",
     "download": "Download",
+    "resend": "Yeniden gönder",
     "discardAttachment": "Discard attachment",
     "otherApp": "Başka bir uygulama"
   },
@@ -68,7 +69,8 @@
     "connected": "Doğrudan bağlı",
     "paused": "Duraklatıldı",
     "failed": "Başarısız",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "Gönderilmedi"
   },
   "calls": {
     "callBack": "Geri ara",

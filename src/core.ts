@@ -7,7 +7,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-export type Status = "pending" | "sent" | "delivered" | "read";
+export type Status = "unsent" | "pending" | "sent" | "delivered" | "read";
 
 /**
  * `paused`: the transfer cannot move without a direct connection (§62). `waiting`: bigger than
@@ -425,6 +425,11 @@ export async function declineContact(contact: string): Promise<void> {
  */
 export async function renewLink(session?: string): Promise<string> {
   return invoke<string>("core_renew_link", session ? { session } : {});
+}
+
+/** Sends again a message the router refused (§84): the same message, queued again. */
+export async function resend(message: string): Promise<void> {
+  await invoke("core_resend", { message });
 }
 
 /** The user asks for a file that was waiting for them (A4). */

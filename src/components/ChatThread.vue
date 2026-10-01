@@ -53,6 +53,7 @@ import {
   pickFiles,
   pluginRef,
   readMessageFile,
+  resend,
   takePhoto,
   saveFile,
   sendFile,
@@ -377,6 +378,11 @@ async function download(id: string) {
   await acceptFile(id).catch(() => {});
 }
 
+/** §84: a message the router refused goes again, the same message. */
+async function resendMessage(id: string) {
+  await resend(id).catch(() => {});
+}
+
 onMounted(() => {
   void refreshPlugins();
   // A tool installed from another window shows up here as soon as the chat comes back.
@@ -517,6 +523,7 @@ watch(
         @save="save"
         @download="download"
         @actions="act"
+        @resend="resendMessage"
       />
 
       <div class="ft-thread__end" />

@@ -57,6 +57,7 @@
     "deleteSure": "حذف",
     "forwardTo": "إعادة توجيه إلى",
     "download": "Download",
+    "resend": "إعادة الإرسال",
     "discardAttachment": "Discard attachment",
     "otherApp": "تطبيق آخر"
   },
@@ -68,7 +69,8 @@
     "connected": "متصل مباشرة",
     "paused": "متوقف مؤقتًا",
     "failed": "فشل",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "لم يُرسَل"
   },
   "calls": {
     "callBack": "معاودة الاتصال",
