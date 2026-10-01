@@ -14,9 +14,25 @@ describe("MessageBubble", () => {
     ["sent", "Sent"],
     ["delivered", "Delivered"],
     ["read", "Read"],
+    ["unsent", "Not sent"],
   ])("labels the %s state for screen readers", (status, label) => {
     const wrapper = mount(MessageBubble, { props: { message: { ...base, status } }, shallow: true });
     expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
+  });
+
+  // §84: a message the router refused says so, and can be sent again from where it is.
+  it("offers to send again a message that was not sent", async () => {
+    const wrapper = mount(MessageBubble, { props: { message: { ...base, status: "unsent" } }, shallow: true });
+    const resend = wrapper.find("[data-test='resend']");
+    expect(resend.attributes("aria-label")).toBe("Send again");
+    await resend.trigger("click");
+    expect(wrapper.emitted("resend")).toEqual([["m1"]]);
+    expect(wrapper.emitted("actions")).toBeUndefined();
+  });
+
+  it.each(["pending", "sent", "delivered", "read"])("offers nothing to send again for a %s message", (status) => {
+    const wrapper = mount(MessageBubble, { props: { message: { ...base, status } }, shallow: true });
+    expect(wrapper.find("[data-test='resend']").exists()).toBe(false);
   });
 
   it("shows no delivery state on incoming messages", () => {

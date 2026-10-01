@@ -57,6 +57,7 @@
     "deleteSure": "刪除",
     "forwardTo": "轉傳給",
     "download": "Download",
+    "resend": "重新傳送",
     "discardAttachment": "Discard attachment",
     "otherApp": "其他應用程式"
   },
@@ -68,7 +69,8 @@
     "connected": "已直接連線",
     "paused": "已暫停",
     "failed": "失敗",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "未傳送"
   },
   "calls": {
     "callBack": "回撥",

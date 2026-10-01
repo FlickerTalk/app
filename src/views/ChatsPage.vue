@@ -11,6 +11,7 @@ import {
   IonToolbar,
 } from "@ionic/vue";
 import {
+  alertCircleOutline,
   attachOutline,
   checkmark,
   checkmarkDone,
@@ -103,6 +104,7 @@ const STATUS_ICON: Record<string, string> = {
   sent: checkmark,
   delivered: checkmarkDone,
   read: checkmarkDone,
+  unsent: alertCircleOutline,
 };
 </script>
 
@@ -552,6 +554,9 @@ const STATUS_ICON: Record<string, string> = {
 }
 .ft-row__status.is-read {
   color: var(--ft-accent);
+}
+.ft-row__status.is-unsent {
+  color: var(--ion-color-danger);
 }
 .ft-row__kind {
   flex-shrink: 0;

@@ -57,6 +57,7 @@
     "deleteSure": "Hapus",
     "forwardTo": "Teruskan ke",
     "download": "Download",
+    "resend": "Kirim ulang",
     "discardAttachment": "Discard attachment",
     "otherApp": "Aplikasi lain"
   },
@@ -68,7 +69,8 @@
     "connected": "Terhubung langsung",
     "paused": "Dijeda",
     "failed": "Gagal",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "Tidak terkirim"
   },
   "calls": {
     "callBack": "Telepon balik",
