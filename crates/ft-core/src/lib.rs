@@ -137,6 +137,10 @@ pub enum Event {
     VaultChanged,
     /// How far a transfer with the cloud is: (done, total) bytes.
     VaultProgress { done: u64, total: u64 },
+    /// An incoming call was refused without a trace (Calls off, a stranger, a blocked contact, a
+    /// closed hidden session; §108, §109). Not for the UI: it never shows. The phone's own call
+    /// screen, which a push may have set ringing before the core knew who called, stops at once.
+    CallRefused,
 }
 
 pub(crate) enum Route {

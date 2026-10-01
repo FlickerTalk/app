@@ -639,6 +639,7 @@ async fn a_pending_stranger_gets_no_files_and_no_calls() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(alice.store().file(&file).await.unwrap().unwrap().chunks_done, 0, "not a byte comes in");
 
+    let mut at_alice = alice.events();
     let call = mallory.place_call(&id(&alice), false).await.expect("dials");
     mallory.offer_call_within(&call, "v=0", Duration::from_millis(500)).await.expect("offers");
     until("mallory hears busy", || async {
@@ -646,6 +647,12 @@ async fn a_pending_stranger_gets_no_files_and_no_calls() {
     })
     .await;
     assert!(alice.visible_calls(10).await.unwrap().is_empty(), "and alice's phone never rang");
+    let mut refused = false;
+    while let Ok(event) = at_alice.try_recv() {
+        assert!(!matches!(event, ft_core::Event::Call { .. }), "it never rings");
+        refused |= event == ft_core::Event::CallRefused;
+    }
+    assert!(refused, "a ring the push started stops at once");
 }
 
 #[tokio::test(flavor = "multi_thread")]

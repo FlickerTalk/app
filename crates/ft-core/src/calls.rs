@@ -206,6 +206,7 @@ impl Core {
         if !contact.rules.accepts_calls || !contact.accepted {
             // Calls off (app#5), or a stranger still in the requests (A5): busy for them, and not
             // a trace on this phone.
+            self.refused_quietly();
             let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
             return Ok(());
         }
@@ -223,6 +224,7 @@ impl Core {
                 outcome: Some(CallOutcome::Missed),
             };
             self.store.insert_call(&record).await?;
+            self.refused_quietly();
             let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
             return Ok(());
         }
@@ -277,6 +279,16 @@ impl Core {
             }
         }
         Ok(())
+    }
+
+    /// An incoming call was refused without a trace (§108, §109): the phone's own call screen,
+    /// which a push may have set ringing before the core knew who called, is told to stop
+    /// (`Event::CallRefused`; the UI never hears of it). What the user said on that screen before
+    /// the offer came (answer, decline) was about this call: it goes with it, and never answers or
+    /// declines the next one.
+    pub(crate) fn refused_quietly(&self) {
+        self.early_answer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        let _ = self.events.send(Event::CallRefused);
     }
 
     /// The contact answered our call, at call media version `media`.

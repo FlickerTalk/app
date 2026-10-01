@@ -378,6 +378,47 @@ async fn an_early_answer_is_forgotten_after_its_window_or_a_hang_up() {
     alice.core.end_call(&declined, false).await.unwrap();
 }
 
+// The phone's own call screen rang from a push and the user answered (or declined) it before the
+// offer came; the call turned out to be one this phone refuses without a trace (here: Calls off).
+// What the user said was about that call: it must not answer or decline the next one.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_early_answer_goes_with_a_call_refused_without_a_trace() {
+    let bus = Arc::new(Bus::default());
+    let alice = phone(&bus, "Alice", false, Activation::Immediate).await;
+    let bob = phone(&bus, "Bob", true, Activation::Immediate).await;
+    let carol = phone(&bus, "Carol", false, Activation::Immediate).await;
+    for one in [&alice, &bob, &carol] {
+        one.go_online(&bus);
+    }
+    pair(&alice, &bob).await;
+    pair(&carol, &bob).await;
+    let rules = ft_storage::ContactRules { accepts_calls: false, ..ft_storage::ContactRules::default() };
+    bob.core.set_rules(&carol.id(), rules).await.expect("calls off for carol");
+
+    for early in ["answer", "decline"] {
+        let mut bob_events = bob.core.events();
+        if early == "answer" {
+            assert!(!bob.core.answer_ringing_call().await.unwrap(), "nothing rings yet: the answer waits");
+        } else {
+            bob.core.decline_ringing_call().await.expect("nothing rings yet: the decline waits");
+        }
+        let refused = carol.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("carol calls");
+        let heard = async {
+            while !matches!(bob_events.recv().await, Ok(Event::CallRefused)) {}
+        };
+        tokio::time::timeout(Duration::from_secs(10), heard).await.expect("refused");
+        let _ = carol.core.end_call(&refused, false).await;
+
+        let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+        ringing_call(&bob).await;
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        let shown = bob.core.current_call().await.unwrap().expect("alice's call is there");
+        assert_eq!(shown.phase, CallPhase::Ringing, "the early {early} went with the refused call");
+        alice.core.end_call(&call, false).await.unwrap();
+        until("the call is over", || async { bob.core.current_call().await.unwrap().is_none() }).await;
+    }
+}
+
 // Bug of 2026-09-29 (QA on Android emulators, the owner on the iPhone): with the app closed, the
 // user answered on the phone's own screen before the offer arrived, and the call then rang again
 // in the app, asking for a second answer. A call answered early never shows as ringing: from the
