@@ -332,6 +332,7 @@ fn check(manifest: &Manifest) -> Result<()> {
             let asks = &manifest.permissions;
             let playing = Permissions { live: asks.live, send: asks.send, ..Permissions::default() };
             ensure!(*asks == playing, "a game may ask only for the live channel and for sending");
+            ensure!(asks.send != Sending::Auto, "a game proposes what goes in the chat; it never sends by itself");
             ensure!(
                 manifest.opens.is_empty() && manifest.views.is_empty(),
                 "a game is opened from the games, never handed a file"
@@ -623,6 +624,8 @@ mod tests {
             r#","permissions":{"live":true,"remind":true}"#,
             r#","permissions":{"live":true,"drive":true}"#,
             r#","permissions":{"live":true,"storage":"large"}"#,
+            // It proposes a line for the chat; it never sends on the user's behalf.
+            r#","permissions":{"live":true,"send":"auto"}"#,
             // A game is opened from the games, never handed a file: no "open with", no viewer.
             r#","opens":["image/*"]"#,
             r#","opens":["application/x-ftchess"],"views":["application/x-ftchess"]"#,
