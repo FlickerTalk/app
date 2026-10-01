@@ -44,3 +44,28 @@ test("a session can be deleted after asking once", async ({ app }) => {
   await expect(app.getByTestId("session-section")).toHaveCount(0);
   expect(await commandsSent(app)).toContain("core_session_remove");
 });
+
+// 2026-10-01 (§108, QA SES-12): a session stays open until the user leaves it, also when the app
+// starts again (the fake keeps its sessions across a reload, as the core keeps them on disk).
+test("an open session is still there after the app starts again, with no pin", async ({ app }) => {
+  await app.goto("/session");
+  await type(app, "135790");
+  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  await expect(app.getByTestId("session-section")).toHaveCount(1);
+
+  await app.reload();
+  await expect(app.getByTestId("session-section")).toHaveCount(1);
+  expect(await commandsSent(app)).not.toContain("core_session_open");
+});
+
+test("a session that was left is not there after the app starts again", async ({ app }) => {
+  await app.goto("/session");
+  await type(app, "135790");
+  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  await app.getByTestId("session-section").getByTestId("session-close").click();
+  await expect(app.getByTestId("session-section")).toHaveCount(0);
+
+  await app.reload();
+  await expect(app.getByTestId("chat-row").first()).toBeVisible();
+  await expect(app.getByTestId("session-section")).toHaveCount(0);
+});
