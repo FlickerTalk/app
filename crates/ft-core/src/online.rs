@@ -3,7 +3,7 @@
 //! ties the knot, registers the device, listens to the router, retries the outbox and resumes
 //! stalled file transfers.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -207,6 +207,77 @@ impl Presence {
     }
 }
 
+/// How often the client looks whether what kept it connected out of the foreground is over.
+const PRESENCE_LOOK: Duration = Duration::from_secs(1);
+
+/// Lets go of the router and the other phones, or comes back to them, as `Presence` says.
+pub struct Lifecycle {
+    core: Weak<Core>,
+    router: Arc<RouterClient>,
+    network: Arc<Network>,
+    presence: std::sync::Mutex<Presence>,
+    /// One look at a time: the last decision is the one that stands.
+    looking: tokio::sync::Mutex<()>,
+}
+
+impl Lifecycle {
+    fn presence(&self) -> std::sync::MutexGuard<'_, Presence> {
+        self.presence.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The platform says the app is in the foreground or not (2026-10-01). Returns once done, so
+    /// that a phone about to be suspended has let go: `true` if the connection came back.
+    pub async fn set_foreground(&self, foreground: bool) -> bool {
+        self.presence().set_foreground(foreground);
+        self.settle().await
+    }
+
+    /// A push came (a call's, or a wake): out of the foreground, the connection comes back for what
+    /// it announces. `true` if it came back; if it was there, the caller may still want a fresh one.
+    pub async fn woken(&self) -> bool {
+        self.presence().woken(Instant::now());
+        self.settle().await
+    }
+
+    /// Acts on what `Presence` says now: away, the router's socket goes at once (so it pushes what
+    /// comes) and the direct connections close (so the other phones see this one gone); back, the
+    /// socket opens again and its welcome fetches what waited. `true` if the connection came back.
+    async fn settle(&self) -> bool {
+        let _one_at_a_time = self.looking.lock().await;
+        let now = Instant::now();
+        let connected = self.presence().connected(now, false) || {
+            let Some(core) = self.core.upgrade() else { return false };
+            let going_on = core.current_call().await.ok().flatten().is_some();
+            self.presence().connected(now, going_on)
+        };
+        if connected {
+            return self.router.set_away(false);
+        }
+        if self.router.set_away(true) {
+            self.network.close().await;
+        }
+        false
+    }
+}
+
+/// Follows the core's calls for `Presence`, and looks again every second: a call that ends out of
+/// the foreground lets go a moment later, and a push that brought nothing in a while.
+async fn keep_present(lifecycle: Arc<Lifecycle>, mut events: tokio::sync::broadcast::Receiver<crate::Event>, mut stop: tokio::sync::watch::Receiver<bool>) {
+    let mut look = tokio::time::interval(PRESENCE_LOOK);
+    loop {
+        tokio::select! {
+            event = events.recv() => match event {
+                Ok(event) => lifecycle.presence().saw(&event, Instant::now()),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            },
+            _ = look.tick() => {}
+            _ = stop.wait_for(|stopped| *stopped) => return,
+        }
+        lifecycle.settle().await;
+    }
+}
+
 /// The running client: the core, its router client and its network.
 pub struct Online {
     pub core: Arc<Core>,
@@ -214,6 +285,7 @@ pub struct Online {
     pub network: Arc<Network>,
     /// Set once, by `shutdown`: the background work of this client ends.
     stop: tokio::sync::watch::Sender<bool>,
+    lifecycle: Arc<Lifecycle>,
 }
 
 /// The router client is created before the core, so it reaches the identity through this slot.
@@ -266,14 +338,31 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         });
     }
 
+    // Out of the foreground the app lets go of the router and the other phones (2026-10-01).
+    let lifecycle = Arc::new(Lifecycle {
+        core: Arc::downgrade(&core),
+        router: router.clone(),
+        network: network.clone(),
+        presence: std::sync::Mutex::new(Presence::started(Instant::now())),
+        looking: tokio::sync::Mutex::new(()),
+    });
+    tokio::spawn(keep_present(lifecycle.clone(), core.events(), stop.subscribe()));
+
     let mut stopping = stop.subscribe();
     let retrying = Arc::downgrade(&core);
+    let away = router.clone();
     tokio::spawn(async move {
         let mut every = tokio::time::interval(RETRY_EVERY);
         loop {
             tokio::select! {
                 _ = every.tick() => {}
                 _ = stopping.wait_for(|stopped| *stopped) => break,
+            }
+            // Away, nothing is retried: a retry would open a connection the other phone sees as
+            // alive, and have the router wake this phone for the answer. The welcome on coming
+            // back retries everything.
+            if away.is_away() {
+                continue;
             }
             let Some(core) = retrying.upgrade() else { break };
             let _ = core.retry_due().await;
@@ -283,7 +372,7 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         }
     });
 
-    Ok(Online { core, router, network, stop })
+    Ok(Online { core, router, network, stop, lifecycle })
 }
 
 impl Online {
@@ -299,6 +388,21 @@ impl Online {
         self.router.close();
         self.network.close().await;
         self.core.store().close().await;
+    }
+
+    /// What follows the app's foreground and the pushes (`Lifecycle`), for whoever hears them.
+    pub fn lifecycle(&self) -> Arc<Lifecycle> {
+        self.lifecycle.clone()
+    }
+
+    /// See `Lifecycle::set_foreground`.
+    pub async fn set_foreground(&self, foreground: bool) -> bool {
+        self.lifecycle.set_foreground(foreground).await
+    }
+
+    /// See `Lifecycle::woken`.
+    pub async fn woken(&self) -> bool {
+        self.lifecycle.woken().await
     }
 
     /// Resolves once the client is stopped: whoever follows its events lets them go.
