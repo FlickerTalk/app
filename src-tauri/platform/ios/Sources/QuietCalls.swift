@@ -102,6 +102,18 @@ enum PushCall: Equatable {
     case endAtOnce(PushQuiet)
 }
 
+extension PushCall {
+    /// For the device check's log: what was decided, never who or which session.
+    var logName: String {
+        switch self {
+        case .ring: return "ring"
+        case .alreadyRinging: return "already ringing"
+        case .endAtOnce(.closedSession): return "ended at once (closed session)"
+        case .endAtOnce(.outsideHours): return "ended at once (outside hours)"
+        }
+    }
+}
+
 func pushCall(callKitCall: Bool, slotHeard: Bool, mayDisturb: Bool) -> PushCall {
     if callKitCall { return .alreadyRinging }
     if !slotHeard { return .endAtOnce(.closedSession) }
@@ -178,6 +190,6 @@ private let quietCallsLog = Logger(subsystem: "com.flickertalk.calls", category:
 /// in release builds.
 func quietLog(_ decision: String) {
     #if DEBUG
-    quietCallsLog.notice("\(decision, privacy: .public)")
+    quietCallsLog.notice("ft-quiet \(decision, privacy: .public)")
     #endif
 }
