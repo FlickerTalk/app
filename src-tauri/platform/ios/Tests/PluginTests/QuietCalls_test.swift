@@ -51,6 +51,21 @@ final class QuietCallsTests: XCTestCase {
         XCTAssertEqual(QuietHours.week(in: defaults), "")
     }
 
+    // 2026-10-01 (§108): a session stays open until the user leaves it, across starts. The open
+    // slots are kept where a call push finds them when PushKit launches the app before the core.
+    // Only slots 1–7 come back; nothing kept is none open.
+    func testTheOpenSlotsOutliveTheApp() {
+        let defaults = UserDefaults(suiteName: "ft.tests.slots")!
+        defaults.removePersistentDomain(forName: "ft.tests.slots")
+        XCTAssertEqual(OpenSlots.kept(in: defaults), [], "none kept: none open")
+        OpenSlots.keep([3, 1, 7], in: defaults)
+        XCTAssertEqual(OpenSlots.kept(in: defaults), [1, 3, 7])
+        OpenSlots.keep([0, 2, 8], in: defaults)
+        XCTAssertEqual(OpenSlots.kept(in: defaults), [2], "only hidden sessions' slots")
+        OpenSlots.keep([], in: defaults)
+        XCTAssertEqual(OpenSlots.kept(in: defaults), [])
+    }
+
     // What Rust sends (`QuietHours`, `OpenSlots` in platform/src/lib.rs).
     func testTheHoursAndTheOpenSlotsAreReadAsRustSendsThem() throws {
         let hours = try JSONDecoder().decode(QuietHoursArgs.self, from: Data(#"{"week":"all;none;all;all;all;all;all"}"#.utf8))
@@ -60,13 +75,13 @@ final class QuietCallsTests: XCTestCase {
     }
 
     // The router's `s` (app#9): 0, or none from an older router, is the main list; 1–7 a hidden
-    // session, heard only while it is open. After a process start none is open. APNs carries a
+    // session, heard only while it is open (the kept ones after a start, 2026-10-01). APNs carries a
     // number; a string is read too, and anything else is not heard.
     func testOnlyAnOpenSessionsSlotIsHeard() {
         XCTAssertTrue(slotIsHeard(nil, open: []))
         XCTAssertTrue(slotIsHeard(0, open: []))
         XCTAssertTrue(slotIsHeard(NSNumber(value: 0), open: []))
-        XCTAssertFalse(slotIsHeard(3, open: []), "closed: a process that just started has none open")
+        XCTAssertFalse(slotIsHeard(3, open: []), "closed")
         XCTAssertTrue(slotIsHeard(3, open: [3]))
         XCTAssertTrue(slotIsHeard("3", open: [3]))
         XCTAssertFalse(slotIsHeard("x", open: [3]))

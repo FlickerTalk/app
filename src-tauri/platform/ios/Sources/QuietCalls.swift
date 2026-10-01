@@ -61,6 +61,20 @@ struct QuietHoursArgs: Decodable {
     let week: String
 }
 
+/// The hidden sessions open now, by slot, as the core last said (2026-10-01): kept where a call
+/// push finds them when PushKit launches the app before the core. Never which session.
+enum OpenSlots {
+    private static let key = "ft.open_slots"
+
+    static func keep(_ slots: [Int], in defaults: UserDefaults = .standard) {
+        defaults.set(slots.filter { (1...7).contains($0) }.sorted(), forKey: key)
+    }
+
+    static func kept(in defaults: UserDefaults = .standard) -> Set<Int> {
+        Set((defaults.array(forKey: key) as? [Int] ?? []).filter { (1...7).contains($0) })
+    }
+}
+
 /// Arguments of `setOpenSlots`, the same as Kotlin's: the open hidden sessions, by slot.
 struct OpenSlotsArgs: Decodable {
     let slots: [Int]
