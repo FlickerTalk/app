@@ -116,6 +116,25 @@ describe("PluginsPage", () => {
     expect(text).not.toContain("3 KB");
   });
 
+  // Plan 10.3: games have their own section; Settings shows tools only, installed or offered.
+  it("shows tools only, never a game", async () => {
+    const chess = { ...CODE, id: "com.flickertalk.game.chess", name: "Chess", kind: "game" };
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_plugins") return [CODE, chess];
+      if (command === "core_catalogue") {
+        return [...OFFERED, { id: "com.flickertalk.game.go", name: "Go", version: "1.0.0", summary: "Play go.", size: 9000, installed: false, carried: false, kind: "game" }];
+      }
+      return undefined;
+    });
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Code block");
+    expect(wrapper.text()).toContain("Sketch");
+    expect(wrapper.text()).not.toContain("Chess");
+    expect(wrapper.find("[data-test='install-com.flickertalk.game.go']").exists()).toBe(false);
+  });
+
   // 2026-09-27: the live channel, reminders, the cloud and the room are switches of their own.
   it("shows a switch for each of the new permissions a plugin asks for", async () => {
     installTauri((command, args) => {
