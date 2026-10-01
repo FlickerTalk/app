@@ -907,8 +907,9 @@ impl Client {
             if let Ok(week) = online.core.quiet_week().await {
                 let _ = app.platform().set_quiet_hours(&week);
             }
-            // A core that starts has every hidden session closed (§108): on iOS a new core may
-            // start in the same process (erasing the phone), whose native side still had some open.
+            // The sessions the user left open are open again (2026-10-01, §108): the native side
+            // keeps the slots for a process a push starts before the core. A new core after
+            // erasing the phone (iOS, the same process) has none.
             let _ = app.platform().set_open_slots(&online.core.open_slots());
             // The phone's alarm clock is told every reminder again (2026-09-27): the core is
             // the truth, and an alarm lost to a reboot or an update comes back here.
@@ -1346,13 +1347,13 @@ pub async fn core_accept_file(message: String, client: State<'_, Client>) -> Res
     Ok(())
 }
 
-/// Retires the current link and makes a new one (A5): the router learns the new addresses and
-/// the contacts get the new card. Of the main list, or of an open hidden session.
+/// Retires the current link and makes a new one (A5): the contacts get the new card, and the
+/// router the new addresses in the background (`online::keep_registered`), now or once it can be
+/// reached. Of the main list, or of an open hidden session.
 #[tauri::command]
 pub async fn core_renew_link(session: Option<String>, client: State<'_, Client>) -> Result<String, String> {
     let online = client.online().await?;
-    let hashes = online.core.renew_link(session.as_deref()).await.map_err(failed)?;
-    online.router.register(&hashes, 0).await.map_err(failed)?;
+    online.core.renew_link(session.as_deref()).await.map_err(failed)?;
     Ok(online.core.my_card_in(session.as_deref()).await.map_err(failed)?.to_link())
 }
 
@@ -1603,7 +1604,7 @@ pub async fn core_circle_mark_read(circle: String, client: State<'_, Client>) ->
 pub async fn core_session_open(pin: String, app: AppHandle, client: State<'_, Client>) -> Result<Option<SessionView>, String> {
     let online = client.online().await?;
     let Some(session) = online.core.open_session(&pin).await.map_err(failed)? else { return Ok(None) };
-    // Its wake-ups are heard from now on (app#9).
+    // Its wake-ups are heard from now on (app#9); the router learns it on its own (2026-10-01).
     let _ = app.platform().set_open_slots(&online.core.open_slots());
     Ok(Some(session_view(&online, session).await?))
 }
@@ -1614,7 +1615,6 @@ pub async fn core_session_remove(session: String, app: AppHandle, client: State<
     let online = client.online().await?;
     online.core.remove_session(&session).await.map_err(failed)?;
     let _ = app.platform().set_open_slots(&online.core.open_slots());
-    reregister(&online);
     Ok(())
 }
 
@@ -1622,24 +1622,9 @@ pub async fn core_session_remove(session: String, app: AppHandle, client: State<
 #[tauri::command]
 pub async fn core_session_close(session: String, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
     let online = client.online().await?;
-    let gone = online.core.close_session(&session).await.map_err(failed)?;
+    online.core.close_session(&session).await.map_err(failed)?;
     let _ = app.platform().set_open_slots(&online.core.open_slots());
-    if gone {
-        reregister(&online);
-    }
     Ok(())
-}
-
-/// A session went and its slot got a new link (A3): the router learns the eight hashes again,
-/// in the background, so no command waits for the network. If it cannot be reached, the next
-/// start registers them anyway.
-fn reregister(online: &Online) {
-    let (core, router) = (online.core.clone(), online.router.clone());
-    tauri::async_runtime::spawn(async move {
-        if let Ok(hashes) = core.route_capability_hashes().await {
-            let _ = router.register(&hashes, 0).await;
-        }
-    });
 }
 
 /// The sessions open right now, with their conversations: what the chats list refreshes.
@@ -1810,6 +1795,8 @@ pub async fn core_erase(app: AppHandle, client: State<'_, Client>) -> Result<(),
     }
     client.stop().await;
     let wiped = client.wipe();
+    // The native copy of the open sessions goes with everything else (2026-10-01).
+    let _ = app.platform().set_open_slots(&[]);
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(RESTART_PAUSE).await;
         restart(&app).await;

@@ -519,6 +519,37 @@ async fn a_spare_slot_is_silent_or_not_at_random_and_stays_so() {
     assert!(masks.iter().all(|mask| mask & 1 == 0));
 }
 
+// Whatever changes what the router must know (a session opened, left, created or deleted, a
+// link renewed) asks for a new registration: the app registers again, now or once it can.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_change_the_router_must_know_asks_for_a_new_registration() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let mut changes = alice.registration_changes();
+    let mut asked = || {
+        let asked = changes.has_changed().unwrap();
+        changes.borrow_and_update();
+        asked
+    };
+    assert!(!asked());
+
+    let session = open(&alice, "123456").await;
+    assert!(asked(), "created and opened");
+    alice.add_contact_in(&bob.my_card().await.expect("card").to_link(), None, Some(&session)).await.expect("adds inside");
+    alice.close_session(&session).await.expect("closes");
+    assert!(asked(), "left");
+    open(&alice, "123456").await;
+    assert!(asked(), "opened");
+    alice.renew_link(Some(&session)).await.expect("renews");
+    assert!(asked(), "a new link");
+    alice.remove_session(&session).await.expect("removes");
+    assert!(asked(), "deleted");
+    let empty = open(&alice, "654321").await;
+    asked();
+    alice.close_session(&empty).await.expect("closes");
+    assert!(asked(), "an empty one left, and gone");
+}
+
 // A slot's link must die with its session: otherwise whoever kept the old QR would land in the
 // next session to take the slot, or in the main list.
 #[tokio::test(flavor = "multi_thread")]
