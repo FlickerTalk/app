@@ -105,6 +105,9 @@ pub trait Transport: Send + Sync {
     }
     /// Leaves the packet, already encrypted, in the peer's mailbox on the router (§19).
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
+    /// Our call to the device is over (2026-10-01): an offer of ours that rang for it rings no more,
+    /// so the next call makes its own and the device rings again.
+    async fn call_over(&self, _device_id: &str) {}
     /// Closes any direct connection with the device (a blocked contact, §35).
     async fn disconnect(&self, _device_id: &str) {}
     /// Where a native call's media listens and the servers that help it: the router's STUN and

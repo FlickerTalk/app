@@ -153,7 +153,8 @@ struct Retained {
     window: Instant,
     /// When the router drops it: from then on a new offer is needed.
     until: Instant,
-    /// Whether it was sent marked as a call: only then did the router ring the contact.
+    /// Whether it rang the contact for the call going on: sent marked as a call, and that call not
+    /// over yet (`call_over`).
     call: bool,
 }
 
@@ -321,6 +322,12 @@ impl Network {
         }
     }
 
+    /// How many of our offers wait for their answer. For tests.
+    #[doc(hidden)]
+    pub async fn offers_waiting(&self) -> usize {
+        self.pending.lock().await.len()
+    }
+
     /// Closes every direct connection and every offer still waiting (erasing the phone,
     /// 2026-09-30).
     pub async fn close(&self) {
@@ -359,7 +366,8 @@ impl Network {
     ///
     /// A call never waits on an offer that was not sent as a call (2026-10-01): the router only
     /// woke the contact for it (an iPhone shows a notice and does not start the app), so the call
-    /// would never ring. That offer is dropped and the call makes its own, marked as a call. One
+    /// would never ring; nor on the offer of a call that is over (a redial rings again). That
+    /// offer is dropped and the call makes its own, marked as a call. One
     /// offer per contact at a time keeps it to one connection: the dropped one cannot open, since
     /// our side of it is closed.
     async fn connect(&self, peer: &Peer, reach: Reach) -> Result<Attempt> {
@@ -685,6 +693,15 @@ impl Transport for Network {
 
     async fn disconnect(&self, device_id: &str) {
         Network::disconnect(self, device_id).await;
+    }
+
+    /// The offer stays, as one that never rang: what still has to reach the contact (the call's
+    /// end) goes by it if they wake, without another offer through the router, which would wake
+    /// them again; the next call drops it and rings with its own (`connect`).
+    async fn call_over(&self, device_id: &str) {
+        if let Some(retained) = self.retained.lock().await.get_mut(device_id) {
+            retained.call = false;
+        }
     }
 }
 
