@@ -1,3 +1,4 @@
 /* Permission texts of the iPhone app (2026-09-28). */
 "NSCameraUsageDescription" = "FlickerTalk dùng camera cho cuộc gọi video và để quét mã liên hệ.";
 "NSMicrophoneUsageDescription" = "FlickerTalk dùng micrô cho cuộc gọi.";
+"NSLocationWhenInUseUsageDescription" = "FlickerTalk chỉ dùng vị trí của bạn khi bạn chọn chia sẻ nơi bạn đang ở trong một cuộc trò chuyện.";

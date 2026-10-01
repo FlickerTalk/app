@@ -1,3 +1,4 @@
 /* Permission texts of the iPhone app (2026-09-28). */
 "NSCameraUsageDescription" = "FlickerTalk은 영상 통화와 연락처 코드 스캔에 카메라를 사용합니다.";
 "NSMicrophoneUsageDescription" = "FlickerTalk은 통화에 마이크를 사용합니다.";
+"NSLocationWhenInUseUsageDescription" = "FlickerTalk은 채팅에서 내 위치를 공유하기로 선택할 때만 위치를 사용합니다.";
