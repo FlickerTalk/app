@@ -59,6 +59,7 @@ import {
   sendFile,
   sendPicked,
   sendText,
+  sessionOf,
   shareMessage,
   declineContact,
   store,
@@ -492,6 +493,7 @@ watch(
         :text="plugin.text"
         :file="plugin.file"
         :reference="plugin.reference"
+        :session="sessionOf(chatId)"
         @text="fromPlugin"
         @attach="stage"
         @open-chat="(contact) => router.push(`/chat/${contact}`)"

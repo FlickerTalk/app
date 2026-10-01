@@ -357,6 +357,15 @@ export function circleHome(id: string): { session?: string; contacts: Chat[] } {
   return { contacts: store.chats };
 }
 
+/**
+ * The open hidden session a conversation (or a stranger's request) lives in; undefined for the
+ * main list. A plugin opened from that conversation is open there (2026-10-01, §108).
+ */
+export function sessionOf(contact: string): string | undefined {
+  if (!contact) return undefined;
+  return store.sessions.find((session) => session.chats.concat(session.requests).some((one) => one.id === contact))?.id || undefined;
+}
+
 /** A circle of the main list or of any open session. */
 export function circle(id: string): Circle | undefined {
   return store.circles.concat(...store.sessions.map((session) => session.circles)).find((candidate) => candidate.id === id);
@@ -862,16 +871,20 @@ export async function pluginFetch(
   return invoke("core_plugin_fetch", { plugin, url, method, headers, body });
 }
 
-export async function pluginRead(plugin: string, key: string): Promise<string | null> {
-  return invoke<string | null>("core_plugin_read", { plugin, key });
+// `session` (2026-10-01, §108): the hidden session the plugin is open in, if any. What a plugin
+// keeps, sets or looks up belongs to that place; the core keeps each apart and the plugin never
+// hears of it.
+
+export async function pluginRead(plugin: string, key: string, session?: string): Promise<string | null> {
+  return invoke<string | null>("core_plugin_read", { plugin, key, session });
 }
 
-export async function pluginWrite(plugin: string, key: string, value: string): Promise<void> {
-  await invoke("core_plugin_write", { plugin, key, value });
+export async function pluginWrite(plugin: string, key: string, value: string, session?: string): Promise<void> {
+  await invoke("core_plugin_write", { plugin, key, value, session });
 }
 
-export async function pluginForget(plugin: string, key: string): Promise<void> {
-  await invoke("core_plugin_forget", { plugin, key });
+export async function pluginForget(plugin: string, key: string, session?: string): Promise<void> {
+  await invoke("core_plugin_forget", { plugin, key, session });
 }
 
 /** What the user allows a plugin to do; never more than it asked for (§53). */
@@ -892,26 +905,26 @@ export interface PluginEvent {
 }
 
 /** A record's value, as the plugin wrote it (a string), or null. */
-export async function pluginRecordGet(plugin: string, key: string): Promise<string | null> {
-  const value = await invoke<string | null>("core_plugin_record_get", { plugin, key });
+export async function pluginRecordGet(plugin: string, key: string, session?: string): Promise<string | null> {
+  const value = await invoke<string | null>("core_plugin_record_get", { plugin, key, session });
   return value === null ? null : fromBase64(value);
 }
 
-export async function pluginRecordSet(plugin: string, key: string, value: string): Promise<void> {
-  await invoke("core_plugin_record_set", { plugin, key, value: toBase64Text(value) });
+export async function pluginRecordSet(plugin: string, key: string, value: string, session?: string): Promise<void> {
+  await invoke("core_plugin_record_set", { plugin, key, value: toBase64Text(value), session });
 }
 
-export async function pluginRecordForget(plugin: string, key: string): Promise<void> {
-  await invoke("core_plugin_record_forget", { plugin, key });
+export async function pluginRecordForget(plugin: string, key: string, session?: string): Promise<void> {
+  await invoke("core_plugin_record_forget", { plugin, key, session });
 }
 
-export async function pluginRecordKeys(plugin: string, prefix: string): Promise<string[]> {
-  return invoke<string[]>("core_plugin_record_keys", { plugin, prefix });
+export async function pluginRecordKeys(plugin: string, prefix: string, session?: string): Promise<string[]> {
+  return invoke<string[]>("core_plugin_record_keys", { plugin, prefix, session });
 }
 
-/** How much of its room a plugin uses and how much it has, in bytes. */
-export async function pluginRecordUsage(plugin: string): Promise<{ used: number; quota: number }> {
-  const [used, quota] = await invoke<[number, number]>("core_plugin_record_usage", { plugin });
+/** How much of its room a plugin uses in that place and how much it has, in bytes. */
+export async function pluginRecordUsage(plugin: string, session?: string): Promise<{ used: number; quota: number }> {
+  const [used, quota] = await invoke<[number, number]>("core_plugin_record_usage", { plugin, session });
   return { used, quota };
 }
 
@@ -920,9 +933,9 @@ export async function pluginRef(plugin: string, message: string): Promise<string
   return invoke<string>("core_plugin_ref", { plugin, message });
 }
 
-/** Where a plugin's ref leads, or null if the message or the contact is gone. */
-export async function pluginOpenChat(plugin: string, reference: string): Promise<{ contact: string; message: string } | null> {
-  return invoke<{ contact: string; message: string } | null>("core_plugin_open_chat", { plugin, reference });
+/** Where a plugin's ref leads, or null if the message or the contact is gone, or is not in that place. */
+export async function pluginOpenChat(plugin: string, reference: string, session?: string): Promise<{ contact: string; message: string } | null> {
+  return invoke<{ contact: string; message: string } | null>("core_plugin_open_chat", { plugin, reference, session });
 }
 
 export interface Reminder {
@@ -932,23 +945,26 @@ export interface Reminder {
   text: string;
 }
 
-export async function remindSet(plugin: string, id: string, at: number, text: string): Promise<void> {
-  await invoke("core_remind_set", { plugin, id, at, text });
+export async function remindSet(plugin: string, id: string, at: number, text: string, session?: string): Promise<void> {
+  await invoke("core_remind_set", { plugin, id, at, text, session });
 }
 
-export async function remindCancel(plugin: string, id: string): Promise<boolean> {
-  return invoke<boolean>("core_remind_cancel", { plugin, id });
+export async function remindCancel(plugin: string, id: string, session?: string): Promise<boolean> {
+  return invoke<boolean>("core_remind_cancel", { plugin, id, session });
 }
 
-export async function remindList(plugin: string): Promise<Reminder[]> {
-  return invoke<Reminder[]>("core_remind_list", { plugin });
+export async function remindList(plugin: string, session?: string): Promise<Reminder[]> {
+  return invoke<Reminder[]>("core_remind_list", { plugin, session });
 }
 
-/** The reminder the user tapped to open the app, once: `{ plugin, id }` or null. */
-export async function pendingReminder(): Promise<{ plugin: string; id: string } | null> {
-  const key = String((await invoke<string>("core_pending_reminder").catch(() => "")) ?? "");
-  const at = key.indexOf("\n");
-  return at > 0 ? { plugin: key.slice(0, at), id: key.slice(at + 1) } : null;
+/**
+ * The reminder the user tapped to open the app, once: `{ plugin, id }`, with the hidden session it
+ * was set in if it was (2026-10-01, §108), or null.
+ */
+export async function pendingReminder(): Promise<{ plugin: string; id: string; session?: string } | null> {
+  const tapped = await invoke<{ plugin: string; id: string; session: string | null } | null>("core_pending_reminder").catch(() => null);
+  if (!tapped?.plugin) return null;
+  return tapped.session ? { plugin: tapped.plugin, id: tapped.id, session: tapped.session } : { plugin: tapped.plugin, id: tapped.id };
 }
 
 /** What a plugin says to its twin on the contact's phone; false if it cannot be reached now. */

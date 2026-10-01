@@ -90,62 +90,79 @@ impl Core {
     }
 
     /// What a plugin remembers between two openings. Its frame has no origin of its own, so the
-    /// browser gives it no storage: the core keeps it, apart from every other plugin (§53).
-    pub async fn plugin_remembers(&self, id: &str, key: &str) -> Result<Option<String>> {
-        self.store.plugin_value(id, key).await
+    /// browser gives it no storage: the core keeps it, apart from every other plugin (§53), and
+    /// apart for each place it is opened in (§108).
+    pub async fn plugin_remembers(&self, id: &str, session: Option<&str>, key: &str) -> Result<Option<String>> {
+        self.store.plugin_value(id, self.place(session)?, key).await
     }
 
     /// Keeps one value for a plugin. Small, few, and only for a plugin that is installed here.
-    pub async fn plugin_remember(&self, id: &str, key: &str, value: &str) -> Result<()> {
+    pub async fn plugin_remember(&self, id: &str, session: Option<&str>, key: &str, value: &str) -> Result<()> {
+        let session = self.place(session)?;
         ensure!(!key.is_empty() && key.len() <= MEMORY_KEY, "that key is too long");
         ensure!(value.len() <= MEMORY_VALUE, "a plugin may not keep that much");
         ensure!(self.store.plugin(id).await?.is_some(), "{id} is not installed here");
-        let keys = self.store.plugin_keys(id).await?;
+        let keys = self.store.plugin_keys(id, session).await?;
         ensure!(
             keys.len() < MEMORY_KEYS || keys.iter().any(|known| known == key),
             "a plugin may not keep that many things"
         );
-        self.store.set_plugin_value(id, key, value).await
+        self.store.set_plugin_value(id, session, key, value).await
     }
 
-    pub async fn plugin_forget(&self, id: &str, key: &str) -> Result<()> {
-        self.store.forget_plugin_value(id, key).await
+    pub async fn plugin_forget(&self, id: &str, session: Option<&str>, key: &str) -> Result<()> {
+        self.store.forget_plugin_value(id, self.place(session)?, key).await
     }
 
-    pub async fn plugin_memory_keys(&self, id: &str) -> Result<Vec<String>> {
-        self.store.plugin_keys(id).await
+    pub async fn plugin_memory_keys(&self, id: &str, session: Option<&str>) -> Result<Vec<String>> {
+        self.store.plugin_keys(id, self.place(session)?).await
+    }
+
+    /// Where a plugin is open (2026-10-01, §108): the main list (`None`) or a hidden session,
+    /// which must be open right now. What a plugin keeps belongs to the place it was kept in, and
+    /// a closed session lends it to nobody, not even to whoever names it. The plugin never learns
+    /// any of this: the app says where it opened it, and the core keeps each place apart.
+    fn place<'a>(&self, session: Option<&'a str>) -> Result<Option<&'a str>> {
+        if let Some(session) = session {
+            ensure!(self.is_session_open(session), "that session is not open");
+        }
+        Ok(session)
     }
 
     // ---- Records (2026-09-27): what a plugin keeps beyond its settings ----
 
-    pub async fn plugin_record(&self, id: &str, key: &str) -> Result<Option<Vec<u8>>> {
-        self.store.plugin_record(id, key).await
+    pub async fn plugin_record(&self, id: &str, session: Option<&str>, key: &str) -> Result<Option<Vec<u8>>> {
+        self.store.plugin_record(id, self.place(session)?, key).await
     }
 
     /// Keeps one record, within the room the user granted the plugin (`storage`): the value
-    /// replaces what the key held, and the whole of the plugin's records must fit the quota.
-    pub async fn plugin_record_set(&self, id: &str, key: &str, value: &[u8]) -> Result<()> {
+    /// replaces what the key held, and the plugin's records in that place must fit the quota.
+    /// Each place has the whole quota: what a session holds never shows in another's room.
+    pub async fn plugin_record_set(&self, id: &str, session: Option<&str>, key: &str, value: &[u8]) -> Result<()> {
+        let session = self.place(session)?;
         ensure!(!key.is_empty() && key.len() <= RECORD_KEY, "that key is too long");
         ensure!(value.len() <= RECORD_VALUE, "a record may not hold that much");
         let quota = self.granted_to(id).await?.storage.quota();
-        let held = self.store.plugin_record(id, key).await?.map_or(0, |old| old.len() as i64);
-        let used = self.store.plugin_records_size(id).await? - held;
+        let held = self.store.plugin_record(id, session, key).await?.map_or(0, |old| old.len() as i64);
+        let used = self.store.plugin_records_size(id, session).await? - held;
         ensure!(used + value.len() as i64 <= quota as i64, "the plugin has no room left for that");
-        self.store.set_plugin_record(id, key, value).await
+        self.store.set_plugin_record(id, session, key, value).await
     }
 
-    pub async fn plugin_record_forget(&self, id: &str, key: &str) -> Result<()> {
-        self.store.forget_plugin_record(id, key).await
+    pub async fn plugin_record_forget(&self, id: &str, session: Option<&str>, key: &str) -> Result<()> {
+        self.store.forget_plugin_record(id, self.place(session)?, key).await
     }
 
-    pub async fn plugin_record_keys(&self, id: &str, prefix: &str) -> Result<Vec<String>> {
-        self.store.plugin_record_keys(id, prefix).await
+    pub async fn plugin_record_keys(&self, id: &str, session: Option<&str>, prefix: &str) -> Result<Vec<String>> {
+        self.store.plugin_record_keys(id, self.place(session)?, prefix).await
     }
 
-    /// How much of its room a plugin uses, and how much it has: (used, quota), in bytes.
-    pub async fn plugin_records_usage(&self, id: &str) -> Result<(u64, u64)> {
+    /// How much of its room a plugin uses in that place, and how much it has: (used, quota), in
+    /// bytes.
+    pub async fn plugin_records_usage(&self, id: &str, session: Option<&str>) -> Result<(u64, u64)> {
+        let session = self.place(session)?;
         let quota = self.granted_to(id).await?.storage.quota();
-        Ok((self.store.plugin_records_size(id).await? as u64, quota))
+        Ok((self.store.plugin_records_size(id, session).await? as u64, quota))
     }
 
     // ---- Refs: a way back to the message a plugin was opened with, and nothing more ----
@@ -162,11 +179,14 @@ impl Core {
         Ok(reference)
     }
 
-    /// Where a plugin's ref leads, if the message and the contact are still here and it was
-    /// this plugin's ref. `None` otherwise: a plugin cannot fish for someone else's.
-    pub async fn plugin_ref_target(&self, id: &str, reference: &str) -> Result<Option<PluginRef>> {
+    /// Where a plugin's ref leads, if the message and the contact are still here, it was this
+    /// plugin's ref, and the contact is in the place the plugin is open in (§108). `None`
+    /// otherwise: a plugin cannot fish for someone else's, nor reach a session from outside it.
+    pub async fn plugin_ref_target(&self, id: &str, session: Option<&str>, reference: &str) -> Result<Option<PluginRef>> {
+        let session = self.place(session)?;
         let Some(target) = self.store.plugin_ref(reference).await? else { return Ok(None) };
-        if target.plugin != id || self.store.contact(&target.contact).await?.is_none_or(|contact| contact.blocked) {
+        let contact = self.store.contact(&target.contact).await?;
+        if target.plugin != id || contact.is_none_or(|contact| contact.blocked || contact.session.as_deref() != session) {
             return Ok(None);
         }
         if self.store.message(&target.message_id).await?.is_none() {
@@ -179,37 +199,54 @@ impl Core {
 
     /// Sets (or moves) a reminder. Only a plugin granted `remind`; the text is only what the
     /// notification says if the user allows content on the lock screen.
-    pub async fn set_reminder(&self, id: &str, reminder: &str, at: i64, text: &str) -> Result<()> {
+    /// Set inside a hidden session, it rings only while the session is open (§108).
+    pub async fn set_reminder(&self, id: &str, session: Option<&str>, reminder: &str, at: i64, text: &str) -> Result<()> {
+        let session = self.place(session)?.map(str::to_owned);
         ensure!(self.granted_to(id).await?.remind, "{id} may not set reminders");
         ensure!(!reminder.is_empty() && reminder.len() <= RECORD_KEY, "that reminder id is too long");
         ensure!(at > 0, "a reminder needs a time");
         let text: String = text.chars().take(REMINDER_TEXT).collect();
-        self.store.set_reminder(&Reminder { plugin: id.to_owned(), id: reminder.to_owned(), at, text }).await?;
+        self.store.set_reminder(&Reminder { plugin: id.to_owned(), session, id: reminder.to_owned(), at, text }).await?;
         let _ = self.events.send(Event::RemindersChanged);
         Ok(())
     }
 
-    pub async fn cancel_reminder(&self, id: &str, reminder: &str) -> Result<bool> {
-        let gone = self.store.cancel_reminder(id, reminder).await?;
+    pub async fn cancel_reminder(&self, id: &str, session: Option<&str>, reminder: &str) -> Result<bool> {
+        let gone = self.store.cancel_reminder(id, self.place(session)?, reminder).await?;
         if gone {
             let _ = self.events.send(Event::RemindersChanged);
         }
         Ok(gone)
     }
 
-    /// A plugin's reminders, soonest first.
-    pub async fn plugin_reminders(&self, id: &str) -> Result<Vec<Reminder>> {
-        self.store.reminders(Some(id)).await
+    /// A plugin's reminders in the place it is open in, soonest first.
+    pub async fn plugin_reminders(&self, id: &str, session: Option<&str>) -> Result<Vec<Reminder>> {
+        let session = self.place(session)?;
+        Ok(self.store.reminders(Some(id)).await?.into_iter().filter(|reminder| reminder.session.as_deref() == session).collect())
     }
 
-    /// Every reminder of every plugin, soonest first: what the phone's alarm clock is told.
+    /// The reminder a tap on its notification opens, if it may ring now: with the session it was
+    /// set in, so the plugin opens there. Should the same id be set in two places, the first.
+    pub async fn ringing_reminder(&self, id: &str, reminder: &str) -> Result<Option<Reminder>> {
+        Ok(self.reminders().await?.into_iter().find(|ringing| ringing.plugin == id && ringing.id == reminder))
+    }
+
+    /// Every reminder that may ring now, soonest first: what the phone's alarm clock is told.
+    /// One set inside a closed session is not, and the alarm clock is told again whenever a
+    /// session opens, closes or goes (§108).
     pub async fn reminders(&self) -> Result<Vec<Reminder>> {
-        self.store.reminders(None).await
+        Ok(self
+            .store
+            .reminders(None)
+            .await?
+            .into_iter()
+            .filter(|reminder| reminder.session.as_deref().is_none_or(|session| self.is_session_open(session)))
+            .collect())
     }
 
     /// Reminders whose time has come: the app shows them (or the OS did), and they go.
     pub async fn due_reminders(&self, at: i64) -> Result<Vec<Reminder>> {
-        Ok(self.store.reminders(None).await?.into_iter().filter(|reminder| reminder.at <= at).collect())
+        Ok(self.reminders().await?.into_iter().filter(|reminder| reminder.at <= at).collect())
     }
 
     // ---- ft.live (2026-09-27): a plugin talks to its twin on the other side ----
