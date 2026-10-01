@@ -17,10 +17,18 @@ describe("App", () => {
 
   // 2026-09-27: a reminder notification opens the app straight on the plugin that set it.
   it("opens the plugin of a tapped reminder", async () => {
-    installTauri((command) => (command === "core_pending_reminder" ? "com.flickertalk.notes\nr 1" : undefined));
+    installTauri((command) => (command === "core_pending_reminder" ? { plugin: "com.flickertalk.notes", id: "r 1", session: null } : undefined));
     mount(App, { shallow: true });
     await flushPromises();
     expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r%201");
+  });
+
+  // 2026-10-01 (§108): one set inside a hidden session opens the plugin in that session.
+  it("opens the plugin of a tapped reminder in the session it was set in", async () => {
+    installTauri((command) => (command === "core_pending_reminder" ? { plugin: "com.flickertalk.notes", id: "r1", session: "s 1" } : undefined));
+    mount(App, { shallow: true });
+    await flushPromises();
+    expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r1&session=s%201");
   });
 
   // Found on a real phone (2026-09-27): with the app in the background, tapping the reminder
@@ -30,7 +38,7 @@ describe("App", () => {
     await flushPromises();
     expect(push).not.toHaveBeenCalled();
 
-    installTauri((command) => (command === "core_pending_reminder" ? "com.flickertalk.notes\nr1" : undefined));
+    installTauri((command) => (command === "core_pending_reminder" ? { plugin: "com.flickertalk.notes", id: "r1", session: null } : undefined));
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
     expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r1");

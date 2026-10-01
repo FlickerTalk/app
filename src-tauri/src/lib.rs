@@ -99,6 +99,7 @@ pub fn run() {
             client::core_set_auto_download,
             client::core_messages,
             client::core_send,
+            client::core_resend,
             client::core_mark_read,
             client::core_contact,
             client::core_block,

@@ -53,11 +53,13 @@ import {
   pickFiles,
   pluginRef,
   readMessageFile,
+  resend,
   takePhoto,
   saveFile,
   sendFile,
   sendPicked,
   sendText,
+  sessionOf,
   shareMessage,
   declineContact,
   store,
@@ -377,6 +379,11 @@ async function download(id: string) {
   await acceptFile(id).catch(() => {});
 }
 
+/** §84: a message the router refused goes again, the same message. */
+async function resendMessage(id: string) {
+  await resend(id).catch(() => {});
+}
+
 onMounted(() => {
   void refreshPlugins();
   // A tool installed from another window shows up here as soon as the chat comes back.
@@ -486,6 +493,7 @@ watch(
         :text="plugin.text"
         :file="plugin.file"
         :reference="plugin.reference"
+        :session="sessionOf(chatId)"
         @text="fromPlugin"
         @attach="stage"
         @open-chat="(contact) => router.push(`/chat/${contact}`)"
@@ -517,6 +525,7 @@ watch(
         @save="save"
         @download="download"
         @actions="act"
+        @resend="resendMessage"
       />
 
       <div class="ft-thread__end" />

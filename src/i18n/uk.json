@@ -57,6 +57,7 @@
     "deleteSure": "Видалити",
     "forwardTo": "Переслати в",
     "download": "Download",
+    "resend": "Надіслати знову",
     "discardAttachment": "Discard attachment",
     "otherApp": "Інший застосунок"
   },
@@ -68,7 +69,8 @@
     "connected": "Пряме з’єднання",
     "paused": "Призупинено",
     "failed": "Помилка",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "Не надіслано"
   },
   "calls": {
     "callBack": "Передзвонити",

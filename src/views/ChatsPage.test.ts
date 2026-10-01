@@ -35,6 +35,15 @@ describe("ChatsPage", () => {
     expect(rows[1].text()).toContain("menu.pdf");
   });
 
+  // §84: the list says it too when the last message was not sent.
+  it("marks a conversation whose last message was not sent", () => {
+    screen(false);
+    store.chats[0].lastMine = true;
+    store.chats[0].status = "unsent";
+    const row = mount(ChatsPage, { shallow: true }).findAll("[data-test='chat-row']")[0];
+    expect(row.find(".ft-row__status.is-unsent").attributes("icon")).toBeTruthy();
+  });
+
   it("lists every conversation", () => {
     screen(false);
     const wrapper = mount(ChatsPage, { shallow: true });

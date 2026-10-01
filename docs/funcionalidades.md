@@ -138,6 +138,12 @@ oficina y no molesta hasta el día siguiente.
   puede contar las sesiones por esa marca.
 - **Como mucho siete sesiones.** El teléfono registra siempre ocho direcciones en el servidor, se
   usen o no, para que el servidor no sepa cuántas sesiones hay.
+- **Lo que un plugin guarda dentro de una sesión es de esa sesión** (desde el 2026-10-01): una
+  pizarra o una nota guardada desde una conversación de la sesión, los ajustes que se cambien allí
+  y los avisos que se pongan solo existen dentro de ella mientras está abierta. Desde la lista
+  principal u otra sesión no se ven, ni en las listas ni en el espacio usado; con la sesión cerrada
+  sus avisos no suenan, y al borrarla se van con ella. El plugin no sabe que hay sesiones. Lo que
+  se guardó antes de esa versión se queda en la lista principal.
 
 ## Círculos
 

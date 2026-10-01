@@ -57,6 +57,7 @@
     "deleteSure": "삭제",
     "forwardTo": "전달할 대상",
     "download": "Download",
+    "resend": "다시 보내기",
     "discardAttachment": "Discard attachment",
     "otherApp": "다른 앱"
   },
@@ -68,7 +69,8 @@
     "connected": "직접 연결됨",
     "paused": "일시 중지됨",
     "failed": "실패",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "전송 안 됨"
   },
   "calls": {
     "callBack": "다시 걸기",
