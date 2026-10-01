@@ -15,9 +15,10 @@ async function openTappedReminder() {
   const tapped = await pendingReminder();
   if (tapped) await router.push(`/plugin/${tapped.plugin}?reminder=${encodeURIComponent(tapped.id)}`);
 }
-// iOS cuts the socket of a suspended app (2026-09-28): back on the screen, or opened from a push,
-// reconnect at once, and the router's welcome fetches what waits. The push token goes over again
-// too: a registration that failed (the router being deployed) must not leave the phone unreachable.
+// Out of the foreground the core lets go of the router (2026-10-01; the platform tells it, so that
+// the router pushes what comes): back on the screen, or opened from a push, it connects again at
+// once, and the router's welcome fetches what waits. The push token goes over again too: a
+// registration that failed (the router being deployed) must not leave the phone unreachable.
 function onVisible() {
   if (document.visibilityState !== "visible") return;
   void resumeRouter();

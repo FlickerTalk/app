@@ -16,80 +16,17 @@
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use ft_core::{CallUpdate, Event};
-
-/// How long a core a push started keeps going once the call is over: the busy it answers a
-/// refused call with, or the decline, goes out first.
-pub const LINGER: Duration = Duration::from_secs(3);
-
-/// How long it waits for a call that never comes. The push lives 45 s (the router's TTL, the
-/// notification's `CALL_RING_MS`) and the caller tries for 40 s (`CALL_REACH`): by then nobody calls.
-pub const WAIT_FOR_CALL: Duration = Duration::from_secs(50);
+use ft_core::Event;
+/// The rule of when a core a push started has done its job lives in the core (2026-10-01): the
+/// app's own core follows it too when it is out of the foreground (`ft_core::online::Presence`).
+pub use ft_core::online::{Stop, Watch};
 
 /// Whether a push may start the core: only on a phone with its identity, its storage key sealed by
 /// the OS key store and its database. A push never makes an identity.
 pub fn may_start_from_push(dir: &Path, sealed_key: &str, database: &str) -> bool {
     dir.join(sealed_key).is_file() && dir.join(database).is_file()
-}
-
-/// Why a core a push started stops.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stop {
-    /// The call is over (ended, missed, refused).
-    Settled,
-    /// No call came.
-    NoCall,
-}
-
-impl Stop {
-    /// The word Kotlin logs (debug builds only); never who called.
-    pub fn word(self) -> &'static str {
-        match self {
-            Stop::Settled => "settled",
-            Stop::NoCall => "no call",
-        }
-    }
-}
-
-/// When a core a push started has done its job.
-#[derive(Debug, Clone, Copy)]
-pub struct Watch {
-    pushed: Instant,
-    settled: Option<Instant>,
-}
-
-impl Watch {
-    pub fn new(now: Instant) -> Self {
-        Self { pushed: now, settled: None }
-    }
-
-    /// Another call push came: a call is on its way.
-    pub fn pushed(&mut self, now: Instant) {
-        self.pushed = now;
-        self.settled = None;
-    }
-
-    /// What the core said.
-    pub fn saw(&mut self, event: &Event, now: Instant) {
-        match event {
-            Event::Call { update: CallUpdate::Incoming { .. }, .. } => self.settled = None,
-            Event::Call { update: CallUpdate::Ended { .. }, .. } | Event::CallRefused => self.settled = Some(now),
-            _ => {}
-        }
-    }
-
-    /// Whether it stops now. `call_going_on`: the core has a call ringing, being answered or on.
-    pub fn stops(&self, now: Instant, call_going_on: bool) -> Option<Stop> {
-        if call_going_on {
-            return None;
-        }
-        match self.settled {
-            Some(at) => (now >= at + LINGER).then_some(Stop::Settled),
-            None => (now >= self.pushed + WAIT_FOR_CALL).then_some(Stop::NoCall),
-        }
-    }
 }
 
 /// The phone's own call screen (2026-10-01): CallKit or the call notification, told the same steps
@@ -330,6 +267,10 @@ mod android {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    use ft_core::online::{LINGER, WAIT_FOR_CALL};
+    use ft_core::CallUpdate;
     use ft_storage::CallOutcome;
 
     fn ended() -> Event {
@@ -363,73 +304,6 @@ mod tests {
         assert!(!may_start_from_push(&dir, "storage.key.sealed", "flickertalk.db"), "no database");
         assert!(!may_start_from_push(&dir.join("missing"), "storage.key.sealed", "flickertalk.db"));
     }
-
-    // No call came (the caller's phone died, or the push was late): the core lets go once nobody
-    // can be calling any more.
-    #[test]
-    fn with_no_call_it_stops_once_nobody_can_be_calling() {
-        let start = Instant::now();
-        let watch = Watch::new(start);
-        assert_eq!(watch.stops(start, false), None);
-        assert_eq!(watch.stops(start + WAIT_FOR_CALL - Duration::from_millis(1), false), None);
-        assert_eq!(watch.stops(start + WAIT_FOR_CALL, false), Some(Stop::NoCall));
-    }
-
-    // Never while a call rings, is answered or goes on: the app's own limits end it.
-    #[test]
-    fn it_never_stops_while_a_call_goes_on() {
-        let start = Instant::now();
-        let mut watch = Watch::new(start);
-        watch.saw(&incoming(), start + Duration::from_secs(3));
-        assert_eq!(watch.stops(start + WAIT_FOR_CALL * 3, true), None);
-    }
-
-    // The call is over (the caller hung up, it was declined or refused): a moment for what the
-    // core still sends, then it stops.
-    #[test]
-    fn once_the_call_is_over_it_stops_a_moment_later() {
-        for over in [ended(), Event::CallRefused] {
-            let start = Instant::now();
-            let mut watch = Watch::new(start);
-            let at = start + Duration::from_secs(5);
-            watch.saw(&incoming(), start + Duration::from_secs(3));
-            watch.saw(&over, at);
-            assert_eq!(watch.stops(at, false), None);
-            assert_eq!(watch.stops(at + LINGER - Duration::from_millis(1), false), None);
-            assert_eq!(watch.stops(at + LINGER, false), Some(Stop::Settled));
-        }
-    }
-
-    // A second call push, or a call that rings after another was refused: the core waits for it.
-    #[test]
-    fn a_new_push_or_a_new_call_waits_again() {
-        let start = Instant::now();
-        let mut watch = Watch::new(start);
-        let refused = start + Duration::from_secs(2);
-        watch.saw(&Event::CallRefused, refused);
-        let again = refused + Duration::from_secs(1);
-        watch.pushed(again);
-        assert_eq!(watch.stops(refused + LINGER, false), None, "a call is on its way");
-        assert_eq!(watch.stops(again + WAIT_FOR_CALL, false), Some(Stop::NoCall));
-
-        let mut watch = Watch::new(start);
-        watch.saw(&Event::CallRefused, refused);
-        watch.saw(&incoming(), again);
-        assert_eq!(watch.stops(refused + LINGER, false), None);
-    }
-
-    // What else the core says changes nothing.
-    #[test]
-    fn other_events_change_nothing() {
-        let start = Instant::now();
-        let mut watch = Watch::new(start);
-        watch.saw(&Event::ContactsChanged, start);
-        watch.saw(&Event::MessagesChanged { contact: "ft_a".to_owned() }, start);
-        let busy = Event::Call { contact: "ft_b".to_owned(), call: "d".to_owned(), update: CallUpdate::MissedWhileBusy };
-        watch.saw(&busy, start);
-        assert_eq!(watch.stops(start + LINGER, false), None);
-    }
-
 
     /// A call screen that writes down what it was told, as `who: step`.
     struct Told(&'static str, Arc<Mutex<Vec<String>>>);

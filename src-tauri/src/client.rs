@@ -1122,17 +1122,28 @@ fn listen_native_calls(app: &AppHandle, online: &Online) {
 /// push started, before the app), only the events that need no screen are acted on: the push
 /// itself, a decline and a hang-up (Kotlin's `pushCoreTakes`).
 fn native_call_queue(online: &Online, app: Option<AppHandle>) -> tokio::sync::mpsc::UnboundedSender<NativeCallEvent> {
-    let (core, router) = (online.core.clone(), online.router.clone());
+    let (core, router, lifecycle) = (online.core.clone(), online.router.clone(), online.lifecycle());
     let (events, mut queue) = tokio::sync::mpsc::unbounded_channel::<NativeCallEvent>();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = queue.recv().await {
             if app.is_none() && !push_core_handles(event) {
                 continue;
             }
-            match reconnect_for(event) {
-                Reconnect::Now => router.reconnect_now(),
-                Reconnect::UnlessFresh => router.reconnect_unless_fresh(CALL_SOCKET_FRESH),
-                Reconnect::No => {}
+            // Out of the foreground the app lets go of the router and the other phones, unless a
+            // call is going on, and back in front it connects again (2026-10-01). Awaited: iOS
+            // may suspend the app moments after it leaves.
+            if let Some(foreground) = foreground_of(event) {
+                lifecycle.set_foreground(foreground).await;
+            }
+            // A push (or CallKit's answer, before the offer came) brings the connection back for
+            // its call; if it was there, a fresh socket as before.
+            let reconnect = reconnect_for(event);
+            if reconnect != Reconnect::No && !lifecycle.woken().await {
+                match reconnect {
+                    Reconnect::Now => router.reconnect_now(),
+                    Reconnect::UnlessFresh => router.reconnect_unless_fresh(CALL_SOCKET_FRESH),
+                    Reconnect::No => {}
+                }
             }
             let core = core.clone();
             match event {
@@ -1315,6 +1326,16 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
         | NativeCallEvent::Visible(_)
         | NativeCallEvent::Orientation(_)
         | NativeCallEvent::VideoRequested => Reconnect::No,
+    }
+}
+
+/// Whether a native event says the app is in the foreground (2026-10-01): the platform's own
+/// lifecycle, which the bridge already reports for our camera (`Visible`). The WebView's
+/// `visibilitychange` may come too late, or not at all, on a phone about to suspend the app.
+fn foreground_of(event: NativeCallEvent) -> Option<bool> {
+    match event {
+        NativeCallEvent::Visible(visible) => Some(visible),
+        _ => None,
     }
 }
 
@@ -2564,12 +2585,16 @@ fn push_provider() -> &'static str {
     }
 }
 
-/// The app is back on the screen (2026-09-28): the socket to the router is opened again at once,
-/// and its welcome fetches the mailbox and retries what waits. iOS cuts the socket of a suspended
-/// app, and the phone may take long to notice on its own.
+/// The WebView is back on the screen (2026-09-28): the connection the app let go of when it left
+/// the foreground comes back (2026-10-01; usually the platform said so first), and its welcome
+/// fetches the mailbox and retries what waits. If it never went, a socket that is not fresh is
+/// opened again: iOS may have cut it while the app was suspended.
 #[tauri::command]
 pub async fn core_resume(client: State<'_, Client>) -> Result<(), String> {
-    client.online().await?.router.reconnect_now();
+    let online = client.online().await?;
+    if !online.set_foreground(true).await {
+        online.router.reconnect_unless_fresh(CALL_SOCKET_FRESH);
+    }
     Ok(())
 }
 
@@ -3604,6 +3629,28 @@ mod tests {
         assert_eq!(reconnect_for(NativeCallEvent::Orientation(3)), Reconnect::No);
         assert_eq!(reconnect_for(NativeCallEvent::VideoRequested), Reconnect::No);
         assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
+    }
+
+    // 2026-10-01: whether the app is in the foreground comes from the platform's own lifecycle, the
+    // events that already hold our camera (iOS: entering the background, becoming active; Android:
+    // the activity's pause and resume). Nothing else says it.
+    #[test]
+    fn the_platform_says_whether_the_app_is_in_the_foreground() {
+        assert_eq!(foreground_of(NativeCallEvent::Visible(false)), Some(false));
+        assert_eq!(foreground_of(NativeCallEvent::Visible(true)), Some(true));
+        for other in [
+            NativeCallEvent::Incoming,
+            NativeCallEvent::Answer,
+            NativeCallEvent::End,
+            NativeCallEvent::Decline,
+            NativeCallEvent::Mute(false),
+            NativeCallEvent::AudioActivated(1),
+            NativeCallEvent::AudioDeactivated(1),
+            NativeCallEvent::Orientation(1),
+            NativeCallEvent::VideoRequested,
+        ] {
+            assert_eq!(foreground_of(other), None, "{other:?}");
+        }
     }
 
     // Bug of 2026-09-29 (Android with the app closed, the iPhone with it open): a call answered on
