@@ -2027,6 +2027,8 @@ pub struct PluginView {
     /// The kinds of file it is the viewer of: a tap on such a file opens it here.
     #[serde(default)]
     views: Vec<String>,
+    /// `tool` or `game` (2026-10-02): games are shown apart, never in 🧰 or "open with".
+    kind: ft_plugins::Kind,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -2077,6 +2079,21 @@ impl From<&ft_plugins::Permissions> for PermissionsView {
     }
 }
 
+/// An installed plugin as the screen shows it.
+fn plugin_view(plugin: ft_core::plugins::InstalledPlugin) -> PluginView {
+    PluginView {
+        asks: PermissionsView::from(&plugin.manifest.permissions),
+        granted: PermissionsView::from(&plugin.granted),
+        id: plugin.manifest.id,
+        name: plugin.manifest.name,
+        version: plugin.manifest.version,
+        installed_at: plugin.installed_at,
+        opens: plugin.manifest.opens,
+        views: plugin.manifest.views,
+        kind: plugin.manifest.kind,
+    }
+}
+
 /// The plugins installed on this phone, with what each one asks for and what it may do.
 #[tauri::command]
 pub async fn core_plugins(client: State<'_, Client>) -> Result<Vec<PluginView>, String> {
@@ -2086,16 +2103,7 @@ pub async fn core_plugins(client: State<'_, Client>) -> Result<Vec<PluginView>, 
         .await
         .map_err(failed)?
         .into_iter()
-        .map(|plugin| PluginView {
-            asks: PermissionsView::from(&plugin.manifest.permissions),
-            granted: PermissionsView::from(&plugin.granted),
-            id: plugin.manifest.id,
-            name: plugin.manifest.name,
-            version: plugin.manifest.version,
-            installed_at: plugin.installed_at,
-            opens: plugin.manifest.opens,
-            views: plugin.manifest.views,
-        })
+        .map(plugin_view)
         .collect())
 }
 
@@ -2167,6 +2175,8 @@ pub struct OfferedPlugin {
     installed: bool,
     /// Whether it is already inside the app; if not, adding it downloads it.
     carried: bool,
+    /// `tool` or `game` (2026-10-02).
+    kind: ft_plugins::Kind,
 }
 
 /// Whether `version` is newer than `than`, both as `1.2.3`.
@@ -2189,6 +2199,7 @@ fn seeds() -> Vec<OfferedPlugin> {
                 size: package.len() as u64,
                 installed: false,
                 carried: true,
+                kind: plugin.manifest.kind,
             })
         })
         .collect()
@@ -2207,6 +2218,7 @@ fn merged(carried: Vec<OfferedPlugin>, listed: &[ft_plugins::CatalogueEntry], he
             size: entry.size,
             installed: false,
             carried: false,
+            kind: entry.kind,
         };
         match offered.iter_mut().find(|one| one.id == entry.id) {
             Some(seed) if newer(&entry.version, &seed.version) => *seed = listed,
@@ -2452,16 +2464,7 @@ pub async fn core_plugins_opening(mime: String, client: State<'_, Client>) -> Re
         .map_err(failed)?
         .into_iter()
         .filter(|plugin| opening.iter().any(|manifest| manifest.id == plugin.manifest.id))
-        .map(|plugin| PluginView {
-            asks: PermissionsView::from(&plugin.manifest.permissions),
-            granted: PermissionsView::from(&plugin.granted),
-            id: plugin.manifest.id,
-            name: plugin.manifest.name,
-            version: plugin.manifest.version,
-            installed_at: plugin.installed_at,
-            opens: plugin.manifest.opens,
-            views: plugin.manifest.views,
-        })
+        .map(plugin_view)
         .collect())
 }
 
@@ -3486,6 +3489,7 @@ mod tests {
             size: 4096,
             installed: false,
             carried: true,
+            kind: ft_plugins::Kind::Tool,
         }
     }
 
@@ -3507,6 +3511,36 @@ mod tests {
         assert_eq!(by_id("com.flickertalk.ocr").size, 10, "what is only in the catalogue is a download");
         assert!(!by_id("com.flickertalk.ocr").carried);
         assert_eq!(offered.len(), 3);
+    }
+
+    // 2026-10-02 (plan of the games, 10.2): the list says what is a game, whether it comes from
+    // the catalogue or from the app itself, so the screens show the games apart from the tools.
+    #[test]
+    fn the_list_keeps_whether_each_one_is_a_tool_or_a_game() {
+        let seeds = vec![carried("com.flickertalk.sketch", "1.0.0")];
+        let chess = ft_plugins::CatalogueEntry { kind: ft_plugins::Kind::Game, ..entry("com.flickertalk.game.chess", "1.0.0") };
+        let offered = serde_json::to_value(merged(seeds, &[chess], &[])).unwrap();
+        let kinds: Vec<(&str, &str)> = offered
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|one| (one["id"].as_str().unwrap(), one["kind"].as_str().unwrap_or("missing")))
+            .collect();
+        assert!(kinds.contains(&("com.flickertalk.game.chess", "game")), "{kinds:?}");
+        assert!(kinds.contains(&("com.flickertalk.sketch", "tool")), "{kinds:?}");
+    }
+
+    #[test]
+    fn an_installed_plugin_says_whether_it_is_a_game() {
+        let manifest: ft_plugins::Manifest = serde_json::from_str(
+            r#"{"id":"com.flickertalk.game.chess","name":"Chess","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-chess"],"kind":"game","permissions":{"live":true}}"#,
+        )
+        .unwrap();
+        let view = plugin_view(ft_core::plugins::InstalledPlugin { manifest, granted: Default::default(), installed_at: 7 });
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["kind"], "game");
+        assert_eq!((json["id"].as_str(), json["installedAt"].as_i64()), (Some("com.flickertalk.game.chess"), Some(7)));
+        assert_eq!((json["asks"]["live"].as_bool(), json["granted"]["live"].as_bool()), (Some(true), Some(false)));
     }
 
     #[test]
