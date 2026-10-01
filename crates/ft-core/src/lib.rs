@@ -212,6 +212,10 @@ pub struct Core {
     open_sessions: std::sync::Mutex<HashMap<String, u8>>,
     /// One write of the kept list at a time, each with the list as it is then.
     keeping_sessions: Mutex<()>,
+    /// Bumped whenever the router must be told something new: the hashes or the silent slots.
+    registration: tokio::sync::watch::Sender<u64>,
+    /// Woken when the router can be reached again, so a registration that failed is tried now.
+    registration_retry: Arc<tokio::sync::Notify>,
     /// The user's cloud (plan-drive), once connected and open.
     vault: Mutex<Option<Arc<ft_vault::Vault>>>,
     /// How clouds are reached: Google Drive in the app, a memory in the tests.
@@ -320,6 +324,8 @@ impl Core {
             moving: std::sync::Mutex::default(),
             open_sessions: std::sync::Mutex::new(open_sessions),
             keeping_sessions: Mutex::new(()),
+            registration: tokio::sync::watch::Sender::new(0),
+            registration_retry: Arc::default(),
             vault: Mutex::new(None),
             cloud: OnceLock::new(),
             vault_dir: OnceLock::new(),
@@ -422,6 +428,7 @@ impl Core {
             let _ = self.introduce(&contact).await;
         }
         let _ = self.events.send(Event::ContactsChanged);
+        self.registration_changed();
         self.route_capability_hashes().await
     }
 
@@ -606,9 +613,14 @@ impl Core {
     }
 
     /// Keeps which sessions are open, for the next start (2026-10-01, §108).
+    /// The router hears of it too: which slots are silent changed with it.
     async fn keep_open_sessions(&self) -> Result<()> {
-        let _one_at_a_time = self.keeping_sessions.lock().await;
-        sessions::keep(&self.store, &self.key, &self.open_sessions()).await
+        {
+            let _one_at_a_time = self.keeping_sessions.lock().await;
+            sessions::keep(&self.store, &self.key, &self.open_sessions()).await?;
+        }
+        self.registration_changed();
+        Ok(())
     }
 
     async fn open_session_with(&self, hash: &[u8; 32]) -> Result<Option<String>> {
@@ -667,6 +679,7 @@ impl Core {
             return Ok(false);
         }
         forget_session(&self.store, session).await?;
+        self.registration_changed();
         Ok(true)
     }
 
@@ -682,6 +695,27 @@ impl Core {
         let mut slots: Vec<u8> = self.open_sessions.lock().expect("sessions poisoned").values().copied().collect();
         slots.sort();
         slots
+    }
+
+    /// Changes whenever the router must be told something new (2026-10-01): the hashes or the
+    /// silent slots.
+    pub fn registration_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.registration.subscribe()
+    }
+
+    fn registration_changed(&self) {
+        self.registration.send_modify(|generation| *generation += 1);
+    }
+
+    /// What a registration that failed waits on besides its timer: the router is back.
+    pub fn registration_retry(&self) -> Arc<tokio::sync::Notify> {
+        self.registration_retry.clone()
+    }
+
+    /// The router can be reached again (its socket connected): a registration waiting to be
+    /// retried goes now.
+    pub fn router_reachable(&self) {
+        self.registration_retry.notify_one();
     }
 
     /// The slots the router must not push for (2026-10-01, §108): bit i for slot i.

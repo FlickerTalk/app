@@ -200,6 +200,10 @@ impl Network {
             RouterEvent::Connected { stun, turn } => {
                 *self.ice.lock().expect("ice poisoned") = (stun, turn);
                 tokio::spawn(async move {
+                    if let Ok(core) = network.core() {
+                        // A registration that failed offline goes now (2026-10-01).
+                        core.router_reachable();
+                    }
                     network.collect_mail().await;
                     if let Ok(core) = network.core() {
                         let _ = core.retry_now().await;
