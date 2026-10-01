@@ -104,7 +104,8 @@ pub enum NativeCallEvent {
     /// The system took the audio session away: the audio unit stops (iOS).
     AudioDeactivated(u64),
     /// The app came to the screen (`true`) or left it (native video, 2026-09-29): the phone
-    /// holds our camera while the app is away (iOS stops it anyway), and gives it back.
+    /// holds our camera while the app is away (iOS stops it anyway), and gives it back. Away, the
+    /// core also lets go of the router and the other phones unless a call is going on (2026-10-01).
     Visible(bool),
     /// The phone turned (native video): iOS `UIDeviceOrientation.rawValue`, Android the display
     /// rotation in degrees. The rotation our frames carry follows it.

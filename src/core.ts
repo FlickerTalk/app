@@ -651,7 +651,10 @@ export async function erasePhone(): Promise<void> {
   localStorage.clear();
 }
 
-/** Reconnects to the router at once (2026-09-28): the app is back on the screen. Never fails. */
+/**
+ * The app is back on the screen: the core connects to the router again at once (2026-09-28), if
+ * the platform has not made it already (2026-10-01). Never fails.
+ */
 export async function resumeRouter(): Promise<void> {
   await invoke("core_resume").catch(() => undefined);
 }
