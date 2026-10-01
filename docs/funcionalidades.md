@@ -110,9 +110,8 @@ oficina y no molesta hasta el día siguiente.
 - Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se crea una sesión
   **nueva y vacía**. Todo PIN es válido: no existe «PIN incorrecto» ni espera entre intentos, y
   nada dice cuál de las dos cosas ha pasado, así que nadie puede saber si hay sesiones.
-- Una sesión **vacía** (sin contactos, solicitudes ni círculos) se borra al salir de ella, o al arrancar si
-  la app se cerró con ella abierta: teclear PIN nunca llena los siete huecos. Con algo dentro, se
-  queda.
+- Una sesión **vacía** (sin contactos, solicitudes ni círculos) se borra al salir de ella: teclear
+  PIN nunca llena los siete huecos. Con algo dentro, se queda.
 - Una sesión que se borra se lleva su enlace: quien guardara su QR ya no llega a nadie, ni a la
   sesión que ocupe después ese hueco ni a la lista principal.
 - En **Chats**, cada sesión abierta es un panel plegable bajo la lista principal: una flecha a la
@@ -125,7 +124,13 @@ oficina y no molesta hasta el día siguiente.
 - **Sesión cerrada:** sus mensajes y ficheros llegan y se confirman, pero no hay aviso, ni número de
   no leídos, ni notificación, ni siquiera con la app cerrada. Sus llamadas no suenan (el que llama
   recibe «busy») y no aparecen en Calls. Todo se ve al abrirla con su PIN.
-- Salir la cierra en el acto; al reiniciar la app todas están cerradas.
+- **Una sesión abierta sigue abierta hasta que sales de ella** (o la borras), aunque cierres la
+  app, se reinicie el teléfono o se actualice la app: no se vuelve a pedir el PIN. Mientras está
+  abierta funciona como la lista principal, también con la app cerrada: sus mensajes avisan y sus
+  llamadas suenan. Salir la cierra en el acto; para volver a abrirla hace falta su PIN.
+- El teléfono le dice al servidor qué huecos están **en silencio** (los de las sesiones cerradas),
+  para que no lo despierte por ellos. Los huecos libres se marcan al azar, así que el servidor no
+  puede contar las sesiones por esa marca.
 - **Como mucho siete sesiones.** El teléfono registra siempre ocho direcciones en el servidor, se
   usen o no, para que el servidor no sepa cuántas sesiones hay.
 

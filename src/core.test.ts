@@ -531,6 +531,23 @@ describe("hidden sessions", () => {
     expect(core.store.sessions[0].chats[0].unread).toBe(3);
   });
 
+  // 2026-10-01 (§108): a session stays open until the user leaves it, across starts. The core
+  // restores it, and the chats show its panel at start with no PIN typed.
+  it("shows at start the sessions the core kept open, with no PIN", async () => {
+    tauri.invoke.mockImplementation((command: string) => {
+      if (command === "core_me") return Promise.resolve({ id: "ft_me", name: "Me" });
+      if (command === "core_conversations") return Promise.resolve([]);
+      if (command === "core_sessions") {
+        return Promise.resolve([{ id: "s1", conversations: [{ id: "ft_pablo", name: "Pablo", unread: 0, blocked: false, connected: false, last: null }], requests: [] }]);
+      }
+      return Promise.resolve(undefined);
+    });
+    await core.start();
+    expect(core.store.sessions.map((session) => session.id)).toEqual(["s1"]);
+    expect(core.store.sessions[0].chats[0].name).toBe("Pablo");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_session_open", expect.anything());
+  });
+
   it("adds a contact to a session", async () => {
     tauri.invoke.mockResolvedValue("ft_pablo");
     await core.addContact(" https://flickertalk.com/add#pablo ", "s1");

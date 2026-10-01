@@ -200,6 +200,10 @@ impl Network {
             RouterEvent::Connected { stun, turn } => {
                 *self.ice.lock().expect("ice poisoned") = (stun, turn);
                 tokio::spawn(async move {
+                    if let Ok(core) = network.core() {
+                        // A registration that failed offline goes now (2026-10-01).
+                        core.router_reachable();
+                    }
                     network.collect_mail().await;
                     if let Ok(core) = network.core() {
                         let _ = core.retry_now().await;
@@ -478,6 +482,11 @@ impl Network {
         let bytes = core.unwrap(bytes).await?;
         let signal = Signal::decode(&bytes)?;
         let Some((from, body)) = core.open_signal(&signal.sealed).await? else {
+            // A blocked sender (§35): dropped unread. Its offer may be a call that a push set the
+            // phone's own call screen ringing for, before the core could know who called.
+            if signal.kind == SignalKind::Offer {
+                core.refused_quietly();
+            }
             return Ok(());
         };
         if from != signal.from {

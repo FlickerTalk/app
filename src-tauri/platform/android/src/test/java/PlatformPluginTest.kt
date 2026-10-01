@@ -259,6 +259,17 @@ class PlatformPluginTest {
         assertEquals(false, wakeIsHeard("nonsense", setOf(3)))
     }
 
+    // 2026-10-01 (§108): a session stays open until the user leaves it, across starts. The open
+    // slots are kept in preferences, so a process a push starts, before the core, still hears
+    // them. Only slots 1–7 are read back; anything else is not a slot.
+    @Test
+    fun theOpenSlotsAreKeptForAProcessAPushStarts() {
+        assertEquals(setOf(1, 3, 7), slotsKept(keptSlots(setOf(3, 1, 7))))
+        assertEquals(emptySet<Int>(), slotsKept(keptSlots(emptySet())))
+        assertEquals("nothing kept: none open", emptySet<Int>(), slotsKept(null))
+        assertEquals(setOf(2), slotsKept("2,0,8,x,,-1"))
+    }
+
     // What the Store handed back about one purchase, as the plugin reads it.
     private fun purchase(
         product: String = YEARLY,
@@ -557,5 +568,15 @@ class PlatformPluginTest {
     @Test
     fun aCallPushedWithTheAppClosedRingsOnItsOwnChannel() {
         assertEquals("ft.call.ringing", RINGING_CALL_CHANNEL)
+    }
+
+    // 2026-10-01: the core refused a call without a trace (Calls off, a stranger, a blocked
+    // contact). The ringing a call push started before the core knew who called ends at once; a
+    // call the core rings itself, or one going on, is another call and is left alone.
+    @Test
+    fun aRefusedCallCancelsOnlyThePushsRinging() {
+        assertTrue(refusalCancels(coreRinging = false, inCall = false))
+        assertFalse(refusalCancels(coreRinging = true, inCall = false))
+        assertFalse(refusalCancels(coreRinging = false, inCall = true))
     }
 }

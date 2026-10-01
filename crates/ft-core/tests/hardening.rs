@@ -388,23 +388,166 @@ async fn a_session_with_only_a_request_stays_when_closed() {
     assert_eq!(open(&alice, "123456").await, session);
 }
 
-// The app can stop with an empty session open (killed, a crash): it is gone on the next start.
+async fn restarted(net: &Arc<Net>, path: &std::path::Path) -> Arc<Core> {
+    Core::open(Store::open(path).await.unwrap(), [9; 32], Arc::new(Link { net: net.clone() })).await.expect("opens again")
+}
+
+// 2026-10-01 (§108): a session stays open until the user leaves it, whatever happens to the app
+// (closed, killed, the phone restarted, an update). After a start it is open with no PIN asked,
+// empty or not: only the user closes it.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_empty_session_left_open_is_gone_after_a_restart() {
+async fn a_session_left_open_is_still_open_after_a_restart() {
     let net = Net::new();
-    let path = scratch("restart").join("flickertalk.db");
-    let (empty, kept) = {
-        let alice = Core::open(Store::open(&path).await.unwrap(), [9; 32], Arc::new(Link { net: net.clone() })).await.expect("opens");
+    let path = scratch("restart-open").join("flickertalk.db");
+    let (with_contact, empty, slots) = {
+        let alice = restarted(&net, &path).await;
+        let bob = device(&net, "Bob").await;
+        let with_contact = open(&alice, "111111").await;
+        alice.add_contact_in(&bob.my_card().await.expect("card").to_link(), None, Some(&with_contact)).await.expect("adds inside");
+        let empty = open(&alice, "222222").await;
+        (with_contact, empty, alice.open_slots())
+    };
+
+    let alice = restarted(&net, &path).await;
+    let mut expected = vec![with_contact.clone(), empty.clone()];
+    expected.sort();
+    assert_eq!(alice.open_sessions(), expected, "both open, no PIN asked");
+    assert_eq!(alice.open_slots(), slots, "on the same slots");
+    assert_eq!(alice.store().used_slots().await.unwrap().len(), 2, "an open empty one is not swept away");
+    assert_eq!(open(&alice, "222222").await, empty, "its PIN still opens the same one");
+}
+
+// A session the user left needs its PIN again after a start, as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_left_closed_stays_closed_after_a_restart() {
+    let net = Net::new();
+    let path = scratch("restart-closed").join("flickertalk.db");
+    let (kept, still_open) = {
+        let alice = restarted(&net, &path).await;
         let bob = device(&net, "Bob").await;
         let kept = open(&alice, "111111").await;
         alice.add_contact_in(&bob.my_card().await.expect("card").to_link(), None, Some(&kept)).await.expect("adds inside");
-        (open(&alice, "222222").await, kept)
+        assert!(!alice.close_session(&kept).await.expect("closes"));
+        let carol = device(&net, "Carol").await;
+        let still_open = open(&alice, "333333").await;
+        alice.add_contact_in(&carol.my_card().await.expect("card").to_link(), None, Some(&still_open)).await.expect("adds inside");
+        (kept, still_open)
     };
 
-    let alice = Core::open(Store::open(&path).await.unwrap(), [9; 32], Arc::new(Link { net: net.clone() })).await.expect("opens again");
-    assert_eq!(alice.store().used_slots().await.unwrap().len(), 1, "only the session with something in it");
-    assert_eq!(open(&alice, "111111").await, kept);
-    assert_ne!(open(&alice, "222222").await, empty);
+    let alice = restarted(&net, &path).await;
+    assert_eq!(alice.open_sessions(), vec![still_open], "only the one never left");
+    assert_eq!(open(&alice, "111111").await, kept, "the PIN opens the closed one with what it had");
+}
+
+// A session deleted, or opened again and left, is not brought back by a start.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_removed_or_left_is_not_open_after_a_restart() {
+    let net = Net::new();
+    let path = scratch("restart-left").join("flickertalk.db");
+    let kept = {
+        let alice = restarted(&net, &path).await;
+        let (bob, carol) = (device(&net, "Bob").await, device(&net, "Carol").await);
+        let gone = open(&alice, "111111").await;
+        alice.add_contact_in(&bob.my_card().await.expect("card").to_link(), None, Some(&gone)).await.expect("adds inside");
+        alice.remove_session(&gone).await.expect("removes");
+        let kept = open(&alice, "222222").await;
+        alice.add_contact_in(&carol.my_card().await.expect("card").to_link(), None, Some(&kept)).await.expect("adds inside");
+        alice.close_session(&kept).await.expect("closes");
+        open(&alice, "222222").await;
+        alice.close_session(&kept).await.expect("closes again");
+        kept
+    };
+
+    let alice = restarted(&net, &path).await;
+    assert!(alice.open_sessions().is_empty());
+    assert!(alice.open_slots().is_empty());
+    assert_eq!(alice.store().used_slots().await.unwrap().len(), 1);
+    assert_eq!(open(&alice, "222222").await, kept);
+}
+
+// An empty session that is not open has nothing to keep (a leftover of an app from before, which
+// closed every session at start): it goes on the next start, as if closed (A3).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_session_that_is_not_open_is_gone_after_a_restart() {
+    let net = Net::new();
+    let path = scratch("restart-leftover").join("flickertalk.db");
+    {
+        let alice = restarted(&net, &path).await;
+        alice.store().add_session("leftover", &[4; 32], 5).await.expect("a leftover");
+    }
+    let alice = restarted(&net, &path).await;
+    assert!(alice.store().used_slots().await.unwrap().is_empty());
+    assert!(alice.open_sessions().is_empty());
+}
+
+// 2026-10-01 (§108): the router is told which slots are silent and sends no push for them. A
+// closed session's slot is silent, an open one's is not, and the main list never is.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_router_is_told_which_sessions_are_closed() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let before = alice.silent_slots().await.unwrap();
+    assert_eq!(before & 1, 0, "the main list is never silent");
+
+    let session = open(&alice, "123456").await;
+    let bit = 1u8 << alice.store().session_slot(&session).await.unwrap().unwrap();
+    assert_eq!(alice.silent_slots().await.unwrap() & bit, 0, "open: its pushes come");
+    alice.add_contact_in(&bob.my_card().await.expect("card").to_link(), None, Some(&session)).await.expect("adds inside");
+    assert!(!alice.close_session(&session).await.expect("closes"));
+    assert_eq!(alice.silent_slots().await.unwrap() & bit, bit, "closed: silent");
+    open(&alice, "123456").await;
+    assert_eq!(alice.silent_slots().await.unwrap() & bit, 0, "open again");
+    assert_eq!(alice.silent_slots().await.unwrap() & !bit, before & !bit, "the other slots did not move");
+}
+
+// A spare slot shows a random bit, chosen once and kept: the mask says nothing of how many
+// sessions there are, and does not flicker from one registration to the next.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spare_slot_is_silent_or_not_at_random_and_stays_so() {
+    let net = Net::new();
+    let path = scratch("noise").join("flickertalk.db");
+    let first = restarted(&net, &path).await.silent_slots().await.unwrap();
+    let alice = restarted(&net, &path).await;
+    assert_eq!(alice.silent_slots().await.unwrap(), first, "the same after a restart");
+    assert_eq!(alice.silent_slots().await.unwrap(), first, "and from one asking to the next");
+
+    let mut masks = std::collections::HashSet::new();
+    for _ in 0..12 {
+        masks.insert(device(&net, "Any").await.silent_slots().await.unwrap());
+    }
+    assert!(masks.len() > 1, "phones with no session do not all say the same");
+    assert!(masks.iter().all(|mask| mask & 1 == 0));
+}
+
+// Whatever changes what the router must know (a session opened, left, created or deleted, a
+// link renewed) asks for a new registration: the app registers again, now or once it can.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_change_the_router_must_know_asks_for_a_new_registration() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    let mut changes = alice.registration_changes();
+    let mut asked = || {
+        let asked = changes.has_changed().unwrap();
+        changes.borrow_and_update();
+        asked
+    };
+    assert!(!asked());
+
+    let session = open(&alice, "123456").await;
+    assert!(asked(), "created and opened");
+    alice.add_contact_in(&bob.my_card().await.expect("card").to_link(), None, Some(&session)).await.expect("adds inside");
+    alice.close_session(&session).await.expect("closes");
+    assert!(asked(), "left");
+    open(&alice, "123456").await;
+    assert!(asked(), "opened");
+    alice.renew_link(Some(&session)).await.expect("renews");
+    assert!(asked(), "a new link");
+    alice.remove_session(&session).await.expect("removes");
+    assert!(asked(), "deleted");
+    let empty = open(&alice, "654321").await;
+    asked();
+    alice.close_session(&empty).await.expect("closes");
+    assert!(asked(), "an empty one left, and gone");
 }
 
 // A slot's link must die with its session: otherwise whoever kept the old QR would land in the
@@ -639,6 +782,7 @@ async fn a_pending_stranger_gets_no_files_and_no_calls() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(alice.store().file(&file).await.unwrap().unwrap().chunks_done, 0, "not a byte comes in");
 
+    let mut at_alice = alice.events();
     let call = mallory.place_call(&id(&alice), false).await.expect("dials");
     mallory.offer_call_within(&call, "v=0", Duration::from_millis(500)).await.expect("offers");
     until("mallory hears busy", || async {
@@ -646,6 +790,12 @@ async fn a_pending_stranger_gets_no_files_and_no_calls() {
     })
     .await;
     assert!(alice.visible_calls(10).await.unwrap().is_empty(), "and alice's phone never rang");
+    let mut refused = false;
+    while let Ok(event) = at_alice.try_recv() {
+        assert!(!matches!(event, ft_core::Event::Call { .. }), "it never rings");
+        refused |= event == ft_core::Event::CallRefused;
+    }
+    assert!(refused, "a ring the push started stops at once");
 }
 
 #[tokio::test(flavor = "multi_thread")]

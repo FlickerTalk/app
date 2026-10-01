@@ -435,6 +435,7 @@ impl<R: Runtime> Platform<R> {
     }
 
     /// Tells the native side which hidden sessions are open, so their wake-ups are heard (app#9).
+    /// It keeps them (preferences, UserDefaults) for a process a push starts before the core.
     pub fn set_open_slots(&self, slots: &[u8]) -> Result<()> {
         self.run("setOpenSlots", OpenSlots { slots })
     }
@@ -446,6 +447,14 @@ impl<R: Runtime> Platform<R> {
 
     pub fn stop_ringing(&self) -> Result<()> {
         self.run("stopRinging", ())
+    }
+
+    /// The core refused an incoming call without a trace (Calls off, a stranger, a blocked
+    /// contact, a closed hidden session; §108, §109). A ring the push started before the core knew
+    /// who called (CallKit on iOS, the call notification on Android) ends at once, leaving nothing
+    /// behind; a call the core rings or one going on is left alone. On desktop it does nothing.
+    pub fn call_refused(&self) -> Result<()> {
+        self.call("callRefused", ())
     }
 
     /// The incoming call is being answered (2026-09-29), from any screen, or was answered before

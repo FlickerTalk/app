@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, mount } from "@vue/test-utils";
+import { nextTick } from "vue";
+import { store } from "../core";
 import { actions, history, resetCalls } from "../__tests__/calls-mock";
 import CallsPage from "./CallsPage.vue";
 
@@ -20,6 +22,9 @@ const entry = (id: string, outgoing: boolean, outcome: string, video = false) =>
 
 // §66: the history is what happened on this phone, never invented.
 describe("CallsPage", () => {
+  // A page left mounted by another test would still follow the sessions.
+  enableAutoUnmount(afterEach);
+
   beforeEach(() => {
     resetCalls();
     push.mockReset();
@@ -40,6 +45,24 @@ describe("CallsPage", () => {
     expect(rows[0].find("[aria-label='Missed']").exists()).toBe(true);
     expect(rows[1].find("[aria-label='Outgoing']").exists()).toBe(true);
     expect(rows[1].text()).toContain("1:15");
+  });
+
+  // A session's calls show only while it is open (§108): opening or leaving one while the tab is
+  // there loads the history again. Ionic keeps the tab mounted, so mounting alone would not.
+  it("loads the history again when a session opens or is left", async () => {
+    store.sessions = [];
+    mount(CallsPage, { shallow: true });
+    expect(actions.loadHistory).toHaveBeenCalledTimes(1);
+    store.sessions = [{ id: "s1", chats: [], requests: [], circles: [] }];
+    await nextTick();
+    expect(actions.loadHistory).toHaveBeenCalledTimes(2);
+    store.sessions = [{ id: "s1", chats: [], requests: [], circles: [] }];
+    await nextTick();
+    // A refresh of the same sessions (every change in the chats) is not a change.
+    expect(actions.loadHistory).toHaveBeenCalledTimes(2);
+    store.sessions = [];
+    await nextTick();
+    expect(actions.loadHistory).toHaveBeenCalledTimes(3);
   });
 
   it("calls back the same way", async () => {

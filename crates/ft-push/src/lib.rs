@@ -237,15 +237,18 @@ impl RouterClient {
         self.send(request.body(body)).await
     }
 
-    /// Registers (again) this device and the hash of its route capability.
     /// Registers this device with the hashes of its eight route capabilities (app#9): the first
     /// is its own; the rest belong to hidden sessions or are spares, and the router cannot tell.
-    pub async fn register(&self, capability_hashes: &[[u8; 32]; 8]) -> Result<()> {
+    /// `silent_slots` (2026-10-01, §108) is a bitmask, bit i for slot i: the router sends no push
+    /// for a silent slot. The main list (bit 0) is never silent. Each registration replaces the
+    /// last one; a router from before ignores the field.
+    pub async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()> {
         let hashes: Vec<String> = capability_hashes.iter().map(|hash| encode(hash)).collect();
         let body = json!({
             "signing_key": self.signer.signing_key().await,
             "capability_hash": hashes[0],
             "capability_hashes": hashes,
+            "silent_slots": silent_slots & !1,
         });
         expect(self.signed(Method::POST, "/v1/device/register", serde_json::to_vec(&body)?).await?, StatusCode::NO_CONTENT)
     }

@@ -214,16 +214,22 @@ func isCallPush(_ userInfo: [AnyHashable: Any]) -> Bool {
     (userInfo["t"] as? String) == "call"
 }
 
-/// How an incoming call rings (2026-09-28): always through CallKit, once per call, also with the
-/// app on the screen (iOS shows its banner), so that answering in the app or on the lock screen
-/// takes the same path; a call PushKit already reported only learns who it is.
+/// How an incoming call rings (2026-09-28): through CallKit, once per call, also with the app on
+/// the screen (iOS shows its banner), so that answering in the app or on the lock screen takes the
+/// same path; a call PushKit already reported only learns who it is. A quiet call (2026-10-01: a
+/// muted contact, or outside the weekly hours) never rings through CallKit, which cannot ring in
+/// silence: it shows quietly (`QuietCalls.swift`), after ending the CallKit call PushKit reported
+/// for it. One answered already is the user's: it only learns who it is.
 enum Ring: Equatable {
     case report
     case update
+    case silent
+    case endAndSilent
 }
 
-func ringWith(callKitCall: Bool) -> Ring {
-    callKitCall ? .update : .report
+func ringWith(callKitCall: Bool, answered: Bool = false, quiet: Bool = false) -> Ring {
+    if quiet && !answered { return callKitCall ? .endAndSilent : .silent }
+    return callKitCall ? .update : .report
 }
 
 /// Whether the app's own answer button asks CallKit to answer (a `CXAnswerCallAction`): the audio
@@ -480,6 +486,19 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private var voiceConnected = false
     /// Whether incoming calls are reported as video calls, so that answering opens the app.
     private let openAppOnAnswer = OpenAppOnAnswerSetting()
+    /// The core said who this incoming call is (it rings it, or it is being answered): a refusal
+    /// is about another call (2026-10-01).
+    private var named = false
+    /// The call ringing quietly, which CallKit does not know (a muted contact, outside the hours).
+    private var quiet: (caller: String, video: Bool)?
+    /// Grows with each quiet call, so that a late timer leaves a newer one alone.
+    private var quietRings = 0
+    /// The hidden sessions open now, by slot, as the core last said (app#9), kept across starts
+    /// (2026-10-01): a session stays open until the user leaves it.
+    var openSlots: Set<Int> {
+        get { OpenSlots.kept() }
+        set { OpenSlots.keep(Array(newValue)) }
+    }
 
     override init() {
         provider = CXProvider(configuration: callProviderConfiguration(icon: callKitIcon))
@@ -525,9 +544,16 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// comes as on the lock screen. `false` when there is no CallKit call to answer: the core
     /// answers by itself.
     func requestAnswer() -> Bool {
-        guard let call = current, answerThroughCallKit(callKitCall: true, answered: answered, outgoing: outgoing) else {
+        let path = appAnswer(callKitCall: current != nil, answered: answered, outgoing: outgoing, quietRinging: quiet != nil)
+        quietLog("answer in the app: \(path)")
+        if path == .join, let ringing = quiet {
+            // A quiet call CallKit never rang (2026-10-01): it joins CallKit as a started call,
+            // whose start action sets the audio session up; the system activates it.
+            stopQuiet()
+            startOutgoing(name: ringing.caller, video: ringing.video) { _ in }
             return false
         }
+        guard path == .callKit, let call = current else { return false }
         controller.request(CXTransaction(action: CXAnswerCallAction(call: call))) { error in
             guard error != nil else { return }
             // CallKit refused: the core answers all the same, as before.
@@ -585,6 +611,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         ringingSince = nil
         answeredAt = nil
         speaker = false
+        named = false
         generation += 1
         self.outgoing = outgoing
         // What the user did for an earlier call must not answer or hang up this one.
@@ -593,6 +620,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
 
     private func finish() {
         current = nil
+        named = false
         answered = false
         live = false
         outgoing = false
@@ -616,26 +644,77 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         }
     }
 
-    /// The core says a call rings: CallKit, also with the app on the screen.
-    func ring(caller: String, video: Bool) {
-        switch ringWith(callKitCall: current != nil) {
+    /// The core says a call rings: CallKit, also with the app on the screen; a quiet one
+    /// (2026-10-01) shows without ringing, and the CallKit call PushKit reported for it ends.
+    func ring(caller: String, video: Bool, quiet: Bool) {
+        let ring = ringWith(callKitCall: current != nil, answered: answered, quiet: quiet)
+        quietLog("ring: \(ring)")
+        switch ring {
         case .report:
             report(caller: caller, video: video)
+            named = true
         case .update:
             if let current { provider.reportCall(with: current, updated: update(caller: caller, video: video)) }
+            named = true
+        case .silent:
+            ringQuietly(caller: caller, video: video)
+        case .endAndSilent:
+            endWithoutTrace()
+            ringQuietly(caller: caller, video: video)
         }
+    }
+
+    /// Shows the call without a sound: the app's own card on the screen, else a notification
+    /// with no sound. CallKit never hears of it unless the user answers in the app (`join`).
+    private func ringQuietly(caller: String, video: Bool) {
+        quiet = (caller, video)
+        quietRings += 1
+        let ringing = quietRings
+        // Like CallKit's (`callOverdue`): if the caller's end never comes, it stops by itself.
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + callRingLimit) { [weak self] in
+            if self?.quietRings == ringing { self?.stopQuiet() }
+        }
+        guard showsQuietNotice(appActive: UIApplication.shared.applicationState == .active) else { return }
+        let request = UNNotificationRequest(identifier: quietCallIdentifier, content: quietCallContent(caller: caller, video: video), trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// The quiet call stops ringing: its notification goes, so nothing says it was there.
+    private func stopQuiet() {
+        guard quiet != nil else { return }
+        quiet = nil
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [quietCallIdentifier])
+        center.removeDeliveredNotifications(withIdentifiers: [quietCallIdentifier])
+    }
+
+    /// Ends the CallKit call so that nothing says it rang (`noTraceEndReason`).
+    private func endWithoutTrace() {
+        guard let call = current else { return }
+        finish()
+        provider.reportCall(with: call, endedAt: nil, reason: noTraceEndReason)
+    }
+
+    /// The core refused an incoming call without a trace (2026-10-01): the CallKit call a push
+    /// reported for it, which the core never named, ends at once.
+    func refused() {
+        let ends = refusalEndsCall(callKitCall: current != nil, outgoing: outgoing, named: named)
+        quietLog(ends ? "refused: the push's call ended" : "refused: nothing to end")
+        if ends { endWithoutTrace() }
     }
 
     /// The core is answering the call (2026-09-29): answered in CallKit, maybe before its offer came
     /// (PushKit reported it as "FlickerTalk"). CallKit only learns who it is; it never rings again.
     func answering(caller: String, video: Bool) {
         guard let current else { return }
+        named = true
         provider.reportCall(with: current, updated: answeringUpdate(caller: caller, video: video, openAppOnAnswer: openAppOnAnswer.on))
     }
 
     /// The ringing is over. Declined or given up: CallKit lets go. Answered: the call goes on,
     /// with its audio session, until `ended`.
     func stop() {
+        stopQuiet()
         guard let call = current, stopEndsCall(answered: answered, outgoing: outgoing) else { return }
         finish()
         provider.reportCall(with: call, endedAt: nil, reason: .remoteEnded)
@@ -684,6 +763,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
 
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
     func ended() {
+        stopQuiet()
         guard let call = current else {
             finish()
             return
@@ -707,13 +787,54 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         // Every VoIP push rings, or iOS stops delivering them; ours are only ever calls. The core
         // reconnects to the router at once (after `report`, whose new call forgets older events):
         // its socket died with the suspended app, and the offer and the caller's end come by it.
-        if current != nil {
+        // A closed hidden session's call never rings, and none rings outside the weekly hours
+        // (2026-10-01): reported, as Apple wants, and ended in the same turn. The core still
+        // reconnects: it answers busy for the closed session, or shows the call quietly.
+        let push = pushCall(
+            callKitCall: current != nil,
+            slotHeard: slotIsHeard(payload.dictionaryPayload["s"], open: openSlots),
+            mayDisturb: QuietHours.mayDisturbNow()
+        )
+        quietLog("call push: \(push.logName)")
+        switch push {
+        case .alreadyRinging:
             CallEvents.shared.emit(.incoming)
             completion()
-            return
+        case .ring:
+            report(caller: "", video: false, done: completion)
+            CallEvents.shared.emit(.incoming)
+        case .endAtOnce:
+            reportEndedAtOnce(done: completion)
+            CallEvents.shared.emit(.incoming)
+            holdForCore()
         }
-        report(caller: "", video: false, done: completion)
-        CallEvents.shared.emit(.incoming)
+    }
+
+    /// A VoIP push that must not ring: reported to CallKit (Apple terminates an app that does not)
+    /// and ended right away, before the system has had a chance to ring. Ended again once CallKit
+    /// has the call, in case the first end came before it knew the call. Never `current`: the
+    /// core's call, if it comes, is a new one.
+    private func reportEndedAtOnce(done: @escaping () -> Void) {
+        let uuid = UUID()
+        configureProvider()
+        provider.reportNewIncomingCall(with: uuid, update: update(caller: "", video: false)) { [weak self] _ in
+            self?.provider.reportCall(with: uuid, endedAt: nil, reason: noTraceEndReason)
+            done()
+        }
+        provider.reportCall(with: uuid, endedAt: nil, reason: noTraceEndReason)
+    }
+
+    /// With no CallKit call the app may be suspended at once: a little time for the core to
+    /// connect and refuse the call (busy) or show it quietly.
+    private func holdForCore() {
+        var task = UIBackgroundTaskIdentifier.invalid
+        let end = {
+            guard task != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
+        task = UIApplication.shared.beginBackgroundTask(withName: "ft.call.quiet", expirationHandler: end)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: end)
     }
 
     // CallKit
@@ -917,13 +1038,40 @@ class PlatformPlugin: Plugin {
         webView = webview
     }
 
-    /// An incoming call rings: CallKit when the app is not on the screen (2026-09-28).
+    /// An incoming call rings: CallKit (2026-09-28). A muted contact's, or one outside the weekly
+    /// hours, shows without ringing (2026-10-01).
     @objc public func startRinging(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(RingingArgs.self)
         DispatchQueue.main.async {
-            Calls.shared.ring(caller: args.caller, video: args.video)
+            let quiet = quietCall(muted: args.muted, mayDisturb: QuietHours.mayDisturbNow())
+            Calls.shared.ring(caller: args.caller, video: args.video, quiet: quiet)
             invoke.resolve()
         }
+    }
+
+    /// The core refused an incoming call without a trace (2026-10-01): a ring the push started
+    /// ends at once.
+    @objc public func callRefused(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            Calls.shared.refused()
+            invoke.resolve()
+        }
+    }
+
+    /// Which hidden sessions are open, by slot (app#9): only their call pushes may ring.
+    @objc public func setOpenSlots(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OpenSlotsArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.openSlots = Set(args.slots)
+            invoke.resolve()
+        }
+    }
+
+    /// Keeps the weekly hours where a call push finds them with the app just launched (app#7).
+    @objc public func setQuietHours(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(QuietHoursArgs.self)
+        QuietHours.keep(args.week)
+        invoke.resolve()
     }
 
     @objc public func stopRinging(_ invoke: Invoke) throws {

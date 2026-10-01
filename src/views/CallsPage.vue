@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { onMounted, watch } from "vue";
 import { IonContent, IonHeader, IonIcon, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
 import { arrowDownOutline, arrowUpOutline, callOutline, videocamOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
-import { clock, hueOf } from "../core";
+import { clock, hueOf, store } from "../core";
 import { history, loadHistory, type CallEntry } from "../calls";
 
 // Plan §66: the history is what happened on this phone, never invented.
 const router = useRouter();
 onMounted(() => void loadHistory());
+// A hidden session's calls show only while it is open (§108): the tab stays mounted, so opening
+// or leaving one loads the history again. A session only on the screen (no id) changes nothing.
+watch(
+  () => store.sessions.map((session) => session.id).filter(Boolean).join(","),
+  () => void loadHistory(),
+);
 
 const DIRECTION_ICON: Record<string, string> = {
   incoming: arrowDownOutline,

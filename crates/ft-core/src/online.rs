@@ -18,6 +18,67 @@ use crate::Core;
 /// How often the outbox is checked for messages whose next attempt is due (§26).
 pub const RETRY_EVERY: Duration = Duration::from_secs(5);
 
+/// What registers this device with the router: the router client, or a fake in the tests.
+#[async_trait]
+pub trait Registrar: Send + Sync {
+    async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()>;
+    /// A closed client (the phone was erased) stops trying.
+    fn is_closed(&self) -> bool;
+}
+
+#[async_trait]
+impl Registrar for RouterClient {
+    async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()> {
+        RouterClient::register(self, capability_hashes, silent_slots).await
+    }
+
+    fn is_closed(&self) -> bool {
+        RouterClient::is_closed(self)
+    }
+}
+
+/// The first wait after a registration fails, and the longest.
+const REGISTER_RETRY: Duration = Duration::from_secs(2);
+const REGISTER_RETRY_MAX: Duration = Duration::from_secs(60);
+
+/// Keeps the router told what it must know of this device (2026-10-01): the eight hashes and
+/// which slots are silent. Registers now, and again after every change the core reports; one
+/// that fails is tried again until it goes through. Each try reads the core as it is then, so
+/// the router always ends up with the newest state.
+pub async fn keep_registered(core: std::sync::Weak<Core>, router: Arc<dyn Registrar>, mut stop: tokio::sync::watch::Receiver<bool>) {
+    let Some((mut changes, retry)) = core.upgrade().map(|core| (core.registration_changes(), core.registration_retry())) else { return };
+    loop {
+        changes.borrow_and_update();
+        let mut wait = REGISTER_RETRY;
+        loop {
+            if router.is_closed() || *stop.borrow() {
+                return;
+            }
+            let Some(now) = core.upgrade() else { return };
+            let state = async { anyhow::Ok((now.route_capability_hashes().await?, now.silent_slots().await?)) }.await;
+            drop(now);
+            if let Ok((hashes, silent)) = state {
+                if router.register(&hashes, silent).await.is_ok() {
+                    break;
+                }
+            }
+            // Tried again on a timer, at once if something changed meanwhile, and as soon as the
+            // router can be reached again.
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                changed = changes.changed() => if changed.is_err() { return },
+                _ = retry.notified() => {}
+                _ = stop.wait_for(|stopped| *stopped) => return,
+            }
+            wait = (wait * 2).min(REGISTER_RETRY_MAX);
+        }
+        tokio::select! {
+            changed = changes.changed() => if changed.is_err() { return },
+            _ = stop.wait_for(|stopped| *stopped) => return,
+        }
+    }
+}
+
 /// The running client: the core, its router client and its network.
 pub struct Online {
     pub core: Arc<Core>,
@@ -53,7 +114,7 @@ impl Signer for CoreSigner {
 
 /// Opens the core over `store` and connects it to the router at `router` (for example
 /// `https://api.flickertalk.com`). WebRTC listens as `base` says; STUN and TURN come from the
-/// router. Registering is retried in the background if the router cannot be reached now.
+/// router. Registering runs in the background (`keep_registered`): nothing waits for the network.
 pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfig) -> Result<Online> {
     let slot = Arc::new(OnceLock::new());
     let router = Arc::new(RouterClient::new(router, Arc::new(CoreSigner(slot.clone())))?);
@@ -62,19 +123,10 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
     let _ = slot.set(core.clone());
     network.attach(&core);
 
-    // Always eight capabilities: our own and seven for hidden sessions, used or not (app#9).
-    let capabilities = core.route_capability_hashes().await?;
-    if router.register(&capabilities).await.is_err() {
-        let later = router.clone();
-        tokio::spawn(async move {
-            let mut wait = Duration::from_secs(2);
-            // A closed client (the phone was erased) stops trying.
-            while !later.is_closed() && later.register(&capabilities).await.is_err() {
-                tokio::time::sleep(wait).await;
-                wait = (wait * 2).min(Duration::from_secs(60));
-            }
-        });
-    }
+    let stop = tokio::sync::watch::Sender::new(false);
+    // Always eight capabilities, our own and seven for hidden sessions, used or not (app#9), and
+    // which slots are silent (2026-10-01): now, after every change, and until the router has it.
+    tokio::spawn(keep_registered(Arc::downgrade(&core), router.clone(), stop.subscribe()));
     network.listen(router.listen());
 
     // An upgrade that made the envelope key (A1): every contact gets the card with it, so that
@@ -86,7 +138,6 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         });
     }
 
-    let stop = tokio::sync::watch::Sender::new(false);
     let mut stopping = stop.subscribe();
     let retrying = Arc::downgrade(&core);
     tokio::spawn(async move {
@@ -138,6 +189,159 @@ mod tests {
     #[test]
     fn due_messages_are_checked_every_few_seconds() {
         assert!(RETRY_EVERY <= Duration::from_secs(5));
+    }
+
+    /// A router that records each registration and refuses the first `failing` ones.
+    #[derive(Default)]
+    struct Router {
+        failing: std::sync::atomic::AtomicUsize,
+        tries: std::sync::atomic::AtomicUsize,
+        registered: std::sync::Mutex<Vec<([[u8; 32]; 8], u8)>>,
+        closed: std::sync::atomic::AtomicBool,
+    }
+
+    #[async_trait]
+    impl Registrar for Router {
+        async fn register(&self, hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()> {
+            use std::sync::atomic::Ordering::SeqCst;
+            self.tries.fetch_add(1, SeqCst);
+            if self.failing.load(SeqCst) > 0 {
+                self.failing.fetch_sub(1, SeqCst);
+                anyhow::bail!("no network");
+            }
+            self.registered.lock().unwrap().push((*hashes, silent_slots));
+            Ok(())
+        }
+
+        fn is_closed(&self) -> bool {
+            self.closed.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl Router {
+        fn last(&self) -> Option<([[u8; 32]; 8], u8)> {
+            self.registered.lock().unwrap().last().copied()
+        }
+
+        fn count(&self) -> usize {
+            self.registered.lock().unwrap().len()
+        }
+    }
+
+    struct Nowhere;
+
+    #[async_trait]
+    impl crate::Transport for Nowhere {
+        async fn send_direct(&self, _: &crate::Peer, _: Vec<u8>) -> Result<bool> {
+            Ok(false)
+        }
+
+        async fn send_mailbox(&self, _: &crate::Peer, _: Vec<u8>) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    async fn core() -> Arc<Core> {
+        Core::open(Store::open_in_memory().await.unwrap(), [7; 32], Arc::new(Nowhere)).await.unwrap()
+    }
+
+    async fn until(what: &str, condition: impl Fn() -> bool) {
+        for _ in 0..500 {
+            if condition() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("timed out waiting until {what}");
+    }
+
+    fn registering(core: &Arc<Core>, router: &Arc<Router>) -> tokio::sync::watch::Sender<bool> {
+        let stop = tokio::sync::watch::Sender::new(false);
+        tokio::spawn(keep_registered(Arc::downgrade(core), router.clone(), stop.subscribe()));
+        stop
+    }
+
+    // Every start registers, with what the core says now: the hashes and the silent slots.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_start_registers_the_hashes_and_the_silent_slots() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let _stop = registering(&core, &router);
+        until("registered", || router.count() == 1).await;
+        let expected = (core.route_capability_hashes().await.unwrap(), core.silent_slots().await.unwrap());
+        assert_eq!(router.last(), Some(expected));
+    }
+
+    // 2026-10-01: a session opened or left changes what the router must stay silent for, and the
+    // phone registers again at once.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn opening_or_leaving_a_session_registers_again() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let _stop = registering(&core, &router);
+        until("registered", || router.count() == 1).await;
+
+        let session = core.open_session("123456").await.unwrap().unwrap();
+        let slot = core.store().session_slot(&session).await.unwrap().unwrap();
+        until("registered with the session open", || router.last().is_some_and(|(_, mask)| mask & 1 << slot == 0) && router.count() >= 2).await;
+        assert_eq!(router.last().unwrap().1, core.silent_slots().await.unwrap());
+
+        // Empty, it goes when left: its slot gets a new link, and the router a new hash.
+        let before = core.route_capability_hashes().await.unwrap();
+        core.close_session(&session).await.unwrap();
+        let after = core.route_capability_hashes().await.unwrap();
+        assert_ne!(after, before);
+        until("registered with the new hash", || router.last().is_some_and(|(hashes, _)| hashes == after)).await;
+        assert_eq!(router.last().unwrap().1, core.silent_slots().await.unwrap());
+    }
+
+    // No network: the change is not lost. It is tried again until the router has it, and what
+    // goes is the newest state, not the one of the failed try.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_registration_that_fails_is_tried_again_with_the_newest_state() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let _stop = registering(&core, &router);
+        until("registered", || router.count() == 1).await;
+
+        router.failing.store(2, std::sync::atomic::Ordering::SeqCst);
+        let first = core.open_session("111111").await.unwrap().unwrap();
+        until("a try failed", || router.tries.load(std::sync::atomic::Ordering::SeqCst) >= 2).await;
+        let second = core.open_session("222222").await.unwrap().unwrap();
+        // The router is back: no need to wait for the timer.
+        core.router_reachable();
+        let wanted = core.silent_slots().await.unwrap();
+        until("the router has the newest state", || router.last().is_some_and(|(_, mask)| mask == wanted) && router.count() >= 2).await;
+        for session in [first, second] {
+            let slot = core.store().session_slot(&session).await.unwrap().unwrap();
+            assert_eq!(router.last().unwrap().1 & 1 << slot, 0, "both open, so neither silent");
+        }
+    }
+
+    // A failed registration is retried on a timer too, without anything else happening.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_registration_is_retried_on_its_own() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        router.failing.store(1, std::sync::atomic::Ordering::SeqCst);
+        let _stop = registering(&core, &router);
+        tokio::time::sleep(REGISTER_RETRY + Duration::from_millis(500)).await;
+        assert_eq!(router.count(), 1, "the second try went through");
+    }
+
+    // An erased phone (a closed router client) or a stopped client tries no more.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_closed_router_or_a_stopped_client_is_not_registered_with() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let stop = registering(&core, &router);
+        until("registered", || router.count() == 1).await;
+        stop.send_replace(true);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        core.open_session("123456").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(router.count(), 1);
+
+        let (core, router) = (self::core().await, Arc::new(Router::default()));
+        router.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _stop = registering(&core, &router);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(router.tries.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     // Erasing the phone (2026-09-30): iOS cannot start the app again, so the running core stops
