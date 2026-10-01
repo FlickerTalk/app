@@ -907,6 +907,9 @@ impl Client {
             if let Ok(week) = online.core.quiet_week().await {
                 let _ = app.platform().set_quiet_hours(&week);
             }
+            // A core that starts has every hidden session closed (§108): on iOS a new core may
+            // start in the same process (erasing the phone), whose native side still had some open.
+            let _ = app.platform().set_open_slots(&online.core.open_slots());
             // The phone's alarm clock is told every reminder again (2026-09-27): the core is
             // the truth, and an alarm lost to a reboot or an update comes back here.
             sync_reminders(app, &online.core).await;
