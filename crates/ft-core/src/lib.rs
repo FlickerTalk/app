@@ -620,6 +620,9 @@ impl Core {
             sessions::keep(&self.store, &self.key, &self.open_sessions()).await?;
         }
         self.registration_changed();
+        // What plugins set to ring inside a session rings only while it is open (§108): the
+        // phone's alarm clock is told again.
+        let _ = self.events.send(Event::RemindersChanged);
         Ok(())
     }
 

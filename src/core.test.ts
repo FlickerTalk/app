@@ -360,10 +360,13 @@ describe("plugin records and reminders", () => {
     expect(await core.pluginRecordUsage("com.flickertalk.notes")).toEqual({ used: 12, quota: 4096 });
   });
 
+  // 2026-10-01 (§108): with the hidden session it was set in, if any, so the plugin opens there.
   it("says which reminder opened the app, once", async () => {
-    tauri.invoke.mockResolvedValue("com.flickertalk.notes\nr1");
-    expect(await core.pendingReminder()).toEqual({ plugin: "com.flickertalk.notes", id: "r1" });
-    tauri.invoke.mockResolvedValue("");
+    tauri.invoke.mockResolvedValue({ plugin: "com.flickertalk.notes", id: "r1\nstill r1", session: null });
+    expect(await core.pendingReminder()).toEqual({ plugin: "com.flickertalk.notes", id: "r1\nstill r1" });
+    tauri.invoke.mockResolvedValue({ plugin: "com.flickertalk.notes", id: "r2", session: "s1" });
+    expect(await core.pendingReminder()).toEqual({ plugin: "com.flickertalk.notes", id: "r2", session: "s1" });
+    tauri.invoke.mockResolvedValue(null);
     expect(await core.pendingReminder()).toBeNull();
     tauri.invoke.mockImplementation(() => Promise.reject(new Error("no bridge")));
     expect(await core.pendingReminder()).toBeNull();
@@ -449,6 +452,17 @@ describe("circles", () => {
     expect(core.circleHome("circle1")).toEqual({ contacts: core.store.chats });
     core.store.sessions = [{ id: "s1", chats: [], requests: [], circles: [{ ...core.store.circles[0], id: "circle3" }] }];
     expect(core.circleHome("circle3").session).toBe("s1");
+  });
+
+  // 2026-10-01 (§108): a plugin opened from a conversation is open in that conversation's place.
+  it("knows which hidden session a conversation lives in", async () => {
+    await core.refreshChats();
+    const bob = core.store.chats[0];
+    core.store.sessions = [{ id: "s1", chats: [{ ...bob, id: "ft_hidden" }], requests: [{ ...bob, id: "ft_stranger" }], circles: [] }];
+    expect(core.sessionOf(bob.id)).toBeUndefined();
+    expect(core.sessionOf("ft_hidden")).toBe("s1");
+    expect(core.sessionOf("ft_stranger")).toBe("s1");
+    expect(core.sessionOf("")).toBeUndefined();
   });
 });
 
