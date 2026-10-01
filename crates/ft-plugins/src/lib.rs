@@ -59,7 +59,29 @@ pub struct Manifest {
     /// without the user choosing, so a viewer may not ask for the network.
     #[serde(default)]
     pub views: Vec<String>,
+    /// A tool or a game (2026-10-02, plan of the games): where the app shows it. A tool unless it
+    /// says otherwise, so what was written before games existed still means what it meant.
+    #[serde(default)]
+    pub kind: Kind,
 }
+
+/// What a plugin is to the user (2026-10-02). A tool is opened from the chat's 🧰, "open with"
+/// and its viewer; a game from the games, and only ever with a contact over the live channel.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    #[default]
+    Tool,
+    Game,
+    /// A kind a newer FlickerTalk knows and this one does not (§14): the catalogue that lists it
+    /// is still read, but nothing of that kind is offered, installed or run here.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The first core that tells games from tools. A game asks for at least this one, so an older
+/// app, which would show it as a tool, is never offered it.
+pub const GAMES_SINCE: &str = "1.3.0";
 
 /// What a plugin may do. Each one is asked for, granted and revoked on its own: installing grants
 /// nothing (§53). A plugin never gets keys, the push token or the whole conversation (§54, §55).
@@ -302,6 +324,21 @@ fn check(manifest: &Manifest) -> Result<()> {
         manifest.views.is_empty() || manifest.permissions.network.is_empty(),
         "a viewer is handed files without the user choosing, so it may not ask for the network"
     );
+    match manifest.kind {
+        Kind::Tool => {}
+        Kind::Game => {
+            // A game may talk to its twin and write in the chat, and nothing else: it never takes
+            // anything out of the conversation. Whatever else it asks for has to be nothing.
+            let asks = &manifest.permissions;
+            let playing = Permissions { live: asks.live, send: asks.send, ..Permissions::default() };
+            ensure!(*asks == playing, "a game may ask only for the live channel and for sending");
+            ensure!(
+                manifest.opens.is_empty() && manifest.views.is_empty(),
+                "a game is opened from the games, never handed a file"
+            );
+        }
+        Kind::Unknown => bail!("this FlickerTalk does not know that kind of plugin"),
+    }
     Ok(())
 }
 
@@ -437,6 +474,9 @@ pub struct CatalogueEntry {
     pub url: String,
     #[serde(default)]
     pub summary: String,
+    /// A tool or a game, copied from the manifest (2026-10-02).
+    #[serde(default)]
+    pub kind: Kind,
 }
 
 /// Whether a FlickerTalk of `core_version` is new enough for something that needs `min` (§51).
@@ -535,10 +575,107 @@ mod tests {
             hash: "ab".repeat(32),
             url: "https://plugins.flickertalk.com/x.ftplugin".to_owned(),
             summary: String::new(),
+            kind: Kind::Tool,
         };
         assert!(!entry.runs_on("0.1.0"));
         assert!(entry.runs_on("9.0.0"));
         assert!(entry.runs_on("9.1.0"));
+    }
+
+    /// A game as the games repository would pack it (plan of the games, 9.2 and 10.1).
+    fn game_with(rest: &str) -> String {
+        format!(
+            r#"{{"id":"com.flickertalk.game.chess","name":"Chess","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-chess"],"kind":"game"{rest}}}"#
+        )
+    }
+
+    // 2026-10-02 (plan of the games, 10.1): a package is a tool unless its manifest says it is a
+    // game, so every manifest written before games existed still means what it meant.
+    #[test]
+    fn a_plugin_is_a_tool_unless_it_says_it_is_a_game() {
+        let catalogue = Ed25519SecretKey::new();
+        let plain = open(&package(&manifest_of("com.example.code"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(plain.manifest.kind, Kind::Tool);
+        let said = manifest_of("com.example.code").replacen('{', r#"{"kind":"tool","#, 1);
+        assert_eq!(open(&package(&said, b"", &catalogue), &catalogue.public_key()).unwrap().manifest.kind, Kind::Tool);
+
+        let chess = game_with(r#","permissions":{"live":true,"send":"propose"}"#);
+        let game = open(&package(&chess, b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(game.manifest.kind, Kind::Game);
+        // The names the catalogue and the app's screens use.
+        assert_eq!(serde_json::to_value(Kind::Tool).unwrap(), "tool");
+        assert_eq!(serde_json::to_value(Kind::Game).unwrap(), "game");
+    }
+
+    // A game never takes anything out of the conversation: it may talk to its twin and propose
+    // a line for the chat, and nothing else. Written as what it may ask for, not as a list of
+    // what it may not, so a permission added later is refused to games until someone decides.
+    #[test]
+    fn a_game_may_ask_only_for_the_live_channel_and_sending() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        assert!(opens(&game_with("")).is_ok(), "a game that asks for nothing");
+        assert!(opens(&game_with(r#","permissions":{"live":true,"send":"propose"}"#)).is_ok());
+        for wrong in [
+            r#","permissions":{"live":true,"network":["api.example.com"]}"#,
+            r#","permissions":{"live":true,"messages":"given"}"#,
+            r#","permissions":{"live":true,"print":true}"#,
+            r#","permissions":{"live":true,"remind":true}"#,
+            r#","permissions":{"live":true,"drive":true}"#,
+            r#","permissions":{"live":true,"storage":"large"}"#,
+            // A game is opened from the games, never handed a file: no "open with", no viewer.
+            r#","opens":["image/*"]"#,
+            r#","opens":["application/x-ftchess"],"views":["application/x-ftchess"]"#,
+        ] {
+            assert!(opens(&game_with(wrong)).is_err(), "a game with {wrong} should be refused");
+            // The same thing on a tool is fine: it is the kind that refuses it.
+            let tool = game_with(wrong).replace(r#""kind":"game""#, r#""kind":"tool""#);
+            assert!(opens(&tool).is_ok(), "a tool with {wrong} is fine");
+        }
+    }
+
+    // Formats are versioned and backward compatible (§14, §23): a kind a newer FlickerTalk adds
+    // is not run here, but it does not break the catalogue for everything else either.
+    #[test]
+    fn a_kind_this_core_does_not_know_is_not_run_but_does_not_break_the_catalogue() {
+        let catalogue = Ed25519SecretKey::new();
+        let widget = manifest_of("com.example.widget").replacen('{', r#"{"kind":"widget","#, 1);
+        assert!(open(&package(&widget, b"", &catalogue), &catalogue.public_key()).is_err(), "not a kind this core runs");
+
+        let entry = |id: &str, kind: &str| {
+            format!(
+                r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"9.0.0","size":1,"hash":"{}","url":"https://flickertalk.com/plugins/x.ftplugin"{kind}}}"#,
+                "ab".repeat(32)
+            )
+        };
+        let index = format!(
+            r#"{{"plugins":[{},{},{}]}}"#,
+            entry("com.example.tool", ""),
+            entry("com.example.chess", r#","kind":"game""#),
+            entry("com.example.widget", r#","kind":"widget""#)
+        );
+        let signature = catalogue.sign(index.as_bytes()).to_base64();
+        let listed = catalogue_entries(&index, &signature, &catalogue.public_key()).expect("still a catalogue");
+        assert_eq!(listed.iter().map(|entry| entry.kind).collect::<Vec<_>>(), [Kind::Tool, Kind::Game, Kind::Unknown]);
+    }
+
+    // A core 1.2.2 knows nothing of games, so it must not be offered one: every game asks for the
+    // core that brought them, and the catalogue leaves out what needs a newer core.
+    #[test]
+    fn a_core_without_games_is_not_offered_one() {
+        let entry = CatalogueEntry {
+            id: "com.flickertalk.game.chess".to_owned(),
+            name: "Chess".to_owned(),
+            version: "1.0.0".to_owned(),
+            min_core_version: GAMES_SINCE.to_owned(),
+            size: 10,
+            hash: "ab".repeat(32),
+            url: "https://flickertalk.com/plugins/x.ftplugin".to_owned(),
+            summary: String::new(),
+            kind: Kind::Game,
+        };
+        assert!(!entry.runs_on("1.2.2"));
+        assert!(entry.runs_on(GAMES_SINCE));
     }
 
     /// A package as its author would build it: the manifest and the files of `dist/`.

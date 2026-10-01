@@ -3473,6 +3473,7 @@ mod tests {
             hash: "ab".repeat(32),
             url: format!("{}/{id}/{version}.ftplugin", ft_core::CATALOGUE_HOME),
             summary: "Does a thing.".to_owned(),
+            kind: ft_plugins::Kind::Tool,
         }
     }
 
