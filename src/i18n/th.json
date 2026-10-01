@@ -57,6 +57,7 @@
     "deleteSure": "ลบ",
     "forwardTo": "ส่งต่อถึง",
     "download": "Download",
+    "resend": "ส่งอีกครั้ง",
     "discardAttachment": "Discard attachment",
     "otherApp": "แอปอื่น"
   },
@@ -68,7 +69,8 @@
     "connected": "เชื่อมต่อโดยตรง",
     "paused": "หยุดชั่วคราว",
     "failed": "ล้มเหลว",
-    "waiting": "Tap to download"
+    "waiting": "Tap to download",
+    "unsent": "ส่งไม่สำเร็จ"
   },
   "calls": {
     "callBack": "โทรกลับ",

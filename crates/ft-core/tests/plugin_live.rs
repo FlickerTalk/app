@@ -221,12 +221,12 @@ async fn a_ref_leads_back_to_the_message_and_only_for_its_plugin() {
     let reference = bob.plugin_ref("com.example.board", &message).await.expect("a ref");
     assert!(reference.starts_with("ref_") && !reference.contains(&id(&alice)), "nothing of the contact in it");
     assert_eq!(bob.plugin_ref("com.example.board", &message).await.unwrap(), reference, "the same message, the same ref");
-    let target = bob.plugin_ref_target("com.example.board", &reference).await.unwrap().expect("leads somewhere");
+    let target = bob.plugin_ref_target("com.example.board", None, &reference).await.unwrap().expect("leads somewhere");
     assert_eq!((target.contact.as_str(), target.message_id.as_str()), (id(&alice).as_str(), message.as_str()));
-    assert!(bob.plugin_ref_target("com.example.other", &reference).await.unwrap().is_none(), "another plugin's ref");
-    assert!(bob.plugin_ref_target("com.example.board", "ref_nothing").await.unwrap().is_none());
+    assert!(bob.plugin_ref_target("com.example.other", None, &reference).await.unwrap().is_none(), "another plugin's ref");
+    assert!(bob.plugin_ref_target("com.example.board", None, "ref_nothing").await.unwrap().is_none());
     assert!(bob.plugin_ref("com.example.board", "no-such-message").await.is_err());
 
     bob.forget_message(&message).await.expect("erases");
-    assert!(bob.plugin_ref_target("com.example.board", &reference).await.unwrap().is_none(), "the message went");
+    assert!(bob.plugin_ref_target("com.example.board", None, &reference).await.unwrap().is_none(), "the message went");
 }

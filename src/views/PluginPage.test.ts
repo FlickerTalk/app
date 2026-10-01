@@ -32,4 +32,17 @@ describe("PluginPage", () => {
     await flushPromises();
     expect(wrapper.findComponent(PluginSheet).props("reminder")).toBe("r2");
   });
+
+  // 2026-10-01 (§108): a reminder set inside a hidden session opens the plugin in it; from
+  // Settings, in none.
+  it("opens the plugin in the session the address names, or in none", async () => {
+    route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: { reminder: "r1", session: "s1" } });
+    const wrapper = mount(PluginPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props("session")).toBe("s1");
+
+    route.value.query = {};
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props("session")).toBeUndefined();
+  });
 });

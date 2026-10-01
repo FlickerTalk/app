@@ -4,7 +4,7 @@ import { readCode } from "../code";
 import { piecesOf } from "../links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonIcon } from "@ionic/vue";
-import { checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, timeOutline } from "ionicons/icons";
+import { alertCircleOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -28,18 +28,27 @@ export interface Message {
 
 /** `sender`: in a circle, who said it; shown over a bubble that is not ours (2026-09-27). */
 const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string }>();
-const emit = defineEmits<{ open: [id: string]; save: [id: string]; download: [id: string]; actions: [id: string] }>();
+const emit = defineEmits<{
+  open: [id: string];
+  save: [id: string];
+  download: [id: string];
+  actions: [id: string];
+  resend: [id: string];
+}>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
   pending: { icon: timeOutline, label: t("status.pending") },
   sent: { icon: checkmark, label: t("status.sent") },
   delivered: { icon: checkmarkDone, label: t("status.delivered") },
   read: { icon: checkmarkDone, label: t("status.read") },
+  // The router refused it (§84): never shown as on its way; it can be sent again.
+  unsent: { icon: alertCircleOutline, label: t("status.unsent") },
 };
 
 const status = computed(() =>
   props.message.mine && props.message.status ? STATUS[props.message.status] : undefined,
 );
+const unsent = computed(() => props.message.mine && props.message.status === "unsent");
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
 // A message written with fences is code, and the app draws it as such (Ioan, 2026-09-22).
 const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
@@ -140,8 +149,19 @@ function open() {
 <template>
   <div
     class="ft-msg"
-    :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending' }]"
+    :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending', 'is-unsent': unsent }]"
   >
+    <!-- Beside the bubble, so it is there for a text, a file or a voice message alike. -->
+    <button
+      v-if="unsent"
+      type="button"
+      class="ft-resend"
+      data-test="resend"
+      :aria-label="t('chat.resend')"
+      @click.stop="emit('resend', message.id)"
+    >
+      <ion-icon :icon="refreshOutline" aria-hidden="true" />
+    </button>
     <div
       class="ft-bubble"
       :class="{ 'is-file': file, 'is-media': file && (isImage || isVideo), 'is-voice': file && isVoice, 'is-folded': folded }"
@@ -384,6 +404,26 @@ function open() {
 }
 .is-pending .ft-bubble {
   opacity: 0.7;
+}
+.is-unsent .ft-bubble {
+  opacity: 0.7;
+}
+.ft-bubble__meta ion-icon.is-unsent {
+  color: var(--ion-color-danger);
+}
+.ft-resend {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-inline-end: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ft-surface-2);
+  color: var(--ion-color-danger);
+  font-size: 18px;
+  cursor: pointer;
 }
 
 .ft-code {

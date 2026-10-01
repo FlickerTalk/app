@@ -1,6 +1,6 @@
 // A3: every PIN opens a session the same way, the one that has it or a new empty one; an empty
 // one goes when it is closed, and any session can be deleted.
-import { commandsSent, expect, test } from "./helpers";
+import { commandsSent, expect, frameAsks, servePluginFrames, test } from "./helpers";
 
 async function type(app: import("@playwright/test").Page, digits: string) {
   for (const digit of digits) {
@@ -68,4 +68,54 @@ test("a session that was left is not there after the app starts again", async ({
   await app.reload();
   await expect(app.getByTestId("chat-row").first()).toBeVisible();
   await expect(app.getByTestId("session-section")).toHaveCount(0);
+});
+
+// 2026-10-01 (§108): what a plugin kept inside a session (PIN 777777 holds Ana, so it stays when
+// closed) is back when the session is opened again, and gone with the session when it is deleted.
+async function boardInside(app: import("@playwright/test").Page) {
+  await servePluginFrames(app);
+  await app.goto("/session");
+  await type(app, "777777");
+  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  await app.goto("/chat/ft_hidden1234567");
+  await app.getByTestId("apps").click();
+  await app.getByTestId("app-com.flickertalk.markdown").click();
+  expect(await frameAsks(app, { type: "ft.recordSet", id: "q1", key: "board/1", value: "the secret board" })).toBe(true);
+}
+
+test("a plugin's record kept inside a session is there again when it is opened again", async ({ app }) => {
+  await boardInside(app);
+  await app.goto("/tabs/chats");
+  await app.getByTestId("session-section").getByTestId("session-close").click();
+  await expect(app.getByTestId("session-section")).toHaveCount(0);
+  expect(await commandsSent(app)).toContain("core_session_close");
+  // Closed: from the main list the plugin finds nothing of it.
+  await app.goto("/chat/ft_bob123456789");
+  await app.getByTestId("apps").click();
+  await app.getByTestId("app-com.flickertalk.markdown").click();
+  expect(await frameAsks(app, { type: "ft.recordGet", id: "q2", key: "board/1" })).toBeNull();
+
+  await app.goto("/session");
+  await type(app, "777777");
+  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  await app.goto("/chat/ft_hidden1234567");
+  await app.getByTestId("apps").click();
+  await app.getByTestId("app-com.flickertalk.markdown").click();
+  expect(await frameAsks(app, { type: "ft.recordGet", id: "q3", key: "board/1" })).toBe("the secret board");
+});
+
+test("a plugin's record kept inside a session goes with the session", async ({ app }) => {
+  await boardInside(app);
+  await app.goto("/tabs/chats");
+  const section = app.getByTestId("session-section");
+  await section.getByTestId("session-remove").click();
+  await section.getByTestId("session-remove-sure").click();
+  await expect(app.getByTestId("session-section")).toHaveCount(0);
+  expect(await commandsSent(app)).toContain("core_session_remove");
+
+  // The same PIN now opens a new, empty session: nothing of the old one, its board included.
+  await app.goto("/session");
+  await type(app, "777777");
+  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  expect(await app.evaluate(() => JSON.stringify((window as unknown as { __ftFake: { state: { pluginData: object } } }).__ftFake.state.pluginData))).toBe("{}");
 });
