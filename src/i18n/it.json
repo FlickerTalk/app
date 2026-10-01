@@ -57,6 +57,7 @@
     "deleteSure": "Elimina",
     "forwardTo": "Inoltra a",
     "download": "Scarica",
+    "resend": "Invia di nuovo",
     "discardAttachment": "Scarta l'allegato",
     "otherApp": "Un'altra app"
   },
@@ -68,7 +69,8 @@
     "connected": "Connesso direttamente",
     "paused": "In pausa",
     "failed": "Non riuscito",
-    "waiting": "Tocca per scaricare"
+    "waiting": "Tocca per scaricare",
+    "unsent": "Non inviato"
   },
   "calls": {
     "callBack": "Richiama",
