@@ -448,6 +448,14 @@ impl<R: Runtime> Platform<R> {
         self.run("stopRinging", ())
     }
 
+    /// The core refused an incoming call without a trace (Calls off, a stranger, a blocked
+    /// contact, a closed hidden session; §108, §109). A ring the push started before the core knew
+    /// who called (CallKit on iOS, the call notification on Android) ends at once, leaving nothing
+    /// behind; a call the core rings or one going on is left alone. On desktop it does nothing.
+    pub fn call_refused(&self) -> Result<()> {
+        self.call("callRefused", ())
+    }
+
     /// The incoming call is being answered (2026-09-29), from any screen, or was answered before
     /// its offer came: it rings no more, and the phone's own call screen learns who it is. On
     /// Android the ringing stops and the app stays over the lock screen; on iOS CallKit, which

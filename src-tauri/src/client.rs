@@ -947,6 +947,13 @@ impl Client {
                             let _ = app.emit(VAULT_EVENT, ());
                             continue;
                         }
+                        // Calls off, a stranger, a blocked contact, a closed session (§108,
+                        // §109): a push may have set the phone's own call screen ringing before
+                        // the core knew who called. It stops now; the WebView never hears of it.
+                        Event::CallRefused => {
+                            let _ = app.platform().call_refused();
+                            continue;
+                        }
                         Event::VaultProgress { done, total } => {
                             let _ = app.emit(VAULT_PROGRESS_EVENT, VaultProgressView { done, total });
                             continue;
