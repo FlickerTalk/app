@@ -456,9 +456,13 @@ export async function start(): Promise<void> {
   const me = await invoke<Omit<Me, "hue">>("core_me");
   store.me = { ...me, hue: hueOf(me.id) };
   await refreshChats();
-  await listen<{ contact: string | null; circle?: string | null }>(CHANGED_EVENT, ({ payload }) => {
+  await listen<{ contact: string | null; circle?: string | null; all?: boolean }>(CHANGED_EVENT, ({ payload }) => {
     // The list first: an open conversation's files depend on the connection it reports.
     void refreshChats().then(() => {
+      // Events were lost to a burst (2026-10-01): whatever is shown may be out of date.
+      if (payload.all) {
+        return Promise.all([...[...loaded].map(loadMessages), ...[...loadedCircles].map(loadCircleMessages)]).then(() => {});
+      }
       if (payload.contact && loaded.has(payload.contact)) {
         return loadMessages(payload.contact);
       }

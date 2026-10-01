@@ -929,12 +929,22 @@ impl Client {
             let router_for_events = online.router.clone();
             let core_for_events = online.core.clone();
             tauri::async_runtime::spawn(async move {
+                use crate::core_events::{self, EverythingChanged, Next};
                 tokio::pin!(stopped);
                 // A stopped core's events end here (erasing the phone): the new one has its own.
-                while let Some(Ok(event)) = tokio::select! {
-                    event = events.recv() => Some(event),
-                    _ = &mut stopped => None,
-                } {
+                loop {
+                    let event = match core_events::next(&mut events, &mut stopped).await {
+                        Next::Event(event) => event,
+                        // Events lost to a burst (2026-10-01): what they would have changed is
+                        // fetched again, and the loop goes on.
+                        Next::Lost => {
+                            let _ = app.emit(CHANGED_EVENT, EverythingChanged::default());
+                            let _ = app.emit(VAULT_EVENT, ());
+                            sync_reminders(&app, &core_for_events).await;
+                            continue;
+                        }
+                        Next::End => break,
+                    };
                     let (contact, circle) = match event {
                         Event::MessagesChanged { contact } => (Some(contact), None),
                         Event::CircleMessagesChanged { circle } => (None, Some(circle)),
