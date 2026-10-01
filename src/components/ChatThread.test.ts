@@ -268,6 +268,24 @@ describe("ChatThread", () => {
     expect(wrapper.find(".ft-app__name").text()).toBe("Code block");
   });
 
+  // 2026-10-01 (§108): a plugin opened from a conversation of a hidden session is open in that
+  // session; from the main list, in none.
+  it("opens a plugin in the hidden session the conversation lives in", async () => {
+    const open = async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      await wrapper.find("[data-test='apps']").trigger("click");
+      await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
+      await flushPromises();
+      return wrapper.findComponent({ name: "PluginSheet" }).props("session");
+    };
+    expect(await open()).toBeUndefined();
+    const c1 = store.chats.find((one) => one.id === "c1")!;
+    store.sessions = [{ id: "s1", chats: [c1], requests: [], circles: [] }];
+    store.chats = store.chats.filter((one) => one.id !== "c1");
+    expect(await open()).toBe("s1");
+  });
+
   // The apps button follows what is installed. Adding or removing a tool in Settings has to show
   // up in a conversation that is already open, not only the next time it is entered.
   it("notices a tool added or removed while the conversation stays open", async () => {
