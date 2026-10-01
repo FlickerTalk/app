@@ -106,6 +106,9 @@ closeOnBackWhile(() => Boolean(scanner.refused), dismissRefusal);
   text-align: start;
 }
 .ft-refused__close {
+  /* Top corner, whether or not the settings button takes a second row. */
+  grid-column: 3;
+  grid-row: 1;
   width: 36px;
   height: 36px;
   font-size: 20px;
