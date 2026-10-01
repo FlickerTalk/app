@@ -283,6 +283,7 @@
     "remind": "Pôr lembretes neste telemóvel",
     "drive": "Guardar ficheiros na sua própria nuvem",
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
+    "location": "A sua localização, só quando você pedir",
     "opens": "Abre: {kinds}",
     "open": "Abrir"
   },

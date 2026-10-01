@@ -283,6 +283,7 @@
     "remind": "Ustawiać przypomnienia na tym telefonie",
     "drive": "Przechowywać pliki w twojej własnej chmurze",
     "storageLarge": "Przechowywać dużo danych na tym telefonie (do 256 MB)",
+    "location": "Twoja lokalizacja, tylko gdy o nią poprosisz",
     "opens": "Otwiera: {kinds}",
     "open": "Otwórz"
   },

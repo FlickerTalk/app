@@ -283,6 +283,7 @@
     "remind": "Memasang pengingat di ponsel ini",
     "drive": "Menyimpan berkas di cloud milikmu sendiri",
     "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
+    "location": "Lokasi Anda, hanya saat Anda memintanya",
     "opens": "Membuka: {kinds}",
     "open": "Buka"
   },

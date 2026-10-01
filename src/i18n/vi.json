@@ -283,6 +283,7 @@
     "remind": "Đặt lời nhắc trên điện thoại này",
     "drive": "Giữ tệp trong đám mây của riêng bạn",
     "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
+    "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",
     "opens": "Mở: {kinds}",
     "open": "Mở"
   },
