@@ -12,6 +12,13 @@
  * encoder that cannot be set up), as the real core does: with a `camera_failed` event when a
  * video call connects, with an error when it is turned on.
  *
+ * The camera scanner: `window.__ftFakeScanCamera` (`{ before, answer, after }`, all `granted` by
+ * default) is the camera permission as the system reports it before asking, the answer to asking,
+ * and after it. `scan` waits until `window.__ftFake.scanned(text)` or `cancel`.
+ *
+ * Android's back button: `window.__ftFake.back()` presses it; it returns whether the app was
+ * listening (`onBackButtonPress`), `false` when the system would do its usual job.
+ *
  * `window.__ftFakeMeId` gives this phone a real-length FlickerTalk ID instead of `ft_me`.
  *
  * `window.__ftFakeLongChat` (a number) puts that many older texts before Bob's messages, for a
@@ -116,6 +123,17 @@ export function installFakeCore() {
   let nextCallback = 1;
   const calls: Array<[string, Args]> = [];
 
+  // The camera scanner and Android's back button.
+  const scanCamera = () =>
+    ({ before: "granted", answer: "granted", after: "granted", ...((window as unknown as Record<string, unknown>).__ftFakeScanCamera as object) }) as {
+      before: string;
+      answer: string;
+      after: string;
+    };
+  let cameraAsked = false;
+  let scanning: { resolve: (read: unknown) => void; reject: (reason: unknown) => void } | null = null;
+  let back: { channel: number; index: number } | null = null;
+
   const sessionView = (id: string) => ({ id, conversations: [], requests: [], circles: [] });
 
   const answer = (command: string, args: Args): unknown => {
@@ -127,6 +145,27 @@ export function installFakeCore() {
         return nextCallback;
       }
       case "plugin:event|unlisten":
+        return undefined;
+      case "plugin:barcode-scanner|check_permissions":
+        return { camera: cameraAsked ? scanCamera().after : scanCamera().before };
+      case "plugin:barcode-scanner|request_permissions":
+        cameraAsked = true;
+        return { camera: scanCamera().answer };
+      case "plugin:barcode-scanner|open_app_settings":
+        return undefined;
+      case "plugin:barcode-scanner|scan":
+        return new Promise((resolve, reject) => {
+          scanning = { resolve, reject };
+        });
+      case "plugin:barcode-scanner|cancel":
+        scanning?.reject("cancelled");
+        scanning = null;
+        return undefined;
+      case "plugin:app|register_listener":
+        if (a.event === "back-button") back = { channel: Number((args?.handler as { id: number }).id), index: 0 };
+        return undefined;
+      case "plugin:app|remove_listener":
+        if (a.event === "back-button") back = null;
         return undefined;
       case "plugin:app|version":
         return "1.0.0-e2e";
@@ -405,6 +444,16 @@ export function installFakeCore() {
     emit,
     ring,
     phoneAnswers: answerIncoming,
+    scanned: (content: string) => {
+      scanning?.resolve({ content, format: "QR_CODE", bounds: null });
+      scanning = null;
+    },
+    back: () => {
+      if (!back) return false;
+      const channel = handlers.get(back.channel) as unknown as ((raw: { message: unknown; index: number }) => void) | undefined;
+      channel?.({ message: { canGoBack: true }, index: back.index++ });
+      return true;
+    },
     invoke: (command: string, args?: Args) => {
       calls.push([command, args]);
       try {

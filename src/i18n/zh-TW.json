@@ -128,6 +128,11 @@
     "invalid": "這不是 FlickerTalk 聯絡人連結",
     "scanNow": "掃描 QR 碼"
   },
+  "scanner": {
+    "cameraDenied": "相機權限已關閉，無法讀取 QR 碼。下次請允許，或改為貼上連結。",
+    "cameraBlocked": "FlickerTalk 的相機權限已關閉。請在設定中開啟，或改為貼上連結。",
+    "openSettings": "開啟設定"
+  },
   "contact": {
     "fingerprint": "安全指紋",
     "verify": "當面驗證",

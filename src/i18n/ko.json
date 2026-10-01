@@ -128,6 +128,11 @@
     "invalid": "FlickerTalk 연락처 링크가 아닙니다",
     "scanNow": "코드 스캔"
   },
+  "scanner": {
+    "cameraDenied": "카메라 접근이 꺼져 있어 코드를 읽을 수 없습니다. 다음에 허용하거나 대신 링크를 붙여넣으세요.",
+    "cameraBlocked": "FlickerTalk의 카메라 접근이 꺼져 있습니다. 설정에서 켜거나 대신 링크를 붙여넣으세요.",
+    "openSettings": "설정 열기"
+  },
   "contact": {
     "fingerprint": "보안 지문",
     "verify": "직접 만나서 확인",

@@ -128,6 +128,11 @@
     "invalid": "That is not a FlickerTalk contact link",
     "scanNow": "Scan code"
   },
+  "scanner": {
+    "cameraDenied": "Camera access is off, so the code can't be read. Allow it next time, or paste the link instead.",
+    "cameraBlocked": "Camera access is off for FlickerTalk. Turn it on in Settings, or paste the link instead.",
+    "openSettings": "Open Settings"
+  },
   "contact": {
     "fingerprint": "Security fingerprint",
     "verify": "Verify in person",

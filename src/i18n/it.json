@@ -128,6 +128,11 @@
     "invalid": "Questo non è un link di contatto FlickerTalk",
     "scanNow": "Scansiona codice"
   },
+  "scanner": {
+    "cameraDenied": "L'accesso alla fotocamera è disattivato, quindi il codice non può essere letto. Consentilo la prossima volta o incolla il link.",
+    "cameraBlocked": "L'accesso alla fotocamera è disattivato per FlickerTalk. Attivalo nelle Impostazioni o incolla il link.",
+    "openSettings": "Apri Impostazioni"
+  },
   "contact": {
     "fingerprint": "Impronta di sicurezza",
     "verify": "Verifica di persona",

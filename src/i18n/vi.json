@@ -128,6 +128,11 @@
     "invalid": "Đây không phải liên kết liên hệ FlickerTalk",
     "scanNow": "Quét mã"
   },
+  "scanner": {
+    "cameraDenied": "Quyền truy cập camera đang tắt nên không đọc được mã. Hãy cho phép vào lần sau, hoặc dán liên kết thay thế.",
+    "cameraBlocked": "Quyền truy cập camera của FlickerTalk đang tắt. Hãy bật trong Cài đặt, hoặc dán liên kết thay thế.",
+    "openSettings": "Mở Cài đặt"
+  },
   "contact": {
     "fingerprint": "Dấu vân tay bảo mật",
     "verify": "Xác minh trực tiếp",
