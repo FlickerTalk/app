@@ -664,8 +664,8 @@ impl Core {
         let mut files = Vec::new();
         for contact in self.store.session_contacts(session).await? {
             files.extend(self.store.files(&contact.device_id).await?);
-            self.transport.disconnect(&contact.device_id).await;
         }
+        self.cut_off(session).await?;
         forget_session(&self.store, session).await?;
         for file in files {
             let _ = std::fs::remove_file(self.file_path(&file));
@@ -688,12 +688,27 @@ impl Core {
     pub async fn close_session(&self, session: &str) -> Result<bool> {
         self.open_sessions.lock().expect("sessions poisoned").remove(session);
         self.keep_open_sessions().await?;
+        self.cut_off(session).await?;
         if !self.store.empty_sessions().await?.iter().any(|empty| empty == session) {
             return Ok(false);
         }
         forget_session(&self.store, session).await?;
         self.registration_changed();
         Ok(true)
+    }
+
+    /// A session left or deleted closes its direct connections at once (2026-10-01): the router
+    /// stops what comes for a silent slot, but cannot close a connection already open. A call with
+    /// one of its contacts is hung up first, so that its end still goes out by that connection;
+    /// from now on the router would hold back their side of it.
+    async fn cut_off(&self, session: &str) -> Result<()> {
+        let all = self.store.all_contacts().await?;
+        let contacts: Vec<String> = all.into_iter().filter(|contact| contact.session.as_deref() == Some(session)).map(|contact| contact.device_id).collect();
+        self.hang_up_with(&contacts).await?;
+        for contact in &contacts {
+            self.transport.disconnect(contact).await;
+        }
+        Ok(())
     }
 
     /// The sessions open right now, oldest first.

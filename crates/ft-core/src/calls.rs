@@ -172,6 +172,17 @@ impl Core {
         }
     }
 
+    /// Hangs up the call going on with any of these contacts, and waits (`CALL_OFFER_ACK` at most)
+    /// until its end has reached them over the direct connection, which is about to close.
+    pub(crate) async fn hang_up_with(&self, contacts: &[String]) -> Result<()> {
+        let Some(current) = self.current_call().await?.filter(|current| contacts.contains(&current.contact)) else { return Ok(()) };
+        let contact = self.contact(&current.contact).await?;
+        let (heard, pongs) = self.pongs_from(&contact.device_id);
+        self.end_call(&current.call, false).await?;
+        self.acknowledged(&contact, heard, pongs, CALL_OFFER_ACK).await;
+        Ok(())
+    }
+
     /// Whether the contact answers a ping sent now over the open direct connection with a pong
     /// within `within`: what was sent before the ping on that ordered channel has arrived.
     async fn acknowledged(&self, contact: &Contact, heard: u64, mut pongs: tokio::sync::watch::Receiver<std::collections::HashMap<String, u64>>, within: Duration) -> bool {
