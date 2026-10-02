@@ -30,6 +30,8 @@ export interface ChatMessage {
   mine: boolean;
   text: string;
   time: string;
+  /** When it was sent (ms; 0 when unknown), for the thread's day separators. */
+  sentAt: number;
   status?: Status;
   kind?: "file";
   file?: ChatFile;
@@ -285,7 +287,7 @@ function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
 }
 
 function toMessage(view: MessageView, connected = false): ChatMessage {
-  const message: ChatMessage = { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), status: view.state };
+  const message: ChatMessage = { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), sentAt: view.sentAt, status: view.state };
   if (view.file) {
     message.kind = "file";
     message.file = toFile(view.file, view.outgoing, connected);
