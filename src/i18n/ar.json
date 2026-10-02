@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "اقترح شيئًا"
   },
   "hours": {
     "title": "الساعات",
@@ -429,5 +430,14 @@
     "offline": "لا توجد ألعاب لإضافتها الآن. تحقق من اتصالك وحاول مرة أخرى.",
     "installFailed": "تعذّر تثبيت اللعبة. تحقق من اتصالك وحاول مرة أخرى.",
     "live": "التحدث مع اللعبة نفسها على هاتف الشخص الآخر"
+  },
+  "feedback": {
+    "title": "اقترح شيئًا",
+    "placeholder": "ما الذي تودّ أن يتوفر في FlickerTalk؟",
+    "hint": "يصلنا اقتراحك دون اسمك أو أي معرّف. لا يمكننا الرد عليك. لا تكتب بيانات شخصية.",
+    "send": "إرسال",
+    "sent": "تم الإرسال. شكرًا",
+    "tooMany": "لقد أرسلت عدة اقتراحات اليوم. حاول مجددًا غدًا",
+    "failed": "تعذّر الإرسال. حاول لاحقًا"
   }
 }
