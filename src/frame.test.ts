@@ -10,6 +10,7 @@ type Said = Record<string, unknown>;
 async function frame(plugin: () => void = () => {}) {
   const posted: Said[] = [];
   const window = new EventTarget();
+  const watched: { resized: () => void; targets: Element[] } = { resized: () => {}, targets: [] };
   const code = source.replace('await import("./dist/index.js");', "await load();");
   expect(code).not.toBe(source);
   const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
@@ -20,7 +21,12 @@ async function frame(plugin: () => void = () => {}) {
     window.addEventListener.bind(window),
     window.removeEventListener.bind(window),
     class {
-      observe() {}
+      constructor(resized: () => void) {
+        watched.resized = resized;
+      }
+      observe(target: Element) {
+        watched.targets.push(target);
+      }
     },
     () => 0,
   );
@@ -28,7 +34,7 @@ async function frame(plugin: () => void = () => {}) {
     window.dispatchEvent(new MessageEvent("message", { data }));
     await Promise.resolve();
   };
-  return { posted, says, ran };
+  return { posted, says, ran, watched };
 }
 
 const ft = () => (globalThis as unknown as { ft: { onOpen(handler: (opened: Said) => void): void } }).ft;
@@ -132,6 +138,36 @@ describe("the frame", () => {
       expect(loaded).toBe(true);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  // 2026-10-04: the frame follows its content down as well as up. The root's scrollHeight is never
+  // less than the frame's own height, so a plugin that was once tall (a game's waiting screen)
+  // kept its frame tall, with an empty scrollable area under it. What counts is the content: the
+  // bottom of the body, margin included.
+  it("tells the app how tall its content is, also when the content shrinks", async () => {
+    const { posted, says, ran, watched } = await frame();
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    await ran;
+    expect(watched.targets).toContain(document.body);
+
+    const body = document.body;
+    const root = document.documentElement;
+    let bottom = 900;
+    vi.spyOn(body, "getBoundingClientRect").mockImplementation(() => ({ bottom }) as DOMRect);
+    // The frame was made 900 px tall: the root scrolls that much, whatever the content is now.
+    const scrolled = vi.spyOn(root, "scrollHeight", "get").mockReturnValue(900);
+    body.style.marginBottom = "8px";
+    try {
+      watched.resized();
+      expect(posted.at(-1)).toEqual({ type: "ft.height", height: 908 });
+      bottom = 300;
+      watched.resized();
+      expect(posted.at(-1)).toEqual({ type: "ft.height", height: 308 });
+    } finally {
+      scrolled.mockRestore();
+      vi.restoreAllMocks();
+      body.style.marginBottom = "";
     }
   });
 });
