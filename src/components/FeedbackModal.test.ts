@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonTextarea } from "@ionic/vue";
-import FeedbackPage from "./FeedbackPage.vue";
+import FeedbackModal from "./FeedbackModal.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 
@@ -24,17 +24,17 @@ const sends = () => calls.filter(([command]) => command === "core_send_feedback"
 
 // 2026-10-02: an anonymous suggestion, mailed on by the router. The page says "sent" only when the
 // router took it, and never loses what was written when it did not.
-describe("FeedbackPage", () => {
+describe("FeedbackModal", () => {
   beforeEach(() => seed());
 
   it("always says the suggestion goes without a name and cannot be answered", () => {
-    expect(mount(FeedbackPage, { shallow: true }).find("[data-test='hint']").text()).toBe(
+    expect(mount(FeedbackModal, { shallow: true }).find("[data-test='hint']").text()).toBe(
       "It reaches us without your name or any identifier. We cannot reply. Do not write personal data.",
     );
   });
 
   it("cannot send nothing, nor only spaces", async () => {
-    const wrapper = mount(FeedbackPage, { shallow: true });
+    const wrapper = mount(FeedbackModal, { shallow: true });
     const button = () => wrapper.find("[data-test='send']");
     expect(button().attributes("disabled")).toBe("true");
     await write(wrapper, "   \n ");
@@ -44,7 +44,7 @@ describe("FeedbackPage", () => {
   });
 
   it("counts what is written, up to 2000", async () => {
-    const wrapper = mount(FeedbackPage, { shallow: true });
+    const wrapper = mount(FeedbackModal, { shallow: true });
     expect(wrapper.find("[data-test='counter']").text()).toBe("0 / 2000");
     await write(wrapper, "Dark mode for the map");
     expect(wrapper.find("[data-test='counter']").text()).toBe("21 / 2000");
@@ -53,7 +53,7 @@ describe("FeedbackPage", () => {
 
   it("sends the text without the spaces around it, thanks and empties the box", async () => {
     answering("sent");
-    const wrapper = mount(FeedbackPage, { shallow: true });
+    const wrapper = mount(FeedbackModal, { shallow: true });
     await write(wrapper, "  Stickers, please \n");
     await wrapper.find("[data-test='send']").trigger("click");
     await flushPromises();
@@ -64,7 +64,7 @@ describe("FeedbackPage", () => {
 
   it("says the day's limit was reached and keeps the text", async () => {
     answering("tooMany");
-    const wrapper = mount(FeedbackPage, { shallow: true });
+    const wrapper = mount(FeedbackModal, { shallow: true });
     await write(wrapper, "One more idea");
     await wrapper.find("[data-test='send']").trigger("click");
     await flushPromises();
@@ -74,7 +74,7 @@ describe("FeedbackPage", () => {
 
   it("says it could not send and keeps the text", async () => {
     answering("failed");
-    const wrapper = mount(FeedbackPage, { shallow: true });
+    const wrapper = mount(FeedbackModal, { shallow: true });
     await write(wrapper, "One more idea");
     await wrapper.find("[data-test='send']").trigger("click");
     await flushPromises();
@@ -88,7 +88,7 @@ describe("FeedbackPage", () => {
       calls.push([command, args]);
       return command === "core_send_feedback" ? new Promise((resolve) => (answer = resolve)) : undefined;
     });
-    const wrapper = mount(FeedbackPage, { shallow: true });
+    const wrapper = mount(FeedbackModal, { shallow: true });
     await write(wrapper, "Stickers");
     await wrapper.find("[data-test='send']").trigger("click");
     await wrapper.find("[data-test='send']").trigger("click");
