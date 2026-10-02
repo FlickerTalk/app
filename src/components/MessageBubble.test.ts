@@ -4,6 +4,7 @@ import { mount } from "@vue/test-utils";
 const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => opener);
 
+import { IonButton, IonIcon } from "@ionic/vue";
 import MessageBubble from "./MessageBubble.vue";
 import { installed, offered } from "../plugins";
 import type { OfferedPlugin, PluginView } from "../core";
@@ -430,6 +431,10 @@ describe("MessageBubble", () => {
       const play = wrapper.find("[data-test='play-game']");
       expect(play.text()).toContain("Play");
       expect(play.text()).not.toContain("MB");
+      // Ioan, 2026-10-03: Ionic's own button, and an icon, never an emoji, for the interface.
+      const button = wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === "play-game");
+      expect(button?.findComponent(IonIcon).exists()).toBe(true);
+      expect(play.html()).not.toContain("🎮");
       // The address stays a link like any other.
       expect(wrapper.find("[data-test='link']").attributes("href")).toBe("https://flickertalk.com/games/chess");
       await play.trigger("click");

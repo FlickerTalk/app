@@ -429,7 +429,9 @@
     "none": "Niciun joc încă",
     "offline": "Acum nu sunt jocuri de adăugat. Verifică-ți conexiunea și încearcă din nou.",
     "installFailed": "Jocul nu a putut fi instalat. Verifică-ți conexiunea și încearcă din nou.",
-    "live": "Să vorbească cu același joc de pe telefonul celeilalte persoane"
+    "live": "Să vorbească cu același joc de pe telefonul celeilalte persoane",
+    "showChat": "Arată conversația",
+    "showGame": "Înapoi la joc"
   },
   "feedback": {
     "title": "Propune ceva",

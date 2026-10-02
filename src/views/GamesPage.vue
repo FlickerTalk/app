@@ -5,8 +5,11 @@ import {
   IonHeader,
   IonIcon,
   IonItem,
+  IonButton,
   IonLabel,
   IonList,
+  IonListHeader,
+  IonModal,
   IonPage,
   IonTitle,
   IonToggle,
@@ -139,40 +142,32 @@ function playWith(contact: string) {
               {{ game.name }}
               <p class="ft-muted">{{ game.version }}</p>
             </ion-label>
-            <button
+            <ion-button slot="end" fill="clear" size="default" :data-test="`play-${game.id}`" :aria-label="$t('games.play')" @click="playGame(game)">
+              <ion-icon slot="icon-only" :icon="play" aria-hidden="true" />
+            </ion-button>
+            <ion-button
               slot="end"
-              type="button"
-              class="ft-games__button ft-games__play"
-              :data-test="`play-${game.id}`"
-              :aria-label="$t('games.play')"
-              @click="playGame(game)"
-            >
-              <ion-icon :icon="play" aria-hidden="true" />
-            </button>
-            <button
-              slot="end"
-              type="button"
-              class="ft-games__button ft-games__remove"
+              fill="clear"
+              size="default"
+              color="danger"
               :data-test="`remove-${game.id}`"
               :aria-label="$t('games.remove')"
               :aria-pressed="asksToRemove === game.id"
               @click="askToRemove(game.id)"
             >
-              <ion-icon :icon="trashOutline" aria-hidden="true" />
-            </button>
+              <ion-icon slot="icon-only" :icon="trashOutline" aria-hidden="true" />
+            </ion-button>
           </ion-item>
           <!-- Removing deletes its saved games: asked once, as Settings asks before erasing, with a
                way back. -->
           <ion-item v-if="asksToRemove === game.id" lines="none">
             <ion-label class="ft-games__warning">{{ $t("games.removeWarning") }}</ion-label>
-            <span slot="end" class="ft-games__choices">
-              <button type="button" class="ft-games__cancel" data-test="remove-cancel" @click="asksToRemove = ''">
-                {{ $t("common.cancel") }}
-              </button>
-              <button type="button" class="ft-games__confirm" data-test="remove-confirm" @click="remove(game.id)">
-                {{ $t("games.remove") }}
-              </button>
-            </span>
+            <ion-button slot="end" class="ft-games__choice" fill="outline" shape="round" size="small" data-test="remove-cancel" @click="asksToRemove = ''">
+              {{ $t("common.cancel") }}
+            </ion-button>
+            <ion-button slot="end" class="ft-games__choice" shape="round" size="small" color="danger" data-test="remove-confirm" @click="remove(game.id)">
+              {{ $t("games.remove") }}
+            </ion-button>
           </ion-item>
 
           <ion-item v-for="permission in permissionsOf(game)" :key="permission.key" lines="none">
@@ -199,47 +194,51 @@ function playWith(contact: string) {
               {{ one.name }}
               <p class="ft-muted">{{ one.summary }} · {{ formatSize(one.size) }}</p>
             </ion-label>
-            <button
-              slot="end"
-              type="button"
-              class="ft-games__button ft-games__install"
-              :data-test="`install-${one.id}`"
-              :aria-label="$t('games.install')"
-              @click="install(one.id)"
-            >
-              <ion-icon :icon="downloadOutline" aria-hidden="true" />
-            </button>
+            <ion-button slot="end" fill="clear" size="default" :data-test="`install-${one.id}`" :aria-label="$t('games.install')" @click="install(one.id)">
+              <ion-icon slot="icon-only" :icon="downloadOutline" aria-hidden="true" />
+            </ion-button>
           </ion-item>
         </ion-list>
       </template>
       <p v-else-if="!offeredGames.length" class="ft-games__hint">{{ $t("games.offline") }}</p>
     </ion-content>
 
-    <GamePermissions v-if="asking" :name="asking.name" @allow="allow" @cancel="asking = null" />
+    <GamePermissions :open="Boolean(asking)" :name="asking?.name ?? ''" @allow="allow" @cancel="asking = null" />
 
-    <!-- Plan 10.4: a game is played in a conversation; this is who with. -->
-    <div
-      v-if="picking"
-      class="ft-games__sheet"
-      data-test="contact-picker"
-      role="dialog"
+    <!-- Plan 10.4: a game is played in a conversation; this is who with. Ionic's sheet modal, as the
+         apps sheet: its list scrolls at any height, and it goes by its handle, a tap outside or Back. -->
+    <ion-modal
+      :is-open="Boolean(picking)"
+      class="ft-games__picker"
+      :breakpoints="[0, 0.5, 1]"
+      :initial-breakpoint="0.5"
+      :expand-to-scroll="false"
       :aria-label="$t('games.pickContact')"
-      @click.self="picking = ''"
+      @did-dismiss="picking = ''"
     >
-      <div class="ft-games__card">
-        <h2 class="ft-games__sheet-title">{{ $t("games.pickContact") }}</h2>
-        <p v-if="!places.length" class="ft-games__hint">{{ $t("games.noContacts") }}</p>
-        <ul v-for="place in places" :key="place.id" class="ft-games__people">
-          <li v-if="place.id" class="ft-games__place" aria-hidden="true"><ion-icon :icon="lockClosedOutline" /></li>
-          <li v-for="chat in place.chats" :key="chat.id">
-            <button type="button" class="ft-games__person" :data-test="`play-with-${chat.id}`" @click="playWith(chat.id)">
-              <Avatar :name="chat.name" :hue="chat.hue" :size="36" />
-              <span>{{ chat.name }}</span>
-            </button>
-          </li>
-        </ul>
-      </div>
-    </div>
+      <ion-header>
+        <ion-toolbar>
+          <ion-title>{{ $t("games.pickContact") }}</ion-title>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="ft-games__picker-content" data-test="contact-picker">
+        <ion-list v-if="!places.length">
+          <ion-item lines="none">
+            <ion-label color="medium">{{ $t("games.noContacts") }}</ion-label>
+          </ion-item>
+        </ion-list>
+        <ion-list v-for="place in places" :key="place.id">
+          <!-- A hidden session's contacts, under their own heading. -->
+          <ion-list-header v-if="place.id">
+            <ion-icon :icon="lockClosedOutline" aria-hidden="true" />
+          </ion-list-header>
+          <ion-item v-for="chat in place.chats" :key="chat.id" button :detail="false" :data-test="`play-with-${chat.id}`" @click="playWith(chat.id)">
+            <Avatar slot="start" :name="chat.name" :hue="chat.hue" :size="36" />
+            <ion-label class="ion-text-nowrap">{{ chat.name }}</ion-label>
+          </ion-item>
+        </ion-list>
+      </ion-content>
+    </ion-modal>
   </ion-page>
 </template>
 
@@ -261,101 +260,18 @@ function playWith(contact: string) {
   color: var(--ion-color-danger);
   font-size: 14px;
 }
-.ft-games__button {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  font-size: 20px;
-  cursor: pointer;
-}
-.ft-games__play,
-.ft-games__install {
-  color: var(--ft-accent);
-}
-.ft-games__remove {
-  color: var(--ion-color-danger);
+/* The app's buttons say things as written, not in Material's capitals. */
+.ft-games__choice {
+  text-transform: none;
 }
 .ft-games__warning {
   color: var(--ion-color-danger);
   font-size: 13px;
   white-space: normal;
 }
-/* The same pair as Settings' erase: a quiet way back and a red yes. */
-.ft-games__choices {
-  display: flex;
-  gap: 8px;
-}
-.ft-games__cancel,
-.ft-games__confirm {
-  appearance: none;
-  padding: 7px 14px;
-  border: 1px solid var(--ft-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ft-text);
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-.ft-games__confirm {
-  border-color: transparent;
-  background: var(--ion-color-danger);
-  color: #fff;
-  font-weight: 600;
-}
-.ft-games__sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: end center;
-  padding: var(--ft-space-4);
-  /* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
-  padding-bottom: calc(var(--ft-space-4) + var(--ion-safe-area-bottom, 0px));
-  background: rgba(0, 0, 0, 0.35);
-}
-.ft-games__card {
-  width: min(100%, 420px);
-  max-height: 70vh;
-  overflow-y: auto;
-  padding: var(--ft-space-2);
-  border-radius: var(--ft-radius-card);
-  background: var(--ft-surface);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-}
-.ft-games__sheet-title {
-  margin: var(--ft-space-3) var(--ft-space-3) var(--ft-space-2);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ft-muted);
-}
-.ft-games__people {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.ft-games__place {
-  display: flex;
-  align-items: center;
-  gap: var(--ft-space-2);
-  padding: var(--ft-space-2) var(--ft-space-3) 0;
-  border-top: 1px solid var(--ft-border);
-  color: var(--ft-muted);
-  font-size: 14px;
-}
-.ft-games__person {
-  display: flex;
-  align-items: center;
-  gap: var(--ft-space-3);
-  width: 100%;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--ft-text);
-  font: inherit;
-  font-size: 16px;
-  text-align: start;
-  cursor: pointer;
+/* The picker's list scrolls to its last contact above Android's navigation bar (edge to edge), as
+   the apps sheet does: Ionic pads a footer for it, not a content. */
+.ft-games__picker-content {
+  --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 </style>

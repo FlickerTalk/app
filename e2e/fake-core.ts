@@ -43,6 +43,8 @@
  * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
  * `window.__ftFakeBobSays` (texts) adds Bob's messages after his others: an invitation, say.
  * `window.__ftFakeBobName` renames Bob (a long name, to see the chat header truncate it).
+ * `window.__ftFakeManyPlugins` (a number) installs that many more tools and as many games, for a
+ * list longer than the screen.
  *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
@@ -282,9 +284,16 @@ export function installFakeCore() {
         const extra = said.map((text, at) => ({ id: `said${at}`, outgoing: false, text, sentAt: Date.now() - 1000 + at, state: "delivered" }));
         return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra];
       }
-      case "core_plugins":
+      case "core_plugins": {
+        const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
+        const extra = Array.from({ length: many }, (_, at) => String(at).padStart(2, "0")).flatMap((n) => [
+          { id: `com.example.tool${n}`, name: `Tool ${n} with a rather long name to see it cut`, version: "1.0.0", asks: { network: [], messages: false, send: "nothing" }, granted: { network: [], messages: false, send: "nothing" }, installedAt: 1 },
+          { id: `com.flickertalk.game.many${n}`, name: `Game ${n}`, version: "1.0.0", kind: "game", asks: { network: [], messages: false, send: "propose", live: true }, granted: { network: [], messages: false, send: "nothing", live: false }, installedAt: 1 },
+        ]);
+        if (extra.length) return JSON.parse(JSON.stringify([...state.plugins, ...extra]));
         // A copy, as the real bridge hands over: what the app keeps is never the core's own list.
         return JSON.parse(JSON.stringify(state.plugins));
+      }
       case "core_catalogue":
         return state.catalogue.map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
       case "core_plugin_add": {

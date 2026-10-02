@@ -88,14 +88,14 @@ for (const appearance of ["dark", "light"]) {
       expect(granted?.[1]).toMatchObject({ plugin: TICTACTOE, granted: { live: true, send: "propose" } });
     });
 
-    // Ioan, 2026-10-03: one apps button in the header; its sheet has a tab for the apps and one
-    // for the games.
+    // Ioan, 2026-10-03: one apps button in the header; it opens a sheet modal with a segment for the
+    // plugins and one for the games.
     test("the chat's apps sheet has the tools and the games apart; a game invites without sending", async ({ app }) => {
       await app.goto(`/chat/${BOB}`);
       await expect(app.getByTestId("games")).toHaveCount(0);
       await app.getByTestId("apps").click();
       // With tools installed it opens on them, and they are tools only.
-      await expect(app.getByTestId("apps-tab-tools")).toHaveAttribute("aria-selected", "true");
+      await expect(app.getByTestId("apps-tab-tools")).toHaveClass(/segment-button-checked/);
       await expect(app.getByTestId("app-com.flickertalk.markdown")).toBeVisible();
       await expect(app.getByTestId(`app-${TICTACTOE}`)).toHaveCount(0);
       await shot(app, "chat-apps-tab");
@@ -110,7 +110,7 @@ for (const appearance of ["dark", "light"]) {
 
       // Opened again, it starts on the tools: nothing is remembered.
       await app.getByTestId("apps").click();
-      await expect(app.getByTestId("apps-tab-tools")).toHaveAttribute("aria-selected", "true");
+      await expect(app.getByTestId("apps-tab-tools")).toHaveClass(/segment-button-checked/);
       await app.getByTestId("apps-tab-games").click();
       await app.getByTestId("more-games-link").click();
       await expect(app).toHaveURL(/\/tabs\/games$/);

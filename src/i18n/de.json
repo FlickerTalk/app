@@ -429,7 +429,9 @@
     "none": "Noch keine Spiele",
     "offline": "Gerade gibt es keine Spiele zum Hinzufügen. Prüfe deine Verbindung und versuch es noch einmal.",
     "installFailed": "Das Spiel konnte nicht installiert werden. Prüfe deine Verbindung und versuch es noch einmal.",
-    "live": "Mit demselben Spiel auf dem Telefon der anderen Person sprechen"
+    "live": "Mit demselben Spiel auf dem Telefon der anderen Person sprechen",
+    "showChat": "Chat anzeigen",
+    "showGame": "Zurück zum Spiel"
   },
   "feedback": {
     "title": "Etwas vorschlagen",

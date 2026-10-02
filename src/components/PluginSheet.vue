@@ -50,6 +50,7 @@ import {
 } from "../core";
 import { i18n } from "../i18n";
 import { frameUrl, fromFrame, type FrameMessage, type HandedFile } from "../plugins";
+import { pluginTheme } from "../theme";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
 // permissions allow. It never sees the app's window, the chat or the keys. It can be handed a text,
@@ -102,7 +103,9 @@ async function onMessage(event: MessageEvent) {
   const said = fromFrame(event, frame.value);
   if (!said) return;
 
-  if (said.type === "ft.ready") {
+  if (said.type === "ft.hello") {
+    tell({ type: "ft.theme", ...pluginTheme() });
+  } else if (said.type === "ft.ready") {
     tell({ ...opening(), ...(await chatOf()) });
   } else if (said.type === "ft.height") {
     height.value = Math.min(Math.max(said.height, 160), 4000);
@@ -143,7 +146,8 @@ function opening() {
   return {
     type: "ft.open",
     text: props.text ?? "",
-    dark: dark(),
+    // Whether the app is dark and its colours (2026-10-03), as the frame puts them on its root.
+    ...pluginTheme(),
     lang: i18n.global.locale.value,
     // A plain copy: the prop may be reactive state, and postMessage cannot clone a proxy.
     file: props.file ? { name: props.file.name, mime: props.file.mime, data: props.file.data } : null,
@@ -304,16 +308,28 @@ async function busy(work: () => Promise<void>) {
   }
 }
 
-/** Whether the app is showing dark, so the plugin can paint like the rest of the app. */
-function dark(): boolean {
-  return document.documentElement.classList.contains("ion-palette-dark");
-}
+/**
+ * The app's look, followed while the plugin is open (2026-10-03): the root's class (`ft-dark`) and
+ * `data-direction` are what the stylesheet reads, whoever changes them (Settings, or the system's
+ * dark mode in `theme.ts`). The frame hears the colours again only when they really changed.
+ */
+let lastTheme = "";
+const looks = new MutationObserver(() => {
+  const now = pluginTheme();
+  const said = JSON.stringify(now);
+  if (said === lastTheme) return;
+  lastTheme = said;
+  tell({ type: "ft.theme", ...now });
+});
 
 onMounted(async () => {
+  lastTheme = JSON.stringify(pluginTheme());
+  looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction"] });
   window.addEventListener("message", onMessage);
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });
 onBeforeUnmount(() => {
+  looks.disconnect();
   window.removeEventListener("message", onMessage);
   // A bridge without listeners (tests, desktop) has nothing to unhook: that is not a failure.
   void Promise.resolve()

@@ -429,7 +429,9 @@
     "none": "Aucun jeu",
     "offline": "Aucun jeu à ajouter pour le moment. Vérifiez votre connexion et réessayez.",
     "installFailed": "Impossible d’installer le jeu. Vérifiez votre connexion et réessayez.",
-    "live": "Communiquer avec le même jeu sur le téléphone de l’autre personne"
+    "live": "Communiquer avec le même jeu sur le téléphone de l’autre personne",
+    "showChat": "Voir la conversation",
+    "showGame": "Revenir au jeu"
   },
   "feedback": {
     "title": "Suggérer quelque chose",

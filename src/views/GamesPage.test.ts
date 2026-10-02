@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonToggle } from "@ionic/vue";
+import { IonButton, IonItem, IonListHeader, IonToggle } from "@ionic/vue";
 import GamesPage from "./GamesPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
+import { IonModalStub } from "../__tests__/ionic";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -59,8 +60,9 @@ function answering({ installed = [CODE, CHESS, READY] as unknown[], offered = OF
 }
 
 const page = async () => {
-  // The sheets are the page's own components: rendered, not stubbed.
-  const wrapper = mount(GamesPage, { shallow: true, global: { stubs: { GamePermissions: false } } });
+  // The sheets are the page's own components: rendered, not stubbed; Ionic's modal shows its
+  // content only while open, as on the phone.
+  const wrapper = mount(GamesPage, { shallow: true, global: { stubs: { GamePermissions: false, IonModal: IonModalStub } } });
   await flushPromises();
   return wrapper;
 };
@@ -120,6 +122,15 @@ describe("GamesPage", () => {
   });
 
   // Removing a game deletes its saved games: it warns before it does it.
+  // Ioan, 2026-10-03: Ionic's components wherever one exists.
+  it("uses Ionic's buttons for what a row does", async () => {
+    const wrapper = await page();
+    const buttons = () => wrapper.findAllComponents(IonButton).map((one) => one.attributes("data-test"));
+    expect(buttons()).toEqual(expect.arrayContaining([`play-${CHESS.id}`, `remove-${CHESS.id}`, "install-com.flickertalk.game.go"]));
+    await wrapper.find(`[data-test='remove-${CHESS.id}']`).trigger("click");
+    expect(buttons()).toEqual(expect.arrayContaining(["remove-cancel", "remove-confirm"]));
+  });
+
   it("removes a game only after warning that its saved games go with it", async () => {
     const wrapper = await page();
     await wrapper.find(`[data-test='remove-${CHESS.id}']`).trigger("click");
@@ -221,6 +232,10 @@ describe("GamesPage", () => {
     const wrapper = await page();
     await wrapper.find(`[data-test='play-${READY.id}']`).trigger("click");
     expect(wrapper.find("[data-test='game-permissions']").exists()).toBe(false);
+    // Ionic's sheet modal with a name, and a row of Ionic's per contact.
+    const sheet = wrapper.findAllComponents(IonModalStub).find((one) => one.attributes("aria-label") === "Play with");
+    expect(sheet?.props("isOpen")).toBe(true);
+    expect(wrapper.findAllComponents(IonItem).some((one) => one.attributes("data-test") === "play-with-c2")).toBe(true);
     const picker = wrapper.find("[data-test='contact-picker']");
     expect(picker.text()).toContain("Maria López");
     expect(picker.text()).toContain("Leo Martins");
@@ -237,6 +252,8 @@ describe("GamesPage", () => {
     await wrapper.find(`[data-test='play-${READY.id}']`).trigger("click");
     const picker = wrapper.find("[data-test='contact-picker']");
     expect(picker.text()).toContain("Ana Hidden");
+    // The session's contacts under a heading of their own.
+    expect(wrapper.findComponent(IonListHeader).exists()).toBe(true);
     expect(picker.find("[data-test='play-with-c2']").exists()).toBe(false);
     await wrapper.find("[data-test='play-with-h1']").trigger("click");
     expect(push).toHaveBeenCalledWith(`/chat/h1?play=${READY.id}`);

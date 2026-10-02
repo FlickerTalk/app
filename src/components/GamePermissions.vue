@@ -1,103 +1,92 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
+import { IonButton, IonIcon, IonModal } from "@ionic/vue";
+import { gameControllerOutline } from "ionicons/icons";
 import { formatSize } from "../core";
 
 // Plan decision 11: installing grants nothing (§53). The first time a game is played, this one
 // sheet says what it will do —talk to the other person's phone, leave the result in the chat— and
 // one button grants both. A game that is not here yet is a download: the sheet says what it
 // weighs, and the same button installs it. Without a yes, nothing is installed or granted.
-const props = defineProps<{ name: string; size?: number }>();
+// Ioan, 2026-10-03: Ionic's sheet modal, as tall as what it says; dismissing it (dragging it down,
+// a tap outside, the back button) is a no.
+const props = defineProps<{ open: boolean; name: string; size?: number }>();
 const emit = defineEmits<{ allow: []; cancel: [] }>();
+
+// What was asked stays on the sheet while it slides away.
+const shown = ref({ name: props.name, size: props.size });
+/** Whether the user already answered; Ionic's dismissal that follows says nothing more. */
+let answered = false;
+watch(
+  () => [props.open, props.name, props.size] as const,
+  ([open]) => {
+    if (!open) return;
+    shown.value = { name: props.name, size: props.size };
+    answered = false;
+  },
+);
+
+function answer(yes: boolean) {
+  answered = true;
+  if (yes) emit("allow");
+  else emit("cancel");
+}
+
+function dismissed() {
+  if (!answered) emit("cancel");
+  answered = false;
+}
 </script>
 
 <template>
-  <div class="ft-game-ask" data-test="game-permissions" role="dialog" :aria-label="props.name" @click.self="emit('cancel')">
-    <div class="ft-game-ask__card">
-      <span class="ft-game-ask__icon" aria-hidden="true">🎮</span>
-      <h2 class="ft-game-ask__name">{{ props.name }}</h2>
-      <p class="ft-game-ask__body">{{ $t("games.permissionsBody") }}</p>
-      <p v-if="props.size !== undefined" class="ft-game-ask__size">{{ formatSize(props.size) }}</p>
+  <!-- Ionic takes the modal's name once, when it is made: a new one for each game asked about
+       (the name only changes while the sheet is closed). -->
+  <ion-modal
+    :key="shown.name"
+    :is-open="open"
+    class="ft-game-ask"
+    :breakpoints="[0, 1]"
+    :initial-breakpoint="1"
+    :aria-label="shown.name"
+    @did-dismiss="dismissed"
+  >
+    <div class="ion-padding ion-text-center ft-game-ask__body" data-test="game-permissions">
+      <ion-icon :icon="gameControllerOutline" color="primary" class="ft-game-ask__icon" aria-hidden="true" />
+      <h2>{{ shown.name }}</h2>
+      <p>{{ $t("games.permissionsBody") }}</p>
+      <p v-if="shown.size !== undefined" class="ft-muted">{{ formatSize(shown.size) }}</p>
       <div class="ft-game-ask__actions">
-        <button type="button" class="ft-game-ask__cancel" data-test="game-cancel" @click="emit('cancel')">
+        <ion-button fill="outline" shape="round" data-test="game-cancel" @click="answer(false)">
           {{ $t("common.cancel") }}
-        </button>
-        <button type="button" class="ft-game-ask__allow" data-test="game-allow" @click="emit('allow')">
-          {{ props.size !== undefined ? $t("games.installAndPlay") : $t("games.permissionsAllow") }}
-        </button>
+        </ion-button>
+        <ion-button shape="round" data-test="game-allow" @click="answer(true)">
+          {{ shown.size !== undefined ? $t("games.installAndPlay") : $t("games.permissionsAllow") }}
+        </ion-button>
       </div>
     </div>
-  </div>
+  </ion-modal>
 </template>
 
 <style scoped>
+/* As tall as what it says (Ionic's breakpoints are shares of the sheet's own height). */
 .ft-game-ask {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: end center;
-  padding: var(--ft-space-4);
-  /* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
-  padding-bottom: calc(var(--ft-space-4) + var(--ion-safe-area-bottom, 0px));
-  background: rgba(0, 0, 0, 0.35);
+  --height: auto;
 }
-.ft-game-ask__card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--ft-space-2);
-  width: min(100%, 420px);
-  padding: var(--ft-space-5) var(--ft-space-4) var(--ft-space-4);
-  border-radius: var(--ft-radius-card);
-  background: var(--ft-surface);
-  color: var(--ft-text);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-  text-align: center;
+/* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
+.ft-game-ask__body {
+  padding-bottom: calc(var(--ion-padding, 16px) + var(--ion-safe-area-bottom, 0px));
 }
 .ft-game-ask__icon {
-  font-size: 40px;
-  line-height: 1;
-}
-.ft-game-ask__name {
-  margin: 0;
-  font-size: var(--ft-font-title);
-  font-weight: 600;
-}
-.ft-game-ask__body {
-  margin: 0;
-  color: var(--ft-muted);
-  font-size: 15px;
-  line-height: 1.4;
-}
-.ft-game-ask__size {
-  margin: 0;
-  color: var(--ft-muted);
-  font-size: 13px;
+  font-size: 44px;
 }
 .ft-game-ask__actions {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: var(--ft-space-3);
-  margin-top: var(--ft-space-3);
+  gap: var(--ft-space-2);
 }
-.ft-game-ask__allow,
-.ft-game-ask__cancel {
-  min-width: 120px;
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 999px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.ft-game-ask__allow {
-  border: 0;
-  color: var(--ft-on-accent);
-  background: var(--ft-accent);
-}
-.ft-game-ask__cancel {
-  border: 1px solid var(--ft-border);
-  color: var(--ft-text);
-  background: transparent;
+/* The app's buttons say things as written, not in Material's capitals. */
+.ft-game-ask__actions ion-button {
+  text-transform: none;
 }
 </style>
