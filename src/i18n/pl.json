@@ -423,6 +423,7 @@
     "permissionsAllow": "Zezwól i graj",
     "none": "Brak gier",
     "offline": "Teraz nie ma gier do dodania. Sprawdź połączenie i spróbuj ponownie.",
-    "installFailed": "Nie udało się zainstalować gry. Sprawdź połączenie i spróbuj ponownie."
+    "installFailed": "Nie udało się zainstalować gry. Sprawdź połączenie i spróbuj ponownie.",
+    "live": "Rozmawiać z tą samą grą na telefonie drugiej osoby"
   }
 }

@@ -423,6 +423,7 @@
     "permissionsAllow": "Izinkan dan main",
     "none": "Belum ada game",
     "offline": "Saat ini tidak ada game untuk ditambahkan. Periksa koneksi Anda lalu coba lagi.",
-    "installFailed": "Game tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi."
+    "installFailed": "Game tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi.",
+    "live": "Berbicara dengan game yang sama di ponsel orang lain"
   }
 }

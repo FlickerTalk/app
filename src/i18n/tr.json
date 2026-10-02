@@ -423,6 +423,7 @@
     "permissionsAllow": "İzin ver ve oyna",
     "none": "Henüz oyun yok",
     "offline": "Şu anda eklenecek oyun yok. Bağlantınızı kontrol edip tekrar deneyin.",
-    "installFailed": "Oyun yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin."
+    "installFailed": "Oyun yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+    "live": "Karşı tarafın telefonundaki aynı oyunla konuşmak"
   }
 }
