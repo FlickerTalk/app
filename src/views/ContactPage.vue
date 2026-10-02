@@ -183,9 +183,9 @@ async function toggleBlock() {
               :value="keepFor"
               data-test="history"
               interface="popover"
-              :label="$t('contact.history')"
               @ion-change="chooseHistory($event.detail.value)"
             >
+              <div slot="label">{{ $t("contact.history") }}</div>
               <ion-select-option v-for="option in HISTORIES" :key="option" :value="option">
                 {{ historyLabel(option) }}
               </ion-select-option>
@@ -197,9 +197,9 @@ async function toggleBlock() {
               :value="burnAfterRead"
               data-test="burn"
               interface="popover"
-              :label="$t('contact.burn')"
               @ion-change="chooseBurn($event.detail.value)"
             >
+              <div slot="label">{{ $t("contact.burn") }}</div>
               <ion-select-option v-for="option in BURNS" :key="option" :value="option">
                 {{ burnLabel(option) }}
               </ion-select-option>
