@@ -422,7 +422,7 @@
     "pickContact": "和谁一起玩",
     "noContacts": "添加一个联系人才能一起玩",
     "invite": "邀请",
-    "inviteText": "🎮 一起玩{game}吧？{url}",
+    "inviteText": "🎮 {game} · 一起玩吧？ {url}",
     "installAndPlay": "安装并开始玩",
     "permissionsBody": "这个游戏会与对方的手机通信，并可能把结果留在聊天中。",
     "permissionsAllow": "允许并开始玩",

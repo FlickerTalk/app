@@ -422,7 +422,7 @@
     "pickContact": "Graj z",
     "noContacts": "Dodaj kontakt, aby zagrać",
     "invite": "Zaproś",
-    "inviteText": "🎮 Zagramy w {game}? {url}",
+    "inviteText": "🎮 {game} · Zagramy? {url}",
     "installAndPlay": "Zainstaluj i graj",
     "permissionsBody": "Ta gra łączy się z telefonem drugiej osoby i może zostawić wynik w czacie.",
     "permissionsAllow": "Zezwól i graj",
