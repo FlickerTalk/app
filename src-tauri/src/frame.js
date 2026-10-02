@@ -180,7 +180,14 @@ const fallback = document.getElementById("fallback");
 if (fallback) fallback.remove();
 
 const view = document.getElementById("view");
-const tell = () => post({ type: "ft.height", height: document.documentElement.scrollHeight });
+// How tall the plugin's content is (2026-10-04): the bottom of the body, its margin included. Not
+// the root's scrollHeight, which is never less than the frame's own height: a frame measured that
+// way grows with its content but never comes back down.
+const tell = () => {
+  const body = document.body;
+  const margin = parseFloat(getComputedStyle(body).marginBottom) || 0;
+  post({ type: "ft.height", height: Math.ceil(body.getBoundingClientRect().bottom + scrollY + margin) });
+};
 
 addEventListener("message", (event) => {
   const said = event.data;
@@ -222,5 +229,7 @@ addEventListener("message", (event) => {
   }
 });
 
-new ResizeObserver(tell).observe(document.documentElement);
+const sizes = new ResizeObserver(tell);
+sizes.observe(document.documentElement);
+sizes.observe(document.body);
 post({ type: "ft.ready" });
