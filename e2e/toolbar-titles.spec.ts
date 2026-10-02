@@ -160,6 +160,32 @@ test("every toolbar title in the app is either measured here or not catalogue te
   expect(files.filter((file) => !covered.has(file))).toEqual([]);
 });
 
+// The app runs from iOS 15.0 and `:has()` arrived in 15.4: without it the iPhone's title rules
+// would only half apply (an off-centre title). Every rule for the iPhone's bar sits under
+// `@supports selector(:has(*))`, the iPhone's wrapping title included (Ionic's title there is laid
+// over a bar of fixed height, where a second line would be hidden), so an older iPhone keeps
+// Ionic's own header, as before. Android's wrapping needs no `:has()` and applies everywhere.
+test("the iPhone's title rules only apply where the browser knows :has()", async ({ app }) => {
+  await app.goto("/tabs/settings");
+  await expect(app.locator("ion-title").first()).toBeVisible();
+  const outside = await app.evaluate(() => {
+    const found: string[] = [];
+    const walk = (rules: CSSRuleList) => {
+      for (const rule of rules) {
+        if (rule instanceof CSSSupportsRule && rule.conditionText.includes(":has(")) continue;
+        if (rule instanceof CSSGroupingRule) walk(rule.cssRules);
+        // The iPhone's bar, any bar rule that needs `:has()`, and a title wrapping in any bar but Android's.
+        else if (rule instanceof CSSStyleRule && /ion-toolbar\.ios|ion-toolbar[^,]*:has\(|^(?!.*ion-toolbar\.md).*\.ft-title/.test(rule.selectorText)) {
+          found.push(rule.selectorText);
+        }
+      }
+    };
+    for (const sheet of document.styleSheets) walk(sheet.cssRules);
+    return found;
+  });
+  expect(outside).toEqual([]);
+});
+
 for (const mode of MODES) {
   for (const locale of LOCALES) {
     test.describe(`${mode}, ${locale}`, () => {
