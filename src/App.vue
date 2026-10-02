@@ -6,6 +6,7 @@ import CallBar from "./components/CallBar.vue";
 import IncomingCall from "./components/IncomingCall.vue";
 import ScannerOverlay from "./components/ScannerOverlay.vue";
 import { enablePush, pendingReminder, resumeRouter } from "./core";
+import { followPluginChanges } from "./plugins";
 import { isOnboarded } from "./preferences";
 
 // A reminder notification opened the app (2026-09-27): straight to the plugin that set it, in the
@@ -28,11 +29,19 @@ function onVisible() {
   if (isOnboarded()) void enablePush();
   void openTappedReminder();
 }
+// An update the core made in the background reaches every list of plugins (2026-10-03).
+let unfollow: (() => void) | undefined;
 onMounted(() => {
   document.addEventListener("visibilitychange", onVisible);
   void openTappedReminder();
+  void followPluginChanges()
+    .then((stop) => (unfollow = stop))
+    .catch(() => undefined);
 });
-onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
+onUnmounted(() => {
+  document.removeEventListener("visibilitychange", onVisible);
+  unfollow?.();
+});
 </script>
 
 <template>

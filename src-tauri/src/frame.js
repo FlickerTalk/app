@@ -182,7 +182,9 @@ await new Promise((resolve) => {
   }, 1000);
 });
 
-await import("./dist/index.js");
+// At the version the frame was opened for (`?v=`, 2026-10-03): an update is never answered from
+// a cache by the old address.
+await import(`./dist/index.js${new URL(import.meta.url).search}`);
 
 const fallback = document.getElementById("fallback");
 if (fallback) fallback.remove();
