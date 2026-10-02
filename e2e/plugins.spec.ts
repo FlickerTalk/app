@@ -281,6 +281,35 @@ test("a game says goodbye to its twin when the game room's ✕ closes it", async
   await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
 });
 
+// Leaving the conversation by its back arrow takes the page down at the end of Ionic's transition,
+// with the game in it: the game is closed as the page starts to go, so its goodbye gets out. A page
+// only covered by another one keeps the game, and says nothing.
+test("a game says goodbye to its twin when the chat is left by its back arrow, and not when it is only covered", async ({ app }) => {
+  await serveRealFrames(app, SAYS_BYE);
+  await app.goto("/tabs/chats");
+  await app.locator(".ft-row", { hasText: "see you at six" }).first().click();
+  await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+  await app.getByTestId("apps").click();
+  await app.getByTestId("apps-tab-games").click();
+  await app.getByTestId(`game-${TICTACTOE}`).click();
+  await app.getByTestId("game-allow").click();
+  await expect(app.getByTestId("game-room")).toBeVisible();
+  await pluginOpened(app);
+
+  // Covered by the contact's page, and back: the game is still there, and said nothing.
+  await app.getByTestId("peer").click();
+  await expect(app).toHaveURL(/\/contact\/ft_bob123456789$/);
+  await app.goBack();
+  await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+  await expect(app.getByTestId("game-room")).toBeVisible();
+  expect(await liveSent(app)).toEqual([]);
+
+  await app.locator(".ft-thread__bar ion-back-button").last().click();
+  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  await expect.poll(() => liveSent(app)).toEqual([{ plugin: TICTACTOE, contact: "ft_bob123456789", data: "Ynll" }]);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+});
+
 // A goodbye that never ends does not keep the plugin: the app lets it go after a few tenths.
 test("a plugin whose goodbye never ends is let go all the same", async ({ app }) => {
   await openLiveTool(
