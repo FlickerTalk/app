@@ -1252,6 +1252,49 @@ describe("ChatThread", () => {
         expect(push).not.toHaveBeenCalled();
       });
 
+      // A page kept mounted under another one (`active` false) does not hold Back while its plugin
+      // says goodbye; back on screen before the plugin has gone, it holds it again.
+      it("holds Back during a goodbye only while the conversation is on screen", async () => {
+        const { wrapper, says, closings } = await withTool();
+        await wrapper.find("[data-test='close-app']").trigger("click");
+        await flushPromises();
+        expect(back.handler).not.toBeNull();
+
+        await wrapper.setProps({ active: false });
+        await flushPromises();
+        expect(back.handler).toBeNull();
+
+        await wrapper.setProps({ active: true });
+        await flushPromises();
+        expect(back.handler).not.toBeNull();
+        back.handler?.();
+        await flushPromises();
+        expect(back.handler).not.toBeNull();
+        expect(closings()).toBe(1);
+        expect(push).not.toHaveBeenCalled();
+
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
+        expect(back.handler).toBeNull();
+      });
+
+      // Upstream (2026-10-02): a plugin left open in a page that goes under another stays open, for
+      // the user to come back to. Going under is not a way of closing it.
+      it("keeps a plugin open, without a word to it, while its page is under another", async () => {
+        const { wrapper, closings } = await withTool();
+        await wrapper.setProps({ active: false });
+        await flushPromises();
+        expect(closings()).toBe(0);
+        expect(sheets(wrapper)).toHaveLength(1);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(false);
+        expect(back.handler).toBeNull();
+
+        await wrapper.setProps({ active: true });
+        await flushPromises();
+        expect(back.handler).not.toBeNull();
+        expect(closings()).toBe(0);
+      });
+
       // ✕, then Back while the plugin says goodbye: one goodbye, and Back does not leave the chat.
       it("says goodbye once when it is closed twice", async () => {
         const { wrapper, says, closings } = await withTool();
