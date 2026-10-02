@@ -803,7 +803,7 @@ watch(
       </ion-content>
     </ion-modal>
 
-    <GamePermissions v-if="asking" :name="asking.name" :size="asking.size" @allow="allowGame" @cancel="asking = null" />
+    <GamePermissions :open="Boolean(asking)" :name="asking?.name ?? ''" :size="asking?.size" @allow="allowGame" @cancel="asking = null" />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
