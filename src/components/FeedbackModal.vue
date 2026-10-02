@@ -116,6 +116,18 @@ async function send() {
 .ft-feedback__box :deep(.counter) {
   unicode-bidi: plaintext;
 }
+/* Ionic's `ios` look has no outline (`fill` is `md` only) and drew the box as bare text. There the
+   box gets a rounded border in the colour of Android's outline (Ionic's own step colour, so it
+   follows light and dark); Ionic's variables give it room inside and drop the hairline above the
+   counter, which now sits inside the box. `md` keeps Ionic's outline untouched. */
+.ft-feedback__box.ios {
+  --padding-start: 12px;
+  --padding-end: 12px;
+  --border-width: 0;
+  padding-bottom: 6px;
+  border: 1px solid var(--ion-color-step-300, var(--ion-background-color-step-300, #b3b3b3));
+  border-radius: 12px;
+}
 .ft-feedback__outcome {
   display: block;
   text-align: center;

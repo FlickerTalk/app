@@ -41,6 +41,40 @@ async function openModal(app: Page): Promise<Locator> {
 
 const box = (modal: Locator) => modal.locator("ion-textarea textarea");
 
+/** Ionic's two looks: Android's (`md`) and the iPhone's (`ios`), chosen here by the URL. */
+const MODES = ["md", "ios"] as const;
+const IN_SETTINGS = /\/tabs\/settings(\?|$)/;
+
+/**
+ * Which sides of the text box have a line drawn on them. The box is the outermost rectangle drawn
+ * by any border inside the field (Ionic's `md` outline is three pieces; the counter sits outside
+ * it), and a side counts when some border runs along that edge of it.
+ */
+function drawnSides(host: Element): string[] {
+  const names = ["Top", "Right", "Bottom", "Left"] as const;
+  const visible = (color: string) => !/rgba?\([^)]*,\s*0\)$|transparent/.test(color);
+  const lines = [host, ...host.querySelectorAll("*")].flatMap((element) => {
+    const style = getComputedStyle(element) as unknown as Record<string, string>;
+    const drawn = names.filter(
+      (name) => parseFloat(style[`border${name}Width`]) >= 1 && style[`border${name}Style`] !== "none" && visible(style[`border${name}Color`]),
+    );
+    const shape = element.getBoundingClientRect();
+    // Something not laid out (Ionic's hidden notch) draws nothing.
+    return drawn.length && shape.width > 0 && shape.height > 0 ? [{ shape, drawn }] : [];
+  });
+  if (!lines.length) return [];
+  const edge = {
+    Top: Math.min(...lines.map(({ shape }) => shape.top)),
+    Right: Math.max(...lines.map(({ shape }) => shape.right)),
+    Bottom: Math.max(...lines.map(({ shape }) => shape.bottom)),
+    Left: Math.min(...lines.map(({ shape }) => shape.left)),
+  };
+  const at = (shape: DOMRect, name: (typeof names)[number]) => shape[name.toLowerCase() as "top" | "right" | "bottom" | "left"];
+  return names
+    .filter((name) => lines.some(({ shape, drawn }) => drawn.includes(name) && Math.abs(at(shape, name) - edge[name]) <= 2))
+    .map((name) => name.toLowerCase());
+}
+
 /**
  * Wholly within what can be seen (`bottom`, the top of the keyboard), and nothing drawn over it.
  * Polled as a whole: Ionic slides the modal in, and a box measured mid-animation is stale.
@@ -62,8 +96,9 @@ async function inSightAndUncovered(locator: Locator, bottom: number) {
 test.describe("in Arabic, right to left", () => {
   test.use({ viewport: { width: 360, height: 740 }, locale: "ar" });
 
-  test("a suggestion that does not go keeps its text", async ({ app }) => {
-    await app.goto("/tabs/settings");
+  for (const mode of MODES)
+  test(`a suggestion that does not go keeps its text (${mode})`, async ({ app }) => {
+    await app.goto(`/tabs/settings?ionic:mode=${mode}`);
     const modal = await openModal(app);
     await expect(app.locator("html")).toHaveAttribute("dir", "rtl");
     await expect(modal.getByTestId("hint")).toHaveText("يصلنا اقتراحك دون اسمك أو أي معرّف. لا يمكننا الرد عليك. لا تكتب بيانات شخصية.");
@@ -90,17 +125,23 @@ test.describe("in Arabic, right to left", () => {
     await expect(modal.getByTestId("outcome")).toHaveText("تعذّر الإرسال. حاول لاحقًا");
     await expect(box(modal)).toHaveValue("ملصقات من فضلكم");
     await expect.poll(() => commandsSent(app)).toContain("core_send_feedback");
-    await expect(app).toHaveURL(/\/tabs\/settings$/);
+    await expect(app).toHaveURL(IN_SETTINGS);
+
+    // What came of the send stays until the kept text is edited, then goes.
+    await box(modal).press("End");
+    await box(modal).pressSequentially("!");
+    await expect(box(modal)).toHaveValue("ملصقات من فضلكم!");
+    await expect(modal.getByTestId("outcome")).toHaveCount(0);
 
     // Escape is Ionic's "outside": with something written it does nothing.
     await app.keyboard.press("Escape");
     await expect(modal.getByTestId("send")).toBeInViewport();
-    await expect(box(modal)).toHaveValue("ملصقات من فضلكم");
+    await expect(box(modal)).toHaveValue("ملصقات من فضلكم!");
 
     // Back closes it on purpose, once, and stays in Settings; opened again, it is empty and silent.
     expect(await pressBack(app)).toBe(true);
     await expect(modal).toBeHidden();
-    await expect(app).toHaveURL(/\/tabs\/settings$/);
+    await expect(app).toHaveURL(IN_SETTINGS);
     expect(await pressBack(app)).toBe(false);
     await openModal(app);
     await expect(box(modal)).toHaveValue("");
@@ -138,8 +179,9 @@ test.describe("on a 360 × 740 phone", () => {
     await app.addInitScript(installKeyboard);
   });
 
-  test("the notice and the send button are in sight and not covered, also with the keyboard open", async ({ app }) => {
-    await app.goto("/tabs/settings");
+  for (const mode of MODES)
+  test(`the notice and the send button are in sight and not covered, also with the keyboard open (${mode})`, async ({ app }) => {
+    await app.goto(`/tabs/settings?ionic:mode=${mode}`);
     const modal = await openModal(app);
     const hint = modal.getByTestId("hint");
     const send = modal.getByTestId("send");
@@ -154,5 +196,20 @@ test.describe("on a 360 × 740 phone", () => {
     await expect.poll(() => modal.evaluate((element) => element.getBoundingClientRect().bottom)).toBe(740 - 300);
     await inSightAndUncovered(send, 740 - 300);
     await inSightAndUncovered(hint, 740 - 300);
+  });
+});
+
+// Found on the iOS simulator (2026-10-02): in Ionic's `ios` look `fill="outline"` draws nothing and
+// the box was bare text on the page. It is a box in both looks, on all four sides.
+test.describe("the text box", () => {
+  test.use({ viewport: { width: 390, height: 780 } });
+
+  for (const mode of MODES)
+  test(`is drawn as a box on all four sides (${mode})`, async ({ app }) => {
+    await app.goto(`/tabs/settings?ionic:mode=${mode}`);
+    const modal = await openModal(app);
+    const textarea = modal.locator("ion-textarea");
+    await expect(textarea).toHaveClass(new RegExp(`\\b${mode}\\b`));
+    await expect.poll(() => textarea.evaluate(drawnSides)).toEqual(["top", "right", "bottom", "left"]);
   });
 });
