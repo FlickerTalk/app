@@ -660,10 +660,13 @@ watch(
 );
 onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
 // Another conversation on screen (the split view): the plugin of this one says goodbye and goes,
-// and what was about to open here does not open there.
+// and what was about to open here does not open there. Only there: a chat page has one
+// conversation (Ionic gives another its own page), and its `chatId` follows the address of the
+// page pushed over it for a while (`ft.openChat`) before it even hears it is leaving.
 watch(
   () => props.chatId,
   () => {
+    if (!props.split || !props.active) return;
     next = null;
     closePlugin();
   },
