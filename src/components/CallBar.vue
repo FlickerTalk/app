@@ -60,7 +60,7 @@ function back() {
     >
       <ion-icon :icon="icon" aria-hidden="true" />
       <span v-if="paused" id="ft-callbar-paused" class="ft-callbar__paused">{{ $t("calls.cameraPaused") }}</span>
-      <span class="ft-callbar__name">{{ name }}</span>
+      <span class="ft-callbar__name" dir="auto">{{ name }}</span>
       <span v-if="clock" class="ft-callbar__clock">{{ clock }}</span>
     </button>
     <button type="button" class="ft-round ft-callbar__hangup" :aria-label="$t('calls.hangUp')" @click="hangUp">

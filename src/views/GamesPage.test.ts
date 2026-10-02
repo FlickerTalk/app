@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonButton, IonItem, IonListHeader, IonToggle } from "@ionic/vue";
+import { IonButton, IonItem, IonLabel, IonListHeader, IonToggle } from "@ionic/vue";
 import GamesPage from "./GamesPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
@@ -241,6 +241,15 @@ describe("GamesPage", () => {
     expect(picker.text()).toContain("Leo Martins");
     await wrapper.find("[data-test='play-with-c2']").trigger("click");
     expect(push).toHaveBeenCalledWith(`/chat/c2?play=${READY.id}`);
+  });
+
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("offers contacts whose names read in their own direction", async () => {
+    const wrapper = await page();
+    await wrapper.find(`[data-test='play-${READY.id}']`).trigger("click");
+    const names = wrapper.find("[data-test='contact-picker']").findAllComponents(IonLabel);
+    expect(names.length).toBeGreaterThan(1);
+    for (const name of names) expect(name.attributes("dir")).toBe("auto");
   });
 
   // §108: the contacts of an open hidden session are there too; a blocked one is not.

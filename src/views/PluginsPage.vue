@@ -174,9 +174,6 @@ async function remove(id: string) {
 .ft-plugins {
   --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
-.ft-plugins__open {
-  color: var(--ft-accent);
-}
 .ft-plugins__hint {
   margin: var(--ft-space-4);
   color: var(--ft-muted);
@@ -209,5 +206,9 @@ async function remove(id: string) {
 }
 .ft-plugins__confirm {
   font-weight: 600;
+}
+/* Open shares the remove button's reset; declared after it, so it keeps the accent, not the red. */
+.ft-plugins__open {
+  color: var(--ion-color-primary);
 }
 </style>

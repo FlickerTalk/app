@@ -208,7 +208,7 @@ function open() {
       @pointercancel="endPress"
       @pointerleave="endPress"
     >
-      <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender">{{ sender }}</span>
+      <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender" dir="auto">{{ sender }}</span>
       <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
       <span v-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
@@ -319,7 +319,7 @@ function open() {
       <div v-else-if="file" class="ft-file" :class="{ 'is-usable': usable }" data-test="file" @click="open">
         <span class="ft-file__icon"><ion-icon :icon="documentOutline" aria-hidden="true" /></span>
         <span class="ft-file__body">
-          <span class="ft-file__name">{{ file.name }}</span>
+          <span class="ft-file__name" dir="auto">{{ file.name }}</span>
           <span v-if="fileState" class="ft-file__meta">{{ fileState }}</span>
           <span
             v-if="moving"
@@ -355,9 +355,9 @@ function open() {
       </div>
       <div v-else-if="code" class="ft-code" data-test="code">
         <span v-if="code.language" class="ft-code__language">{{ code.language }}</span>
-        <pre class="ft-code__body"><code>{{ code.code }}</code></pre>
+        <pre class="ft-code__body" dir="auto"><code>{{ code.code }}</code></pre>
       </div>
-      <p v-else class="ft-bubble__text">
+      <p v-else class="ft-bubble__text" dir="auto">
         <template v-for="(piece, index) in pieces" :key="index">
           <a
             v-if="piece.kind === 'link'"
@@ -385,6 +385,7 @@ function open() {
       <ion-button
         v-if="game"
         expand="block"
+        :color="message.mine ? 'light' : 'primary'"
         class="ft-play-game"
         data-test="play-game"
         @pointerdown.stop
@@ -455,12 +456,13 @@ function open() {
 .is-theirs .ft-bubble {
   background: var(--ft-surface-2);
   color: var(--ft-text);
-  border-bottom-left-radius: 6px;
+  /* The tail: the outer bottom corner, at the start of the line (the right in Arabic). */
+  border-end-start-radius: 6px;
 }
 .is-mine .ft-bubble {
   background: linear-gradient(135deg, var(--ft-accent), var(--ft-accent-2));
   color: var(--ft-on-accent);
-  border-bottom-right-radius: 6px;
+  border-end-end-radius: 6px;
   box-shadow: 0 8px 20px -12px var(--ft-glow);
 }
 .is-pending .ft-bubble {
@@ -514,21 +516,15 @@ function open() {
   text-underline-offset: 2px;
 }
 
-/* Plan 10.6: the way to play a game an invitation is for, under its text: Ionic's button, in the
-   bubble's colours through its own hooks. */
+/* Plan 10.6: the way to play a game an invitation is for, under its text: Ionic's button in one of
+   Ionic's named colours (the owner's rule, 2026-10-02): `primary` on the other one's bubble, `light`
+   (the surface, mapped in variables.css) on this phone's, whose bubble is the primary itself. */
 .ft-play-game {
   margin: 8px 0 0;
-  --background: color-mix(in srgb, currentColor 14%, transparent);
-  --background-activated: color-mix(in srgb, currentColor 24%, transparent);
-  --color: inherit;
   --border-radius: 12px;
   --box-shadow: none;
   text-transform: none;
   letter-spacing: normal;
-}
-.is-theirs .ft-play-game {
-  --background: var(--ft-surface);
-  --color: var(--ft-accent);
 }
 .ft-play-game__label {
   font-weight: 600;
@@ -575,6 +571,11 @@ function open() {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A message is a paragraph of its own: it lines up with its own direction, not the app's. */
+.ft-bubble__text,
+.ft-code__body {
+  text-align: start;
+}
 
 .ft-bubble__meta {
   display: flex;
@@ -611,10 +612,10 @@ function open() {
   background: var(--ft-surface-2);
 }
 .is-mine .ft-media {
-  border-bottom-right-radius: 6px;
+  border-end-end-radius: 6px;
 }
 .is-theirs .ft-media {
-  border-bottom-left-radius: 6px;
+  border-end-start-radius: 6px;
 }
 .ft-media.is-usable {
   cursor: pointer;
@@ -674,7 +675,7 @@ function open() {
   backdrop-filter: blur(6px);
 }
 .ft-media__failed {
-  left: 10px;
+  inset-inline-start: 10px;
   color: #ffb4a8;
 }
 /* A4: a file that waits for the user shows its size and a way to ask for it. */
@@ -708,14 +709,14 @@ function open() {
   font-size: 18px;
 }
 .ft-bubble.is-media .ft-bubble__meta {
-  right: 10px;
+  inset-inline-end: 10px;
   margin: 0;
   opacity: 1;
 }
 .ft-media__save {
   position: absolute;
   top: 8px;
-  right: 8px;
+  inset-inline-end: 8px;
   display: grid;
   place-items: center;
   width: 34px;
@@ -782,7 +783,7 @@ function open() {
 .ft-voice__meta {
   min-width: 34px;
   font-size: 12px;
-  text-align: right;
+  text-align: end;
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
 }

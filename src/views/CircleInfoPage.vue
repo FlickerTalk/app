@@ -99,7 +99,7 @@ async function toggleAdmin(contact: string, isAdmin: boolean) {
     <ion-content>
       <div v-if="circle" class="ft-circle">
         <Avatar :name="circle.name" :hue="circle.hue" :size="88" />
-        <h1 class="ft-circle__name" data-test="circle-title">{{ circle.name }}</h1>
+        <h1 class="ft-circle__name" data-test="circle-title" dir="auto">{{ circle.name }}</h1>
         <span class="ft-circle__status">{{ $t("circle.members", { count: circle.members.length }) }}</span>
         <p v-if="circle.left" class="ft-circle__left" data-test="circle-left">{{ $t("circle.left") }}</p>
 
@@ -144,7 +144,7 @@ async function toggleAdmin(contact: string, isAdmin: boolean) {
           <ion-item v-for="member in circle.members" :key="member.id" lines="none" data-test="circle-member">
             <Avatar slot="start" :name="member.name" :hue="hueOf(member.id)" :size="36" />
             <ion-label>
-              <span class="ft-circle__member">{{ member.me ? $t("circle.you") : member.name }}</span>
+              <span class="ft-circle__member" dir="auto">{{ member.me ? $t("circle.you") : member.name }}</span>
               <span v-if="member.admin" class="ft-circle__badge" data-test="circle-admin-badge">{{ $t("circle.admin") }}</span>
             </ion-label>
             <template v-if="admin && !member.me">
@@ -185,7 +185,7 @@ async function toggleAdmin(contact: string, isAdmin: boolean) {
           </ion-item>
           <ion-item v-for="chat in candidates" :key="chat.id" button lines="none" :data-test="`invite-${chat.id}`" @click="invite(chat.id)">
             <Avatar slot="start" :name="chat.name" :hue="chat.hue" :size="36" />
-            <ion-label>{{ chat.name }}</ion-label>
+            <ion-label dir="auto">{{ chat.name }}</ion-label>
           </ion-item>
         </ion-list>
 

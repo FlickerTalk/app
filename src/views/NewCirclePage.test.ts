@@ -28,6 +28,13 @@ describe("NewCirclePage", () => {
     expect(create.attributes("disabled")).toBeUndefined();
   });
 
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the contacts' names in their own direction", () => {
+    const names = mount(NewCirclePage, { shallow: true }).findAll(".ft-new__row-name");
+    expect(names).toHaveLength(store.chats.length);
+    for (const name of names) expect(name.attributes("dir")).toBe("auto");
+  });
+
   it("asks the core for the circle and opens it", async () => {
     installTauri((command, args) => {
       calls.push([command, args]);

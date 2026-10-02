@@ -272,7 +272,7 @@ watch(
 
         <div class="ft-call__peer">
           <Avatar v-if="native ? !stage : !isVideo || !call.remote" :name="contact.name" :hue="contact.hue" :size="132" />
-          <h1 class="ft-call__name">{{ contact.name }}</h1>
+          <h1 class="ft-call__name" dir="auto">{{ contact.name }}</h1>
           <span class="ft-call__state" :class="{ 'is-live': call.phase === 'active' }">{{ state }}</span>
         </div>
 

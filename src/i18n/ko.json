@@ -193,6 +193,7 @@
     "title": "설정",
     "yourId": "내 FlickerTalk ID",
     "copyId": "ID 복사",
+    "idCopied": "ID가 복사되었습니다",
     "showQr": "내 QR 보기",
     "mailbox": "오프라인 보관함",
     "mailboxNote": "암호화 · 수신 시 삭제",

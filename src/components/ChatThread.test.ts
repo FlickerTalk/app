@@ -747,6 +747,15 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // Seen in Arabic (2026-10-02): a contact's name reads in its own direction, not in the app's.
+  it("offers to forward to contacts whose names read in their own direction", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+    await flushPromises();
+    await pressed(wrapper);
+    await wrapper.find("[data-test='forward']").trigger("click");
+    expect(wrapper.find(`[data-test='to-${fixture.chats[1].id}']`).attributes("dir")).toBe("auto");
+  });
+
   // The keyboard shrinks the conversation: the last message stays in sight above the composer.
   it("keeps the last message in sight when the keyboard opens", async () => {
     const viewport = new FakeViewport();
@@ -1163,6 +1172,14 @@ describe("ChatThread", () => {
         expect(hidden(wrapper.find(".ft-thread__content"))).toBe(true);
         expect(hidden(wrapper.find("[data-test='game-area']"))).toBe(false);
         expect(strip().html()).not.toContain("nice move!");
+      });
+
+      // Seen in Arabic (2026-10-02): the line the other one wrote reads in its own direction.
+      it("shows the other one's line in its own direction", async () => {
+        const wrapper = await playChess();
+        arrives("¿otra?");
+        await flushPromises();
+        expect(wrapper.find("[data-test='game-strip'] ion-label").attributes("dir")).toBe("auto");
       });
 
       // §84: read only once it could be read: in the strip, the latest of what arrived; when the
