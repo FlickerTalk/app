@@ -767,7 +767,12 @@ export interface PluginView {
   views?: string[];
   /** A tool or a game (plan 10, app 1.3.0); missing or unknown is a tool (`isGame`). */
   kind?: PluginKind;
+  /** Its name in other languages, from its package (2026-10-02); `pluginName` picks one. */
+  locales?: PluginLocales;
 }
+
+/** A plugin's name and summary by language code (`es`, `zh-TW`…), as `module.json` gives them. */
+export type PluginLocales = Record<string, { name?: string; summary?: string }>;
 
 /** What a plugin is for: a tool of the chat, or a game in its own section (plan 10.1). */
 export type PluginKind = "tool" | "game";
@@ -788,6 +793,8 @@ export interface OfferedPlugin {
   carried: boolean;
   /** A tool or a game; missing or unknown is a tool. */
   kind?: PluginKind;
+  /** Its name and summary in other languages (2026-10-02); `pluginName` and `pluginSummary` pick. */
+  locales?: PluginLocales;
 }
 
 export async function offeredPlugins(): Promise<OfferedPlugin[]> {

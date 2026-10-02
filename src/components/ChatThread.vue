@@ -59,6 +59,8 @@ import {
   offered,
   offeredOnce,
   openersOf,
+  byPluginName,
+  pluginName,
   refreshPlugins,
   tools,
   viewerOf,
@@ -378,7 +380,7 @@ function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   if (!chosen) return;
   showApps.value = false;
-  plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send, live: Boolean(chosen.granted.live) };
+  plugin.value = { id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) };
 }
 
 // Plan 10 (app 1.3.0): games, wherever the games tab is (not on iOS). Ioan, 2026-10-02: they are
@@ -404,7 +406,7 @@ function openApps() {
 }
 
 function openGame(game: PluginView) {
-  plugin.value = { id: game.id, name: game.name, sending: game.granted.send, live: Boolean(game.granted.live), game: true };
+  plugin.value = { id: game.id, name: pluginName(game), sending: game.granted.send, live: Boolean(game.granted.live), game: true };
 }
 
 /** 📨 from the game's own bar: the same invitation, and the game goes on. */
@@ -423,12 +425,12 @@ function playGame(id: string) {
   composerError.value = "";
   const here = installed.value.find((one) => one.id === id && isGame(one));
   if (here) {
-    if (needsGameGrant(here)) asking.value = { id, name: here.name };
+    if (needsGameGrant(here)) asking.value = { id, name: pluginName(here) };
     else openGame(here);
     return;
   }
   const listed = offered.value.find((one) => one.id === id && isGame(one));
-  if (listed) asking.value = { id, name: listed.name, size: listed.size };
+  if (listed) asking.value = { id, name: pluginName(listed), size: listed.size };
 }
 
 async function allowGame() {
@@ -458,7 +460,8 @@ function invite(game: PluginView) {
   const url = gameUrl(game.id);
   showApps.value = false;
   if (!url) return;
-  const text = t("games.inviteText", { game: game.name, url });
+  // The sender's language; the receiver's Play button names the game in theirs.
+  const text = t("games.inviteText", { game: pluginName(game), url });
   draft.value = draft.value.trim() ? `${draft.value.trimEnd()} ${text}` : text;
 }
 
@@ -490,7 +493,7 @@ watch(invitedToUnknown, (now) => {
 const openingWith = ref(false);
 const openers = computed(() => {
   const message = messages.value.find((one) => one.id === acting.value);
-  return message ? openersOf(installed.value, message) : [];
+  return message ? byPluginName(openersOf(installed.value, message)) : [];
 });
 
 async function openWith(id: string) {
@@ -540,7 +543,7 @@ async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean
     const reference = await pluginRef(chosen.id, message.id).catch(() => undefined);
     plugin.value = {
       id: chosen.id,
-      name: chosen.name,
+      name: pluginName(chosen),
       sending: chosen.granted.send,
       live: Boolean(chosen.granted.live),
       text: message.kind === "file" ? undefined : message.text,
@@ -779,7 +782,7 @@ watch(
         <ion-list v-if="!gamesOn || appsTab === 'tools'" data-test="apps-sheet-tools">
           <ion-item v-for="one in tools" :key="one.id" button :detail="false" :data-test="`app-${one.id}`" @click="useApp(one.id)">
             <ion-icon slot="start" :icon="appsOutline" aria-hidden="true" />
-            <ion-label class="ion-text-nowrap">{{ one.name }}</ion-label>
+            <ion-label class="ion-text-nowrap">{{ pluginName(one) }}</ion-label>
           </ion-item>
           <ion-item v-if="!tools.length" lines="none">
             <ion-label color="medium">{{ $t("plugins.none") }}</ion-label>
@@ -789,7 +792,7 @@ watch(
         <ion-list v-else data-test="games-sheet">
           <ion-item v-for="one in installedGames" :key="one.id" button :detail="false" :data-test="`game-${one.id}`" @click="playGame(one.id)">
             <ion-icon slot="start" :icon="gameControllerOutline" aria-hidden="true" />
-            <ion-label class="ion-text-nowrap">{{ one.name }}</ion-label>
+            <ion-label class="ion-text-nowrap">{{ pluginName(one) }}</ion-label>
             <ion-button
               v-if="gameUrl(one.id)"
               slot="end"
@@ -868,7 +871,7 @@ watch(
           :data-test="`open-with-${one.id}`"
           @click="openWith(one.id)"
         >
-          {{ one.name }}
+          {{ pluginName(one) }}
         </button>
         <!-- With a viewer, a tap no longer leaves the app: the other apps are still one press away. -->
         <button v-if="viewable" type="button" class="ft-actions__to" data-test="open-elsewhere" @click="openElsewhere">

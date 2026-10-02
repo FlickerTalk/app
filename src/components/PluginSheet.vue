@@ -49,7 +49,7 @@ import {
   type Sending,
 } from "../core";
 import { i18n } from "../i18n";
-import { frameUrl, fromFrame, type FrameMessage, type HandedFile } from "../plugins";
+import { frameUrl, fromFrame, pluginName, type FrameMessage, type HandedFile } from "../plugins";
 import { pluginTheme } from "../theme";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
@@ -353,7 +353,7 @@ watch(
       :style="{ height: `${height}px` }"
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
-      :title="plugin.name"
+      :title="pluginName(plugin)"
     />
   </section>
 </template>

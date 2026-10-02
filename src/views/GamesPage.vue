@@ -24,7 +24,7 @@ import GamePermissions from "../components/GamePermissions.vue";
 import { formatSize, grantPlugin, installPlugin, removePlugin, store, type PluginView } from "../core";
 import { gameGrant, needsGameGrant } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
-import { games, offeredGames, refreshOffered, refreshPlugins } from "../plugins";
+import { games, offeredGames, pluginName, pluginSummary, refreshOffered, refreshPlugins } from "../plugins";
 import { closeOnBackWhile } from "../back";
 import { t } from "../i18n";
 
@@ -139,7 +139,7 @@ function playWith(contact: string) {
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="gameControllerOutline" aria-hidden="true" /></span>
             <ion-label>
-              {{ game.name }}
+              {{ pluginName(game) }}
               <p class="ft-muted">{{ game.version }}</p>
             </ion-label>
             <ion-button slot="end" fill="clear" size="default" :data-test="`play-${game.id}`" :aria-label="$t('games.play')" @click="playGame(game)">
@@ -191,8 +191,8 @@ function playWith(contact: string) {
           <ion-item v-for="one in more" :key="one.id" lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="gameControllerOutline" aria-hidden="true" /></span>
             <ion-label>
-              {{ one.name }}
-              <p class="ft-muted">{{ one.summary }} · {{ formatSize(one.size) }}</p>
+              {{ pluginName(one) }}
+              <p class="ft-muted">{{ pluginSummary(one) }} · {{ formatSize(one.size) }}</p>
             </ion-label>
             <ion-button slot="end" fill="clear" size="default" :data-test="`install-${one.id}`" :aria-label="$t('games.install')" @click="install(one.id)">
               <ion-icon slot="icon-only" :icon="downloadOutline" aria-hidden="true" />
@@ -204,7 +204,7 @@ function playWith(contact: string) {
     </ion-content>
 
     <!-- On a wide screen the tab's sheets cover the tab, everything after the rail (2026-10-02). -->
-    <GamePermissions class="ft-sheet--tab" :open="Boolean(asking)" :name="asking?.name ?? ''" @allow="allow" @cancel="asking = null" />
+    <GamePermissions class="ft-sheet--tab" :open="Boolean(asking)" :name="asking ? pluginName(asking) : ''" @allow="allow" @cancel="asking = null" />
 
     <!-- Plan 10.4: a game is played in a conversation; this is who with. Ionic's sheet modal, as the
          apps sheet: its list scrolls at any height, and it goes by its handle, a tap outside or Back. -->

@@ -4,7 +4,7 @@ import { readCode } from "../code";
 import { formatSize } from "../core";
 import { gameIdFromText, isGame } from "../games";
 import { mapsLink, piecesOf, type Place } from "../links";
-import { installed, offered } from "../plugins";
+import { installed, offered, pluginName } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonButton, IonIcon } from "@ionic/vue";
 import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
@@ -73,9 +73,9 @@ const game = computed(() => {
   const id = gameIdFromText(props.message.text ?? "");
   if (!id) return undefined;
   const here = installed.value.find((one) => one.id === id && isGame(one));
-  if (here) return { id, installed: true, name: here.name, size: 0 };
+  if (here) return { id, installed: true, name: pluginName(here), size: 0 };
   const listed = offered.value.find((one) => one.id === id && isGame(one));
-  return listed ? { id, installed: false, name: listed.name, size: listed.size } : undefined;
+  return listed ? { id, installed: false, name: pluginName(listed), size: listed.size } : undefined;
 });
 
 // A long press asks for what can be done with this message; a tap does nothing of the sort.
