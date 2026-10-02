@@ -9,11 +9,12 @@ test.describe("in Arabic, right to left", () => {
 
   test("a suggestion that does not go keeps its text", async ({ app }) => {
     await app.goto("/feedback");
-    expect(await app.evaluate(() => document.documentElement.dir)).toBe("rtl");
+    // The app sets the direction once the language is loaded: wait for it, never read it once.
+    await expect(app.locator("html")).toHaveAttribute("dir", "rtl");
     await expect(app.getByTestId("hint")).toHaveText("يصلنا اقتراحك دون اسمك أو أي معرّف. لا يمكننا الرد عليك. لا تكتب بيانات شخصية.");
     const counter = app.getByTestId("counter");
     await expect(counter).toHaveText("0 / 2000");
-    expect(await counter.evaluate((el) => getComputedStyle(el).direction)).toBe("ltr");
+    await expect(counter).toHaveCSS("direction", "ltr");
     await expect(app.getByTestId("send")).toHaveAttribute("disabled", "");
 
     await app.locator("ion-textarea textarea").fill("ملصقات من فضلكم");
@@ -21,6 +22,6 @@ test.describe("in Arabic, right to left", () => {
     await app.getByTestId("send").click();
     await expect(app.getByTestId("outcome")).toHaveText("تعذّر الإرسال. حاول لاحقًا");
     await expect(app.locator("ion-textarea textarea")).toHaveValue("ملصقات من فضلكم");
-    expect(await commandsSent(app)).toContain("core_send_feedback");
+    await expect.poll(() => commandsSent(app)).toContain("core_send_feedback");
   });
 });
