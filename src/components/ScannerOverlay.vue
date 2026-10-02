@@ -1,13 +1,17 @@
 <script setup lang="ts">
+import { watchEffect } from "vue";
 import { IonIcon } from "@ionic/vue";
 import { cameraOutline, closeOutline } from "ionicons/icons";
 import { closeOnBackWhile } from "../back";
 import { cancelScan, dismissRefusal, openCameraSettings, scanner } from "../scanner";
+import { darkScreen } from "../theme";
 
 // While the camera reads a QR code the app is see-through (the camera is under it): this draws
 // the frame and the way out. On Android the camera draws under the WebView, which keeps the back
 // button: Back closes the camera here, or the page underneath went back and the camera stayed on.
 closeOnBackWhile(() => scanner.active, () => void cancelScan());
+// The camera is a dark screen whatever the appearance: the system bars' icons turn light (2026-10-02).
+watchEffect(() => darkScreen("scanner", scanner.active));
 
 // A refused camera is said out loud, on whichever page asked for it (add a contact, move phones).
 closeOnBackWhile(() => Boolean(scanner.refused), dismissRefusal);

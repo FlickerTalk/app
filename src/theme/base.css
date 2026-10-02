@@ -41,6 +41,10 @@ html.plt-android body::after {
   background: var(--ft-bg);
   pointer-events: none;
 }
+/* Under a dark screen (a call's pictures, the camera): the call's dark background (CallPage). */
+html.plt-android.ft-dark-screen body::after {
+  background: #07090c;
+}
 
 ion-toolbar {
   --padding-start: 12px;

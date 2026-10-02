@@ -8,7 +8,7 @@
 // (Android 13, three buttons, 384 × 853) and 15 px on the Lenovo tablet (Android 16, gestures,
 // 1280 × 800).
 import type { Page } from "@playwright/test";
-import { expect, frameSays, test } from "./helpers";
+import { callsTo, expect, frameSays, test } from "./helpers";
 
 const BOB = "ft_bob123456789";
 const BUTTONS = 48;
@@ -320,3 +320,70 @@ for (const [name, agent] of [
     });
   });
 }
+
+// The system bars' icons (2026-10-02): white on the light app until now. The page tells the phone
+// whether it is dark (`core_system_bars`, the bridge's `setSystemBars` on Android) when it starts
+// and each time that changes, and the strip under the navigation bar has the same background.
+test.describe("the system bars follow the app", () => {
+  test.use({ viewport: SAMSUNG });
+  test.beforeEach(async ({ app }) => {
+    await systemInset(app, BUTTONS);
+  });
+
+  /** What the bars were last told: dark or not. */
+  async function barsTold(app: Page) {
+    const told = (await callsTo(app)).filter(([command]) => command === "core_system_bars");
+    return told.at(-1)?.[1]?.dark;
+  }
+
+  test("dark from the start, light once the light appearance is chosen, and back", async ({ app }) => {
+    await app.goto("/tabs/settings");
+    await expect.poll(() => barsTold(app)).toBe(true);
+    expect((await stripPaint(app)).colour).toBe(await pageBackground(app));
+
+    await app.getByRole("button", { name: "Light", exact: true }).click();
+    await expect.poll(() => barsTold(app)).toBe(false);
+    await expect.poll(() => stripPaint(app).then((strip) => strip.colour)).toBe(await pageBackground(app));
+    expect(await pageBackground(app)).not.toBe("rgb(0, 0, 0)");
+
+    await app.getByRole("button", { name: "Dark", exact: true }).click();
+    await expect.poll(() => barsTold(app)).toBe(true);
+  });
+
+  test("on the light app, a call's pictures turn the bars and the strip dark while they show", async ({ app }) => {
+    await app.addInitScript(() => {
+      localStorage.setItem("ft-appearance", "light");
+      (window as unknown as Record<string, unknown>).__ftFakeNative = true;
+    });
+    await app.goto(`/chat/${BOB}`);
+    await expect.poll(() => barsTold(app)).toBe(false);
+    await app.getByRole("button", { name: "Voice call", exact: true }).click();
+    await expect(app.locator(".ft-call__state")).toHaveText(/^00:0\d$/);
+    // A voice call sits on the page's own background.
+    expect(await barsTold(app)).toBe(false);
+
+    await app.getByRole("button", { name: "Camera", exact: true }).click();
+    await expect(app.locator("html")).toHaveClass(/ft-call-video/);
+    await expect.poll(() => barsTold(app)).toBe(true);
+    expect((await stripPaint(app)).colour).toBe("rgb(7, 9, 12)");
+
+    await app.getByRole("button", { name: "Camera", exact: true }).click();
+    await expect.poll(() => barsTold(app)).toBe(false);
+    expect((await stripPaint(app)).colour).toBe(await pageBackground(app));
+  });
+
+  test("on the light app, the camera scanner turns the bars and the strip dark until it closes", async ({ app }) => {
+    await app.addInitScript(() => localStorage.setItem("ft-appearance", "light"));
+    await app.goto("/add-contact");
+    await expect.poll(() => barsTold(app)).toBe(false);
+    await app.getByTestId("mode-scan").click();
+    await app.getByTestId("scan-now").click();
+    await expect(app.getByTestId("scanner-overlay")).toBeVisible();
+    await expect.poll(() => barsTold(app)).toBe(true);
+    expect((await stripPaint(app)).colour).toBe("rgb(7, 9, 12)");
+
+    await app.getByTestId("scanner-overlay").getByRole("button", { name: "Cancel" }).click();
+    await expect(app.getByTestId("scanner-overlay")).toBeHidden();
+    await expect.poll(() => barsTold(app)).toBe(false);
+  });
+});

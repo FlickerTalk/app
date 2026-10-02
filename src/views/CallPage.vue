@@ -30,6 +30,7 @@ import {
   type VideoLayout,
 } from "../calls";
 import { t } from "../i18n";
+import { darkScreen } from "../theme";
 
 const route = useRoute();
 const router = useRouter();
@@ -125,6 +126,8 @@ function hide() {
 // While the pictures show, the app is see-through around them (the class lives on `html`).
 const seeThrough = ref(true);
 watchEffect(() => document.documentElement.classList.toggle("ft-call-video", Boolean(stage.value) && seeThrough.value));
+// A dark screen whatever the appearance: the system bars' icons turn light over it (2026-10-02).
+watchEffect(() => darkScreen("call", onScreen.value && Boolean(stage.value || dark.value)));
 
 watch([native, stage, showRemote, showLocal, () => call.view.facing], relayout, { flush: "post" });
 const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(relayout);
@@ -220,6 +223,7 @@ onUnmounted(() => {
   hide();
   seeThrough.value = false;
   document.documentElement.classList.remove("ft-call-video");
+  darkScreen("call", false);
   left = true;
   clearTimeout(leaving);
 });
