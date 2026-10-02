@@ -98,7 +98,8 @@ import {
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
-import { t } from "../i18n";
+import { i18n, t } from "../i18n";
+import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
@@ -121,6 +122,15 @@ const sheetPane = computed(() => (props.split ? "ft-sheet--chat-pane" : "ft-shee
 
 const chat = computed(() => chatOf(props.chatId));
 const messages = computed(() => chat.value?.messages ?? []);
+/** The day separator before each message; "now" is read when the thread changes, not at midnight. */
+const days = computed(() =>
+  dayLabels(
+    messages.value.map((message) => message.sentAt),
+    Date.now(),
+    i18n.global.locale.value,
+    t("chat.today"),
+  ),
+);
 
 /**
  * A5, as WhatsApp does it (2026-09-28): a stranger who wrote first is answered here, where the yes
@@ -905,21 +915,21 @@ watch(
     />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
-      <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
-      <MessageBubble
-        v-for="message in messages"
-        :key="message.id"
-        :message="message"
-        :saved="saved.has(message.id)"
-        :folded="folded.has(message.id)"
-        :games="gamesOn"
-        @open="tapFile"
-        @save="save"
-        @download="download"
-        @actions="act"
-        @resend="resendMessage"
-        @play="playGame"
-      />
+      <template v-for="(message, index) in messages" :key="message.id">
+        <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
+        <MessageBubble
+          :message="message"
+          :saved="saved.has(message.id)"
+          :folded="folded.has(message.id)"
+          :games="gamesOn"
+          @open="tapFile"
+          @save="save"
+          @download="download"
+          @actions="act"
+          @resend="resendMessage"
+          @play="playGame"
+        />
+      </template>
 
       <div class="ft-thread__end" />
     </ion-content>
@@ -934,6 +944,7 @@ watch(
           type="button"
           class="ft-actions__to"
           :data-test="`to-${one.id}`"
+          dir="auto"
           @click="forwardTo(one.id)"
         >
           {{ one.name }}
@@ -1031,7 +1042,7 @@ watch(
       >
         <ion-icon slot="start" :icon="peeking ? gameControllerOutline : chatbubblesOutline" aria-hidden="true" />
         <ion-label v-if="peeking" class="ion-text-nowrap">{{ plugin?.name }}</ion-label>
-        <ion-label v-else-if="lastFromThem" class="ion-text-nowrap">{{ lastFromThem.kind === "file" ? lastFromThem.file?.name : lastFromThem.text }}</ion-label>
+        <ion-label v-else-if="lastFromThem" class="ion-text-nowrap" dir="auto">{{ lastFromThem.kind === "file" ? lastFromThem.file?.name : lastFromThem.text }}</ion-label>
         <ion-label v-else class="ion-text-nowrap" color="medium">{{ $t("games.showChat") }}</ion-label>
         <ion-button
           slot="end"
@@ -1361,7 +1372,7 @@ watch(
   flex-shrink: 0;
 }
 .ft-attach__list {
-  left: 0;
+  inset-inline-start: 0;
   z-index: 3;
 }
 .ft-attach ion-fab-list ion-fab-button {
@@ -1425,7 +1436,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  padding: 14px 16px calc(14px + var(--ion-safe-area-bottom, 0px));
   border-top: 1px solid var(--ft-border);
   background: var(--ft-surface);
   text-align: center;

@@ -419,7 +419,7 @@ describe("PluginSheet", () => {
       if (command === "core_vault_list") return Promise.resolve(listing);
       if (command === "core_vault_status") return Promise.resolve({ state: "ready", provider: "google", drive: null, problem: null });
       if (command === "core_vault_download") return Promise.resolve(down);
-      if (command === "core_pick_files") return Promise.resolve([down]);
+      if (command === "core_vault_upload_picked") return Promise.resolve(2);
       if (command === "core_plugin_open_chat") return Promise.resolve({ contact: "ft_bob", message: "m9" });
       if (command === "core_vault_upload_message") return Promise.resolve("x2");
       return Promise.resolve(undefined);
@@ -441,11 +441,13 @@ describe("PluginSheet", () => {
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d2", answer: listing }, "*");
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d3", answer: expect.objectContaining({ state: "ready" }) }, "*");
 
-    // Uploading: the app opens the picker, the core seals what was picked; the frame sees a count.
+    // Uploading: the core opens the picker, seals what was picked and deletes the picker's copies
+    // (2026-10-02); no path crosses the WebView, and the frame sees a count.
     says({ type: "ft.drive", id: "d4", op: "upload", a: "f1" });
     await flushPromises();
-    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload", { file: down, parent: "f1" });
-    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d4", answer: 1 }, "*");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload_picked", { parent: "f1" });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_pick_files", expect.anything());
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d4", answer: 2 }, "*");
 
     // Keeping the file it was opened with goes by its ref: no bytes cross the frame.
     says({ type: "ft.drive", id: "d5", op: "keep", a: "" });
@@ -622,6 +624,25 @@ describe("PluginSheet", () => {
       await flushPromises();
       return { wrapper, ...frame, close: () => (wrapper.vm as unknown as Closable).close() };
     }
+
+    // 2026-10-03 (updates): the core never updates a plugin under an open frame. The frame is open
+    // from the moment the sheet shows it until the sheet goes, saying goodbye included.
+    it("tells the core the plugin is open until its frame is gone, goodbye included", async () => {
+      const opens = () => tauri.invoke.mock.calls.filter(([command]) => command === "core_plugin_open").map(([, args]) => args);
+      const { wrapper, says, close } = await opened();
+      expect(opens()).toEqual([{ plugin: plugin.id, open: true }]);
+      void close();
+      await flushPromises();
+      expect(opens(), "still saying goodbye").toHaveLength(1);
+      says({ type: "ft.closed" });
+      await flushPromises();
+      expect(opens(), "the sheet is still there until the page takes it away").toHaveLength(1);
+      wrapper.unmount();
+      expect(opens()).toEqual([
+        { plugin: plugin.id, open: true },
+        { plugin: plugin.id, open: false },
+      ]);
+    });
 
     it("tells the plugin, and lets it go only once it answers", async () => {
       const { wrapper, post, says, close } = await opened();

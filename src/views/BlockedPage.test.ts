@@ -14,6 +14,12 @@ describe("BlockedPage", () => {
     expect(mount(BlockedPage, { shallow: true }).find("[data-test='empty']").exists()).toBe(true);
   });
 
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the names in their own direction", () => {
+    store.chats[1].blocked = true;
+    expect(mount(BlockedPage, { shallow: true }).find(".ft-blocked__name").attributes("dir")).toBe("auto");
+  });
+
   it("lists the blocked contacts and unblocks them", async () => {
     const { id, name } = store.chats[1];
     store.chats[1].blocked = true;

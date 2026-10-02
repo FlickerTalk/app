@@ -30,6 +30,8 @@ export interface ChatMessage {
   mine: boolean;
   text: string;
   time: string;
+  /** When it was sent (ms; 0 when unknown), for the thread's day separators. */
+  sentAt: number;
   status?: Status;
   kind?: "file";
   file?: ChatFile;
@@ -285,7 +287,7 @@ function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
 }
 
 function toMessage(view: MessageView, connected = false): ChatMessage {
-  const message: ChatMessage = { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), status: view.state };
+  const message: ChatMessage = { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), sentAt: view.sentAt, status: view.state };
   if (view.file) {
     message.kind = "file";
     message.file = toFile(view.file, view.outgoing, connected);
@@ -801,6 +803,14 @@ export interface OfferedPlugin {
   locales?: PluginLocales;
 }
 
+/**
+ * A frame of a plugin is on screen (`open`) or gone for good (2026-10-03): the core never updates
+ * a plugin under an open frame.
+ */
+export async function pluginOpen(plugin: string, open: boolean): Promise<void> {
+  await invoke("core_plugin_open", { plugin, open });
+}
+
 export async function offeredPlugins(): Promise<OfferedPlugin[]> {
   return invoke<OfferedPlugin[]>("core_catalogue");
 }
@@ -1225,9 +1235,12 @@ export async function vaultRemove(id: string): Promise<void> {
   await invoke("core_vault_remove", { id });
 }
 
-/** Puts a picked file in the drive; null when it waits for the network. */
-export async function vaultUpload(file: PickedFile, parent: string | null): Promise<string | null> {
-  return invoke<string | null>("core_vault_upload", { file, parent });
+/**
+ * Puts what the user picks in the drive: the core opens the picker, seals each file (sent, or
+ * waiting for the network) and deletes the picker's copies; how many went (2026-10-02).
+ */
+export async function vaultUploadPicked(parent: string | null): Promise<number> {
+  return invoke<number>("core_vault_upload_picked", { parent });
 }
 
 /** Keeps the file of a message in the drive, from the bubble or a plugin's `ref`. */

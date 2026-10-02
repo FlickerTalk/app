@@ -5,6 +5,7 @@ import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { setLocale } from "../i18n";
+import { installed } from "../plugins";
 
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
@@ -78,6 +79,16 @@ describe("PluginsPage", () => {
       // Sorted as the phone reads them: "Asistente" before "Bloque de código".
       expect(text.indexOf("Asistente")).toBeLessThan(text.indexOf("Bloque de código"));
     });
+  });
+
+  // 2026-10-03 (updates): an update the core made in the background shows at once.
+  it("shows a plugin updated in the background without being opened again", async () => {
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain("1.0.1");
+    installed.value = [{ ...CODE, version: "1.0.1" }, AI] as never;
+    await flushPromises();
+    expect(wrapper.text()).toContain("1.0.1");
   });
 
   it("lists the plugins on this phone with their version", async () => {

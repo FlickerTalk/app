@@ -193,6 +193,7 @@
     "title": "Ayarlar",
     "yourId": "FlickerTalk kimliğiniz",
     "copyId": "Kimliği kopyala",
+    "idCopied": "Kimlik kopyalandı",
     "showQr": "QR kodumu göster",
     "mailbox": "Çevrimdışı posta kutusu",
     "mailboxNote": "Şifreli · alındığında silinir",
@@ -268,7 +269,8 @@
   "colors": {
     "ember": "Köz",
     "aurora": "Aurora",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Misket limonu"
   },
   "qr": {
     "label": "QR kodu"

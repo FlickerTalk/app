@@ -167,11 +167,11 @@ const STATUS_ICON: Record<string, string> = {
                   <Avatar :name="chat.name" :hue="chat.hue" :connected="false" />
                   <span class="ft-row__body">
                     <span class="ft-row__line">
-                      <span class="ft-row__name">{{ chat.name }}</span>
+                      <span class="ft-row__name" dir="auto">{{ chat.name }}</span>
                       <span class="ft-row__time">{{ shortId(chat) }}</span>
                     </span>
                     <span class="ft-row__line">
-                      <span class="ft-row__preview">{{ shown(chat.preview) }}</span>
+                      <span class="ft-row__preview" dir="auto">{{ shown(chat.preview) }}</span>
                     </span>
                   </span>
                 </button>
@@ -192,7 +192,7 @@ const STATUS_ICON: Record<string, string> = {
                 <Avatar :name="one.name" :hue="one.hue" />
                 <span class="ft-row__body">
                   <span class="ft-row__line">
-                    <span class="ft-row__name">{{ one.name }}</span>
+                    <span class="ft-row__name" dir="auto">{{ one.name }}</span>
                     <span class="ft-row__time" :class="{ 'is-unread': one.unread }">{{ one.time }}</span>
                   </span>
                   <span class="ft-row__line">
@@ -204,7 +204,7 @@ const STATUS_ICON: Record<string, string> = {
                       :class="`is-${one.status}`"
                       aria-hidden="true"
                     />
-                    <span class="ft-row__preview">{{ circlePreview(one) }}</span>
+                    <span class="ft-row__preview" dir="auto">{{ circlePreview(one) }}</span>
                     <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ one.unread }}</span>
                   </span>
                 </span>
@@ -233,7 +233,7 @@ const STATUS_ICON: Record<string, string> = {
                 <Avatar :name="chat.name" :hue="chat.hue" :connected="chat.connected" />
                 <span class="ft-row__body">
                   <span class="ft-row__line">
-                    <span class="ft-row__name">{{ chat.name }}</span>
+                    <span class="ft-row__name" dir="auto">{{ chat.name }}</span>
                     <span class="ft-row__time" :class="{ 'is-unread': chat.unread }">{{ chat.time }}</span>
                   </span>
                   <span class="ft-row__line">
@@ -251,7 +251,7 @@ const STATUS_ICON: Record<string, string> = {
                       role="img"
                       :aria-label="chat.lastKind === 'voice' ? $t('chat.voiceMessage') : $t('chat.file')"
                     />
-                    <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
+                    <span class="ft-row__preview" dir="auto">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
                     <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
                   </span>
                 </span>
@@ -353,10 +353,10 @@ const STATUS_ICON: Record<string, string> = {
                     <Avatar :name="chat.name" :hue="chat.hue" :connected="false" />
                     <span class="ft-row__body">
                       <span class="ft-row__line">
-                        <span class="ft-row__name">{{ chat.name }}</span>
+                        <span class="ft-row__name" dir="auto">{{ chat.name }}</span>
                         <span class="ft-row__time">{{ shortId(chat) }}</span>
                       </span>
-                      <span class="ft-row__line"><span class="ft-row__preview">{{ shown(chat.preview) }}</span></span>
+                      <span class="ft-row__line"><span class="ft-row__preview" dir="auto">{{ shown(chat.preview) }}</span></span>
                     </span>
                   </button>
                 </li>
@@ -373,12 +373,12 @@ const STATUS_ICON: Record<string, string> = {
                     <Avatar :name="one.name" :hue="one.hue" />
                     <span class="ft-row__body">
                       <span class="ft-row__line">
-                        <span class="ft-row__name">{{ one.name }}</span>
+                        <span class="ft-row__name" dir="auto">{{ one.name }}</span>
                         <span class="ft-row__time" :class="{ 'is-unread': one.unread }">{{ one.time }}</span>
                       </span>
                       <span class="ft-row__line">
                         <ion-icon :icon="peopleOutline" class="ft-row__kind" role="img" :aria-label="$t('circle.title')" />
-                        <span class="ft-row__preview">{{ circlePreview(one) }}</span>
+                        <span class="ft-row__preview" dir="auto">{{ circlePreview(one) }}</span>
                         <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ one.unread }}</span>
                       </span>
                     </span>
@@ -407,7 +407,7 @@ const STATUS_ICON: Record<string, string> = {
                     <Avatar :name="chat.name" :hue="chat.hue" :connected="chat.connected" />
                     <span class="ft-row__body">
                       <span class="ft-row__line">
-                        <span class="ft-row__name">{{ chat.name }}</span>
+                        <span class="ft-row__name" dir="auto">{{ chat.name }}</span>
                         <span class="ft-row__time" :class="{ 'is-unread': chat.unread }">{{ chat.time }}</span>
                       </span>
                       <span class="ft-row__line">
@@ -418,7 +418,7 @@ const STATUS_ICON: Record<string, string> = {
                           :class="`is-${chat.status}`"
                           aria-hidden="true"
                         />
-                        <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
+                        <span class="ft-row__preview" dir="auto">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
                         <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
                       </span>
                     </span>

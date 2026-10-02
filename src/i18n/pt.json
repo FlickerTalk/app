@@ -193,6 +193,7 @@
     "title": "Configurações",
     "yourId": "Seu ID do FlickerTalk",
     "copyId": "Copiar ID",
+    "idCopied": "ID copiado",
     "showQr": "Mostrar meu QR",
     "mailbox": "Caixa postal offline",
     "mailboxNote": "Criptografada · apagada ao ser retirada",
@@ -268,7 +269,8 @@
   "colors": {
     "ember": "Brasa",
     "aurora": "Aurora",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Limão"
   },
   "qr": {
     "label": "Código QR"

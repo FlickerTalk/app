@@ -260,20 +260,79 @@ pub fn open(package: &[u8], catalogue: &Ed25519PublicKey) -> Result<Plugin> {
     Ok(Plugin { manifest, files })
 }
 
-/// Installs an open package under `dir/<id>`, replacing any older copy.
+/// Where a new version is written before it takes the place of the old one, and where the old one
+/// waits until it has (2026-10-03). `~` is in no plugin id, so neither is ever taken for a plugin.
+const NEW: &str = "~new";
+const OLD: &str = "~old";
+
+/// Installs an open package under `dir/<id>`, replacing any older copy whole: the new files are
+/// written beside it and swapped in by renaming, so a write that fails leaves the old version as
+/// it was, and a swap cut short is put right by `recover`.
 pub fn install(plugin: &Plugin, dir: &Path) -> Result<PathBuf> {
-    let home = dir.join(&plugin.manifest.id);
-    if home.exists() {
-        std::fs::remove_dir_all(&home).context("cannot replace the installed plugin")?;
-    }
-    for (path, bytes) in plugin.files() {
-        let target = home.join(safe_path(path)?);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
+    let home = dir.join(safe_path(&plugin.manifest.id)?);
+    let fresh = dir.join(format!("{}{NEW}", plugin.manifest.id));
+    let aside = dir.join(format!("{}{OLD}", plugin.manifest.id));
+    let written = (|| -> Result<()> {
+        if fresh.exists() {
+            std::fs::remove_dir_all(&fresh)?;
         }
-        std::fs::write(&target, bytes)?;
+        for (path, bytes) in plugin.files() {
+            let target = fresh.join(safe_path(path)?);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&target, bytes)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = written {
+        let _ = std::fs::remove_dir_all(&fresh);
+        return Err(error.context("cannot write the plugin"));
+    }
+    if aside.exists() {
+        std::fs::remove_dir_all(&aside)?;
+    }
+    let replacing = home.exists();
+    if replacing {
+        std::fs::rename(&home, &aside).context("cannot move the installed plugin aside")?;
+    }
+    if let Err(error) = std::fs::rename(&fresh, &home) {
+        if replacing {
+            let _ = std::fs::rename(&aside, &home);
+        }
+        let _ = std::fs::remove_dir_all(&fresh);
+        return Err(anyhow::Error::from(error).context("cannot put the new version in place"));
+    }
+    if replacing {
+        let _ = std::fs::remove_dir_all(&aside);
     }
     Ok(home)
+}
+
+/// Puts right a swap the phone cut short (2026-10-03): an old version moved aside whose new one
+/// never took its place comes back, and whatever was left half written or aside goes. Run when
+/// the core starts, before anything is served.
+pub fn recover(dir: &Path) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let path = entry?.path();
+        let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        if name.ends_with(NEW) {
+            std::fs::remove_dir_all(&path)?;
+        } else if let Some(id) = name.strip_suffix(OLD) {
+            let home = dir.join(id);
+            if home.exists() {
+                std::fs::remove_dir_all(&path)?;
+            } else {
+                std::fs::rename(&path, &home)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The manifests of the plugins installed under `dir`.
@@ -285,10 +344,11 @@ pub fn installed(dir: &Path) -> Result<Vec<Manifest>> {
         Err(error) => return Err(error.into()),
     };
     for entry in entries {
-        let path = entry?.path().join(MANIFEST);
-        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let folder = entry?.path();
+        let Ok(bytes) = std::fs::read(folder.join(MANIFEST)) else { continue };
         if let Ok(manifest) = serde_json::from_slice::<Manifest>(&bytes) {
-            if check(&manifest).is_ok() {
+            // Only a plugin's own folder: never a copy waiting beside it (`~new`, `~old`).
+            if check(&manifest).is_ok() && folder.file_name().is_some_and(|name| name == manifest.id.as_str()) {
                 manifests.push(manifest);
             }
         }
@@ -1052,6 +1112,81 @@ mod tests {
         ];
         let bytes = sign_package(&files, &catalogue);
         assert!(open(&bytes, &catalogue.public_key()).is_err(), "no path may leave the package");
+    }
+
+    /// A plugin's version and code, as the catalogue would sign it.
+    fn version_of(id: &str, version: &str, script: &[u8], catalogue: &Ed25519SecretKey) -> Plugin {
+        let manifest = manifest_of(id).replace(r#""version":"1.2.0""#, &format!(r#""version":"{version}""#));
+        open(&package(&manifest, script, catalogue), &catalogue.public_key()).expect("opens")
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ft-plugins-{name}-{}", blake3::hash(format!("{:?}", std::time::SystemTime::now()).as_bytes()).to_hex()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn folders(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    // 2026-10-03 (updates of downloaded plugins): a new version replaces the old one whole, in one
+    // rename: never half of each, and nothing left beside it.
+    #[test]
+    fn a_new_version_replaces_the_old_one_whole() {
+        let catalogue = Ed25519SecretKey::new();
+        let dir = scratch("swap");
+        install(&version_of("com.example.code", "1.0.0", b"old()", &catalogue), &dir).unwrap();
+        let home = install(&version_of("com.example.code", "1.0.1", b"new()", &catalogue), &dir).unwrap();
+        assert_eq!(std::fs::read(home.join("dist/index.js")).unwrap(), b"new()");
+        assert_eq!(folders(&dir), ["com.example.code"], "no copy is left beside it");
+        assert_eq!(installed(&dir).unwrap().iter().map(|one| one.version.as_str()).collect::<Vec<_>>(), ["1.0.1"]);
+    }
+
+    // Before, the old folder was deleted first: a write that failed halfway left a broken plugin.
+    #[test]
+    fn an_install_that_fails_leaves_the_installed_version_as_it_was() {
+        let catalogue = Ed25519SecretKey::new();
+        let dir = scratch("failed");
+        install(&version_of("com.example.code", "1.0.0", b"old()", &catalogue), &dir).unwrap();
+        // `dist` as a file and as a folder: signed and opened, but it cannot be written.
+        let manifest = manifest_of("com.example.code").replace("1.2.0", "1.0.1");
+        let files = vec![
+            ("module.json".to_owned(), manifest.into_bytes()),
+            ("dist".to_owned(), b"a file".to_vec()),
+            ("dist/index.js".to_owned(), b"new()".to_vec()),
+        ];
+        let broken = open(&sign_package(&files, &catalogue), &catalogue.public_key()).expect("opens");
+        assert!(install(&broken, &dir).is_err());
+        assert_eq!(std::fs::read(dir.join("com.example.code/dist/index.js")).unwrap(), b"old()");
+        assert_eq!(folders(&dir), ["com.example.code"]);
+        assert_eq!(installed(&dir).unwrap()[0].version, "1.0.0");
+    }
+
+    // A swap the phone cut short (the app killed between the two renames) is put right when the
+    // core starts: the old version comes back, and what was half written goes. Meanwhile neither
+    // is ever listed as a plugin of its own.
+    #[test]
+    fn a_swap_cut_short_is_put_right_at_start() {
+        let catalogue = Ed25519SecretKey::new();
+        let dir = scratch("recover");
+        install(&version_of("com.example.code", "1.0.0", b"old()", &catalogue), &dir).unwrap();
+        install(&version_of("com.example.list", "1.0.0", b"list()", &catalogue), &dir).unwrap();
+        // The code plugin was moved aside and its new version not yet in place.
+        std::fs::rename(dir.join("com.example.code"), dir.join("com.example.code~old")).unwrap();
+        std::fs::create_dir_all(dir.join("com.example.code~new/dist")).unwrap();
+        // The list plugin's swap had finished; only its old copy was still there.
+        std::fs::create_dir_all(dir.join("com.example.list~old")).unwrap();
+        std::fs::write(dir.join("com.example.list~old/module.json"), manifest_of("com.example.list")).unwrap();
+        assert_eq!(installed(&dir).unwrap().iter().map(|one| one.id.as_str()).collect::<Vec<_>>(), ["com.example.list"], "never a copy");
+
+        recover(&dir).unwrap();
+        assert_eq!(folders(&dir), ["com.example.code", "com.example.list"]);
+        assert_eq!(std::fs::read(dir.join("com.example.code/dist/index.js")).unwrap(), b"old()");
+        assert_eq!(installed(&dir).unwrap().len(), 2);
+        recover(&scratch("empty").join("missing")).expect("no folder yet is nothing to put right");
     }
 
     #[test]

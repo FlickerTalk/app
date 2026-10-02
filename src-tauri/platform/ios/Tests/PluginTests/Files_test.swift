@@ -47,6 +47,26 @@ final class FilesTests: XCTestCase {
         XCTAssertEqual(pickedTarget(folder: folder, name: "a.jpg", now: now, index: 1).lastPathComponent, "1790195730123-1-a.jpg")
     }
 
+    // 2026-10-02: a photo is named by the second it was taken; a second one in that second is a
+    // file of its own and never writes over the first, which a message may point to (as on
+    // Android, `newPickedFile`).
+    func testASecondPhotoInTheSameSecondIsAFileOfItsOwn() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ft-photos-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let name = "photo-20260923-203530.jpg"
+
+        let first = freshTarget(folder: folder, name: name)
+        XCTAssertEqual(first.lastPathComponent, name)
+        try Data("first".utf8).write(to: first)
+        let second = freshTarget(folder: folder, name: name)
+        XCTAssertEqual(second.lastPathComponent, "photo-20260923-203530-2.jpg")
+        try Data("second".utf8).write(to: second)
+        XCTAssertEqual(freshTarget(folder: folder, name: name).lastPathComponent, "photo-20260923-203530-3.jpg")
+        XCTAssertEqual(try Data(contentsOf: first), Data("first".utf8))
+        XCTAssertEqual(freshTarget(folder: folder, name: "file").lastPathComponent, "file")
+    }
+
     // What a picked file is, as far as its extension tells.
     func testWhatAPickedFileIs() {
         XCTAssertEqual(pickedMime(fileExtension: "jpg"), "image/jpeg")

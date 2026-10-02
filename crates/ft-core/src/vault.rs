@@ -460,14 +460,23 @@ impl Core {
 
     // ---- The backup (§61) ----
 
-    /// Puts a consistent copy of the database, the storage key and the files in the drive.
+    /// Puts a consistent copy of the database, the storage key and the files in the drive. From
+    /// where files wait on their way (`TRANSIT_FOLDERS`) and the printer's folder, only what a
+    /// message points to (2026-10-02): what is left there between two starts never reaches the
+    /// cloud.
     pub async fn vault_backup(&self) -> Result<Backup> {
         let vault = self.vault().await?;
+        let files = self.files_dir()?.to_owned();
+        let referenced = crate::files::referenced_files(&self.store, &files).await?;
+        let keep = |path: &str| {
+            let top = path.split('/').next().unwrap_or_default();
+            let passing = crate::files::TRANSIT_FOLDERS.contains(&top) || top == "printing";
+            !passing || referenced.contains(&crate::files::canonical(&files.join(path)))
+        };
         let snapshot = self.vault_dir()?.join("snapshot.db");
         let _ = tokio::fs::remove_file(&snapshot).await;
         self.store.snapshot(&snapshot).await?;
-        let files = self.files_dir()?.to_owned();
-        let backup = vault.backup(&snapshot, &self.key, &files, self.progress().await).await;
+        let backup = vault.backup(&snapshot, &self.key, &files, keep, self.progress().await).await;
         let _ = tokio::fs::remove_file(&snapshot).await;
         let backup = backup?;
         let _ = self.events.send(Event::VaultChanged);

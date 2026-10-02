@@ -213,3 +213,24 @@ test.describe("the text box", () => {
     await expect.poll(() => textarea.evaluate(drawnSides)).toEqual(["top", "right", "bottom", "left"]);
   });
 });
+
+// Ioan's rule (2026-10-02): a component's colour is one of Ionic's named colours. On iOS the box's
+// border is Ionic's `medium`, as resolved by the theme in force.
+test.describe("the text box on iOS", () => {
+  test.use({ viewport: { width: 390, height: 780 } });
+
+  test("draws its border in Ionic's medium colour", async ({ app }) => {
+    await app.goto("/tabs/settings?ionic:mode=ios");
+    const modal = await openModal(app);
+    const colours = await modal.locator("ion-textarea").evaluate((host) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--ion-color-medium)";
+      host.parentElement!.appendChild(probe);
+      const medium = getComputedStyle(probe).color;
+      probe.remove();
+      const style = getComputedStyle(host);
+      return { medium, sides: [style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor] };
+    });
+    expect(colours.sides).toEqual([colours.medium, colours.medium, colours.medium, colours.medium]);
+  });
+});

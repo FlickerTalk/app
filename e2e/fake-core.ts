@@ -43,6 +43,8 @@
  * catalogue offers another (Chess); installing, granting and removing change the fake's lists as
  * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
  * `window.__ftFakeBobSays` (texts) adds Bob's messages after his others: an invitation, say.
+ * `window.__ftFakeISaid` (texts) adds messages of this phone to Bob, read, after Bob's.
+ * `window.__ftFakeFiles` (`{ outgoing, name, mime, state }`) adds files to Bob's conversation, last.
  * `window.__ftFakeBobName` renames Bob (a long name, to see the chat header truncate it).
  * `window.__ftFakeCarol` adds a second contact, Carol (`ft_carol12345678`), and a plugin's
  * `ft.openChat` then leads to her conversation.
@@ -310,7 +312,19 @@ export function installFakeCore() {
         }));
         const said = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeBobSays as string[]) ?? []) : [];
         const extra = said.map((text, at) => ({ id: `said${at}`, outgoing: false, text, sentAt: Date.now() - 1000 + at, state: "delivered" }));
-        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra];
+        const mine = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeISaid as string[]) ?? []) : [];
+        const sent = mine.map((text, at) => ({ id: `mine${at}`, outgoing: true, text, sentAt: Date.now() - 500 + at, state: "read" }));
+        type FakeFile = { outgoing: boolean; name: string; mime: string; state: string };
+        const files = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeFiles as FakeFile[]) ?? []) : [];
+        const shared = files.map((one, at) => ({
+          id: `file${at}`,
+          outgoing: one.outgoing,
+          text: one.name,
+          sentAt: Date.now() - 100 + at,
+          state: "delivered",
+          file: { name: one.name, size: 3_000, mime: one.mime, progress: 1, state: one.state, path: `/x/${one.name}` },
+        }));
+        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra, ...sent, ...shared];
       }
       case "core_plugins": {
         grantLive();

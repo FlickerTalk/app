@@ -193,6 +193,7 @@
     "title": "सेटिंग्स",
     "yourId": "आपकी FlickerTalk ID",
     "copyId": "ID कॉपी करें",
+    "idCopied": "ID कॉपी हो गई",
     "showQr": "मेरा QR दिखाएँ",
     "mailbox": "ऑफ़लाइन मेलबॉक्स",
     "mailboxNote": "एन्क्रिप्टेड · लेने पर हटा दिया जाता है",
@@ -268,7 +269,8 @@
   "colors": {
     "ember": "अंगार",
     "aurora": "ऑरोरा",
-    "mono": "मोनो"
+    "mono": "मोनो",
+    "lime": "नींबू"
   },
   "qr": {
     "label": "QR कोड"

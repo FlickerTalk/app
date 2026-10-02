@@ -395,6 +395,13 @@ impl SubscriptionPrice {
     }
 }
 
+/// Arguments of the native `setSystemBars` command (Android): whether the app is dark right now.
+#[derive(Serialize)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+struct SystemBars {
+    dark: bool,
+}
+
 /// What Kotlin's `pushToken` resolves with.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -460,6 +467,21 @@ impl<R: Runtime> Platform<R> {
         #[cfg(not(mobile))]
         {
             Ok(None)
+        }
+    }
+
+    /// The system bars' icons follow the app's appearance (2026-10-02): light icons while the app
+    /// is `dark`, dark ones on a light app. Android only: iOS keeps its own (the status bar follows
+    /// the system's appearance) and a desktop has none.
+    pub fn set_system_bars(&self, dark: bool) -> Result<()> {
+        #[cfg(target_os = "android")]
+        {
+            self.run("setSystemBars", SystemBars { dark })
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = dark;
+            Ok(())
         }
     }
 
@@ -1052,6 +1074,24 @@ mod tests {
     fn the_open_app_on_answer_switch_travels_as_swift_reads_it() {
         assert_eq!(serde_json::to_value(OpenAppOnAnswer { on: true }).unwrap(), serde_json::json!({ "on": true }));
         assert_eq!(serde_json::to_value(OpenAppOnAnswer { on: false }).unwrap(), serde_json::json!({ "on": false }));
+    }
+
+    // 2026-10-02: the system bars' icons follow the app's appearance. What Kotlin's
+    // `setSystemBars` reads (`SystemBarsArgs`).
+    #[test]
+    fn the_system_bars_travel_as_kotlin_reads_them() {
+        assert_eq!(serde_json::to_value(SystemBars { dark: true }).unwrap(), serde_json::json!({ "dark": true }));
+        assert_eq!(serde_json::to_value(SystemBars { dark: false }).unwrap(), serde_json::json!({ "dark": false }));
+    }
+
+    // Only Android is told: iOS and a desktop answer at once, and never with an error the WebView
+    // would see each time the appearance changes.
+    #[cfg(not(mobile))]
+    #[test]
+    fn a_desktop_has_no_system_bars_to_tell() {
+        let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
+        assert!(platform.set_system_bars(true).is_ok());
+        assert!(platform.set_system_bars(false).is_ok());
     }
 
     #[test]
