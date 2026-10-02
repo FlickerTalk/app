@@ -949,10 +949,22 @@ fn opened_key(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<[u8; 3
     storage_key(dir, vault)
 }
 
+/// Where files wait on their way somewhere (`ft_core::files::TRANSIT_FOLDERS`), and the pickers'
+/// old folder outside `files/`.
+fn transit_folders(dir: &Path) -> Vec<PathBuf> {
+    let files = dir.join("files");
+    ft_core::files::TRANSIT_FOLDERS.iter().map(|name| files.join(name)).chain([dir.join("uploads")]).collect()
+}
+
 /// Opens the core over what this phone keeps in `dir` and connects it to the router, for the app
 /// or for a call push before it (Android, 2026-10-01).
 async fn boot(dir: &Path, key: [u8; 32]) -> anyhow::Result<Online> {
     let store = Store::open(&dir.join(DATABASE)).await?;
+    // What waited on its way somewhere and no message points to goes (2026-10-02), before the
+    // core is up: every command that goes through it waits for this (`RUNNING` is held), and
+    // nothing can be picked or staged without a chat the core lists. A store that cannot say
+    // what messages point to deletes nothing; a failure here never stops the start.
+    let _ = ft_core::files::sweep_orphans(&store, &dir.join("files"), transit_folders(dir)).await;
     let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
     online.core.set_files_dir(dir.join("files"));
     online.core.set_move_dir(dir.join(MOVE_DIR));
@@ -4422,6 +4434,19 @@ mod tests {
         assert!(answer.is_err());
         assert!(db.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 2026-10-02: the start sweeps where files wait on their way — the pickers' folders (the old
+    // one too), what is written to be sent and the drive's plain copies — and nothing else: not
+    // the received files, the printer's (it clears its own), the drive's queue or a move.
+    #[test]
+    fn the_start_sweeps_only_where_files_wait_on_their_way() {
+        let dir = Path::new("/data");
+        let files = dir.join("files");
+        assert_eq!(
+            transit_folders(dir),
+            vec![files.join("uploads"), files.join("outgoing"), files.join("drive"), dir.join("uploads")]
+        );
     }
 
     // Too big to hand over is not a reason to keep it.
