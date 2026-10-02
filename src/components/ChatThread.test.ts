@@ -800,7 +800,7 @@ describe("ChatThread", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    // Ioan, 2026-10-03: one button, the apps, in the header (three buttons, so a name has room on
+    // Ioan, 2026-10-02: one button, the apps, in the header (three buttons, so a name has room on
     // a small phone). It opens an Ionic sheet modal, as the apps themselves open, with a segment for
     // the plugins and one for the games.
     it("opens a sheet with a segment for the plugins and one for the games", async () => {
@@ -1018,7 +1018,7 @@ describe("ChatThread", () => {
       expect(calls.map(([command]) => command)).not.toContain("core_catalogue");
     });
 
-    // Ioan, 2026-10-03 (option A): a game is played inside the conversation, so the two can write
+    // Ioan, 2026-10-02 (option A): a game is played inside the conversation, so the two can write
     // while playing. It takes the place of the messages; the header and the composer stay.
     describe("the game room", () => {
       const playChess = async (installed: unknown[] = [CODE, CHESS]) => {

@@ -128,7 +128,7 @@ html[data-direction] body {
   --ion-background-color: var(--ft-bg);
   --ion-text-color: var(--ft-text);
   /* Ionic draws some parts with these as numbers (an unselected segment, an item's icon, a
-     toggle's track); without them they fall back to black (2026-10-03). */
+     toggle's track); without them they fall back to black (2026-10-02). */
   --ion-background-color-rgb: var(--ft-bg-rgb);
   --ion-text-color-rgb: var(--ft-text-rgb);
   --ion-border-color: var(--ft-border);
@@ -139,7 +139,7 @@ html[data-direction] body {
   --ion-color-primary-shade: var(--ft-accent-2);
   --ion-color-primary-tint: var(--ft-accent);
   --ion-color-danger: #ff4d5e;
-  /* Secondary text; also what a plugin is handed as its muted colour (2026-10-03). */
+  /* Secondary text; also what a plugin is handed as its muted colour (2026-10-02). */
   --ion-color-medium: var(--ft-muted);
 
   --ion-toolbar-background: var(--ft-bg);
@@ -169,7 +169,7 @@ html.ft-dark[data-direction] body {
   color-scheme: dark;
 }
 /* As Ionic's own dark palette does: a modal (the apps sheet) is lifted onto the surface colour, or
-   on a black page it would have no edge at all (2026-10-03). */
+   on a black page it would have no edge at all (2026-10-02). */
 html.ft-dark[data-direction] ion-modal {
   --ion-background-color: var(--ft-surface);
   --ion-toolbar-background: var(--ft-surface);

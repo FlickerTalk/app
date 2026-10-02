@@ -56,7 +56,7 @@ export function initTheme() {
 }
 
 /**
- * The colours a plugin is handed (2026-10-03): its frame is isolated, so the app's CSS variables
+ * The colours a plugin is handed (2026-10-02): its frame is isolated, so the app's CSS variables
  * never reach it. Ionic's names, so a plugin's `var(--ion-text-color, …)` follows the app.
  */
 export const PLUGIN_COLOURS = [

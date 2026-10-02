@@ -114,7 +114,7 @@ test("a plugin opened in a chat learns that chat's id, and none on its own", asy
   expect(await chatOf()).not.toHaveProperty("chat");
 });
 
-// 2026-10-03 (Ioan): the app's colours reach the plugin through the real frame bridge
+// 2026-10-02 (Ioan): the app's colours reach the plugin through the real frame bridge
 // (`src-tauri/src/frame.js`, as the app serves it): Ionic's variables on the frame's root and
 // `data-dark`, there when the plugin draws and following the app's look while it is open.
 // A plugin that keeps what it was opened with, and the colour it saw when it was created.

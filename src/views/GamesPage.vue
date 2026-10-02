@@ -203,7 +203,7 @@ function playWith(contact: string) {
       <p v-else-if="!offeredGames.length" class="ft-games__hint">{{ $t("games.offline") }}</p>
     </ion-content>
 
-    <!-- On a wide screen the tab's sheets cover the tab, everything after the rail (2026-10-03). -->
+    <!-- On a wide screen the tab's sheets cover the tab, everything after the rail (2026-10-02). -->
     <GamePermissions class="ft-sheet--tab" :open="Boolean(asking)" :name="asking?.name ?? ''" @allow="allow" @cancel="asking = null" />
 
     <!-- Plan 10.4: a game is played in a conversation; this is who with. Ionic's sheet modal, as the

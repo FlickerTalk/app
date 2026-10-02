@@ -431,7 +431,7 @@ describe("MessageBubble", () => {
       const play = wrapper.find("[data-test='play-game']");
       expect(play.text()).toContain("Play");
       expect(play.text()).not.toContain("MB");
-      // Ioan, 2026-10-03: Ionic's own button, and an icon, never an emoji, for the interface.
+      // Ioan, 2026-10-02: Ionic's own button, and an icon, never an emoji, for the interface.
       const button = wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === "play-game");
       expect(button?.findComponent(IonIcon).exists()).toBe(true);
       expect(play.html()).not.toContain("🎮");

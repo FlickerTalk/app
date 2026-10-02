@@ -50,7 +50,7 @@ describe("theme", () => {
   });
 });
 
-// 2026-10-03: Ionic draws some parts (an unselected segment, an item's icon, a toggle's track) with
+// 2026-10-02: Ionic draws some parts (an unselected segment, an item's icon, a toggle's track) with
 // `rgba(var(--ion-text-color-rgb, 0, 0, 0), …)` and `--ion-background-color-rgb`. Without them a
 // dark app showed those parts black on black (the apps sheet). Every theme gives Ionic the same
 // colour as its text and background, as numbers.
@@ -85,14 +85,14 @@ describe("the theme handed to Ionic", () => {
 
   // Ionic dims the page under a sheet by `--ion-backdrop-opacity` times the sheet's height (0.32 ×
   // 0.5 at half height): on a black page that is no dimming at all. In the dark it dims twice as
-  // much, so a sheet reads as lifted off the page (seen on the Samsung, 2026-10-03).
+  // much, so a sheet reads as lifted off the page (seen on the Samsung, 2026-10-02).
   it("dims the page under a modal enough to be seen in the dark", () => {
     const dark = css.match(/html\.ft-dark\[data-direction\] ion-modal\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(Number(token(dark, "ion-backdrop-opacity"))).toBeGreaterThanOrEqual(0.6);
   });
 });
 
-// 2026-10-03 (Ioan): a plugin's frame is isolated, so the app hands it its colours: Ionic's names,
+// 2026-10-02 (Ioan): a plugin's frame is isolated, so the app hands it its colours: Ionic's names,
 // with the values the app shows right now, and whether it is dark.
 describe("the colours a plugin is handed", () => {
   afterEach(() => {

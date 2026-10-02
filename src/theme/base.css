@@ -82,7 +82,7 @@ html.ft-scanning ion-router-outlet {
   visibility: hidden;
 }
 
-/* The sheets on a wide screen (decided 2026-10-03): each covers the pane the user is looking at,
+/* The sheets on a wide screen (decided 2026-10-02): each covers the pane the user is looking at,
    bottom-anchored, not Ionic's 600 px over the whole window. The modifier is set where the sheet is
    declared: beside the list, the chat pane; on a tab, everything after the rail; a conversation
    open on its own, the whole window. `flex-end` is the inline end, so the right in LTR and the left
