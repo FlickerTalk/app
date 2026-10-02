@@ -32,6 +32,7 @@ pub fn run() {
     builder
         .manage(client::Client::default())
         .manage(plugins::Plugins::default())
+        .manage(client::OpenPlugins::default())
         // Each plugin is served from its own folder, inside an iframe, with the policy its
         // permissions allow (issue app#3, §55, §58).
         .register_uri_scheme_protocol("ftplugin", |ctx, request| {
@@ -132,6 +133,7 @@ pub fn run() {
             client::core_forward,
             client::core_share_message,
             client::core_catalogue,
+            client::core_plugin_open,
             client::core_plugin_add,
             client::core_plugin_read,
             client::core_plugin_write,

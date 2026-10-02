@@ -25,6 +25,8 @@ use crate::push_core::{may_start_from_push, CallScreen, Host, PushSide};
 pub const ROUTER: &str = "https://api.flickertalk.com";
 /// Sent to the UI whenever contacts or messages change; `contact` says which conversation.
 pub const CHANGED_EVENT: &str = "ft://changed";
+/// Sent to the UI when the plugins installed here changed (an update, 2026-10-03): it reads them again.
+pub const PLUGINS_EVENT: &str = "ft://plugins";
 
 pub fn state_name(state: MessageState) -> &'static str {
     match state {
@@ -920,6 +922,8 @@ impl Client {
             let _ = online.core.set_entitlement(until).await;
         }
         refresh_served_plugins(app, &online.core, dir).await;
+        // And what the user downloaded, from the catalogue, in the background (2026-10-03).
+        look_for_updates(app, online.core.clone(), dir);
         // The weekly hours live in the core; the native side keeps its own copy (app#7).
         if let Ok(week) = online.core.quiet_week().await {
             let _ = app.platform().set_quiet_hours(&week);
@@ -1017,6 +1021,7 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                     if let Some(app) = host.app().cloned() {
                         let _ = app.emit(CHANGED_EVENT, EverythingChanged::default());
                         let _ = app.emit(VAULT_EVENT, ());
+                        let _ = app.emit(PLUGINS_EVENT, ());
                         sync_reminders(&app, &core_for_events).await;
                     }
                     continue;
@@ -1025,6 +1030,7 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
             };
             host.saw(&event, std::time::Instant::now());
             let app = host.app().cloned();
+            let plugins = matches!(event, Event::PluginsChanged);
             let (contact, circle) = match event {
                 Event::MessagesChanged { contact } => (Some(contact), None),
                 Event::CircleMessagesChanged { circle } => (None, Some(circle)),
@@ -1112,6 +1118,9 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
             };
             if let Some(app) = app {
                 let _ = app.emit(CHANGED_EVENT, Changed { contact, circle });
+                if plugins {
+                    let _ = app.emit(PLUGINS_EVENT, ());
+                }
             }
         }
     });
@@ -2293,7 +2302,7 @@ fn downloads() -> bool {
 /// The tools the user may add: what the app carries, plus the catalogue where it is read (§56).
 /// A catalogue that cannot be reached is not an error: what the app carries is still offered.
 #[tauri::command]
-pub async fn core_catalogue(client: State<'_, Client>) -> Result<Vec<OfferedPlugin>, String> {
+pub async fn core_catalogue(app: AppHandle, client: State<'_, Client>) -> Result<Vec<OfferedPlugin>, String> {
     let core = client.core().await?;
     let here: Vec<String> =
         core.plugins().await.map_err(failed)?.into_iter().map(|plugin| plugin.manifest.id).collect();
@@ -2301,6 +2310,11 @@ pub async fn core_catalogue(client: State<'_, Client>) -> Result<Vec<OfferedPlug
         true => core.catalogue(client.web(), &ft_plugins::catalogue()).await.unwrap_or_default(),
         false => Vec::new(),
     };
+    // What the user downloaded is updated from what was just read (2026-10-03); the list the
+    // screen gets now is the same either way, and it hears of the update by `ft://plugins`.
+    if !listed.is_empty() {
+        update_downloaded(&app, core.clone(), listed.clone());
+    }
     Ok(merged(seeds(), &listed, &here))
 }
 
@@ -2333,6 +2347,85 @@ pub async fn core_plugin_add(plugin: String, app: AppHandle, client: State<'_, C
     }
     refresh_served_plugins(&app, &core, client.dir()?).await;
     Ok(())
+}
+
+/// Which plugins have a frame on screen, or one still saying goodbye (2026-10-03): an update
+/// never changes the code under them. The screens say when a frame opens and when it has closed.
+#[derive(Default)]
+pub struct OpenPlugins(std::sync::Mutex<HashMap<String, u32>>);
+
+impl OpenPlugins {
+    pub fn set(&self, id: &str, open: bool) {
+        let mut frames = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let count = frames.entry(id.to_owned()).or_default();
+        *count = if open { *count + 1 } else { count.saturating_sub(1) };
+        if *count == 0 {
+            frames.remove(id);
+        }
+    }
+
+    pub fn ids(&self) -> std::collections::HashSet<String> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).keys().cloned().collect()
+    }
+}
+
+/// A frame of a plugin opened (`open`) or has closed for good, as the screen says.
+#[tauri::command]
+pub fn core_plugin_open(plugin: String, open: bool, frames: State<'_, OpenPlugins>) {
+    frames.set(&plugin, open);
+}
+
+/// How often the app looks for updates on its own, after it starts: the screens that read the
+/// catalogue look every time they do.
+const UPDATE_EVERY_MS: i64 = 12 * 3_600_000;
+/// When it last looked, in milliseconds; next to the plugins, never inside their folder.
+const UPDATE_LOOK: &str = "plugin-updates.at";
+
+fn updates_due(last: Option<i64>, now: i64) -> bool {
+    last.is_none_or(|last| now - last >= UPDATE_EVERY_MS || last > now)
+}
+
+fn last_update_look(dir: &Path) -> Option<i64> {
+    std::fs::read_to_string(dir.join(UPDATE_LOOK)).ok()?.trim().parse().ok()
+}
+
+fn looked_for_updates(dir: &Path, now: i64) {
+    let _ = std::fs::write(dir.join(UPDATE_LOOK), now.to_string());
+}
+
+/// Updates what the user downloaded from the catalogue just read (2026-10-03), in the background:
+/// the screen never waits for it, nothing is logged, and only the catalogue's own host is asked
+/// for the packages (`add_plugin`). A plugin with a frame open waits for a later pass.
+fn update_downloaded(app: &AppHandle, core: Arc<ft_core::Core>, listed: Vec<ft_plugins::CatalogueEntry>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let client = app.state::<Client>();
+        let open = app.state::<OpenPlugins>().ids();
+        let updated = core.update_plugins(&listed, client.web(), &ft_plugins::catalogue(), &open).await;
+        if !updated.is_empty() {
+            if let Ok(dir) = client.dir() {
+                refresh_served_plugins(&app, &core, dir).await;
+            }
+        }
+    });
+}
+
+/// After the app starts, at most every twelve hours: the catalogue is read and what the user
+/// downloaded is updated. Where nothing is downloaded (iOS today), nothing is asked.
+fn look_for_updates(app: &AppHandle, core: Arc<ft_core::Core>, dir: &Path) {
+    if !downloads() || !updates_due(last_update_look(dir), now_ms()) {
+        return;
+    }
+    let (app, dir) = (app.clone(), dir.to_path_buf());
+    tauri::async_runtime::spawn(async move {
+        let listed = {
+            let client = app.state::<Client>();
+            core.catalogue(client.web(), &ft_plugins::catalogue()).await
+        };
+        let Ok(listed) = listed else { return };
+        looked_for_updates(&dir, now_ms());
+        update_downloaded(&app, core, listed);
+    });
 }
 
 /// Keeps what the user installed in step with what the app now carries: a new version of the app
@@ -3712,6 +3805,47 @@ mod tests {
         let here = ["com.flickertalk.sketch".to_owned()];
         let offered = merged(vec![carried("com.flickertalk.sketch", "1.0.0")], &[], &here);
         assert!(offered[0].installed);
+    }
+
+    // 2026-10-03 (updates): a plugin is open while any frame of it is on screen or still saying
+    // goodbye; the screens say when one opens and when it has closed.
+    #[test]
+    fn a_plugin_is_open_until_every_frame_of_it_has_closed() {
+        let open = OpenPlugins::default();
+        let ids = |open: &OpenPlugins| {
+            let mut ids: Vec<String> = open.ids().into_iter().collect();
+            ids.sort();
+            ids
+        };
+        open.set("com.example.a", true);
+        open.set("com.example.a", true);
+        open.set("com.example.b", true);
+        open.set("com.example.a", false);
+        assert_eq!(ids(&open), ["com.example.a", "com.example.b"], "one frame of it is still there");
+        open.set("com.example.a", false);
+        open.set("com.example.a", false);
+        assert_eq!(ids(&open), ["com.example.b"]);
+        // A close too many is not a debt: the next opening counts as open.
+        open.set("com.example.a", true);
+        assert_eq!(ids(&open), ["com.example.a", "com.example.b"]);
+    }
+
+    // At most every twelve hours after the app starts (the catalogue read from the screens looks
+    // every time); a clock that went back looks again.
+    #[test]
+    fn updates_are_looked_for_at_most_every_twelve_hours() {
+        let now = 1_800_000_000_000_i64;
+        let hour = 3_600_000;
+        assert!(updates_due(None, now), "never looked");
+        assert!(!updates_due(Some(now - 11 * hour), now));
+        assert!(updates_due(Some(now - 12 * hour), now));
+        assert!(updates_due(Some(now + hour), now), "the clock went back");
+
+        let dir = std::env::temp_dir().join(format!("ft-updates-{now}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(last_update_look(&dir), None);
+        looked_for_updates(&dir, now);
+        assert_eq!(last_update_look(&dir), Some(now));
     }
 
     #[test]
