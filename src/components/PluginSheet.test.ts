@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import PluginSheet from "./PluginSheet.vue";
 import { setLocale } from "../i18n";
+import { CLOSING_WAIT } from "../plugins";
 
 const plugin = { id: "com.flickertalk.markdown", name: "Markdown" };
 
@@ -333,15 +334,11 @@ describe("PluginSheet", () => {
   });
 
   // A plugin never opens the picker itself: it asks, and the app asks the user.
+  // 2026-10-02: one command picks and hands over; the core deletes the picker's copies, so no path
+  // travels through the WebView and none is left behind.
   it("asks the user for a file when the plugin wants one", async () => {
     tauri.invoke.mockImplementation((command: string) =>
-      Promise.resolve(
-        command === "core_pick_files"
-          ? [{ path: "/data/uploads/a.jpg", name: "a.jpg", mime: "image/jpeg", size: 10 }]
-          : command === "core_read_picked"
-            ? "QUJD"
-            : undefined,
-      ),
+      Promise.resolve(command === "core_pick_for_plugin" ? { name: "a.jpg", mime: "image/jpeg", data: "QUJD" } : undefined),
     );
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
     await flushPromises();
@@ -351,8 +348,29 @@ describe("PluginSheet", () => {
     await flushPromises();
     // What the plugin asked for reaches the phone: pictures open the photo picker, a sheet over
     // the app, instead of taking the user out of it (§62).
-    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_files", { accept: "image/*" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_for_plugin", { accept: "image/*" });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_pick_files", expect.anything());
     expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "a.jpg", mime: "image/jpeg", data: "QUJD" }, "*");
+  });
+
+  it("hands the plugin an empty file when the user picks nothing or the pick fails", async () => {
+    let fails = false;
+    tauri.invoke.mockImplementation((command: string) =>
+      command === "core_pick_for_plugin" ? (fails ? Promise.reject(new Error("too big")) : Promise.resolve(null)) : Promise.resolve(undefined),
+    );
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.pickFile", id: "q1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_for_plugin", { accept: "" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "", mime: "", data: "" }, "*");
+
+    fails = true;
+    says({ type: "ft.pickFile", id: "q2" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q2", name: "", mime: "", data: "" }, "*");
   });
 
   // A2: what a plugin made goes as far as the user allowed. With `auto` the core sends it.
@@ -584,5 +602,160 @@ describe("PluginSheet", () => {
     says({ type: "ft.close" });
     await flushPromises();
     expect(wrapper.emitted("done")).toBeTruthy();
+  });
+
+  // 2026-10-02 (seen on two phones and the iOS simulator): closed by the app, a plugin in a live
+  // session vanished without a word and the other side kept saying both were there. Now the app
+  // tells it first, keeps it running out of sight until it answers or for CLOSING_WAIT at most,
+  // and only then lets it go (`closed`). Nothing in the app waits for it.
+  describe("closing", () => {
+    type Closable = { close: () => Promise<void> };
+    const closing = { type: "ft.closing" };
+    const closingsIn = (post: ReturnType<typeof vi.fn>) => post.mock.calls.filter(([message]) => message.type === "ft.closing").length;
+
+    /** A sheet whose plugin is up (`ft.ready`), as it is whenever the user can close it. */
+    async function opened(props: Record<string, unknown> = {}) {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", ...props }, shallow: true });
+      await flushPromises();
+      const frame = framed(wrapper);
+      frame.says({ type: "ft.ready" });
+      await flushPromises();
+      return { wrapper, ...frame, close: () => (wrapper.vm as unknown as Closable).close() };
+    }
+
+    it("tells the plugin, and lets it go only once it answers", async () => {
+      const { wrapper, post, says, close } = await opened();
+      let over = false;
+      void close().then(() => (over = true));
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith(closing, "*");
+      expect(wrapper.emitted("closed")).toBeUndefined();
+      expect(over).toBe(false);
+
+      says({ type: "ft.closed" });
+      await flushPromises();
+      expect(wrapper.emitted("closed")).toHaveLength(1);
+      expect(over).toBe(true);
+      // Closing is not the plugin asking to close.
+      expect(wrapper.emitted("done")).toBeUndefined();
+    });
+
+    it("lets it go after CLOSING_WAIT when it does not answer", async () => {
+      vi.useFakeTimers();
+      try {
+        const { wrapper, says, close } = await opened();
+        void close();
+        await vi.advanceTimersByTimeAsync(CLOSING_WAIT - 1);
+        expect(wrapper.emitted("closed")).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(wrapper.emitted("closed")).toHaveLength(1);
+        // An answer that comes late changes nothing.
+        says({ type: "ft.closed" });
+        await vi.advanceTimersByTimeAsync(CLOSING_WAIT);
+        expect(wrapper.emitted("closed")).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("waits no more than that, whatever the plugin does", () => {
+      expect(CLOSING_WAIT).toBe(400);
+    });
+
+    it("carries what the plugin says to its twin while it waits, with the same grant as before", async () => {
+      tauri.invoke.mockResolvedValue(true);
+      const { wrapper, post, says, close } = await opened({ live: true });
+      void close();
+      says({ type: "ft.liveSend", id: "q1", data: "Ynll" });
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_live_send", { plugin: plugin.id, contact: "ft_bob", data: "Ynll" });
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: true }, "*");
+      says({ type: "ft.closed" });
+      await flushPromises();
+      expect(wrapper.emitted("closed")).toHaveLength(1);
+
+      // Without the live grant, closing gives it nothing it did not have.
+      tauri.invoke.mockClear();
+      const locked = await opened({ live: false });
+      void locked.close();
+      locked.says({ type: "ft.liveSend", id: "q2", data: "Ynll" });
+      await flushPromises();
+      expect(tauri.invoke).not.toHaveBeenCalledWith("core_plugin_live_send", expect.anything());
+      expect(locked.post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: false }, "*");
+    });
+
+    // Out of sight, it can no longer put anything in front of the user or into the chat.
+    it("lets nothing reach the user or the chat while it says goodbye", async () => {
+      tauri.invoke.mockResolvedValue({ sent: true });
+      const { wrapper, says, close } = await opened({ sending: "auto" });
+      tauri.invoke.mockClear();
+      void close();
+      says({ type: "ft.made", name: "a.png", mime: "image/png", data: "AAAA" });
+      says({ type: "ft.text", text: "hello" });
+      says({ type: "ft.pickFile", id: "q1", accept: "" });
+      says({ type: "ft.openChat", id: "q2", ref: "ref_1" });
+      says({ type: "ft.drive", id: "q3", op: "upload", a: "", b: "" });
+      says({ type: "ft.print", id: "q4", name: "a.pdf", mime: "application/pdf", data: "AAAA" });
+      says({ type: "ft.save", id: "q5", name: "a.pdf", mime: "application/pdf", data: "AAAA" });
+      says({ type: "ft.location", id: "q6" });
+      await flushPromises();
+      expect(tauri.invoke).not.toHaveBeenCalled();
+      expect(wrapper.emitted("attach")).toBeUndefined();
+      expect(wrapper.emitted("text")).toBeUndefined();
+      expect(wrapper.emitted("openChat")).toBeUndefined();
+    });
+
+    it("says goodbye once when it is closed twice", async () => {
+      const { wrapper, post, says, close } = await opened();
+      const first = close();
+      const second = close();
+      await flushPromises();
+      expect(closingsIn(post)).toBe(1);
+      says({ type: "ft.closed" });
+      await Promise.all([first, second]);
+      expect(wrapper.emitted("closed")).toHaveLength(1);
+    });
+
+    // A goodbye that ends with `ft.close()` must not close the window a second time.
+    it("does not take the plugin closing itself meanwhile as another close", async () => {
+      const { wrapper, says, close } = await opened();
+      void close();
+      says({ type: "ft.close" });
+      await flushPromises();
+      expect(wrapper.emitted("done")).toBeUndefined();
+      says({ type: "ft.closed" });
+      await flushPromises();
+      expect(wrapper.emitted("closed")).toHaveLength(1);
+    });
+
+    it("lets a plugin that never came up go at once", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      const { post } = framed(wrapper);
+      await (wrapper.vm as unknown as Closable).close();
+      expect(wrapper.emitted("closed")).toHaveLength(1);
+      expect(closingsIn(post)).toBe(0);
+    });
+
+    // Gone some other way (a page torn down): one word on the way out, without waiting.
+    it("tells the plugin it is closing when it is torn down without being closed", async () => {
+      const { wrapper, post } = await opened();
+      wrapper.unmount();
+      expect(closingsIn(post)).toBe(1);
+    });
+
+    it("says nothing more when it is torn down while it waits", async () => {
+      vi.useFakeTimers();
+      try {
+        const { wrapper, post, close } = await opened();
+        void close();
+        wrapper.unmount();
+        await vi.advanceTimersByTimeAsync(CLOSING_WAIT);
+        expect(closingsIn(post)).toBe(1);
+        expect(wrapper.emitted("closed")).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
