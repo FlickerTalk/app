@@ -2,7 +2,7 @@
 //! commands to the UI. No business logic here: every command delegates to the core, and what
 //! crosses to the WebView are plain views (never keys, never the capability, §54).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -2095,6 +2095,8 @@ pub struct PluginView {
     views: Vec<String>,
     /// `tool` or `game` (2026-10-02): games are shown apart, never in 🧰 or "open with".
     kind: ft_plugins::Kind,
+    /// Its name and summary in other languages (2026-10-02); the screen picks the phone's.
+    locales: BTreeMap<String, ft_plugins::Localized>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -2182,6 +2184,7 @@ fn plugin_view(plugin: ft_core::plugins::InstalledPlugin) -> PluginView {
         opens: plugin.manifest.opens,
         views: plugin.manifest.views,
         kind: plugin.manifest.kind,
+        locales: plugin.manifest.locales,
     }
 }
 
@@ -2255,6 +2258,8 @@ pub struct OfferedPlugin {
     carried: bool,
     /// `tool` or `game` (2026-10-02).
     kind: ft_plugins::Kind,
+    /// Its name and summary in other languages (2026-10-02), from its manifest or its entry.
+    locales: BTreeMap<String, ft_plugins::Localized>,
 }
 
 /// Whether `version` is newer than `than`, both as `1.2.3`.
@@ -2269,18 +2274,24 @@ fn seeds() -> Vec<OfferedPlugin> {
         .iter()
         .filter_map(|package| {
             let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).ok()?;
-            Some(OfferedPlugin {
-                id: plugin.manifest.id,
-                name: plugin.manifest.name,
-                version: plugin.manifest.version,
-                summary: plugin.manifest.summary,
-                size: package.len() as u64,
-                installed: false,
-                carried: true,
-                kind: plugin.manifest.kind,
-            })
+            Some(offered_from(plugin.manifest, package.len() as u64))
         })
         .collect()
+}
+
+/// A tool the app carries, as the list shows it.
+fn offered_from(manifest: ft_plugins::Manifest, size: u64) -> OfferedPlugin {
+    OfferedPlugin {
+        id: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        summary: manifest.summary,
+        size,
+        installed: false,
+        carried: true,
+        kind: manifest.kind,
+        locales: manifest.locales,
+    }
 }
 
 /// One list for the user: what the app carries and what the catalogue adds, the newer of the two
@@ -2297,6 +2308,7 @@ fn merged(carried: Vec<OfferedPlugin>, listed: &[ft_plugins::CatalogueEntry], he
             installed: false,
             carried: false,
             kind: entry.kind,
+            locales: entry.locales.clone(),
         };
         match offered.iter_mut().find(|one| one.id == entry.id) {
             Some(seed) if newer(&entry.version, &seed.version) => *seed = listed,
@@ -3784,6 +3796,7 @@ mod tests {
             url: format!("{}/{id}/{version}.ftplugin", ft_core::CATALOGUE_HOME),
             summary: "Does a thing.".to_owned(),
             kind: ft_plugins::Kind::Tool,
+            locales: Default::default(),
         }
     }
 
@@ -3797,6 +3810,7 @@ mod tests {
             installed: false,
             carried: true,
             kind: ft_plugins::Kind::Tool,
+            locales: Default::default(),
         }
     }
 
@@ -3848,6 +3862,43 @@ mod tests {
         assert_eq!(json["kind"], "game");
         assert_eq!((json["id"].as_str(), json["installedAt"].as_i64()), (Some("com.flickertalk.game.chess"), Some(7)));
         assert_eq!((json["asks"]["live"].as_bool(), json["granted"]["live"].as_bool()), (Some(true), Some(false)));
+    }
+
+    // 2026-10-02 (plan of the catalogue's translations): every view of a plugin keeps its name and
+    // summary in other languages, so the screens name it in the phone's language: installed, carried
+    // by the app, or listed by the catalogue, whichever of the two is newer.
+    #[test]
+    fn every_view_of_a_plugin_keeps_its_translations() {
+        let manifest: ft_plugins::Manifest = serde_json::from_str(
+            r#"{"id":"com.flickertalk.list","name":"List","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-list"],"summary":"A list.","locales":{"es":{"name":"Listas","summary":"Una lista."}}}"#,
+        )
+        .unwrap();
+        let view = plugin_view(ft_core::plugins::InstalledPlugin { manifest: manifest.clone(), granted: Default::default(), installed_at: 7 });
+        assert_eq!(serde_json::to_value(&view).unwrap()["locales"]["es"]["name"], "Listas");
+
+        let seed = serde_json::to_value(offered_from(manifest, 4096)).unwrap();
+        assert_eq!((seed["locales"]["es"]["summary"].as_str(), seed["carried"].as_bool()), (Some("Una lista."), Some(true)));
+
+        let spanish = |name: &str| {
+            [("es".to_owned(), ft_plugins::Localized { name: Some(name.to_owned()), summary: None })].into_iter().collect()
+        };
+        let seeds = vec![
+            OfferedPlugin { locales: spanish("Dibujo"), ..carried("com.flickertalk.sketch", "1.0.0") },
+            OfferedPlugin { locales: spanish("Imagen"), ..carried("com.flickertalk.images", "2.0.0") },
+        ];
+        let listed = vec![
+            ft_plugins::CatalogueEntry { locales: spanish("Boceto"), ..entry("com.flickertalk.sketch", "1.1.0") },
+            ft_plugins::CatalogueEntry { locales: spanish("Foto"), ..entry("com.flickertalk.images", "1.0.0") },
+            ft_plugins::CatalogueEntry { locales: spanish("Ajedrez"), ..entry("com.flickertalk.game.chess", "1.0.0") },
+        ];
+        let offered = serde_json::to_value(merged(seeds, &listed, &[])).unwrap();
+        let spanish_of = |id: &str| {
+            let one = offered.as_array().unwrap().iter().find(|one| one["id"] == id).unwrap();
+            one["locales"]["es"]["name"].as_str().unwrap_or("missing").to_owned()
+        };
+        assert_eq!(spanish_of("com.flickertalk.sketch"), "Boceto", "the catalogue's is newer");
+        assert_eq!(spanish_of("com.flickertalk.images"), "Imagen", "the app's is newer");
+        assert_eq!(spanish_of("com.flickertalk.game.chess"), "Ajedrez", "only in the catalogue");
     }
 
     #[test]

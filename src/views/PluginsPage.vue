@@ -20,7 +20,6 @@ import {
   formatSize,
   grantPlugin,
   installPlugin,
-  offeredPlugins,
   removePlugin,
   type OfferedPlugin,
   type PluginView,
@@ -28,7 +27,7 @@ import {
 import { useRouter } from "vue-router";
 import { isGame } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
-import { refreshPlugins, tools } from "../plugins";
+import { byPluginName, pluginName, pluginSummary, refreshOffered, refreshPlugins, tools } from "../plugins";
 
 const router = useRouter();
 
@@ -42,9 +41,11 @@ const asksToRemove = ref("");
 onMounted(refresh);
 
 // Plan 10.3: games have their own section; here, tools only.
+// Each is named in the phone's language (2026-10-02): the catalogue is kept for every screen, so an
+// installed tool whose package has no translation takes the catalogue's.
 async function refresh() {
   await refreshPlugins();
-  offered.value = (await offeredPlugins().catch(() => [])).filter((one) => !one.installed && !isGame(one));
+  offered.value = byPluginName((await refreshOffered().catch(() => [])).filter((one) => !one.installed && !isGame(one)));
 }
 
 /** What a tool costs to bring in. The app already carries some of them: those cost nothing. */
@@ -88,7 +89,7 @@ async function remove(id: string) {
         <ion-item lines="none">
           <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
           <ion-label>
-            {{ plugin.name }}
+            {{ pluginName(plugin) }}
             <p class="ft-muted">{{ plugin.version }}</p>
           </ion-label>
           <!-- 2026-09-27: a plugin can be opened on its own, with no chat behind it (notes, drive). -->
@@ -150,8 +151,8 @@ async function remove(id: string) {
           <ion-item v-for="one in offered" :key="one.id" lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
             <ion-label>
-              {{ one.name }}
-              <p class="ft-muted">{{ one.summary }}<span v-if="weight(one)"> · {{ weight(one) }}</span></p>
+              {{ pluginName(one) }}
+              <p class="ft-muted">{{ pluginSummary(one) }}<span v-if="weight(one)"> · {{ weight(one) }}</span></p>
             </ion-label>
             <button
               slot="end"

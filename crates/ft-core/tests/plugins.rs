@@ -950,6 +950,7 @@ fn listing(packages: &[(&str, &[u8])]) -> (Shop, Vec<ft_plugins::CatalogueEntry>
             url: url.clone(),
             summary: String::new(),
             kind: manifest.kind,
+            locales: manifest.locales,
         });
         files.insert(url, package.to_vec());
     }

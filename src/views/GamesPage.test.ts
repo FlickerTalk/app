@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonButton, IonItem, IonLabel, IonListHeader, IonToggle } from "@ionic/vue";
 import GamesPage from "./GamesPage.vue";
@@ -6,6 +6,7 @@ import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
 import { IonModalStub } from "../__tests__/ionic";
+import { setLocale } from "../i18n";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -88,6 +89,35 @@ describe("GamesPage", () => {
     expect(more).not.toContain("Sketch");
     // What is installed is not offered again.
     expect(wrapper.find("[data-test='install-com.flickertalk.game.chess']").exists()).toBe(false);
+  });
+
+  // 2026-10-02 (plan of the catalogue's translations): a Spanish phone names each game in Spanish:
+  // from its package, or from the catalogue when the package installed here has no translation.
+  describe("on a Spanish phone", () => {
+    afterEach(() => setLocale("en"));
+
+    it("names my games and the games I can add in Spanish, with their summary", async () => {
+      await setLocale("es");
+      answering({
+        installed: [CODE, CHESS, { ...READY, locales: { es: { name: "Cuatro en raya" } } }],
+        offered: [
+          offer(CHESS.id, "Chess", { installed: true, locales: { es: { name: "Ajedrez", summary: "Ajedrez con la otra persona." } } }),
+          offer("com.flickertalk.game.go", "Go", { locales: { es: { summary: "Juega al go." } } }),
+        ],
+      });
+      const wrapper = await page();
+      const mine = wrapper.find("[data-test='my-games']").text();
+      expect(mine).toContain("Ajedrez");
+      expect(mine).toContain("Cuatro en raya");
+      expect(mine.indexOf("Ajedrez")).toBeLessThan(mine.indexOf("Cuatro en raya"));
+      expect(mine).not.toContain("Chess");
+      const more = wrapper.find("[data-test='more-games']").text();
+      expect(more).toContain("Go");
+      expect(more).toContain("Juega al go.");
+
+      await wrapper.find(`[data-test='play-${CHESS.id}']`).trigger("click");
+      expect(wrapper.find("[data-test='game-permissions']").text()).toContain("Ajedrez");
+    });
   });
 
   it("says when there is no game yet", async () => {

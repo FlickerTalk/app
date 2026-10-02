@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, h, reactive } from "vue";
+import { setLocale } from "../i18n";
 
 const route = vi.hoisted(() => ({ value: null as unknown as { params: Record<string, string>; query: Record<string, string> } }));
 vi.mock("vue-router", async (importOriginal) => ({
@@ -8,12 +9,10 @@ vi.mock("vue-router", async (importOriginal) => ({
   useRoute: () => route.value,
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }));
-vi.mock("../plugins", async () => {
-  const { ref } = await import("vue");
-  return {
-    installed: ref([{ id: "com.flickertalk.notes", name: "Notes" }]),
-    refreshPlugins: vi.fn(),
-  };
+vi.mock("../plugins", async (importOriginal) => {
+  const plugins = await importOriginal<typeof import("../plugins")>();
+  plugins.installed.value = [{ id: "com.flickertalk.notes", name: "Notes", locales: { es: { name: "Notas" } } } as never];
+  return { ...plugins, refreshPlugins: vi.fn() };
 });
 
 import PluginPage from "./PluginPage.vue";
@@ -44,6 +43,19 @@ describe("PluginPage", () => {
     route.value.query = {};
     await flushPromises();
     expect(wrapper.findComponent(PluginSheet).props("session")).toBeUndefined();
+  });
+
+  // 2026-10-02 (plan of the catalogue's translations): its title in the phone's language.
+  it("names the plugin in the phone's language", async () => {
+    await setLocale("es");
+    try {
+      route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: {} });
+      const wrapper = mount(PluginPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.find("ion-title-stub").text()).toBe("Notas");
+    } finally {
+      await setLocale("en");
+    }
   });
 
   // 2026-10-02: leaving the page closes the plugin through the sheet, so it can say goodbye while

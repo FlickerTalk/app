@@ -9,6 +9,7 @@ import { chat, store } from "../core";
 import { offered, refreshPlugins } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
+import { setLocale } from "../i18n";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -529,6 +530,50 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-02 (plan of the catalogue's translations): a Spanish phone names a tool in Spanish in
+  // the apps sheet, in "open with" and in its window, from its package.
+  it("names a tool in the phone's language wherever it is shown", async () => {
+    await setLocale("es");
+    try {
+      const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const fallback = bridge.invoke;
+      bridge.invoke = (command, args) => {
+        if (command === "core_plugins") {
+          return Promise.resolve([
+            {
+              id: "com.flickertalk.notes",
+              name: "Notes",
+              version: "1.0.0",
+              asks: { network: [], messages: true, send: "nothing" },
+              granted: { network: [], messages: true, send: "nothing" },
+              installedAt: 1,
+              opens: ["text/plain"],
+              locales: { es: { name: "Notas" } },
+            },
+          ]);
+        }
+        if (command === "core_plugin_ref") return Promise.resolve("ref_1");
+        return fallback(command, args);
+      };
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await wrapper.find("[data-test='apps']").trigger("click");
+      expect(wrapper.find("[data-test='app-com.flickertalk.notes'] ion-label").element.innerHTML).toBe("Notas");
+      await wrapper.find("[data-test='app-com.flickertalk.notes']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find(".ft-app__name").text()).toBe("Notas");
+      expect(wrapper.find(".ft-app").attributes("aria-label")).toBe("Notas");
+      await wrapper.find("[data-test='close-app']").trigger("click");
+
+      await pressed(wrapper);
+      await wrapper.find("[data-test='open-with']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='open-with-com.flickertalk.notes']").text()).toBe("Notas");
+    } finally {
+      await setLocale("en");
+    }
+  });
+
   // Document viewer (2026-09-27): a tap on a file shows it in its viewer when there is one, and
   // goes to another app otherwise, or when the bytes cannot be handed over.
   function withPlugins(plugins: unknown[], answers: Record<string, unknown> = {}) {
@@ -1013,12 +1058,42 @@ describe("ChatThread", () => {
       await openGames(wrapper);
       await wrapper.find(`[data-test='invite-${CHESS.id}']`).trigger("click");
       await flushPromises();
-      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Shall we play Chess? https://flickertalk.com/games/chess");
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Chess · Shall we play? https://flickertalk.com/games/chess");
       expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
       expect(calls.map(([command]) => command)).not.toContain("core_send");
     });
 
     const INVITE = { id: "g1", outgoing: false, text: "🎮 Shall we play Go? https://flickertalk.com/games/go", sentAt: 0, state: "delivered" };
+
+    // 2026-10-02 (plan of the catalogue's translations): a Spanish phone names a game in Spanish in
+    // the games sheet, in what it asks first, in its room and in the invitation the user sends. The
+    // package installed here has no translation: the catalogue's entry has.
+    it("names a game in the phone's language wherever it is shown", async () => {
+      await setLocale("es");
+      try {
+        bridge({ installed: [UNGRANTED] });
+        offered.value = [{ ...GO, id: CHESS.id, name: "Chess", installed: true, locales: { es: { name: "Ajedrez" } } } as never];
+        const wrapper = await thread();
+        await openGames(wrapper);
+        expect(wrapper.find(`[data-test='game-${CHESS.id}'] ion-label`).element.innerHTML).toBe("Ajedrez");
+        await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+        await flushPromises();
+        expect(wrapper.find("[data-test='game-permissions']").text()).toContain("Ajedrez");
+        await wrapper.find("[data-test='game-allow']").trigger("click");
+        await flushPromises();
+        expect(wrapper.find("[data-test='game-room']").attributes("aria-label")).toBe("Ajedrez");
+        expect(wrapper.find("[data-test='game-bar']").text()).toContain("Ajedrez");
+        expect(wrapper.findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ name: "Ajedrez" });
+        await wrapper.find("[data-test='game-invite']").trigger("click");
+        await flushPromises();
+        const invitation = wrapper.findComponent(IonTextarea).props("modelValue") as string;
+        expect(invitation).toContain("Ajedrez");
+        expect(invitation).not.toContain("Chess");
+        expect(invitation.endsWith("https://flickertalk.com/games/chess")).toBe(true);
+      } finally {
+        await setLocale("en");
+      }
+    });
 
     // Plan 10.6: a game not here yet is installed from the signed catalogue, granted and opened.
     it("installs, grants and opens the game an invitation is for", async () => {
@@ -1105,7 +1180,7 @@ describe("ChatThread", () => {
         expect(bar.html()).toContain("Chess");
         await wrapper.find("[data-test='game-invite']").trigger("click");
         await flushPromises();
-        expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Shall we play Chess? https://flickertalk.com/games/chess");
+        expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Chess · Shall we play? https://flickertalk.com/games/chess");
         expect(room(wrapper).exists()).toBe(true);
 
         await wrapper.find("[data-test='close-game']").trigger("click");
