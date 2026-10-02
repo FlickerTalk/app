@@ -125,6 +125,55 @@ globalThis.ft = {
 };
 const heard = [];
 
+// The app's colours (2026-10-03): Ionic's variables on the root, so a plugin's
+// `var(--ion-text-color, …)` follows the app, dark or light. Only these names, and only what looks
+// like a colour: nothing else of the app reaches the plugin this way.
+const COLOURS = [
+  "--ion-background-color",
+  "--ion-text-color",
+  "--ion-color-medium",
+  "--ion-item-background",
+  "--ion-border-color",
+  "--ion-color-primary",
+  "--ion-color-primary-contrast",
+  "--ion-color-success",
+  "--ion-color-danger",
+];
+const COLOUR = /^(#[0-9a-f]{3,8}|(rgb|rgba|hsl|hsla)\([-+0-9.,%\/\sdeg]*\))$/i;
+let theme = {};
+const paint = (said) => {
+  const given = said.theme && typeof said.theme === "object" ? said.theme : {};
+  theme = {};
+  for (const name of COLOURS) {
+    const value = typeof given[name] === "string" ? given[name].trim() : "";
+    if (COLOUR.test(value)) theme[name] = value;
+  }
+  const root = document.documentElement;
+  for (const name of COLOURS) {
+    if (name in theme) root.style.setProperty(name, theme[name]);
+    else root.style.removeProperty(name);
+  }
+  if (said.dark) root.dataset.dark = "1";
+  else delete root.dataset.dark;
+  root.style.colorScheme = said.dark ? "dark" : "light";
+};
+
+// The colours are there before the plugin draws anything: asked for, and waited for a moment only.
+await new Promise((resolve) => {
+  const first = (event) => {
+    if (!event.data || event.data.type !== "ft.theme") return;
+    removeEventListener("message", first);
+    paint(event.data);
+    resolve();
+  };
+  addEventListener("message", first);
+  post({ type: "ft.hello" });
+  setTimeout(() => {
+    removeEventListener("message", first);
+    resolve();
+  }, 1000);
+});
+
 await import("./dist/index.js");
 
 const fallback = document.getElementById("fallback");
@@ -139,7 +188,7 @@ addEventListener("message", (event) => {
   if (said.type === "ft.open") {
     const text = String(said.text ?? "");
     if (view) view.setAttribute("text", text);
-    if (said.dark) document.documentElement.dataset.dark = "1";
+    paint(said);
     const lang = String(said.lang ?? "en");
     document.documentElement.lang = lang;
     const file = said.file && said.file.name ? { name: String(said.file.name), mime: String(said.file.mime), data: String(said.file.data) } : null;
@@ -151,11 +200,15 @@ addEventListener("message", (event) => {
       ref: said.ref ? String(said.ref) : null,
       reminder: said.reminder ? String(said.reminder) : null,
       live: Boolean(said.live),
+      // The app's colours as they were put on the root, for a plugin that paints on a canvas.
+      theme: { ...theme },
       // The chat it was opened in (2026-10-02): an opaque id, only when there is one.
       ...(typeof said.chat === "string" ? { chat: said.chat } : {}),
     };
     for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);
+  } else if (said.type === "ft.theme") {
+    paint(said);
   } else if (said.type === "ft.live") {
     for (const handler of heard) handler(String(said.data ?? ""));
   } else if (said.type === "ft.file") {
