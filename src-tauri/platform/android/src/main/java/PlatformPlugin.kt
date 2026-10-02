@@ -1244,6 +1244,8 @@ class SaveFileArgs {
     permissions = [
         Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone"),
         Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
+        // The location plugin (2026-10-02): asking for both lets the user pick precise or approximate.
+        Permission(strings = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION], alias = "location"),
     ],
 )
 class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
@@ -1417,6 +1419,34 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @PermissionCallback
     fun microphoneAnswered(invoke: Invoke) {
         invoke.resolve(JSObject().apply { put("granted", getPermissionState("microphone") == PermissionState.GRANTED) })
+    }
+
+    /**
+     * The phone's current position, once (the location plugin, 2026-10-02): asks the first time
+     * (precise or approximate is the user's choice), then one fix within ~15 s; `found` false when
+     * refused, off or no fix. The core already checked that the plugin was granted `location`.
+     */
+    @Command
+    fun currentLocation(invoke: Invoke) {
+        val allowed = holds(activity, Manifest.permission.ACCESS_FINE_LOCATION) || holds(activity, Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (allowed) {
+            locate(invoke)
+        } else {
+            requestPermissionForAlias("location", invoke, "locationAnswered")
+        }
+    }
+
+    @PermissionCallback
+    fun locationAnswered(invoke: Invoke) {
+        locate(invoke)
+    }
+
+    private fun locate(invoke: Invoke) {
+        activity.runOnUiThread {
+            currentFix(activity) { fix ->
+                invoke.resolve(JSObject().apply { locationPayload(fix).forEach { (key, value) -> put(key, value) } })
+            }
+        }
     }
 
     /**

@@ -5,6 +5,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, ensure, Context, Result};
+use async_trait::async_trait;
+use serde::Serialize;
 use ft_plugins::{installed, CatalogueEntry, Manifest, Permissions, Plugin, Sending};
 use vodozemac::Ed25519PublicKey;
 
@@ -42,10 +44,53 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// channel, "open with", refs and the user's cloud. 1.2.0 (2026-09-27): `views`, the tap that
 /// shows a file in its viewer, and Quick Look on iOS. 1.2.1 (2026-09-29): no new capability, only
 /// the app's version (the Store's price on the Plan screen). 1.2.2 (2026-09-30): none either
-/// (Google Drive sign-in in the store builds, each platform with its own OAuth client).
-pub const CORE_VERSION: &str = "1.2.2";
+/// (Google Drive sign-in in the store builds, each platform with its own OAuth client). 1.3.0
+/// (2026-10-02): `location`, the phone's current position once, for the location plugin.
+pub const CORE_VERSION: &str = "1.3.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
+
+/// Where the phone is, as its location service said (2026-10-02): degrees (WGS 84), how far off
+/// it may be in metres, and when the fix was taken, in milliseconds since the epoch.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Fix {
+    pub lat: f64,
+    pub lon: f64,
+    pub accuracy: f64,
+    pub at: i64,
+}
+
+/// Who asks the phone where it is: the platform bridge (CoreLocation, Android's LocationManager).
+/// One current fix, asking the user first if it was never asked; `None` when the user or the
+/// phone refuses, location is off, or no fix comes in time.
+#[async_trait]
+pub trait Locator: Send + Sync {
+    async fn locate(&self) -> Result<Option<Fix>>;
+}
+
+/// How long the core waits for the phone's fix. The bridges give up by themselves at ~15 s; this
+/// is the backstop, so a plugin is never left waiting for a bridge that never answers.
+const LOCATION_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+impl Fix {
+    /// A place on Earth, with an accuracy that means something; a fix that is not one is nothing.
+    fn is_a_place(&self) -> bool {
+        self.lat.is_finite()
+            && self.lon.is_finite()
+            && (-90.0..=90.0).contains(&self.lat)
+            && (-180.0..=180.0).contains(&self.lon)
+            && self.accuracy.is_finite()
+            && self.accuracy >= 0.0
+    }
+}
+
+/// One fix from the phone, or nothing: refused, off, broken, too late or not a place.
+async fn located(locator: &dyn Locator) -> Option<Fix> {
+    match tokio::time::timeout(LOCATION_WAIT, locator.locate()).await {
+        Ok(Ok(fix)) => fix.filter(Fix::is_a_place),
+        _ => None,
+    }
+}
 
 /// A plugin as the app shows it: what it is, and what it may do here.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,6 +323,16 @@ impl Core {
         Ok(())
     }
 
+    // ---- ft.location (2026-10-02): where the phone is, once ----
+
+    /// The phone's current position, once, for a plugin the user granted `location`; the phone
+    /// is not even asked otherwise. `None` when the user or the phone refuses, location is off or
+    /// no fix comes in time. The core only passes it on: nothing of it is kept or logged (§100).
+    pub async fn plugin_location(&self, id: &str, locator: &dyn Locator) -> Result<Option<Fix>> {
+        ensure!(self.granted_to(id).await?.location, "{id} may not ask where the phone is");
+        Ok(located(locator).await)
+    }
+
     /// The plugins installed here that open a file of this kind, for "open with" (2026-09-27).
     pub async fn plugins_opening(&self, mime: &str) -> Result<Vec<Manifest>> {
         Ok(self.plugins().await?.into_iter().map(|plugin| plugin.manifest).filter(|manifest| manifest.opens_kind(mime)).collect())
@@ -408,6 +463,7 @@ fn allowed(asked: &Permissions, granted: &Permissions) -> Result<()> {
     ensure!(!granted.live || asked.live, "the plugin never asked to talk to the other side");
     ensure!(!granted.remind || asked.remind, "the plugin never asked to set reminders");
     ensure!(!granted.drive || asked.drive, "the plugin never asked for your cloud");
+    ensure!(!granted.location || asked.location, "the plugin never asked where the phone is");
     ensure!(
         granted.storage == ft_plugins::Storage::Small || asked.storage == ft_plugins::Storage::Large,
         "the plugin never asked for that much room"
@@ -432,6 +488,25 @@ pub fn files_of(plugin: &Plugin) -> Vec<String> {
 mod tests {
     use super::*;
 
+    struct Silent;
+
+    #[async_trait]
+    impl Locator for Silent {
+        async fn locate(&self) -> Result<Option<Fix>> {
+            std::future::pending().await
+        }
+    }
+
+    // 2026-10-02: the bridge times out by itself (~15 s); should it never answer, the core stops
+    // waiting too, so a plugin is never left hanging.
+    #[tokio::test(start_paused = true)]
+    async fn a_phone_that_never_answers_is_nothing_after_a_while() {
+        let started = tokio::time::Instant::now();
+        assert_eq!(located(&Silent).await, None);
+        let waited = started.elapsed();
+        assert!(waited >= std::time::Duration::from_secs(15) && waited <= std::time::Duration::from_secs(30), "waited {waited:?}");
+    }
+
     #[test]
     fn a_grant_may_never_go_beyond_what_was_asked() {
         let asked = Permissions {
@@ -455,6 +530,8 @@ mod tests {
             Permissions { remind: true, ..Permissions::default() },
             Permissions { drive: true, ..Permissions::default() },
             Permissions { storage: ft_plugins::Storage::Large, ..Permissions::default() },
+            // 2026-10-02: the phone's position.
+            Permissions { location: true, ..Permissions::default() },
         ] {
             assert!(allowed(&asked, &wanted).is_err(), "{wanted:?} was never asked for");
             assert!(allowed(&wanted, &wanted).is_ok());

@@ -57,6 +57,8 @@ export type FrameMessage =
   | { type: "ft.remindList"; id: string }
   | { type: "ft.liveSend"; id: string; data: string }
   | { type: "ft.openChat"; id: string; ref: string }
+  // 2026-10-02: where the phone is, once.
+  | { type: "ft.location"; id: string }
   // The user's cloud (plan-drive): one question with an operation and up to two strings.
   | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string };
 
@@ -124,6 +126,7 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       return text(id) ? { type: "ft.recordKeys", id, prefix: text(said.prefix) ? said.prefix : "" } : null;
     case "ft.recordUsage":
     case "ft.remindList":
+    case "ft.location":
       return text(id) ? { type: said.type, id } : null;
     case "ft.remindSet":
       return text(id) && text(said.reminder) && typeof said.at === "number" && Number.isFinite(said.at)

@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "Yeniden gönder",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Başka bir uygulama"
+    "otherApp": "Başka bir uygulama",
+    "location": "Konum",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: haritalarda aç"
   },
   "status": {
     "pending": "Cihaz bekleniyor",
@@ -283,6 +286,7 @@
     "remind": "Bu telefonda hatırlatıcı kurmak",
     "drive": "Dosyaları kendi bulutunda saklamak",
     "storageLarge": "Bu telefonda çok veri saklamak (256 MB'a kadar)",
+    "location": "Konumunuz, yalnızca siz istediğinizde",
     "opens": "Açar: {kinds}",
     "open": "Aç"
   },

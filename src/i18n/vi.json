@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "Gửi lại",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Ứng dụng khác"
+    "otherApp": "Ứng dụng khác",
+    "location": "Vị trí",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: mở trong bản đồ"
   },
   "status": {
     "pending": "Đang chờ thiết bị",
@@ -283,6 +286,7 @@
     "remind": "Đặt lời nhắc trên điện thoại này",
     "drive": "Giữ tệp trong đám mây của riêng bạn",
     "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
+    "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",
     "opens": "Mở: {kinds}",
     "open": "Mở"
   },

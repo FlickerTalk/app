@@ -1,3 +1,4 @@
 /* Permission texts of the iPhone app (2026-09-28). */
 "NSCameraUsageDescription" = "FlickerTalk ভিডিও কল ও পরিচিতির কোড স্ক্যান করতে ক্যামেরা ব্যবহার করে।";
 "NSMicrophoneUsageDescription" = "FlickerTalk কলের জন্য মাইক্রোফোন ব্যবহার করে।";
+"NSLocationWhenInUseUsageDescription" = "FlickerTalk আপনার অবস্থান শুধু তখনই ব্যবহার করে যখন আপনি কোনো চ্যাটে আপনি কোথায় আছেন তা শেয়ার করতে চান।";

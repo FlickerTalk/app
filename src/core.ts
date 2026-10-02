@@ -746,6 +746,8 @@ export interface PluginPermissions {
   drive?: boolean;
   /** How much it may keep in its records: "small" (settings, notes) or "large" (boards). */
   storage?: "small" | "large";
+  /** Whether it may ask for the phone's current position, once (2026-10-02). */
+  location?: boolean;
 }
 
 export interface PluginView {
@@ -862,6 +864,19 @@ export async function pluginSave(name: string, mime: string, data: string): Prom
 
 export async function pluginPrint(plugin: string, name: string, mime: string, data: string): Promise<void> {
   await invoke("core_plugin_print", { plugin, name, mime, data });
+}
+
+/** Where the phone is, once, for a plugin granted `location` (2026-10-02): metres and ms. */
+export interface PluginLocation {
+  lat: number;
+  lon: number;
+  accuracy: number;
+  at: number;
+}
+
+/** The core checks the grant before it asks the phone; `null` when there is no place to give. */
+export async function pluginLocation(plugin: string): Promise<PluginLocation | null> {
+  return invoke<PluginLocation | null>("core_plugin_location", { plugin });
 }
 
 export async function pluginFetch(

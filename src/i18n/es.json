@@ -59,7 +59,10 @@
     "download": "Descargar",
     "resend": "Volver a enviar",
     "discardAttachment": "Descartar el adjunto",
-    "otherApp": "Otra app"
+    "otherApp": "Otra app",
+    "location": "Ubicación",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: abrir en mapas"
   },
   "status": {
     "pending": "Esperando al dispositivo",
@@ -283,6 +286,7 @@
     "remind": "Poner avisos en este teléfono",
     "drive": "Guardar ficheros en tu propia nube",
     "storageLarge": "Guardar muchos datos en este teléfono (hasta 256 MB)",
+    "location": "Tu ubicación, solo cuando la pides",
     "opens": "Abre: {kinds}",
     "open": "Abrir"
   },

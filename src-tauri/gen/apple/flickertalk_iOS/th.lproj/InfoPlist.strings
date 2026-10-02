@@ -1,3 +1,4 @@
 /* Permission texts of the iPhone app (2026-09-28). */
 "NSCameraUsageDescription" = "FlickerTalk ใช้กล้องสำหรับวิดีโอคอลและสแกนรหัสผู้ติดต่อ";
 "NSMicrophoneUsageDescription" = "FlickerTalk ใช้ไมโครโฟนสำหรับการโทร";
+"NSLocationWhenInUseUsageDescription" = "FlickerTalk ใช้ตำแหน่งของคุณเฉพาะเมื่อคุณเลือกแชร์ว่าคุณอยู่ที่ไหนในแชท";
