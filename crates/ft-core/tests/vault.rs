@@ -135,6 +135,9 @@ async fn the_drive_is_connected_through_the_browser_set_up_and_used() {
     std::fs::write(&picked, b"a photo").unwrap();
     let folder = core.vault_mkdir("Photos", None).await.unwrap();
     let id = core.vault_upload(&core.vault_upload_source(&picked).unwrap(), "photo.jpg", "image/jpeg", Some(&folder)).await.unwrap().expect("up");
+    // The core never deletes what it seals: a message's file ("keep in my drive") is uploaded the
+    // same way and must stay; only the app's command for a fresh pick deletes the picker's copy.
+    assert_eq!(std::fs::read(&picked).unwrap(), b"a photo");
     let listing = core.vault_list(Some(&folder)).await.unwrap();
     assert_eq!(listing.files[0].id, id);
     assert!(core.vault_upload_source(&dir.join("files").join("flickertalk.db")).is_err(), "not a picked file");
