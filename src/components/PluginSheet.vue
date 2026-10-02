@@ -146,7 +146,7 @@ function opening() {
   return {
     type: "ft.open",
     text: props.text ?? "",
-    // Whether the app is dark and its colours (2026-10-03), as the frame puts them on its root.
+    // Whether the app is dark and its colours (2026-10-02), as the frame puts them on its root.
     ...pluginTheme(),
     lang: i18n.global.locale.value,
     // A plain copy: the prop may be reactive state, and postMessage cannot clone a proxy.
@@ -309,7 +309,7 @@ async function busy(work: () => Promise<void>) {
 }
 
 /**
- * The app's look, followed while the plugin is open (2026-10-03): the root's class (`ft-dark`) and
+ * The app's look, followed while the plugin is open (2026-10-02): the root's class (`ft-dark`) and
  * `data-direction` are what the stylesheet reads, whoever changes them (Settings, or the system's
  * dark mode in `theme.ts`). The frame hears the colours again only when they really changed.
  */

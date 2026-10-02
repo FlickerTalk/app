@@ -1,4 +1,4 @@
-// The sheets on a wide screen (decided 2026-10-03): each covers the pane the user is looking at,
+// The sheets on a wide screen (decided 2026-10-02): each covers the pane the user is looking at,
 // bottom-anchored, never Ionic's 600 px floating over the whole window. Beside the list it is the
 // chat pane; on the games tab, everything after the rail; a conversation open on its own, the
 // whole window. A phone keeps the whole width. The direction follows the language (RTL in Arabic).

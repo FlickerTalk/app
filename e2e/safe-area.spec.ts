@@ -1,4 +1,4 @@
-// Android edge-to-edge (2026-10-03, seen on a Samsung): the system's navigation bar sits over the
+// Android edge-to-edge (2026-10-02, seen on a Samsung): the system's navigation bar sits over the
 // bottom of the WebView, and the phone says how tall it is in `--ion-safe-area-bottom` (48 px
 // there). A bottom sheet keeps its last row above it, as the composer does, so it can be tapped.
 import type { Locator, Page } from "@playwright/test";
@@ -76,7 +76,7 @@ test("the permissions sheet opened from a chat stays above the navigation bar", 
   await aboveTheBar(app, app.getByTestId("game-allow"));
 });
 
-// Ioan, 2026-10-03: "asegúrate que tenga scroll". With more plugins or games than fit, the sheet's
+// Ioan, 2026-10-02: "asegúrate que tenga scroll". With more plugins or games than fit, the sheet's
 // list scrolls, and its last item can be brought above the bar and tapped.
 test.describe("with many plugins and games", () => {
   test.use({ viewport: { width: 360, height: 740 } });
@@ -118,7 +118,7 @@ test.describe("with many plugins and games", () => {
   });
 });
 
-// Found on the Samsung (2026-10-03): a tool on its own screen ended under the bar (Clean's
+// Found on the Samsung (2026-10-02): a tool on its own screen ended under the bar (Clean's
 // "Clean" button, Poll's "Close the poll") and could not be scrolled higher. A tool taller than
 // the screen, scrolled to its end, ends above the bar.
 test.describe("a tool taller than the screen", () => {
@@ -148,7 +148,7 @@ test.describe("a tool taller than the screen", () => {
     await aboveTheBar(app, frame);
   });
 
-  // Found on the Samsung (2026-10-03): scrolled down, a tool was painted under the status bar,
+  // Found on the Samsung (2026-10-02): scrolled down, a tool was painted under the status bar,
   // above its own bar. The status bar's strip stays the window's own, and the tool scrolls below
   // its bar, at any scroll position.
   test("in a chat's window, scrolled, stays below its bar and out of the status bar", async ({ app }) => {

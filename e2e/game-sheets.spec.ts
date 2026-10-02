@@ -1,4 +1,4 @@
-// The games' two sheets (Ioan, 2026-10-03: Ionic's components wherever one exists, icons from
+// The games' two sheets (Ioan, 2026-10-02: Ionic's components wherever one exists, icons from
 // ion-icon, never emoji): the permissions sheet of the first play and the contact picker are
 // Ionic's sheet modals, with a name, closed by Android's back button, as the apps sheet is.
 import type { Page } from "@playwright/test";

@@ -122,7 +122,7 @@ describe("GamesPage", () => {
   });
 
   // Removing a game deletes its saved games: it warns before it does it.
-  // Ioan, 2026-10-03: Ionic's components wherever one exists.
+  // Ioan, 2026-10-02: Ionic's components wherever one exists.
   it("uses Ionic's buttons for what a row does", async () => {
     const wrapper = await page();
     const buttons = () => wrapper.findAllComponents(IonButton).map((one) => one.attributes("data-test"));

@@ -10,7 +10,7 @@ import "@ionic/vue/css/typography.css";
 import "@ionic/vue/css/padding.css";
 import "@ionic/vue/css/flex-utils.css";
 import "@ionic/vue/css/display.css";
-// `ion-text-nowrap` and the other text utilities (2026-10-03: a long name cut in the apps sheet).
+// `ion-text-nowrap` and the other text utilities (2026-10-02: a long name cut in the apps sheet).
 import "@ionic/vue/css/text-alignment.css";
 
 import "./theme/variables.css";

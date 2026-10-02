@@ -47,7 +47,7 @@ describe("PluginSheet", () => {
     );
   });
 
-  // 2026-10-03 (Ioan): the plugin is handed the app's colours and whether it is dark, before it
+  // 2026-10-02 (Ioan): the plugin is handed the app's colours and whether it is dark, before it
   // loads (`ft.hello`), when it opens, and again whenever the app's look changes while it is open.
   describe("the app's colours", () => {
     const html = document.documentElement;
