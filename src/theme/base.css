@@ -30,6 +30,20 @@ ion-toolbar {
   list-style: none;
 }
 
+/* Rows never cut their text (2026-10-02): Ionic draws a toggle's label, a select's label and its
+   chosen value on one line with an ellipsis, which cut whole words on a phone in Spanish. They
+   wrap instead and the row grows; what fits stays on one line. A select's label goes in its
+   `label` slot: the `label` property draws it in a box that is always one line. */
+ion-toggle::part(label),
+ion-select::part(text),
+ion-select > [slot="label"] {
+  white-space: normal;
+}
+/* The value still gives way first, as Ionic has it, but never below its longest word. */
+ion-select::part(container) {
+  min-width: min-content;
+}
+
 /* Round icon buttons (composer, identity card, call back). */
 .ft-round {
   appearance: none;
