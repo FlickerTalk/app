@@ -170,4 +170,109 @@ describe("the frame", () => {
       body.style.marginBottom = "";
     }
   });
+
+  // 2026-10-02: the app closes the window (its ✕, Android's Back, leaving the chat) with a word
+  // first, so a plugin in a live session can say goodbye to its twin. The frame runs what the plugin
+  // registered and answers when all of it is over, however it ended; the app waits only so long.
+  describe("closing", () => {
+    type Closing = { onClose(handler: () => unknown): void; close(): void };
+    const closing = () => (globalThis as unknown as { ft: Closing }).ft;
+    /** Only the promises already due: nothing here waits for a timer. */
+    const settle = async () => {
+      for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    };
+    const closedSaid = (posted: Said[]) => posted.filter((one) => one.type === "ft.closed").length;
+
+    it("runs what the plugin registered and then says it is closed", async () => {
+      const ran: string[] = [];
+      const { posted, says, ran: loaded } = await frame(() => {
+        closing().onClose(() => void ran.push("first"));
+        closing().onClose(async () => {
+          await Promise.resolve();
+          ran.push("second");
+        });
+      });
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await loaded;
+      expect(closedSaid(posted)).toBe(0);
+
+      await says({ type: "ft.closing" });
+      await settle();
+      expect(ran).toEqual(["first", "second"]);
+      expect(closedSaid(posted)).toBe(1);
+      // Its goodbye went out before the answer, not after.
+      expect(posted.at(-1)).toEqual({ type: "ft.closed" });
+    });
+
+    it("answers at once when the plugin registered nothing", async () => {
+      const { posted, says, ran } = await frame();
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says({ type: "ft.closing" });
+      await settle();
+      expect(closedSaid(posted)).toBe(1);
+    });
+
+    it("answers once a slow goodbye is over, and only then", async () => {
+      let finish = () => {};
+      const { posted, says, ran } = await frame(() =>
+        closing().onClose(() => new Promise<void>((resolve) => (finish = resolve))),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says({ type: "ft.closing" });
+      await settle();
+      expect(closedSaid(posted)).toBe(0);
+      finish();
+      await settle();
+      expect(closedSaid(posted)).toBe(1);
+    });
+
+    it("answers all the same when a goodbye fails, and still runs the others", async () => {
+      const ran: string[] = [];
+      const { posted, says, ran: loaded } = await frame(() => {
+        closing().onClose(() => {
+          throw new Error("broken");
+        });
+        closing().onClose(() => Promise.reject(new Error("refused")));
+        closing().onClose(() => void ran.push("third"));
+      });
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await loaded;
+      await says({ type: "ft.closing" });
+      await settle();
+      expect(ran).toEqual(["third"]);
+      expect(closedSaid(posted)).toBe(1);
+    });
+
+    it("says goodbye once, however many times it is told", async () => {
+      let times = 0;
+      const { posted, says, ran } = await frame(() => closing().onClose(() => void (times += 1)));
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says({ type: "ft.closing" });
+      await says({ type: "ft.closing" });
+      await settle();
+      expect(times).toBe(1);
+      expect(closedSaid(posted)).toBeGreaterThanOrEqual(1);
+    });
+
+    // A goodbye that closes the window itself asks the app once more; the app is already closing.
+    it("lets a goodbye ask for the window to close without running again", async () => {
+      let times = 0;
+      const { posted, says, ran } = await frame(() =>
+        closing().onClose(() => {
+          times += 1;
+          closing().close();
+        }),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says({ type: "ft.closing" });
+      await settle();
+      expect(times).toBe(1);
+      expect(posted.filter((one) => one.type === "ft.close")).toHaveLength(1);
+      expect(closedSaid(posted)).toBe(1);
+    });
+  });
 });

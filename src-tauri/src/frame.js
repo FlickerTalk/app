@@ -122,8 +122,16 @@ globalThis.ft = {
   close() {
     post({ type: "ft.close" });
   },
+  /** Called when the window is about to close (2026-10-02), to say goodbye to the other side. The
+   *  app waits a few tenths of a second at most; a handler may return a promise. */
+  onClose(handler) {
+    closers.push(handler);
+  },
 };
 const heard = [];
+const closers = [];
+/** The goodbye, run once however many times the app says it is closing. */
+let goodbye;
 
 // The app's colours (2026-10-02): Ionic's variables on the root, so a plugin's
 // `var(--ion-text-color, …)` follows the app, dark or light. Only these names, and only what looks
@@ -218,6 +226,11 @@ addEventListener("message", (event) => {
     paint(said);
   } else if (said.type === "ft.live") {
     for (const handler of heard) handler(String(said.data ?? ""));
+  } else if (said.type === "ft.closing") {
+    // A handler that throws, rejects or is slow does not keep the others from running, nor the
+    // answer from going once they are over; one that never ends is cut short by the app.
+    goodbye ??= Promise.allSettled(closers.map(async (handler) => handler()));
+    goodbye.then(() => post({ type: "ft.closed" }));
   } else if (said.type === "ft.file") {
     const answer = waiting.get(said.id);
     waiting.delete(said.id);
