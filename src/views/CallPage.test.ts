@@ -32,6 +32,11 @@ describe("CallPage", () => {
     window.history.replaceState({ back: "/chat/c1" }, "");
   });
 
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the name in its own direction", () => {
+    expect(mount(CallPage, { shallow: true }).find(".ft-call__name").attributes("dir")).toBe("auto");
+  });
+
   it("calls the contact on the screen", () => {
     mount(CallPage, { shallow: true });
     expect(actions.startCall).toHaveBeenCalledWith("c1", false);

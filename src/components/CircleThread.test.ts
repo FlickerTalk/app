@@ -68,6 +68,13 @@ describe("CircleThread", () => {
     store.circles = [friends()];
   });
 
+  // Seen in Arabic (2026-10-02): the circle's name reads in its own direction, not in the app's.
+  it("shows the circle's name in its own direction", () => {
+    store.circles = [friends({ name: "Amigos!" })];
+    const wrapper = mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
+    expect(wrapper.find(".ft-peer__name").attributes("dir")).toBe("auto");
+  });
+
   it("shows the texts as bubbles, with who said them, and what happened as a line", () => {
     const wrapper = mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
     const bubbles = wrapper.findAllComponents(MessageBubble);

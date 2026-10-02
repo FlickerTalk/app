@@ -81,7 +81,7 @@ async function create() {
               @click="toggle(chat.id)"
             >
               <Avatar :name="chat.name" :hue="chat.hue" :size="40" />
-              <span class="ft-new__row-name">{{ chat.name }}</span>
+              <span class="ft-new__row-name" dir="auto">{{ chat.name }}</span>
               <span class="ft-new__check" aria-hidden="true">
                 <ion-icon v-if="chosen.has(chat.id)" :icon="checkmarkOutline" />
               </span>

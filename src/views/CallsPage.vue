@@ -70,7 +70,7 @@ function callBack(entry: CallEntry) {
         >
           <Avatar :name="entry.name" :hue="hueOf(entry.contact)" :size="44" />
           <span class="ft-call__body">
-            <span class="ft-call__name">{{ entry.name }}</span>
+            <span class="ft-call__name" dir="auto">{{ entry.name }}</span>
             <span class="ft-call__meta">
               <ion-icon
                 :icon="DIRECTION_ICON[direction(entry)]"

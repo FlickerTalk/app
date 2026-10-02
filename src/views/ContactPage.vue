@@ -143,7 +143,7 @@ async function toggleBlock() {
           :size="88"
           :connected="contact.connected"
         />
-        <h1 class="ft-contact__name">{{ contact.name }}</h1>
+        <h1 class="ft-contact__name" dir="auto">{{ contact.name }}</h1>
         <span class="ft-contact__status" :class="{ 'is-direct': contact.connected }">
           {{ contact.connected ? $t("chat.direct") : $t("chat.notConnected") }}
         </span>

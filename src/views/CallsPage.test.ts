@@ -37,6 +37,12 @@ describe("CallsPage", () => {
     expect(wrapper.find("[data-test='empty']").exists()).toBe(true);
   });
 
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the names in their own direction", () => {
+    history.calls = [entry("a", false, "missed")] as never;
+    expect(mount(CallsPage, { shallow: true }).find(".ft-call__name").attributes("dir")).toBe("auto");
+  });
+
   it("lists the calls, missed ones marked", () => {
     history.calls = [entry("a", false, "missed"), entry("b", true, "answered", true)] as never;
     const rows = mount(CallsPage, { shallow: true }).findAll("[data-test='call-row']");

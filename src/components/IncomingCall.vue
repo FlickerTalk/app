@@ -24,7 +24,7 @@ async function answer() {
   <div v-if="ringing" class="ft-incoming" role="alertdialog" :aria-label="$t('calls.incoming')" data-test="incoming">
     <Avatar :name="name" :hue="hueOf(call.contact)" :size="52" />
     <span class="ft-incoming__body">
-      <span class="ft-incoming__name">{{ name }}</span>
+      <span class="ft-incoming__name" dir="auto">{{ name }}</span>
       <span class="ft-incoming__kind">
         <ion-icon
           :icon="call.video ? videocamOutline : callOutline"

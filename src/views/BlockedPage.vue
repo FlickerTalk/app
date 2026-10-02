@@ -24,7 +24,7 @@ const blocked = computed(() => store.chats.filter((chat) => chat.blocked));
       <ul v-else class="ft-rows">
         <li v-for="chat in blocked" :key="chat.id" class="ft-blocked" data-test="blocked-row">
           <Avatar :name="chat.name" :hue="chat.hue" :size="44" />
-          <span class="ft-blocked__name">{{ chat.name }}</span>
+          <span class="ft-blocked__name" dir="auto">{{ chat.name }}</span>
           <button type="button" class="ft-blocked__undo" :aria-label="$t('contact.unblock')" @click="block(chat.id, false)">
             {{ $t("contact.unblock") }}
           </button>

@@ -208,7 +208,7 @@ function open() {
       @pointercancel="endPress"
       @pointerleave="endPress"
     >
-      <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender">{{ sender }}</span>
+      <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender" dir="auto">{{ sender }}</span>
       <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
       <span v-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
@@ -319,7 +319,7 @@ function open() {
       <div v-else-if="file" class="ft-file" :class="{ 'is-usable': usable }" data-test="file" @click="open">
         <span class="ft-file__icon"><ion-icon :icon="documentOutline" aria-hidden="true" /></span>
         <span class="ft-file__body">
-          <span class="ft-file__name">{{ file.name }}</span>
+          <span class="ft-file__name" dir="auto">{{ file.name }}</span>
           <span v-if="fileState" class="ft-file__meta">{{ fileState }}</span>
           <span
             v-if="moving"
@@ -355,9 +355,9 @@ function open() {
       </div>
       <div v-else-if="code" class="ft-code" data-test="code">
         <span v-if="code.language" class="ft-code__language">{{ code.language }}</span>
-        <pre class="ft-code__body"><code>{{ code.code }}</code></pre>
+        <pre class="ft-code__body" dir="auto"><code>{{ code.code }}</code></pre>
       </div>
-      <p v-else class="ft-bubble__text">
+      <p v-else class="ft-bubble__text" dir="auto">
         <template v-for="(piece, index) in pieces" :key="index">
           <a
             v-if="piece.kind === 'link'"
@@ -574,6 +574,11 @@ function open() {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A message is a paragraph of its own: it lines up with its own direction, not the app's. */
+.ft-bubble__text,
+.ft-code__body {
+  text-align: start;
 }
 
 .ft-bubble__meta {

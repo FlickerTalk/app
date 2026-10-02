@@ -476,4 +476,29 @@ describe("MessageBubble", () => {
       expect(invite("https://flickertalk.com/games/chess", false).find("[data-test='play-game']").exists()).toBe(false);
     });
   });
+
+  // Seen in Arabic (2026-10-02): what someone wrote takes its direction from itself, not from the
+  // app's language, or «¿Probamos?» reads «?Probamos¿» with its punctuation moved to the other end.
+  describe("what someone wrote, in its own direction", () => {
+    it("a text", () => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "¿Probamos la hoja de apps?" } }, shallow: true });
+      expect(wrapper.find(".ft-bubble__text").attributes("dir")).toBe("auto");
+    });
+
+    it("a block of code", () => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "```\ngo();\n```" } }, shallow: true });
+      expect(wrapper.find(".ft-code__body").attributes("dir")).toBe("auto");
+    });
+
+    it("the name of a file", () => {
+      const message = { ...base, mine: false, kind: "file", file: { name: "menu (1).pdf", size: "1.2 MB", progress: 1, state: "done", mime: "application/pdf" } };
+      const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
+      expect(wrapper.find(".ft-file__name").attributes("dir")).toBe("auto");
+    });
+
+    it("who said it, in a circle", () => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false }, sender: "Ana (work)" }, shallow: true });
+      expect(wrapper.find("[data-test='sender']").attributes("dir")).toBe("auto");
+    });
+  });
 });
