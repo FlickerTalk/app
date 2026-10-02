@@ -80,7 +80,7 @@ async function remove(id: string) {
       </ion-toolbar>
     </ion-header>
 
-    <ion-content>
+    <ion-content class="ft-plugins">
       <p class="ft-plugins__hint">{{ $t("plugins.hint") }}</p>
 
       <ion-list v-for="plugin in installed" :key="plugin.id" inset class="ft-group">
@@ -170,6 +170,10 @@ async function remove(id: string) {
 </template>
 
 <style scoped>
+/* The last switch can be scrolled above Android's navigation bar (edge to edge). */
+.ft-plugins {
+  --padding-bottom: var(--ion-safe-area-bottom, 0px);
+}
 .ft-plugins__open {
   color: var(--ft-accent);
 }

@@ -2,7 +2,7 @@
 // bottom of the WebView, and the phone says how tall it is in `--ion-safe-area-bottom` (48 px
 // there). A bottom sheet keeps its last row above it, as the composer does, so it can be tapped.
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "./helpers";
+import { expect, frameSays, test } from "./helpers";
 
 const BOB = "ft_bob123456789";
 const INSET = 48;
@@ -117,3 +117,46 @@ test.describe("with many plugins and games", () => {
     await expect(app.getByTestId("game-permissions")).toBeVisible();
   });
 });
+
+// Found on the Samsung (2026-10-03): a tool on its own screen ended under the bar (Clean's
+// "Clean" button, Poll's "Close the poll") and could not be scrolled higher. A tool taller than
+// the screen, scrolled to its end, ends above the bar.
+test.describe("a tool taller than the screen", () => {
+  /** The frame's bottom edge, once the frame stands still. */
+  async function frameEnd(app: Page) {
+    const frame = app.locator("iframe.ft-plugin__frame");
+    await expect.poll(async () => (await frame.boundingBox())?.height).toBe(1400);
+    return frame;
+  }
+
+  test("in a chat's window, scrolled to its end, ends above the bar", async ({ app }) => {
+    await app.goto(`/chat/${BOB}`);
+    await app.getByTestId("apps").click();
+    await app.getByTestId("app-com.flickertalk.markdown").click();
+    await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+    await frameSays(app, { type: "ft.height", height: 1400 });
+    const frame = await frameEnd(app);
+    await app.locator(".ft-app").evaluate((window) => (window.scrollTop = window.scrollHeight));
+    await aboveTheBar(app, frame);
+  });
+
+  test("on its own page, scrolled to its end, ends above the bar", async ({ app }) => {
+    await app.goto("/plugin/com.flickertalk.markdown");
+    await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+    await frameSays(app, { type: "ft.height", height: 1400 });
+    const frame = await frameEnd(app);
+    await app.locator("ion-content").last().evaluate((content) => (content as HTMLIonContentElement).scrollToBottom(0));
+    await aboveTheBar(app, frame);
+  });
+});
+
+// The same report: Settings → Plugins ended under the bar too.
+test("Settings → Plugins, scrolled to its end, ends above the bar", async ({ app }) => {
+  await app.addInitScript(() => ((window as unknown as Record<string, unknown>).__ftFakeManyPlugins = 12));
+  await app.goto("/plugins");
+  const last = app.locator("ion-content ion-list").last();
+  await expect(last).toBeVisible();
+  await app.locator("ion-content").last().evaluate((content) => (content as HTMLIonContentElement).scrollToBottom(0));
+  await aboveTheBar(app, last);
+});
+
