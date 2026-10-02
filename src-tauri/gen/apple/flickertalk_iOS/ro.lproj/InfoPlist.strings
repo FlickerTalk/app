@@ -1,3 +1,4 @@
 /* Permission texts of the iPhone app (2026-09-28). */
 "NSCameraUsageDescription" = "FlickerTalk folosește camera pentru apeluri video și pentru a scana codurile de contact.";
 "NSMicrophoneUsageDescription" = "FlickerTalk folosește microfonul pentru apeluri.";
+"NSLocationWhenInUseUsageDescription" = "FlickerTalk folosește locația ta doar când alegi să trimiți într-o conversație unde ești.";

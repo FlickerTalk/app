@@ -598,3 +598,96 @@ async fn a_ref_to_a_message_inside_a_session_leads_nowhere_from_outside_it() {
     core.remove_session(&session).await.expect("removes");
     assert_eq!(core.store().plugin_ref(&reference).await.unwrap(), None, "gone with the session");
 }
+
+/// The phone's location service, as the tests want it to answer.
+struct FakeLocator {
+    answer: Option<ft_core::plugins::Fix>,
+    asked: std::sync::atomic::AtomicUsize,
+}
+
+impl FakeLocator {
+    fn answering(answer: Option<ft_core::plugins::Fix>) -> Self {
+        Self { answer, asked: std::sync::atomic::AtomicUsize::new(0) }
+    }
+
+    fn asked(&self) -> usize {
+        self.asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl ft_core::plugins::Locator for FakeLocator {
+    async fn locate(&self) -> anyhow::Result<Option<ft_core::plugins::Fix>> {
+        self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(self.answer)
+    }
+}
+
+const MADRID: ft_core::plugins::Fix = ft_core::plugins::Fix { lat: 40.416_78, lon: -3.703_79, accuracy: 35.0, at: 1_790_000_000_000 };
+
+// 2026-10-02: the location plugin. The core is the gate: a plugin learns where the phone is only
+// if the user granted it `location`, and the phone is not even asked otherwise.
+#[tokio::test]
+async fn a_plugin_learns_where_the_phone_is_only_if_the_user_granted_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.location", "1.0.0", r#"{"location":true,"send":"propose"}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    let phone = FakeLocator::answering(Some(MADRID));
+
+    assert!(core.plugin_location("com.example.location", &phone).await.is_err(), "installed is not granted (§53)");
+    assert!(core.plugin_location("com.example.never", &phone).await.is_err(), "not installed");
+    assert_eq!(phone.asked(), 0, "the phone is not even asked for a plugin that may not know");
+
+    core.grant_plugin("com.example.location", Permissions { location: true, ..Permissions::default() }).await.expect("grants");
+    assert_eq!(core.plugin_location("com.example.location", &phone).await.unwrap(), Some(MADRID));
+    assert_eq!(phone.asked(), 1);
+
+    // Taken back, it is refused again.
+    core.grant_plugin("com.example.location", Permissions::default()).await.unwrap();
+    assert!(core.plugin_location("com.example.location", &phone).await.is_err());
+    assert_eq!(phone.asked(), 1);
+}
+
+// The user or the phone said no, location is off, or there was no fix: the plugin gets nothing,
+// never an error it could tell apart, and never a position that is not one.
+#[tokio::test]
+async fn no_fix_or_a_fix_that_is_no_place_is_nothing() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.location", "1.0.0", r#"{"location":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions { location: true, ..Permissions::default() }).await.expect("installs");
+
+    assert_eq!(core.plugin_location("com.example.location", &FakeLocator::answering(None)).await.unwrap(), None);
+    for nowhere in [
+        ft_core::plugins::Fix { lat: 91.0, ..MADRID },
+        ft_core::plugins::Fix { lon: -180.5, ..MADRID },
+        ft_core::plugins::Fix { lat: f64::NAN, ..MADRID },
+        ft_core::plugins::Fix { accuracy: -1.0, ..MADRID },
+        ft_core::plugins::Fix { accuracy: f64::INFINITY, ..MADRID },
+    ] {
+        let phone = FakeLocator::answering(Some(nowhere));
+        assert_eq!(core.plugin_location("com.example.location", &phone).await.unwrap(), None, "{nowhere:?}");
+    }
+
+    struct Broken;
+    #[async_trait]
+    impl ft_core::plugins::Locator for Broken {
+        async fn locate(&self) -> anyhow::Result<Option<ft_core::plugins::Fix>> {
+            anyhow::bail!("the location service is gone")
+        }
+    }
+    assert_eq!(core.plugin_location("com.example.location", &Broken).await.unwrap(), None);
+}
+
+// 2026-10-02: `ft.location` is a new capability of the Plugin API, so it came with a new core
+// (§51): the location plugin asks for 1.3.0, and that is what this core is.
+#[tokio::test]
+async fn the_location_plugin_installs_on_the_core_that_brought_location() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.flickertalk.location","name":"Location","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-location"],"permissions":{"location":true,"send":"propose"}}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs on 1.3.0");
+    assert!(!ft_plugins::version_at_least("1.2.2", "1.3.0"), "and not on the core before it");
+}

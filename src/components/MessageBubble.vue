@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { readCode } from "../code";
-import { piecesOf } from "../links";
+import { mapsLink, piecesOf, type Place } from "../links";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonIcon } from "@ionic/vue";
 import { alertCircleOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
@@ -70,6 +70,20 @@ function endPress() {
 
 function openLink(href: string) {
   void Promise.resolve(openUrl(href)).catch(() => undefined);
+}
+
+// 2026-10-02: a place (a `geo:` URI) is a card, never a map: no tile is fetched to draw it. A tap
+// opens the phone's own maps app there.
+function accuracyOf(place: Place): string {
+  return place.accuracy === null ? "" : t("chat.accuracy", { metres: Math.round(place.accuracy) });
+}
+
+function placeLabel(place: Place): string {
+  return t("chat.openLocation", { place: [t("chat.location"), accuracyOf(place)].filter(Boolean).join(" ") });
+}
+
+function openPlace(place: Place) {
+  openLink(mapsLink(place, navigator.userAgent));
 }
 const isImage = computed(() => file.value?.mime?.startsWith("image/") ?? false);
 const isVoice = computed(() => file.value?.mime?.startsWith("audio/") ?? false);
@@ -330,6 +344,18 @@ function open() {
             @click.prevent="openLink(piece.href ?? '')"
             >{{ piece.text }}</a
           >
+          <button
+            v-else-if="piece.kind === 'place' && piece.place"
+            type="button"
+            class="ft-place"
+            data-test="place"
+            :aria-label="placeLabel(piece.place)"
+            @click.stop="openPlace(piece.place)"
+          >
+            <span class="ft-place__pin" aria-hidden="true">📍</span>
+            <span class="ft-place__label" aria-hidden="true">{{ t("chat.location") }}</span>
+            <span v-if="accuracyOf(piece.place)" class="ft-place__accuracy" aria-hidden="true">{{ accuracyOf(piece.place) }}</span>
+          </button>
           <template v-else>{{ piece.text }}</template>
         </template>
       </p>
@@ -451,6 +477,36 @@ function open() {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* A place (2026-10-02): a card with the pin, the word and how far off it may be; no map. */
+.ft-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.ft-place__pin {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.ft-place__label {
+  font-weight: 600;
+}
+
+.ft-place__accuracy {
+  opacity: 0.75;
+  font-size: 13px;
 }
 
 .ft-bubble__text {

@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "重新傳送",
     "discardAttachment": "Discard attachment",
-    "otherApp": "其他應用程式"
+    "otherApp": "其他應用程式",
+    "location": "位置",
+    "accuracy": "±{metres} 公尺",
+    "openLocation": "{place}：在地圖中開啟"
   },
   "status": {
     "pending": "等待對方裝置",
@@ -283,6 +286,7 @@
     "remind": "在這支手機上設定提醒",
     "drive": "把檔案保存在你自己的雲端",
     "storageLarge": "在這支手機上保存大量資料（最多 256 MB）",
+    "location": "你的位置，僅在你要求時",
     "opens": "可開啟：{kinds}",
     "open": "開啟"
   },

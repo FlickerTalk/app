@@ -18,6 +18,7 @@
 //! - `pick_files`: the system file picker, copying what was picked into the app's folder.
 //! - `share_text`: the system share sheet (WhatsApp, Signal, mail…) with a text, such as the
 //!   Contact Card link (§32).
+//! - `current_location`: the phone's position, once, for the location plugin (2026-10-02).
 //! - `restart_app`: starts the app again (after moving to a new phone, §60); Tauri's own restart
 //!   only exits on Android.
 
@@ -331,6 +332,37 @@ struct Picked {
 #[cfg_attr(not(mobile), allow(dead_code))]
 struct Microphone {
     granted: bool,
+}
+
+/// Where the phone is (2026-10-02): degrees, metres of accuracy and when, in ms since the epoch.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Location {
+    pub lat: f64,
+    pub lon: f64,
+    pub accuracy: f64,
+    pub at: i64,
+}
+
+/// What the native `currentLocation` resolves with: `found` and, when found, the fix.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Located {
+    found: bool,
+    #[serde(default)]
+    lat: f64,
+    #[serde(default)]
+    lon: f64,
+    #[serde(default)]
+    accuracy: f64,
+    #[serde(default)]
+    at: f64,
+}
+
+#[cfg_attr(not(mobile), allow(dead_code))]
+impl Located {
+    fn location(self) -> Option<Location> {
+        self.found.then_some(Location { lat: self.lat, lon: self.lon, accuracy: self.accuracy, at: self.at as i64 })
+    }
 }
 
 /// What Kotlin's `canShowFullScreen` resolves with.
@@ -701,6 +733,21 @@ impl<R: Runtime> Platform<R> {
         }
     }
 
+    /// The phone's current position, once (2026-10-02): asks the user the first time (only "while
+    /// using the app", never in the background) and waits up to ~15 s for one fix. `None` when the
+    /// user or the phone refuses, location is off or no fix came. Nothing on desktop. Blocks until
+    /// the phone answers: never call it on the main thread.
+    pub fn current_location(&self) -> Result<Option<Location>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Located>("currentLocation", ())?.location())
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(None)
+        }
+    }
+
     /// Whether this phone lets a call take the whole screen (Android 14 asks the user).
     pub fn can_show_full_screen(&self) -> Result<bool> {
         #[cfg(mobile)]
@@ -807,6 +854,19 @@ mod tests {
     use super::*;
 
     // What Kotlin's `pushToken` resolves with.
+    // 2026-10-02: the location plugin. Swift and Kotlin resolve `currentLocation` with `found`
+    // and, when found, the fix; anything else is no place.
+    #[test]
+    fn the_current_location_comes_back_as_swift_and_kotlin_resolve_it() {
+        let found: Located = serde_json::from_value(serde_json::json!({
+            "found": true, "lat": 40.41678, "lon": -3.70379, "accuracy": 35.0, "at": 1_790_000_000_000.0
+        }))
+        .unwrap();
+        assert_eq!(found.location(), Some(Location { lat: 40.41678, lon: -3.70379, accuracy: 35.0, at: 1_790_000_000_000 }));
+        let nothing: Located = serde_json::from_value(serde_json::json!({ "found": false })).unwrap();
+        assert_eq!(nothing.location(), None);
+    }
+
     #[test]
     fn the_push_token_comes_back_from_kotlin() {
         let answer: PushToken = serde_json::from_value(serde_json::json!({ "token": "fcm-abc" })).unwrap();

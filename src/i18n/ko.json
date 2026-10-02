@@ -59,7 +59,10 @@
     "download": "Download",
     "resend": "다시 보내기",
     "discardAttachment": "Discard attachment",
-    "otherApp": "다른 앱"
+    "otherApp": "다른 앱",
+    "location": "위치",
+    "accuracy": "±{metres}m",
+    "openLocation": "{place}: 지도에서 열기"
   },
   "status": {
     "pending": "상대 기기 대기 중",
@@ -283,6 +286,7 @@
     "remind": "이 휴대폰에 알림 설정",
     "drive": "내 클라우드에 파일 보관",
     "storageLarge": "이 휴대폰에 많은 데이터 보관 (최대 256 MB)",
+    "location": "내 위치, 요청할 때만",
     "opens": "여는 형식: {kinds}",
     "open": "열기"
   },
