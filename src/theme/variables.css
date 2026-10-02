@@ -6,7 +6,16 @@
  */
 
 :root {
-  --ft-rail-width: 80px;
+  /* The window's side insets (2026-10-02): a phone held sideways has its island, notch or camera
+     cutout at one side, and Android may have its navigation bar there. Taken here, on the root,
+     where they are the window's: Ionic zeroes its own in every sheet, and a pane zeroes the side
+     that reaches no edge (base.css). They are physical; `--ft-safe-start` is the one at the inline
+     start, where the rail is: the left, or the right in a right-to-left language. */
+  --ft-safe-left: var(--ion-safe-area-left, 0px);
+  --ft-safe-right: var(--ion-safe-area-right, 0px);
+  --ft-safe-start: var(--ion-safe-area-left, 0px);
+  /* The rail reaches the edge: it takes the inset there and keeps its items out of it (NavRail). */
+  --ft-rail-width: calc(80px + var(--ft-safe-start));
   /* The chat list beside the conversation on a wide screen (ChatsPage). */
   --ft-list-width: 360px;
   --ft-radius-bubble: 20px;
@@ -19,6 +28,9 @@
   --ft-font-meta: 12px;
   --ft-font-body: 16px;
   --ft-font-title: 17px;
+}
+:root[dir="rtl"] {
+  --ft-safe-start: var(--ion-safe-area-right, 0px);
 }
 
 /* ---------- Ember: a warm flicker of light on near-black ---------- */

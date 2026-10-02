@@ -17,6 +17,8 @@ import {
   IonTitle,
   IonToggle,
   IonToolbar,
+  onIonViewDidEnter,
+  onIonViewWillLeave,
 } from "@ionic/vue";
 import {
   banOutline,
@@ -151,7 +153,11 @@ const appearance = ref(storedAppearance());
 // 2026-10-02: an anonymous suggestion, in a modal over Settings (Ioan); Back closes it, and closing
 // forgets what was written.
 const suggesting = ref(false);
-closeOnBackWhile(() => suggesting.value, () => (suggesting.value = false));
+// Only while Settings is on screen: a reminder or a call can put a page over it with the modal open.
+const onScreen = ref(true);
+onIonViewWillLeave(() => (onScreen.value = false));
+onIonViewDidEnter(() => (onScreen.value = true));
+closeOnBackWhile(() => onScreen.value && suggesting.value, () => (suggesting.value = false));
 
 function chooseColor(id: Direction) {
   direction.value = id;

@@ -117,7 +117,7 @@ pub fn run() {
             client::core_share,
             client::core_pick_files,
             client::core_take_photo,
-            client::core_read_picked,
+            client::core_pick_for_plugin,
             client::core_plugin_made,
             client::core_send_picked,
             client::core_plugins,

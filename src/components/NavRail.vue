@@ -80,6 +80,8 @@ const isActive = (path: string) => route.path.startsWith(path);
   gap: var(--ft-space-3);
   width: var(--ft-rail-width);
   padding: calc(env(safe-area-inset-top) + var(--ft-space-5)) 0 var(--ft-space-5);
+  /* Its width takes the window's inset at its edge (--ft-rail-width); the items stay out of it. */
+  padding-inline-start: var(--ft-safe-start);
   background: var(--ft-surface);
   border-inline-end: 1px solid var(--ft-border);
 }
