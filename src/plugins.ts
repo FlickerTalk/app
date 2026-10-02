@@ -5,8 +5,9 @@
  */
 import { computed, shallowRef } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { offeredPlugins, plugins, type OfferedPlugin, type PluginView } from "./core";
+import { offeredPlugins, plugins, type OfferedPlugin, type PluginLocales, type PluginView } from "./core";
 import { isGame } from "./games";
+import { i18n } from "./i18n";
 
 /**
  * Where the frame of a plugin lives; never the app's own origin. Only the id goes through
@@ -32,20 +33,67 @@ export async function refreshPlugins(): Promise<PluginView[]> {
  * The tools of the chat and the games, apart (plan 10.3): the tools sheet, "open with" and
  * Settings show tools only; games have their own section. Anything not marked a game is a tool.
  */
-export const tools = computed(() => installed.value.filter((one) => !isGame(one)));
-export const games = computed(() => installed.value.filter(isGame));
+export const tools = computed(() => byPluginName(installed.value.filter((one) => !isGame(one))));
+export const games = computed(() => byPluginName(installed.value.filter(isGame)));
 
 /**
  * What the catalogue offers this phone, kept for every screen (plan 10.6): the games section
  * reads it, and so does a bubble with an invitation, which must never fetch it by itself.
  */
 export const offered = shallowRef<OfferedPlugin[]>([]);
-export const offeredGames = computed(() => offered.value.filter(isGame));
+export const offeredGames = computed(() => byPluginName(offered.value.filter(isGame)));
 
 /** Asks the core what the catalogue offers. On failure what was known stays, and the error goes up. */
 export async function refreshOffered(): Promise<OfferedPlugin[]> {
   offered.value = await offeredPlugins();
   return offered.value;
+}
+
+/** What the screens need of a plugin to name it: an installed one, an offered one, or just its id. */
+interface Named {
+  id: string;
+  name: string;
+  summary?: string;
+  locales?: PluginLocales;
+}
+
+/**
+ * A plugin's name or summary in the phone's language (2026-10-02, plan of the catalogue's
+ * translations): the exact language, then its base language (`zh` for `zh-TW`); for each, the
+ * installed package's own, then the catalogue's entry with the same id. Otherwise the English one.
+ * It comes from a package: shown as text, never as HTML.
+ */
+function localized(plugin: Named, field: "name" | "summary"): string {
+  const locale = i18n.global.locale.value;
+  const sources = [
+    installed.value.find((one) => one.id === plugin.id),
+    offered.value.find((one) => one.id === plugin.id),
+    plugin,
+  ] as (Named | undefined)[];
+  const languages = locale === "en" ? [] : [...new Set([locale, locale.split("-")[0]])];
+  for (const language of languages) {
+    for (const source of sources) {
+      const said = source?.locales?.[language]?.[field];
+      if (said?.trim()) return said;
+    }
+  }
+  // The English one: of this view, or of the other one when this view has none (an installed
+  // plugin's view carries no summary).
+  return plugin[field] || sources.find((source) => source?.[field])?.[field] || "";
+}
+
+export function pluginName(plugin: Named): string {
+  return localized(plugin, "name");
+}
+
+export function pluginSummary(plugin: Named): string {
+  return localized(plugin, "summary");
+}
+
+/** A copy sorted by the name the phone shows, in the phone's own order (the core sorts by the English). */
+export function byPluginName<T extends Named>(list: readonly T[]): T[] {
+  const order = new Intl.Collator(i18n.global.locale.value);
+  return [...list].sort((a, b) => order.compare(pluginName(a), pluginName(b)));
 }
 
 let asking: Promise<OfferedPlugin[]> | null = null;

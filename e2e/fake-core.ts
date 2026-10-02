@@ -45,6 +45,8 @@
  * `window.__ftFakeBobName` renames Bob (a long name, to see the chat header truncate it).
  * `window.__ftFakeManyPlugins` (a number) installs that many more tools and as many games, for a
  * list longer than the screen.
+ * `window.__ftFakeCatalogue` (entries) adds to what the catalogue lists, with their `locales`
+ * (2026-10-02): entries for installed plugins too, as the real core lists them.
  *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
@@ -114,8 +116,17 @@ export function installFakeCore() {
     ] as Array<Record<string, unknown> & { id: string; name: string; granted: Record<string, unknown> }>,
     /** What the catalogue offers besides what is installed (2026-10-02, plan 10). */
     catalogue: [
-      { id: "com.flickertalk.game.chess", name: "Chess", version: "1.0.0", summary: "Chess for two, move by move.", size: 412_000, carried: false, kind: "game" },
-    ],
+      {
+        id: "com.flickertalk.game.chess",
+        name: "Chess",
+        version: "1.0.0",
+        summary: "Chess for two, move by move.",
+        size: 412_000,
+        carried: false,
+        kind: "game",
+        locales: { es: { name: "Ajedrez", summary: "Ajedrez para dos, jugada a jugada." } },
+      },
+    ] as Array<Record<string, unknown> & { id: string; name: string; version: string; kind: string }>,
     nextSession: 1,
     // Circles (2026-09-27): one of Bob and me, made by me.
     circles: [
@@ -149,6 +160,7 @@ export function installFakeCore() {
     video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
   };
   const flag = (name: string) => Boolean((window as unknown as Record<string, unknown>)[name]);
+  const catalogue = () => [...state.catalogue, ...(((window as unknown as Record<string, unknown>).__ftFakeCatalogue as typeof state.catalogue) ?? [])];
   const NATIVE_CALL = "call-e2e";
   const callEvent = (payload: Record<string, unknown>) =>
     emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
@@ -295,10 +307,10 @@ export function installFakeCore() {
         return JSON.parse(JSON.stringify(state.plugins));
       }
       case "core_catalogue":
-        return state.catalogue.map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
+        return catalogue().map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
       case "core_plugin_add": {
         if (flag("__ftFakeInstallFails")) throw new Error("the catalogue could not be reached");
-        const entry = state.catalogue.find((one) => one.id === a.plugin);
+        const entry = catalogue().find((one) => one.id === a.plugin);
         if (!entry) throw new Error("that tool is not offered here");
         if (!state.plugins.some((p) => p.id === entry.id)) {
           state.plugins.push({
