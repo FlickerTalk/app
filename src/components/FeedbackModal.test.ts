@@ -1,11 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonTextarea } from "@ionic/vue";
 import FeedbackModal from "./FeedbackModal.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
-
-vi.mock("vue-router", () => ({ useRouter: () => ({ back: vi.fn() }) }));
 
 /** The router answers every suggestion with `word`, as the core says it. */
 function answering(word: string) {
@@ -22,10 +20,27 @@ async function write(wrapper: ReturnType<typeof mount>, text: string) {
 
 const sends = () => calls.filter(([command]) => command === "core_send_feedback");
 
-// 2026-10-02: an anonymous suggestion, mailed on by the router. The page says "sent" only when the
-// router took it, and never loses what was written when it did not.
+// 2026-10-02: an anonymous suggestion, mailed on by the router. The modal says "sent" only when the
+// router took it, and never loses what was written when it did not. Ioan (2026-10-02): a modal over
+// Settings, not a page; it opens and closes like the app's other sheets.
 describe("FeedbackModal", () => {
   beforeEach(() => seed());
+
+  it("is a dialog named by its title, with a way out", async () => {
+    const wrapper = mount(FeedbackModal, { shallow: true });
+    expect(wrapper.find("[role='dialog']").attributes("aria-label")).toBe("Suggest something");
+    expect(wrapper.find("h2").text()).toBe("Suggest something");
+    const close = wrapper.find("[data-test='feedback-close']");
+    expect(close.attributes("aria-label")).toBe("Close");
+    await close.trigger("click");
+    expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  it("goes away when the user taps outside it", async () => {
+    const wrapper = mount(FeedbackModal, { shallow: true });
+    await wrapper.find("[data-test='feedback-modal']").trigger("click");
+    expect(wrapper.emitted("close")).toHaveLength(1);
+  });
 
   it("always says the suggestion goes without a name and cannot be answered", () => {
     expect(mount(FeedbackModal, { shallow: true }).find("[data-test='hint']").text()).toBe(
@@ -36,11 +51,11 @@ describe("FeedbackModal", () => {
   it("cannot send nothing, nor only spaces", async () => {
     const wrapper = mount(FeedbackModal, { shallow: true });
     const button = () => wrapper.find("[data-test='send']");
-    expect(button().attributes("disabled")).toBe("true");
+    expect(button().attributes("disabled")).toBeDefined();
     await write(wrapper, "   \n ");
-    expect(button().attributes("disabled")).toBe("true");
+    expect(button().attributes("disabled")).toBeDefined();
     await write(wrapper, "Stickers");
-    expect(button().attributes("disabled")).toBe("false");
+    expect(button().attributes("disabled")).toBeUndefined();
   });
 
   it("counts what is written, up to 2000", async () => {
@@ -94,7 +109,7 @@ describe("FeedbackModal", () => {
     await wrapper.find("[data-test='send']").trigger("click");
     await flushPromises();
     expect(sends()).toHaveLength(1);
-    expect(wrapper.find("[data-test='send']").attributes("disabled")).toBe("true");
+    expect(wrapper.find("[data-test='send']").attributes("disabled")).toBeDefined();
     expect(wrapper.find("[data-test='outcome']").exists()).toBe(false);
     answer("sent");
     await flushPromises();
