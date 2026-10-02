@@ -151,9 +151,10 @@ describe("SettingsPage", () => {
     expect(select?.attributes("value")).toBe(String(10 * 1024 * 1024));
     expect(select?.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual([
       "Always ask",
-      "Up to 10 MB",
-      "Up to 105 MB",
-      "Up to 1.1 GB",
+      // A no-break space keeps the number with its unit when the value wraps ("Bis 10 / MB").
+      "Up to 10\u00a0MB",
+      "Up to 105\u00a0MB",
+      "Up to 1.1\u00a0GB",
       "Always",
     ]);
     select?.vm.$emit("ionChange", { detail: { value: 0 } });
