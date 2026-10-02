@@ -455,12 +455,13 @@ function open() {
 .is-theirs .ft-bubble {
   background: var(--ft-surface-2);
   color: var(--ft-text);
-  border-bottom-left-radius: 6px;
+  /* The tail: the outer bottom corner, at the start of the line (the right in Arabic). */
+  border-end-start-radius: 6px;
 }
 .is-mine .ft-bubble {
   background: linear-gradient(135deg, var(--ft-accent), var(--ft-accent-2));
   color: var(--ft-on-accent);
-  border-bottom-right-radius: 6px;
+  border-end-end-radius: 6px;
   box-shadow: 0 8px 20px -12px var(--ft-glow);
 }
 .is-pending .ft-bubble {
@@ -618,10 +619,10 @@ function open() {
   background: var(--ft-surface-2);
 }
 .is-mine .ft-media {
-  border-bottom-right-radius: 6px;
+  border-end-end-radius: 6px;
 }
 .is-theirs .ft-media {
-  border-bottom-left-radius: 6px;
+  border-end-start-radius: 6px;
 }
 .ft-media.is-usable {
   cursor: pointer;
@@ -681,7 +682,7 @@ function open() {
   backdrop-filter: blur(6px);
 }
 .ft-media__failed {
-  left: 10px;
+  inset-inline-start: 10px;
   color: #ffb4a8;
 }
 /* A4: a file that waits for the user shows its size and a way to ask for it. */
@@ -715,14 +716,14 @@ function open() {
   font-size: 18px;
 }
 .ft-bubble.is-media .ft-bubble__meta {
-  right: 10px;
+  inset-inline-end: 10px;
   margin: 0;
   opacity: 1;
 }
 .ft-media__save {
   position: absolute;
   top: 8px;
-  right: 8px;
+  inset-inline-end: 8px;
   display: grid;
   place-items: center;
   width: 34px;
@@ -789,7 +790,7 @@ function open() {
 .ft-voice__meta {
   min-width: 34px;
   font-size: 12px;
-  text-align: right;
+  text-align: end;
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
 }

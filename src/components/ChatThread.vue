@@ -1278,7 +1278,7 @@ watch(
   flex-shrink: 0;
 }
 .ft-attach__list {
-  left: 0;
+  inset-inline-start: 0;
   z-index: 3;
 }
 .ft-attach ion-fab-list ion-fab-button {
