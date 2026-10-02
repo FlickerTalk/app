@@ -133,6 +133,17 @@ impl Signalled {
     }
 }
 
+/// What became of a suggestion sent from the app (2026-10-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Feedback {
+    /// The router's mail server took it (204).
+    Sent,
+    /// This device, or everybody together, sent as many as the router takes in a day (429).
+    TooMany,
+    /// Anything else: no network, mail down, an invalid body, a router without the endpoint.
+    Failed,
+}
+
 pub struct RouterClient {
     base: String,
     http: reqwest::Client,
@@ -366,6 +377,19 @@ impl RouterClient {
         match response.status() {
             StatusCode::NO_CONTENT | StatusCode::NOT_FOUND => Ok(()),
             status => bail!("the router refused the acknowledgement: {status}"),
+        }
+    }
+
+    /// Sends a suggestion to the project's mailbox through the router (2026-10-02). It is signed
+    /// like every request, so the router can limit how many each device sends; the mail it sends
+    /// on carries the text, `app` (the app's version) and `platform`, and nothing that names us.
+    pub async fn feedback(&self, text: &str, app: &str, platform: &str) -> Feedback {
+        let body = json!({ "text": text, "app": app, "platform": platform });
+        let Ok(body) = serde_json::to_vec(&body) else { return Feedback::Failed };
+        match self.signed(Method::POST, "/v1/feedback", body).await.map(|response| response.status()) {
+            Ok(StatusCode::NO_CONTENT) => Feedback::Sent,
+            Ok(StatusCode::TOO_MANY_REQUESTS) => Feedback::TooMany,
+            _ => Feedback::Failed,
         }
     }
 
