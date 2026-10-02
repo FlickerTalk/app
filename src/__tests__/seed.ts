@@ -28,6 +28,7 @@ export function seed(): void {
         (message): ChatMessage => ({
           ...message,
           text: message.text ?? "",
+          sentAt: at(message.time),
           status: message.status as Status,
           kind: message.kind === "file" ? "file" : undefined,
           file: message.file && { ...message.file, mime: (message.file as { mime?: string }).mime ?? "", state: message.file.state as FileState },

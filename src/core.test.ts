@@ -70,8 +70,8 @@ describe("core bridge", () => {
     await core.loadMessages("ft_bob");
     expect(tauri.invoke).toHaveBeenCalledWith("core_messages", { contact: "ft_bob", limit: 200 });
     expect(core.chat("ft_bob")?.messages).toEqual([
-      { id: "m1", mine: false, text: "hi", time: "09:30", status: "delivered" },
-      { id: "m2", mine: true, text: "see you", time: "09:41", status: "delivered" },
+      { id: "m1", mine: false, text: "hi", time: "09:30", sentAt: at(9, 30), status: "delivered" },
+      { id: "m2", mine: true, text: "see you", time: "09:41", sentAt: at(9, 41), status: "delivered" },
     ]);
   });
 
