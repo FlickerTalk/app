@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "Bir şey önerin"
   },
   "hours": {
     "title": "Saatler",
@@ -429,5 +430,14 @@
     "offline": "Şu anda eklenecek oyun yok. Bağlantınızı kontrol edip tekrar deneyin.",
     "installFailed": "Oyun yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
     "live": "Karşı tarafın telefonundaki aynı oyunla konuşmak"
+  },
+  "feedback": {
+    "title": "Bir şey önerin",
+    "placeholder": "FlickerTalk'ta neler olsun istersiniz?",
+    "hint": "Öneriniz bize adınız ya da herhangi bir tanımlayıcı olmadan ulaşır. Size yanıt veremeyiz. Kişisel veri yazmayın.",
+    "send": "Gönder",
+    "sent": "Gönderildi. Teşekkürler",
+    "tooMany": "Bugün zaten birkaç tane gönderdiniz. Yarın tekrar deneyin",
+    "failed": "Gönderilemedi. Daha sonra tekrar deneyin"
   }
 }

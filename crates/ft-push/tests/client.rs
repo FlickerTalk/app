@@ -15,7 +15,7 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 use ft_identity::Identity;
-use ft_push::{canonical, MailboxRejected, RouterClient, RouterEvent, Signalled, Signer};
+use ft_push::{canonical, Feedback, MailboxRejected, RouterClient, RouterEvent, Signalled, Signer};
 use serde_json::{json, Value};
 
 /// The device identity, exactly as the app signs (vodozemac).
@@ -48,6 +48,10 @@ struct Seen {
     key: Mutex<Option<[u8; 32]>>,
     push: Mutex<Vec<Value>>,
     registration: Mutex<Option<Value>>,
+    /// The suggestions whose signature checked out.
+    feedback: Mutex<Vec<Value>>,
+    /// What the router answers a suggestion with; 204 unless a test says otherwise.
+    feedback_answer: Mutex<Option<StatusCode>>,
 }
 
 /// Checks the signature headers the way ft-router does, with ed25519-dalek.
@@ -122,6 +126,17 @@ async fn fake_router() -> (String, Arc<Seen>) {
                 }
             })
             .delete(|| async { StatusCode::NO_CONTENT }),
+        )
+        .route(
+            "/v1/feedback",
+            post(|State(seen): State<Arc<Seen>>, headers: HeaderMap, body: Bytes| async move {
+                let key = seen.key.lock().unwrap().expect("registered first");
+                if !check(&key, "POST", "/v1/feedback", &headers, &body) {
+                    return StatusCode::UNAUTHORIZED;
+                }
+                seen.feedback.lock().unwrap().push(serde_json::from_slice(&body).unwrap());
+                seen.feedback_answer.lock().unwrap().unwrap_or(StatusCode::NO_CONTENT)
+            }),
         )
         .with_state(seen.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -239,6 +254,42 @@ async fn only_a_refused_recipient_is_a_rejection() {
     let unreachable = RouterClient::new("http://127.0.0.1:9", device()).expect("client");
     let offline = unreachable.deposit("ft_bob", &[1; 32], b"sealed".to_vec()).await.expect_err("no network");
     assert!(offline.downcast_ref::<MailboxRejected>().is_none());
+}
+
+// A suggestion from the app (2026-10-02): signed like every request, with the text, the app's
+// version and the platform, and nothing else; the router mails it on and keeps nothing.
+#[tokio::test]
+async fn a_suggestion_goes_signed_with_the_text_the_version_and_the_platform() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0).await.expect("registers");
+    assert_eq!(client.feedback("Dark mode for the map, please", "1.3.0", "android").await, Feedback::Sent);
+    assert_eq!(
+        seen.feedback.lock().unwrap().as_slice(),
+        [json!({ "text": "Dark mode for the map, please", "app": "1.3.0", "platform": "android" })]
+    );
+}
+
+// Only a 204 is a suggestion that went: the mail server took it. A 429 is the day's limit; the
+// rest (mail down, an invalid body, a router without the endpoint, no network) is a failure.
+#[tokio::test]
+async fn a_suggestion_tells_sent_too_many_and_failed_apart() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0).await.expect("registers");
+    for (answer, outcome) in [
+        (StatusCode::NO_CONTENT, Feedback::Sent),
+        (StatusCode::TOO_MANY_REQUESTS, Feedback::TooMany),
+        (StatusCode::SERVICE_UNAVAILABLE, Feedback::Failed),
+        (StatusCode::BAD_REQUEST, Feedback::Failed),
+        (StatusCode::NOT_FOUND, Feedback::Failed),
+        (StatusCode::OK, Feedback::Failed),
+    ] {
+        *seen.feedback_answer.lock().unwrap() = Some(answer);
+        assert_eq!(client.feedback("an idea", "1.3.0", "ios").await, outcome, "{answer}");
+    }
+    let unreachable = RouterClient::new("http://127.0.0.1:9", device()).expect("client");
+    assert_eq!(unreachable.feedback("an idea", "1.3.0", "ios").await, Feedback::Failed);
 }
 
 /// Against the real router: `cargo test -p ft-push -- --ignored`.

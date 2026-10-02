@@ -128,7 +128,7 @@ pub trait Transport: Send + Sync {
 pub use calls::CallUpdate;
 pub use native_calls::{CallPhase, CurrentCall, VideoDetach};
 pub use files::MAX_FILE_SIZE;
-pub use ft_push::{MailboxRejected, RouterClient, TurnGrant};
+pub use ft_push::{Feedback, MailboxRejected, RouterClient, TurnGrant};
 
 /// What the UI listens to, to refresh itself.
 #[derive(Debug, Clone, PartialEq, Eq)]

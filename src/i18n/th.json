@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "เสนอแนะ"
   },
   "hours": {
     "title": "ช่วงเวลา",
@@ -429,5 +430,14 @@
     "offline": "ตอนนี้ยังไม่มีเกมให้เพิ่ม ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",
     "installFailed": "ติดตั้งเกมไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",
     "live": "คุยกับเกมเดียวกันในโทรศัพท์ของอีกฝ่าย"
+  },
+  "feedback": {
+    "title": "เสนอแนะ",
+    "placeholder": "คุณอยากให้ FlickerTalk มีอะไรบ้าง",
+    "hint": "ข้อเสนอแนะจะถึงเราโดยไม่มีชื่อของคุณหรือตัวระบุใด ๆ เราไม่สามารถตอบกลับได้ อย่าเขียนข้อมูลส่วนตัว",
+    "send": "ส่ง",
+    "sent": "ส่งแล้ว ขอบคุณ",
+    "tooMany": "วันนี้คุณส่งไปหลายครั้งแล้ว ลองใหม่พรุ่งนี้",
+    "failed": "ส่งไม่ได้ ลองใหม่ภายหลัง"
   }
 }

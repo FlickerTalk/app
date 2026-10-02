@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "提案する"
   },
   "hours": {
     "title": "時間帯",
@@ -429,5 +430,14 @@
     "offline": "今は追加できるゲームがありません。接続を確認して、もう一度お試しください。",
     "installFailed": "ゲームをインストールできませんでした。接続を確認して、もう一度お試しください。",
     "live": "相手の端末にある同じゲームと通信する"
+  },
+  "feedback": {
+    "title": "提案する",
+    "placeholder": "FlickerTalk にどんな機能があったらいいですか？",
+    "hint": "提案は、あなたの名前や識別子なしで届きます。返信はできません。個人情報は書かないでください。",
+    "send": "送信",
+    "sent": "送信しました。ありがとうございます",
+    "tooMany": "今日はすでに何件か送信済みです。明日もう一度お試しください",
+    "failed": "送信できませんでした。しばらくしてからもう一度お試しください"
   }
 }
