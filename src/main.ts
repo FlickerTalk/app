@@ -1,5 +1,5 @@
 import { createApp } from "vue";
-import { IonicVue } from "@ionic/vue";
+import { IonicVue, isPlatform } from "@ionic/vue";
 import App from "./App.vue";
 import { router } from "./router";
 
@@ -16,7 +16,8 @@ import "@ionic/vue/css/text-alignment.css";
 import "./theme/variables.css";
 import "./theme/base.css";
 import { initTheme } from "./theme";
-import { i18n, pickLocale, setLocale } from "./i18n";
+import { i18n, pickLocale, setLocale, t } from "./i18n";
+import { ionicConfig } from "./ionic";
 import { enablePush, start } from "./core";
 import { isOnboarded } from "./preferences";
 import { loadHistory, startCalls } from "./calls";
@@ -27,7 +28,7 @@ initTheme();
 // The app is as tall as what the on-screen keyboard leaves visible (viewport.ts, theme/base.css).
 startViewportFit(window, document.documentElement);
 
-const app = createApp(App).use(IonicVue).use(i18n).use(router);
+const app = createApp(App).use(i18n).use(router);
 
 // The Rust core opens the identity and the local history before the first screen; without it
 // (a plain browser during development) the UI still starts, empty.
@@ -41,5 +42,7 @@ const ready = start().then(async () => {
 // The texts follow the phone's language; the catalogue loads before the first screen.
 const language = setLocale(pickLocale(navigator.languages ?? [navigator.language]));
 Promise.allSettled([ready, language, router.isReady()]).then(() => {
+  // Ionic reads its settings when installed, so it waits for the texts (the back button's word).
+  app.use(IonicVue, ionicConfig(t("common.back"), isPlatform("ios")));
   app.mount("#app");
 });
