@@ -3785,6 +3785,30 @@ mod tests {
         assert!(total <= SEEDS_LIMIT, "the seeds weigh {total} bytes, which is no longer little");
     }
 
+    /// 2026-10-02 (the catalogue's translations): a phone without network, and every iPhone, only
+    /// has the seeds, so each one carries its name and summary in the app's 20 other languages,
+    /// the same as its catalogue entry. Markdown and PDF are formats: they keep their English name.
+    #[test]
+    fn every_seed_speaks_the_app_s_languages() {
+        const LANGUAGES: [&str; 20] =
+            ["es", "pt", "fr", "de", "it", "ro", "ru", "uk", "pl", "tr", "ar", "hi", "bn", "id", "vi", "th", "ja", "ko", "zh-CN", "zh-TW"];
+        const KEEP_THEIR_NAME: [&str; 2] = ["com.flickertalk.markdown", "com.flickertalk.pdf"];
+        for package in BUNDLED_PLUGINS {
+            let manifest = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is signed for us").manifest;
+            let mut codes: Vec<&str> = manifest.locales.keys().map(String::as_str).collect();
+            let mut wanted = LANGUAGES.to_vec();
+            codes.sort_unstable();
+            wanted.sort_unstable();
+            assert_eq!(codes, wanted, "{} speaks the app's languages", manifest.id);
+            for code in LANGUAGES {
+                let said = &manifest.locales[code];
+                assert!(said.summary.as_deref().is_some_and(|summary| !summary.trim().is_empty()), "{} has no summary in {code}", manifest.id);
+                let named = said.name.as_deref().is_some_and(|name| !name.trim().is_empty());
+                assert_eq!(named, !KEEP_THEIR_NAME.contains(&manifest.id.as_str()), "{}: its name in {code}", manifest.id);
+            }
+        }
+    }
+
     fn entry(id: &str, version: &str) -> ft_plugins::CatalogueEntry {
         ft_plugins::CatalogueEntry {
             id: id.to_owned(),
