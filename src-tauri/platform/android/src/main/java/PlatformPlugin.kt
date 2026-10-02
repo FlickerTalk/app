@@ -10,6 +10,8 @@ import android.media.AudioFocusRequest
 import android.view.WindowManager
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
+import androidx.core.view.WindowCompat
+import android.graphics.Color
 import app.tauri.PermissionState
 import app.tauri.annotation.Permission
 import app.tauri.annotation.PermissionCallback
@@ -1120,6 +1122,11 @@ class OutgoingArgs {
 }
 
 @InvokeArg
+class SystemBarsArgs {
+    var dark: Boolean = true
+}
+
+@InvokeArg
 class SpeakerArgs {
     var on: Boolean = false
 }
@@ -1155,6 +1162,22 @@ fun pickedMime(mime: String?): String = mime?.trim()?.takeIf { it.isNotEmpty() }
 
 /** The text for the share sheet, or null when there is nothing to share. */
 fun shareableText(text: String): String? = text.trim().ifEmpty { null }
+
+/** androidx's dark scrim, behind light navigation icons that cannot turn dark (before Android 8). */
+val NAVIGATION_SCRIM: Int = 0x801B1B1B.toInt()
+
+/** How the system bars look over the app: dark icons or light, and the navigation bar's colour. */
+data class SystemBarsLook(val darkIcons: Boolean, val navigationBarColor: Int)
+
+/**
+ * The system bars for the app's appearance (2026-10-02): the app is dark by default whatever the
+ * system's theme, so the icons follow the app. Both bars stay see-through (MainActivity), over the
+ * app's header and the strip it paints under the navigation bar.
+ */
+fun systemBarsLook(dark: Boolean, sdk: Int): SystemBarsLook = SystemBarsLook(
+    darkIcons = !dark,
+    navigationBarColor = if (!dark && sdk < Build.VERSION_CODES.O) NAVIGATION_SCRIM else Color.TRANSPARENT,
+)
 
 /** The yearly subscription, as it is named in the Play Console (§40-42). */
 const val YEARLY = "yearly"
@@ -1393,6 +1416,25 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         activity.runOnUiThread { InCall.end(activity) }
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = false))
         invoke.resolve()
+    }
+
+    /** The system bars' icons, as the app's appearance asks (2026-10-02); see `systemBarsLook`. */
+    @Command
+    fun setSystemBars(invoke: Invoke) {
+        val args = invoke.parseArgs(SystemBarsArgs::class.java)
+        val look = systemBarsLook(args.dark, Build.VERSION.SDK_INT)
+        activity.runOnUiThread {
+            val window = activity.window
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = look.darkIcons
+                isAppearanceLightNavigationBars = look.darkIcons
+            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = look.navigationBarColor
+            }
+            invoke.resolve()
+        }
     }
 
     /** Speaker or earpiece for the call (2026-09-28). */

@@ -579,4 +579,19 @@ class PlatformPluginTest {
         assertFalse(refusalCancels(coreRinging = true, inCall = false))
         assertFalse(refusalCancels(coreRinging = false, inCall = true))
     }
+
+    // 2026-10-02: the system bars' icons follow the app's appearance, not the system's: light on
+    // the dark app, dark on the light one. Before Android 8 the navigation bar's icons cannot be
+    // dark, so on the light app the bar gets a dark scrim behind its light ones; otherwise it
+    // stays see-through over the app's own strip.
+    @Test
+    fun theSystemBarsFollowTheAppsAppearance() {
+        assertEquals(SystemBarsLook(darkIcons = false, navigationBarColor = 0), systemBarsLook(dark = true, sdk = 33))
+        assertEquals(SystemBarsLook(darkIcons = true, navigationBarColor = 0), systemBarsLook(dark = false, sdk = 33))
+        assertEquals(SystemBarsLook(darkIcons = true, navigationBarColor = 0), systemBarsLook(dark = false, sdk = 26))
+        assertEquals(SystemBarsLook(darkIcons = true, navigationBarColor = NAVIGATION_SCRIM), systemBarsLook(dark = false, sdk = 25))
+        assertEquals(SystemBarsLook(darkIcons = false, navigationBarColor = 0), systemBarsLook(dark = true, sdk = 24))
+        // androidx's own dark scrim (`SystemBarStyle.auto`), half-transparent.
+        assertEquals(0x801B1B1B.toInt(), NAVIGATION_SCRIM)
+    }
 }
