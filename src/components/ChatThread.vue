@@ -1062,6 +1062,9 @@ watch(
   place-items: end center;
   padding: var(--ft-space-4);
   padding-bottom: calc(var(--ft-space-4) + 72px);
+  /* Clear of the side insets (a phone held sideways), which are physical. */
+  padding-left: calc(var(--ft-space-4) + var(--ion-safe-area-left, 0px));
+  padding-right: calc(var(--ft-space-4) + var(--ion-safe-area-right, 0px));
   background: rgba(0, 0, 0, 0.25);
 }
 .ft-actions__bar {
@@ -1180,18 +1183,13 @@ watch(
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The game keeps clear of the side insets (a phone held sideways); its bar does by itself. */
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
 }
 
 .ft-thread__content {
   --background: var(--ft-bg);
-  /* Clear of the side insets (a phone held sideways), as Ionic's toolbars keep themselves. The
-     insets are physical and these paddings logical, so they swap in a right-to-left language. */
-  --padding-start: var(--ion-safe-area-left, 0px);
-  --padding-end: var(--ion-safe-area-right, 0px);
-}
-[dir="rtl"] .ft-thread__content {
-  --padding-start: var(--ion-safe-area-right, 0px);
-  --padding-end: var(--ion-safe-area-left, 0px);
 }
 .ft-app {
   position: fixed;
@@ -1267,9 +1265,7 @@ watch(
 }
 
 .ft-composer {
-  /* The side insets are physical (a phone held sideways), so are their paddings. */
-  padding: 6px calc(8px + var(--ion-safe-area-right, 0px)) calc(8px + var(--ion-safe-area-bottom, 0px))
-    calc(8px + var(--ion-safe-area-left, 0px));
+  padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
   background: var(--ft-bg);
 }
 .ft-composer__row {
