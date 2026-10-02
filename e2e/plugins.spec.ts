@@ -240,6 +240,30 @@ test("a plugin says goodbye to its twin when Android's Back closes it, and the c
   await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
 });
 
+// One press closes the plugin, and only that: pressed again while the plugin says goodbye (here,
+// for the whole wait), Back is still the app's, so the chat stays and the goodbye goes once.
+test("Back pressed again while a plugin says goodbye does not leave the chat", async ({ app }) => {
+  await openLiveTool(
+    app,
+    `customElements.define("ft-markdown", class extends HTMLElement {});
+    ft.onOpen(() => (window.opened = true));
+    ft.onClose(async () => {
+      await ft.live.send("Ynll");
+      await new Promise(() => {});
+    });`,
+  );
+  const press = () => app.evaluate(() => (window as unknown as { __ftFake: { back: () => boolean } }).__ftFake.back());
+  expect(await press()).toBe(true);
+  await expect.poll(() => liveSent(app)).toHaveLength(1);
+  // Still inside the wait (CLOSING_WAIT, 400 ms): the press is taken, and does nothing.
+  expect(await press()).toBe(true);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+  expect(await liveSent(app)).toEqual([{ plugin: MARKDOWN, contact: "ft_bob123456789", data: "Ynll" }]);
+  await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+  // Gone, Back is the system's again.
+  expect(await press()).toBe(false);
+});
+
 test("a game says goodbye to its twin when the game room's ✕ closes it", async ({ app }) => {
   await serveRealFrames(app, SAYS_BYE);
   await app.goto("/chat/ft_bob123456789");
