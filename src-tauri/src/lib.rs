@@ -147,6 +147,7 @@ pub fn run() {
             client::core_remind_list,
             client::core_pending_reminder,
             client::core_plugin_live_send,
+            client::core_plugin_chat,
             client::core_plugins_opening,
             client::core_read_message_file,
             client::core_vault_status,

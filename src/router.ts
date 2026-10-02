@@ -13,6 +13,8 @@ export const routes: RouteRecordRaw[] = [
       { path: "", redirect: "/tabs/chats" },
       { path: "chats", component: () => import("./views/ChatsPage.vue") },
       { path: "calls", component: () => import("./views/CallsPage.vue") },
+      // Plan 10.3 (app 1.3.0): games, where they can be downloaded; the tab is not shown on iOS.
+      { path: "games", component: () => import("./views/GamesPage.vue") },
       { path: "settings", component: () => import("./views/SettingsPage.vue") },
     ],
   },

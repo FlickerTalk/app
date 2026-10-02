@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { readCode } from "../code";
+import { formatSize } from "../core";
+import { gameIdFromText, isGame } from "../games";
 import { mapsLink, piecesOf, type Place } from "../links";
+import { installed, offered } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonIcon } from "@ionic/vue";
 import { alertCircleOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
@@ -26,14 +29,19 @@ export interface Message {
   file?: TransferredFile;
 }
 
-/** `sender`: in a circle, who said it; shown over a bubble that is not ours (2026-09-27). */
-const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string }>();
+/**
+ * `sender`: in a circle, who said it; shown over a bubble that is not ours (2026-09-27).
+ * `games`: where games are played (a conversation, on a phone that has games), an invitation to
+ * one gets a way to play it (plan 10.6).
+ */
+const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; games?: boolean }>();
 const emit = defineEmits<{
   open: [id: string];
   save: [id: string];
   download: [id: string];
   actions: [id: string];
   resend: [id: string];
+  play: [id: string];
 }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
@@ -54,6 +62,21 @@ const file = computed(() => (props.message.kind === "file" ? props.message.file 
 const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
 // Web and mail addresses are marked so they can be opened; nothing is fetched to preview them.
 const pieces = computed(() => piecesOf(props.message.text ?? ""));
+
+/**
+ * The game a text invites to (plan 10.6): only by the exact link of its page, and only a game this
+ * phone has or the signed catalogue offers. Anyone can write the text; the button only ever leads
+ * to a game of our catalogue. Nothing is fetched here: the conversation hands the catalogue over.
+ */
+const game = computed(() => {
+  if (!props.games || props.message.kind === "file") return undefined;
+  const id = gameIdFromText(props.message.text ?? "");
+  if (!id) return undefined;
+  const here = installed.value.find((one) => one.id === id && isGame(one));
+  if (here) return { id, installed: true, name: here.name, size: 0 };
+  const listed = offered.value.find((one) => one.id === id && isGame(one));
+  return listed ? { id, installed: false, name: listed.name, size: listed.size } : undefined;
+});
 
 // A long press asks for what can be done with this message; a tap does nothing of the sort.
 const LONG_PRESS = 500;
@@ -359,6 +382,18 @@ function open() {
           <template v-else>{{ piece.text }}</template>
         </template>
       </p>
+      <button
+        v-if="game"
+        type="button"
+        class="ft-play-game"
+        data-test="play-game"
+        @pointerdown.stop
+        @click.stop="emit('play', game.id)"
+      >
+        <span aria-hidden="true">🎮</span>
+        <span class="ft-play-game__label">{{ t("games.play") }}</span>
+        <span v-if="!game.installed" class="ft-play-game__meta">{{ game.name }} · {{ formatSize(game.size) }}</span>
+      </button>
 
       <span class="ft-bubble__meta">
         <span>{{ message.time }}</span>
@@ -477,6 +512,36 @@ function open() {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* Plan 10.6: the way to play a game an invitation is for, under its text. */
+.ft-play-game {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  text-align: start;
+  cursor: pointer;
+}
+.is-theirs .ft-play-game {
+  background: var(--ft-surface);
+  color: var(--ft-accent);
+}
+.ft-play-game__label {
+  font-weight: 600;
+}
+.ft-play-game__meta {
+  margin-inline-start: auto;
+  font-size: 12px;
+  opacity: 0.8;
 }
 
 /* A place (2026-10-02): a card with the pin, the word and how far off it may be; no map. */

@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "Discussions",
     "calls": "Appels",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "games": "Jeux"
   },
   "chats": {
     "empty": "Aucune discussion",
@@ -409,5 +410,24 @@
     "working": "En cours…",
     "failed": "Un problème est survenu : {error}",
     "sees": "Votre cloud voit combien de fichiers scellés il y a, leur taille et leurs dates. Jamais leurs noms ni leur contenu."
+  },
+  "games": {
+    "mine": "Mes jeux",
+    "more": "Plus de jeux",
+    "install": "Installer",
+    "remove": "Retirer",
+    "removeWarning": "Le retirer supprime ses parties enregistrées sur ce téléphone.",
+    "play": "Jouer",
+    "pickContact": "Jouer avec",
+    "noContacts": "Ajoutez un contact pour jouer",
+    "invite": "Inviter",
+    "inviteText": "🎮 On joue à {game} ? {url}",
+    "installAndPlay": "Installer et jouer",
+    "permissionsBody": "Ce jeu communique avec le téléphone de l’autre personne et peut laisser le résultat dans la conversation.",
+    "permissionsAllow": "Autoriser et jouer",
+    "none": "Aucun jeu",
+    "offline": "Aucun jeu à ajouter pour le moment. Vérifiez votre connexion et réessayez.",
+    "installFailed": "Impossible d’installer le jeu. Vérifiez votre connexion et réessayez.",
+    "live": "Communiquer avec le même jeu sur le téléphone de l’autre personne"
   }
 }

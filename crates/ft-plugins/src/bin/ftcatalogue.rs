@@ -11,7 +11,9 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use ft_plugins::packing::{files_of, key_from, plugin_folders};
-use ft_plugins::{open, sign_package, CatalogueEntry, Manifest, INDEX, LEGACY_CORE, LEGACY_INDEX};
+use ft_plugins::{
+    open, sign_package, version_at_least, CatalogueEntry, Kind, Manifest, GAMES_SINCE, INDEX, LEGACY_CORE, LEGACY_INDEX,
+};
 use vodozemac::Ed25519SecretKey;
 
 /// Where the catalogue is served from, unless another is asked for.
@@ -28,6 +30,7 @@ fn entry_of(manifest: &Manifest, package: &[u8], base: &str) -> CatalogueEntry {
         size: package.len() as u64,
         hash: blake3::hash(package).to_hex().to_string(),
         summary: manifest.summary.clone(),
+        kind: manifest.kind,
     }
 }
 
@@ -48,6 +51,10 @@ fn build(dir: &Path, out: &Path, key: &Ed25519SecretKey, base: &str) -> Result<V
         let package = sign_package(&files, key);
         // Never list a package we could not open ourselves.
         let plugin = open(&package, &key.public_key()).with_context(|| format!("{}", folder.display()))?;
+        // An app older than games would show one as a tool: it must never be offered there.
+        if plugin.manifest.kind == Kind::Game && !version_at_least(&plugin.manifest.min_core_version, GAMES_SINCE) {
+            bail!("{}: a game needs minCoreVersion {GAMES_SINCE} or newer", folder.display());
+        }
         let entry = entry_of(&plugin.manifest, &package, base);
         let home = out.join(&plugin.manifest.id);
         std::fs::create_dir_all(&home)?;
@@ -156,6 +163,62 @@ mod tests {
         };
         assert_eq!(listed(ft_plugins::LEGACY_INDEX), ["com.flickertalk.sketch"], "1.0.0 is offered only what runs there");
         assert_eq!(listed(ft_plugins::INDEX), ["com.flickertalk.notes", "com.flickertalk.sketch"]);
+    }
+
+    fn a_game_for(dir: &Path, id: &str, min_core: &str) {
+        std::fs::create_dir_all(dir.join("dist")).unwrap();
+        std::fs::write(
+            dir.join("module.json"),
+            format!(
+                r#"{{"id":"{id}","name":"Chess","version":"1.0.0","minCoreVersion":"{min_core}","components":["ft-chess"],"kind":"game","permissions":{{"live":true,"send":"propose"}},"summary":"Chess with a contact."}}"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("dist/index.js"), b"export const move = 1;\n").unwrap();
+    }
+
+    // 2026-10-02 (plan of the games, 10.1): the index says what is a game, so the app shows it
+    // under the games and not with the tools. A tool says so too.
+    #[test]
+    fn the_index_says_which_plugins_are_games() {
+        let home = std::env::temp_dir().join(format!("ftcat-{}", blake3::hash(b"kinds").to_hex()));
+        let _ = std::fs::remove_dir_all(&home);
+        a_plugin(&home.join("src/sketch"), "com.flickertalk.sketch");
+        a_game_for(&home.join("src/chess"), "com.flickertalk.game.chess", ft_plugins::GAMES_SINCE);
+        let key = Ed25519SecretKey::new();
+        build(&home.join("src"), &home.join("site"), &key, BASE).unwrap();
+
+        let index = std::fs::read_to_string(home.join("site").join(INDEX)).unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&index).unwrap();
+        let kinds: Vec<(&str, &str)> = raw["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| (entry["id"].as_str().unwrap(), entry["kind"].as_str().unwrap_or("missing")))
+            .collect();
+        assert_eq!(kinds, [("com.flickertalk.game.chess", "game"), ("com.flickertalk.sketch", "tool")]);
+    }
+
+    // The app 1.0.0 reads index.json and the apps 1.1 and 1.2 read catalogue.json, and none of
+    // them knows what a game is: each would show one as a tool. So a game asks for the core that
+    // brought games, or it is not published, and index.json never lists one.
+    #[test]
+    fn a_game_reaches_only_the_apps_that_know_games() {
+        let home = std::env::temp_dir().join(format!("ftcat-{}", blake3::hash(b"games for old apps").to_hex()));
+        let _ = std::fs::remove_dir_all(&home);
+        a_game_for(&home.join("src/chess"), "com.flickertalk.game.chess", "1.0.0");
+        let key = Ed25519SecretKey::new();
+        let refused = build(&home.join("src"), &home.join("site"), &key, BASE);
+        assert!(refused.is_err(), "a game for a core without games is not published");
+        assert!(!home.join("site").join(LEGACY_INDEX).exists(), "and nothing is written");
+
+        a_game_for(&home.join("src/chess"), "com.flickertalk.game.chess", ft_plugins::GAMES_SINCE);
+        a_plugin(&home.join("src/sketch"), "com.flickertalk.sketch");
+        build(&home.join("src"), &home.join("site"), &key, BASE).unwrap();
+        let legacy = std::fs::read_to_string(home.join("site").join(LEGACY_INDEX)).unwrap();
+        let signature = std::fs::read_to_string(home.join("site").join(format!("{LEGACY_INDEX}.sig"))).unwrap();
+        let listed = catalogue_entries(&legacy, &signature, &key.public_key()).unwrap();
+        assert_eq!(listed.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), ["com.flickertalk.sketch"]);
     }
 
     #[test]

@@ -3,9 +3,10 @@
  * own scheme, with the policy its permissions allow, and only ever sees the text the user hands
  * it. It never touches the app's window, its storage or its keys.
  */
-import { shallowRef } from "vue";
+import { computed, shallowRef } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { plugins, type PluginView } from "./core";
+import { offeredPlugins, plugins, type OfferedPlugin, type PluginView } from "./core";
+import { isGame } from "./games";
 
 /**
  * Where the frame of a plugin lives; never the app's own origin. Only the id goes through
@@ -25,6 +26,40 @@ export const installed = shallowRef<PluginView[]>([]);
 export async function refreshPlugins(): Promise<PluginView[]> {
   installed.value = await plugins().catch(() => []);
   return installed.value;
+}
+
+/**
+ * The tools of the chat and the games, apart (plan 10.3): the tools sheet, "open with" and
+ * Settings show tools only; games have their own section. Anything not marked a game is a tool.
+ */
+export const tools = computed(() => installed.value.filter((one) => !isGame(one)));
+export const games = computed(() => installed.value.filter(isGame));
+
+/**
+ * What the catalogue offers this phone, kept for every screen (plan 10.6): the games section
+ * reads it, and so does a bubble with an invitation, which must never fetch it by itself.
+ */
+export const offered = shallowRef<OfferedPlugin[]>([]);
+export const offeredGames = computed(() => offered.value.filter(isGame));
+
+/** Asks the core what the catalogue offers. On failure what was known stays, and the error goes up. */
+export async function refreshOffered(): Promise<OfferedPlugin[]> {
+  offered.value = await offeredPlugins();
+  return offered.value;
+}
+
+let asking: Promise<OfferedPlugin[]> | null = null;
+
+/**
+ * What the catalogue offers, asked only while no game is known yet, and once at a time. Offline
+ * the core answers with what the app carries, which has no game, so a later look asks again.
+ */
+export async function offeredOnce(): Promise<OfferedPlugin[]> {
+  if (offeredGames.value.length) return offered.value;
+  asking ??= refreshOffered()
+    .catch(() => offered.value)
+    .finally(() => (asking = null));
+  return asking;
 }
 
 /**
@@ -166,11 +201,12 @@ export function opensKind(opens: string[] | undefined, mime: string): boolean {
  * and were granted reading what they are handed; a file, to those that open its kind.
  */
 export function openersOf(plugins: PluginView[], message: { kind?: string; text?: string; file?: { mime?: string } }): PluginView[] {
+  const candidates = plugins.filter((one) => !isGame(one));
   if (message.kind === "file") {
     const mime = message.file?.mime || "application/octet-stream";
-    return plugins.filter((one) => opensKind(one.opens, mime));
+    return candidates.filter((one) => opensKind(one.opens, mime));
   }
-  return plugins.filter((one) => one.granted.messages && opensKind(one.opens, "text/plain"));
+  return candidates.filter((one) => one.granted.messages && opensKind(one.opens, "text/plain"));
 }
 
 /**
@@ -181,6 +217,6 @@ export function openersOf(plugins: PluginView[], message: { kind?: string; text?
 export function viewerOf(plugins: PluginView[], mime: string): PluginView | undefined {
   const kind = mime.split(";")[0].trim().toLowerCase();
   return plugins
-    .filter((one) => (one.views ?? []).includes(kind))
+    .filter((one) => !isGame(one) && (one.views ?? []).includes(kind))
     .sort((a, b) => b.installedAt - a.installedAt)[0];
 }
