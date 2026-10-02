@@ -116,7 +116,7 @@ const autoDownloadLabel = (bytes: number) =>
     ? t("settings.autoDownloadAsk")
     : bytes === Number.MAX_SAFE_INTEGER
       ? t("settings.autoDownloadAlways")
-      : t("settings.autoDownloadUpTo", { size: formatSize(bytes).replace(" ", " ") });
+      : t("settings.autoDownloadUpTo", { size: formatSize(bytes).replace(" ", "\u00a0") });
 
 async function onAutoDownloadChange(event: CustomEvent<{ value: number }>) {
   await setAutoDownload(Number(event.detail.value));
