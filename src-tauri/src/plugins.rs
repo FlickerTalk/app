@@ -264,6 +264,8 @@ addEventListener("message", (event) => {
       ref: said.ref ? String(said.ref) : null,
       reminder: said.reminder ? String(said.reminder) : null,
       live: Boolean(said.live),
+      // The chat it was opened in (2026-10-02): an opaque id, only when there is one.
+      ...(typeof said.chat === "string" ? { chat: said.chat } : {}),
     };
     for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);
@@ -410,6 +412,9 @@ mod tests {
             assert!(script.contains(given), "onOpen says nothing of {given}");
         }
         assert!(script.contains(r#"said.type === "ft.live""#));
+        // 2026-10-02: the chat it was opened in, as the core's opaque id, and only when there
+        // is one: opened from Settings, `chat` is not there at all.
+        assert!(script.contains(r#"typeof said.chat === "string" ? { chat: said.chat } : {}"#), "onOpen says nothing of chat");
         // The user's cloud, one question with an operation, never bytes.
         assert!(script.contains(r#"ask("ft.drive", { op: "list""#));
         // 2026-10-02: the phone's position, once; anything but a place comes back as null.

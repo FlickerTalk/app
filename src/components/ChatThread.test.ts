@@ -6,7 +6,7 @@ import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { chat, store } from "../core";
-import { refreshPlugins } from "../plugins";
+import { offered, refreshPlugins } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
 
@@ -293,21 +293,39 @@ describe("ChatThread", () => {
     expect(await open()).toBe("s1");
   });
 
-  // The apps button follows what is installed. Adding or removing a tool in Settings has to show
-  // up in a conversation that is already open, not only the next time it is entered.
+  // The apps follow what is installed. Adding or removing a tool in Settings has to show up in a
+  // conversation that is already open, not only the next time it is entered. Where there are no
+  // games (iOS), the button is there only with a tool to show; elsewhere it also leads to the games.
   it("notices a tool added or removed while the conversation stays open", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
-    await flushPromises();
-    expect(wrapper.find("[data-test='apps']").exists()).toBe(true);
+    const removeAll = async () => {
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        return command === "core_plugins" ? [] : undefined;
+      });
+      await refreshPlugins();
+      await flushPromises();
+    };
+    const open = async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      return wrapper;
+    };
 
+    const android = await open();
+    await android.find("[data-test='apps']").trigger("click");
+    expect(android.find("[data-test='app-com.flickertalk.code']").exists()).toBe(true);
     // The user removes it from Settings, without leaving the conversation.
-    installTauri((command, args) => {
-      calls.push([command, args]);
-      return command === "core_plugins" ? [] : undefined;
-    });
-    await refreshPlugins();
-    await flushPromises();
-    expect(wrapper.find("[data-test='apps']").exists()).toBe(false);
+    await removeAll();
+    expect(android.find("[data-test='app-com.flickertalk.code']").exists()).toBe(false);
+    expect(android.find("[data-test='apps']").exists()).toBe(true);
+
+    seed();
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)");
+    const iphone = await open();
+    expect(iphone.find("[data-test='apps']").exists()).toBe(true);
+    await removeAll();
+    expect(iphone.find("[data-test='apps']").exists()).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it("puts in the composer the text a plugin proposes", async () => {
@@ -539,6 +557,8 @@ describe("ChatThread", () => {
       expect(wrapper.findComponent(IonTextarea).exists()).toBe(false);
       expect(wrapper.find(`[aria-label='Voice call']`).exists()).toBe(false);
       expect(wrapper.find(`[aria-label='Video call']`).exists()).toBe(false);
+      // Nor the apps and games, even on a phone that can have games.
+      expect(wrapper.find("[data-test='apps']").exists()).toBe(false);
     });
 
     it("blocks only after asking once", async () => {
@@ -701,5 +721,260 @@ describe("ChatThread", () => {
     expect(scroller.scrollTop).toBe(1200);
     stop();
     document.documentElement.removeAttribute("style");
+  });
+
+  // Plan 10 (app 1.3.0): games are plugins of their own section, played inside a conversation.
+  describe("games", () => {
+    const CODE = {
+      id: "com.flickertalk.code",
+      name: "Code block",
+      version: "1.0.0",
+      asks: { network: [], messages: true, send: "nothing" },
+      granted: { network: [], messages: true, send: "nothing" },
+      installedAt: 1,
+    };
+    const CHESS = {
+      id: "com.flickertalk.game.chess",
+      name: "Chess",
+      version: "1.0.0",
+      kind: "game",
+      asks: { network: [], messages: false, send: "propose", live: true },
+      granted: { network: [], messages: false, send: "propose", live: true },
+      installedAt: 2,
+    };
+    const UNGRANTED = { ...CHESS, granted: { network: [], messages: false, send: "nothing", live: false } };
+    const GO = { id: "com.flickertalk.game.go", name: "Go", version: "1.0.0", summary: "Play go.", size: 1_200_000, installed: false, carried: false, kind: "game" };
+    const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+
+    /** The bridge: what is installed, what the catalogue offers, and the messages of the chat. */
+    function bridge({ installed = [] as unknown[], catalogue = [] as unknown[], messages = [] as unknown[], addFails = false } = {}) {
+      let list = installed as Array<Record<string, unknown>>;
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        if (command === "core_plugins") return list;
+        if (command === "core_catalogue") return catalogue;
+        if (command === "core_messages") return messages;
+        if (command === "core_plugin_add") {
+          if (addFails) throw new Error("download failed");
+          const entry = (catalogue as Array<{ id: string; name: string }>).find((one) => one.id === args?.plugin)!;
+          list = [...list, { ...UNGRANTED, id: entry.id, name: entry.name }];
+        }
+        if (command === "core_plugin_grant") list = list.map((one) => (one.id === args?.plugin ? { ...one, granted: args?.granted } : one));
+        return undefined;
+      });
+    }
+
+    const thread = async (props: Record<string, unknown> = {}) => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", ...props }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      return wrapper;
+    };
+    /** The apps button, then the Games tab of its sheet. */
+    const openGames = async (wrapper: Awaited<ReturnType<typeof thread>>) => {
+      await wrapper.find("[data-test='apps']").trigger("click");
+      await wrapper.find("[data-test='apps-tab-games']").trigger("click");
+      await flushPromises();
+    };
+    const endButtons = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.findAll(".ft-thread__bar ion-buttons[slot='end'] ion-button");
+    const selected = (wrapper: Awaited<ReturnType<typeof thread>>) =>
+      wrapper.findAll("[role='tab']").filter((tab) => tab.attributes("aria-selected") === "true").map((tab) => tab.attributes("data-test"));
+
+    beforeEach(() => {
+      offered.value = [];
+      push.mockClear();
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    // Ioan, 2026-10-03: one button, the apps, whose sheet has two tabs: the apps and the games.
+    // Three buttons in the header, so a name has room on a small phone.
+    it("has one button for the apps and the games, with a tab for each", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = await thread();
+      expect(wrapper.find("[data-test='games']").exists()).toBe(false);
+      expect(endButtons(wrapper)).toHaveLength(3);
+      await wrapper.find("[data-test='apps']").trigger("click");
+      const tabs = wrapper.findAll("[role='tablist'] [role='tab']");
+      expect(tabs.map((tab) => tab.attributes("aria-label"))).toEqual(["Plugins", "Games"]);
+      // With a tool installed it opens on the apps, and they are tools only.
+      expect(selected(wrapper)).toEqual(["apps-tab-tools"]);
+      expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
+      expect(wrapper.find(`[data-test='app-${CHESS.id}']`).exists()).toBe(false);
+      // The games tab: games only.
+      await wrapper.find("[data-test='apps-tab-games']").trigger("click");
+      expect(selected(wrapper)).toEqual(["apps-tab-games"]);
+      expect(wrapper.find("[data-test='games-sheet']").text()).toContain("Chess");
+      expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(false);
+    });
+
+    // Shown wherever games can be had, so they can be found even with nothing installed.
+    it("opens on the games when there is no tool, and is there with nothing installed", async () => {
+      bridge({ installed: [CHESS] });
+      const games = await thread();
+      await games.find("[data-test='apps']").trigger("click");
+      expect(selected(games)).toEqual(["apps-tab-games"]);
+      expect(games.find("[data-test='games-sheet']").text()).toContain("Chess");
+
+      bridge({ installed: [] });
+      const empty = await thread();
+      await empty.find("[data-test='apps']").trigger("click");
+      expect(selected(empty)).toEqual(["apps-tab-games"]);
+      expect(empty.find("[data-test='games-sheet']").text()).toContain("No games yet");
+    });
+
+    it("remembers nothing between two openings", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      await wrapper.find(".ft-apps").trigger("click");
+      expect(wrapper.find("[role='tablist']").exists()).toBe(false);
+      await wrapper.find("[data-test='apps']").trigger("click");
+      expect(selected(wrapper)).toEqual(["apps-tab-tools"]);
+    });
+
+    // No downloads on iOS, so no games: the sheet is the tools as they were, with no tabs.
+    it("has no tabs on an iPhone, and no button without a tool", async () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(IPHONE);
+      bridge({ installed: [CODE] });
+      const wrapper = await thread();
+      await wrapper.find("[data-test='apps']").trigger("click");
+      expect(wrapper.find("[role='tablist']").exists()).toBe(false);
+      expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
+      expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
+
+      bridge({ installed: [] });
+      expect((await thread()).find("[data-test='apps']").exists()).toBe(false);
+    });
+
+    it("shows the installed games, and the way to more", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      const sheet = wrapper.find("[data-test='games-sheet']");
+      expect(sheet.text()).toContain("Chess");
+      expect(sheet.text()).not.toContain("Code block");
+      await wrapper.find("[data-test='more-games-link']").trigger("click");
+      expect(push).toHaveBeenCalledWith("/tabs/games");
+    });
+
+    it("says there is no game yet, and still leads to more", async () => {
+      bridge({ installed: [CODE] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      expect(wrapper.find("[data-test='games-sheet']").text()).toContain("No games yet");
+      expect(wrapper.find("[data-test='more-games-link']").exists()).toBe(true);
+    });
+
+    // Plan 10.5: the game opens in the conversation, with the live channel to the other phone.
+    it("plays a game in this conversation, with the live channel", async () => {
+      bridge({ installed: [CHESS] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+      await flushPromises();
+      const sheet = wrapper.findComponent({ name: "PluginSheet" });
+      expect(sheet.props("plugin")).toMatchObject({ id: CHESS.id, name: "Chess" });
+      expect(sheet.props("live")).toBe(true);
+      expect(sheet.props("sending")).toBe("propose");
+      expect(sheet.props("contact")).toBe("c1");
+    });
+
+    // Plan decision 11: the first time, one sheet; refused, the game does not open.
+    it("asks first what a game needs, and opens nothing if refused", async () => {
+      bridge({ installed: [UNGRANTED] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='game-permissions']").exists()).toBe(true);
+      await wrapper.find("[data-test='game-cancel']").trigger("click");
+      await flushPromises();
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+      expect(calls.map(([command]) => command)).not.toContain("core_plugin_grant");
+
+      await openGames(wrapper);
+      await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+      await wrapper.find("[data-test='game-allow']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual([
+        "core_plugin_grant",
+        { plugin: CHESS.id, granted: { network: [], messages: false, send: "propose", live: true } },
+      ]);
+      expect(wrapper.findComponent({ name: "PluginSheet" }).props("live")).toBe(true);
+    });
+
+    // From the games tab: `/chat/<contact>?play=<id>` opens the game in that conversation.
+    it("opens the game the address asks for", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = await thread({ play: CHESS.id });
+      const sheet = wrapper.findComponent({ name: "PluginSheet" });
+      expect(sheet.props("plugin")).toMatchObject({ id: CHESS.id });
+      expect(sheet.props("live")).toBe(true);
+    });
+
+    it("asks first when the game the address asks for lacks what it needs, and never opens a tool", async () => {
+      bridge({ installed: [CODE, UNGRANTED] });
+      const asked = await thread({ play: CHESS.id });
+      expect(asked.find("[data-test='game-permissions']").exists()).toBe(true);
+      expect(asked.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+
+      const tool = await thread({ play: CODE.id });
+      expect(tool.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    });
+
+    // Plan 10.6: the invitation is a text in the composer, with the game's page; the user sends it.
+    it("leaves an invitation in the composer, without sending it", async () => {
+      bridge({ installed: [CHESS] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      await wrapper.find(`[data-test='invite-${CHESS.id}']`).trigger("click");
+      await flushPromises();
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Shall we play Chess? https://flickertalk.com/games/chess");
+      expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
+      expect(calls.map(([command]) => command)).not.toContain("core_send");
+    });
+
+    const INVITE = { id: "g1", outgoing: false, text: "🎮 Shall we play Go? https://flickertalk.com/games/go", sentAt: 0, state: "delivered" };
+
+    // Plan 10.6: a game not here yet is installed from the signed catalogue, granted and opened.
+    it("installs, grants and opens the game an invitation is for", async () => {
+      bridge({ installed: [CODE], catalogue: [GO], messages: [INVITE] });
+      const wrapper = await thread();
+      // The catalogue is read because there is an invitation, and handed to the bubbles.
+      expect(calls.filter(([command]) => command === "core_catalogue")).toHaveLength(1);
+      const bubble = wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === "g1")!;
+      expect(bubble.props("games")).toBe(true);
+      bubble.vm.$emit("play", GO.id);
+      await flushPromises();
+      const ask = wrapper.find("[data-test='game-permissions']");
+      expect(ask.text()).toContain("Go");
+      expect(ask.text()).toContain("1.2 MB");
+      await wrapper.find("[data-test='game-allow']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_plugin_add", { plugin: GO.id }]);
+      expect(calls).toContainEqual(["core_plugin_grant", { plugin: GO.id, granted: { network: [], messages: false, send: "propose", live: true } }]);
+      const sheet = wrapper.findComponent({ name: "PluginSheet" });
+      expect(sheet.props("plugin")).toMatchObject({ id: GO.id });
+      expect(sheet.props("live")).toBe(true);
+    });
+
+    it("says so when the game of an invitation cannot be installed", async () => {
+      bridge({ installed: [], catalogue: [GO], messages: [INVITE], addFails: true });
+      const wrapper = await thread();
+      wrapper.findAllComponents(MessageBubble)[0].vm.$emit("play", GO.id);
+      await flushPromises();
+      await wrapper.find("[data-test='game-allow']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[role='alert']").text()).toBe("The game could not be installed. Check your connection and try again.");
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    });
+
+    // Opening a chat does not reach the catalogue; only an invitation to an unknown game does.
+    it("does not read the catalogue for a conversation without invitations", async () => {
+      bridge({ installed: [CHESS], messages: [{ ...INVITE, text: "https://flickertalk.com/games/chess" }] });
+      await thread();
+      bridge({ installed: [CHESS], messages: [{ ...INVITE, text: "see you at six" }] });
+      await thread();
+      expect(calls.map(([command]) => command)).not.toContain("core_catalogue");
+    });
   });
 });

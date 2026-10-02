@@ -31,22 +31,39 @@ import {
   shareOutline,
   arrowRedoOutline,
   extensionPuzzleOutline,
+  gameControllerOutline,
+  mailOutline,
   openOutline,
+  play as playIcon,
   trashOutline,
   videocamOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
+import GamePermissions from "./GamePermissions.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
-import { installed, openersOf, refreshPlugins, viewerOf, type HandedFile } from "../plugins";
+import {
+  games as installedGames,
+  installed,
+  offered,
+  offeredOnce,
+  openersOf,
+  refreshPlugins,
+  tools,
+  viewerOf,
+  type HandedFile,
+} from "../plugins";
+import { gameGrant, gameIdFromText, gameUrl, gamesAvailable, isGame, needsGameGrant } from "../games";
 import {
   acceptContact,
   acceptFile,
   chat as chatOf,
   forgetMessage,
   forwardMessage,
+  grantPlugin,
+  installPlugin,
   loadMessages,
   markRead,
   openFile,
@@ -73,7 +90,11 @@ import { closeOnBackWhile } from "../back";
 import { t } from "../i18n";
 import { useStickToEnd, type Scrollable } from "../viewport";
 
-const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean }>(), { showBack: false });
+/** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
+const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string }>(), {
+  showBack: false,
+  play: undefined,
+});
 
 const chat = computed(() => chatOf(props.chatId));
 const messages = computed(() => chat.value?.messages ?? []);
@@ -282,6 +303,103 @@ function useApp(id: string) {
   plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send, live: Boolean(chosen.granted.live) };
 }
 
+// Plan 10 (app 1.3.0): games, wherever the games tab is (not on iOS). Ioan, 2026-10-03: they are
+// a tab of the apps sheet, not a button of their own, so the header keeps three buttons and a name
+// has room on a small phone. The apps button is there with a tool, or wherever games can be had,
+// so they can be found with nothing installed. A game is opened here, in this conversation, with
+// the live channel to the same game on the other phone.
+const gamesOn = gamesAvailable();
+type AppsTab = "tools" | "games";
+const appsTab = ref<AppsTab>("tools");
+const APPS_TABS = [
+  { id: "tools", icon: appsOutline, label: "plugins.title" },
+  { id: "games", icon: gameControllerOutline, label: "tabs.games" },
+] as const;
+/** The game whose permissions sheet is open (plan decision 11); `size` when it is a download. */
+const asking = ref<{ id: string; name: string; size?: number } | null>(null);
+closeOnBackWhile(() => Boolean(asking.value), () => (asking.value = null));
+
+/** The apps sheet, on the tools if there are any, otherwise on the games; nothing is remembered. */
+function openApps() {
+  appsTab.value = !gamesOn || tools.value.length ? "tools" : "games";
+  showApps.value = true;
+}
+
+function openGame(game: PluginView) {
+  plugin.value = { id: game.id, name: game.name, sending: game.granted.send, live: Boolean(game.granted.live) };
+}
+
+/**
+ * ▶️ from the games sheet, an invitation or the games tab: a game that has what it needs opens;
+ * one that does not asks first; one that is not here yet but is in the signed catalogue asks to
+ * be installed. Nothing else opens: never a tool, never something the catalogue does not list.
+ */
+function playGame(id: string) {
+  showApps.value = false;
+  composerError.value = "";
+  const here = installed.value.find((one) => one.id === id && isGame(one));
+  if (here) {
+    if (needsGameGrant(here)) asking.value = { id, name: here.name };
+    else openGame(here);
+    return;
+  }
+  const listed = offered.value.find((one) => one.id === id && isGame(one));
+  if (listed) asking.value = { id, name: listed.name, size: listed.size };
+}
+
+async function allowGame() {
+  const ask = asking.value;
+  asking.value = null;
+  if (!ask) return;
+  if (ask.size !== undefined) {
+    try {
+      await installPlugin(ask.id);
+    } catch {
+      composerError.value = t("games.installFailed");
+      return;
+    }
+  }
+  await refreshPlugins();
+  let game = installed.value.find((one) => one.id === ask.id && isGame(one));
+  if (game && needsGameGrant(game)) {
+    await grantPlugin(game.id, gameGrant(game)).catch(() => undefined);
+    await refreshPlugins();
+    game = installed.value.find((one) => one.id === ask.id && isGame(one));
+  }
+  if (game && !needsGameGrant(game)) openGame(game);
+}
+
+/** 📨 (plan 10.6): an invitation in the composer, with the game's page; the user sends it. */
+function invite(game: PluginView) {
+  const url = gameUrl(game.id);
+  showApps.value = false;
+  if (!url) return;
+  const text = t("games.inviteText", { game: game.name, url });
+  draft.value = draft.value.trim() ? `${draft.value.trimEnd()} ${text}` : text;
+}
+
+function moreGames() {
+  showApps.value = false;
+  void router.push("/tabs/games");
+}
+
+// An invitation to a game this phone does not have is matched against the signed catalogue. It is
+// read once, and only when such an invitation is here: opening a chat alone fetches nothing.
+const pluginsLoaded = ref(false);
+const invitedToUnknown = computed(
+  () =>
+    gamesOn &&
+    pluginsLoaded.value &&
+    messages.value.some((message) => {
+      if (message.kind === "file") return false;
+      const id = gameIdFromText(message.text ?? "");
+      return Boolean(id) && !installed.value.some((one) => one.id === id && isGame(one));
+    }),
+);
+watch(invitedToUnknown, (now) => {
+  if (now) void offeredOnce();
+});
+
 // 2026-09-27: "open with": a message goes to a plugin that says it opens its kind. A text only
 // to one granted to read what it is handed; a file with its bytes, once it is here whole. The
 // plugin also gets a way back to the message (`ref`) that says nothing of the contact.
@@ -384,11 +502,19 @@ async function resendMessage(id: string) {
   await resend(id).catch(() => {});
 }
 
-onMounted(() => {
-  void refreshPlugins();
+onMounted(async () => {
   // A tool installed from another window shows up here as soon as the chat comes back.
   document.addEventListener("visibilitychange", onVisible);
+  await refreshPlugins();
+  pluginsLoaded.value = true;
+  if (props.play) playGame(props.play);
 });
+watch(
+  () => props.play,
+  (id) => {
+    if (id && pluginsLoaded.value) playGame(id);
+  },
+);
 onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
 
 function onVisible() {
@@ -456,7 +582,8 @@ watch(
         >
           <Avatar :name="chat.name" :hue="chat.hue" :size="38" :connected="chat.connected" />
           <span class="ft-peer__text">
-            <span class="ft-peer__name">{{ chat.name }}</span>
+            <!-- `auto`: a name keeps its own direction, so a Latin name in Arabic is cut at its end. -->
+            <span class="ft-peer__name" dir="auto">{{ chat.name }}</span>
             <span class="ft-peer__status" :class="{ 'is-direct': chat.connected }">
               {{ chat.connected ? $t("chat.direct") : $t("chat.notConnected") }}
             </span>
@@ -469,8 +596,8 @@ watch(
           <ion-button :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
-          <!-- Issue app#3: the utilities installed on this phone. -->
-          <ion-button v-if="installed.length" data-test="apps" :aria-label="$t('plugins.title')" @click="showApps = true">
+          <!-- Issue app#3: the utilities installed on this phone and, where there are games, the games. -->
+          <ion-button v-if="tools.length || gamesOn" data-test="apps" :aria-label="$t('plugins.title')" @click="openApps">
             <ion-icon slot="icon-only" :icon="appsOutline" aria-hidden="true" />
           </ion-button>
         </ion-buttons>
@@ -501,17 +628,66 @@ watch(
       />
     </div>
 
-    <!-- The apps of this phone; each opens its own window. -->
+    <!-- The apps of this phone; each opens its own window. Where there are games, a second tab has
+         them (Ioan, 2026-10-03), as the emoji picker has its groups. -->
     <div v-if="showApps" class="ft-apps" role="dialog" :aria-label="$t('plugins.title')" @click.self="showApps = false">
-      <ul class="ft-apps__list">
-        <li v-for="one in installed" :key="one.id">
-          <button type="button" class="ft-apps__item" :data-test="`app-${one.id}`" @click="useApp(one.id)">
-            <ion-icon :icon="appsOutline" aria-hidden="true" />
-            {{ one.name }}
+      <div class="ft-apps__card">
+        <div v-if="gamesOn" class="ft-apps__tabs" role="tablist">
+          <button
+            v-for="tab in APPS_TABS"
+            :key="tab.id"
+            type="button"
+            class="ft-apps__tab"
+            :class="{ 'is-open': appsTab === tab.id }"
+            role="tab"
+            :aria-selected="appsTab === tab.id"
+            :aria-label="$t(tab.label)"
+            :data-test="`apps-tab-${tab.id}`"
+            @click="appsTab = tab.id"
+          >
+            <ion-icon :icon="tab.icon" aria-hidden="true" />
           </button>
-        </li>
-      </ul>
+        </div>
+        <ul v-if="!gamesOn || appsTab === 'tools'" class="ft-apps__list" role="tabpanel">
+          <li v-for="one in tools" :key="one.id">
+            <button type="button" class="ft-apps__item" :data-test="`app-${one.id}`" @click="useApp(one.id)">
+              <ion-icon :icon="appsOutline" aria-hidden="true" />
+              {{ one.name }}
+            </button>
+          </li>
+          <li v-if="!tools.length" class="ft-apps__empty">{{ $t("plugins.none") }}</li>
+        </ul>
+        <!-- Plan 10.4–10.6: the games of this phone; each plays here, or is offered to the contact. -->
+        <ul v-else class="ft-apps__list" data-test="games-sheet" role="tabpanel">
+          <li v-for="one in installedGames" :key="one.id" class="ft-apps__row">
+            <button type="button" class="ft-apps__item" :data-test="`game-${one.id}`" @click="playGame(one.id)">
+              <ion-icon :icon="gameControllerOutline" aria-hidden="true" />
+              <span class="ft-apps__name">{{ one.name }}</span>
+              <ion-icon :icon="playIcon" class="ft-apps__play" aria-hidden="true" />
+            </button>
+            <button
+              v-if="gameUrl(one.id)"
+              type="button"
+              class="ft-round ft-round--ghost ft-apps__invite"
+              :data-test="`invite-${one.id}`"
+              :aria-label="$t('games.invite')"
+              @click="invite(one)"
+            >
+              <ion-icon :icon="mailOutline" aria-hidden="true" />
+            </button>
+          </li>
+          <li v-if="!installedGames.length" class="ft-apps__empty">{{ $t("games.none") }}</li>
+          <li>
+            <button type="button" class="ft-apps__item ft-apps__more" data-test="more-games-link" @click="moreGames">
+              <ion-icon :icon="add" aria-hidden="true" />
+              {{ $t("games.more") }}
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
+
+    <GamePermissions v-if="asking" :name="asking.name" :size="asking.size" @allow="allowGame" @cancel="asking = null" />
 
     <ion-content ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
@@ -521,11 +697,13 @@ watch(
         :message="message"
         :saved="saved.has(message.id)"
         :folded="folded.has(message.id)"
+        :games="gamesOn"
         @open="tapFile"
         @save="save"
         @download="download"
         @actions="act"
         @resend="resendMessage"
+        @play="playGame"
       />
 
       <div class="ft-thread__end" />
@@ -796,8 +974,15 @@ watch(
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Never wider than the room the toolbar leaves between its buttons: a long name is cut with an
+     ellipsis instead of being drawn under them (seen at 360 px with four buttons, 2026-10-03). */
   min-width: 0;
+  max-width: 100%;
   padding-inline-start: 8px;
+}
+/* The avatar keeps its size; the text is what gives way. */
+.ft-peer > :first-child {
+  flex-shrink: 0;
 }
 .ft-peer.has-back {
   padding-inline-start: 0;
@@ -808,12 +993,15 @@ watch(
   min-width: 0;
   line-height: 1.2;
 }
-.ft-peer__name {
-  font-size: var(--ft-font-title);
-  font-weight: 600;
+.ft-peer__name,
+.ft-peer__status {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ft-peer__name {
+  font-size: var(--ft-font-title);
+  font-weight: 600;
 }
 .ft-peer__status {
   font-size: var(--ft-font-meta);
@@ -871,16 +1059,46 @@ watch(
   display: grid;
   place-items: end center;
   padding: var(--ft-space-4);
+  /* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
+  padding-bottom: calc(var(--ft-space-4) + var(--ion-safe-area-bottom, 0px));
   background: rgba(0, 0, 0, 0.35);
 }
-.ft-apps__list {
+.ft-apps__card {
   width: min(100%, 420px);
-  margin: 0;
   padding: var(--ft-space-2);
-  list-style: none;
   border-radius: var(--ft-radius-card);
   background: var(--ft-surface);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.ft-apps__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The tools and the games, as the emoji picker shows its groups: icons, the open one lit. */
+.ft-apps__tabs {
+  display: flex;
+  gap: 4px;
+  padding-bottom: var(--ft-space-2);
+  margin-bottom: var(--ft-space-1, 4px);
+  border-bottom: 1px solid var(--ft-border);
+}
+.ft-apps__tab {
+  appearance: none;
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ft-muted);
+  font-size: 22px;
+  cursor: pointer;
+}
+.ft-apps__tab.is-open {
+  background: var(--ft-surface-2);
+  color: var(--ft-accent);
 }
 .ft-apps__item {
   display: flex;
@@ -896,6 +1114,26 @@ watch(
   font-size: 16px;
   text-align: start;
   cursor: pointer;
+}
+
+.ft-apps__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ft-space-1, 4px);
+}
+.ft-apps__name {
+  flex: 1;
+  min-width: 0;
+}
+.ft-apps__play,
+.ft-apps__invite,
+.ft-apps__more {
+  color: var(--ft-accent);
+}
+.ft-apps__empty {
+  padding: 14px 16px;
+  color: var(--ft-muted);
+  font-size: 15px;
 }
 
 .ft-thread__day {

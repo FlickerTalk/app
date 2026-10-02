@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 
 const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => opener);
 
 import MessageBubble from "./MessageBubble.vue";
+import { installed, offered } from "../plugins";
+import type { OfferedPlugin, PluginView } from "../core";
 
 const base = { id: "m1", text: "Hi", time: "10:02", mine: true };
 
@@ -387,5 +389,86 @@ describe("MessageBubble", () => {
     const folded = mount(MessageBubble, { props: { message: long, folded: true }, shallow: true });
     expect(folded.find("[data-test='folded']").exists()).toBe(true);
     expect(folded.text()).toContain("line");
+  });
+
+  // Plan 10.6: an invitation is a text with the exact link of a game's page. A game of the signed
+  // catalogue, or already here, gets a way to play under it; anything that looks like it, nothing.
+  describe("an invitation to a game", () => {
+    const CHESS: PluginView = {
+      id: "com.flickertalk.game.chess",
+      name: "Chess",
+      version: "1.0.0",
+      kind: "game",
+      asks: { network: [], messages: false, send: "propose", live: true },
+      granted: { network: [], messages: false, send: "propose", live: true },
+      installedAt: 1,
+    };
+    const GO: OfferedPlugin = {
+      id: "com.flickertalk.game.go",
+      name: "Go",
+      version: "1.0.0",
+      summary: "Play go.",
+      size: 1_200_000,
+      installed: false,
+      carried: false,
+      kind: "game",
+    };
+    const invite = (text: string, games = true) =>
+      mount(MessageBubble, { props: { message: { ...base, mine: false, text }, games }, shallow: true });
+
+    beforeEach(() => {
+      installed.value = [CHESS];
+      offered.value = [GO];
+    });
+    afterEach(() => {
+      installed.value = [];
+      offered.value = [];
+    });
+
+    it("offers to play an installed game in this conversation", async () => {
+      const wrapper = invite("🎮 Shall we play Chess? https://flickertalk.com/games/chess");
+      const play = wrapper.find("[data-test='play-game']");
+      expect(play.text()).toContain("Play");
+      expect(play.text()).not.toContain("MB");
+      // The address stays a link like any other.
+      expect(wrapper.find("[data-test='link']").attributes("href")).toBe("https://flickertalk.com/games/chess");
+      await play.trigger("click");
+      expect(wrapper.emitted("play")).toEqual([[CHESS.id]]);
+      expect(wrapper.emitted("actions")).toBeUndefined();
+    });
+
+    it("says what a game of the catalogue is and weighs before installing it", async () => {
+      const wrapper = invite("https://flickertalk.com/games/go");
+      const play = wrapper.find("[data-test='play-game']");
+      expect(play.text()).toContain("Go");
+      expect(play.text()).toContain("1.2 MB");
+      await play.trigger("click");
+      expect(wrapper.emitted("play")).toEqual([[GO.id]]);
+    });
+
+    it.each([
+      ["a game that is not in the catalogue", "https://flickertalk.com/games/poker"],
+      ["another host", "https://flickertalk.org/games/chess"],
+      ["a host that only starts like ours", "https://flickertalk.com.evil.com/games/chess"],
+      ["plain http", "http://flickertalk.com/games/chess"],
+      ["more path", "https://flickertalk.com/games/chess/extra"],
+      ["an upper-case host", "https://FLICKERTALK.COM/games/chess"],
+      ["an upper-case game", "https://flickertalk.com/games/CHESS"],
+      ["a look-alike letter", "https://flickertаlk.com/games/chess"],
+    ])("offers nothing for %s", (_case, text) => {
+      expect(invite(text).find("[data-test='play-game']").exists()).toBe(false);
+    });
+
+    // A tool that happens to have a game's id is not a game.
+    it("offers nothing for a plugin that is not a game", () => {
+      installed.value = [{ ...CHESS, kind: "tool" }];
+      offered.value = [{ ...GO, id: CHESS.id, kind: undefined }];
+      expect(invite("https://flickertalk.com/games/chess").find("[data-test='play-game']").exists()).toBe(false);
+    });
+
+    // A circle (or a phone without games) does not play: no button there.
+    it("offers nothing where games are not played", () => {
+      expect(invite("https://flickertalk.com/games/chess", false).find("[data-test='play-game']").exists()).toBe(false);
+    });
   });
 });

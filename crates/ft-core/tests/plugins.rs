@@ -395,6 +395,38 @@ async fn refuses_a_listing_that_points_anywhere_else() {
     assert!(core.catalogue(&shop, &theirs.public_key()).await.is_err());
 }
 
+// 2026-10-02 (plan of the games): the catalogue says what is a game, and the app shows it apart.
+// A kind a newer FlickerTalk adds is not offered here: this one would not know where to show it,
+// and would not install it either.
+#[tokio::test]
+async fn the_catalogue_offers_tools_and_games_but_no_kind_this_core_does_not_know() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let entry = |id: &str, kind: &str| {
+        format!(
+            r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","size":1,"hash":"{}","url":"{}/{id}/1.0.0.ftplugin","kind":"{kind}"}}"#,
+            "ab".repeat(32),
+            ft_core::CATALOGUE_HOME
+        )
+    };
+    let index = format!(
+        r#"{{"plugins":[{},{},{}]}}"#,
+        entry("com.example.code", "tool"),
+        entry("com.example.chess", "game"),
+        entry("com.example.widget", "widget")
+    );
+    let mut files = std::collections::HashMap::new();
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+
+    let offered = core.catalogue(&Shop { files }, &catalogue.public_key()).await.expect("reads the catalogue");
+    let kinds: Vec<(&str, ft_plugins::Kind)> = offered.iter().map(|entry| (entry.id.as_str(), entry.kind)).collect();
+    assert_eq!(kinds, [("com.example.code", ft_plugins::Kind::Tool), ("com.example.chess", ft_plugins::Kind::Game)]);
+}
+
 // ---- Hidden sessions (2026-10-01, §108): what a plugin keeps inside one stays inside it ----
 
 /// A core with a plugin that keeps records, and a hidden session open.
@@ -597,6 +629,105 @@ async fn a_ref_to_a_message_inside_a_session_leads_nowhere_from_outside_it() {
     core.open_session("123456").await.expect("opens");
     core.remove_session(&session).await.expect("removes");
     assert_eq!(core.store().plugin_ref(&reference).await.unwrap(), None, "gone with the session");
+}
+
+// ---- The conversation a plugin is opened in (2026-10-02, finding 7 of the plan of the plugins) ----
+//
+// A plugin opened from a chat learns an opaque id of that chat, so what it keeps per conversation
+// (a match, a list) stays with that conversation. The id says nothing about the contact, is its
+// own for each plugin, and never matches anything on the other phone.
+
+/// A core with two plugins and two contacts in the main list.
+async fn two_plugins_and_two_contacts() -> (Arc<Core>, PathBuf, String, String) {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    for id in ["com.example.chess", "com.example.list"] {
+        core.install_plugin(&signed(id, "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    }
+    let mut contacts = Vec::new();
+    for _ in 0..2 {
+        let (other, _dir) = self::core().await;
+        let link = other.my_card().await.expect("card").to_link();
+        contacts.push(core.add_contact(&link, None).await.expect("adds").device_id);
+    }
+    let bob = contacts.remove(0);
+    (core, dir, bob, contacts.remove(0))
+}
+
+#[tokio::test]
+async fn a_plugin_gets_the_same_chat_id_for_the_same_contact_every_time() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    let first = core.plugin_chat("com.example.chess", &bob).await.expect("an id");
+    assert_eq!(core.plugin_chat("com.example.chess", &bob).await.unwrap(), first);
+}
+
+#[tokio::test]
+async fn the_chat_id_outlives_a_restart() {
+    let home = scratch("restart");
+    let catalogue = Ed25519SecretKey::new();
+    let (first, bob) = {
+        let core = Core::open(Store::open(&home.join("db")).await.expect("store"), [9; 32], Arc::new(Offline)).await.expect("opens");
+        core.set_plugins_dir(home.join("plugins"));
+        core.install_plugin(&signed("com.example.chess", "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("installs");
+        let (other, _dir) = self::core().await;
+        let bob = core.add_contact(&other.my_card().await.unwrap().to_link(), None).await.expect("adds").device_id;
+        (core.plugin_chat("com.example.chess", &bob).await.expect("an id"), bob)
+    };
+    let again = Core::open(Store::open(&home.join("db")).await.expect("store"), [9; 32], Arc::new(Offline)).await.expect("opens");
+    again.set_plugins_dir(home.join("plugins"));
+    assert_eq!(again.plugin_chat("com.example.chess", &bob).await.unwrap(), first);
+}
+
+#[tokio::test]
+async fn the_chat_id_is_its_own_for_each_plugin_and_each_contact_and_says_nothing_of_them() {
+    let (core, _dir, bob, carol) = two_plugins_and_two_contacts().await;
+    let chess_bob = core.plugin_chat("com.example.chess", &bob).await.unwrap();
+    let chess_carol = core.plugin_chat("com.example.chess", &carol).await.unwrap();
+    let list_bob = core.plugin_chat("com.example.list", &bob).await.unwrap();
+    assert_ne!(chess_bob, chess_carol, "another conversation");
+    assert_ne!(chess_bob, list_bob, "two plugins cannot match their ids");
+    for id in [&chess_bob, &chess_carol, &list_bob] {
+        assert_eq!(id.len(), 43, "{id}");
+        assert!(id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'), "{id}");
+        for contact in [&bob, &carol] {
+            assert!(!id.contains(contact.as_str()) && !id.contains(contact.trim_start_matches("ft_")), "{id} names {contact}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn there_is_no_chat_id_for_a_stranger_a_blocked_contact_or_a_plugin_not_installed() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    assert!(core.plugin_chat("com.example.chess", "ft_nobody").await.is_err(), "not a contact");
+    assert!(core.plugin_chat("com.example.missing", &bob).await.is_err(), "not installed");
+    core.block(&bob, true).await.expect("blocks");
+    assert!(core.plugin_chat("com.example.chess", &bob).await.is_err(), "blocked");
+}
+
+#[tokio::test]
+async fn a_hidden_contacts_chat_id_is_there_only_while_the_session_is_open() {
+    let (core, session) = notes_and_a_session().await;
+    let hidden = someone_in(&core, &session).await;
+    let inside = core.plugin_chat("com.example.notes", &hidden).await.expect("open: an id");
+    assert!(!core.close_session(&session).await.expect("closes"));
+    let closed = core.plugin_chat("com.example.notes", &hidden).await.expect_err("closed: no id");
+    let stranger = core.plugin_chat("com.example.notes", "ft_nobody").await.expect_err("no id");
+    assert_eq!(closed.to_string(), stranger.to_string(), "a closed session's contact looks like nobody");
+    core.open_session("123456").await.unwrap();
+    assert_eq!(core.plugin_chat("com.example.notes", &hidden).await.unwrap(), inside);
+}
+
+// Derived, not stored: a removed plugin has no id, and installed again it finds its own again.
+// What it kept under that id went with it (`remove_plugin`), so the id leads nowhere new.
+#[tokio::test]
+async fn a_removed_plugin_has_no_chat_id_and_installed_again_it_finds_its_own() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    let before = core.plugin_chat("com.example.chess", &bob).await.unwrap();
+    core.remove_plugin("com.example.chess").await.expect("removes");
+    assert!(core.plugin_chat("com.example.chess", &bob).await.is_err(), "not installed");
+    let catalogue = Ed25519SecretKey::new();
+    core.install_plugin(&signed("com.example.chess", "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    assert_eq!(core.plugin_chat("com.example.chess", &bob).await.unwrap(), before);
 }
 
 /// The phone's location service, as the tests want it to answer.

@@ -6,8 +6,22 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
-import { fromFrame, frameUrl, installed, openersOf, opensKind, refreshPlugins, viewerOf } from "./plugins";
-import type { PluginView } from "./core";
+import {
+  fromFrame,
+  frameUrl,
+  games,
+  installed,
+  offered,
+  offeredGames,
+  offeredOnce,
+  openersOf,
+  opensKind,
+  refreshOffered,
+  refreshPlugins,
+  tools,
+  viewerOf,
+} from "./plugins";
+import type { OfferedPlugin, PluginView } from "./core";
 
 const CODE: PluginView = {
   id: "com.flickertalk.code",
@@ -175,5 +189,86 @@ describe("plugins in the app", () => {
     expect(viewerOf([drive, board, older, newer], "application/pdf")?.id).toBe(newer.id);
     expect(viewerOf([drive, board, older, newer], "APPLICATION/PDF; charset=x")?.id).toBe(newer.id);
     expect(viewerOf([newer], "image/png")).toBeUndefined();
+  });
+
+  // Plan 10.3: games are plugins too, but they live in their own section; the tools of a chat,
+  // "open with" and Settings never show one. A plugin with no kind, or one this app does not
+  // know, is a tool, as the core defaults it.
+  it("keeps the tools and the games of this phone apart", async () => {
+    const chess: PluginView = { ...CODE, id: "com.flickertalk.game.chess", name: "Chess", kind: "game" };
+    const marked: PluginView = { ...CODE, id: "com.flickertalk.notes", kind: "tool" };
+    const odd = { ...CODE, id: "com.example.odd", kind: "toy" } as unknown as PluginView;
+    tauri.invoke.mockResolvedValue([CODE, chess, marked, odd]);
+    await refreshPlugins();
+    expect(tools.value.map((plugin) => plugin.id)).toEqual([CODE.id, marked.id, odd.id]);
+    expect(games.value.map((plugin) => plugin.id)).toEqual([chess.id]);
+  });
+
+  it("never opens a message or shows a file with a game", () => {
+    const game: PluginView = {
+      ...CODE,
+      id: "com.flickertalk.game.chess",
+      kind: "game",
+      opens: ["*/*", "text/plain"],
+      views: ["application/pdf"],
+      installedAt: 99,
+    };
+    expect(openersOf([game], { text: "hi" })).toEqual([]);
+    expect(openersOf([game], { kind: "file", file: { mime: "image/png" } })).toEqual([]);
+    expect(viewerOf([game], "application/pdf")).toBeUndefined();
+  });
+
+  // What the catalogue offers is asked once and kept for every screen (plan 10.6): a bubble with
+  // an invitation must not fetch the catalogue by itself.
+  describe("what the catalogue offers", () => {
+    const CHESS: OfferedPlugin = {
+      id: "com.flickertalk.game.chess",
+      name: "Chess",
+      version: "1.0.0",
+      summary: "Play chess.",
+      size: 120_000,
+      installed: false,
+      carried: false,
+      kind: "game",
+    };
+    const SKETCH: OfferedPlugin = { ...CHESS, id: "com.flickertalk.sketch", name: "Sketch", kind: undefined, carried: true };
+
+    beforeEach(() => {
+      offered.value = [];
+    });
+
+    it("keeps what the catalogue offers where every screen reads it", async () => {
+      tauri.invoke.mockResolvedValue([SKETCH, CHESS]);
+      await refreshOffered();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_catalogue");
+      expect(offered.value.map((one) => one.id)).toEqual([SKETCH.id, CHESS.id]);
+      expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
+    });
+
+    it("asks the catalogue only while no game is known, and once at a time", async () => {
+      tauri.invoke.mockResolvedValue([SKETCH, CHESS]);
+      await Promise.all([offeredOnce(), offeredOnce()]);
+      await offeredOnce();
+      expect(tauri.invoke).toHaveBeenCalledTimes(1);
+      expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
+    });
+
+    // Offline, the core answers with what the app carries and no game: the next look asks again.
+    it("asks again when the last answer had no game", async () => {
+      tauri.invoke.mockResolvedValue([SKETCH]);
+      await offeredOnce();
+      tauri.invoke.mockResolvedValue([SKETCH, CHESS]);
+      await offeredOnce();
+      expect(tauri.invoke).toHaveBeenCalledTimes(2);
+      expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
+    });
+
+    it("keeps what it had when the core cannot answer", async () => {
+      tauri.invoke.mockResolvedValue([SKETCH, CHESS]);
+      await refreshOffered();
+      tauri.invoke.mockRejectedValueOnce(new Error("no core"));
+      await expect(refreshOffered()).rejects.toThrow("no core");
+      expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
+    });
   });
 });

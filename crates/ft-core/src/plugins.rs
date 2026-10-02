@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use serde::Serialize;
 use ft_plugins::{installed, CatalogueEntry, Manifest, Permissions, Plugin, Sending};
 use vodozemac::Ed25519PublicKey;
@@ -45,10 +47,14 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// shows a file in its viewer, and Quick Look on iOS. 1.2.1 (2026-09-29): no new capability, only
 /// the app's version (the Store's price on the Plan screen). 1.2.2 (2026-09-30): none either
 /// (Google Drive sign-in in the store builds, each platform with its own OAuth client). 1.3.0
-/// (2026-10-02): `location`, the phone's current position once, for the location plugin.
+/// (2026-10-02): `location`, the phone's current position once, for the location plugin; and
+/// games (plan 10): `kind` in the manifest and the catalogue (`GAMES_SINCE`), and `onOpen.chat`,
+/// the opaque id of the conversation a plugin is opened in.
 pub const CORE_VERSION: &str = "1.3.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
+/// What the key of a plugin's chat ids is derived for, from the storage key (2026-10-02).
+const PLUGIN_CHAT_CONTEXT: &str = "flickertalk 2026-10-02 plugin chat id";
 
 /// Where the phone is, as its location service said (2026-10-02): degrees (WGS 84), how far off
 /// it may be in metres, and when the fix was taken, in milliseconds since the epoch.
@@ -294,6 +300,30 @@ impl Core {
         Ok(self.reminders().await?.into_iter().filter(|reminder| reminder.at <= at).collect())
     }
 
+    // ---- The conversation a plugin is opened in (2026-10-02) ----
+
+    /// The id of the conversation with `contact` for plugin `id` on this phone, handed to the
+    /// plugin when the app opens it in that chat, so what it keeps per conversation stays there.
+    /// Derived, never stored: BLAKE3 keyed with a key of its own derived from this phone's
+    /// storage key, over the plugin's id and the contact's. Stable across restarts and updates (and
+    /// a move to a new phone, which takes the key along); its own for each plugin, so two cannot
+    /// match theirs; and opaque, since the plugin never has the key. 32 bytes, base64url without
+    /// padding: 43 characters of `[A-Za-z0-9_-]`.
+    ///
+    /// Only for a contact the user chose and did not block, in the main list or in a hidden
+    /// session that is open (§108): anyone else gets the same error as nobody at all.
+    pub async fn plugin_chat(&self, id: &str, contact: &str) -> Result<String> {
+        ensure!(self.store.plugin(id).await?.is_some(), "{id} is not installed here");
+        let reachable = self.store.contact(contact).await?.is_some_and(|contact| {
+            contact.accepted && !contact.blocked && contact.session.as_deref().is_none_or(|session| self.is_session_open(session))
+        });
+        ensure!(reachable, "that is not a contact of yours");
+        let mut hasher = blake3::Hasher::new_keyed(&blake3::derive_key(PLUGIN_CHAT_CONTEXT, &self.key));
+        // Neither id can hold a NUL, so the two are told apart.
+        hasher.update(id.as_bytes()).update(&[0]).update(contact.as_bytes());
+        Ok(URL_SAFE_NO_PAD.encode(hasher.finalize().as_bytes()))
+    }
+
     // ---- ft.live (2026-09-27): a plugin talks to its twin on the other side ----
 
     /// Sends what a plugin says to the same plugin on the contact's phone, over the direct
@@ -346,8 +376,12 @@ impl Core {
         let signature = fetch.get(&format!("{CATALOGUE_HOME}/{}.sig", ft_plugins::INDEX), 1024).await?;
         let index = String::from_utf8(index).context("the index is not text")?;
         let signature = String::from_utf8(signature).context("the signature is not text")?;
-        // What needs a newer FlickerTalk is not offered: it would not install (§51).
-        Ok(ft_plugins::catalogue_entries(&index, signature.trim(), catalogue)?.into_iter().filter(|entry| entry.runs_on(CORE_VERSION)).collect())
+        // What needs a newer FlickerTalk is not offered, nor a kind of plugin this one does not
+        // know: neither would install (§51).
+        Ok(ft_plugins::catalogue_entries(&index, signature.trim(), catalogue)?
+            .into_iter()
+            .filter(|entry| entry.runs_on(CORE_VERSION) && entry.kind != ft_plugins::Kind::Unknown)
+            .collect())
     }
 
     /// Downloads what the catalogue listed and installs it. Installing grants nothing (§53), and
@@ -536,5 +570,12 @@ mod tests {
             assert!(allowed(&asked, &wanted).is_err(), "{wanted:?} was never asked for");
             assert!(allowed(&wanted, &wanted).is_ok());
         }
+    }
+
+    // 1.3.0 (2026-10-02) also tells games from tools, so it is a core games are published for: a
+    // game asks for `GAMES_SINCE`, and a core below it is never offered one.
+    #[test]
+    fn this_core_is_offered_games() {
+        assert!(ft_plugins::version_at_least(CORE_VERSION, ft_plugins::GAMES_SINCE), "{CORE_VERSION}");
     }
 }

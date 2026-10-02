@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "Czaty",
     "calls": "Połączenia",
-    "settings": "Ustawienia"
+    "settings": "Ustawienia",
+    "games": "Gry"
   },
   "chats": {
     "empty": "Brak czatów",
@@ -409,5 +410,24 @@
     "working": "Pracuję…",
     "failed": "Coś poszło nie tak: {error}",
     "sees": "Twoja chmura widzi, ile jest zapieczętowanych plików, ich rozmiar i daty. Nigdy ich nazw ani treści."
+  },
+  "games": {
+    "mine": "Moje gry",
+    "more": "Więcej gier",
+    "install": "Zainstaluj",
+    "remove": "Usuń",
+    "removeWarning": "Usunięcie kasuje zapisane rozgrywki na tym telefonie.",
+    "play": "Graj",
+    "pickContact": "Graj z",
+    "noContacts": "Dodaj kontakt, aby zagrać",
+    "invite": "Zaproś",
+    "inviteText": "🎮 Zagramy w {game}? {url}",
+    "installAndPlay": "Zainstaluj i graj",
+    "permissionsBody": "Ta gra łączy się z telefonem drugiej osoby i może zostawić wynik w czacie.",
+    "permissionsAllow": "Zezwól i graj",
+    "none": "Brak gier",
+    "offline": "Teraz nie ma gier do dodania. Sprawdź połączenie i spróbuj ponownie.",
+    "installFailed": "Nie udało się zainstalować gry. Sprawdź połączenie i spróbuj ponownie.",
+    "live": "Rozmawiać z tą samą grą na telefonie drugiej osoby"
   }
 }

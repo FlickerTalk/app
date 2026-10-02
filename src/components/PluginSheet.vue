@@ -6,6 +6,7 @@ import {
   pluginMayUseDrive,
   pluginFetch,
   pluginForget,
+  pluginChat,
   pluginLiveSend,
   pluginLocation,
   pluginMade,
@@ -63,6 +64,8 @@ import { frameUrl, fromFrame, type FrameMessage, type HandedFile } from "../plug
 // 2026-10-01 (§108): `session` is the hidden session it is open in (a conversation of that
 // session, or a reminder set there). All it keeps, sets or looks up through the core belongs to
 // that place; the core keeps each place apart and the plugin never hears of sessions.
+// 2026-10-02: opened in a conversation, it learns the core's opaque id of it (`chat`), its own
+// for this plugin, never who it is with.
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -100,7 +103,7 @@ async function onMessage(event: MessageEvent) {
   if (!said) return;
 
   if (said.type === "ft.ready") {
-    tell(opening());
+    tell({ ...opening(), ...(await chatOf()) });
   } else if (said.type === "ft.height") {
     height.value = Math.min(Math.max(said.height, 160), 4000);
   } else if (said.type === "ft.pickFile") {
@@ -148,6 +151,21 @@ function opening() {
     reminder: props.reminder ?? null,
     live: Boolean(props.live && props.contact),
   };
+}
+
+/**
+ * The chat it is opened in (2026-10-02), as the core's opaque id for this plugin, so what it keeps
+ * per conversation stays with that conversation. Nothing without a contact, or when the core
+ * gives no id (a blocked contact, a closed session): then `chat` is not there at all.
+ */
+async function chatOf(): Promise<{ chat?: string }> {
+  if (!props.contact) return {};
+  try {
+    const chat = await pluginChat(props.plugin.id, props.contact);
+    return typeof chat === "string" ? { chat } : {};
+  } catch {
+    return {};
+  }
 }
 
 /** The questions the core answers for a plugin, each with the id it was asked with (§53). */

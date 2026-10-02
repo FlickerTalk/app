@@ -6,7 +6,8 @@
   "tabs": {
     "chats": "Chat",
     "calls": "Chiamate",
-    "settings": "Impostazioni"
+    "settings": "Impostazioni",
+    "games": "Giochi"
   },
   "chats": {
     "empty": "Ancora nessuna chat",
@@ -409,5 +410,24 @@
     "working": "In corso…",
     "failed": "Qualcosa è andato storto: {error}",
     "sees": "Il tuo cloud vede quanti file sigillati ci sono, la loro dimensione e le date. Mai i nomi né il contenuto."
+  },
+  "games": {
+    "mine": "I miei giochi",
+    "more": "Altri giochi",
+    "install": "Installa",
+    "remove": "Rimuovi",
+    "removeWarning": "Rimuovendolo si cancellano le partite salvate su questo telefono.",
+    "play": "Gioca",
+    "pickContact": "Gioca con",
+    "noContacts": "Aggiungi un contatto per giocare",
+    "invite": "Invita",
+    "inviteText": "🎮 Giochiamo a {game}? {url}",
+    "installAndPlay": "Installa e gioca",
+    "permissionsBody": "Questo gioco parla con il telefono dell'altra persona e può lasciare il risultato nella chat.",
+    "permissionsAllow": "Consenti e gioca",
+    "none": "Ancora nessun gioco",
+    "offline": "Al momento non ci sono giochi da aggiungere. Controlla la connessione e riprova.",
+    "installFailed": "Non è stato possibile installare il gioco. Controlla la connessione e riprova.",
+    "live": "Parlare con lo stesso gioco sul telefono dell'altra persona"
   }
 }
