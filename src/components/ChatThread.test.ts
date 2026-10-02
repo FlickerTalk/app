@@ -1153,6 +1153,193 @@ describe("ChatThread", () => {
         expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
       });
     });
+
+    // 2026-10-02 (seen on two phones and the iOS simulator): closed by the app, a plugin in a live
+    // session vanished without a word and the other side kept saying both were there. Every way of
+    // closing it now goes through the sheet's `close()`: the window goes at once, the plugin is told
+    // and kept out of sight until it has said goodbye (or a few tenths of a second), and then it goes.
+    describe("closing a plugin", () => {
+      type Thread = Awaited<ReturnType<typeof thread>>;
+      const sheets = (wrapper: Thread) => wrapper.findAllComponents({ name: "PluginSheet" });
+      const hidden = (element: { attributes: (name: string) => string | undefined }) => /display:\s*none/.test(element.attributes("style") ?? "");
+
+      /** The frame of the plugin on screen, up (`ft.ready`): what the app tells it, and its answers. */
+      async function up(wrapper: Thread) {
+        const frame = wrapper.find("iframe").element as HTMLIFrameElement;
+        const post = vi.fn();
+        Object.defineProperty(frame, "contentWindow", { value: { postMessage: post }, configurable: true });
+        const says = async (data: unknown) => {
+          window.dispatchEvent(new MessageEvent("message", { data, source: frame.contentWindow }));
+          await flushPromises();
+        };
+        await says({ type: "ft.ready" });
+        const closings = () => post.mock.calls.filter(([message]) => message.type === "ft.closing").length;
+        return { says, closings };
+      }
+
+      async function openTool(wrapper: Thread) {
+        await wrapper.find("[data-test='apps']").trigger("click");
+        await wrapper.find(`[data-test='app-${CODE.id}']`).trigger("click");
+        await flushPromises();
+      }
+
+      async function withTool() {
+        bridge({ installed: [CODE, CHESS] });
+        const wrapper = await thread();
+        await openTool(wrapper);
+        return { wrapper, ...(await up(wrapper)) };
+      }
+
+      // Back is pressed on a viewer opened by a tap: the test's back button forgets a listener when
+      // the apps sheet lets go of it, a moment after the plugin took it.
+      async function withViewer() {
+        withPlugins([VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
+        const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+        await flushPromises();
+        await tapped(wrapper, "m4");
+        expect(back.handler).not.toBeNull();
+        return { wrapper, ...(await up(wrapper)) };
+      }
+
+      async function withGame() {
+        bridge({ installed: [CODE, CHESS] });
+        const wrapper = await thread({ play: CHESS.id });
+        return { wrapper, ...(await up(wrapper)) };
+      }
+
+      it("hides a tool's window at once with ✕, and lets the plugin go once it has said goodbye", async () => {
+        const { wrapper, says, closings } = await withTool();
+        await wrapper.find("[data-test='close-app']").trigger("click");
+        await flushPromises();
+        expect(closings()).toBe(1);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(true);
+        expect(sheets(wrapper)).toHaveLength(1);
+
+        await says({ type: "ft.closed" });
+        expect(wrapper.find(".ft-app").exists()).toBe(false);
+        expect(sheets(wrapper)).toHaveLength(0);
+      });
+
+      it("goes through the plugin with the back button, and stays in the chat", async () => {
+        const { wrapper, says, closings } = await withViewer();
+        back.handler?.();
+        await flushPromises();
+        expect(closings()).toBe(1);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(true);
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
+        expect(back.handler).toBeNull();
+        expect(push).not.toHaveBeenCalled();
+      });
+
+      // ✕, then Back while the plugin says goodbye: one goodbye, and Back does not leave the chat.
+      it("says goodbye once when it is closed twice", async () => {
+        const { wrapper, says, closings } = await withViewer();
+        await wrapper.find("[data-test='close-app']").trigger("click");
+        back.handler?.();
+        await flushPromises();
+        expect(closings()).toBe(1);
+        expect(sheets(wrapper)).toHaveLength(1);
+        expect(push).not.toHaveBeenCalled();
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
+      });
+
+      it("goes through the plugin when it asks to be closed (done)", async () => {
+        const { wrapper, says, closings } = await withTool();
+        await says({ type: "ft.close" });
+        expect(closings()).toBe(1);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(true);
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
+      });
+
+      it("goes through the plugin when a tool proposes a text or a file", async () => {
+        const text = await withTool();
+        sheets(text.wrapper)[0].vm.$emit("text", "# Title");
+        await flushPromises();
+        expect(text.closings()).toBe(1);
+        expect(sheets(text.wrapper)).toHaveLength(1);
+        expect(text.wrapper.findComponent(IonTextarea).props("modelValue")).toBe("# Title");
+
+        const file = await withTool();
+        sheets(file.wrapper)[0].vm.$emit("attach", { path: "/p", name: "x.pdf", mime: "application/pdf", size: 1 });
+        await flushPromises();
+        expect(file.closings()).toBe(1);
+        expect(sheets(file.wrapper)).toHaveLength(1);
+        expect(file.wrapper.find("[data-test='staged']").exists()).toBe(true);
+      });
+
+      it("hides the game room at once with ✕, with the chat's own composer and calls back, and lets the game go once it has said goodbye", async () => {
+        const { wrapper, says, closings } = await withGame();
+        await wrapper.find("[data-test='close-game']").trigger("click");
+        await flushPromises();
+        expect(closings()).toBe(1);
+        expect(hidden(wrapper.find("[data-test='game-room']"))).toBe(true);
+        expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
+        expect(wrapper.find("[data-test='game-strip']").exists()).toBe(false);
+        expect(wrapper.find(`[aria-label='Attach']`).exists()).toBe(true);
+        expect(wrapper.find(`[aria-label='Video call']`).exists()).toBe(true);
+        expect(sheets(wrapper)).toHaveLength(1);
+
+        await says({ type: "ft.closed" });
+        expect(wrapper.find("[data-test='game-room']").exists()).toBe(false);
+        expect(sheets(wrapper)).toHaveLength(0);
+      });
+
+      it("goes through the game with the back button", async () => {
+        const { wrapper, says, closings } = await withGame();
+        back.handler?.();
+        await flushPromises();
+        expect(closings()).toBe(1);
+        expect(hidden(wrapper.find("[data-test='game-room']"))).toBe(true);
+        await says({ type: "ft.closed" });
+        expect(wrapper.find("[data-test='game-room']").exists()).toBe(false);
+      });
+
+      // Another plugin opened over the one on screen (a tool from the game room): the first says
+      // goodbye, and the second opens with a frame of its own once it has.
+      it("opens another plugin once the one on screen has said goodbye", async () => {
+        const { wrapper, says, closings } = await withGame();
+        await openTool(wrapper);
+        expect(closings()).toBe(1);
+        expect(wrapper.find(".ft-app").exists()).toBe(false);
+        expect(sheets(wrapper)).toHaveLength(1);
+
+        await says({ type: "ft.closed" });
+        expect(wrapper.find("[data-test='game-room']").exists()).toBe(false);
+        expect(sheets(wrapper)).toHaveLength(1);
+        expect(sheets(wrapper)[0].props("plugin")).toMatchObject({ id: CODE.id });
+        expect(wrapper.find(".ft-app").exists()).toBe(true);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(false);
+      });
+
+      // The same, while the first is still saying goodbye.
+      it("opens a plugin chosen while another says goodbye once that one has gone", async () => {
+        const { wrapper, says, closings } = await withGame();
+        await wrapper.find("[data-test='close-game']").trigger("click");
+        await openTool(wrapper);
+        expect(closings()).toBe(1);
+        expect(wrapper.find(".ft-app").exists()).toBe(false);
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(1);
+        expect(sheets(wrapper)[0].props("plugin")).toMatchObject({ id: CODE.id });
+      });
+
+      // The split view shows another conversation: the plugin says goodbye to the one it was opened
+      // in, never to the one now on screen.
+      it("says goodbye to the conversation it was opened in when another one is shown", async () => {
+        const { wrapper, says, closings } = await withGame();
+        await wrapper.setProps({ chatId: "c2" });
+        await flushPromises();
+        expect(closings()).toBe(1);
+        calls.length = 0;
+        await says({ type: "ft.liveSend", id: "q1", data: "Ynll" });
+        expect(calls).toContainEqual(["core_plugin_live_send", { plugin: CHESS.id, contact: "c1", data: "Ynll" }]);
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
+      });
+    });
   });
 });
 
