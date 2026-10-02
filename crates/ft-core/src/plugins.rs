@@ -47,7 +47,9 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// shows a file in its viewer, and Quick Look on iOS. 1.2.1 (2026-09-29): no new capability, only
 /// the app's version (the Store's price on the Plan screen). 1.2.2 (2026-09-30): none either
 /// (Google Drive sign-in in the store builds, each platform with its own OAuth client). 1.3.0
-/// (2026-10-02): `location`, the phone's current position once, for the location plugin.
+/// (2026-10-02): `location`, the phone's current position once, for the location plugin; and
+/// games (plan 10): `kind` in the manifest and the catalogue (`GAMES_SINCE`), and `onOpen.chat`,
+/// the opaque id of the conversation a plugin is opened in.
 pub const CORE_VERSION: &str = "1.3.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
