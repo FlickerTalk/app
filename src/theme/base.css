@@ -23,6 +23,14 @@ ion-toolbar {
   --padding-end: 8px;
 }
 
+/* What someone wrote (a name, a last line) reads in its own direction (`dir="auto"`), but sits where
+   the app puts it: a Latin name in Arabic stays beside the avatar, not at the far end of its row. */
+[dir="auto"] {
+  /* Chromium and WebKit know only the prefixed keyword. */
+  text-align: -webkit-match-parent;
+  text-align: match-parent;
+}
+
 /* Lists of rows (chats, calls). */
 .ft-rows {
   margin: 0;

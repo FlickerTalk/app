@@ -852,6 +852,7 @@ watch(
           type="button"
           class="ft-actions__to"
           :data-test="`to-${one.id}`"
+          dir="auto"
           @click="forwardTo(one.id)"
         >
           {{ one.name }}
@@ -949,7 +950,7 @@ watch(
       >
         <ion-icon slot="start" :icon="peeking ? gameControllerOutline : chatbubblesOutline" aria-hidden="true" />
         <ion-label v-if="peeking" class="ion-text-nowrap">{{ plugin?.name }}</ion-label>
-        <ion-label v-else-if="lastFromThem" class="ion-text-nowrap">{{ lastFromThem.kind === "file" ? lastFromThem.file?.name : lastFromThem.text }}</ion-label>
+        <ion-label v-else-if="lastFromThem" class="ion-text-nowrap" dir="auto">{{ lastFromThem.kind === "file" ? lastFromThem.file?.name : lastFromThem.text }}</ion-label>
         <ion-label v-else class="ion-text-nowrap" color="medium">{{ $t("games.showChat") }}</ion-label>
         <ion-button
           slot="end"

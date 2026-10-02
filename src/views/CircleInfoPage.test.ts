@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { IonLabel } from "@ionic/vue";
 import CircleInfoPage from "./CircleInfoPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { store, type Circle } from "../core";
@@ -47,6 +48,20 @@ describe("CircleInfoPage", () => {
     expect(members[0].find("[data-test='circle-admin-badge']").exists()).toBe(true);
     expect(members[1].text()).toContain("Maria López");
     expect(members[1].find("[data-test='circle-admin-badge']").exists()).toBe(false);
+  });
+
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the circle's, the members' and the candidates' names in their own direction", async () => {
+    store.circles = [friends({ name: "Amigos!" })];
+    const wrapper = mount(CircleInfoPage, { shallow: true });
+    expect(wrapper.find("[data-test='circle-title']").attributes("dir")).toBe("auto");
+    const members = wrapper.findAll(".ft-circle__member");
+    expect(members).toHaveLength(2);
+    for (const member of members) expect(member.attributes("dir")).toBe("auto");
+    await wrapper.find("[data-test='circle-invite']").trigger("click");
+    const candidates = wrapper.find("[data-test='circle-candidates']").findAllComponents(IonLabel);
+    expect(candidates.length).toBeGreaterThan(0);
+    for (const candidate of candidates) expect(candidate.attributes("dir")).toBe("auto");
   });
 
   it("lets an admin add a contact who is not in it yet", async () => {

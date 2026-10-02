@@ -92,7 +92,7 @@ watch(
         >
           <Avatar :name="circle.name" :hue="circle.hue" :size="38" />
           <span class="ft-peer__text">
-            <span class="ft-peer__name">{{ circle.name }}</span>
+            <span class="ft-peer__name" dir="auto">{{ circle.name }}</span>
             <span class="ft-peer__status">
               <ion-icon :icon="peopleOutline" aria-hidden="true" />
               {{ $t("circle.members", { count: circle.members.length }) }}
