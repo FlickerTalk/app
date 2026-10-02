@@ -428,6 +428,8 @@
     "none": "Chưa có trò chơi nào",
     "offline": "Hiện không có trò chơi nào để thêm. Hãy kiểm tra kết nối rồi thử lại.",
     "installFailed": "Không thể cài đặt trò chơi. Hãy kiểm tra kết nối rồi thử lại.",
-    "live": "Trao đổi với cùng trò chơi trên điện thoại của người kia"
+    "live": "Trao đổi với cùng trò chơi trên điện thoại của người kia",
+    "showChat": "Xem cuộc trò chuyện",
+    "showGame": "Quay lại trò chơi"
   }
 }

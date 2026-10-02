@@ -428,6 +428,8 @@
     "none": "Henüz oyun yok",
     "offline": "Şu anda eklenecek oyun yok. Bağlantınızı kontrol edip tekrar deneyin.",
     "installFailed": "Oyun yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
-    "live": "Karşı tarafın telefonundaki aynı oyunla konuşmak"
+    "live": "Karşı tarafın telefonundaki aynı oyunla konuşmak",
+    "showChat": "Sohbeti göster",
+    "showGame": "Oyuna dön"
   }
 }
