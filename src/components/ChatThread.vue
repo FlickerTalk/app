@@ -1184,6 +1184,14 @@ watch(
 
 .ft-thread__content {
   --background: var(--ft-bg);
+  /* Clear of the side insets (a phone held sideways), as Ionic's toolbars keep themselves. The
+     insets are physical and these paddings logical, so they swap in a right-to-left language. */
+  --padding-start: var(--ion-safe-area-left, 0px);
+  --padding-end: var(--ion-safe-area-right, 0px);
+}
+[dir="rtl"] .ft-thread__content {
+  --padding-start: var(--ion-safe-area-right, 0px);
+  --padding-end: var(--ion-safe-area-left, 0px);
 }
 .ft-app {
   position: fixed;
@@ -1196,6 +1204,9 @@ watch(
      itself does not scroll, so this strip stays its own at any scroll position (seen on the
      Samsung, 2026-10-02, when it was the padding of what scrolled). Ionic's inset, as its headers. */
   padding-top: var(--ion-safe-area-top, 0px);
+  /* And out of the side insets (a phone held sideways): bar and tool both. */
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
 }
 /* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar. */
 .ft-app__body {
@@ -1256,7 +1267,9 @@ watch(
 }
 
 .ft-composer {
-  padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
+  /* The side insets are physical (a phone held sideways), so are their paddings. */
+  padding: 6px calc(8px + var(--ion-safe-area-right, 0px)) calc(8px + var(--ion-safe-area-bottom, 0px))
+    calc(8px + var(--ion-safe-area-left, 0px));
   background: var(--ft-bg);
 }
 .ft-composer__row {
