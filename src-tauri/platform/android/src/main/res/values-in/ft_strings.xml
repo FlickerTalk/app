@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">Panggilan</string>
     <string name="ft_channel_messages">Pesan dan panggilan</string>
     <string name="ft_something_new">Ada sesuatu yang baru untukmu</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">Pengingat</string>
+    <string name="ft_reminder">Pengingat</string>
+    <string name="ft_reminder_generic">Ada pengingat untukmu</string>
     <string name="ft_channel_incoming_calls">Panggilan masuk</string>
     <string name="ft_channel_ongoing_calls">Panggilan berlangsung</string>
     <string name="ft_ongoing_call">Panggilan sedang berlangsung</string>

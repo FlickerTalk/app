@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">通話</string>
     <string name="ft_channel_messages">訊息與通話</string>
     <string name="ft_something_new">有新內容在等你</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">提醒</string>
+    <string name="ft_reminder">提醒</string>
+    <string name="ft_reminder_generic">你有一則提醒</string>
     <string name="ft_channel_incoming_calls">來電</string>
     <string name="ft_channel_ongoing_calls">進行中的通話</string>
     <string name="ft_ongoing_call">通話中</string>
