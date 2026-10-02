@@ -357,6 +357,9 @@ function pluginClosed() {
   plugin.value = next;
   next = null;
 }
+// The page holding the conversation closes what is open here as it goes back (2026-10-02), so the
+// goodbye goes out during Ionic's transition, before the page is taken down.
+defineExpose({ leave: closePlugin });
 
 // While the plugin says goodbye, Back stays taken: one press closed it, and another neither closes
 // it again nor falls through to leave the chat. `back.ts` lets go of what a press closed, so the

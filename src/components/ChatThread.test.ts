@@ -1315,6 +1315,36 @@ describe("ChatThread", () => {
         expect(calls).toContainEqual(["core_plugin_live_send", { plugin: CHESS.id, contact: "c1", data: "aGk=" }]);
       });
 
+      // 2026-10-02: the page going back closes what is open here through the same way out, so the
+      // plugin's goodbye goes out during Ionic's transition.
+      it("lets the page close the game as it goes, through the plugin", async () => {
+        const { wrapper, says, closings } = await withGame();
+        (wrapper.vm as unknown as { leave: () => void }).leave();
+        await flushPromises();
+        expect(closings()).toBe(1);
+        expect(hidden(wrapper.find("[data-test='game-room']"))).toBe(true);
+        expect(sheets(wrapper)).toHaveLength(1);
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
+      });
+
+      // Back closed the game, and the page goes back during the goodbye: one goodbye.
+      it("does not close twice when the page goes while Back's close is under way", async () => {
+        const { wrapper, closings } = await withGame();
+        back.handler?.();
+        await flushPromises();
+        (wrapper.vm as unknown as { leave: () => void }).leave();
+        await flushPromises();
+        expect(closings()).toBe(1);
+      });
+
+      it("has nothing to close when the page goes with nothing open", async () => {
+        bridge({ installed: [CODE, CHESS] });
+        const wrapper = await thread();
+        expect(() => (wrapper.vm as unknown as { leave: () => void }).leave()).not.toThrow();
+        expect(sheets(wrapper)).toHaveLength(0);
+      });
+
       // ✕, then Back while the plugin says goodbye: one goodbye, and Back does not leave the chat.
       it("says goodbye once when it is closed twice", async () => {
         const { wrapper, says, closings } = await withTool();

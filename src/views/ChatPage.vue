@@ -1,21 +1,41 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { IonPage, onIonViewDidEnter, onIonViewWillLeave } from "@ionic/vue";
-import { useRoute } from "vue-router";
+import { IonPage, onIonViewDidEnter, onIonViewWillEnter, onIonViewWillLeave } from "@ionic/vue";
+import { useRoute, useRouter } from "vue-router";
 import ChatThread from "../components/ChatThread.vue";
 
 const route = useRoute();
-const chatId = computed(() => String(route.params.id));
+// The conversation of this page, for as long as it lives: Ionic gives each one a page of its own
+// and keeps it mounted under the next page and while it goes, when the address is another's.
+const chatId = String(route.params.id);
 // Plan 10.4: the games tab opens a game here (`?play=<id>`).
 const play = computed(() => (typeof route.query?.play === "string" && route.query.play ? route.query.play : undefined));
 // Under another page, what the conversation left open lets go of Android's back button.
 const onScreen = ref(true);
-onIonViewWillLeave(() => (onScreen.value = false));
 onIonViewDidEnter(() => (onScreen.value = true));
+
+// Left by going back (2026-10-02), the page is taken down once Ionic's transition ends, and with it
+// the plugin or game open in it: it is closed as the page starts to go, so its goodbye goes out
+// meanwhile. Going back is told by vue-router's history position, lower than when the page came
+// on screen. A page covered by another one (a push) keeps what it has open, as before; a back
+// button with no history replaces the page at the same position, and only its teardown is left.
+const router = useRouter();
+const thread = ref<InstanceType<typeof ChatThread> | null>(null);
+let enteredAt: number | undefined;
+const position = () => {
+  const at = router.options.history.state?.position;
+  return typeof at === "number" ? at : undefined;
+};
+onIonViewWillEnter(() => (enteredAt = position()));
+onIonViewWillLeave(() => {
+  onScreen.value = false;
+  const now = position();
+  if (enteredAt !== undefined && now !== undefined && now < enteredAt) thread.value?.leave();
+});
 </script>
 
 <template>
   <ion-page>
-    <ChatThread :chat-id="chatId" :show-back="true" :play="play" :active="onScreen" />
+    <ChatThread ref="thread" :chat-id="chatId" :show-back="true" :play="play" :active="onScreen" />
   </ion-page>
 </template>
