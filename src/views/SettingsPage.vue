@@ -388,7 +388,7 @@ function chooseAppearance(id: Appearance) {
       </div>
     </ion-content>
 
-    <FeedbackModal v-if="suggesting" @close="suggesting = false" />
+    <FeedbackModal :open="suggesting" @close="suggesting = false" />
   </ion-page>
 </template>
 
