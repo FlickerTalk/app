@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">Cuộc gọi</string>
     <string name="ft_channel_messages">Tin nhắn và cuộc gọi</string>
     <string name="ft_something_new">Có điều mới đang chờ bạn</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">Lời nhắc</string>
+    <string name="ft_reminder">Lời nhắc</string>
+    <string name="ft_reminder_generic">Bạn có một lời nhắc</string>
     <string name="ft_channel_incoming_calls">Cuộc gọi đến</string>
     <string name="ft_channel_ongoing_calls">Cuộc gọi đang diễn ra</string>
     <string name="ft_ongoing_call">Đang trong cuộc gọi</string>

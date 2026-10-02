@@ -1,6 +1,6 @@
 /* Notification texts of the iPhone app (2026-09-28): the same as Android's ft_strings.xml. */
 "FT_PUSH_WAKE" = "Seni yeni bir şey bekliyor";
-"Reminder" = "Reminder";
-"You have a reminder" = "You have a reminder";
+"Reminder" = "Hatırlatıcı";
+"You have a reminder" = "Bir hatırlatıcın var";
 "FT_INCOMING_CALL" = "Gelen arama";
 "FT_INCOMING_VIDEO_CALL" = "Gelen görüntülü arama";
