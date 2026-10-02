@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">কল</string>
     <string name="ft_channel_messages">মেসেজ ও কল</string>
     <string name="ft_something_new">আপনার জন্য নতুন কিছু অপেক্ষা করছে</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">রিমাইন্ডার</string>
+    <string name="ft_reminder">রিমাইন্ডার</string>
+    <string name="ft_reminder_generic">আপনার একটি রিমাইন্ডার আছে</string>
     <string name="ft_channel_incoming_calls">ইনকামিং কল</string>
     <string name="ft_channel_ongoing_calls">চলমান কল</string>
     <string name="ft_ongoing_call">কল চলছে</string>

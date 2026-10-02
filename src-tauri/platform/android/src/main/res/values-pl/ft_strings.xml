@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">Połączenia</string>
     <string name="ft_channel_messages">Wiadomości i połączenia</string>
     <string name="ft_something_new">Czeka na Ciebie coś nowego</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">Przypomnienia</string>
+    <string name="ft_reminder">Przypomnienie</string>
+    <string name="ft_reminder_generic">Masz przypomnienie</string>
     <string name="ft_channel_incoming_calls">Połączenia przychodzące</string>
     <string name="ft_channel_ongoing_calls">Trwające połączenia</string>
     <string name="ft_ongoing_call">Trwa połączenie</string>

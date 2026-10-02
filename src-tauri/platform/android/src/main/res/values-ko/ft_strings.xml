@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">통화</string>
     <string name="ft_channel_messages">메시지 및 통화</string>
     <string name="ft_something_new">새로운 소식이 기다리고 있어요</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">리마인더</string>
+    <string name="ft_reminder">리마인더</string>
+    <string name="ft_reminder_generic">리마인더가 있어요</string>
     <string name="ft_channel_incoming_calls">수신 전화</string>
     <string name="ft_channel_ongoing_calls">진행 중인 통화</string>
     <string name="ft_ongoing_call">통화 중</string>
