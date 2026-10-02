@@ -9,14 +9,6 @@ import { expect, test } from "./helpers";
 const BOB = "ft_bob123456789";
 const INVITATION = "🎮 Shall we play Tic-tac-toe? https://flickertalk.com/games/tictactoe";
 
-/**
- * The time under this phone's message is its text at 70 % opacity: under 4.5:1 on the accents of
- * Ember and Aurora, light and dark, whatever the light palette does (2026-10-02). Raising that
- * opacity (0.85 would do) changes the dark themes too: the owner's call. Marked so the day it
- * changes the test says so.
- */
-const TIME_UNDER_AA = new Set(["ember light", "ember dark", "aurora light", "aurora dark"]);
-
 type Rgba = [number, number, number, number];
 
 /** `rgb()`, `rgba()` or `color(srgb …)`, as computed styles write them, in 0–1 channels. */
@@ -105,7 +97,6 @@ for (const direction of ["ember", "aurora", "mono"]) {
       // light palettes were retouched for it on 2026-10-02).
       for (const part of ["text", "time"] as const) {
         test(`this phone's ${part === "text" ? "message" : "time"} reads over all its bubble`, async ({ app }) => {
-          test.fail(part === "time" && TIME_UNDER_AA.has(`${direction} ${appearance}`), "the time's 70 % opacity is under 4.5:1 here");
           const bubble = app.locator(".ft-msg.is-mine .ft-bubble").first();
           await expect(bubble).toBeVisible();
           const seen = await bubble.evaluate((node, which) => {
@@ -125,6 +116,19 @@ for (const direction of ["ember", "aurora", "mono"]) {
           expect(Math.min(...ratios), `${seen.colour} at ${seen.opacity} over ${seen.stops.join(" → ")}`).toBeGreaterThanOrEqual(4.5);
         });
       }
+
+      // The other one's time, over their plain bubble: it already read, and keeps its look.
+      test("the other one's time reads", async ({ app }) => {
+        const bubble = app.locator(".ft-msg.is-theirs .ft-bubble:not(.is-media)").first();
+        await expect(bubble).toBeVisible();
+        const seen = await bubble.evaluate((node) => {
+          const meta = node.querySelector(".ft-bubble__meta")!;
+          return { colour: getComputedStyle(meta).color, opacity: Number(getComputedStyle(meta).opacity), under: getComputedStyle(node).backgroundColor };
+        });
+        const under = parse(seen.under);
+        const [r, g, b, a] = parse(seen.colour);
+        expect(contrast(over([r, g, b, a * seen.opacity], under), under), `${seen.colour} at ${seen.opacity} over ${seen.under}`).toBeGreaterThanOrEqual(4.5);
+      });
     });
   }
 }

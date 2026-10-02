@@ -594,6 +594,13 @@ function open() {
   font-variant-numeric: tabular-nums;
   opacity: 0.7;
 }
+/* On this phone's accent bubble the time is its text at 85 %, not the whole line at 70 % opacity:
+   that was under 4.5:1 on Ember's and Aurora's accents (2026-10-02). As a colour, not an opacity, so
+   the ticks' own colours (a red «not sent») stay whole. */
+.is-mine .ft-bubble__meta {
+  opacity: 1;
+  color: color-mix(in srgb, var(--ft-on-accent) 85%, transparent);
+}
 .ft-bubble__meta ion-icon {
   font-size: 15px;
 }
