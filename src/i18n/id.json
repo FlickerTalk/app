@@ -424,7 +424,7 @@
     "pickContact": "Main dengan",
     "noContacts": "Tambahkan kontak untuk bermain",
     "invite": "Undang",
-    "inviteText": "🎮 Main {game} yuk? {url}",
+    "inviteText": "🎮 {game} · Main yuk? {url}",
     "installAndPlay": "Pasang dan main",
     "permissionsBody": "Game ini berbicara dengan ponsel orang lain dan bisa meninggalkan hasilnya di obrolan.",
     "permissionsAllow": "Izinkan dan main",

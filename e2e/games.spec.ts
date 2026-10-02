@@ -105,7 +105,7 @@ for (const appearance of ["dark", "light"]) {
       await expect(app.getByTestId("app-com.flickertalk.markdown")).toHaveCount(0);
       await shot(app, "chat-games-sheet");
       await app.getByTestId(`invite-${TICTACTOE}`).click();
-      await expect(app.locator("ion-textarea textarea")).toHaveValue("🎮 Shall we play Tic-tac-toe? https://flickertalk.com/games/tictactoe");
+      await expect(app.locator("ion-textarea textarea")).toHaveValue("🎮 Tic-tac-toe · Shall we play? https://flickertalk.com/games/tictactoe");
       expect((await callsTo(app)).some(([command]) => command === "core_send")).toBe(false);
 
       // Opened again, it starts on the tools: nothing is remembered.

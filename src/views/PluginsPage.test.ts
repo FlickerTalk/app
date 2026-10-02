@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonToggle } from "@ionic/vue";
+import { IonList, IonToggle } from "@ionic/vue";
 import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
+import { setLocale } from "../i18n";
 import { installed } from "../plugins";
 
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -26,6 +27,10 @@ const AI = {
 };
 
 /** What the catalogue offers this phone; nothing travels inside the app (§56). */
+/** The switches of one plugin's group: the list is sorted by name, not in the core's order. */
+const togglesOf = (wrapper: ReturnType<typeof mount>, id: string) =>
+  wrapper.findAllComponents(IonList).find((list) => list.find(`[data-test='open-${id}']`).exists())!.findAllComponents(IonToggle);
+
 const OFFERED = [
   { id: "com.flickertalk.code", name: "Code block", version: "1.0.0", summary: "Shows code.", size: 2048, installed: true, carried: true },
   { id: "com.flickertalk.sketch", name: "Sketch", version: "1.0.0", summary: "Draw with a finger.", size: 3072, installed: false, carried: true },
@@ -41,6 +46,38 @@ describe("PluginsPage", () => {
       if (command === "core_plugins") return [CODE, AI];
       if (command === "core_catalogue") return OFFERED;
       return undefined;
+    });
+  });
+
+  // 2026-10-02 (plan of the catalogue's translations): a Spanish phone names each tool in Spanish:
+  // from its package, or from the catalogue when the package installed here has no translation.
+  describe("on a Spanish phone", () => {
+    afterEach(() => setLocale("en"));
+
+    it("names installed and offered tools in Spanish, with their summary", async () => {
+      await setLocale("es");
+      installTauri((command) => {
+        if (command === "core_plugins") return [{ ...CODE, locales: { es: { name: "Bloque de código" } } }, AI];
+        if (command === "core_catalogue") {
+          return [
+            OFFERED[0],
+            { ...OFFERED[1], locales: { es: { name: "Dibujo", summary: "Dibuja con el dedo." } } },
+            OFFERED[2],
+            { id: AI.id, name: "Assistant", version: "0.2.0", summary: "Answers.", size: 1, installed: true, carried: false, locales: { es: { name: "Asistente" } } },
+          ];
+        }
+        return undefined;
+      });
+      const wrapper = mount(PluginsPage, { shallow: true });
+      await flushPromises();
+      const text = wrapper.text();
+      expect(text).toContain("Bloque de código");
+      expect(text).toContain("Asistente");
+      expect(text).not.toContain("Assistant");
+      expect(text).toContain("Dibujo");
+      expect(text).toContain("Dibuja con el dedo.");
+      // Sorted as the phone reads them: "Asistente" before "Bloque de código".
+      expect(text.indexOf("Asistente")).toBeLessThan(text.indexOf("Bloque de código"));
     });
   });
 
@@ -70,15 +107,14 @@ describe("PluginsPage", () => {
     expect(text).toContain("Read what you send it");
     expect(text).toContain("api.openai.com");
     expect(text).toContain("Write in the chat");
-    const toggles = wrapper.findAllComponents(IonToggle);
-    expect(toggles.length).toBeGreaterThanOrEqual(4);
-    expect(toggles[0].props("checked")).toBe(false);
+    expect(wrapper.findAllComponents(IonToggle).length).toBeGreaterThanOrEqual(4);
+    expect(togglesOf(wrapper, "com.flickertalk.code")[0].props("checked")).toBe(false);
   });
 
   it("grants a permission through the core", async () => {
     const wrapper = mount(PluginsPage, { shallow: true });
     await flushPromises();
-    const toggle = wrapper.findAllComponents(IonToggle)[0];
+    const toggle = togglesOf(wrapper, "com.flickertalk.code")[0];
     toggle.vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: true } }));
     await flushPromises();
     expect(calls).toContainEqual([

@@ -63,7 +63,27 @@ pub struct Manifest {
     /// says otherwise, so what was written before games existed still means what it meant.
     #[serde(default)]
     pub kind: Kind,
+    /// The name and the summary in other languages (2026-10-02), by the app's language code
+    /// (`es`, `zh-TW`…). The English ones above stay the fallback and what older apps show.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub locales: BTreeMap<String, Localized>,
 }
+
+/// A plugin's name and summary in one language; either may be left out, and then the English one
+/// is shown. Anything else a newer FlickerTalk adds here is ignored, as everywhere (§14).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Localized {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+/// The longest a name and a summary may be, in characters, in English or in any other language.
+const NAME_LIMIT: usize = 64;
+const SUMMARY_LIMIT: usize = 200;
+/// The most languages a plugin may name itself in: the app speaks 21, and room is left to grow.
+const LOCALES_LIMIT: usize = 64;
 
 /// What a plugin is to the user (2026-10-02). A tool is opened from the chat's 🧰, "open with"
 /// and its viewer; a game from the games, and only ever with a contact over the live channel.
@@ -388,6 +408,15 @@ fn check(manifest: &Manifest) -> Result<()> {
         manifest.views.is_empty() || manifest.permissions.network.is_empty(),
         "a viewer is handed files without the user choosing, so it may not ask for the network"
     );
+    ensure!(manifest.locales.len() <= LOCALES_LIMIT, "a plugin may not name itself in that many languages");
+    for (code, said) in &manifest.locales {
+        ensure!(is_language(code), "'{code}' is not a language code");
+        let fits = |text: &Option<String>, limit: usize| {
+            text.as_deref().is_none_or(|text| !text.trim().is_empty() && text.chars().count() <= limit)
+        };
+        ensure!(fits(&said.name, NAME_LIMIT), "the name in '{code}' is empty or too long");
+        ensure!(fits(&said.summary, SUMMARY_LIMIT), "the summary in '{code}' is empty or too long");
+    }
     match manifest.kind {
         Kind::Tool => {}
         Kind::Game => {
@@ -450,6 +479,13 @@ fn is_host(host: &str) -> bool {
                 && !label.ends_with('-')
                 && label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         })
+}
+
+/// A key of `locales`: short, letters, digits and dashes. The schema holds authors to the app's
+/// own spelling (`es`, `zh-TW`); here only what could never be a language is refused, so a code a
+/// newer FlickerTalk speaks is not a reason to refuse the plugin.
+fn is_language(code: &str) -> bool {
+    (1..=16).contains(&code.len()) && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 fn is_id(id: &str) -> bool {
@@ -542,6 +578,9 @@ pub struct CatalogueEntry {
     /// A tool or a game, copied from the manifest (2026-10-02).
     #[serde(default)]
     pub kind: Kind,
+    /// The name and the summary in other languages, copied from the manifest (2026-10-02).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub locales: BTreeMap<String, Localized>,
 }
 
 /// Whether a FlickerTalk of `core_version` is new enough for something that needs `min` (§51).
@@ -641,6 +680,7 @@ mod tests {
             url: "https://plugins.flickertalk.com/x.ftplugin".to_owned(),
             summary: String::new(),
             kind: Kind::Tool,
+            locales: BTreeMap::new(),
         };
         assert!(!entry.runs_on("0.1.0"));
         assert!(entry.runs_on("9.0.0"));
@@ -742,9 +782,109 @@ mod tests {
             url: "https://flickertalk.com/plugins/x.ftplugin".to_owned(),
             summary: String::new(),
             kind: Kind::Game,
+            locales: BTreeMap::new(),
         };
         assert!(!entry.runs_on("1.2.2"));
         assert!(entry.runs_on(GAMES_SINCE));
+    }
+
+    /// A manifest with its name and summary in other languages (2026-10-02).
+    fn manifest_in(locales: &str) -> String {
+        manifest_of("com.example.translator").replacen('{', &format!(r#"{{"locales":{locales},"#), 1)
+    }
+
+    // 2026-10-02 (plan of the catalogue's translations, option A): the name and the summary may
+    // come in the app's other languages. The English ones stay the fallback, and a package that
+    // says nothing of it opens as it always did.
+    #[test]
+    fn a_manifest_may_carry_its_name_and_summary_in_other_languages() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let plain = opens(&manifest_of("com.example.translator")).unwrap();
+        assert!(plain.manifest.locales.is_empty(), "nothing translated unless it says so");
+
+        let said = manifest_in(r#"{"es":{"name":"Traductor","summary":"Traduce un mensaje."},"zh-TW":{"name":"翻譯"},"de":{"summary":"Übersetzt."}}"#);
+        let translated = opens(&said).unwrap().manifest;
+        assert_eq!(translated.locales["es"].name.as_deref(), Some("Traductor"));
+        assert_eq!(translated.locales["es"].summary.as_deref(), Some("Traduce un mensaje."));
+        assert_eq!((translated.locales["zh-TW"].name.as_deref(), translated.locales["zh-TW"].summary.as_deref()), (Some("翻譯"), None));
+        assert_eq!(translated.locales["de"].name, None, "a format keeps its English name");
+        // Something a newer FlickerTalk adds to a language is not a reason to refuse the plugin (§14).
+        assert!(opens(&manifest_in(r#"{"es":{"name":"Traductor","tagline":"Nuevo"}}"#)).is_ok());
+    }
+
+    // The same limits as the English text, counted in characters as the schema counts them: a
+    // name in Hindi or Chinese takes three bytes a character and is no longer for it.
+    #[test]
+    fn a_translated_name_or_summary_keeps_the_limits_of_the_english_one() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let longest = format!(r#"{{"hi":{{"name":"{}","summary":"{}"}}}}"#, "न".repeat(64), "न".repeat(200));
+        assert!(opens(&manifest_in(&longest)).is_ok(), "64 and 200 characters, whatever their bytes");
+        for wrong in [
+            r#"{"es":{"name":""}}"#.to_owned(),
+            r#"{"es":{"name":"   "}}"#.to_owned(),
+            format!(r#"{{"es":{{"name":"{}"}}}}"#, "x".repeat(65)),
+            r#"{"es":{"summary":" "}}"#.to_owned(),
+            format!(r#"{{"es":{{"summary":"{}"}}}}"#, "y".repeat(201)),
+            r#"{"es":{"name":7}}"#.to_owned(),
+            r#"{"es":"Traductor"}"#.to_owned(),
+            r#"{"":{"name":"Traductor"}}"#.to_owned(),
+            r#"{"../es":{"name":"Traductor"}}"#.to_owned(),
+            format!(r#"{{"{}":{{"name":"Traductor"}}}}"#, "x".repeat(17)),
+        ] {
+            assert!(opens(&manifest_in(&wrong)).is_err(), "{wrong} should be refused");
+        }
+        let many = |count: usize| {
+            let languages: Vec<String> = (0..count).map(|index| format!(r#""l{index:03}":{{"name":"x"}}"#)).collect();
+            format!("{{{}}}", languages.join(","))
+        };
+        assert!(opens(&manifest_in(&many(64))).is_ok());
+        assert!(opens(&manifest_in(&many(65))).is_err(), "no more than 64 languages");
+    }
+
+    // The catalogue carries them too, so the app names a plugin in its language before it is
+    // installed. An index without them reads as before, and an app that does not know them (every
+    // one before 1.3.0) reads an index that has them: none of them refuses a field it does not know.
+    #[test]
+    fn the_catalogue_carries_the_translations_and_older_apps_read_it_still() {
+        let catalogue = Ed25519SecretKey::new();
+        let read = |index: &str| catalogue_entries(index, &catalogue.sign(index.as_bytes()).to_base64(), &catalogue.public_key());
+        let plain = read(&index_of(&"ab".repeat(32))).expect("an index without translations");
+        assert!(plain[0].locales.is_empty());
+        let without = serde_json::to_value(&plain[0]).unwrap();
+        assert!(without.get("locales").is_none(), "an untranslated entry is written as before: {without}");
+
+        let translated = index_of(&"ab".repeat(32)).replacen(
+            r#""summary":"#,
+            r#""locales":{"es":{"name":"Traductor","summary":"Traduce el mensaje que eliges."}},"summary":"#,
+            1,
+        );
+        let listed = read(&translated).expect("still signed, still a catalogue");
+        assert_eq!(listed[0].locales["es"].name.as_deref(), Some("Traductor"));
+        assert_eq!(serde_json::to_value(&listed[0]).unwrap()["locales"]["es"]["summary"], "Traduce el mensaje que eliges.");
+
+        /// What the app 1.2 knew of an entry.
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct Before {
+            id: String,
+            name: String,
+            version: String,
+            #[serde(rename = "minCoreVersion")]
+            min_core_version: String,
+            size: u64,
+            hash: String,
+            url: String,
+            #[serde(default)]
+            summary: String,
+        }
+        #[derive(Deserialize)]
+        struct Catalogue12 {
+            plugins: Vec<Before>,
+        }
+        let old: Catalogue12 = serde_json::from_str(&translated).expect("an older app reads it");
+        assert_eq!(old.plugins[0].name, "Translator", "and shows the English name");
     }
 
     /// A package as its author would build it: the manifest and the files of `dist/`.

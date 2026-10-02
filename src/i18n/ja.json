@@ -424,7 +424,7 @@
     "pickContact": "一緒に遊ぶ相手",
     "noContacts": "遊ぶには連絡先を追加してください",
     "invite": "招待",
-    "inviteText": "🎮 {game}で遊ばない？ {url}",
+    "inviteText": "🎮 {game} · 遊ばない？ {url}",
     "installAndPlay": "インストールして遊ぶ",
     "permissionsBody": "このゲームは相手の端末と通信し、結果をチャットに残すことがあります。",
     "permissionsAllow": "許可して遊ぶ",

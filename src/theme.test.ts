@@ -277,8 +277,12 @@ describe("the palettes' contrast", () => {
     return Array.from({ length: 21 }, (_, at) => over(to, at / 20, from));
   };
 
-  it("finds the six themes", () => {
-    expect(blocks.map((one) => one.name).sort()).toEqual(["aurora dark", "aurora light", "ember dark", "ember light", "mono dark", "mono light"]);
+  // The four directions (lime joined on 2026-10-02), each in light and dark.
+  const themes = ["ember light", "ember dark", "aurora light", "aurora dark", "mono light", "mono dark", "lime light", "lime dark"];
+  const lights = themes.filter((name) => name.endsWith(" light"));
+
+  it("finds the eight themes", () => {
+    expect(blocks.map((one) => one.name).sort()).toEqual([...themes].sort());
   });
 
   it("keeps the accent's numbers the accent", () => {
@@ -288,14 +292,14 @@ describe("the palettes' contrast", () => {
     }
   });
 
-  it.each(["ember light", "ember dark", "aurora light", "aurora dark", "mono light", "mono dark"])("%s: this phone's bubble reads", (name) => {
+  it.each(themes)("%s: this phone's bubble reads", (name) => {
     const { body } = blocks.find((one) => one.name === name)!;
     const text = parse(token(body, "ft-on-accent"));
     const worst = Math.min(...gradient(body).map((under) => contrast(text, under)));
     expect(worst).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(["ember light", "ember dark", "aurora light", "aurora dark", "mono light", "mono dark"])("%s: the accent reads as text", (name) => {
+  it.each(themes)("%s: the accent reads as text", (name) => {
     const { body } = blocks.find((one) => one.name === name)!;
     const accent = parse(token(body, "ft-accent"));
     const page = parse(token(body, "ft-bg"));
@@ -304,7 +308,7 @@ describe("the palettes' contrast", () => {
     }
   });
 
-  it.each(["ember light", "aurora light"])("%s: Play reads in this phone's bubble, anywhere on it", (name) => {
+  it.each(lights)("%s: Play reads in this phone's bubble, anywhere on it", (name) => {
     const { body } = blocks.find((one) => one.name === name)!;
     const text = parse(token(body, "ft-on-accent"));
     const worst = Math.min(...gradient(body).map((under) => contrast(text, over(text, 0.14, under))));
@@ -338,7 +342,7 @@ describe("the danger colour", () => {
       const [light, dark] = [luminance(one), luminance(other)].sort((a, b) => b - a);
       return (light + 0.05) / (dark + 0.05);
     };
-    expect(lights).toHaveLength(3);
+    expect(lights).toHaveLength(4);
     for (const block of lights) {
       for (const under of ["ft-bg", "ft-surface", "ft-surface-2"]) expect(contrast(danger, value(block, under)!), under).toBeGreaterThanOrEqual(4.5);
     }

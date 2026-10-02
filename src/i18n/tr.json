@@ -424,7 +424,7 @@
     "pickContact": "Şununla oyna",
     "noContacts": "Oynamak için bir kişi ekleyin",
     "invite": "Davet et",
-    "inviteText": "🎮 {game} oynayalım mı? {url}",
+    "inviteText": "🎮 {game} · Oynayalım mı? {url}",
     "installAndPlay": "Yükle ve oyna",
     "permissionsBody": "Bu oyun karşı tarafın telefonuyla konuşur ve sonucu sohbete bırakabilir.",
     "permissionsAllow": "İzin ver ve oyna",
