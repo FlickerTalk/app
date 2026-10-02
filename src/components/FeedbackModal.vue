@@ -6,8 +6,9 @@ import { sendFeedback, type FeedbackOutcome } from "../core";
 
 // 2026-10-02: an anonymous suggestion, mailed on by the router, which keeps nothing. Nothing of it
 // is kept here either: no draft, no history; closing forgets it. A modal over Settings (Ioan), a
-// sheet like the app's others: tap outside, the ✕ or Android's Back (the page's) close it. The
-// router takes up to 2000 characters.
+// sheet like the app's others: the ✕ or Android's Back (the page's) always close it; a tap outside
+// closes it only with nothing written and nothing on its way, so a stray tap never loses a text.
+// The router takes up to 2000 characters.
 const MAX = 2000;
 
 const emit = defineEmits<{ close: [] }>();
@@ -16,6 +17,10 @@ const text = ref("");
 const sending = ref(false);
 const outcome = ref<FeedbackOutcome | null>(null);
 const ready = computed(() => !sending.value && text.value.trim() !== "");
+
+function tappedOutside() {
+  if (!sending.value && !text.value.trim()) emit("close");
+}
 
 // "sent" only when the router took it; otherwise the text stays, so nothing written is lost.
 // While a send is on its way the button is off and another tap does nothing.
@@ -34,7 +39,7 @@ async function send() {
 </script>
 
 <template>
-  <div class="ft-feedback" data-test="feedback-modal" role="dialog" :aria-label="$t('feedback.title')" @click.self="emit('close')">
+  <div class="ft-feedback" data-test="feedback-modal" role="dialog" :aria-label="$t('feedback.title')" @click.self="tappedOutside">
     <div class="ft-feedback__card">
       <div class="ft-feedback__bar">
         <h2 class="ft-feedback__title">{{ $t("feedback.title") }}</h2>

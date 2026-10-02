@@ -36,8 +36,38 @@ describe("FeedbackModal", () => {
     expect(wrapper.emitted("close")).toHaveLength(1);
   });
 
-  it("goes away when the user taps outside it", async () => {
+  it("goes away when the user taps outside it with nothing written", async () => {
     const wrapper = mount(FeedbackModal, { shallow: true });
+    await write(wrapper, "  \n ");
+    await wrapper.find("[data-test='feedback-modal']").trigger("click");
+    expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  // Nothing of a suggestion is kept, so a stray tap outside must not throw away what was written:
+  // only the ✕ (and Android's Back) close it then, on purpose.
+  it("stays when the user taps outside it with something written, and the ✕ still closes it", async () => {
+    const wrapper = mount(FeedbackModal, { shallow: true });
+    await write(wrapper, "A long idea I would hate to lose");
+    await wrapper.find("[data-test='feedback-modal']").trigger("click");
+    expect(wrapper.emitted("close")).toBeUndefined();
+    await wrapper.find("[data-test='feedback-close']").trigger("click");
+    expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  it("stays when the user taps outside it while a suggestion is on its way, and goes once it is sent", async () => {
+    let answer: (word: string) => void = () => undefined;
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      return command === "core_send_feedback" ? new Promise((resolve) => (answer = resolve)) : undefined;
+    });
+    const wrapper = mount(FeedbackModal, { shallow: true });
+    await write(wrapper, "Stickers");
+    await wrapper.find("[data-test='send']").trigger("click");
+    await write(wrapper, "");
+    await wrapper.find("[data-test='feedback-modal']").trigger("click");
+    expect(wrapper.emitted("close")).toBeUndefined();
+    answer("sent");
+    await flushPromises();
     await wrapper.find("[data-test='feedback-modal']").trigger("click");
     expect(wrapper.emitted("close")).toHaveLength(1);
   });

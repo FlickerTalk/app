@@ -73,7 +73,21 @@ test.describe("in Arabic, right to left", () => {
     // Settings stays where it was, under the modal.
     await expect(app).toHaveURL(/\/tabs\/settings$/);
 
-    // Closing forgets it: opened again, the box is empty and nothing is said.
+    // A stray tap outside the card never loses what was written; with the box empty, it closes.
+    const outside = { position: { x: 20, y: 20 } };
+    await modal.click(outside);
+    await expect(modal).toBeVisible();
+    await expect(modal.locator("ion-textarea textarea")).toHaveValue("ملصقات من فضلكم");
+    await modal.locator("ion-textarea textarea").fill("");
+    await modal.click(outside);
+    await expect(modal).toHaveCount(0);
+
+    // Closing forgets it: opened again, the box is empty and nothing is said. The ✕ closes it
+    // whatever is written.
+    await app.getByTestId("feedback").click();
+    await modal.locator("ion-textarea textarea").fill("ملصقات من فضلكم");
+    await modal.getByTestId("send").click();
+    await expect(modal.getByTestId("outcome")).toBeVisible();
     await modal.getByTestId("feedback-close").click();
     await expect(modal).toHaveCount(0);
     await app.getByTestId("feedback").click();
