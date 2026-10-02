@@ -70,7 +70,9 @@ const isActive = (path: string) => route.path.startsWith(path);
 <style scoped>
 .ft-rail {
   position: absolute;
-  inset: 0 auto 0 0;
+  /* At the inline start, where TabsPage leaves its room: the left in LTR, the right in RTL. */
+  inset-block: 0;
+  inset-inline-start: 0;
   z-index: 10;
   display: none;
   flex-direction: column;
