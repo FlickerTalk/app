@@ -35,6 +35,9 @@
  * screen, `window.__ftFake.phoneAnswers`), the core answers and says `answering`, then
  * `connected`; a call answered before its offer came arrives as `incoming` with `answered`.
  *
+ * A plugin opened in a chat gets a deterministic id of it (`core_plugin_chat`, 2026-10-02), its own
+ * for each plugin and contact, refused for a contact that is blocked or in a closed session.
+ *
  * Games (plan 10, app 1.3.0): one game is installed (Tic-tac-toe, granted nothing yet) and the
  * catalogue offers another (Chess); installing, granting and removing change the fake's lists as
  * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
@@ -417,6 +420,21 @@ export function installFakeCore() {
         state.open = state.open.filter((id) => id !== a.session);
         keepSessions();
         return undefined;
+      // The id of a chat for a plugin (2026-10-02): deterministic, 43 characters of base64url,
+      // its own for each plugin and contact, and only for a contact the user can reach here.
+      case "core_plugin_chat": {
+        const contact = String(a.contact);
+        const here = [...state.conversations, ...state.open.flatMap((id) => state.sessionChats[id] ?? [])];
+        if (!here.some((one) => one.id === contact && !one.blocked)) throw new Error("that is not a contact of yours");
+        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let hash = 2166136261;
+        let chat = "";
+        for (let round = 0; chat.length < 43; round++) {
+          for (const c of `${round}|${String(a.plugin)}|${contact}`) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619) >>> 0;
+          chat += alphabet[hash & 63];
+        }
+        return chat;
+      }
       // What plugins keep (2026-10-01, §108): apart for each place, as the core keeps it.
       case "core_plugin_record_get":
         return state.pluginData[dataKey("record", a, a.key)] ?? null;
