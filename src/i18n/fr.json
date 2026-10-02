@@ -60,7 +60,10 @@
     "download": "Télécharger",
     "resend": "Renvoyer",
     "discardAttachment": "Retirer la pièce jointe",
-    "otherApp": "Une autre app"
+    "otherApp": "Une autre app",
+    "location": "Position",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place} : ouvrir dans Plans"
   },
   "status": {
     "pending": "En attente de l’appareil",
@@ -284,6 +287,7 @@
     "remind": "Programmer des rappels sur ce téléphone",
     "drive": "Garder des fichiers dans votre propre cloud",
     "storageLarge": "Garder beaucoup de données sur ce téléphone (jusqu'à 256 Mo)",
+    "location": "Votre position, seulement quand vous la demandez",
     "opens": "Ouvre : {kinds}",
     "open": "Ouvrir"
   },

@@ -24,6 +24,15 @@
          call's service adds the camera type while the call has video. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- The location plugin (2026-10-02): the phone's current position, once, while the app is
+         open, asked for the first time a plugin granted `location` wants it (§30). Never in the
+         background: no ACCESS_BACKGROUND_LOCATION. The hardware is not required, so a phone or
+         tablet without GPS still gets the app. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
     <application>
         <receiver android:name="com.flickertalk.platform.ReminderReceiver" android:exported="false" />
         <receiver android:name="com.flickertalk.platform.BootReceiver" android:exported="true">

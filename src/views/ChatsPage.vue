@@ -29,6 +29,8 @@ import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
 import CircleThread from "../components/CircleThread.vue";
+import { t } from "../i18n";
+import { previewOf } from "../links";
 import { closeSession, removeSession, store, type Chat, type Circle, type Session } from "../core";
 
 const router = useRouter();
@@ -62,9 +64,14 @@ function openCircle(id: string) {
   }
 }
 
+/** A last message as the list says it: a place in words (`📍 Location`), not its geo URI. */
+function shown(preview: string): string {
+  return previewOf(preview, t("chat.location"));
+}
+
 /** What the list says a circle's last line was: who said it, then the text. */
 function circlePreview(circle: Circle): string {
-  return circle.lastSender ? `${circle.lastSender}: ${circle.preview}` : circle.preview;
+  return circle.lastSender ? `${circle.lastSender}: ${shown(circle.preview)}` : shown(circle.preview);
 }
 
 /** A new circle of the main list, or of a session that exists in the core. */
@@ -156,7 +163,7 @@ const STATUS_ICON: Record<string, string> = {
                       <span class="ft-row__time">{{ shortId(chat) }}</span>
                     </span>
                     <span class="ft-row__line">
-                      <span class="ft-row__preview">{{ chat.preview }}</span>
+                      <span class="ft-row__preview">{{ shown(chat.preview) }}</span>
                     </span>
                   </span>
                 </button>
@@ -236,7 +243,7 @@ const STATUS_ICON: Record<string, string> = {
                       role="img"
                       :aria-label="chat.lastKind === 'voice' ? $t('chat.voiceMessage') : $t('chat.file')"
                     />
-                    <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : chat.preview }}</span>
+                    <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
                     <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
                   </span>
                 </span>
@@ -341,7 +348,7 @@ const STATUS_ICON: Record<string, string> = {
                         <span class="ft-row__name">{{ chat.name }}</span>
                         <span class="ft-row__time">{{ shortId(chat) }}</span>
                       </span>
-                      <span class="ft-row__line"><span class="ft-row__preview">{{ chat.preview }}</span></span>
+                      <span class="ft-row__line"><span class="ft-row__preview">{{ shown(chat.preview) }}</span></span>
                     </span>
                   </button>
                 </li>
@@ -403,7 +410,7 @@ const STATUS_ICON: Record<string, string> = {
                           :class="`is-${chat.status}`"
                           aria-hidden="true"
                         />
-                        <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : chat.preview }}</span>
+                        <span class="ft-row__preview">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
                         <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
                       </span>
                     </span>

@@ -60,7 +60,10 @@
     "download": "Download",
     "resend": "إعادة الإرسال",
     "discardAttachment": "Discard attachment",
-    "otherApp": "تطبيق آخر"
+    "otherApp": "تطبيق آخر",
+    "location": "الموقع",
+    "accuracy": "±{metres} م",
+    "openLocation": "{place}: فتح في الخرائط"
   },
   "status": {
     "pending": "بانتظار الجهاز",
@@ -284,6 +287,7 @@
     "remind": "ضبط تذكيرات على هذا الهاتف",
     "drive": "حفظ الملفات في سحابتك الخاصة",
     "storageLarge": "حفظ بيانات كثيرة على هذا الهاتف (حتى 256 ميغابايت)",
+    "location": "موقعك، فقط عندما تطلبه",
     "opens": "يفتح: {kinds}",
     "open": "فتح"
   },

@@ -1005,12 +1005,24 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
     let router_for_events = online.router.clone();
     let core_for_events = online.core.clone();
     tauri::async_runtime::spawn(async move {
+        use crate::core_events::{self, EverythingChanged, Next};
         tokio::pin!(stopped);
         // A stopped core's events end here (erasing the phone): the new one has its own.
-        while let Some(Ok(event)) = tokio::select! {
-            event = events.recv() => Some(event),
-            _ = &mut stopped => None,
-        } {
+        loop {
+            let event = match core_events::next(&mut events, &mut stopped).await {
+                Next::Event(event) => event,
+                // Events lost to a burst (2026-10-01): what they would have changed is fetched
+                // again, and the loop goes on. A core a push started has no app to tell yet.
+                Next::Lost => {
+                    if let Some(app) = host.app().cloned() {
+                        let _ = app.emit(CHANGED_EVENT, EverythingChanged::default());
+                        let _ = app.emit(VAULT_EVENT, ());
+                        sync_reminders(&app, &core_for_events).await;
+                    }
+                    continue;
+                }
+                Next::End => break,
+            };
             host.saw(&event, std::time::Instant::now());
             let app = host.app().cloned();
             let (contact, circle) = match event {
@@ -2049,6 +2061,9 @@ pub struct PermissionsView {
     /// `small` or `large`.
     #[serde(default = "small")]
     storage: String,
+    /// 2026-10-02: the phone's current position, once.
+    #[serde(default)]
+    location: bool,
 }
 
 fn small() -> String {
@@ -2075,6 +2090,28 @@ impl From<&ft_plugins::Permissions> for PermissionsView {
                 ft_plugins::Storage::Large => "large",
             }
             .to_owned(),
+            location: permissions.location,
+        }
+    }
+}
+
+/// What the screen says the user grants, as the core reads it.
+impl From<PermissionsView> for ft_plugins::Permissions {
+    fn from(granted: PermissionsView) -> Self {
+        Self {
+            network: granted.network,
+            reads_given_messages: granted.messages,
+            send: match granted.send.as_str() {
+                "propose" => ft_plugins::Sending::Propose,
+                "auto" => ft_plugins::Sending::Auto,
+                _ => ft_plugins::Sending::Nothing,
+            },
+            print: granted.print,
+            live: granted.live,
+            remind: granted.remind,
+            drive: granted.drive,
+            storage: if granted.storage == "large" { ft_plugins::Storage::Large } else { ft_plugins::Storage::Small },
+            location: granted.location,
         }
     }
 }
@@ -2115,20 +2152,7 @@ pub async fn core_plugin_grant(
     app: AppHandle,
     client: State<'_, Client>,
 ) -> Result<(), String> {
-    let permissions = ft_plugins::Permissions {
-        network: granted.network,
-        reads_given_messages: granted.messages,
-        send: match granted.send.as_str() {
-            "propose" => ft_plugins::Sending::Propose,
-            "auto" => ft_plugins::Sending::Auto,
-            _ => ft_plugins::Sending::Nothing,
-        },
-        print: granted.print,
-        live: granted.live,
-        remind: granted.remind,
-        drive: granted.drive,
-        storage: if granted.storage == "large" { ft_plugins::Storage::Large } else { ft_plugins::Storage::Small },
-    };
+    let permissions = ft_plugins::Permissions::from(granted);
     let core = client.core().await?;
     core.grant_plugin(&plugin, permissions).await.map_err(failed)?;
     refresh_served_plugins(&app, &core, client.dir()?).await;
@@ -2574,6 +2598,37 @@ pub async fn core_plugin_print(
     let (path, safe) = made_file(&client, &name, &data, "printing")?;
     forget_old_prints(path.parent().unwrap_or(&path), &path);
     app.platform().print_file(&path.to_string_lossy(), &safe, &mime).map_err(failed)
+}
+
+/// Where the phone is, for a plugin (2026-10-02): what a plugin's `ft.location()` gets.
+#[derive(Serialize)]
+pub struct LocationView {
+    lat: f64,
+    lon: f64,
+    accuracy: f64,
+    at: i64,
+}
+
+/// The phone, asked for its position through the bridge (CoreLocation / LocationManager).
+struct PlatformLocator(AppHandle);
+
+#[async_trait::async_trait]
+impl ft_core::plugins::Locator for PlatformLocator {
+    async fn locate(&self) -> anyhow::Result<Option<ft_core::plugins::Fix>> {
+        let app = self.0.clone();
+        let found = tauri::async_runtime::spawn_blocking(move || app.platform().current_location()).await??;
+        Ok(found.map(|fix| ft_core::plugins::Fix { lat: fix.lat, lon: fix.lon, accuracy: fix.accuracy, at: fix.at }))
+    }
+}
+
+/// The phone's current position, once, for a plugin the user granted `location` (2026-10-02).
+/// The core checks the grant before the phone is asked, and keeps nothing of the answer; `null`
+/// when the user or the phone refuses, location is off or no fix came in time.
+#[tauri::command]
+pub async fn core_plugin_location(plugin: String, app: AppHandle, client: State<'_, Client>) -> Result<Option<LocationView>, String> {
+    let core = client.core().await?;
+    let fix = core.plugin_location(&plugin, &PlatformLocator(app)).await.map_err(failed)?;
+    Ok(fix.map(|fix| LocationView { lat: fix.lat, lon: fix.lon, accuracy: fix.accuracy, at: fix.at }))
 }
 
 /// Deletes what was left for the printer before, an hour old or more; never the one going now.
@@ -3376,6 +3431,23 @@ mod tests {
     use tauri_plugin_ft_platform::{VideoLayout, VideoRect};
 
     use super::*;
+
+    // 2026-10-02: the screen shows whether a plugin asks for the phone's position and whether it
+    // was granted, and what the user switches on reaches the core as it is.
+    #[test]
+    fn the_location_permission_goes_to_the_screen_and_back() {
+        let asked = ft_plugins::Permissions { location: true, ..ft_plugins::Permissions::default() };
+        let shown = serde_json::to_value(PermissionsView::from(&asked)).unwrap();
+        assert_eq!(shown["location"], serde_json::json!(true), "{shown}");
+        let switched: PermissionsView = serde_json::from_value(serde_json::json!({
+            "network": [], "messages": false, "send": "nothing", "location": true
+        }))
+        .unwrap();
+        assert!(ft_plugins::Permissions::from(switched).location);
+        // A screen that says nothing of it grants nothing.
+        let silent: PermissionsView = serde_json::from_value(serde_json::json!({ "network": [], "messages": false, "send": "nothing" })).unwrap();
+        assert!(!ft_plugins::Permissions::from(silent).location);
+    }
 
     // Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): off unless
     // the build set FT_IOS_OPEN_APP_ON_ANSWER to 1 (or true).

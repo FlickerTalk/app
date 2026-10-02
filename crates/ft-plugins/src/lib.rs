@@ -116,6 +116,10 @@ pub struct Permissions {
     /// and pictures.
     #[serde(default)]
     pub storage: Storage,
+    /// Whether it may ask for the phone's current position (2026-10-02): one fix, while the app
+    /// is open, that the phone asks the user for the first time. No background, no following.
+    #[serde(default)]
+    pub location: bool,
 }
 
 /// How much a plugin may keep in its records (2026-09-27), asked for like any permission.
@@ -721,6 +725,24 @@ mod tests {
         let opened = open(&package(&printer, b"", &catalogue), &catalogue.public_key()).unwrap();
         assert!(opened.manifest.permissions.print);
         assert!(opened.manifest.permissions.network.is_empty());
+    }
+
+    // 2026-10-02: the location plugin asks for the phone's current position, once, as a yes or
+    // a no. Nothing else is there to ask for: no "always", no background, no live sharing.
+    #[test]
+    fn a_plugin_asks_for_the_phones_position_on_its_own() {
+        let catalogue = Ed25519SecretKey::new();
+        let asking = open(&package(&manifest_with(r#"{"location":true,"send":"propose"}"#), b"", &catalogue), &catalogue.public_key()).unwrap();
+        let said = serde_json::to_value(&asking.manifest.permissions).unwrap();
+        assert_eq!(said["location"], serde_json::json!(true), "the manifest asked for the position: {said}");
+        let plain = open(&package(&manifest_of("com.example.code"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(serde_json::to_value(&plain.manifest.permissions).unwrap()["location"], serde_json::json!(false), "never unless asked");
+        for wrong in [r#"{"location":"always"}"#, r#"{"location":"background"}"#, r#"{"location":1}"#] {
+            assert!(open(&package(&manifest_with(wrong), b"", &catalogue), &catalogue.public_key()).is_err(), "{wrong} is not a yes or a no");
+        }
+        // A grant written before this permission existed reads as no position.
+        let before: Permissions = serde_json::from_str(r#"{"network":[],"messages":"none","send":"nothing"}"#).unwrap();
+        assert_eq!(serde_json::to_value(&before).unwrap()["location"], serde_json::json!(false));
     }
 
     // 2026-09-27: the permissions the board, the notes and the drive need are asked for one by

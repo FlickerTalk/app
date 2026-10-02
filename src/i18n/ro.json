@@ -60,7 +60,10 @@
     "download": "Download",
     "resend": "Trimite din nou",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Altă aplicație"
+    "otherApp": "Altă aplicație",
+    "location": "Locație",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: deschide în hărți"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
@@ -284,6 +287,7 @@
     "remind": "Să seteze mementouri pe acest telefon",
     "drive": "Să păstreze fișiere în propriul tău cloud",
     "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
+    "location": "Locația ta, doar când o ceri",
     "opens": "Deschide: {kinds}",
     "open": "Deschide"
   },

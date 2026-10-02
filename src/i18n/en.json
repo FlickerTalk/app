@@ -60,7 +60,10 @@
     "download": "Download",
     "resend": "Send again",
     "discardAttachment": "Discard attachment",
-    "otherApp": "Another app"
+    "otherApp": "Another app",
+    "location": "Location",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: open in maps"
   },
   "status": {
     "pending": "Waiting for device",
@@ -284,6 +287,7 @@
     "remind": "Set reminders on this phone",
     "drive": "Keep files in your own cloud",
     "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
+    "location": "Your location, only when you ask",
     "opens": "Opens: {kinds}",
     "open": "Open"
   },

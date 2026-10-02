@@ -1,4 +1,5 @@
 mod client;
+mod core_events;
 mod plugins;
 mod push_core;
 mod video_surfaces;
@@ -178,6 +179,7 @@ pub fn run() {
             client::core_plugin_fetch,
             client::core_plugin_save,
             client::core_plugin_print,
+            client::core_plugin_location,
             client::core_erase,
             client::core_save_file,
             client::core_call_ice,

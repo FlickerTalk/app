@@ -7,6 +7,10 @@
 	<string>FlickerTalk uses the camera for video calls and to scan contact codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>FlickerTalk uses the microphone for calls.</string>
+	<!-- 2026-10-02, the location plugin: the current position, once, while the app is open.
+	     Only "when in use": no "always" key and no location background mode. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FlickerTalk uses your location only when you choose to share where you are in a chat.</string>
 	<!-- 2026-09-28: PushKit rings calls through CallKit (voip), a call keeps its audio in the
 	     background (audio), and the router's wake-ups arrive (remote-notification). -->
 	<!-- 2026-09-28: iOS 27 no longer launches an app without the scene life cycle

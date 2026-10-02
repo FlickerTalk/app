@@ -35,6 +35,17 @@ describe("ChatsPage", () => {
     expect(rows[1].text()).toContain("menu.pdf");
   });
 
+  // 2026-10-02: a place someone sent says so in words, not as its geo URI; on wide screens too.
+  it("shows a place as 📍 Location in the list", () => {
+    for (const wide of [false, true]) {
+      screen(wide);
+      store.chats[0].preview = "geo:40.41680,-3.70380;u=35";
+      const row = mount(ChatsPage, { shallow: true }).findAll("[data-test='chat-row']")[0];
+      expect(row.text()).toContain("📍 Location");
+      expect(row.text()).not.toContain("geo:");
+    }
+  });
+
   // §84: the list says it too when the last message was not sent.
   it("marks a conversation whose last message was not sent", () => {
     screen(false);
@@ -119,6 +130,13 @@ describe("ChatsPage", () => {
       expect(row.text()).toContain("Friends");
       expect(row.text()).toContain("Maria López: dinner on friday?");
       expect(row.find("[data-test='unread']").text()).toBe("3");
+    });
+
+    it("shows a place said in a circle as 📍 Location", () => {
+      screen(false);
+      store.circles[0].preview = "geo:40.41680,-3.70380;u=35";
+      const row = mount(ChatsPage, { shallow: true }).find("[data-test='circle-row']");
+      expect(row.text()).toContain("Maria López: 📍 Location");
     });
 
     it("opens the circle full screen on phones and next to the list on wide screens", async () => {

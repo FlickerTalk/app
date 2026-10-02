@@ -60,7 +60,10 @@
     "download": "Download",
     "resend": "আবার পাঠান",
     "discardAttachment": "Discard attachment",
-    "otherApp": "অন্য অ্যাপ"
+    "otherApp": "অন্য অ্যাপ",
+    "location": "অবস্থান",
+    "accuracy": "±{metres} মি",
+    "openLocation": "{place}: ম্যাপে খুলুন"
   },
   "status": {
     "pending": "ডিভাইসের অপেক্ষায়",
@@ -284,6 +287,7 @@
     "remind": "এই ফোনে রিমাইন্ডার দেওয়া",
     "drive": "আপনার নিজের ক্লাউডে ফাইল রাখা",
     "storageLarge": "এই ফোনে অনেক ডেটা রাখা (২৫৬ MB পর্যন্ত)",
+    "location": "আপনার অবস্থান, শুধু যখন আপনি চান",
     "opens": "খোলে: {kinds}",
     "open": "খুলুন"
   },

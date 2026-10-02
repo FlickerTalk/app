@@ -10,6 +10,7 @@ import {
   cloudOutline,
   createOutline,
   globeOutline,
+  locationOutline,
   swapHorizontalOutline,
 } from "ionicons/icons";
 import type { PluginPermissions, PluginView } from "./core";
@@ -56,6 +57,8 @@ export function permissionsOf(plugin: PluginView): PermissionLine[] {
   if (plugin.asks.live) lines.push({ key: "live", label: live, icon: swapHorizontalOutline, on: !!plugin.granted.live });
   if (plugin.asks.remind) lines.push({ key: "remind", label: t("plugins.remind"), icon: alarmOutline, on: !!plugin.granted.remind });
   if (plugin.asks.drive) lines.push({ key: "drive", label: t("plugins.drive"), icon: cloudOutline, on: !!plugin.granted.drive });
+  // 2026-10-02: the phone's position, once each time the plugin asks; the phone asks too.
+  if (plugin.asks.location) lines.push({ key: "location", label: t("plugins.location"), icon: locationOutline, on: !!plugin.granted.location });
   if (plugin.asks.storage === "large") {
     lines.push({ key: "storage", label: t("plugins.storageLarge"), icon: archiveOutline, on: plugin.granted.storage === "large" });
   }
@@ -73,12 +76,14 @@ export function withPermission(plugin: PluginView, key: string, on: boolean): Pl
     remind: plugin.granted.remind,
     drive: plugin.granted.drive,
     storage: plugin.granted.storage,
+    location: plugin.granted.location,
   };
   if (key === "messages") granted.messages = on;
   else if (key === "send") granted.send = on ? plugin.asks.send : "nothing";
   else if (key === "live") granted.live = on;
   else if (key === "remind") granted.remind = on;
   else if (key === "drive") granted.drive = on;
+  else if (key === "location") granted.location = on;
   else if (key === "storage") granted.storage = on ? "large" : "small";
   else {
     const host = key.slice("network:".length);
