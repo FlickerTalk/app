@@ -413,6 +413,39 @@ impl Core {
         self.install_plugin(&package, catalogue, Permissions::default()).await
     }
 
+    /// Updates what the user installed from the catalogue when its signed index lists a higher
+    /// version (2026-10-03), and returns what was updated. Only what is installed here; never one
+    /// that is open (it waits for a later pass), that needs a newer FlickerTalk (§51), that would
+    /// change kind, or that weighs more than a package may. Each one is downloaded and checked as
+    /// a new install is (§50), and swapped in whole: whatever fails leaves the installed version.
+    /// What the user granted is kept, never widened (`install_plugin`).
+    pub async fn update_plugins(
+        &self,
+        listed: &[CatalogueEntry],
+        fetch: &dyn Fetch,
+        catalogue: &Ed25519PublicKey,
+        open: &std::collections::HashSet<String>,
+    ) -> Vec<String> {
+        let mut updated = Vec::new();
+        for plugin in self.plugins().await.unwrap_or_default() {
+            let here = &plugin.manifest;
+            let Some(entry) = listed.iter().find(|entry| entry.id == here.id) else { continue };
+            let higher = !ft_plugins::version_at_least(&here.version, &entry.version);
+            if !higher
+                || open.contains(&here.id)
+                || !entry.runs_on(CORE_VERSION)
+                || entry.kind != here.kind
+                || entry.size > PACKAGE_LIMIT
+            {
+                continue;
+            }
+            if self.add_plugin(entry, fetch, catalogue).await.is_ok() {
+                updated.push(here.id.clone());
+            }
+        }
+        updated
+    }
+
     /// A call a plugin asked the core to make for it (§55). The core checks the host against what
     /// the user granted **this** plugin: the policy of the frame is a second lock, never the only
     /// one. Nothing of the phone —no identity, no key, no cookie— travels with it.
