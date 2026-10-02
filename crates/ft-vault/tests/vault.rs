@@ -220,6 +220,23 @@ async fn an_upload_without_network_waits_on_the_phone_and_goes_when_it_can() {
     assert!(std::fs::read_dir(home.join("vault").join("outgoing")).unwrap().next().is_none(), "nothing sealed left behind");
 }
 
+// 2026-10-02: the phone says which of its files the backup takes (what no message points to in the
+// folders where files wait on their way stays out); a file left out is not sent at all.
+#[tokio::test]
+async fn a_backup_takes_only_the_files_the_phone_keeps() {
+    let cloud = Memory::new();
+    let old = scratch("backup-keep");
+    let vault = Vault::create(cloud.clone(), old.join("vault"), "phone-a", PHRASE).await.unwrap();
+    let db = file(&old, "snapshot.db", b"sqlite bytes");
+    let files = old.join("files");
+    file(&files, "uploads/sent.jpg", b"sent");
+    file(&files, "uploads/stale.jpg", b"stale with gps");
+
+    let backup = vault.backup(&db, &[1; 32], &files, |path| path != "uploads/stale.jpg", quiet()).await.unwrap();
+    assert_eq!(backup.files.iter().map(|one| one.path.as_str()).collect::<Vec<_>>(), ["uploads/sent.jpg"]);
+    assert_eq!(cloud.names().iter().filter(|name| name.starts_with("blob-")).count(), 2, "the database and one file");
+}
+
 #[tokio::test]
 async fn the_phone_is_backed_up_and_a_new_one_brings_it_down() {
     let cloud = Memory::new();
@@ -231,7 +248,7 @@ async fn the_phone_is_backed_up_and_a_new_one_brings_it_down() {
     file(&files, "incoming/ft_x/doc.pdf", &vec![7u8; 100_000]);
     let storage_key = [42u8; 32];
 
-    let backup = vault.backup(&db, &storage_key, &files, quiet()).await.unwrap();
+    let backup = vault.backup(&db, &storage_key, &files, |_| true, quiet()).await.unwrap();
     assert_eq!(backup.files.len(), 2);
     assert_eq!(backup.db_size, 33);
     assert!(vault.status().await.unwrap().backup_at.is_some());
@@ -248,7 +265,7 @@ async fn the_phone_is_backed_up_and_a_new_one_brings_it_down() {
     // A second backup sends only what changed, and drops the blobs of the first.
     file(&files, "uploads/photo.jpg", b"a photo");
     file(&files, "uploads/new.txt", b"new");
-    let second = vault.backup(&db, &storage_key, &files, quiet()).await.unwrap();
+    let second = vault.backup(&db, &storage_key, &files, |_| true, quiet()).await.unwrap();
     assert_eq!(second.files.len(), 3);
     let kept = second.files.iter().find(|one| one.path == "uploads/photo.jpg").unwrap();
     assert_eq!(kept.blob, backup.files.iter().find(|one| one.path == "uploads/photo.jpg").unwrap().blob, "same file, same blob");

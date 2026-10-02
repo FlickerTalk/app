@@ -195,6 +195,56 @@ async fn the_phone_is_backed_up_and_a_new_phone_brings_it_down_ready_to_swap_in(
     assert_eq!(std::fs::read(new_dir.join("files").join("m1").join("received.pdf")).unwrap(), b"pdf bytes");
 }
 
+// 2026-10-02: from where files wait on their way (and the printer's), the backup takes only what
+// a message points to; a pick that went nowhere or a plain copy from the drive never reaches the
+// cloud. Everything else under `files/` goes as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_backup_leaves_out_what_no_message_points_to() {
+    let cloud = Memory::new();
+    let (core, dir) = phone("leftovers", &cloud).await;
+    let browser = Browser { opened: Default::default(), refuses: false };
+    core.vault_connect("memory", &browser).await.unwrap();
+    core.vault_setup(PHRASE).await.unwrap();
+    let files = dir.join("files");
+    for (path, bytes) in [
+        ("uploads/1-sent.jpg", "sent"),
+        ("m1/received.pdf", "received"),
+        ("uploads/2-stale.jpg", "stale"),
+        ("outgoing/3-made.pdf", "made"),
+        ("drive/x1/plain.pdf", "plain"),
+        ("printing/p.pdf", "printed"),
+    ] {
+        std::fs::create_dir_all(files.join(path).parent().unwrap()).unwrap();
+        std::fs::write(files.join(path), bytes).unwrap();
+    }
+    let store = core.store();
+    store
+        .add_contact(&ft_storage::NewContact { device_id: "ft_bob".into(), name: "Bob".into(), card: vec![1], mailbox: true, session: None, receipts: true, accepted: true })
+        .await
+        .unwrap();
+    let message = ft_storage::Message { message_id: "m0".into(), contact: "ft_bob".into(), outgoing: true, body: "sent.jpg".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Sent };
+    store.insert_message(&message).await.unwrap();
+    let file = ft_storage::FileRecord {
+        message_id: "m0".into(),
+        name: "sent.jpg".into(),
+        size: 4,
+        mime: "image/jpeg".into(),
+        hash: [0; 32],
+        chunk: 4,
+        path: "uploads/1-sent.jpg".into(),
+        chunks_done: 0,
+        complete: false,
+        failed: false,
+        waiting: false,
+    };
+    store.insert_file(&file).await.unwrap();
+
+    let backup = core.vault_backup().await.unwrap();
+    let mut paths: Vec<_> = backup.files.iter().map(|one| one.path.as_str()).collect();
+    paths.sort();
+    assert_eq!(paths, ["m1/received.pdf", "uploads/1-sent.jpg"]);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_plugin_uses_the_drive_only_if_granted() {
     let cloud = Memory::new();
