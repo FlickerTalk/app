@@ -205,6 +205,40 @@ class PlatformPluginTest {
         assertEquals("uploads", PICKED_FOLDER)
     }
 
+    // 2026-10-02: each copy the picker makes is a new file of its own, named as on iOS. Two files
+    // with the same name in one pick, or a clock set back, never write over one a message points to.
+    @Test
+    fun aPickedCopyNeverTakesTheNameOfAFileThatIsThere() {
+        val folder = java.nio.file.Files.createTempDirectory("ft-picked").toFile()
+        assertEquals("1759400000000-0-a.jpg", pickedBase(1759400000000, 0, "a.jpg"))
+        assertEquals("a name never makes a path", "1-0-a_b.pdf", pickedBase(1, 0, "a/b.pdf"))
+
+        val first = newPickedFile(folder, pickedBase(1759400000000, 0, "a.jpg"))
+        val second = newPickedFile(folder, pickedBase(1759400000000, 1, "a.jpg"))
+        assertEquals("1759400000000-1-a.jpg", second.name)
+        first.writeText("sent")
+        val again = newPickedFile(folder, pickedBase(1759400000000, 0, "a.jpg"))
+        assertEquals("1759400000000-0-a-2.jpg", again.name)
+        assertEquals("sent", first.readText())
+        assertTrue("it is ours from the start", again.exists())
+        folder.deleteRecursively()
+    }
+
+    // The camera names a photo by the second it was taken: a second one in that second is its own file.
+    @Test
+    fun twoPhotosInOneSecondAreTwoFiles() {
+        val folder = java.nio.file.Files.createTempDirectory("ft-photo").toFile()
+        val name = photoName(0, java.util.TimeZone.getTimeZone("UTC"))
+        val first = newPickedFile(folder, name)
+        first.writeText("first")
+        val second = newPickedFile(folder, name)
+        assertEquals("photo-19700101-000000-2.jpg", second.name)
+        assertEquals("first", first.readText())
+        val third = newPickedFile(folder, name)
+        assertEquals("photo-19700101-000000-3.jpg", third.name)
+        folder.deleteRecursively()
+    }
+
     // Issue app#7: the weekly hours, Monday first, as the core hands them over.
     private val week = "1080-1320;1080-1320;1080-1320;1080-1320;900-1320;all;all"
 
