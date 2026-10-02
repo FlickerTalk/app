@@ -37,6 +37,13 @@ async function canDismiss(_data?: unknown, role?: string): Promise<boolean> {
   return !INCIDENTAL.has(role ?? "") || (!sending.value && text.value.trim() === "");
 }
 
+// Only the user's typing comes here (Ionic's v-model event), not the box emptied after a send: what
+// came of the last send stays until the text is touched again.
+function edited(value: string | null | undefined) {
+  text.value = value ?? "";
+  outcome.value = null;
+}
+
 function dismissed() {
   text.value = "";
   outcome.value = null;
@@ -73,7 +80,7 @@ async function send() {
     </ion-header>
     <ion-content class="ion-padding">
       <ion-textarea
-        v-model="text"
+        :model-value="text"
         class="ft-feedback__box"
         fill="outline"
         :rows="6"
@@ -81,6 +88,7 @@ async function send() {
         :maxlength="MAX"
         :placeholder="$t('feedback.placeholder')"
         :aria-label="$t('feedback.placeholder')"
+        @update:model-value="edited"
       />
       <ion-text color="medium">
         <p data-test="hint">{{ $t("feedback.hint") }}</p>
