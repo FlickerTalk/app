@@ -572,6 +572,78 @@ mod tests {
         }
     }
 
+    /// The index as `ftcatalogue` writes it, for the sixteen plugins served on 2026-10-02 (their
+    /// ids, names and the length of their English summaries), each with `locales` from `languages`.
+    fn served_index(languages: impl Fn(usize) -> std::collections::BTreeMap<String, ft_plugins::Localized>) -> String {
+        const SERVED: [(&str, &str, usize); 16] = [
+            ("game.chess", "Chess", 88), ("game.fourinarow", "Four in a Row", 96), ("game.tictactoe", "Tic-Tac-Toe", 94),
+            ("board", "Board", 81), ("clean", "Clean", 123), ("drive", "My drive", 58), ("images", "Image", 91),
+            ("list", "List", 84), ("markdown", "Markdown", 76), ("notes", "Notes", 56), ("pdf", "PDF", 70),
+            ("poll", "Poll", 96), ("redact", "Cover", 78), ("sign", "Sign", 122), ("sketch", "Sketch", 53),
+            ("split", "Split", 124),
+        ];
+        let entries: Vec<CatalogueEntry> = SERVED
+            .iter()
+            .map(|(id, name, summary)| CatalogueEntry {
+                id: format!("com.flickertalk.{id}"),
+                name: (*name).to_owned(),
+                version: "1.0.1".to_owned(),
+                min_core_version: "1.3.0".to_owned(),
+                size: 123_456,
+                hash: "ab".repeat(32),
+                url: format!("{CATALOGUE_HOME}/com.flickertalk.{id}/1.0.1.ftplugin"),
+                summary: "x".repeat(*summary),
+                kind: if id.starts_with("game.") { ft_plugins::Kind::Game } else { ft_plugins::Kind::Tool },
+                locales: languages(*summary),
+            })
+            .collect();
+        serde_json::to_string_pretty(&serde_json::json!({ "plugins": entries })).unwrap()
+    }
+
+    /// The app's twenty other languages, each with a word of its script to build text from.
+    const LANGUAGES: [(&str, &str); 20] = [
+        ("es", "dibuja "), ("pt", "desenhe "), ("fr", "dessinez "), ("de", "zeichnen "), ("it", "disegna "),
+        ("ro", "desenează "), ("ru", "рисуйте "), ("uk", "малюйте "), ("pl", "rysuj "), ("tr", "çizin "),
+        ("ar", "ارسم "), ("hi", "चित्र बनाएं "), ("bn", "আঁকুন "), ("id", "gambar "), ("vi", "vẽ hình "),
+        ("th", "วาดภาพ "), ("ja", "指で描く"), ("ko", "그리기 "), ("zh-CN", "用手指画"), ("zh-TW", "用手指畫"),
+    ];
+
+    // 2026-10-02 (plan of the catalogue's translations): with every plugin named and summed up in
+    // all twenty languages, the index still fits what the core downloads (`INDEX_LIMIT`), with
+    // translations a third longer than the English, and even with every text at its longest in a
+    // script of three bytes a character. It stays signed and readable byte for byte.
+    #[test]
+    fn a_fully_translated_index_fits_what_the_core_downloads() {
+        let text = |word: &str, chars: usize| word.chars().cycle().take(chars).collect::<String>();
+        let realistic = served_index(|summary| {
+            LANGUAGES
+                .iter()
+                .map(|(code, word)| {
+                    // Chinese, Japanese and Korean say it in about half the characters.
+                    let dense = matches!(*code, "ja" | "ko" | "zh-CN" | "zh-TW");
+                    let (name, summary) = if dense { (6, summary * 6 / 10) } else { (18, summary * 13 / 10) };
+                    let said = ft_plugins::Localized { name: Some(text(word, name)), summary: Some(text(word, summary.min(200))) };
+                    ((*code).to_owned(), said)
+                })
+                .collect()
+        });
+        let longest = served_index(|_| {
+            LANGUAGES
+                .iter()
+                .map(|(code, _)| ((*code).to_owned(), ft_plugins::Localized { name: Some("न".repeat(64)), summary: Some("न".repeat(200)) }))
+                .collect()
+        });
+        eprintln!("catalogue.json: {} bytes translated, {} bytes at the limits", realistic.len(), longest.len());
+        assert!((realistic.len() as u64) < INDEX_LIMIT / 4, "{} bytes leaves little room to grow", realistic.len());
+        assert!((longest.len() as u64) < INDEX_LIMIT, "{} bytes is more than the core downloads", longest.len());
+
+        let catalogue = vodozemac::Ed25519SecretKey::new();
+        let signature = catalogue.sign(realistic.as_bytes()).to_base64();
+        let listed = ft_plugins::catalogue_entries(&realistic, &signature, &catalogue.public_key()).expect("signed");
+        assert_eq!(listed.len(), 16);
+        assert!(listed.iter().all(|entry| entry.locales.len() == 20));
+    }
+
     // 1.3.0 (2026-10-02) also tells games from tools, so it is a core games are published for: a
     // game asks for `GAMES_SINCE`, and a core below it is never offered one.
     #[test]
