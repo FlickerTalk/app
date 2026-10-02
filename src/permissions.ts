@@ -13,6 +13,7 @@ import {
   swapHorizontalOutline,
 } from "ionicons/icons";
 import type { PluginPermissions, PluginView } from "./core";
+import { isGame } from "./games";
 import { t } from "./i18n";
 
 export interface PermissionLine {
@@ -50,7 +51,9 @@ export function permissionsOf(plugin: PluginView): PermissionLine[] {
     });
   }
   // 2026-09-27: what the board, the notes and the drive ask for, each on its own switch.
-  if (plugin.asks.live) lines.push({ key: "live", label: t("plugins.live"), icon: swapHorizontalOutline, on: !!plugin.granted.live });
+  // A game talks to the same game on the other phone (plan 10): its own wording, not "plugin".
+  const live = isGame(plugin) ? t("games.live") : t("plugins.live");
+  if (plugin.asks.live) lines.push({ key: "live", label: live, icon: swapHorizontalOutline, on: !!plugin.granted.live });
   if (plugin.asks.remind) lines.push({ key: "remind", label: t("plugins.remind"), icon: alarmOutline, on: !!plugin.granted.remind });
   if (plugin.asks.drive) lines.push({ key: "drive", label: t("plugins.drive"), icon: cloudOutline, on: !!plugin.granted.drive });
   if (plugin.asks.storage === "large") {

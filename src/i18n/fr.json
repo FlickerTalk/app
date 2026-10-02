@@ -423,6 +423,7 @@
     "permissionsAllow": "Autoriser et jouer",
     "none": "Aucun jeu",
     "offline": "Aucun jeu à ajouter pour le moment. Vérifiez votre connexion et réessayez.",
-    "installFailed": "Impossible d’installer le jeu. Vérifiez votre connexion et réessayez."
+    "installFailed": "Impossible d’installer le jeu. Vérifiez votre connexion et réessayez.",
+    "live": "Communiquer avec le même jeu sur le téléphone de l’autre personne"
   }
 }

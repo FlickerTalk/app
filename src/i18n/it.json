@@ -423,6 +423,7 @@
     "permissionsAllow": "Consenti e gioca",
     "none": "Ancora nessun gioco",
     "offline": "Al momento non ci sono giochi da aggiungere. Controlla la connessione e riprova.",
-    "installFailed": "Non è stato possibile installare il gioco. Controlla la connessione e riprova."
+    "installFailed": "Non è stato possibile installare il gioco. Controlla la connessione e riprova.",
+    "live": "Parlare con lo stesso gioco sul telefono dell'altra persona"
   }
 }

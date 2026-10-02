@@ -180,7 +180,7 @@ describe("GamesPage", () => {
   it("shows a switch for each permission a game asks for", async () => {
     const wrapper = await page();
     const text = wrapper.find("[data-test='my-games']").text();
-    expect(text).toContain("Talk to the same plugin on the other side of the chat");
+    expect(text).toContain("Talk to the same game on the other person's phone");
     expect(text).toContain("Write in the chat");
     const toggles = wrapper.findAllComponents(IonToggle);
     expect(toggles.length).toBe(4);

@@ -34,4 +34,12 @@ describe("plugin permissions", () => {
     expect(withPermission(BOARD, "network:api.example.com", true).network).toEqual(["api.example.com"]);
     expect(withPermission(BOARD, "storage", true).storage).toBe("large");
   });
+
+  // A game talks to the same game on the other phone: the switch says so, not "plugin".
+  it("names the live channel of a game as a game's, and a tool's as before", () => {
+    const live = (plugin: PluginView) => permissionsOf(plugin).find((one) => one.key === "live")?.label;
+    expect(live({ ...BOARD, kind: "game" })).toBe("Talk to the same game on the other person's phone");
+    expect(live(BOARD)).toBe("Talk to the same plugin on the other side of the chat");
+    expect(live({ ...BOARD, kind: "tool" })).toBe("Talk to the same plugin on the other side of the chat");
+  });
 });
