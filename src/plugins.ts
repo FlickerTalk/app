@@ -70,6 +70,8 @@ export async function offeredOnce(): Promise<OfferedPlugin[]> {
  */
 export type FrameMessage =
   | { type: "ft.ready" }
+  /** The frame asks for the app's colours before it loads the plugin (2026-10-03). */
+  | { type: "ft.hello" }
   | { type: "ft.close" }
   | { type: "ft.height"; height: number }
   | { type: "ft.pickFile"; id: string; accept?: string }
@@ -118,6 +120,8 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
   switch (said.type) {
     case "ft.ready":
       return { type: "ft.ready" };
+    case "ft.hello":
+      return { type: "ft.hello" };
     case "ft.close":
       return { type: "ft.close" };
     case "ft.height":

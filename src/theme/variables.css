@@ -26,6 +26,8 @@ html[data-direction="ember"] {
   --ft-surface-2: #f2ebe4;
   --ft-border: rgba(40, 20, 5, 0.08);
   --ft-text: #1c1714;
+  --ft-text-rgb: 28, 23, 20;
+  --ft-bg-rgb: 251, 248, 245;
   --ft-muted: #7d726a;
   --ft-accent: #e8731f;
   --ft-accent-rgb: 232, 115, 31;
@@ -39,6 +41,8 @@ html.ft-dark[data-direction="ember"] {
   --ft-surface-2: #221d1a;
   --ft-border: rgba(255, 240, 225, 0.07);
   --ft-text: #f6efe8;
+  --ft-text-rgb: 246, 239, 232;
+  --ft-bg-rgb: 13, 11, 10;
   --ft-muted: #9b8f86;
   --ft-accent: #ffa24c;
   --ft-accent-rgb: 255, 162, 76;
@@ -54,6 +58,8 @@ html[data-direction="aurora"] {
   --ft-surface-2: #e9eef6;
   --ft-border: rgba(10, 25, 45, 0.08);
   --ft-text: #121821;
+  --ft-text-rgb: 18, 24, 33;
+  --ft-bg-rgb: 246, 248, 251;
   --ft-muted: #66758a;
   --ft-accent: #0fa89a;
   --ft-accent-rgb: 15, 168, 154;
@@ -67,6 +73,8 @@ html.ft-dark[data-direction="aurora"] {
   --ft-surface-2: #1a2230;
   --ft-border: rgba(200, 225, 255, 0.07);
   --ft-text: #eaf1fa;
+  --ft-text-rgb: 234, 241, 250;
+  --ft-bg-rgb: 10, 14, 20;
   --ft-muted: #8a97a8;
   --ft-accent: #3ddbc4;
   --ft-accent-rgb: 61, 219, 196;
@@ -82,6 +90,8 @@ html[data-direction="mono"] {
   --ft-surface-2: #f2f2f2;
   --ft-border: rgba(0, 0, 0, 0.10);
   --ft-text: #0a0a0a;
+  --ft-text-rgb: 10, 10, 10;
+  --ft-bg-rgb: 255, 255, 255;
   --ft-muted: #6e6e6e;
   --ft-accent: #000000;
   --ft-accent-rgb: 0, 0, 0;
@@ -95,6 +105,8 @@ html.ft-dark[data-direction="mono"] {
   --ft-surface-2: #1c1c1c;
   --ft-border: rgba(255, 255, 255, 0.12);
   --ft-text: #f5f5f5;
+  --ft-text-rgb: 245, 245, 245;
+  --ft-bg-rgb: 0, 0, 0;
   --ft-muted: #8e8e8e;
   --ft-accent: #ffffff;
   --ft-accent-rgb: 255, 255, 255;
@@ -113,6 +125,10 @@ html[data-direction] body {
   color-scheme: light;
   --ion-background-color: var(--ft-bg);
   --ion-text-color: var(--ft-text);
+  /* Ionic draws some parts with these as numbers (an unselected segment, an item's icon, a
+     toggle's track); without them they fall back to black (2026-10-03). */
+  --ion-background-color-rgb: var(--ft-bg-rgb);
+  --ion-text-color-rgb: var(--ft-text-rgb);
   --ion-border-color: var(--ft-border);
 
   --ion-color-primary: var(--ft-accent);
@@ -121,6 +137,8 @@ html[data-direction] body {
   --ion-color-primary-shade: var(--ft-accent-2);
   --ion-color-primary-tint: var(--ft-accent);
   --ion-color-danger: #ff4d5e;
+  /* Secondary text; also what a plugin is handed as its muted colour (2026-10-03). */
+  --ion-color-medium: var(--ft-muted);
 
   --ion-toolbar-background: var(--ft-bg);
   --ion-toolbar-border-color: transparent;
@@ -147,6 +165,14 @@ html[data-direction] body {
 }
 html.ft-dark[data-direction] body {
   color-scheme: dark;
+}
+/* As Ionic's own dark palette does: a modal (the apps sheet) is lifted onto the surface colour, or
+   on a black page it would have no edge at all (2026-10-03). */
+html.ft-dark[data-direction] ion-modal {
+  --ion-background-color: var(--ft-surface);
+  --ion-toolbar-background: var(--ft-surface);
+  /* Ionic dims by this times the sheet's height (0.32 × 0.5 by default): nothing on a black page. */
+  --ion-backdrop-opacity: 0.6;
 }
 
 /* ---------- The flicker: a small glowing spark for live direct connections ---------- */

@@ -10,7 +10,14 @@ import {
   IonFooter,
   IonHeader,
   IonIcon,
+  IonItem,
+  IonLabel,
+  IonList,
+  IonModal,
+  IonSegment,
+  IonSegmentButton,
   IonTextarea,
+  IonTitle,
   IonToolbar,
 } from "@ionic/vue";
 import {
@@ -18,7 +25,10 @@ import {
   appsOutline,
   arrowUp,
   banOutline,
+  chatbubblesOutline,
   checkmarkOutline,
+  chevronDownOutline,
+  chevronUpOutline,
   callOutline,
   contractOutline,
   expandOutline,
@@ -34,7 +44,6 @@ import {
   gameControllerOutline,
   mailOutline,
   openOutline,
-  play as playIcon,
   trashOutline,
   videocamOutline,
 } from "ionicons/icons";
@@ -88,7 +97,7 @@ import {
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBackWhile } from "../back";
 import { t } from "../i18n";
-import { useStickToEnd, type Scrollable } from "../viewport";
+import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string }>(), {
@@ -287,8 +296,71 @@ async function forwardTo(contact: string) {
 // Issue app#3: the apps of this phone, each in its own window. The list is the app's, not this
 // component's: what Settings installs or removes shows up here without leaving the conversation.
 const showApps = ref(false);
-/** The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back. */
-const plugin = ref<{ id: string; name: string; sending: Sending; live: boolean; text?: string; file?: HandedFile; reference?: string } | null>(null);
+/**
+ * The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back.
+ * `game`: a game, played in the conversation's own room rather than in a window over it.
+ */
+const plugin = ref<{
+  id: string;
+  name: string;
+  sending: Sending;
+  live: boolean;
+  text?: string;
+  file?: HandedFile;
+  reference?: string;
+  game?: boolean;
+} | null>(null);
+
+// Ioan, 2026-10-03 (option A): a game is played inside the conversation, so the two can write to
+// each other while they play. It takes the place of the messages, which stay mounted underneath;
+// the header (with the voice call) and the composer stay. No video and no files while playing.
+const playing = computed(() => Boolean(plugin.value?.game));
+/** The thread shown for a moment, with the game still running behind it. */
+const peeking = ref(false);
+/** How many messages there were when the game opened or the thread was last seen. */
+const seenUpTo = ref(0);
+/** The latest message from the other one since then: one line above the composer. */
+const lastFromThem = computed(() =>
+  messages.value
+    .slice(seenUpTo.value)
+    .filter((one) => !one.mine)
+    .at(-1),
+);
+watch(playing, (now) => {
+  peeking.value = false;
+  seenUpTo.value = messages.value.length;
+  // What arrived while the game covered the thread is read once the thread is back.
+  if (!now) void markRead(props.chatId);
+});
+async function peek() {
+  peeking.value = !peeking.value;
+  seenUpTo.value = messages.value.length;
+  if (peeking.value) {
+    await markRead(props.chatId);
+    await scrollToEnd();
+  }
+}
+// The keyboard gone (seen on the Samsung, 2026-10-03): the game is shown from its top again, its
+// score and status, not left where it was scrolled in the small room the keyboard left.
+const gameArea = ref<HTMLElement | null>(null);
+let keyboardWasOpen = false;
+const unwatchKeyboard = watchViewport({
+  before: () => (keyboardWasOpen = document.documentElement.classList.contains("ft-keyboard-open")),
+  after: () => {
+    if (keyboardWasOpen && !document.documentElement.classList.contains("ft-keyboard-open") && gameArea.value) gameArea.value.scrollTop = 0;
+  },
+});
+onUnmounted(unwatchKeyboard);
+
+/** A file a game made waits in the composer; the `done` that follows it does not end the game. */
+let stagedByGame = false;
+function pluginDone() {
+  if (plugin.value?.game && stagedByGame) {
+    stagedByGame = false;
+    return;
+  }
+  plugin.value = null;
+}
 
 // Android's back button closes what is open on top, and only that (2026-09-28).
 closeOnBackWhile(() => emoji.value, () => (emoji.value = false));
@@ -326,7 +398,13 @@ function openApps() {
 }
 
 function openGame(game: PluginView) {
-  plugin.value = { id: game.id, name: game.name, sending: game.granted.send, live: Boolean(game.granted.live) };
+  plugin.value = { id: game.id, name: game.name, sending: game.granted.send, live: Boolean(game.granted.live), game: true };
+}
+
+/** 📨 from the game's own bar: the same invitation, and the game goes on. */
+function inviteToPlaying() {
+  const game = installed.value.find((one) => one.id === plugin.value?.id);
+  if (game) invite(game);
 }
 
 /**
@@ -470,10 +548,10 @@ async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean
   }
 }
 
-/** A plugin proposes; the user sends (§53). */
+/** A plugin proposes; the user sends (§53). A game goes on: the composer is in sight below it. */
 function fromPlugin(text: string) {
   draft.value = text;
-  plugin.value = null;
+  if (!plugin.value?.game) plugin.value = null;
 }
 
 // A2: a file a plugin made with the `propose` permission waits in the composer, like a text it
@@ -482,7 +560,8 @@ const staged = ref<PickedFile | null>(null);
 
 function stage(file: PickedFile) {
   staged.value = file;
-  plugin.value = null;
+  if (plugin.value?.game) stagedByGame = true;
+  else plugin.value = null;
 }
 
 async function sendStaged() {
@@ -554,6 +633,8 @@ watch(
 watch(
   () => messages.value.length,
   async () => {
+    // Behind a game only the latest line shows: read once the thread is (§84).
+    if (playing.value && !peeking.value) return;
     await markRead(props.chatId);
     await scrollToEnd();
   },
@@ -593,7 +674,8 @@ watch(
           <ion-button :aria-label="$t('chat.voiceCall')" @click="router.push(`/call/${chat.id}`)">
             <ion-icon slot="icon-only" :icon="callOutline" aria-hidden="true" />
           </ion-button>
-          <ion-button :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
+          <!-- Ioan, 2026-10-03: no video while playing. -->
+          <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
           <!-- Issue app#3: the utilities installed on this phone and, where there are games, the games. -->
@@ -604,92 +686,129 @@ watch(
       </ion-toolbar>
     </ion-header>
 
-    <!-- Issue app#3: each plugin does its thing inside its own window. -->
-    <div v-if="plugin" class="ft-app" role="dialog" :aria-label="plugin.name">
+    <!-- The game room (Ioan, 2026-10-03): the game where the messages are, with a bar of its own:
+         a way out, its name and the invitation. The thread stays mounted under it. -->
+    <section v-if="plugin && plugin.game" class="ft-room" data-test="game-room" :aria-label="plugin.name">
+      <ion-toolbar class="ft-room__bar" data-test="game-bar">
+        <ion-buttons slot="start">
+          <ion-button data-test="close-game" :aria-label="$t('common.close')" @click="plugin = null">
+            <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+          </ion-button>
+        </ion-buttons>
+        <ion-title size="small">{{ plugin.name }}</ion-title>
+        <ion-buttons v-if="gameUrl(plugin.id)" slot="end">
+          <ion-button data-test="game-invite" :aria-label="$t('games.invite')" @click="inviteToPlaying">
+            <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
+          </ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+      <div v-show="!peeking" ref="gameArea" class="ft-room__game" data-test="game-area">
+        <PluginSheet
+          :plugin="plugin"
+          :contact="chatId"
+          :sending="plugin.sending"
+          :live="plugin.live"
+          :session="sessionOf(chatId)"
+          @text="fromPlugin"
+          @attach="stage"
+          @open-chat="(contact) => router.push(`/chat/${contact}`)"
+          @done="pluginDone"
+        />
+      </div>
+    </section>
+
+    <!-- Issue app#3: each tool does its thing inside its own window. -->
+    <div v-if="plugin && !plugin.game" class="ft-app" role="dialog" :aria-label="plugin.name">
       <div class="ft-app__bar">
         <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="plugin = null">
           <ion-icon :icon="closeOutline" aria-hidden="true" />
         </button>
         <span class="ft-app__name">{{ plugin.name }}</span>
       </div>
-      <PluginSheet
-        :plugin="plugin"
-        :contact="chatId"
-        :sending="plugin.sending"
-        :live="plugin.live"
-        :text="plugin.text"
-        :file="plugin.file"
-        :reference="plugin.reference"
-        :session="sessionOf(chatId)"
-        @text="fromPlugin"
-        @attach="stage"
-        @open-chat="(contact) => router.push(`/chat/${contact}`)"
-        @done="plugin = null"
-      />
-    </div>
-
-    <!-- The apps of this phone; each opens its own window. Where there are games, a second tab has
-         them (Ioan, 2026-10-03), as the emoji picker has its groups. -->
-    <div v-if="showApps" class="ft-apps" role="dialog" :aria-label="$t('plugins.title')" @click.self="showApps = false">
-      <div class="ft-apps__card">
-        <div v-if="gamesOn" class="ft-apps__tabs" role="tablist">
-          <button
-            v-for="tab in APPS_TABS"
-            :key="tab.id"
-            type="button"
-            class="ft-apps__tab"
-            :class="{ 'is-open': appsTab === tab.id }"
-            role="tab"
-            :aria-selected="appsTab === tab.id"
-            :aria-label="$t(tab.label)"
-            :data-test="`apps-tab-${tab.id}`"
-            @click="appsTab = tab.id"
-          >
-            <ion-icon :icon="tab.icon" aria-hidden="true" />
-          </button>
-        </div>
-        <ul v-if="!gamesOn || appsTab === 'tools'" class="ft-apps__list" role="tabpanel">
-          <li v-for="one in tools" :key="one.id">
-            <button type="button" class="ft-apps__item" :data-test="`app-${one.id}`" @click="useApp(one.id)">
-              <ion-icon :icon="appsOutline" aria-hidden="true" />
-              {{ one.name }}
-            </button>
-          </li>
-          <li v-if="!tools.length" class="ft-apps__empty">{{ $t("plugins.none") }}</li>
-        </ul>
-        <!-- Plan 10.4–10.6: the games of this phone; each plays here, or is offered to the contact. -->
-        <ul v-else class="ft-apps__list" data-test="games-sheet" role="tabpanel">
-          <li v-for="one in installedGames" :key="one.id" class="ft-apps__row">
-            <button type="button" class="ft-apps__item" :data-test="`game-${one.id}`" @click="playGame(one.id)">
-              <ion-icon :icon="gameControllerOutline" aria-hidden="true" />
-              <span class="ft-apps__name">{{ one.name }}</span>
-              <ion-icon :icon="playIcon" class="ft-apps__play" aria-hidden="true" />
-            </button>
-            <button
-              v-if="gameUrl(one.id)"
-              type="button"
-              class="ft-round ft-round--ghost ft-apps__invite"
-              :data-test="`invite-${one.id}`"
-              :aria-label="$t('games.invite')"
-              @click="invite(one)"
-            >
-              <ion-icon :icon="mailOutline" aria-hidden="true" />
-            </button>
-          </li>
-          <li v-if="!installedGames.length" class="ft-apps__empty">{{ $t("games.none") }}</li>
-          <li>
-            <button type="button" class="ft-apps__item ft-apps__more" data-test="more-games-link" @click="moreGames">
-              <ion-icon :icon="add" aria-hidden="true" />
-              {{ $t("games.more") }}
-            </button>
-          </li>
-        </ul>
+      <!-- Only the tool scrolls, below its bar: nothing of it reaches the status bar's strip. -->
+      <div class="ft-app__body">
+        <PluginSheet
+          :plugin="plugin"
+          :contact="chatId"
+          :sending="plugin.sending"
+          :live="plugin.live"
+          :text="plugin.text"
+          :file="plugin.file"
+          :reference="plugin.reference"
+          :session="sessionOf(chatId)"
+          @text="fromPlugin"
+          @attach="stage"
+          @open-chat="(contact) => router.push(`/chat/${contact}`)"
+          @done="plugin = null"
+        />
       </div>
     </div>
 
-    <GamePermissions v-if="asking" :name="asking.name" :size="asking.size" @allow="allowGame" @cancel="asking = null" />
+    <!-- The apps of this phone, in Ionic's sheet modal: it rises from the bottom as the apps
+         themselves open (Ioan, 2026-10-03). Where there are games, a segment has them. The content
+         scrolls at every height (`expand-to-scroll` off): the sheet grows or goes only by its
+         handle or its header, so a long list is never stuck. -->
+    <ion-modal
+      :is-open="showApps"
+      class="ft-apps-sheet"
+      :aria-label="$t('plugins.title')"
+      :breakpoints="[0, 0.5, 1]"
+      :initial-breakpoint="0.5"
+      :expand-to-scroll="false"
+      @did-dismiss="showApps = false"
+    >
+      <ion-header v-if="gamesOn">
+        <ion-toolbar>
+          <ion-segment :value="appsTab" @ion-change="appsTab = $event.detail.value === 'games' ? 'games' : 'tools'">
+            <ion-segment-button v-for="tab in APPS_TABS" :key="tab.id" :value="tab.id" layout="icon-start" :data-test="`apps-tab-${tab.id}`">
+              <ion-icon :icon="tab.icon" aria-hidden="true" />
+              <ion-label>{{ $t(tab.label) }}</ion-label>
+            </ion-segment-button>
+          </ion-segment>
+        </ion-toolbar>
+      </ion-header>
+      <!-- With no segment header, the content keeps clear of the drag handle (iOS draws it over it). -->
+      <ion-content class="ft-apps-sheet__content" :class="{ 'ion-padding-top': !gamesOn }">
+        <ion-list v-if="!gamesOn || appsTab === 'tools'" data-test="apps-sheet-tools">
+          <ion-item v-for="one in tools" :key="one.id" button :detail="false" :data-test="`app-${one.id}`" @click="useApp(one.id)">
+            <ion-icon slot="start" :icon="appsOutline" aria-hidden="true" />
+            <ion-label class="ion-text-nowrap">{{ one.name }}</ion-label>
+          </ion-item>
+          <ion-item v-if="!tools.length" lines="none">
+            <ion-label color="medium">{{ $t("plugins.none") }}</ion-label>
+          </ion-item>
+        </ion-list>
+        <!-- Plan 10.4–10.6: the games of this phone; each plays here, or is offered to the contact. -->
+        <ion-list v-else data-test="games-sheet">
+          <ion-item v-for="one in installedGames" :key="one.id" button :detail="false" :data-test="`game-${one.id}`" @click="playGame(one.id)">
+            <ion-icon slot="start" :icon="gameControllerOutline" aria-hidden="true" />
+            <ion-label class="ion-text-nowrap">{{ one.name }}</ion-label>
+            <ion-button
+              v-if="gameUrl(one.id)"
+              slot="end"
+              fill="clear"
+              size="default"
+              :data-test="`invite-${one.id}`"
+              :aria-label="$t('games.invite')"
+              @click.stop="invite(one)"
+            >
+              <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
+            </ion-button>
+          </ion-item>
+          <ion-item v-if="!installedGames.length" lines="none">
+            <ion-label color="medium">{{ $t("games.none") }}</ion-label>
+          </ion-item>
+          <ion-item button :detail="false" lines="none" data-test="more-games-link" @click="moreGames">
+            <ion-icon slot="start" :icon="add" color="primary" aria-hidden="true" />
+            <ion-label color="primary">{{ $t("games.more") }}</ion-label>
+          </ion-item>
+        </ion-list>
+      </ion-content>
+    </ion-modal>
 
-    <ion-content ref="content" class="ft-thread__content">
+    <GamePermissions :open="Boolean(asking)" :name="asking?.name ?? ''" :size="asking?.size" @allow="allowGame" @cancel="asking = null" />
+
+    <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
       <MessageBubble
         v-for="message in messages"
@@ -804,6 +923,31 @@ watch(
       </div>
     </ion-footer>
     <ion-footer v-else class="ion-no-border">
+      <!-- While playing: the latest line from the other one, and the thread or the game on a tap. -->
+      <ion-item
+        v-if="playing"
+        button
+        :detail="false"
+        lines="full"
+        class="ft-room__strip"
+        data-test="game-strip"
+        @click="peek"
+      >
+        <ion-icon slot="start" :icon="peeking ? gameControllerOutline : chatbubblesOutline" aria-hidden="true" />
+        <ion-label v-if="peeking" class="ion-text-nowrap">{{ plugin?.name }}</ion-label>
+        <ion-label v-else-if="lastFromThem" class="ion-text-nowrap">{{ lastFromThem.kind === "file" ? lastFromThem.file?.name : lastFromThem.text }}</ion-label>
+        <ion-label v-else class="ion-text-nowrap" color="medium">{{ $t("games.showChat") }}</ion-label>
+        <ion-button
+          slot="end"
+          fill="clear"
+          size="default"
+          data-test="game-peek"
+          :aria-label="peeking ? $t('games.showGame') : $t('games.showChat')"
+          @click.stop="peek"
+        >
+          <ion-icon slot="icon-only" :icon="peeking ? chevronDownOutline : chevronUpOutline" aria-hidden="true" />
+        </ion-button>
+      </ion-item>
       <p v-if="composerError" class="ft-composer__error" role="alert">{{ composerError }}</p>
       <!-- A2: what a plugin made, waiting for the user to send it or throw it away. -->
       <div v-if="staged" class="ft-staged" data-test="staged">
@@ -819,7 +963,7 @@ watch(
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
       <div class="ft-composer">
         <div class="ft-composer__row">
-          <div class="ft-attach">
+          <div v-if="!playing" class="ft-attach">
             <button
               type="button"
               class="ft-round ft-round--ghost"
@@ -1011,6 +1155,19 @@ watch(
   color: var(--ft-accent);
 }
 
+/* The game room: under the header, over the composer, scrolling as the tool window does. */
+.ft-room {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.ft-room__game {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .ft-thread__content {
   --background: var(--ft-bg);
 }
@@ -1018,16 +1175,24 @@ watch(
   position: fixed;
   inset: 0;
   z-index: 25;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   background: var(--ft-bg);
-  /* The window starts under the status bar, or the way out ends up beneath the clock. */
-  padding-top: env(safe-area-inset-top);
+  /* The window starts under the status bar, or the way out ends up beneath the clock. The window
+     itself does not scroll, so this strip stays its own at any scroll position (seen on the
+     Samsung, 2026-10-03, when it was the padding of what scrolled). Ionic's inset, as its headers. */
+  padding-top: var(--ion-safe-area-top, 0px);
+}
+/* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar. */
+.ft-app__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 /* A bar of its own, so the way out is always there while the tool scrolls under it. */
 .ft-app__bar {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--ft-space-2);
@@ -1052,88 +1217,12 @@ watch(
   font-weight: 600;
 }
 
-.ft-apps {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: end center;
-  padding: var(--ft-space-4);
-  /* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
-  padding-bottom: calc(var(--ft-space-4) + var(--ion-safe-area-bottom, 0px));
-  background: rgba(0, 0, 0, 0.35);
-}
-.ft-apps__card {
-  width: min(100%, 420px);
-  padding: var(--ft-space-2);
-  border-radius: var(--ft-radius-card);
-  background: var(--ft-surface);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-}
-.ft-apps__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-/* The tools and the games, as the emoji picker shows its groups: icons, the open one lit. */
-.ft-apps__tabs {
-  display: flex;
-  gap: 4px;
-  padding-bottom: var(--ft-space-2);
-  margin-bottom: var(--ft-space-1, 4px);
-  border-bottom: 1px solid var(--ft-border);
-}
-.ft-apps__tab {
-  appearance: none;
-  display: grid;
-  flex: 1;
-  place-items: center;
-  min-height: 44px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--ft-muted);
-  font-size: 22px;
-  cursor: pointer;
-}
-.ft-apps__tab.is-open {
-  background: var(--ft-surface-2);
-  color: var(--ft-accent);
-}
-.ft-apps__item {
-  display: flex;
-  align-items: center;
-  gap: var(--ft-space-3);
-  width: 100%;
-  padding: 14px 16px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--ft-text);
-  font: inherit;
-  font-size: 16px;
-  text-align: start;
-  cursor: pointer;
-}
 
-.ft-apps__row {
-  display: flex;
-  align-items: center;
-  gap: var(--ft-space-1, 4px);
-}
-.ft-apps__name {
-  flex: 1;
-  min-width: 0;
-}
-.ft-apps__play,
-.ft-apps__invite,
-.ft-apps__more {
-  color: var(--ft-accent);
-}
-.ft-apps__empty {
-  padding: 14px 16px;
-  color: var(--ft-muted);
-  font-size: 15px;
+
+/* The apps sheet scrolls to its last row above Android's navigation bar (edge to edge): Ionic pads
+   a footer for it, not a content, so the content's own padding hook takes it, as the composer does. */
+.ft-apps-sheet__content {
+  --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 
 .ft-thread__day {

@@ -1,5 +1,7 @@
 // A2 of the 2026-09-24 review: what a plugin makes goes only as far as the user allowed. With
 // `propose` it waits in the composer for the user to send; with nothing granted, nothing leaves.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { callsTo, expect, frameAsks, frameHeard, frameSays, servePluginFrames, test } from "./helpers";
 
 async function openTool(app: import("@playwright/test").Page, id: string, chat = "ft_bob123456789") {
@@ -110,4 +112,82 @@ test("a plugin opened in a chat learns that chat's id, and none on its own", asy
   await app.goto("/plugin/com.flickertalk.markdown");
   await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
   expect(await chatOf()).not.toHaveProperty("chat");
+});
+
+// 2026-10-03 (Ioan): the app's colours reach the plugin through the real frame bridge
+// (`src-tauri/src/frame.js`, as the app serves it): Ionic's variables on the frame's root and
+// `data-dark`, there when the plugin draws and following the app's look while it is open.
+// A plugin that keeps what it was opened with, and the colour it saw when it was created.
+const KEEPS_WHAT_IT_SAW = `customElements.define("ft-markdown", class extends HTMLElement {
+    connectedCallback() { window.created = getComputedStyle(document.documentElement).getPropertyValue("--ion-text-color").trim(); }
+  });
+  window.opened = [];
+  ft.onOpen((one) => window.opened.push(one));`;
+
+async function serveRealFrames(app: import("@playwright/test").Page, plugin = KEEPS_WHAT_IT_SAW) {
+  const bridge = readFileSync(fileURLToPath(new URL("../src-tauri/src/frame.js", import.meta.url)), "utf8");
+  await app.route("http://ftplugin.localhost/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/frame.js")) return route.fulfill({ contentType: "text/javascript", body: bridge });
+    if (path.endsWith("/dist/index.js")) return route.fulfill({ contentType: "text/javascript", body: plugin });
+    return route.fulfill({
+      contentType: "text/html",
+      body: '<!doctype html><html><head><script type="module" src="./frame.js"></script></head><body><ft-markdown id="view"></ft-markdown></body></html>',
+    });
+  });
+}
+
+test("a plugin wears the app's colours, and follows the app from dark to light while it is open", async ({ app }) => {
+  await app.addInitScript(() => localStorage.setItem("ft-appearance", "system"));
+  await app.emulateMedia({ colorScheme: "dark" });
+  await serveRealFrames(app);
+  await openTool(app, "com.flickertalk.markdown");
+  const appText = () => app.evaluate(() => getComputedStyle(document.body).getPropertyValue("--ion-text-color").trim());
+  const inside = async () => {
+    const frame = app.frames().find((one) => one.url().startsWith("http://ftplugin.localhost/"));
+    if (!frame) return null;
+    return frame.evaluate(() => {
+      const root = document.documentElement;
+      const seen = window as unknown as { created?: string; opened?: { dark: boolean; theme: Record<string, string> }[] };
+      return {
+        text: getComputedStyle(root).getPropertyValue("--ion-text-color").trim(),
+        dark: root.dataset.dark ?? null,
+        created: seen.created ?? null,
+        openedDark: seen.opened?.[0]?.dark ?? null,
+      };
+    });
+  };
+
+  const dark = await appText();
+  expect(dark).toBe("#f5f5f5");
+  await expect.poll(inside).toEqual({ text: dark, dark: "1", created: dark, openedDark: true });
+
+  await app.emulateMedia({ colorScheme: "light" });
+  // The app follows the system's change first (theme.ts), then the plugin follows the app.
+  await expect.poll(appText).toBe("#0a0a0a");
+  const light = await appText();
+  await expect.poll(inside).toMatchObject({ text: light, dark: null });
+});
+
+// 2026-10-04: the frame follows the plugin's content down as well as up. A game's waiting screen is
+// tall and its board is short: once the board shows, the window shrinks to it and leaves no empty
+// area to scroll under it.
+test("a plugin's window shrinks when its content does", async ({ app }) => {
+  await serveRealFrames(
+    app,
+    `customElements.define("ft-markdown", class extends HTMLElement {
+      connectedCallback() {
+        this.style.display = "block";
+        this.style.height = "1200px";
+        window.shrink = () => { this.style.height = "200px"; };
+      }
+    });`,
+  );
+  await openTool(app, "com.flickertalk.markdown");
+  const tall = () => app.locator("iframe.ft-plugin__frame").evaluate((frame) => frame.getBoundingClientRect().height);
+  await expect.poll(tall).toBeGreaterThan(1200);
+
+  const frame = app.frames().find((one) => one.url().startsWith("http://ftplugin.localhost/"))!;
+  await frame.evaluate(() => (window as unknown as { shrink: () => void }).shrink());
+  await expect.poll(tall).toBeLessThan(260);
 });

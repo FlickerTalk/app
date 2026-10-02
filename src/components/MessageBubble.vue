@@ -6,8 +6,8 @@ import { gameIdFromText, isGame } from "../games";
 import { mapsLink, piecesOf, type Place } from "../links";
 import { installed, offered } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { IonIcon } from "@ionic/vue";
-import { alertCircleOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
+import { IonButton, IonIcon } from "@ionic/vue";
+import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -382,18 +382,18 @@ function open() {
           <template v-else>{{ piece.text }}</template>
         </template>
       </p>
-      <button
+      <ion-button
         v-if="game"
-        type="button"
+        expand="block"
         class="ft-play-game"
         data-test="play-game"
         @pointerdown.stop
         @click.stop="emit('play', game.id)"
       >
-        <span aria-hidden="true">🎮</span>
+        <ion-icon slot="start" :icon="gameControllerOutline" aria-hidden="true" />
         <span class="ft-play-game__label">{{ t("games.play") }}</span>
         <span v-if="!game.installed" class="ft-play-game__meta">{{ game.name }} · {{ formatSize(game.size) }}</span>
-      </button>
+      </ion-button>
 
       <span class="ft-bubble__meta">
         <span>{{ message.time }}</span>
@@ -514,33 +514,29 @@ function open() {
   text-underline-offset: 2px;
 }
 
-/* Plan 10.6: the way to play a game an invitation is for, under its text. */
+/* Plan 10.6: the way to play a game an invitation is for, under its text: Ionic's button, in the
+   bubble's colours through its own hooks. */
 .ft-play-game {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  margin-top: 8px;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 12px;
-  background: color-mix(in srgb, currentColor 14%, transparent);
-  color: inherit;
-  font: inherit;
-  font-size: 15px;
-  text-align: start;
-  cursor: pointer;
+  margin: 8px 0 0;
+  --background: color-mix(in srgb, currentColor 14%, transparent);
+  --background-activated: color-mix(in srgb, currentColor 24%, transparent);
+  --color: inherit;
+  --border-radius: 12px;
+  --box-shadow: none;
+  text-transform: none;
+  letter-spacing: normal;
 }
 .is-theirs .ft-play-game {
-  background: var(--ft-surface);
-  color: var(--ft-accent);
+  --background: var(--ft-surface);
+  --color: var(--ft-accent);
 }
 .ft-play-game__label {
   font-weight: 600;
 }
 .ft-play-game__meta {
-  margin-inline-start: auto;
+  margin-inline-start: 8px;
   font-size: 12px;
+  font-weight: 400;
   opacity: 0.8;
 }
 
