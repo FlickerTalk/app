@@ -318,15 +318,11 @@ describe("PluginSheet", () => {
   });
 
   // A plugin never opens the picker itself: it asks, and the app asks the user.
+  // 2026-10-02: one command picks and hands over; the core deletes the picker's copies, so no path
+  // travels through the WebView and none is left behind.
   it("asks the user for a file when the plugin wants one", async () => {
     tauri.invoke.mockImplementation((command: string) =>
-      Promise.resolve(
-        command === "core_pick_files"
-          ? [{ path: "/data/uploads/a.jpg", name: "a.jpg", mime: "image/jpeg", size: 10 }]
-          : command === "core_read_picked"
-            ? "QUJD"
-            : undefined,
-      ),
+      Promise.resolve(command === "core_pick_for_plugin" ? { name: "a.jpg", mime: "image/jpeg", data: "QUJD" } : undefined),
     );
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
     await flushPromises();
@@ -336,8 +332,29 @@ describe("PluginSheet", () => {
     await flushPromises();
     // What the plugin asked for reaches the phone: pictures open the photo picker, a sheet over
     // the app, instead of taking the user out of it (§62).
-    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_files", { accept: "image/*" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_for_plugin", { accept: "image/*" });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_pick_files", expect.anything());
     expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "a.jpg", mime: "image/jpeg", data: "QUJD" }, "*");
+  });
+
+  it("hands the plugin an empty file when the user picks nothing or the pick fails", async () => {
+    let fails = false;
+    tauri.invoke.mockImplementation((command: string) =>
+      command === "core_pick_for_plugin" ? (fails ? Promise.reject(new Error("too big")) : Promise.resolve(null)) : Promise.resolve(undefined),
+    );
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.pickFile", id: "q1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pick_for_plugin", { accept: "" });
+    expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "", mime: "", data: "" }, "*");
+
+    fails = true;
+    says({ type: "ft.pickFile", id: "q2" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q2", name: "", mime: "", data: "" }, "*");
   });
 
   // A2: what a plugin made goes as far as the user allowed. With `auto` the core sends it.
