@@ -66,7 +66,7 @@ function reopen() {
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ plugin ? pluginName(plugin) : "" }}</ion-title>
+        <ion-title><span class="ft-title">{{ plugin ? pluginName(plugin) : "" }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
     <ion-content class="ft-plugin-page">

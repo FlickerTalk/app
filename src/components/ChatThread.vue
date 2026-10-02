@@ -787,7 +787,7 @@ watch(
             <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
           </ion-button>
         </ion-buttons>
-        <ion-title size="small">{{ plugin.name }}</ion-title>
+        <ion-title size="small"><span class="ft-title">{{ plugin.name }}</span></ion-title>
         <ion-buttons v-if="gameUrl(plugin.id)" slot="end">
           <ion-button data-test="game-invite" :aria-label="$t('games.invite')" @click="inviteToPlaying">
             <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />

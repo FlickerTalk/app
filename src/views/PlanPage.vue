@@ -72,7 +72,7 @@ async function pay() {
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ $t("settings.plan") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("settings.plan") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 

@@ -15,7 +15,7 @@ const blocked = computed(() => store.chats.filter((chat) => chat.blocked));
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ $t("blocked.title") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("blocked.title") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 

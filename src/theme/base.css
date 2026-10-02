@@ -51,6 +51,50 @@ ion-toolbar {
   --padding-end: 8px;
 }
 
+/* Titles are never cut (2026-10-02, app#57): Ionic draws a title on one line with an ellipsis, which
+   cut "Transferir a un teléfono nuevo" on a 384 px Samsung. A title that does not fit wraps and its
+   bar grows; one that fits stays as it was. The text goes in `.ft-title` (`<ion-title><span
+   class="ft-title">…</span></ion-title>`): Ionic's own box is in the title's shadow root and sets
+   `white-space: nowrap` itself, so only an element of ours inside it can wrap. */
+ion-toolbar.md > ion-title > .ft-title {
+  white-space: normal;
+}
+/* Android's bar is just as tall as two lines: they keep some room above and below. A title on one
+   line is far from it and stays where it was. */
+ion-toolbar.md > ion-title:not(.title-small) {
+  padding-block: 8px;
+}
+/* On the iPhone, Ionic lays the title over the whole bar, out of the flow, 90 px from each edge: the
+   bar cannot grow under a second line, and a back button wider than 90 px ("Indietro", "Kembali")
+   lies over the text. Here the title stays in the flow between the buttons, so the bar grows, and
+   it is still centred on the bar: each side keeps those 90 px, as room beside the title when there
+   is no button or as the least width of the buttons. A wider button pushes the title aside instead
+   of covering it, as iOS does. The large title and the small one are already in the flow.
+   All of it needs `:has()` (iOS 15.4; the app runs from 15.0): an older iPhone keeps Ionic's header
+   as it was, ellipsis included, since a wrapped title in Ionic's fixed bar would be hidden below. */
+@supports selector(:has(*)) {
+  ion-toolbar.ios > ion-title > .ft-title {
+    white-space: normal;
+  }
+  ion-toolbar.ios > ion-title:not(.title-large, .title-small) {
+    position: relative;
+    padding-inline: calc(90px - var(--padding-start)) calc(90px - var(--padding-end));
+  }
+  ion-toolbar.ios:has(> ion-buttons[slot="start"]) > ion-title:not(.title-large, .title-small) {
+    padding-inline-start: 0;
+  }
+  ion-toolbar.ios:has(> ion-buttons[slot="end"]) > ion-title:not(.title-large, .title-small) {
+    padding-inline-end: 0;
+  }
+  ion-toolbar.ios:has(> ion-title:not(.title-large, .title-small)) > ion-buttons[slot="start"] {
+    min-width: calc(90px - var(--padding-start));
+  }
+  ion-toolbar.ios:has(> ion-title:not(.title-large, .title-small)) > ion-buttons[slot="end"] {
+    min-width: calc(90px - var(--padding-end));
+    justify-content: flex-end;
+  }
+}
+
 /* What someone wrote (a name, a last line) reads in its own direction (`dir="auto"`), but sits where
    the app puts it: a Latin name in Arabic stays beside the avatar, not at the far end of its row. */
 [dir="auto"] {
