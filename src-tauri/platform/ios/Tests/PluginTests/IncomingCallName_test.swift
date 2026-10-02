@@ -49,6 +49,17 @@ final class IncomingCallNameTests: XCTestCase {
         }
     }
 
+    // A text identical to the English one is a text nobody translated: the phone shows English.
+    func testEveryLanguageTranslatesEveryText() throws {
+        let english = try table("en")
+        var untranslated: [String: [String]] = [:]
+        for language in try languages() where language != "en" {
+            let same = try table(language).filter { english[$0.key] == $0.value }.keys.sorted()
+            if !same.isEmpty { untranslated[language] = same }
+        }
+        XCTAssertEqual(untranslated, [:], "texts still in English")
+    }
+
     // The placeholder comes from the app's own tables, in the app's language: translated in every
     // language, never the key, and the caller's name when there is one.
     func testThePlaceholderIsTranslatedInEveryLanguage() throws {

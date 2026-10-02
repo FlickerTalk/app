@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { i18n, isRtl, LOCALES, pickLocale, setLocale, t } from "./i18n";
+import { i18n, isRtl, type Locale, LOCALES, pickLocale, setLocale, t } from "./i18n";
 import en from "./i18n/en.json";
 
 function leaves(node: unknown, path: string[] = []): [string, unknown][] {
@@ -18,6 +18,76 @@ const catalogues = import.meta.glob<Record<string, unknown>>("./i18n/*.json", {
 const translations = Object.entries(catalogues)
   .map(([path, messages]) => [path.replace(/^.*\/(.+)\.json$/, "$1"), messages] as const)
   .filter(([locale]) => locale !== "en");
+
+/** A key whose translation may legitimately be the English text, and in which languages. */
+interface SameAsEnglish {
+  locales: readonly Locale[];
+  reason: string;
+}
+
+const ALL_TRANSLATED = LOCALES.filter((locale) => locale !== "en");
+const LATIN_LOANWORDS = ["de", "es", "fr", "id", "it", "pl", "pt", "ro", "tr", "vi"] as const;
+const SAME_WORD = "the same word (or an established loanword) in that language";
+const THEME_NAME = "a theme name, kept as a proper name or the same word";
+
+// Every other value must differ from English: an identical one is a text nobody translated.
+const SAME_AS_ENGLISH: Record<string, SameAsEnglish> = {
+  "app.name": { locales: ALL_TRANSLATED, reason: "the product name is never translated" },
+  "session.pin": {
+    locales: [
+      "ar", "bn", "de", "es", "fr", "hi", "id", "it", "ja",
+      "ko", "pl", "pt", "ro", "th", "tr", "vi", "zh-CN", "zh-TW",
+    ],
+    reason: '"PIN" is used as is',
+  },
+  "circle.admin": {
+    locales: ["de", "es", "fr", "it", "pt", "id", "pl", "ro"],
+    reason: '"Admin" is the short badge these languages use as a loanword',
+  },
+  "chat.accuracy": {
+    locales: ["de", "es", "fr", "id", "it", "ja", "pl", "pt", "ro", "tr", "vi"],
+    reason: "only a symbol and a unit",
+  },
+  "contact.hours": {
+    locales: ["es", "fr", "it", "pl", "pt", "ro"],
+    reason: "unit abbreviation shared with English",
+  },
+  "contact.minutes": {
+    locales: ["es", "fr", "it", "pl", "pt", "ro"],
+    reason: "unit abbreviation shared with English",
+  },
+  "chat.emoji": { locales: LATIN_LOANWORDS, reason: '"Emoji" is the word in that language' },
+  "emoji.open": { locales: LATIN_LOANWORDS, reason: '"Emoji" is the word in that language' },
+  "contact.reasons.spam": { locales: LATIN_LOANWORDS, reason: '"Spam" is the word in that language' },
+  "colors.mono": { locales: LATIN_LOANWORDS, reason: THEME_NAME },
+  "colors.aurora": { locales: ["de", "es", "id", "it", "pt", "tr", "vi"], reason: THEME_NAME },
+  "colors.lime": { locales: ["id", "it", "ro", "vi"], reason: THEME_NAME },
+  "colors.ember": { locales: ["id", "vi"], reason: THEME_NAME },
+  "calls.video": { locales: ["de", "es", "id", "it", "ro", "vi"], reason: SAME_WORD },
+  "plugins.title": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
+  "settings.plugins": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
+  "settings.backup": { locales: ["de", "it", "pt", "ro"], reason: SAME_WORD },
+  "settings.plan": { locales: ["es", "pl", "ro", "tr"], reason: SAME_WORD },
+  "chat.direct": { locales: ["fr", "ro"], reason: SAME_WORD },
+  "chat.file": { locales: ["id", "it"], reason: SAME_WORD },
+  "chat.pause": { locales: ["de", "fr"], reason: SAME_WORD },
+  "settings.version": { locales: ["de", "fr"], reason: SAME_WORD },
+  "tabs.chats": { locales: ["de", "es"], reason: SAME_WORD },
+  "calls.camera": { locales: ["vi"], reason: SAME_WORD },
+  "calls.speaker": { locales: ["id"], reason: SAME_WORD },
+  "chat.message": { locales: ["fr"], reason: SAME_WORD },
+  "contact.acceptsChat": { locales: ["fr"], reason: SAME_WORD },
+  "emoji.nature": { locales: ["fr"], reason: SAME_WORD },
+  "session.toggle": { locales: ["fr"], reason: SAME_WORD },
+  "settings.session": { locales: ["fr"], reason: SAME_WORD },
+  "settings.color": { locales: ["es"], reason: SAME_WORD },
+  "settings.privacy": { locales: ["it"], reason: SAME_WORD },
+  "settings.system": { locales: ["de"], reason: SAME_WORD },
+};
+
+function mayEqualEnglish(key: string, locale: string): boolean {
+  return SAME_AS_ENGLISH[key]?.locales.some((listed) => listed === locale) ?? false;
+}
 
 describe("i18n", () => {
   afterEach(async () => {
@@ -48,7 +118,7 @@ describe("i18n", () => {
     );
   });
 
-  describe.each(translations)("the %s catalogue", (_locale, messages) => {
+  describe.each(translations)("the %s catalogue", (locale, messages) => {
     const translated = new Map(leaves(messages));
 
     it("has exactly the English keys", () => {
@@ -73,6 +143,29 @@ describe("i18n", () => {
         }
       }
     });
+
+    it("translates every entry, apart from the listed ones that stay as in English", () => {
+      const untranslated = leaves(en)
+        .filter(([key, source]) => translated.get(key) === source && !mayEqualEnglish(key, locale))
+        .map(([key]) => key);
+      expect(untranslated, `${locale}: entries still in English`).toEqual([]);
+    });
+  });
+
+  it("lists only entries that exist and really are the same as in English", () => {
+    const source = new Map(leaves(en));
+    const byLocale = new Map(translations.map(([locale, messages]) => [locale, new Map(leaves(messages))]));
+    const stale: string[] = [];
+    for (const [key, { locales }] of Object.entries(SAME_AS_ENGLISH)) {
+      if (!source.has(key)) {
+        stale.push(`${key}: no such key`);
+        continue;
+      }
+      for (const locale of locales) {
+        if (byLocale.get(locale)?.get(key) !== source.get(key)) stale.push(`${key} [${locale}]`);
+      }
+    }
+    expect(stale).toEqual([]);
   });
 
   it("picks the phone's language, by region when it matters", () => {
