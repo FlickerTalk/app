@@ -108,8 +108,10 @@ pub struct InstalledPlugin {
 }
 
 impl Core {
-    /// Where the plugins live; the app sets it to a folder of its own storage.
+    /// Where the plugins live; the app sets it to a folder of its own storage, when it starts. A
+    /// swap an update left halfway (the app killed) is put right first (2026-10-03).
     pub fn set_plugins_dir(&self, dir: PathBuf) {
+        let _ = ft_plugins::recover(&dir);
         let _ = self.plugins_dir.set(dir);
     }
 
