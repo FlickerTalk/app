@@ -66,7 +66,7 @@ const MODES = [
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ $t("hours.title") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("hours.title") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 

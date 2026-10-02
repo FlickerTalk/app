@@ -78,7 +78,7 @@ async function remove(id: string) {
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ $t("plugins.title") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("plugins.title") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 

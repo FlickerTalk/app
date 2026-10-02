@@ -70,7 +70,7 @@ async function send() {
   <ion-modal :is-open="open" :can-dismiss="canDismiss" data-test="feedback-modal" @did-dismiss="dismissed">
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>{{ $t("feedback.title") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("feedback.title") }}</span></ion-title>
         <ion-buttons slot="end">
           <ion-button fill="clear" data-test="feedback-close" :aria-label="$t('common.close')" @click="emit('close')">
             <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />

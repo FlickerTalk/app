@@ -193,7 +193,7 @@ const forget = () =>
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ $t("backup.title") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("backup.title") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 

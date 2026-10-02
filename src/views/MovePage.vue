@@ -44,7 +44,7 @@ async function scanInvite() {
         <ion-buttons slot="start">
           <ion-back-button :default-href="isNew ? '/welcome' : '/tabs/settings'" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ isNew ? $t("move.fromOld") : $t("move.toNew") }}</ion-title>
+        <ion-title><span class="ft-title">{{ isNew ? $t("move.fromOld") : $t("move.toNew") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 

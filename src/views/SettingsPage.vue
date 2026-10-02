@@ -192,14 +192,14 @@ function chooseAppearance(id: Appearance) {
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>{{ $t("settings.title") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("settings.title") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 
     <ion-content>
       <ion-header collapse="condense" class="ion-no-border">
         <ion-toolbar>
-          <ion-title size="large">{{ $t("settings.title") }}</ion-title>
+          <ion-title size="large"><span class="ft-title">{{ $t("settings.title") }}</span></ion-title>
         </ion-toolbar>
       </ion-header>
 

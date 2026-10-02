@@ -52,7 +52,7 @@ async function create() {
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/chats" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ $t("circle.new") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("circle.new") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 
