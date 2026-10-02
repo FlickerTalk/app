@@ -840,3 +840,85 @@ async fn a_swap_cut_short_is_put_right_when_the_core_starts() {
     assert!(dir.join("com.example.code/dist/index.js").exists(), "the old version is back");
     assert!(!dir.join("com.example.code~old").exists());
 }
+
+/// What the core says the plugin was granted, and its version.
+async fn grant_and_version(core: &Core, id: &str) -> (Permissions, String) {
+    let plugin = core.plugins().await.unwrap().into_iter().find(|one| one.manifest.id == id).expect("installed");
+    (plugin.granted, plugin.manifest.version)
+}
+
+// §53: an update keeps what the user granted and never adds to it. What the new version asks for
+// beyond it stays off until the user turns it on.
+#[tokio::test]
+async fn an_update_keeps_the_grant_and_never_widens_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let asks = r#"{"network":["api.example.com"],"send":"propose","live":true}"#;
+    core.install_plugin(&signed("com.example.code", "1.0.0", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    let granted = Permissions { network: vec!["api.example.com".to_owned()], send: Sending::Propose, live: true, ..Permissions::default() };
+    core.grant_plugin("com.example.code", granted.clone()).await.unwrap();
+
+    let more = r#"{"network":["api.example.com","cdn.example.com"],"send":"auto","live":true,"remind":true,"location":true}"#;
+    core.install_plugin(&signed("com.example.code", "1.0.1", more, &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("updates");
+    assert_eq!(grant_and_version(&core, "com.example.code").await, (granted, "1.0.1".to_owned()));
+}
+
+// A version that asks for less updates too (before, the old grant no longer fitted and the update
+// was refused, silently for the seeds), and the grant shrinks to what it asks for now.
+#[tokio::test]
+async fn an_update_that_asks_for_less_still_updates_and_the_grant_shrinks_with_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let asks = r#"{"network":["api.example.com","cdn.example.com"],"send":"auto","remind":true,"storage":"large"}"#;
+    core.install_plugin(&signed("com.example.notes", "1.0.0", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    let all = Permissions {
+        network: vec!["api.example.com".to_owned(), "cdn.example.com".to_owned()],
+        send: Sending::Auto,
+        remind: true,
+        storage: ft_plugins::Storage::Large,
+        ..Permissions::default()
+    };
+    core.grant_plugin("com.example.notes", all.clone()).await.unwrap();
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.unwrap();
+    let mut events = core.events();
+
+    // As the seeds are updated: with the grant the plugin had.
+    let less = r#"{"network":["api.example.com"],"send":"propose"}"#;
+    core.install_plugin(&signed("com.example.notes", "1.0.1", less, &catalogue), &catalogue.public_key(), all).await.expect("updates");
+    let narrowed = Permissions { network: vec!["api.example.com".to_owned()], send: Sending::Propose, ..Permissions::default() };
+    assert_eq!(grant_and_version(&core, "com.example.notes").await, (narrowed, "1.0.1".to_owned()));
+    // Without `remind`, what it had set no longer rings, and the alarm clock is told.
+    assert!(core.plugin_reminders("com.example.notes", None).await.unwrap().is_empty());
+    let mut heard = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        heard.push(event);
+    }
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "{heard:?}");
+    assert!(heard.contains(&ft_core::Event::PluginsChanged), "{heard:?}");
+}
+
+// What the plugin keeps on this phone outlives its update: records (saved games), memory,
+// reminders, the opaque id of each chat, and when it was installed.
+#[tokio::test]
+async fn what_a_plugin_keeps_outlives_its_update() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    let catalogue = Ed25519SecretKey::new();
+    let id = "com.example.list";
+    // Installed with another key in the helper: this one signs the version it updates to.
+    let asks = r#"{"remind":true}"#;
+    core.install_plugin(&signed(id, "1.0.0", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    core.grant_plugin(id, Permissions { remind: true, ..Permissions::default() }).await.unwrap();
+    let chat = core.plugin_chat(id, &bob).await.unwrap();
+    core.plugin_record_set(id, None, &format!("game/{chat}/1"), b"e4 e5").await.unwrap();
+    core.plugin_remember(id, None, "theme", "dark").await.unwrap();
+    core.set_reminder(id, None, "r1", 5_000, "milk").await.unwrap();
+    let installed_at = core.plugins().await.unwrap().into_iter().find(|one| one.manifest.id == id).unwrap().installed_at;
+
+    core.install_plugin(&signed(id, "1.0.1", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("updates");
+    let now = core.plugins().await.unwrap().into_iter().find(|one| one.manifest.id == id).unwrap();
+    assert_eq!((now.manifest.version.as_str(), now.installed_at), ("1.0.1", installed_at));
+    assert_eq!(core.plugin_chat(id, &bob).await.unwrap(), chat);
+    assert_eq!(core.plugin_record(id, None, &format!("game/{chat}/1")).await.unwrap().as_deref(), Some(&b"e4 e5"[..]));
+    assert_eq!(core.plugin_remembers(id, None, "theme").await.unwrap().as_deref(), Some("dark"));
+    assert_eq!(core.plugin_reminders(id, None).await.unwrap().len(), 1);
+}
