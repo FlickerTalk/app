@@ -70,7 +70,7 @@ export async function offeredOnce(): Promise<OfferedPlugin[]> {
  */
 export type FrameMessage =
   | { type: "ft.ready" }
-  /** The frame asks for the app's colours before it loads the plugin (2026-10-03). */
+  /** The frame asks for the app's colours before it loads the plugin (2026-10-02). */
   | { type: "ft.hello" }
   | { type: "ft.close" }
   | { type: "ft.height"; height: number }

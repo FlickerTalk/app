@@ -125,7 +125,7 @@ globalThis.ft = {
 };
 const heard = [];
 
-// The app's colours (2026-10-03): Ionic's variables on the root, so a plugin's
+// The app's colours (2026-10-02): Ionic's variables on the root, so a plugin's
 // `var(--ion-text-color, …)` follows the app, dark or light. Only these names, and only what looks
 // like a colour: nothing else of the app reaches the plugin this way.
 const COLOURS = [

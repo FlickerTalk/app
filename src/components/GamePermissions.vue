@@ -8,7 +8,7 @@ import { formatSize } from "../core";
 // sheet says what it will do —talk to the other person's phone, leave the result in the chat— and
 // one button grants both. A game that is not here yet is a download: the sheet says what it
 // weighs, and the same button installs it. Without a yes, nothing is installed or granted.
-// Ioan, 2026-10-03: Ionic's sheet modal, as tall as what it says; dismissing it (dragging it down,
+// Ioan, 2026-10-02: Ionic's sheet modal, as tall as what it says; dismissing it (dragging it down,
 // a tap outside, the back button) is a no.
 const props = defineProps<{ open: boolean; name: string; size?: number }>();
 const emit = defineEmits<{ allow: []; cancel: [] }>();

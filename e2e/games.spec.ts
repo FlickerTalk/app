@@ -88,7 +88,7 @@ for (const appearance of ["dark", "light"]) {
       expect(granted?.[1]).toMatchObject({ plugin: TICTACTOE, granted: { live: true, send: "propose" } });
     });
 
-    // Ioan, 2026-10-03: one apps button in the header; it opens a sheet modal with a segment for the
+    // Ioan, 2026-10-02: one apps button in the header; it opens a sheet modal with a segment for the
     // plugins and one for the games.
     test("the chat's apps sheet has the tools and the games apart; a game invites without sending", async ({ app }) => {
       await app.goto(`/chat/${BOB}`);

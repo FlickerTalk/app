@@ -100,10 +100,16 @@ import { t } from "../i18n";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
-const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string }>(), {
+const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean }>(), {
   showBack: false,
   play: undefined,
+  split: false,
 });
+/**
+ * The pane the conversation's sheets cover on a wide screen (2026-10-02): the chat pane beside the
+ * list (`split`, ChatsPage), or the whole window for a conversation open on its own.
+ */
+const sheetPane = computed(() => (props.split ? "ft-sheet--chat-pane" : "ft-sheet--window"));
 
 const chat = computed(() => chatOf(props.chatId));
 const messages = computed(() => chat.value?.messages ?? []);
@@ -311,7 +317,7 @@ const plugin = ref<{
   game?: boolean;
 } | null>(null);
 
-// Ioan, 2026-10-03 (option A): a game is played inside the conversation, so the two can write to
+// Ioan, 2026-10-02 (option A): a game is played inside the conversation, so the two can write to
 // each other while they play. It takes the place of the messages, which stay mounted underneath;
 // the header (with the voice call) and the composer stay. No video and no files while playing.
 const playing = computed(() => Boolean(plugin.value?.game));
@@ -340,7 +346,7 @@ async function peek() {
     await scrollToEnd();
   }
 }
-// The keyboard gone (seen on the Samsung, 2026-10-03): the game is shown from its top again, its
+// The keyboard gone (seen on the Samsung, 2026-10-02): the game is shown from its top again, its
 // score and status, not left where it was scrolled in the small room the keyboard left.
 const gameArea = ref<HTMLElement | null>(null);
 let keyboardWasOpen = false;
@@ -375,7 +381,7 @@ function useApp(id: string) {
   plugin.value = { id: chosen.id, name: chosen.name, sending: chosen.granted.send, live: Boolean(chosen.granted.live) };
 }
 
-// Plan 10 (app 1.3.0): games, wherever the games tab is (not on iOS). Ioan, 2026-10-03: they are
+// Plan 10 (app 1.3.0): games, wherever the games tab is (not on iOS). Ioan, 2026-10-02: they are
 // a tab of the apps sheet, not a button of their own, so the header keeps three buttons and a name
 // has room on a small phone. The apps button is there with a tool, or wherever games can be had,
 // so they can be found with nothing installed. A game is opened here, in this conversation, with
@@ -674,7 +680,7 @@ watch(
           <ion-button :aria-label="$t('chat.voiceCall')" @click="router.push(`/call/${chat.id}`)">
             <ion-icon slot="icon-only" :icon="callOutline" aria-hidden="true" />
           </ion-button>
-          <!-- Ioan, 2026-10-03: no video while playing. -->
+          <!-- Ioan, 2026-10-02: no video while playing. -->
           <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
@@ -686,7 +692,7 @@ watch(
       </ion-toolbar>
     </ion-header>
 
-    <!-- The game room (Ioan, 2026-10-03): the game where the messages are, with a bar of its own:
+    <!-- The game room (Ioan, 2026-10-02): the game where the messages are, with a bar of its own:
          a way out, its name and the invitation. The thread stays mounted under it. -->
     <section v-if="plugin && plugin.game" class="ft-room" data-test="game-room" :aria-label="plugin.name">
       <ion-toolbar class="ft-room__bar" data-test="game-bar">
@@ -745,12 +751,13 @@ watch(
     </div>
 
     <!-- The apps of this phone, in Ionic's sheet modal: it rises from the bottom as the apps
-         themselves open (Ioan, 2026-10-03). Where there are games, a segment has them. The content
+         themselves open (Ioan, 2026-10-02). Where there are games, a segment has them. The content
          scrolls at every height (`expand-to-scroll` off): the sheet grows or goes only by its
          handle or its header, so a long list is never stuck. -->
     <ion-modal
       :is-open="showApps"
       class="ft-apps-sheet"
+      :class="sheetPane"
       :aria-label="$t('plugins.title')"
       :breakpoints="[0, 0.5, 1]"
       :initial-breakpoint="0.5"
@@ -806,7 +813,14 @@ watch(
       </ion-content>
     </ion-modal>
 
-    <GamePermissions :open="Boolean(asking)" :name="asking?.name ?? ''" :size="asking?.size" @allow="allowGame" @cancel="asking = null" />
+    <GamePermissions
+      :class="sheetPane"
+      :open="Boolean(asking)"
+      :name="asking?.name ?? ''"
+      :size="asking?.size"
+      @allow="allowGame"
+      @cancel="asking = null"
+    />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
@@ -1119,7 +1133,7 @@ watch(
   align-items: center;
   gap: 10px;
   /* Never wider than the room the toolbar leaves between its buttons: a long name is cut with an
-     ellipsis instead of being drawn under them (seen at 360 px with four buttons, 2026-10-03). */
+     ellipsis instead of being drawn under them (seen at 360 px with four buttons, 2026-10-02). */
   min-width: 0;
   max-width: 100%;
   padding-inline-start: 8px;
@@ -1180,7 +1194,7 @@ watch(
   background: var(--ft-bg);
   /* The window starts under the status bar, or the way out ends up beneath the clock. The window
      itself does not scroll, so this strip stays its own at any scroll position (seen on the
-     Samsung, 2026-10-03, when it was the padding of what scrolled). Ionic's inset, as its headers. */
+     Samsung, 2026-10-02, when it was the padding of what scrolled). Ionic's inset, as its headers. */
   padding-top: var(--ion-safe-area-top, 0px);
 }
 /* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar. */
