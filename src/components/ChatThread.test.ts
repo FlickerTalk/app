@@ -1014,7 +1014,7 @@ describe("ChatThread", () => {
       await openGames(wrapper);
       await wrapper.find(`[data-test='invite-${CHESS.id}']`).trigger("click");
       await flushPromises();
-      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Shall we play Chess? https://flickertalk.com/games/chess");
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Chess · Shall we play? https://flickertalk.com/games/chess");
       expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
       expect(calls.map(([command]) => command)).not.toContain("core_send");
     });
@@ -1136,7 +1136,7 @@ describe("ChatThread", () => {
         expect(bar.html()).toContain("Chess");
         await wrapper.find("[data-test='game-invite']").trigger("click");
         await flushPromises();
-        expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Shall we play Chess? https://flickertalk.com/games/chess");
+        expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Chess · Shall we play? https://flickertalk.com/games/chess");
         expect(room(wrapper).exists()).toBe(true);
 
         await wrapper.find("[data-test='close-game']").trigger("click");

@@ -422,7 +422,7 @@
     "pickContact": "Chơi với",
     "noContacts": "Thêm một liên hệ để chơi",
     "invite": "Mời",
-    "inviteText": "🎮 Mình chơi {game} nhé? {url}",
+    "inviteText": "🎮 {game} · Mình chơi nhé? {url}",
     "installAndPlay": "Cài đặt và chơi",
     "permissionsBody": "Trò chơi này trao đổi với điện thoại của người kia và có thể để lại kết quả trong cuộc trò chuyện.",
     "permissionsAllow": "Cho phép và chơi",

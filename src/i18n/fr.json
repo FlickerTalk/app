@@ -422,7 +422,7 @@
     "pickContact": "Jouer avec",
     "noContacts": "Ajoutez un contact pour jouer",
     "invite": "Inviter",
-    "inviteText": "🎮 On joue à {game} ? {url}",
+    "inviteText": "🎮 {game} · On joue ? {url}",
     "installAndPlay": "Installer et jouer",
     "permissionsBody": "Ce jeu communique avec le téléphone de l’autre personne et peut laisser le résultat dans la conversation.",
     "permissionsAllow": "Autoriser et jouer",

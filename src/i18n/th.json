@@ -422,7 +422,7 @@
     "pickContact": "เล่นกับ",
     "noContacts": "เพิ่มผู้ติดต่อเพื่อเล่นด้วยกัน",
     "invite": "เชิญ",
-    "inviteText": "🎮 มาเล่น {game} กันไหม? {url}",
+    "inviteText": "🎮 {game} · มาเล่นกันไหม? {url}",
     "installAndPlay": "ติดตั้งและเล่น",
     "permissionsBody": "เกมนี้สื่อสารกับโทรศัพท์ของอีกฝ่ายและอาจทิ้งผลลัพธ์ไว้ในแชท",
     "permissionsAllow": "อนุญาตและเล่น",

@@ -422,7 +422,7 @@
     "pickContact": "Joacă cu",
     "noContacts": "Adaugă un contact ca să joci",
     "invite": "Invită",
-    "inviteText": "🎮 Jucăm {game}? {url}",
+    "inviteText": "🎮 {game} · Jucăm? {url}",
     "installAndPlay": "Instalează și joacă",
     "permissionsBody": "Acest joc vorbește cu telefonul celeilalte persoane și poate lăsa rezultatul în conversație.",
     "permissionsAllow": "Permite și joacă",
