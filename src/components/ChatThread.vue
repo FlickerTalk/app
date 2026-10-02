@@ -1069,6 +1069,9 @@ watch(
   place-items: end center;
   padding: var(--ft-space-4);
   padding-bottom: calc(var(--ft-space-4) + 72px);
+  /* Clear of the side insets (a phone held sideways), which are physical. */
+  padding-left: calc(var(--ft-space-4) + var(--ion-safe-area-left, 0px));
+  padding-right: calc(var(--ft-space-4) + var(--ion-safe-area-right, 0px));
   background: rgba(0, 0, 0, 0.25);
 }
 .ft-actions__bar {
@@ -1187,6 +1190,9 @@ watch(
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The game keeps clear of the side insets (a phone held sideways); its bar does by itself. */
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
 }
 
 .ft-thread__content {
@@ -1203,6 +1209,9 @@ watch(
      itself does not scroll, so this strip stays its own at any scroll position (seen on the
      Samsung, 2026-10-02, when it was the padding of what scrolled). Ionic's inset, as its headers. */
   padding-top: var(--ion-safe-area-top, 0px);
+  /* And out of the side insets (a phone held sideways): bar and tool both. */
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
 }
 /* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar. */
 .ft-app__body {
