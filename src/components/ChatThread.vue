@@ -1059,6 +1059,8 @@ watch(
   display: grid;
   place-items: end center;
   padding: var(--ft-space-4);
+  /* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
+  padding-bottom: calc(var(--ft-space-4) + var(--ion-safe-area-bottom, 0px));
   background: rgba(0, 0, 0, 0.35);
 }
 .ft-apps__card {
