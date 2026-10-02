@@ -851,6 +851,24 @@ export async function subscriptionPrice(): Promise<string | null> {
   }
 }
 
+/** What became of a suggestion sent from Settings (2026-10-02). */
+export type FeedbackOutcome = "sent" | "tooMany" | "failed";
+
+const FEEDBACK_OUTCOMES: readonly FeedbackOutcome[] = ["sent", "tooMany", "failed"];
+
+/**
+ * Sends a suggestion to the project's mailbox through the router. "sent" only when the router
+ * took it; with no network, an old router or anything unexpected it is "failed", never a throw.
+ */
+export async function sendFeedback(text: string): Promise<FeedbackOutcome> {
+  try {
+    const outcome = await invoke<FeedbackOutcome>("core_send_feedback", { text });
+    return FEEDBACK_OUTCOMES.includes(outcome) ? outcome : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
 export async function subscribe(): Promise<void> {
   await invoke("core_subscribe");
 }
