@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { reactive } from "vue";
 
@@ -42,9 +42,75 @@ describe("PluginSheet", () => {
     says({ type: "ft.ready" });
     await flushPromises();
     expect(post).toHaveBeenCalledWith(
-      { type: "ft.open", text: "hello", dark: false, lang: "en", file: null, ref: null, reminder: null, live: false },
+      { type: "ft.open", text: "hello", dark: false, theme: {}, lang: "en", file: null, ref: null, reminder: null, live: false },
       "*",
     );
+  });
+
+  // 2026-10-03 (Ioan): the plugin is handed the app's colours and whether it is dark, before it
+  // loads (`ft.hello`), when it opens, and again whenever the app's look changes while it is open.
+  describe("the app's colours", () => {
+    const html = document.documentElement;
+    afterEach(() => {
+      html.classList.remove("ft-dark");
+      delete html.dataset.direction;
+      document.body.removeAttribute("style");
+    });
+
+    it("says the app is dark when it is, and hands over its colours", async () => {
+      html.classList.add("ft-dark");
+      document.body.style.setProperty("--ion-text-color", "#f5f5f5");
+      document.body.style.setProperty("--ion-background-color", "#000000");
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.hello" });
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith(
+        { type: "ft.theme", dark: true, theme: { "--ion-text-color": "#f5f5f5", "--ion-background-color": "#000000" } },
+        "*",
+      );
+      says({ type: "ft.ready" });
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "ft.open", dark: true, theme: { "--ion-text-color": "#f5f5f5", "--ion-background-color": "#000000" } }),
+        "*",
+      );
+    });
+
+    it("follows the app when its look changes while the plugin is open", async () => {
+      html.classList.add("ft-dark");
+      document.body.style.setProperty("--ion-text-color", "#f5f5f5");
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
+      await flushPromises();
+      const { post } = framed(wrapper);
+
+      // The user picks light: the root's class changes, then the colours the body computes.
+      document.body.style.setProperty("--ion-text-color", "#0a0a0a");
+      html.classList.remove("ft-dark");
+      await flushPromises();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, theme: { "--ion-text-color": "#0a0a0a" } }, "*");
+
+      // Another colour direction, same mode.
+      document.body.style.setProperty("--ion-text-color", "#121821");
+      html.dataset.direction = "aurora";
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, theme: { "--ion-text-color": "#121821" } }, "*");
+
+      // A class that changes nothing of the look says nothing.
+      const before = post.mock.calls.length;
+      html.classList.add("plt-android");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(post.mock.calls.length).toBe(before);
+      html.classList.remove("plt-android");
+
+      // Gone, it no longer listens.
+      wrapper.unmount();
+      html.classList.add("ft-dark");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(post.mock.calls.length).toBe(before);
+    });
   });
 
   // 2026-10-02: opened in a chat, any plugin (tool or game) learns the core's opaque id of that
