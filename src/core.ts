@@ -1218,9 +1218,12 @@ export async function vaultRemove(id: string): Promise<void> {
   await invoke("core_vault_remove", { id });
 }
 
-/** Puts a picked file in the drive; null when it waits for the network. */
-export async function vaultUpload(file: PickedFile, parent: string | null): Promise<string | null> {
-  return invoke<string | null>("core_vault_upload", { file, parent });
+/**
+ * Puts what the user picks in the drive: the core opens the picker, seals each file (sent, or
+ * waiting for the network) and deletes the picker's copies; how many went (2026-10-02).
+ */
+export async function vaultUploadPicked(parent: string | null): Promise<number> {
+  return invoke<number>("core_vault_upload_picked", { parent });
 }
 
 /** Keeps the file of a message in the drive, from the bubble or a plugin's `ref`. */
