@@ -268,7 +268,8 @@
   "colors": {
     "ember": "Brasa",
     "aurora": "Aurora",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Lima"
   },
   "qr": {
     "label": "Código QR"

@@ -268,7 +268,8 @@
   "colors": {
     "ember": "جمر",
     "aurora": "شفق",
-    "mono": "أحادي"
+    "mono": "أحادي",
+    "lime": "ليم"
   },
   "qr": {
     "label": "رمز QR"

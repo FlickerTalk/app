@@ -268,7 +268,8 @@
   "colors": {
     "ember": "Jar",
     "aurora": "Auroră",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Lime"
   },
   "qr": {
     "label": "Cod QR"
