@@ -49,7 +49,7 @@ import {
   type Sending,
 } from "../core";
 import { i18n } from "../i18n";
-import { frameUrl, fromFrame, type FrameMessage, type HandedFile } from "../plugins";
+import { CLOSING_WAIT, frameUrl, fromFrame, type FrameMessage, type HandedFile } from "../plugins";
 import { pluginTheme } from "../theme";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
@@ -89,7 +89,9 @@ const props = withDefaults(
     session: undefined,
   },
 );
-const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: []; openChat: [contact: string] }>();
+// `done`: the plugin is finished or asked to be closed; whoever shows it decides, and closes it with
+// `close()`. `closed`: it has said goodbye and can go.
+const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: []; openChat: [contact: string]; closed: [] }>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
 const height = ref(320);
@@ -102,10 +104,12 @@ function tell(message: Record<string, unknown>) {
 async function onMessage(event: MessageEvent) {
   const said = fromFrame(event, frame.value);
   if (!said) return;
+  if (closing && SILENT_WHILE_CLOSING.has(said.type)) return;
 
   if (said.type === "ft.hello") {
     tell({ type: "ft.theme", ...pluginTheme() });
   } else if (said.type === "ft.ready") {
+    ready = true;
     tell({ ...opening(), ...(await chatOf()) });
   } else if (said.type === "ft.height") {
     height.value = Math.min(Math.max(said.height, 160), 4000);
@@ -135,11 +139,56 @@ async function onMessage(event: MessageEvent) {
   } else if (said.type === "ft.text") {
     if (props.sending !== "nothing") emit("text", said.text);
   } else if (said.type === "ft.close") {
-    emit("done");
+    // Asked again by a goodbye that ends with `ft.close()`: it is already closing.
+    if (!closing) emit("done");
+  } else if (said.type === "ft.closed") {
+    letGo?.();
   } else {
     await answer(said);
   }
 }
+
+/**
+ * Closing (2026-10-02): a plugin closed by the app (its ✕, Android's Back, leaving the chat) used
+ * to vanish without a word, and its twin on the other side kept saying both were there. Now it is
+ * told (`ft.closing`, which runs its `ft.onClose`), and the frame is kept, out of sight, until it
+ * answers `ft.closed` or for CLOSING_WAIT at most; only then does `closed` let it go. The window
+ * is hidden at once by whoever shows it: nothing in the app waits for the plugin. Meanwhile it can
+ * still talk to its twin and keep what it has, with the grants it had, and nothing more: what
+ * would reach the user or the chat is ignored.
+ */
+let ready = false;
+let closing: Promise<void> | undefined;
+let letGo: (() => void) | undefined;
+let gone = false;
+const SILENT_WHILE_CLOSING = new Set<FrameMessage["type"]>([
+  "ft.pickFile",
+  "ft.made",
+  "ft.text",
+  "ft.openChat",
+  "ft.drive",
+  "ft.print",
+  "ft.save",
+  "ft.location",
+]);
+
+function close(): Promise<void> {
+  closing ??= new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    letGo = () => {
+      clearTimeout(timer);
+      letGo = undefined;
+      if (!gone) emit("closed");
+      resolve();
+    };
+    // A plugin that never came up has heard nothing, started nothing and has nothing to say.
+    if (!ready) return letGo();
+    timer = setTimeout(letGo, CLOSING_WAIT);
+    tell({ type: "ft.closing" });
+  });
+  return closing;
+}
+defineExpose({ close });
 
 /** What the plugin is opened with: the text, the file, the way back, the language, the colours. */
 function opening() {
@@ -329,6 +378,11 @@ onMounted(async () => {
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });
 onBeforeUnmount(() => {
+  // Torn down without `close()` (a page that went): one word on the way out, without waiting. The
+  // frame goes in this same tick, so it may well never hear it.
+  gone = true;
+  if (ready && !closing) tell({ type: "ft.closing" });
+  letGo?.();
   looks.disconnect();
   window.removeEventListener("message", onMessage);
   // A bridge without listeners (tests, desktop) has nothing to unhook: that is not a failure.
