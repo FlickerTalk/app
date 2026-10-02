@@ -96,7 +96,8 @@ import {
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
-import { t } from "../i18n";
+import { i18n, t } from "../i18n";
+import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
@@ -119,6 +120,15 @@ const sheetPane = computed(() => (props.split ? "ft-sheet--chat-pane" : "ft-shee
 
 const chat = computed(() => chatOf(props.chatId));
 const messages = computed(() => chat.value?.messages ?? []);
+/** The day separator before each message; "now" is read when the thread changes, not at midnight. */
+const days = computed(() =>
+  dayLabels(
+    messages.value.map((message) => message.sentAt),
+    Date.now(),
+    i18n.global.locale.value,
+    t("chat.today"),
+  ),
+);
 
 /**
  * A5, as WhatsApp does it (2026-09-28): a stranger who wrote first is answered here, where the yes
@@ -902,21 +912,21 @@ watch(
     />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
-      <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
-      <MessageBubble
-        v-for="message in messages"
-        :key="message.id"
-        :message="message"
-        :saved="saved.has(message.id)"
-        :folded="folded.has(message.id)"
-        :games="gamesOn"
-        @open="tapFile"
-        @save="save"
-        @download="download"
-        @actions="act"
-        @resend="resendMessage"
-        @play="playGame"
-      />
+      <template v-for="(message, index) in messages" :key="message.id">
+        <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
+        <MessageBubble
+          :message="message"
+          :saved="saved.has(message.id)"
+          :folded="folded.has(message.id)"
+          :games="gamesOn"
+          @open="tapFile"
+          @save="save"
+          @download="download"
+          @actions="act"
+          @resend="resendMessage"
+          @play="playGame"
+        />
+      </template>
 
       <div class="ft-thread__end" />
     </ion-content>
