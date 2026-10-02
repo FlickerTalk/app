@@ -58,7 +58,8 @@ export function permissionsOf(plugin: PluginView): PermissionLine[] {
   if (plugin.asks.remind) lines.push({ key: "remind", label: t("plugins.remind"), icon: alarmOutline, on: !!plugin.granted.remind });
   if (plugin.asks.drive) lines.push({ key: "drive", label: t("plugins.drive"), icon: cloudOutline, on: !!plugin.granted.drive });
   // 2026-10-02: the phone's position, once each time the plugin asks; the phone asks too.
-  if (plugin.asks.location) lines.push({ key: "location", label: t("plugins.location"), icon: locationOutline, on: !!plugin.granted.location });
+  // A game never: the core refuses a game that asks for it (`ft-plugins` `check`).
+  if (plugin.asks.location && !isGame(plugin)) lines.push({ key: "location", label: t("plugins.location"), icon: locationOutline, on: !!plugin.granted.location });
   if (plugin.asks.storage === "large") {
     lines.push({ key: "storage", label: t("plugins.storageLarge"), icon: archiveOutline, on: plugin.granted.storage === "large" });
   }

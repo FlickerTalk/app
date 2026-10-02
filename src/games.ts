@@ -61,8 +61,11 @@ export function needsGameGrant(plugin: PluginView): boolean {
  * never more than it asked for. A game never sends by itself: it proposes, the user sends (§53).
  */
 export function gameGrant(plugin: PluginView): PluginPermissions {
+  // Never where the phone is (app#32): whatever the grant said, it is not carried over (the core
+  // refuses a game that asks for it anyway).
+  const { location: _never, ...granted } = plugin.granted;
   return {
-    ...plugin.granted,
+    ...granted,
     live: Boolean(plugin.asks.live),
     send: plugin.asks.send === "nothing" ? "nothing" : "propose",
   };
