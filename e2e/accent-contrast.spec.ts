@@ -85,6 +85,34 @@ for (const direction of ["ember", "aurora", "mono"]) {
         const tab = await measure(app.locator("ion-tab-button.tab-selected").first());
         expect(tab.worst, `selected tab ${tab.colour}`).toBeGreaterThanOrEqual(3);
       });
+
+      // Danger red (decided 2026-10-02): as text 4.5:1, as a lone glyph 3:1, in the light themes
+      // too, where #ff4d5e was about 3:1 on the page.
+      test("danger reads as text and as a glyph", async ({ app }) => {
+        // Settings → Plugins: remove, then the word that confirms it.
+        await app.goto("/plugins");
+        const bin = await measure(app.getByTestId("remove-com.flickertalk.markdown"));
+        expect(bin.worst, `remove ${bin.colour}`).toBeGreaterThanOrEqual(3);
+        await app.getByTestId("remove-com.flickertalk.markdown").click();
+        const sure = await measure(app.getByTestId("remove-confirm"));
+        expect(sure.worst, `remove confirm ${sure.colour}`).toBeGreaterThanOrEqual(4.5);
+        // A contact: «Report», and its flag on its own tint.
+        await app.goto("/contact/ft_bob123456789");
+        const report = await measure(app.getByTestId("report").locator("ion-label"));
+        expect(report.worst, `report ${report.colour}`).toBeGreaterThanOrEqual(4.5);
+        const flag = await measure(app.locator(".ft-tile--danger").first());
+        expect(flag.worst, `report flag ${flag.colour}`).toBeGreaterThanOrEqual(3);
+      });
+
+      // White on the danger fill (the erase confirmation): it reads in the light themes; in the dark
+      // ones #ff4d5e under white is about 3.2:1, the owner's call (Ionic's dark palette writes black).
+      test("the erase confirmation reads", async ({ app }) => {
+        test.fail(appearance === "dark", "white on the dark themes' danger red is about 3.2:1");
+        await app.goto("/tabs/settings");
+        await app.getByTestId("erase").click();
+        const go = await measure(app.getByTestId("erase-confirm"));
+        expect(go.worst, `erase ${go.colour}`).toBeGreaterThanOrEqual(4.5);
+      });
     });
   }
 }
