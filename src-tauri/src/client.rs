@@ -2922,24 +2922,54 @@ pub async fn core_send_file(contact: String, upload: String, name: String, mime:
 /// that could ask for anything of any size would be a way to drain the phone (issue app#3, §53).
 pub const PLUGIN_FILE_LIMIT: u64 = 32 * 1024 * 1024;
 
-/// Reads a file the user picked, for a plugin that asked for one. Only a file the user chose in
-/// the system picker (so only from the picker's own folder, M1), and only up to the limit. The
-/// picker's copy goes with the read (`take_picked`).
+/// A file the user picks for a plugin that asked for one (issue app#3): the system picker, then
+/// the first file's bytes, up to the limit; `null` if nothing was picked. The paths never reach
+/// the WebView, and the picker's copies are deleted here, the one handed over and any other the
+/// user picked with it (`hand_over_picked`).
 #[tauri::command]
-pub async fn core_read_picked(path: String, client: State<'_, Client>) -> Result<String, String> {
-    Ok(BASE64.encode(take_picked(client.dir()?, &path)?))
+pub async fn core_pick_for_plugin(accept: Option<String>, app: AppHandle, client: State<'_, Client>) -> Result<Option<HandedFile>, String> {
+    let dir = client.dir()?.to_owned();
+    let picked = core_pick_files(accept, app).await?;
+    hand_over_picked(&dir, &picked)
 }
 
-/// The bytes of the picker's copy of what the user chose for a plugin, and the copy is deleted,
-/// handed over or not: the original, with what Clean strips (a photo's place), does not stay in
-/// the app (2026-10-02). Only a copy in the picker's own folders: each pick is a fresh one that no
-/// message points to, never a file a plugin made or one from the drive.
-pub fn take_picked(dir: &Path, path: &str) -> Result<Vec<u8>, String> {
+/// What a plugin is handed from a pick: the first file, and none of the picker's copies stays,
+/// handed over or not (2026-10-02): the original, with what Clean strips (a photo's place), does
+/// not stay in the app.
+pub fn hand_over_picked(dir: &Path, picked: &[PickedView]) -> Result<Option<HandedFile>, String> {
+    let mut files = picked.iter();
+    let first = files.next().map(|file| {
+        let bytes = take_picked(dir, &file.path)?;
+        Ok(HandedFile { name: file.name.clone(), mime: file.mime.clone(), data: BASE64.encode(bytes) })
+    });
+    for file in files {
+        forget_picked(dir, &file.path);
+    }
+    first.transpose()
+}
+
+/// A path the picker itself made: in its own folders only, never a file a plugin made or one
+/// from the drive. Each pick is a fresh copy that no message points to.
+fn picker_copy(dir: &Path, path: &str) -> Result<PathBuf, String> {
     let path = picked_path(dir, path)?;
     let pickers = [dir.join("uploads"), dir.join("files").join("uploads")];
-    if !pickers.iter().filter_map(|root| root.canonicalize().ok()).any(|root| path.starts_with(&root)) {
-        return Err("that is not a file the user picked".to_owned());
+    if pickers.iter().filter_map(|root| root.canonicalize().ok()).any(|root| path.starts_with(&root)) {
+        Ok(path)
+    } else {
+        Err("that is not a file the user picked".to_owned())
     }
+}
+
+/// Deletes the picker's copy, if that is what `path` is (`picker_copy`); anything else stays.
+fn forget_picked(dir: &Path, path: &str) {
+    if let Ok(path) = picker_copy(dir, path) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The bytes of the picker's copy, up to the limit, and the copy is deleted, read or not.
+fn take_picked(dir: &Path, path: &str) -> Result<Vec<u8>, String> {
+    let path = picker_copy(dir, path)?;
     let read = match std::fs::metadata(&path) {
         Ok(meta) if meta.len() > PLUGIN_FILE_LIMIT => Err("that file is too big to hand over".to_owned()),
         Ok(_) => std::fs::read(&path).map_err(failed),
@@ -4272,6 +4302,66 @@ mod tests {
         for file in &kept {
             assert_eq!(std::fs::read(file).unwrap(), b"keep", "{}", file.display());
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn picked(path: &Path, name: &str) -> PickedView {
+        PickedView { path: path.to_string_lossy().into_owned(), name: name.to_owned(), mime: "image/jpeg".to_owned(), size: 1 }
+    }
+
+    // A plugin gets one file; the user may pick more. None of the picker's copies stays.
+    #[test]
+    fn a_plugin_gets_the_first_picked_file_and_no_copy_stays() {
+        let dir = scratch("hand-over");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let (first, second) = (uploads.join("1759400000000-a.jpg"), uploads.join("1759400000000-b.jpg"));
+        std::fs::write(&first, b"first with gps").unwrap();
+        std::fs::write(&second, b"second with gps").unwrap();
+
+        let handed = hand_over_picked(&dir, &[picked(&first, "a.jpg"), picked(&second, "b.jpg")]).unwrap().expect("a file");
+        assert_eq!((handed.name.as_str(), handed.mime.as_str()), ("a.jpg", "image/jpeg"));
+        assert_eq!(BASE64.decode(&handed.data).unwrap(), b"first with gps");
+        assert!(!first.exists() && !second.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_first_pick_too_big_for_a_plugin_leaves_no_copy_either() {
+        let dir = scratch("hand-over-big");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let (first, second) = (uploads.join("1759400000000-video.mp4"), uploads.join("1759400000000-b.jpg"));
+        std::fs::File::create(&first).unwrap().set_len(PLUGIN_FILE_LIMIT + 1).unwrap();
+        std::fs::write(&second, b"second").unwrap();
+
+        assert!(hand_over_picked(&dir, &[picked(&first, "video.mp4"), picked(&second, "b.jpg")]).is_err());
+        assert!(!first.exists() && !second.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Nothing picked is nothing handed and nothing deleted; and whatever the list names outside the
+    // picker's folders is never deleted.
+    #[test]
+    fn handing_over_deletes_only_what_the_pick_returned_in_the_pickers_folder() {
+        let dir = scratch("hand-over-none");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        std::fs::create_dir_all(dir.join("files").join("outgoing")).unwrap();
+        let sent = uploads.join("1759300000000-sent.jpg");
+        let made = dir.join("files").join("outgoing").join("1-made.pdf");
+        std::fs::write(&sent, b"a sent message's file").unwrap();
+        std::fs::write(&made, b"made").unwrap();
+
+        assert!(hand_over_picked(&dir, &[]).unwrap().is_none());
+        assert!(sent.exists());
+
+        let first = uploads.join("1759400000000-a.jpg");
+        std::fs::write(&first, b"a").unwrap();
+        hand_over_picked(&dir, &[picked(&first, "a.jpg"), picked(&made, "made.pdf")]).unwrap();
+        assert!(!first.exists());
+        assert_eq!(std::fs::read(&made).unwrap(), b"made");
+        assert!(sent.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
