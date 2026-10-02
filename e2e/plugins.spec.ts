@@ -191,3 +191,81 @@ test("a plugin's window shrinks when its content does", async ({ app }) => {
   await frame.evaluate(() => (window as unknown as { shrink: () => void }).shrink());
   await expect.poll(tall).toBeLessThan(260);
 });
+
+// 2026-10-02 (seen on two phones and the iOS simulator): closed by the app, a plugin in a live
+// session vanished without a word and the other side kept saying both were there. Now the app tells
+// it first (the real `frame.js` runs its `ft.onClose`), so its goodbye reaches the core.
+const MARKDOWN = "com.flickertalk.markdown";
+const TICTACTOE = "com.flickertalk.game.tictactoe";
+const SAYS_BYE = `customElements.define("ft-markdown", class extends HTMLElement {});
+  ft.onOpen(() => (window.opened = true));
+  ft.onClose(() => ft.live.send("Ynll"));`;
+
+/** What reached the core over the live channel, oldest first. */
+async function liveSent(app: import("@playwright/test").Page) {
+  return (await callsTo(app)).filter(([command]) => command === "core_plugin_live_send").map(([, args]) => args);
+}
+
+/** The plugin's frame is up and was opened: from then on it has something to say goodbye to. */
+async function pluginOpened(app: import("@playwright/test").Page) {
+  await expect
+    .poll(async () => {
+      const frame = app.frames().find((one) => one.url().startsWith("http://ftplugin.localhost/"));
+      return frame ? frame.evaluate(() => Boolean((window as unknown as { opened?: boolean }).opened)).catch(() => false) : false;
+    })
+    .toBe(true);
+}
+
+async function openLiveTool(app: import("@playwright/test").Page, plugin = SAYS_BYE) {
+  await app.addInitScript((id) => ((window as unknown as Record<string, unknown>).__ftFakeLivePlugins = [id]), MARKDOWN);
+  await serveRealFrames(app, plugin);
+  await openTool(app, MARKDOWN);
+  await pluginOpened(app);
+}
+
+test("a plugin says goodbye to its twin when the app's ✕ closes it", async ({ app }) => {
+  await openLiveTool(app);
+  expect(await liveSent(app)).toEqual([]);
+  await app.getByTestId("close-app").click();
+  await expect(app.locator(".ft-app")).toBeHidden();
+  await expect.poll(() => liveSent(app)).toEqual([{ plugin: MARKDOWN, contact: "ft_bob123456789", data: "Ynll" }]);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+});
+
+test("a plugin says goodbye to its twin when Android's Back closes it, and the chat stays", async ({ app }) => {
+  await openLiveTool(app);
+  expect(await app.evaluate(() => (window as unknown as { __ftFake: { back: () => boolean } }).__ftFake.back())).toBe(true);
+  await expect.poll(() => liveSent(app)).toEqual([{ plugin: MARKDOWN, contact: "ft_bob123456789", data: "Ynll" }]);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+  await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+});
+
+test("a game says goodbye to its twin when the game room's ✕ closes it", async ({ app }) => {
+  await serveRealFrames(app, SAYS_BYE);
+  await app.goto("/chat/ft_bob123456789");
+  await app.getByTestId("apps").click();
+  await app.getByTestId("apps-tab-games").click();
+  await app.getByTestId(`game-${TICTACTOE}`).click();
+  await app.getByTestId("game-allow").click();
+  await expect(app.getByTestId("game-room")).toBeVisible();
+  await pluginOpened(app);
+
+  await app.getByTestId("close-game").click();
+  await expect(app.getByTestId("game-room")).toBeHidden();
+  await expect(app.getByTestId("game-strip")).toHaveCount(0);
+  await expect.poll(() => liveSent(app)).toEqual([{ plugin: TICTACTOE, contact: "ft_bob123456789", data: "Ynll" }]);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+});
+
+// A goodbye that never ends does not keep the plugin: the app lets it go after a few tenths.
+test("a plugin whose goodbye never ends is let go all the same", async ({ app }) => {
+  await openLiveTool(
+    app,
+    `customElements.define("ft-markdown", class extends HTMLElement {});
+    ft.onOpen(() => (window.opened = true));
+    ft.onClose(() => new Promise(() => {}));`,
+  );
+  await app.getByTestId("close-app").click();
+  await expect(app.locator(".ft-app")).toBeHidden();
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0, { timeout: 2000 });
+});
