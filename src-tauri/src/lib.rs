@@ -1,6 +1,7 @@
 mod client;
 mod core_events;
 mod plugins;
+mod push_core;
 mod video_surfaces;
 
 // The store-build check of `build.rs` (2026-09-30), tested with the app.
