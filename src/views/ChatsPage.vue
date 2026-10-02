@@ -129,7 +129,7 @@ const STATUS_ICON: Record<string, string> = {
       <section class="ft-chats__list">
         <ion-header class="ion-no-border">
           <ion-toolbar>
-            <ion-title>{{ $t("tabs.chats") }}</ion-title>
+            <ion-title><span class="ft-title">{{ $t("tabs.chats") }}</span></ion-title>
             <ion-buttons slot="end">
               <ion-button v-if="store.chats.length" data-test="new-circle" :aria-label="$t('circle.new')" @click="newCircle()">
                 <ion-icon slot="icon-only" :icon="peopleOutline" aria-hidden="true" />
@@ -144,7 +144,7 @@ const STATUS_ICON: Record<string, string> = {
         <ion-content>
           <ion-header collapse="condense" class="ion-no-border">
             <ion-toolbar>
-              <ion-title size="large">{{ $t("tabs.chats") }}</ion-title>
+              <ion-title size="large"><span class="ft-title">{{ $t("tabs.chats") }}</span></ion-title>
             </ion-toolbar>
           </ion-header>
 

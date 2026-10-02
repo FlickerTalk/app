@@ -68,7 +68,7 @@ async function add(value: string) {
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/chats" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ $t("addContact.title") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("addContact.title") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 

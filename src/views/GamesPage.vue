@@ -131,7 +131,7 @@ function playWith(contact: string) {
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title>{{ $t("tabs.games") }}</ion-title>
+        <ion-title><span class="ft-title">{{ $t("tabs.games") }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -224,7 +224,7 @@ function playWith(contact: string) {
     >
       <ion-header>
         <ion-toolbar>
-          <ion-title>{{ $t("games.pickContact") }}</ion-title>
+          <ion-title><span class="ft-title">{{ $t("games.pickContact") }}</span></ion-title>
         </ion-toolbar>
       </ion-header>
       <ion-content class="ft-games__picker-content" data-test="contact-picker">
