@@ -268,7 +268,8 @@
   "colors": {
     "ember": "エンバー",
     "aurora": "オーロラ",
-    "mono": "モノ"
+    "mono": "モノ",
+    "lime": "ライム"
   },
   "qr": {
     "label": "QRコード"

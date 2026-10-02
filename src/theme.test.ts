@@ -25,6 +25,13 @@ describe("theme", () => {
     expect(storedDirection()).toBe("aurora");
   });
 
+  // The first Mono, black with an electric lime, came back as a fourth choice (Ioan, 2026-10-02).
+  it("applies and remembers the lime colors", () => {
+    applyDirection("lime");
+    expect(document.documentElement.dataset.direction).toBe("lime");
+    expect(storedDirection()).toBe("lime");
+  });
+
   it("ignores unknown stored colors", () => {
     localStorage.setItem("ft-direction", "neon");
     expect(storedDirection()).toBe("mono");
@@ -62,7 +69,7 @@ describe("the theme handed to Ionic", () => {
 
   it("gives every theme its text and background colours as numbers too", () => {
     const themes = blocks.filter((one) => token(one.body, "ft-text"));
-    expect(themes).toHaveLength(6);
+    expect(themes).toHaveLength(8);
     for (const { selector, body } of themes) {
       expect(token(body, "ft-text-rgb"), selector).toBe(rgb(token(body, "ft-text")!));
       expect(token(body, "ft-bg-rgb"), selector).toBe(rgb(token(body, "ft-bg")!));

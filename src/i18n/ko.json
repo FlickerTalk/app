@@ -268,7 +268,8 @@
   "colors": {
     "ember": "엠버",
     "aurora": "오로라",
-    "mono": "모노"
+    "mono": "모노",
+    "lime": "라임"
   },
   "qr": {
     "label": "QR 코드"

@@ -268,7 +268,8 @@
   "colors": {
     "ember": "এম্বার",
     "aurora": "অরোরা",
-    "mono": "মনো"
+    "mono": "মনো",
+    "lime": "লাইম"
   },
   "qr": {
     "label": "QR কোড"

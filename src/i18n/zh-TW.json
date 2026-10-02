@@ -268,7 +268,8 @@
   "colors": {
     "ember": "餘燼",
     "aurora": "極光",
-    "mono": "單色"
+    "mono": "單色",
+    "lime": "萊姆"
   },
   "qr": {
     "label": "QR 碼"
