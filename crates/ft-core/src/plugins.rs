@@ -129,16 +129,28 @@ impl Core {
             plugin.manifest.id,
             plugin.manifest.min_core_version
         );
-        allowed(&plugin.manifest.permissions, &granted)?;
+        // An update keeps what the user granted before, cut down to what this version asks for:
+        // never more (§53), and a version that asks for less still installs (2026-10-03).
+        let before = self.store.plugin(&plugin.manifest.id).await?;
+        let had: Option<Permissions> = before.map(|installed| serde_json::from_str(&installed.granted).unwrap_or_default());
+        let keep = match &had {
+            Some(had) => narrowed(had, &plugin.manifest.permissions),
+            None => {
+                allowed(&plugin.manifest.permissions, &granted)?;
+                granted
+            }
+        };
         let home = self.plugins_home()?;
         ft_plugins::install(&plugin, home)?;
-        let before = self.store.plugin(&plugin.manifest.id).await?;
-        let keep = match before {
-            Some(installed) => installed.granted,
-            None => serde_json::to_string(&granted)?,
-        };
-        self.store.install_plugin(&plugin.manifest.id, &plugin.manifest.version, &keep).await?;
+        self.store.install_plugin(&plugin.manifest.id, &plugin.manifest.version, &serde_json::to_string(&keep)?).await?;
+        if had.is_some() {
+            self.store.grant_plugin(&plugin.manifest.id, &serde_json::to_string(&keep)?).await?;
+        }
         let _ = self.events.send(Event::PluginsChanged);
+        // Without `remind` any more, what it had set must not ring: the alarm clock is told again.
+        if had.as_ref().is_some_and(|had| had.remind) && !keep.remind && self.store.forget_reminders(&plugin.manifest.id).await? {
+            let _ = self.events.send(Event::RemindersChanged);
+        }
         Ok(plugin.manifest)
     }
 
@@ -507,6 +519,22 @@ fn allowed(asked: &Permissions, granted: &Permissions) -> Result<()> {
     Ok(())
 }
 
+/// What is left of a grant once the plugin asks for `asked`: each permission only if it is still
+/// asked for, never more than before (2026-10-03, updates).
+fn narrowed(granted: &Permissions, asked: &Permissions) -> Permissions {
+    Permissions {
+        network: granted.network.iter().filter(|host| asked.network.contains(host)).cloned().collect(),
+        reads_given_messages: granted.reads_given_messages && asked.reads_given_messages,
+        send: if reach(granted.send) <= reach(asked.send) { granted.send } else { asked.send },
+        print: granted.print && asked.print,
+        live: granted.live && asked.live,
+        remind: granted.remind && asked.remind,
+        drive: granted.drive && asked.drive,
+        storage: if asked.storage == ft_plugins::Storage::Large { granted.storage } else { ft_plugins::Storage::Small },
+        location: granted.location && asked.location,
+    }
+}
+
 fn reach(sending: Sending) -> u8 {
     match sending {
         Sending::Nothing => 0,
@@ -572,6 +600,29 @@ mod tests {
             assert!(allowed(&asked, &wanted).is_err(), "{wanted:?} was never asked for");
             assert!(allowed(&wanted, &wanted).is_ok());
         }
+    }
+
+    // Whatever was granted and whatever is asked, what is left always fits what is asked.
+    #[test]
+    fn a_narrowed_grant_always_fits_what_is_asked() {
+        let all = Permissions {
+            network: vec!["a.example.com".to_owned(), "b.example.com".to_owned()],
+            reads_given_messages: true,
+            send: Sending::Auto,
+            print: true,
+            live: true,
+            remind: true,
+            drive: true,
+            storage: ft_plugins::Storage::Large,
+            location: true,
+        };
+        for asked in [Permissions::default(), Permissions { network: vec!["b.example.com".to_owned()], send: Sending::Propose, ..Permissions::default() }, all.clone()] {
+            let left = narrowed(&all, &asked);
+            assert!(allowed(&asked, &left).is_ok(), "{left:?} beyond {asked:?}");
+            assert_eq!(narrowed(&left, &all), left, "and never more than before");
+        }
+        assert_eq!(narrowed(&all, &all), all);
+        assert_eq!(narrowed(&Permissions::default(), &all), Permissions::default(), "nothing new is turned on");
     }
 
     // 1.3.0 (2026-10-02) also tells games from tools, so it is a core games are published for: a
