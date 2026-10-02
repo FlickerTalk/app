@@ -43,6 +43,8 @@ import {
   refreshOutline,
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
+import FeedbackModal from "../components/FeedbackModal.vue";
+import { closeOnBackWhile } from "../back";
 import { daysLeft, erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
 import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
@@ -145,6 +147,11 @@ async function erase() {
   }
 }
 const appearance = ref(storedAppearance());
+
+// 2026-10-02: an anonymous suggestion, in a modal over Settings (Ioan); Back closes it, and closing
+// forgets what was written.
+const suggesting = ref(false);
+closeOnBackWhile(() => suggesting.value, () => (suggesting.value = false));
 
 function chooseColor(id: Direction) {
   direction.value = id;
@@ -368,7 +375,7 @@ function chooseAppearance(id: Appearance) {
             <ion-note slot="end">{{ plan }}</ion-note>
           </ion-item>
           <!-- 2026-10-02: an anonymous suggestion, mailed on by the router, which keeps nothing. -->
-          <ion-item button detail lines="none" data-test="feedback" @click="router.push('/feedback')">
+          <ion-item button detail lines="none" data-test="feedback" @click="suggesting = true">
             <span slot="start" class="ft-tile"><ion-icon :icon="bulbOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.feedback") }}</ion-label>
           </ion-item>
@@ -380,6 +387,8 @@ function chooseAppearance(id: Appearance) {
         </ion-list>
       </div>
     </ion-content>
+
+    <FeedbackModal v-if="suggesting" @close="suggesting = false" />
   </ion-page>
 </template>
 

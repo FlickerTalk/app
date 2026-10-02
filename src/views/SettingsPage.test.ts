@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
+import { IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
 import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
 
-vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => Promise.resolve("0.3.1") }));
+// Android's back button: the handler the app listens with while something is open on top.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: () => Promise.resolve("0.3.1"),
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
+  },
+}));
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
 
@@ -72,12 +80,46 @@ describe("SettingsPage", () => {
     expect(push).toHaveBeenCalledWith("/blocked");
   });
 
-  // 2026-10-02: an anonymous suggestion, from its own page.
-  it("opens the page to suggest something", async () => {
-    const entry = mount(SettingsPage, { shallow: true }).find("[data-test='feedback']");
+  // 2026-10-02: an anonymous suggestion. Ioan: a modal over Settings, not a page of its own.
+  it("opens the suggestion modal over Settings, without leaving them", async () => {
+    push.mockClear();
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(false);
+    const entry = wrapper.find("[data-test='feedback']");
     expect(entry.text()).toContain("Suggest something");
     await entry.trigger("click");
-    expect(push).toHaveBeenCalledWith("/feedback");
+    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(true);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  // Android's Back closes the modal, as it closes the app's other sheets, and stays in Settings.
+  it("closes the suggestion modal with the back button", async () => {
+    push.mockClear();
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(false);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  // Nothing of a suggestion is kept: closing forgets what was written and what came of it.
+  it("opens the suggestion modal empty again after closing it", async () => {
+    installTauri((command) => (command === "core_send_feedback" ? "failed" : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "Stickers");
+    await flushPromises();
+    await wrapper.find("[data-test='send']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='outcome']").exists()).toBe(true);
+    await wrapper.find("[data-test='feedback-close']").trigger("click");
+    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(false);
+
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
+    expect(wrapper.find("[data-test='outcome']").exists()).toBe(false);
   });
 
   it("lets the user choose how calls are routed", () => {
