@@ -249,3 +249,98 @@ describe("the colours a plugin is handed", () => {
     expect(block).toMatch(/--ion-color-medium:\s*var\(--ft-muted\)/);
   });
 });
+
+// Decided 2026-10-02 (the owner): the light palettes are retouched, as little as possible, to read
+// at WCAG AA (4.5:1 for normal text). Checked on the palette itself, every theme: the text of this
+// phone's bubble over every point of its gradient, and the accent used as text on the page, the
+// surfaces and its own tint (a badge). In the light themes also the "Play" label in this phone's
+// bubble, over the button's 14 % tint of that text, anywhere on the gradient.
+describe("the palettes' contrast", () => {
+  const blocks = [...variablesCss.matchAll(/html(\.ft-dark)?\[data-direction="(\w+)"\]\s*\{([^}]*)\}/g)]
+    .filter(([, , , body]) => body.includes("--ft-accent:"))
+    .map(([, dark, direction, body]) => ({ name: `${direction} ${dark ? "dark" : "light"}`, body }));
+  const token = (body: string, name: string) => body.match(new RegExp(`--${name}:\\s*([^;]+);`))![1].trim();
+  type Rgb = [number, number, number];
+  const parse = (hex: string): Rgb => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255) as Rgb;
+  const over = (top: Rgb, alpha: number, under: Rgb): Rgb => top.map((one, at) => one * alpha + under[at] * (1 - alpha)) as Rgb;
+  const luminance = (colour: Rgb) => {
+    const [r, g, b] = colour.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (one: Rgb, other: Rgb) => {
+    const [light, dark] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+    return (light + 0.05) / (dark + 0.05);
+  };
+  /** The bubble's gradient, sampled from one stop to the other. */
+  const gradient = (body: string) => {
+    const [from, to] = [parse(token(body, "ft-accent")), parse(token(body, "ft-accent-2"))];
+    return Array.from({ length: 21 }, (_, at) => over(to, at / 20, from));
+  };
+
+  it("finds the six themes", () => {
+    expect(blocks.map((one) => one.name).sort()).toEqual(["aurora dark", "aurora light", "ember dark", "ember light", "mono dark", "mono light"]);
+  });
+
+  it("keeps the accent's numbers the accent", () => {
+    for (const { name, body } of blocks) {
+      const hex = token(body, "ft-accent");
+      expect(token(body, "ft-accent-rgb"), name).toBe([1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)).join(", "));
+    }
+  });
+
+  it.each(["ember light", "ember dark", "aurora light", "aurora dark", "mono light", "mono dark"])("%s: this phone's bubble reads", (name) => {
+    const { body } = blocks.find((one) => one.name === name)!;
+    const text = parse(token(body, "ft-on-accent"));
+    const worst = Math.min(...gradient(body).map((under) => contrast(text, under)));
+    expect(worst).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(["ember light", "ember dark", "aurora light", "aurora dark", "mono light", "mono dark"])("%s: the accent reads as text", (name) => {
+    const { body } = blocks.find((one) => one.name === name)!;
+    const accent = parse(token(body, "ft-accent"));
+    const page = parse(token(body, "ft-bg"));
+    for (const under of [page, parse(token(body, "ft-surface")), parse(token(body, "ft-surface-2")), over(accent, 0.16, page)]) {
+      expect(contrast(accent, under)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it.each(["ember light", "aurora light"])("%s: Play reads in this phone's bubble, anywhere on it", (name) => {
+    const { body } = blocks.find((one) => one.name === name)!;
+    const text = parse(token(body, "ft-on-accent"));
+    const worst = Math.min(...gradient(body).map((under) => contrast(text, over(text, 0.14, under))));
+    expect(worst).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+// Danger red (decided 2026-10-02): as text it reads at 4.5:1 on the light themes' page and surfaces;
+// Ionic's color="danger" reads the companions, which match the colour in each appearance.
+describe("the danger colour", () => {
+  const body = (selector: string) => variablesCss.slice(variablesCss.indexOf(`${selector} {`)).split("}")[0];
+  const value = (block: string, name: string) => block.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim();
+  const numbers = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)).join(", ");
+
+  it.each(["html[data-direction] body", "html.ft-dark[data-direction] body"])("%s: the companions match", (selector) => {
+    const block = body(selector);
+    const danger = value(block, "ion-color-danger")!;
+    expect(value(block, "ion-color-danger-rgb")).toBe(numbers(danger));
+    for (const name of ["contrast", "shade", "tint"]) expect(value(block, `ion-color-danger-${name}`), name).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("reads as text on every light theme's page and surfaces", () => {
+    const danger = value(body("html[data-direction] body"), "ion-color-danger")!;
+    const lights = [...variablesCss.matchAll(/html\[data-direction="\w+"\]\s*\{([^}]*)\}/g)].map(([, block]) => block);
+    const parse = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+    const luminance = (hex: string) => {
+      const [r, g, b] = parse(hex).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (one: string, other: string) => {
+      const [light, dark] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+      return (light + 0.05) / (dark + 0.05);
+    };
+    expect(lights).toHaveLength(3);
+    for (const block of lights) {
+      for (const under of ["ft-bg", "ft-surface", "ft-surface-2"]) expect(contrast(danger, value(block, under)!), under).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});

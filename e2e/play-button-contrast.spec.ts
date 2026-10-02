@@ -9,14 +9,6 @@ import { expect, test } from "./helpers";
 const BOB = "ft_bob123456789";
 const INVITATION = "🎮 Shall we play Tic-tac-toe? https://flickertalk.com/games/tictactoe";
 
-/**
- * Where the light palettes of Ember and Aurora are themselves under the line: their accent is about
- * 3:1 against white and its own white text, so neither the accent button on the other one's bubble
- * nor a white button on this phone's Aurora bubble can reach it. Retouched on the branch
- * light-theme-contrast, which removes these marks.
- */
-const PALETTE_UNDER = new Set(["ember light theirs", "aurora light theirs", "aurora light mine"]);
-
 type Rgba = [number, number, number, number];
 
 /** `rgb()`, `rgba()` or `color(srgb …)`, as computed styles write them, in 0–1 channels. */
@@ -80,7 +72,6 @@ for (const direction of ["ember", "aurora", "mono"]) {
 
       for (const side of ["mine", "theirs"]) {
         test(`Play reads, and reads as a button, in ${side === "mine" ? "this phone's" : "the other one's"} bubble`, async ({ app }) => {
-          test.fail(PALETTE_UNDER.has(`${direction} ${appearance} ${side}`), "the light palette itself is under the line here");
           const play = app.locator(`.ft-msg.is-${side} [data-test='play-game']`);
           await expect(play).toBeVisible();
           const seen = await measure(play);
@@ -89,6 +80,43 @@ for (const direction of ["ember", "aurora", "mono"]) {
           expect(seen.edge, `button on bubble: ${where}`).toBeGreaterThanOrEqual(3);
         });
       }
+
+      // This phone's message and the time under it, over every point of the bubble's gradient (the
+      // light palettes were retouched for it on 2026-10-02).
+      for (const part of ["text", "time"] as const) {
+        test(`this phone's ${part === "text" ? "message" : "time"} reads over all its bubble`, async ({ app }) => {
+          const bubble = app.locator(".ft-msg.is-mine .ft-bubble").first();
+          await expect(bubble).toBeVisible();
+          const seen = await bubble.evaluate((node, which) => {
+            const element = which === "text" ? node.querySelector(".ft-bubble__text")! : node.querySelector(".ft-bubble__meta")!;
+            return {
+              colour: getComputedStyle(element).color,
+              opacity: Number(getComputedStyle(element).opacity),
+              stops: getComputedStyle(node).backgroundImage.match(/(?:rgba?|color)\([^)]*\)/g)!,
+            };
+          }, part);
+          const [from, to] = seen.stops.map(parse);
+          const ratios = Array.from({ length: 21 }, (_, at) => {
+            const under = between(from, to, at / 20);
+            const [r, g, b, a] = parse(seen.colour);
+            return contrast(over([r, g, b, a * seen.opacity], under), under);
+          });
+          expect(Math.min(...ratios), `${seen.colour} at ${seen.opacity} over ${seen.stops.join(" → ")}`).toBeGreaterThanOrEqual(4.5);
+        });
+      }
+
+      // The other one's time, over their plain bubble: it already read, and keeps its look.
+      test("the other one's time reads", async ({ app }) => {
+        const bubble = app.locator(".ft-msg.is-theirs .ft-bubble:not(.is-media)").first();
+        await expect(bubble).toBeVisible();
+        const seen = await bubble.evaluate((node) => {
+          const meta = node.querySelector(".ft-bubble__meta")!;
+          return { colour: getComputedStyle(meta).color, opacity: Number(getComputedStyle(meta).opacity), under: getComputedStyle(node).backgroundColor };
+        });
+        const under = parse(seen.under);
+        const [r, g, b, a] = parse(seen.colour);
+        expect(contrast(over([r, g, b, a * seen.opacity], under), under), `${seen.colour} at ${seen.opacity} over ${seen.under}`).toBeGreaterThanOrEqual(4.5);
+      });
     });
   }
 }
