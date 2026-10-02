@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import {
   pickFiles,
+  pickForPlugin,
   pluginMayUseDrive,
   pluginFetch,
   pluginForget,
@@ -20,7 +21,6 @@ import {
   pluginRecordUsage,
   pluginSave,
   pluginWrite,
-  readPicked,
   remindCancel,
   remindList,
   remindSet,
@@ -113,9 +113,9 @@ async function onMessage(event: MessageEvent) {
     // The plugin never opens the picker: it asks, and the app asks the user (§53).
     await busy(async () => {
       try {
-        const [file] = await pickFiles(said.accept ?? "");
-        const data = file ? await readPicked(file.path) : "";
-        tell({ type: "ft.file", id: said.id, name: file?.name ?? "", mime: file?.mime ?? "", data });
+        // The core deletes the picker's copies, handed over or not (2026-10-02).
+        const file = await pickForPlugin(said.accept ?? "");
+        tell({ type: "ft.file", id: said.id, name: file?.name ?? "", mime: file?.mime ?? "", data: file?.data ?? "" });
       } catch {
         tell({ type: "ft.file", id: said.id, name: "", mime: "", data: "" });
       }
