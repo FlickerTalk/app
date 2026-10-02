@@ -822,3 +822,21 @@ async fn the_location_plugin_installs_on_the_core_that_brought_location() {
     core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs on 1.3.0");
     assert!(!ft_plugins::version_at_least("1.2.2", "1.3.0"), "and not on the core before it");
 }
+
+// ---- Updates of downloaded plugins (2026-10-03) ----
+
+// A swap the phone cut short (killed between the two renames) is put right when the core starts,
+// before any plugin is listed or served.
+#[tokio::test]
+async fn a_swap_cut_short_is_put_right_when_the_core_starts() {
+    let catalogue = Ed25519SecretKey::new();
+    let dir = scratch("cut-short");
+    let plugin = ft_plugins::open(&signed("com.example.code", "1.0.0", "{}", &catalogue), &catalogue.public_key()).unwrap();
+    ft_plugins::install(&plugin, &dir).unwrap();
+    std::fs::rename(dir.join("com.example.code"), dir.join("com.example.code~old")).unwrap();
+
+    let core = Core::open(Store::open_in_memory().await.expect("store"), [4; 32], Arc::new(Offline)).await.expect("opens");
+    core.set_plugins_dir(dir.clone());
+    assert!(dir.join("com.example.code/dist/index.js").exists(), "the old version is back");
+    assert!(!dir.join("com.example.code~old").exists());
+}
