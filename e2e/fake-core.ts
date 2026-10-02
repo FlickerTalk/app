@@ -46,6 +46,10 @@
  * `window.__ftFakeManyPlugins` (a number) installs that many more tools and as many games, for a
  * list longer than the screen.
  *
+ * The live channel (2026-10-02): `window.__ftFakeLivePlugins` (ids) start with `live` granted, and
+ * `core_plugin_live_send` takes what such a plugin says to its twin (kept in `calls`), as the core
+ * would over a direct connection; one without the grant is refused.
+ *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
 export function installFakeCore() {
@@ -149,6 +153,11 @@ export function installFakeCore() {
     video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
   };
   const flag = (name: string) => Boolean((window as unknown as Record<string, unknown>)[name]);
+  /** Read when asked, as the other knobs are: a test may set it after the fake is installed. */
+  const grantLive = () => {
+    const ids = ((window as unknown as Record<string, unknown>).__ftFakeLivePlugins as string[] | undefined) ?? [];
+    for (const plugin of state.plugins) if (ids.includes(plugin.id)) plugin.granted = { ...plugin.granted, live: true };
+  };
   const NATIVE_CALL = "call-e2e";
   const callEvent = (payload: Record<string, unknown>) =>
     emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
@@ -257,7 +266,8 @@ export function installFakeCore() {
         if (a.event === "back-button") back = { channel: Number((args?.handler as { id: number }).id), index: 0 };
         return undefined;
       case "plugin:app|remove_listener":
-        if (a.event === "back-button") back = null;
+        // Only the listener it names, as Tauri does: one let go late must not take a newer one.
+        if (a.event === "back-button" && back?.channel === Number(a.channelId)) back = null;
         return undefined;
       case "plugin:app|version":
         return "1.0.0-e2e";
@@ -285,6 +295,7 @@ export function installFakeCore() {
         return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra];
       }
       case "core_plugins": {
+        grantLive();
         const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
         const extra = Array.from({ length: many }, (_, at) => String(at).padStart(2, "0")).flatMap((n) => [
           { id: `com.example.tool${n}`, name: `Tool ${n} with a rather long name to see it cut`, version: "1.0.0", asks: { network: [], messages: false, send: "nothing" }, granted: { network: [], messages: false, send: "nothing" }, installedAt: 1 },
@@ -513,6 +524,12 @@ export function installFakeCore() {
         return undefined;
       case "core_renew_link":
         return "https://flickertalk.com/add#renewed";
+      case "core_plugin_live_send": {
+        grantLive();
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.live) throw new Error("that plugin may not go live");
+        return true;
+      }
       case "core_plugin_made": {
         const plugin = state.plugins.find((p) => p.id === a.plugin);
         if (!plugin || plugin.granted.send === "nothing") throw new Error("that plugin may not write in the chat");
