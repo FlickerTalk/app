@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
-import { IonTextarea } from "@ionic/vue";
+import { IonSegment, IonSegmentButton, IonTextarea } from "@ionic/vue";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
@@ -41,6 +41,20 @@ vi.mock("../recorder", async () => {
   });
   return { recording, ...recorder };
 });
+
+/**
+ * Ionic's overlays show their content only once the browser presents them, which happy-dom never
+ * does; as Ionic's Vue testing guidance suggests, the sheet modal is stubbed: its content while open.
+ */
+const IonModalStub = defineComponent({
+  name: "IonModal",
+  props: { isOpen: Boolean, breakpoints: { type: Array, default: undefined }, initialBreakpoint: { type: Number, default: undefined } },
+  emits: ["didDismiss"],
+  setup(props, { slots }) {
+    return () => (props.isOpen ? h("div", { "data-test": "apps-sheet" }, slots.default?.()) : null);
+  },
+});
+const stubs = { IonIcon: true, IonModal: IonModalStub };
 
 // Each thread goes when its test ends, as a page does: what it left open must not linger.
 enableAutoUnmount(afterEach);
@@ -259,13 +273,14 @@ describe("ChatThread", () => {
   // Issue app#3: the plugins live behind the apps button of the header, and each one does its
   // thing inside its own window.
   it("opens a plugin from the apps button", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     expect(wrapper.find("[data-test='close-app']").exists()).toBe(false);
 
     await wrapper.find("[data-test='apps']").trigger("click");
     await flushPromises();
-    expect(wrapper.text()).toContain("Code block");
+    // Ionic's components are Stencil "scoped" elements: in happy-dom their text is only in the HTML.
+    expect(wrapper.find("[data-test='apps-sheet']").html()).toContain("Code block");
 
     await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
     await flushPromises();
@@ -279,7 +294,7 @@ describe("ChatThread", () => {
   // session; from the main list, in none.
   it("opens a plugin in the hidden session the conversation lives in", async () => {
     const open = async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
       await flushPromises();
       await wrapper.find("[data-test='apps']").trigger("click");
       await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
@@ -306,7 +321,7 @@ describe("ChatThread", () => {
       await flushPromises();
     };
     const open = async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
       await flushPromises();
       return wrapper;
     };
@@ -329,7 +344,7 @@ describe("ChatThread", () => {
   });
 
   it("puts in the composer the text a plugin proposes", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await wrapper.find("[data-test='apps']").trigger("click");
     await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
@@ -343,7 +358,7 @@ describe("ChatThread", () => {
   // A2: a file a plugin made with the `propose` permission waits in the composer; the user sends
   // it, or throws it away. The plugin's window closes either way.
   it("stages what a plugin made and sends it only when the user says so", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await wrapper.find("[data-test='apps']").trigger("click");
     await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
@@ -365,7 +380,7 @@ describe("ChatThread", () => {
   });
 
   it("throws away what a plugin made if the user does not want it", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await wrapper.find("[data-test='apps']").trigger("click");
     await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
@@ -388,7 +403,7 @@ describe("ChatThread", () => {
 
   // Issue app#4: the emoji live in the core, in the composer, not in a plugin.
   it("puts the emoji that was picked at the end of what is being written", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     expect(wrapper.findComponent({ name: "EmojiPicker" }).exists()).toBe(false);
 
@@ -402,7 +417,7 @@ describe("ChatThread", () => {
   });
 
   it("closes the emoji when the message goes", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await wrapper.find("[data-test='open-emoji']").trigger("click");
     wrapper.findComponent({ name: "EmojiPicker" }).vm.$emit("pick", "🎉");
@@ -426,7 +441,7 @@ describe("ChatThread", () => {
   }
 
   it("offers four things to do with a message, on a long press", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
 
@@ -463,7 +478,7 @@ describe("ChatThread", () => {
       }
       return fallback(command, args);
     };
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await pressed(wrapper);
     await wrapper.find("[data-test='open-with']").trigger("click");
@@ -513,7 +528,7 @@ describe("ChatThread", () => {
 
   it("shows a tapped file in its viewer, with the bytes and the way back", async () => {
     withPlugins([DRIVE, VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await tapped(wrapper, "m4");
     const sheet = wrapper.findComponent({ name: "PluginSheet" });
@@ -526,7 +541,7 @@ describe("ChatThread", () => {
 
   it("sends a tapped file to another app when there is no viewer, or the bytes cannot be handed over", async () => {
     withPlugins([DRIVE], {});
-    let wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    let wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await tapped(wrapper, "m4");
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
@@ -534,7 +549,7 @@ describe("ChatThread", () => {
 
     calls.length = 0;
     withPlugins([VIEWER], { core_read_message_file: new Error("that file is too big for a plugin") });
-    wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await tapped(wrapper, "m4");
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
@@ -549,7 +564,7 @@ describe("ChatThread", () => {
     });
 
     it("shows who it is instead of the composer, and no way to call yet", async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs } });
       await flushPromises();
       const panel = wrapper.find("[data-test='request-panel']");
       expect(panel.exists()).toBe(true);
@@ -562,7 +577,7 @@ describe("ChatThread", () => {
     });
 
     it("blocks only after asking once", async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs } });
       await flushPromises();
       await wrapper.find("[data-test='request-decline']").trigger("click");
       expect(calls.some(([command]) => command === "core_decline_contact")).toBe(false);
@@ -578,7 +593,7 @@ describe("ChatThread", () => {
     });
 
     it("accepts, and then the conversation is like any other", async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      const wrapper = mount(ChatThread, { props: { chatId: "ft_stranger" }, shallow: false, global: { stubs } });
       await flushPromises();
       const stranger = { ...store.requests[0] };
       await wrapper.find("[data-test='request-accept']").trigger("click");
@@ -597,7 +612,7 @@ describe("ChatThread", () => {
   // the tablet. It closes what is open on top, and only that.
   it("closes the plugin, then the actions, with the back button, and stays in the chat", async () => {
     withPlugins([VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     expect(back.handler).toBeNull();
 
@@ -618,7 +633,7 @@ describe("ChatThread", () => {
 
   it("offers another app from «open with» only when a viewer takes the tap", async () => {
     withPlugins([VIEWER], {});
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     // The text message: no file, no viewer, no «another app».
     await pressed(wrapper);
@@ -639,7 +654,7 @@ describe("ChatThread", () => {
   });
 
   it("folds and unfolds the message it was asked about", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await pressed(wrapper);
 
@@ -653,7 +668,7 @@ describe("ChatThread", () => {
   });
 
   it("hands a message to another app", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await pressed(wrapper);
     const id = fixture.chats[0].messages[0].id;
@@ -665,7 +680,7 @@ describe("ChatThread", () => {
 
   // Erasing is for good and only here: it asks once before doing it.
   it("erases a message only after asking", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await pressed(wrapper);
     const id = fixture.chats[0].messages[0].id;
@@ -680,7 +695,7 @@ describe("ChatThread", () => {
   });
 
   it("sends a message on to another contact", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await pressed(wrapper);
     const id = fixture.chats[0].messages[0].id;
@@ -765,19 +780,19 @@ describe("ChatThread", () => {
     }
 
     const thread = async (props: Record<string, unknown> = {}) => {
-      const wrapper = mount(ChatThread, { props: { chatId: "c1", ...props }, shallow: false, global: { stubs: { IonIcon: true } } });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", ...props }, shallow: false, global: { stubs } });
       await flushPromises();
       return wrapper;
     };
     /** The apps button, then the Games tab of its sheet. */
+    /** The apps button, then the Games segment of its sheet. */
     const openGames = async (wrapper: Awaited<ReturnType<typeof thread>>) => {
       await wrapper.find("[data-test='apps']").trigger("click");
-      await wrapper.find("[data-test='apps-tab-games']").trigger("click");
+      wrapper.findComponent(IonSegment).vm.$emit("ionChange", { detail: { value: "games" } });
       await flushPromises();
     };
     const endButtons = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.findAll(".ft-thread__bar ion-buttons[slot='end'] ion-button");
-    const selected = (wrapper: Awaited<ReturnType<typeof thread>>) =>
-      wrapper.findAll("[role='tab']").filter((tab) => tab.attributes("aria-selected") === "true").map((tab) => tab.attributes("data-test"));
+    const selected = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.findComponent(IonSegment).props("value");
 
     beforeEach(() => {
       offered.value = [];
@@ -785,24 +800,35 @@ describe("ChatThread", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    // Ioan, 2026-10-03: one button, the apps, whose sheet has two tabs: the apps and the games.
-    // Three buttons in the header, so a name has room on a small phone.
-    it("has one button for the apps and the games, with a tab for each", async () => {
+    // Ioan, 2026-10-03: one button, the apps, in the header (three buttons, so a name has room on
+    // a small phone). It opens an Ionic sheet modal, as the apps themselves open, with a segment for
+    // the plugins and one for the games.
+    it("opens a sheet with a segment for the plugins and one for the games", async () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       expect(wrapper.find("[data-test='games']").exists()).toBe(false);
       expect(endButtons(wrapper)).toHaveLength(3);
+      expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
       await wrapper.find("[data-test='apps']").trigger("click");
-      const tabs = wrapper.findAll("[role='tablist'] [role='tab']");
-      expect(tabs.map((tab) => tab.attributes("aria-label"))).toEqual(["Plugins", "Games"]);
-      // With a tool installed it opens on the apps, and they are tools only.
-      expect(selected(wrapper)).toEqual(["apps-tab-tools"]);
+      // A sheet: it rises from the bottom and has heights to be dragged between.
+      const sheet = wrapper.findComponent(IonModalStub);
+      expect(sheet.props("isOpen")).toBe(true);
+      expect(sheet.props("breakpoints")).toContain(sheet.props("initialBreakpoint"));
+      const segments = wrapper.findAllComponents(IonSegmentButton);
+      // Ionic's components are Stencil "scoped" elements: in happy-dom their text is only in the HTML.
+      expect(segments.map((one) => [one.props("value"), one.find("ion-label").element.innerHTML])).toEqual([
+        ["tools", "Plugins"],
+        ["games", "Games"],
+      ]);
+      // With a tool installed it opens on the plugins, and they are tools only.
+      expect(selected(wrapper)).toBe("tools");
       expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
       expect(wrapper.find(`[data-test='app-${CHESS.id}']`).exists()).toBe(false);
-      // The games tab: games only.
-      await wrapper.find("[data-test='apps-tab-games']").trigger("click");
-      expect(selected(wrapper)).toEqual(["apps-tab-games"]);
-      expect(wrapper.find("[data-test='games-sheet']").text()).toContain("Chess");
+      // The games segment: games only.
+      wrapper.findComponent(IonSegment).vm.$emit("ionChange", { detail: { value: "games" } });
+      await flushPromises();
+      expect(selected(wrapper)).toBe("games");
+      expect(wrapper.find("[data-test='games-sheet']").html()).toContain("Chess");
       expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(false);
     });
 
@@ -811,33 +837,45 @@ describe("ChatThread", () => {
       bridge({ installed: [CHESS] });
       const games = await thread();
       await games.find("[data-test='apps']").trigger("click");
-      expect(selected(games)).toEqual(["apps-tab-games"]);
-      expect(games.find("[data-test='games-sheet']").text()).toContain("Chess");
+      expect(selected(games)).toBe("games");
+      expect(games.find("[data-test='games-sheet']").html()).toContain("Chess");
 
       bridge({ installed: [] });
       const empty = await thread();
       await empty.find("[data-test='apps']").trigger("click");
-      expect(selected(empty)).toEqual(["apps-tab-games"]);
-      expect(empty.find("[data-test='games-sheet']").text()).toContain("No games yet");
+      expect(selected(empty)).toBe("games");
+      expect(empty.find("[data-test='games-sheet']").html()).toContain("No games yet");
     });
 
     it("remembers nothing between two openings", async () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       await openGames(wrapper);
-      await wrapper.find(".ft-apps").trigger("click");
-      expect(wrapper.find("[role='tablist']").exists()).toBe(false);
+      // Dismissed by Ionic: dragged down, a tap on the backdrop, or Escape.
+      wrapper.findComponent(IonModalStub).vm.$emit("didDismiss");
+      await flushPromises();
+      expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
       await wrapper.find("[data-test='apps']").trigger("click");
-      expect(selected(wrapper)).toEqual(["apps-tab-tools"]);
+      expect(selected(wrapper)).toBe("tools");
     });
 
-    // No downloads on iOS, so no games: the sheet is the tools as they were, with no tabs.
-    it("has no tabs on an iPhone, and no button without a tool", async () => {
+    it("closes when a plugin is chosen, and opens it", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = await thread();
+      await wrapper.find("[data-test='apps']").trigger("click");
+      await wrapper.find(`[data-test='app-${CODE.id}']`).trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
+      expect(wrapper.findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ id: CODE.id });
+    });
+
+    // No downloads on iOS, so no games: the sheet has the tools only, with no segment.
+    it("has no segment on an iPhone, and no button without a tool", async () => {
       vi.spyOn(navigator, "userAgent", "get").mockReturnValue(IPHONE);
       bridge({ installed: [CODE] });
       const wrapper = await thread();
       await wrapper.find("[data-test='apps']").trigger("click");
-      expect(wrapper.find("[role='tablist']").exists()).toBe(false);
+      expect(wrapper.findComponent(IonSegment).exists()).toBe(false);
       expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
       expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
 
@@ -850,8 +888,8 @@ describe("ChatThread", () => {
       const wrapper = await thread();
       await openGames(wrapper);
       const sheet = wrapper.find("[data-test='games-sheet']");
-      expect(sheet.text()).toContain("Chess");
-      expect(sheet.text()).not.toContain("Code block");
+      expect(sheet.html()).toContain("Chess");
+      expect(sheet.html()).not.toContain("Code block");
       await wrapper.find("[data-test='more-games-link']").trigger("click");
       expect(push).toHaveBeenCalledWith("/tabs/games");
     });
@@ -860,7 +898,7 @@ describe("ChatThread", () => {
       bridge({ installed: [CODE] });
       const wrapper = await thread();
       await openGames(wrapper);
-      expect(wrapper.find("[data-test='games-sheet']").text()).toContain("No games yet");
+      expect(wrapper.find("[data-test='games-sheet']").html()).toContain("No games yet");
       expect(wrapper.find("[data-test='more-games-link']").exists()).toBe(true);
     });
 

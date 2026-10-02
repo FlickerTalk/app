@@ -10,6 +10,12 @@ import {
   IonFooter,
   IonHeader,
   IonIcon,
+  IonItem,
+  IonLabel,
+  IonList,
+  IonModal,
+  IonSegment,
+  IonSegmentButton,
   IonTextarea,
   IonToolbar,
 } from "@ionic/vue";
@@ -34,7 +40,6 @@ import {
   gameControllerOutline,
   mailOutline,
   openOutline,
-  play as playIcon,
   trashOutline,
   videocamOutline,
 } from "ionicons/icons";
@@ -628,64 +633,65 @@ watch(
       />
     </div>
 
-    <!-- The apps of this phone; each opens its own window. Where there are games, a second tab has
-         them (Ioan, 2026-10-03), as the emoji picker has its groups. -->
-    <div v-if="showApps" class="ft-apps" role="dialog" :aria-label="$t('plugins.title')" @click.self="showApps = false">
-      <div class="ft-apps__card">
-        <div v-if="gamesOn" class="ft-apps__tabs" role="tablist">
-          <button
-            v-for="tab in APPS_TABS"
-            :key="tab.id"
-            type="button"
-            class="ft-apps__tab"
-            :class="{ 'is-open': appsTab === tab.id }"
-            role="tab"
-            :aria-selected="appsTab === tab.id"
-            :aria-label="$t(tab.label)"
-            :data-test="`apps-tab-${tab.id}`"
-            @click="appsTab = tab.id"
-          >
-            <ion-icon :icon="tab.icon" aria-hidden="true" />
-          </button>
-        </div>
-        <ul v-if="!gamesOn || appsTab === 'tools'" class="ft-apps__list" role="tabpanel">
-          <li v-for="one in tools" :key="one.id">
-            <button type="button" class="ft-apps__item" :data-test="`app-${one.id}`" @click="useApp(one.id)">
-              <ion-icon :icon="appsOutline" aria-hidden="true" />
-              {{ one.name }}
-            </button>
-          </li>
-          <li v-if="!tools.length" class="ft-apps__empty">{{ $t("plugins.none") }}</li>
-        </ul>
+    <!-- The apps of this phone, in Ionic's sheet modal: it rises from the bottom as the apps
+         themselves open (Ioan, 2026-10-03). Where there are games, a segment has them. The content
+         scrolls at every height (`expand-to-scroll` off): the sheet grows or goes only by its
+         handle or its header, so a long list is never stuck. -->
+    <ion-modal
+      :is-open="showApps"
+      class="ft-apps-sheet"
+      :breakpoints="[0, 0.5, 1]"
+      :initial-breakpoint="0.5"
+      :expand-to-scroll="false"
+      @did-dismiss="showApps = false"
+    >
+      <ion-header v-if="gamesOn">
+        <ion-toolbar>
+          <ion-segment :value="appsTab" @ion-change="appsTab = $event.detail.value === 'games' ? 'games' : 'tools'">
+            <ion-segment-button v-for="tab in APPS_TABS" :key="tab.id" :value="tab.id" layout="icon-start" :data-test="`apps-tab-${tab.id}`">
+              <ion-icon :icon="tab.icon" aria-hidden="true" />
+              <ion-label>{{ $t(tab.label) }}</ion-label>
+            </ion-segment-button>
+          </ion-segment>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="ft-apps-sheet__content">
+        <ion-list v-if="!gamesOn || appsTab === 'tools'" data-test="apps-sheet-tools">
+          <ion-item v-for="one in tools" :key="one.id" button :detail="false" :data-test="`app-${one.id}`" @click="useApp(one.id)">
+            <ion-icon slot="start" :icon="appsOutline" aria-hidden="true" />
+            <ion-label class="ion-text-nowrap">{{ one.name }}</ion-label>
+          </ion-item>
+          <ion-item v-if="!tools.length" lines="none">
+            <ion-label color="medium">{{ $t("plugins.none") }}</ion-label>
+          </ion-item>
+        </ion-list>
         <!-- Plan 10.4–10.6: the games of this phone; each plays here, or is offered to the contact. -->
-        <ul v-else class="ft-apps__list" data-test="games-sheet" role="tabpanel">
-          <li v-for="one in installedGames" :key="one.id" class="ft-apps__row">
-            <button type="button" class="ft-apps__item" :data-test="`game-${one.id}`" @click="playGame(one.id)">
-              <ion-icon :icon="gameControllerOutline" aria-hidden="true" />
-              <span class="ft-apps__name">{{ one.name }}</span>
-              <ion-icon :icon="playIcon" class="ft-apps__play" aria-hidden="true" />
-            </button>
-            <button
+        <ion-list v-else data-test="games-sheet">
+          <ion-item v-for="one in installedGames" :key="one.id" button :detail="false" :data-test="`game-${one.id}`" @click="playGame(one.id)">
+            <ion-icon slot="start" :icon="gameControllerOutline" aria-hidden="true" />
+            <ion-label class="ion-text-nowrap">{{ one.name }}</ion-label>
+            <ion-button
               v-if="gameUrl(one.id)"
-              type="button"
-              class="ft-round ft-round--ghost ft-apps__invite"
+              slot="end"
+              fill="clear"
+              size="default"
               :data-test="`invite-${one.id}`"
               :aria-label="$t('games.invite')"
-              @click="invite(one)"
+              @click.stop="invite(one)"
             >
-              <ion-icon :icon="mailOutline" aria-hidden="true" />
-            </button>
-          </li>
-          <li v-if="!installedGames.length" class="ft-apps__empty">{{ $t("games.none") }}</li>
-          <li>
-            <button type="button" class="ft-apps__item ft-apps__more" data-test="more-games-link" @click="moreGames">
-              <ion-icon :icon="add" aria-hidden="true" />
-              {{ $t("games.more") }}
-            </button>
-          </li>
-        </ul>
-      </div>
-    </div>
+              <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
+            </ion-button>
+          </ion-item>
+          <ion-item v-if="!installedGames.length" lines="none">
+            <ion-label color="medium">{{ $t("games.none") }}</ion-label>
+          </ion-item>
+          <ion-item button :detail="false" lines="none" data-test="more-games-link" @click="moreGames">
+            <ion-icon slot="start" :icon="add" color="primary" aria-hidden="true" />
+            <ion-label color="primary">{{ $t("games.more") }}</ion-label>
+          </ion-item>
+        </ion-list>
+      </ion-content>
+    </ion-modal>
 
     <GamePermissions v-if="asking" :name="asking.name" :size="asking.size" @allow="allowGame" @cancel="asking = null" />
 
@@ -1052,88 +1058,12 @@ watch(
   font-weight: 600;
 }
 
-.ft-apps {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: end center;
-  padding: var(--ft-space-4);
-  /* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
-  padding-bottom: calc(var(--ft-space-4) + var(--ion-safe-area-bottom, 0px));
-  background: rgba(0, 0, 0, 0.35);
-}
-.ft-apps__card {
-  width: min(100%, 420px);
-  padding: var(--ft-space-2);
-  border-radius: var(--ft-radius-card);
-  background: var(--ft-surface);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-}
-.ft-apps__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-/* The tools and the games, as the emoji picker shows its groups: icons, the open one lit. */
-.ft-apps__tabs {
-  display: flex;
-  gap: 4px;
-  padding-bottom: var(--ft-space-2);
-  margin-bottom: var(--ft-space-1, 4px);
-  border-bottom: 1px solid var(--ft-border);
-}
-.ft-apps__tab {
-  appearance: none;
-  display: grid;
-  flex: 1;
-  place-items: center;
-  min-height: 44px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--ft-muted);
-  font-size: 22px;
-  cursor: pointer;
-}
-.ft-apps__tab.is-open {
-  background: var(--ft-surface-2);
-  color: var(--ft-accent);
-}
-.ft-apps__item {
-  display: flex;
-  align-items: center;
-  gap: var(--ft-space-3);
-  width: 100%;
-  padding: 14px 16px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--ft-text);
-  font: inherit;
-  font-size: 16px;
-  text-align: start;
-  cursor: pointer;
-}
 
-.ft-apps__row {
-  display: flex;
-  align-items: center;
-  gap: var(--ft-space-1, 4px);
-}
-.ft-apps__name {
-  flex: 1;
-  min-width: 0;
-}
-.ft-apps__play,
-.ft-apps__invite,
-.ft-apps__more {
-  color: var(--ft-accent);
-}
-.ft-apps__empty {
-  padding: 14px 16px;
-  color: var(--ft-muted);
-  font-size: 15px;
+
+/* The apps sheet scrolls to its last row above Android's navigation bar (edge to edge): Ionic pads
+   a footer for it, not a content, so the content's own padding hook takes it, as the composer does. */
+.ft-apps-sheet__content {
+  --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 
 .ft-thread__day {
