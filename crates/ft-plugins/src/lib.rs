@@ -628,6 +628,8 @@ mod tests {
             r#","permissions":{"live":true,"remind":true}"#,
             r#","permissions":{"live":true,"drive":true}"#,
             r#","permissions":{"live":true,"storage":"large"}"#,
+            // Where the phone is (2026-10-02, app#32): a game never learns it.
+            r#","permissions":{"live":true,"location":true}"#,
             // It proposes a line for the chat; it never sends on the user's behalf.
             r#","permissions":{"live":true,"send":"auto"}"#,
             // A game is opened from the games, never handed a file: no "open with", no viewer.
