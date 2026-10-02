@@ -61,10 +61,18 @@ describe("the lime palette", () => {
     const [r, g, b] = colour.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
-  /** WCAG contrast ratio between two tokens of a palette. */
-  const contrast = (palette: string, one: string, other: string) => {
-    const [lighter, darker] = [luminance(parse(token(palette, one)!)), luminance(parse(token(palette, other)!))].sort((a, b) => b - a);
+  const over = (top: Rgb, alpha: number, under: Rgb): Rgb => top.map((one, at) => one * alpha + under[at] * (1 - alpha)) as Rgb;
+  /** WCAG contrast ratio between two colours. */
+  const ratio = (one: Rgb, other: Rgb) => {
+    const [lighter, darker] = [luminance(one), luminance(other)].sort((a, b) => b - a);
     return (lighter + 0.05) / (darker + 0.05);
+  };
+  /** WCAG contrast ratio between two tokens of a palette. */
+  const contrast = (palette: string, one: string, other: string) => ratio(parse(token(palette, one)!), parse(token(palette, other)!));
+  /** This phone's bubble, sampled from one stop of its gradient to the other. */
+  const gradient = (palette: string) => {
+    const [from, to] = [parse(token(palette, "ft-accent")!), parse(token(palette, "ft-accent-2")!)];
+    return Array.from({ length: 21 }, (_, at) => over(to, at / 20, from));
   };
 
   it("exists light and dark", () => {
@@ -104,6 +112,16 @@ describe("the lime palette", () => {
       expect(contrast(palette(), "ft-accent", under), under).toBeGreaterThanOrEqual(4.5);
     }
     expect(contrast(palette(), "ft-text", "ft-bg")).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // The same bar as the other light palettes (2026-10-02): the accent as text on its own 16 % tint
+  // (a badge), and "Play" in this phone's bubble, over the button's 14 % tint of that text.
+  it("reads on its own tint and in this phone's bubble in the light", () => {
+    const accent = parse(token(light, "ft-accent")!);
+    expect(ratio(accent, over(accent, 0.16, parse(token(light, "ft-bg")!)))).toBeGreaterThanOrEqual(4.5);
+    const text = parse(token(light, "ft-on-accent")!);
+    const worst = Math.min(...gradient(light).map((under) => ratio(text, over(text, 0.14, under))));
+    expect(worst).toBeGreaterThanOrEqual(4.5);
   });
 
   // Lime is a colour theme: its avatars keep their colours.
