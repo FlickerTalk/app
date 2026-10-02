@@ -435,7 +435,7 @@ const STATUS_ICON: Record<string, string> = {
         <CircleThread :circle-id="selectedCircle" />
       </section>
       <section v-else-if="wide && selectedId" class="ft-chats__detail">
-        <ChatThread :chat-id="selectedId" />
+        <ChatThread :chat-id="selectedId" split />
       </section>
     </div>
   </ion-page>
@@ -489,7 +489,7 @@ const STATUS_ICON: Record<string, string> = {
   min-width: 0;
 }
 .ft-chats.is-wide .ft-chats__list {
-  flex: 0 0 360px;
+  flex: 0 0 var(--ft-list-width);
   border-inline-end: 1px solid var(--ft-border);
 }
 .ft-chats__detail {

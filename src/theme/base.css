@@ -82,3 +82,21 @@ html.ft-scanning ion-router-outlet {
   visibility: hidden;
 }
 
+/* The sheets on a wide screen (decided 2026-10-03): each covers the pane the user is looking at,
+   bottom-anchored, not Ionic's 600 px over the whole window. The modifier is set where the sheet is
+   declared: beside the list, the chat pane; on a tab, everything after the rail; a conversation
+   open on its own, the whole window. `flex-end` is the inline end, so the right in LTR and the left
+   in RTL, where the panes are. The same width as the split view (ChatsPage's media query). */
+@media (min-width: 768px) {
+  ion-modal.ft-sheet--chat-pane {
+    --width: calc(100% - var(--ft-rail-width) - var(--ft-list-width));
+    justify-content: flex-end;
+  }
+  ion-modal.ft-sheet--tab {
+    --width: calc(100% - var(--ft-rail-width));
+    justify-content: flex-end;
+  }
+  ion-modal.ft-sheet--window {
+    --width: 100%;
+  }
+}

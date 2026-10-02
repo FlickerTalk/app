@@ -100,10 +100,16 @@ import { t } from "../i18n";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
-const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string }>(), {
+const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean }>(), {
   showBack: false,
   play: undefined,
+  split: false,
 });
+/**
+ * The pane the conversation's sheets cover on a wide screen (2026-10-03): the chat pane beside the
+ * list (`split`, ChatsPage), or the whole window for a conversation open on its own.
+ */
+const sheetPane = computed(() => (props.split ? "ft-sheet--chat-pane" : "ft-sheet--window"));
 
 const chat = computed(() => chatOf(props.chatId));
 const messages = computed(() => chat.value?.messages ?? []);
@@ -751,6 +757,7 @@ watch(
     <ion-modal
       :is-open="showApps"
       class="ft-apps-sheet"
+      :class="sheetPane"
       :aria-label="$t('plugins.title')"
       :breakpoints="[0, 0.5, 1]"
       :initial-breakpoint="0.5"
@@ -806,7 +813,14 @@ watch(
       </ion-content>
     </ion-modal>
 
-    <GamePermissions :open="Boolean(asking)" :name="asking?.name ?? ''" :size="asking?.size" @allow="allowGame" @cancel="asking = null" />
+    <GamePermissions
+      :class="sheetPane"
+      :open="Boolean(asking)"
+      :name="asking?.name ?? ''"
+      :size="asking?.size"
+      @allow="allowGame"
+      @cancel="asking = null"
+    />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
