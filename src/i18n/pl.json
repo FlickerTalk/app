@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "Zaproponuj coś"
   },
   "hours": {
     "title": "Godziny",
@@ -429,5 +430,14 @@
     "offline": "Teraz nie ma gier do dodania. Sprawdź połączenie i spróbuj ponownie.",
     "installFailed": "Nie udało się zainstalować gry. Sprawdź połączenie i spróbuj ponownie.",
     "live": "Rozmawiać z tą samą grą na telefonie drugiej osoby"
+  },
+  "feedback": {
+    "title": "Zaproponuj coś",
+    "placeholder": "Co powinno pojawić się w FlickerTalk?",
+    "hint": "Twoja propozycja dociera do nas bez imienia i bez żadnego identyfikatora. Nie możemy Ci odpowiedzieć. Nie podawaj danych osobowych.",
+    "send": "Wyślij",
+    "sent": "Wysłano. Dziękujemy",
+    "tooMany": "Wysłano już dziś kilka. Spróbuj jutro",
+    "failed": "Nie udało się wysłać. Spróbuj później"
   }
 }
