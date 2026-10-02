@@ -794,6 +794,14 @@ export interface OfferedPlugin {
   kind?: PluginKind;
 }
 
+/**
+ * A frame of a plugin is on screen (`open`) or gone for good (2026-10-03): the core never updates
+ * a plugin under an open frame.
+ */
+export async function pluginOpen(plugin: string, open: boolean): Promise<void> {
+  await invoke("core_plugin_open", { plugin, open });
+}
+
 export async function offeredPlugins(): Promise<OfferedPlugin[]> {
   return invoke<OfferedPlugin[]>("core_catalogue");
 }

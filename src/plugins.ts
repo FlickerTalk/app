@@ -5,6 +5,7 @@
  */
 import { computed, shallowRef } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { offeredPlugins, plugins, type OfferedPlugin, type PluginView } from "./core";
 import { isGame } from "./games";
 
@@ -29,6 +30,17 @@ export const installed = shallowRef<PluginView[]>([]);
 export async function refreshPlugins(): Promise<PluginView[]> {
   installed.value = await plugins().catch(() => []);
   return installed.value;
+}
+
+/** What the core says when the plugins installed here changed: an update made in the background. */
+export const PLUGINS_EVENT = "ft://plugins";
+
+/**
+ * Reads the plugins again whenever the core says they changed (2026-10-03): an update it made in
+ * the background reaches every screen. Returns how to stop listening.
+ */
+export async function followPluginChanges(): Promise<() => void> {
+  return listen(PLUGINS_EVENT, () => void refreshPlugins());
 }
 
 /**

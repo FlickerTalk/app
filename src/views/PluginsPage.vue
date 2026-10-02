@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   IonBackButton,
   IonButtons,
@@ -28,13 +28,14 @@ import {
 import { useRouter } from "vue-router";
 import { isGame } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
-import { refreshPlugins } from "../plugins";
+import { refreshPlugins, tools } from "../plugins";
 
 const router = useRouter();
 
 // Plan §53: a plugin is granted nothing by installing. Every permission it asked for is shown on
 // its own, with a switch, and can be taken back at any time.
-const installed = ref<PluginView[]>([]);
+// The app's one list (2026-10-03): an update made in the background shows here at once.
+const installed = computed(() => tools.value);
 const offered = ref<OfferedPlugin[]>([]);
 const asksToRemove = ref("");
 
@@ -42,7 +43,7 @@ onMounted(refresh);
 
 // Plan 10.3: games have their own section; here, tools only.
 async function refresh() {
-  installed.value = (await refreshPlugins()).filter((one) => !isGame(one));
+  await refreshPlugins();
   offered.value = (await offeredPlugins().catch(() => [])).filter((one) => !one.installed && !isGame(one));
 }
 

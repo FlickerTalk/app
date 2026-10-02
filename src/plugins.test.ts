@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
+const events = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), unlisten: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, handler: () => void) => {
+    events.handlers.set(name, handler);
+    return events.unlisten;
+  },
+}));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauri.invoke,
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
 import {
+  followPluginChanges,
   fromFrame,
   frameUrl,
   games,
@@ -59,6 +67,17 @@ describe("plugins in the app", () => {
     const url = frameUrl("com.flickertalk.code");
     expect(url).toBe("http://ftplugin.localhost/com.flickertalk.code/frame.html");
     expect(url).not.toContain("tauri.localhost");
+  });
+
+  // 2026-10-03 (updates): an update the core made in the background reaches every list.
+  it("reads the plugins again when the core says they changed", async () => {
+    tauri.invoke.mockResolvedValue([{ ...CODE, version: "1.0.1" }]);
+    const stop = await followPluginChanges();
+    events.handlers.get("ft://plugins")?.();
+    await vi.waitFor(() => expect(installed.value.map((one) => one.version)).toEqual(["1.0.1"]));
+    stop();
+    expect(events.unlisten).toHaveBeenCalled();
+    installed.value = [];
   });
 
   // 2026-10-03 (updates): the frame's address names the version installed, so an update is never
