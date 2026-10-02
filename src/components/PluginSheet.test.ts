@@ -404,7 +404,7 @@ describe("PluginSheet", () => {
       if (command === "core_vault_list") return Promise.resolve(listing);
       if (command === "core_vault_status") return Promise.resolve({ state: "ready", provider: "google", drive: null, problem: null });
       if (command === "core_vault_download") return Promise.resolve(down);
-      if (command === "core_pick_files") return Promise.resolve([down]);
+      if (command === "core_vault_upload_picked") return Promise.resolve(2);
       if (command === "core_plugin_open_chat") return Promise.resolve({ contact: "ft_bob", message: "m9" });
       if (command === "core_vault_upload_message") return Promise.resolve("x2");
       return Promise.resolve(undefined);
@@ -426,11 +426,13 @@ describe("PluginSheet", () => {
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d2", answer: listing }, "*");
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d3", answer: expect.objectContaining({ state: "ready" }) }, "*");
 
-    // Uploading: the app opens the picker, the core seals what was picked; the frame sees a count.
+    // Uploading: the core opens the picker, seals what was picked and deletes the picker's copies
+    // (2026-10-02); no path crosses the WebView, and the frame sees a count.
     says({ type: "ft.drive", id: "d4", op: "upload", a: "f1" });
     await flushPromises();
-    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload", { file: down, parent: "f1" });
-    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d4", answer: 1 }, "*");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_vault_upload_picked", { parent: "f1" });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_pick_files", expect.anything());
+    expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d4", answer: 2 }, "*");
 
     // Keeping the file it was opened with goes by its ref: no bytes cross the frame.
     says({ type: "ft.drive", id: "d5", op: "keep", a: "" });

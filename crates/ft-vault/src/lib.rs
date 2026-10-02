@@ -381,8 +381,10 @@ impl Vault {
     // ---- Backup (plan-drive §1, §61): what a new phone needs ----
 
     /// Puts the phone's database, its storage key and its files in the cloud, sealed. `db` is a
-    /// consistent copy of the database (the store's snapshot); `files_dir` the app's files folder.
-    pub async fn backup(&self, db: &Path, storage_key: &[u8; 32], files_dir: &Path, progress: Progress) -> Result<Backup> {
+    /// consistent copy of the database (the store's snapshot); `files_dir` the app's files folder;
+    /// `keep` says which of its files go, by their path under it (2026-10-02: the phone leaves out
+    /// what waited on its way and no message points to).
+    pub async fn backup(&self, db: &Path, storage_key: &[u8; 32], files_dir: &Path, keep: impl Fn(&str) -> bool, progress: Progress) -> Result<Backup> {
         let previous = self.index.lock().await.backup.clone();
         let db_blob = index::new_id();
         let sealed = self.dir.join(OUTGOING_DIR).join(&db_blob);
@@ -392,7 +394,7 @@ impl Vault {
 
         // A file already in the last backup, same path and size, is not sent again.
         let mut files = vec![];
-        for (path, size) in walk(files_dir).await? {
+        for (path, size) in walk(files_dir).await?.into_iter().filter(|(path, _)| keep(path)) {
             let kept = previous.as_ref().and_then(|backup| backup.files.iter().find(|one| one.path == path && one.size == size));
             if let Some(kept) = kept {
                 files.push(kept.clone());
