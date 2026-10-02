@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">المكالمات</string>
     <string name="ft_channel_messages">الرسائل والمكالمات</string>
     <string name="ft_something_new">هناك شيء جديد بانتظارك</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">التذكيرات</string>
+    <string name="ft_reminder">تذكير</string>
+    <string name="ft_reminder_generic">لديك تذكير</string>
     <string name="ft_channel_incoming_calls">المكالمات الواردة</string>
     <string name="ft_channel_ongoing_calls">المكالمات الجارية</string>
     <string name="ft_ongoing_call">مكالمة جارية</string>

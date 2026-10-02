@@ -6,9 +6,9 @@
     <string name="ft_channel_calls">Звонки</string>
     <string name="ft_channel_messages">Сообщения и звонки</string>
     <string name="ft_something_new">Вас ждёт что-то новое</string>
-    <string name="ft_channel_reminders">Reminders</string>
-    <string name="ft_reminder">Reminder</string>
-    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_reminders">Напоминания</string>
+    <string name="ft_reminder">Напоминание</string>
+    <string name="ft_reminder_generic">У вас есть напоминание</string>
     <string name="ft_channel_incoming_calls">Входящие звонки</string>
     <string name="ft_channel_ongoing_calls">Текущие звонки</string>
     <string name="ft_ongoing_call">Идёт звонок</string>
