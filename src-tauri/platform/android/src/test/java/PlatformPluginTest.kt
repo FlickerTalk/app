@@ -130,26 +130,44 @@ class PlatformPluginTest {
     // src/i18n/*.json). Every translation has every text of the English one, and none is empty.
     @Test
     fun notificationTextsExistInEveryLanguage() {
-        val res = File("src/main/res")
-        fun texts(dir: String): Map<String, String> {
-            val file = File(res, "$dir/ft_strings.xml")
-            assertTrue("missing $file", file.isFile)
-            val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
-                .getElementsByTagName("string")
-            return (0 until nodes.length).map { nodes.item(it) as Element }
-                .associate { it.getAttribute("name") to it.textContent.trim() }
-        }
-        val english = texts("values")
+        val english = notificationTexts("values")
         assertTrue(english.isNotEmpty())
-        val languages = listOf(
-            "es", "pt", "fr", "de", "it", "ro", "ru", "uk", "pl", "tr", "ar",
-            "hi", "bn", "in", "vi", "th", "ja", "ko", "zh-rCN", "zh-rTW",
-        )
-        for (language in languages) {
-            val translated = texts("values-$language")
+        for (language in notificationLanguages) {
+            val translated = notificationTexts("values-$language")
             assertEquals(language, english.keys, translated.keys)
             translated.forEach { (name, text) -> assertTrue("$language/$name", text.isNotEmpty()) }
         }
+    }
+
+    // A text identical to the English one is a text nobody translated, unless it is listed here
+    // with the reason it may stay as it is.
+    @Test
+    fun notificationTextsAreTranslatedInEveryLanguage() {
+        val sameAsEnglish = mapOf(
+            // "Video" is the word in these languages too.
+            "ft_video" to setOf("de", "it", "in", "ro", "tr", "vi"),
+        )
+        val english = notificationTexts("values")
+        val untranslated = notificationLanguages.associateWith { language ->
+            notificationTexts("values-$language")
+                .filter { (name, text) -> text == english[name] && language !in sameAsEnglish[name].orEmpty() }
+                .keys.sorted()
+        }.filterValues { it.isNotEmpty() }
+        assertEquals("texts still in English", emptyMap<String, List<String>>(), untranslated)
+    }
+
+    private val notificationLanguages = listOf(
+        "es", "pt", "fr", "de", "it", "ro", "ru", "uk", "pl", "tr", "ar",
+        "hi", "bn", "in", "vi", "th", "ja", "ko", "zh-rCN", "zh-rTW",
+    )
+
+    private fun notificationTexts(dir: String): Map<String, String> {
+        val file = File("src/main/res/$dir/ft_strings.xml")
+        assertTrue("missing $file", file.isFile)
+        val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+            .getElementsByTagName("string")
+        return (0 until nodes.length).map { nodes.item(it) as Element }
+            .associate { it.getAttribute("name") to it.textContent.trim() }
     }
 
     // Bug of 2026-09-29 (QA, emulators): with the app closed, "Answer" on the call notification
