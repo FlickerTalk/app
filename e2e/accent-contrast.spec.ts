@@ -55,7 +55,7 @@ async function theme(app: Page, direction: string, appearance: string) {
   );
 }
 
-for (const direction of ["ember", "aurora", "mono"]) {
+for (const direction of ["ember", "aurora", "mono", "lime"]) {
   for (const appearance of ["light", "dark"]) {
     test.describe(`${direction}, ${appearance}`, () => {
       test.use({ viewport: { width: 390, height: 844 } });

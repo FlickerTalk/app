@@ -54,7 +54,7 @@ async function measure(play: Locator) {
   };
 }
 
-for (const direction of ["ember", "aurora", "mono"]) {
+for (const direction of ["ember", "aurora", "mono", "lime"]) {
   for (const appearance of ["light", "dark"]) {
     test.describe(`${direction}, ${appearance}`, () => {
       test.beforeEach(async ({ app }) => {
