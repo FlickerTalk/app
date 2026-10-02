@@ -7,6 +7,8 @@
 
 :root {
   --ft-rail-width: 80px;
+  /* The chat list beside the conversation on a wide screen (ChatsPage). */
+  --ft-list-width: 360px;
   --ft-radius-bubble: 20px;
   --ft-radius-card: 16px;
   --ft-space-1: 4px;
