@@ -978,6 +978,11 @@ export async function pendingReminder(): Promise<{ plugin: string; id: string; s
 }
 
 /** What a plugin says to its twin on the contact's phone; false if it cannot be reached now. */
+/** The opaque id of the chat with this contact for this plugin (2026-10-02): stable on this phone, its own for each plugin. */
+export async function pluginChat(plugin: string, contact: string): Promise<string> {
+  return invoke<string>("core_plugin_chat", { plugin, contact });
+}
+
 export async function pluginLiveSend(plugin: string, contact: string, data: string): Promise<boolean> {
   return invoke<boolean>("core_plugin_live_send", { plugin, contact, data });
 }

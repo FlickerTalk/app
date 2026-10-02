@@ -84,3 +84,30 @@ test("a record kept from the main list is there as before", async ({ app }) => {
   expect(await frameAsks(app, { type: "ft.recordGet", id: "q2", key: "board/1" })).toBe("a board");
   expect(await frameAsks(app, { type: "ft.recordKeys", id: "q3", prefix: "board/" })).toEqual(["board/1"]);
 });
+
+// 2026-10-02 (finding 7 of the plan of the plugins): opened in a chat, a plugin learns the core's
+// opaque id of that chat, the same each time; another chat has another; opened on its own, none.
+test("a plugin opened in a chat learns that chat's id, and none on its own", async ({ app }) => {
+  await servePluginFrames(app);
+  const chatOf = async () => {
+    await expect.poll(async () => (await frameHeard(app)).length).toBeGreaterThan(0);
+    const opened = (await frameHeard(app)).find((one) => (one as { type?: string }).type === "ft.open") as Record<string, unknown>;
+    return opened;
+  };
+  await openHiddenSession(app);
+  await openTool(app, "com.flickertalk.markdown", "ft_hidden1234567");
+  const hidden = (await chatOf()).chat;
+
+  await openTool(app, "com.flickertalk.markdown");
+  const bob = (await chatOf()).chat;
+  expect(bob).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(String(bob)).not.toContain("bob123456789");
+  expect(hidden).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(hidden).not.toBe(bob);
+  await openTool(app, "com.flickertalk.markdown");
+  expect((await chatOf()).chat).toBe(bob);
+
+  await app.goto("/plugin/com.flickertalk.markdown");
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+  expect(await chatOf()).not.toHaveProperty("chat");
+});

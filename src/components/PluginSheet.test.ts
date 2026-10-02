@@ -47,6 +47,42 @@ describe("PluginSheet", () => {
     );
   });
 
+  // 2026-10-02: opened in a chat, any plugin (tool or game) learns the core's opaque id of that
+  // chat, so what it keeps per conversation stays there; opened on its own, there is no `chat`.
+  it("hands over the id of the chat it was opened in, and none without a chat", async () => {
+    const chat = "Zq3_".padEnd(43, "x");
+    tauri.invoke.mockImplementation(async (command: string) => (command === "core_plugin_chat" ? chat : undefined));
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+    says({ type: "ft.ready" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_chat", { plugin: plugin.id, contact: "ft_bob" });
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", chat }), "*");
+
+    tauri.invoke.mockClear();
+    const alone = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
+    await flushPromises();
+    const lone = framed(alone);
+    lone.says({ type: "ft.ready" });
+    await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_plugin_chat", expect.anything());
+    expect(lone.post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open" }), "*");
+    expect(lone.post.mock.calls[0][0]).not.toHaveProperty("chat");
+
+    // A chat the core gives no id for (blocked, or its session closed): it opens without one.
+    tauri.invoke.mockImplementation(async (command: string) => {
+      if (command === "core_plugin_chat") throw "that is not a contact of yours";
+    });
+    const refused = mount(PluginSheet, { props: { plugin, contact: "ft_carol" }, shallow: true });
+    await flushPromises();
+    const nope = framed(refused);
+    nope.says({ type: "ft.ready" });
+    await flushPromises();
+    expect(nope.post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open" }), "*");
+    expect(nope.post.mock.calls[0][0]).not.toHaveProperty("chat");
+  });
+
   // 2026-09-27: opened with a file and a way back to its message, and with the live channel when
   // it was granted and there is another side.
   it("hands over the file, the ref and the channel it was opened with", async () => {
