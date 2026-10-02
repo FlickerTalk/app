@@ -360,12 +360,14 @@ function pluginClosed() {
 
 // While the plugin says goodbye, Back stays taken: one press closed it, and another neither closes
 // it again nor falls through to leave the chat. `back.ts` lets go of what a press closed, so the
-// hold takes Back again each time, until the plugin has gone.
+// hold takes Back again each time, until the plugin has gone. Only while the conversation is on
+// screen (`active`), as everything else that takes Back here.
+const holding = () => props.active && leaving.value;
 let releaseHold: (() => void) | undefined;
 function holdBack() {
-  releaseHold = leaving.value ? closeOnBack(holdBack) : undefined;
+  releaseHold = holding() ? closeOnBack(holdBack) : undefined;
 }
-watch(leaving, (now) => {
+watch(holding, (now) => {
   releaseHold?.();
   releaseHold = undefined;
   if (now) holdBack();
