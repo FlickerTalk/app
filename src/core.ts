@@ -597,9 +597,13 @@ export async function takePhoto(): Promise<PickedFile[]> {
   return invoke<PickedFile[]>("core_take_photo");
 }
 
-/** The bytes of a file the user picked, for a plugin that asked for one (issue app#3). */
-export async function readPicked(path: string): Promise<string> {
-  return invoke<string>("core_read_picked", { path });
+/**
+ * A file the user picks for a plugin that asked for one (issue app#3): its name, kind and bytes,
+ * or `null` if nothing was picked. The core opens the picker and deletes its copies; no path
+ * reaches the WebView (2026-10-02).
+ */
+export async function pickForPlugin(accept = ""): Promise<{ name: string; mime: string; data: string } | null> {
+  return invoke("core_pick_for_plugin", { accept });
 }
 
 /** What became of a file a plugin made (A2): sent by itself, or left for the user to send. */
