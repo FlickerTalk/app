@@ -382,7 +382,8 @@ impl RouterClient {
 
     /// Sends a suggestion to the project's mailbox through the router (2026-10-02). It is signed
     /// like every request, so the router can limit how many each device sends; the mail it sends
-    /// on carries the text, `app` (the app's version) and `platform`, and nothing that names us.
+    /// on carries the text, `app` (the app's version) and `platform`, and nothing that names this
+    /// device.
     pub async fn feedback(&self, text: &str, app: &str, platform: &str) -> Feedback {
         let body = json!({ "text": text, "app": app, "platform": platform });
         let Ok(body) = serde_json::to_vec(&body) else { return Feedback::Failed };
