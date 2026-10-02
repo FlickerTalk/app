@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import variablesCss from "./theme/variables.css?raw";
-import { applyAppearance, applyDirection, PLUGIN_COLOURS, pluginTheme, storedAppearance, storedDirection } from "./theme";
+import { installTauri } from "./__tests__/tauri";
+import {
+  applyAppearance,
+  applyDirection,
+  darkScreen,
+  initTheme,
+  PLUGIN_COLOURS,
+  pluginTheme,
+  storedAppearance,
+  storedDirection,
+} from "./theme";
 
 function systemPrefersDark(dark: boolean) {
   vi.spyOn(window, "matchMedia").mockReturnValue({
@@ -47,6 +57,96 @@ describe("theme", () => {
     applyAppearance("system");
     expect(document.documentElement.classList.contains("ft-dark")).toBe(false);
     expect(storedAppearance()).toBe("system");
+  });
+});
+
+// 2026-10-02: the system bars' icons follow the app's appearance, not the system's (on Android
+// they were white on the light app). The page tells the phone whether it is dark when it applies
+// its appearance and each time that changes; a dark screen (a video call, the camera) asks for
+// light icons whatever the appearance.
+describe("the system bars", () => {
+  let told: boolean[];
+  let systemChanged: (() => void) | undefined;
+
+  beforeEach(() => {
+    localStorage.clear();
+    told = [];
+    installTauri((command, args) => {
+      if (command === "core_system_bars") told.push(args?.dark as boolean);
+      return undefined;
+    });
+  });
+  afterEach(() => {
+    darkScreen("test", false);
+    installTauri();
+  });
+
+  const lastTold = () => told.at(-1);
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("are told the app is dark when it starts dark, the default", async () => {
+    initTheme();
+    await settle();
+    expect(lastTold()).toBe(true);
+  });
+
+  it("are told each change of appearance", async () => {
+    applyAppearance("light");
+    await settle();
+    expect(lastTold()).toBe(false);
+    applyAppearance("dark");
+    await settle();
+    expect(lastTold()).toBe(true);
+  });
+
+  it("follow the system when the appearance does", async () => {
+    let dark = false;
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      get matches() {
+        return dark;
+      },
+      addEventListener: (_: string, listener: () => void) => (systemChanged = listener),
+      removeEventListener: () => undefined,
+    } as unknown as MediaQueryList);
+    applyAppearance("system");
+    await settle();
+    expect(lastTold()).toBe(false);
+    dark = true;
+    systemChanged?.();
+    await settle();
+    expect(lastTold()).toBe(true);
+  });
+
+  it("get light icons over a dark screen on the light app, and the app's again after it", async () => {
+    applyAppearance("light");
+    darkScreen("test", true);
+    await settle();
+    expect(lastTold()).toBe(true);
+    expect(document.documentElement.classList.contains("ft-dark-screen")).toBe(true);
+    darkScreen("test", false);
+    await settle();
+    expect(lastTold()).toBe(false);
+    expect(document.documentElement.classList.contains("ft-dark-screen")).toBe(false);
+  });
+
+  it("are not bothered when nothing changes", async () => {
+    applyAppearance("dark");
+    await settle();
+    const before = told.length;
+    darkScreen("test", true);
+    darkScreen("test", true);
+    applyAppearance("dark");
+    await settle();
+    expect(told.length).toBe(before);
+  });
+
+  it("never let a missing bridge stop the theme (a plain browser)", async () => {
+    installTauri(() => {
+      throw new Error("no bridge");
+    });
+    expect(() => applyAppearance("light")).not.toThrow();
+    await settle();
+    expect(document.documentElement.classList.contains("ft-dark")).toBe(false);
   });
 });
 
