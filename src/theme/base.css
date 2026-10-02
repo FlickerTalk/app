@@ -100,3 +100,50 @@ html.ft-scanning ion-router-outlet {
     --width: 100%;
   }
 }
+
+/* The side insets in a sheet (2026-10-02): Ionic sets them to 0 on every sheet modal, as for a
+   phone held upright, and a phone held sideways had the first column under its island. The sheet
+   gets the window's back, so Ionic's toolbars and items keep clear of them as everywhere else. */
+ion-modal.modal-sheet > .ion-page {
+  --ion-safe-area-left: var(--ft-safe-left);
+  --ion-safe-area-right: var(--ft-safe-right);
+}
+/* Past the rail the inline start reaches no edge: no inset there for what the frame shows, nor for
+   the sheets that cover a pane. The insets are physical: the left, or the right in Arabic. */
+@media (min-width: 768px) {
+  html:not([dir="rtl"]) :is(.ft-tabs-frame, ion-modal.ft-sheet--chat-pane > .ion-page, ion-modal.ft-sheet--tab > .ion-page) {
+    --ion-safe-area-left: 0px;
+  }
+  html[dir="rtl"] :is(.ft-tabs-frame, ion-modal.ft-sheet--chat-pane > .ion-page, ion-modal.ft-sheet--tab > .ion-page) {
+    --ion-safe-area-right: 0px;
+  }
+}
+/* The list beside the chat reaches no edge at its inline end either. */
+html:not([dir="rtl"]) .ft-chats.is-wide > .ft-chats__list {
+  --ion-safe-area-right: 0px;
+}
+html[dir="rtl"] .ft-chats.is-wide > .ft-chats__list {
+  --ion-safe-area-left: 0px;
+}
+
+/* What a page shows keeps clear of the side insets, wherever the page reaches an edge: a content
+   (unless it pads itself with Ionic's padding classes) and a footer take them, and what they hold
+   does not take them again (Ionic's items would). Toolbars already keep clear on their own. The
+   backgrounds still reach the edges. The insets are physical, a content's paddings logical. */
+ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) {
+  --padding-start: var(--ion-safe-area-left, 0px);
+  --padding-end: var(--ion-safe-area-right, 0px);
+}
+[dir="rtl"] ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) {
+  --padding-start: var(--ion-safe-area-right, 0px);
+  --padding-end: var(--ion-safe-area-left, 0px);
+}
+ion-footer {
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
+}
+ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) > *,
+ion-footer > * {
+  --ion-safe-area-left: 0px;
+  --ion-safe-area-right: 0px;
+}

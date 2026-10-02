@@ -37,6 +37,13 @@ async function canDismiss(_data?: unknown, role?: string): Promise<boolean> {
   return !INCIDENTAL.has(role ?? "") || (!sending.value && text.value.trim() === "");
 }
 
+// Only the user's typing comes here (Ionic's v-model event), not the box emptied after a send: what
+// came of the last send stays until the text is touched again.
+function edited(value: string | null | undefined) {
+  text.value = value ?? "";
+  outcome.value = null;
+}
+
 function dismissed() {
   text.value = "";
   outcome.value = null;
@@ -73,7 +80,7 @@ async function send() {
     </ion-header>
     <ion-content class="ion-padding">
       <ion-textarea
-        v-model="text"
+        :model-value="text"
         class="ft-feedback__box"
         fill="outline"
         :rows="6"
@@ -81,6 +88,7 @@ async function send() {
         :maxlength="MAX"
         :placeholder="$t('feedback.placeholder')"
         :aria-label="$t('feedback.placeholder')"
+        @update:model-value="edited"
       />
       <ion-text color="medium">
         <p data-test="hint">{{ $t("feedback.hint") }}</p>
@@ -107,6 +115,18 @@ async function send() {
    to right, also in Arabic, and still sits at the end of the line. */
 .ft-feedback__box :deep(.counter) {
   unicode-bidi: plaintext;
+}
+/* Ionic's `ios` look has no outline (`fill` is `md` only) and drew the box as bare text. There the
+   box gets a rounded border in the colour of Android's outline (Ionic's own step colour, so it
+   follows light and dark); Ionic's variables give it room inside and drop the hairline above the
+   counter, which now sits inside the box. `md` keeps Ionic's outline untouched. */
+.ft-feedback__box.ios {
+  --padding-start: 12px;
+  --padding-end: 12px;
+  --border-width: 0;
+  padding-bottom: 6px;
+  border: 1px solid var(--ion-color-step-300, var(--ion-background-color-step-300, #b3b3b3));
+  border-radius: 12px;
 }
 .ft-feedback__outcome {
   display: block;
