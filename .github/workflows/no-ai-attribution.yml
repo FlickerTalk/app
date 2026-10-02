@@ -1,0 +1,44 @@
+# Rejects any commit attributed to an AI assistant: author, committer or a Co-authored-by /
+# Signed-off-by trailer naming Claude or Anthropic. Commits made outside the maintainer's machine
+# (a cloud session pushing straight to GitHub, a patch imported with `git am`) do not go through
+# the local git hooks, so this is the net for them. A pull request checks its own commits; a push
+# to main checks what the push added.
+name: no-ai-attribution
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: No commit may be attributed to an AI
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            range="origin/$BASE_REF..HEAD"
+          elif [ -n "$BEFORE" ] && ! printf '%s' "$BEFORE" | grep -q '^0*$' && git cat-file -e "$BEFORE" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            range="HEAD"
+          fi
+          echo "Checking $range"
+          offending=$(git log --format='%H %an <%ae> | %cn <%ce> | %(trailers:only,unfold,separator=%x20)' $range \
+            | grep -iE 'claude|anthropic' || true)
+          if [ -n "$offending" ]; then
+            echo "::error::Commits attributed to an AI are not allowed:"
+            echo "$offending"
+            exit 1
+          fi
+          echo "OK: no AI attribution in $(git rev-list --count $range) commit(s)"
