@@ -171,6 +171,8 @@ html.ft-dark[data-direction] body {
 html.ft-dark[data-direction] ion-modal {
   --ion-background-color: var(--ft-surface);
   --ion-toolbar-background: var(--ft-surface);
+  /* Ionic dims by this times the sheet's height (0.32 × 0.5 by default): nothing on a black page. */
+  --ion-backdrop-opacity: 0.6;
 }
 
 /* ---------- The flicker: a small glowing spark for live direct connections ---------- */
