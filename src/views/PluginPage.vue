@@ -35,7 +35,7 @@ onMounted(async () => {
         <ion-title>{{ plugin?.name ?? "" }}</ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content>
+    <ion-content class="ft-plugin-page">
       <PluginSheet
         v-if="ready && plugin"
         :plugin="plugin"
@@ -51,6 +51,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* The plugin's last pixel can be scrolled above Android's navigation bar (edge to edge). */
+.ft-plugin-page {
+  --padding-bottom: var(--ion-safe-area-bottom, 0px);
+}
 .ft-plugin-page__missing {
   padding: var(--ft-space-4);
   color: var(--ft-muted);

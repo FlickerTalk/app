@@ -1176,6 +1176,8 @@ watch(
   background: var(--ft-bg);
   /* The window starts under the status bar, or the way out ends up beneath the clock. */
   padding-top: env(safe-area-inset-top);
+  /* And the tool's last pixel can be scrolled above Android's navigation bar (edge to edge). */
+  padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 /* A bar of its own, so the way out is always there while the tool scrolls under it. */
 .ft-app__bar {
