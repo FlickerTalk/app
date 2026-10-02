@@ -608,6 +608,25 @@ describe("PluginSheet", () => {
       return { wrapper, ...frame, close: () => (wrapper.vm as unknown as Closable).close() };
     }
 
+    // 2026-10-03 (updates): the core never updates a plugin under an open frame. The frame is open
+    // from the moment the sheet shows it until the sheet goes, saying goodbye included.
+    it("tells the core the plugin is open until its frame is gone, goodbye included", async () => {
+      const opens = () => tauri.invoke.mock.calls.filter(([command]) => command === "core_plugin_open").map(([, args]) => args);
+      const { wrapper, says, close } = await opened();
+      expect(opens()).toEqual([{ plugin: plugin.id, open: true }]);
+      void close();
+      await flushPromises();
+      expect(opens(), "still saying goodbye").toHaveLength(1);
+      says({ type: "ft.closed" });
+      await flushPromises();
+      expect(opens(), "the sheet is still there until the page takes it away").toHaveLength(1);
+      wrapper.unmount();
+      expect(opens()).toEqual([
+        { plugin: plugin.id, open: true },
+        { plugin: plugin.id, open: false },
+      ]);
+    });
+
     it("tells the plugin, and lets it go only once it answers", async () => {
       const { wrapper, post, says, close } = await opened();
       let over = false;

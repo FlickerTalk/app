@@ -11,6 +11,7 @@ import {
   pluginLiveSend,
   pluginLocation,
   pluginMade,
+  pluginOpen,
   pluginOpenChat,
   pluginPrint,
   pluginRead,
@@ -371,13 +372,26 @@ const looks = new MutationObserver(() => {
   tell({ type: "ft.theme", ...now });
 });
 
+// The core never updates a plugin under an open frame (2026-10-03): open from here until the
+// sheet goes, its goodbye included.
+const reportOpen = (id: string, open: boolean) => void pluginOpen(id, open).catch(() => undefined);
+watch(
+  () => props.plugin.id,
+  (now, before) => {
+    reportOpen(before, false);
+    reportOpen(now, true);
+  },
+);
+
 onMounted(async () => {
+  reportOpen(props.plugin.id, true);
   lastTheme = JSON.stringify(pluginTheme());
   looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction"] });
   window.addEventListener("message", onMessage);
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });
 onBeforeUnmount(() => {
+  reportOpen(props.plugin.id, false);
   // Torn down without `close()` (a page that went): one word on the way out, without waiting. The
   // frame goes in this same tick, so it may well never hear it.
   gone = true;
