@@ -16,6 +16,21 @@ pub struct Served {
     pub component: String,
     /// The policy for its frame, from what the user granted it.
     pub policy: String,
+    /// The version installed, named in the frame's addresses (2026-10-03).
+    pub version: String,
+}
+
+/// The headers of everything the scheme serves: its kind, the plugin's policy, a frame without
+/// an origin may read it, and nothing is kept in a cache, so an updated plugin runs its new code
+/// the next time it opens (2026-10-03).
+pub fn response_headers(kind: &str, policy: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("Content-Type", kind.to_owned()),
+        ("Content-Security-Policy", policy.to_owned()),
+        (ALLOW_OPAQUE_ORIGIN.0, ALLOW_OPAQUE_ORIGIN.1.to_owned()),
+        ("Cross-Origin-Resource-Policy", "cross-origin".to_owned()),
+        ("Cache-Control", "no-store".to_owned()),
+    ]
 }
 
 /// What may be served right now, kept in step with what is installed and granted.
@@ -90,14 +105,16 @@ pub fn icon(name: &str) -> Option<(&'static str, &'static [u8])> {
     ICONS.iter().find(|(known, _)| *known == name).map(|(_, svg)| ("image/svg+xml", *svg))
 }
 
-pub fn frame_html(component: &str) -> String {
+/// `version` is the installed one's (a checked `x.y.z`): the frame asks for its script, and the
+/// script for the plugin's code, at that version (2026-10-03, updates).
+pub fn frame_html(component: &str, version: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <style>html{{color-scheme:light dark}}html,body{{margin:0;padding:0;background:transparent}}</style>
-<script type="module" src="./frame.js"></script>
+<script type="module" src="./frame.js?v={version}"></script>
 </head>
 <body>
 <p id="fallback" style="font:13px system-ui;color:#888">loading…</p>
@@ -209,21 +226,36 @@ mod tests {
         assert_eq!(file_in(dir, ""), None);
     }
 
+    // 2026-10-03 (updates): after an update the next opening runs the new code. Nothing the scheme
+    // serves is kept in a cache, and the frame names the version it loads (`?v=`), which the frame
+    // script passes on to the plugin's code, so no cache can hand it the old one by its address.
+    #[test]
+    fn an_updated_plugin_is_never_served_from_a_cache() {
+        let headers = response_headers("text/html; charset=utf-8", "default-src 'none'");
+        assert!(headers.contains(&("Cache-Control", "no-store".to_owned())), "{headers:?}");
+        assert!(headers.contains(&("Content-Type", "text/html; charset=utf-8".to_owned())));
+        assert!(headers.contains(&("Content-Security-Policy", "default-src 'none'".to_owned())));
+        assert!(headers.contains(&(ALLOW_OPAQUE_ORIGIN.0, ALLOW_OPAQUE_ORIGIN.1.to_owned())));
+        assert!(headers.contains(&("Cross-Origin-Resource-Policy", "cross-origin".to_owned())));
+        assert!(frame_html("ft-x", "1.0.1").contains(r#"src="./frame.js?v=1.0.1""#));
+        assert_ne!(frame_html("ft-x", "1.0.1"), frame_html("ft-x", "1.0.0"));
+    }
+
     #[test]
     fn the_frame_loads_the_plugin_and_shows_its_component() {
-        let html = frame_html("ft-code-block");
+        let html = frame_html("ft-code-block", "1.0.0");
         assert!(html.contains("<ft-code-block id=\"view\">"));
-        assert!(html.contains(r#"src="./frame.js""#), "the script is a file, never written in the page");
+        assert!(html.contains(r#"src="./frame.js?v=1.0.0""#), "the script is a file, never written in the page");
         assert!(!html.contains("import "), "nothing of the script lives in the page");
         assert!(html.contains("loading…"), "something shows even if the script never runs");
         // Without this the frame paints itself white in a dark app and the plugin is unreadable.
         assert!(html.contains("color-scheme:light dark"), "the frame follows the app's colours");
 
         let script = frame_js();
-        assert!(script.contains(r#"import("./dist/index.js")"#));
+        assert!(script.contains("import(`./dist/index.js${new URL(import.meta.url).search}`)"));
         assert!(script.contains("globalThis.ft"), "the plugin is given its API");
         assert!(
-            script.find("globalThis.ft").unwrap() < script.find(r#"import("./dist/index.js")"#).unwrap(),
+            script.find("globalThis.ft").unwrap() < script.find("import(`./dist/index.js").unwrap(),
             "the API is there before the plugin runs"
         );
         assert!(script.contains("ft.open"), "the app opens it, with the text the user handed it");
