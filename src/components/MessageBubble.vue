@@ -515,12 +515,14 @@ function open() {
 }
 
 /* Plan 10.6: the way to play a game an invitation is for, under its text: Ionic's button, in the
-   bubble's colours through its own hooks. */
+   bubble's colours through its own hooks. The words take the bubble's own text colour by name:
+   `inherit` on a custom property inherits the `--color` of `ion-content` (the page's text), which
+   was light on a light bubble of this phone's (Mono, dark). */
 .ft-play-game {
   margin: 8px 0 0;
   --background: color-mix(in srgb, currentColor 14%, transparent);
   --background-activated: color-mix(in srgb, currentColor 24%, transparent);
-  --color: inherit;
+  --color: var(--ft-on-accent);
   --border-radius: 12px;
   --box-shadow: none;
   text-transform: none;
