@@ -2453,6 +2453,13 @@ pub async fn core_plugin_live_send(plugin: String, contact: String, data: String
     client.core().await?.plugin_live_send(&plugin, &contact, bytes).await.map_err(failed)
 }
 
+/// The id of the chat with this contact for this plugin (2026-10-02): opaque, its own for each
+/// plugin, and only for a contact the user chose and can reach here (§108).
+#[tauri::command]
+pub async fn core_plugin_chat(plugin: String, contact: String, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.plugin_chat(&plugin, &contact).await.map_err(failed)
+}
+
 /// The plugins installed here that open a file of this kind, for "open with".
 #[tauri::command]
 pub async fn core_plugins_opening(mime: String, client: State<'_, Client>) -> Result<Vec<PluginView>, String> {
