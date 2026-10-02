@@ -3403,8 +3403,23 @@ pub async fn core_vault_remove(id: String, client: State<'_, Client>) -> Result<
 #[tauri::command]
 pub async fn core_vault_upload(file: PickedView, parent: Option<String>, client: State<'_, Client>) -> Result<Option<String>, String> {
     let core = client.core().await?;
-    let path = picked_path(client.dir()?, &file.path)?;
-    core.vault_upload(&path, &file.name, &file.mime, parent.as_deref()).await.map_err(failed)
+    upload_picked(client.dir()?, &file.path, |path| async move { core.vault_upload(&path, &file.name, &file.mime, parent.as_deref()).await }).await
+}
+
+/// Puts a picked file in the drive with `upload`, then deletes the picker's plain copy, if that is
+/// what it is (`forget_picked`), sent, queued or failed (2026-10-02): the drive seals it first and
+/// its queue keeps the sealed copy, never the path; a failed upload is picked again, not retried
+/// from here. A file a plugin made or one from the drive stays, and so does a message's file,
+/// which goes through `core_vault_upload_message`, not here.
+pub async fn upload_picked<Upload, Uploading>(dir: &Path, path: &str, upload: Upload) -> Result<Option<String>, String>
+where
+    Upload: FnOnce(PathBuf) -> Uploading,
+    Uploading: std::future::Future<Output = anyhow::Result<Option<String>>>,
+{
+    let path = picked_path(dir, path)?;
+    let uploaded = upload(path.clone()).await.map_err(failed);
+    forget_picked(dir, &path.to_string_lossy());
+    uploaded
 }
 
 /// Puts the file of a message in the drive: what "keep in my drive" does from a bubble.
@@ -4362,6 +4377,50 @@ mod tests {
         assert!(!first.exists());
         assert_eq!(std::fs::read(&made).unwrap(), b"made");
         assert!(sent.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Row 8 (2026-10-02): what the user picked for the drive is sealed there, sent or queued, and
+    // the picker's plain copy does not stay, not even when the upload fails (the plugin picks again).
+    #[test]
+    fn a_picked_copy_is_gone_once_the_drive_had_it() {
+        let dir = scratch("drive-up");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        for outcome in [Ok(Some("x1".to_owned())), Ok(None), Err(anyhow::anyhow!("no network"))] {
+            let copy = uploads.join("1759400000000-a.jpg");
+            std::fs::write(&copy, b"plain with gps").unwrap();
+            let fine = outcome.is_ok();
+            let answer = tauri::async_runtime::block_on(upload_picked(&dir, &copy.to_string_lossy(), |path| async move {
+                assert_eq!(std::fs::read(path).unwrap(), b"plain with gps", "sealed from the copy, before it goes");
+                outcome
+            }));
+            assert_eq!(answer.is_ok(), fine);
+            assert!(!copy.exists());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Only the picker's copies go: a file a plugin made or one from the drive is put in the drive
+    // and stays; a path no picked file may have is refused before anything is uploaded.
+    #[test]
+    fn a_drive_upload_keeps_what_the_picker_did_not_make() {
+        let dir = scratch("drive-keep");
+        std::fs::create_dir_all(dir.join("files").join("outgoing")).unwrap();
+        std::fs::create_dir_all(dir.join("files").join("drive").join("f1")).unwrap();
+        let made = dir.join("files").join("outgoing").join("1-made.pdf");
+        let down = dir.join("files").join("drive").join("f1").join("doc.pdf");
+        for file in [&made, &down] {
+            std::fs::write(file, b"keep").unwrap();
+            let answer = tauri::async_runtime::block_on(upload_picked(&dir, &file.to_string_lossy(), |_| async { Ok(Some("x1".to_owned())) }));
+            assert_eq!(answer.unwrap().as_deref(), Some("x1"));
+            assert_eq!(std::fs::read(file).unwrap(), b"keep", "{}", file.display());
+        }
+        let db = dir.join("flickertalk.db");
+        std::fs::write(&db, b"secret").unwrap();
+        let answer = tauri::async_runtime::block_on(upload_picked(&dir, &db.to_string_lossy(), |_| async { panic!("never uploaded") }));
+        assert!(answer.is_err());
+        assert!(db.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
