@@ -61,6 +61,14 @@ describe("plugins in the app", () => {
     expect(url).not.toContain("tauri.localhost");
   });
 
+  // 2026-10-03 (updates): the frame's address names the version installed, so an update is never
+  // answered from a cache by the old address.
+  it("names the installed version in the frame's address", () => {
+    installed.value = [{ ...CODE, version: "1.0.1" }];
+    expect(frameUrl("com.flickertalk.code")).toBe("http://ftplugin.localhost/com.flickertalk.code/frame.html?v=1.0.1");
+    installed.value = [];
+  });
+
   // Anything that is not this plugin's own frame is ignored, whatever it says.
   it("listens only to the frame of the plugin", () => {
     const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
