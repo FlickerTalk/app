@@ -86,6 +86,19 @@ describe("core bridge", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_messages", { contact: "ft_bob", limit: 200 });
   });
 
+  // Events lost to a burst (2026-10-01): nobody knows what changed, so everything shown reloads.
+  it("reloads every open conversation and circle when the core says events were lost", async () => {
+    await core.start();
+    await core.loadMessages("ft_bob");
+    await core.loadCircleMessages("circle1");
+    tauri.invoke.mockClear();
+    tauri.handlers["ft://changed"]({ payload: { contact: null, all: true } });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_conversations", undefined);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_messages", { contact: "ft_bob", limit: 200 });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_circle_messages", { circle: "circle1", limit: 200 });
+  });
+
   it("forwards the user's intents to the core", async () => {
     await core.sendText("ft_bob", "hello");
     await core.markRead("ft_bob");

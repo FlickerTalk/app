@@ -1005,12 +1005,24 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
     let router_for_events = online.router.clone();
     let core_for_events = online.core.clone();
     tauri::async_runtime::spawn(async move {
+        use crate::core_events::{self, EverythingChanged, Next};
         tokio::pin!(stopped);
         // A stopped core's events end here (erasing the phone): the new one has its own.
-        while let Some(Ok(event)) = tokio::select! {
-            event = events.recv() => Some(event),
-            _ = &mut stopped => None,
-        } {
+        loop {
+            let event = match core_events::next(&mut events, &mut stopped).await {
+                Next::Event(event) => event,
+                // Events lost to a burst (2026-10-01): what they would have changed is fetched
+                // again, and the loop goes on. A core a push started has no app to tell yet.
+                Next::Lost => {
+                    if let Some(app) = host.app().cloned() {
+                        let _ = app.emit(CHANGED_EVENT, EverythingChanged::default());
+                        let _ = app.emit(VAULT_EVENT, ());
+                        sync_reminders(&app, &core_for_events).await;
+                    }
+                    continue;
+                }
+                Next::End => break,
+            };
             host.saw(&event, std::time::Instant::now());
             let app = host.app().cloned();
             let (contact, circle) = match event {
