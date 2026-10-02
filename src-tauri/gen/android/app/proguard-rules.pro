@@ -25,3 +25,11 @@
 -keep class com.flickertalk.platform.FtVideoSurfaces {
     native <methods>;
 }
+
+# A call push starts the core with the app closed (2026-10-01): Rust's JNI entries
+# (src-tauri/src/push_core.rs) are found by this class's name, and Rust calls its static functions
+# back by name.
+-keep class com.flickertalk.platform.PushCore {
+    native <methods>;
+    public static *;
+}

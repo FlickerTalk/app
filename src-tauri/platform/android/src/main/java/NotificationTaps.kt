@@ -1,7 +1,6 @@
 package com.flickertalk.platform
 
 import android.app.Activity
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -39,8 +38,8 @@ fun tapCallEvent(tap: NotificationTap): CallEvent? = when (tap) {
 }
 
 /**
- * Whether the tap brings the app to the screen. A decline does not, unless the core is not running:
- * only the core can tell the caller, and it runs with the app (Tauri starts Rust with the activity).
+ * Whether the tap brings the app to the screen. A decline does not, unless no core hears it: only
+ * the core can tell the caller (the app's, or since 2026-10-01 the one a call push started).
  */
 fun tapOpensApp(tap: NotificationTap, coreListens: Boolean): Boolean =
     tap != NotificationTap.CALL_DECLINE || !coreListens
@@ -102,13 +101,18 @@ class FtNotificationTapActivity : Activity() {
 /** What a tap does, whatever state the app is in: the process has it before this returns. */
 fun handOver(context: Context, intent: Intent?) {
     val tap = notificationTapOf(intent?.action) ?: return
-    val listening = CallEvents.listening()
+    // Whether a core hears it now: the app's, or (a decline) the one a call push started.
+    val listening = tapCallEvent(tap)?.let { CallEvents.hears(it) } ?: CallEvents.listening()
     when (tap) {
         NotificationTap.CALL_ANSWER, NotificationTap.CALL_DECLINE -> {
-            context.getSystemService(NotificationManager::class.java)?.cancel(CALL_NOTIFICATION)
+            IncomingCall.dismiss(context)
             CallRinger.silence()
-            // The user's own tap: the call's service may take the microphone when it connects.
-            if (tap == NotificationTap.CALL_ANSWER) InCall.answeredByTap = true
+            if (tap == NotificationTap.CALL_ANSWER) {
+                // The user's own tap: the call's service may take the microphone when it connects.
+                InCall.answeredByTap = true
+                // Answered before the core knew the caller: the push's core does not ring it again.
+                IncomingCall.answered = true
+            }
         }
         // The user's own tap lets the call's service take the camera type.
         NotificationTap.CALL_VIDEO -> InCall.videoByTap = true

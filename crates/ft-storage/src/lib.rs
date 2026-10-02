@@ -152,6 +152,8 @@ pub struct OutboxEntry {
     pub attempts: i64,
     pub next_attempt: i64,
     pub in_mailbox: bool,
+    /// When the last copy went to the mailbox (ms); `None` if none did since this was kept.
+    pub mailed_at: Option<i64>,
 }
 
 /// A file sent or received (§62–63); its message carries the name.
@@ -817,6 +819,12 @@ impl Store {
             .bind(message_id)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    /// A copy of the message went to the mailbox `at` (ms).
+    pub async fn mailed(&self, message_id: &str, at: i64) -> Result<()> {
+        sqlx::query("UPDATE pending_outbox SET mailed_at = ? WHERE message_id = ?").bind(at).bind(message_id).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -1593,6 +1601,7 @@ fn outbox_from(row: &SqliteRow) -> OutboxEntry {
         attempts: row.get("attempts"),
         next_attempt: row.get("next_attempt"),
         in_mailbox: row.get("in_mailbox"),
+        mailed_at: row.get("mailed_at"),
     }
 }
 
@@ -2078,6 +2087,41 @@ mod tests {
 
         store.dequeue("m1").await.expect("dequeues");
         assert!(store.due(10_000).await.expect("lists").is_empty());
+    }
+
+    // 2026-10-01: when the last copy went to the mailbox, so that the next goes a day later.
+    #[tokio::test]
+    async fn the_outbox_keeps_when_the_last_copy_went_to_the_mailbox() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
+        store.enqueue("m1", "ft_bob", 100).await.expect("queues");
+        assert_eq!(store.outbox().await.expect("lists")[0].mailed_at, None);
+
+        store.mailed("m1", 700).await.expect("keeps it");
+        store.reschedule("m1", 1, 500, true).await.expect("reschedules");
+        assert_eq!(store.outbox().await.expect("lists")[0].mailed_at, Some(700), "a reschedule leaves it");
+    }
+
+    // A database from before the column: what was in the mailbox stays there, with no time.
+    #[tokio::test]
+    async fn an_outbox_from_before_has_no_time_of_its_last_copy() {
+        let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.expect("opens");
+        sqlx::migrate!("./migrations").run_to(12, &pool).await.expect("migrates to 0012");
+        sqlx::query("INSERT INTO contacts (device_id, name, card, mailbox, added_at) VALUES ('ft_bob', 'Bob', x'01', 1, 1)").execute(&pool).await.expect("a contact");
+        sqlx::query("INSERT INTO messages (message_id, contact, outgoing, body, sent_at, state) VALUES ('m1', 'ft_bob', 1, 'hi', 1, 1)")
+            .execute(&pool)
+            .await
+            .expect("a message");
+        sqlx::query("INSERT INTO pending_outbox (message_id, contact, created_at, attempts, next_attempt, in_mailbox) VALUES ('m1', 'ft_bob', 1, 3, 9, 1)")
+            .execute(&pool)
+            .await
+            .expect("in the mailbox");
+
+        let store = Store::with(pool).await.expect("migrates the rest");
+        let entry = &store.outbox().await.expect("lists")[0];
+        assert_eq!((entry.attempts, entry.in_mailbox, entry.mailed_at), (3, true, None));
     }
 
     #[tokio::test]

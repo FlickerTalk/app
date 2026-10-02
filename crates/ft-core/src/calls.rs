@@ -21,12 +21,48 @@ pub const CALL_REACH: Duration = Duration::from_secs(40);
 /// Between attempts.
 const CALL_RETRY: Duration = Duration::from_secs(2);
 
+/// How long a call's offer, once handed to a direct connection, may go unacknowledged before that
+/// connection is taken for dead (2026-10-01). A ping follows the offer on the same ordered
+/// channel, and every version of the app answers it with a pong (M1): the pong proves the offer
+/// arrived. Over a live connection it comes back in one round trip, well under a second even
+/// through TURN; a connection to an app that was suspended or killed looks open for many seconds
+/// more, and everything sent into it is lost.
+pub(crate) const CALL_OFFER_ACK: Duration = Duration::from_secs(3);
+
 /// A call nobody answers stops ringing after this long.
 pub const RING_LIMIT: Duration = Duration::from_secs(60);
 
 /// A call that rang unanswered for longer than it can: its caller is gone.
 pub(crate) fn stale(record: &CallRecord, now: i64) -> bool {
     record.answered_at.is_none() && now - record.started_at > RING_LIMIT.as_millis() as i64
+}
+
+/// What a hang-up for a call this phone never heard of means (2026-10-01).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unseen {
+    /// Not a caller giving up: nothing to keep.
+    Nothing,
+    /// Calls off, or a stranger: no trace, but the push's ringing stops.
+    Refused,
+    /// A closed hidden session: kept as missed in its history, without a sound.
+    KeptQuiet,
+    /// A missed call; `busy` while another call goes on, which it must not end.
+    Missed { busy: bool },
+}
+
+/// A push rang the phone and the caller gave up before the phone's core connected, after its
+/// offer's last try: only the hang-up arrives. `takes_calls`: the contact is accepted and its calls
+/// come in; `silent`: it belongs to a closed hidden session; `busy`: another call goes on.
+pub(crate) fn unseen_end(reason: EndReason, takes_calls: bool, silent: bool, busy: bool) -> Unseen {
+    if reason != EndReason::Cancelled {
+        Unseen::Nothing
+    } else if !takes_calls {
+        Unseen::Refused
+    } else if silent {
+        Unseen::KeptQuiet
+    } else {
+        Unseen::Missed { busy }
+    }
 }
 
 /// What happened to a call, for the UI.
@@ -102,6 +138,13 @@ impl Core {
     }
 
     /// Like `offer_call_within`, saying our call media version (`CALL_MEDIA_VERSION`).
+    ///
+    /// An offer handed to a direct connection counts only once the contact acknowledges it
+    /// (`CALL_OFFER_ACK`, 2026-10-01). A connection that looks open may be dead (the other app was
+    /// suspended or killed and our side has not noticed yet): the offer would reach nobody and the
+    /// call would sit on "calling". Unacknowledged, that connection is dropped and the next
+    /// attempt goes through the router marked as a call, which rings the contact. The same call
+    /// sent again over a new connection is the same call there: its id is known and it rings once.
     pub(crate) async fn offer_call_media(&self, call: &str, sdp: &str, media: u16, reach: Duration) -> Result<()> {
         let Some((record, contact)) = self.open_call(call, true).await? else { bail!("no such call") };
         let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video, media };
@@ -111,15 +154,43 @@ impl Core {
             if self.store.call(call).await?.is_none_or(|current| current.ended_at.is_some()) {
                 return Ok(());
             }
+            let (heard, pongs) = self.pongs_from(&contact.device_id);
             if self.transmit_direct_call(&contact, &Packet::new(body.clone())).await? {
-                self.mark_call_stage(CallStage::OfferSent);
-                return Ok(());
+                if self.acknowledged(&contact, heard, pongs, CALL_OFFER_ACK).await {
+                    self.mark_call_stage(CallStage::OfferSent);
+                    return Ok(());
+                }
+                self.drop_connection(&contact.device_id).await;
+                if std::time::Instant::now() < deadline {
+                    continue;
+                }
             }
             if std::time::Instant::now() >= deadline {
                 return self.close_call(&record, CallOutcome::Unreachable).await;
             }
             tokio::time::sleep(CALL_RETRY.min(reach)).await;
         }
+    }
+
+    /// Hangs up the call going on with any of these contacts, and waits (`CALL_OFFER_ACK` at most)
+    /// until its end has reached them over the direct connection, which is about to close.
+    pub(crate) async fn hang_up_with(&self, contacts: &[String]) -> Result<()> {
+        let Some(current) = self.current_call().await?.filter(|current| contacts.contains(&current.contact)) else { return Ok(()) };
+        let contact = self.contact(&current.contact).await?;
+        let (heard, pongs) = self.pongs_from(&contact.device_id);
+        self.end_call(&current.call, false).await?;
+        self.acknowledged(&contact, heard, pongs, CALL_OFFER_ACK).await;
+        Ok(())
+    }
+
+    /// Whether the contact answers a ping sent now over the open direct connection with a pong
+    /// within `within`: what was sent before the ping on that ordered channel has arrived.
+    async fn acknowledged(&self, contact: &Contact, heard: u64, mut pongs: tokio::sync::watch::Receiver<std::collections::HashMap<String, u64>>, within: Duration) -> bool {
+        if !self.transmit_open(contact, &Packet::new(Body::Ping)).await.unwrap_or(false) {
+            return false;
+        }
+        let answered = pongs.wait_for(|pongs| pongs.get(&contact.device_id).copied().unwrap_or(0) > heard);
+        tokio::time::timeout(within, answered).await.is_ok_and(|answered| answered.is_ok())
     }
 
     /// Accepts an incoming call with our answer (the WebView's: media version 0).
@@ -310,7 +381,7 @@ impl Core {
 
     /// The contact ended the call.
     pub(crate) async fn call_ended(&self, contact: &Contact, call: MessageId, reason: EndReason) -> Result<()> {
-        let Some(record) = self.store.call(&call.to_string()).await? else { return Ok(()) };
+        let Some(record) = self.store.call(&call.to_string()).await? else { return self.unseen_call_ended(contact, call, reason).await };
         if record.contact != contact.device_id || record.ended_at.is_some() {
             return Ok(());
         }
@@ -322,6 +393,47 @@ impl Core {
             (false, false, _) => CallOutcome::Missed,
         };
         self.close_call(&record, outcome).await
+    }
+
+    /// The contact gave up a call whose offer never reached us (2026-10-01): a push rang the phone
+    /// before its core connected. It is kept as an offer would have been, and the phone's own call
+    /// screen stops ringing.
+    async fn unseen_call_ended(&self, contact: &Contact, call: MessageId, reason: EndReason) -> Result<()> {
+        let takes_calls = contact.rules.accepts_calls && contact.accepted;
+        let busy = self.active_call.lock().expect("active call poisoned").is_some();
+        let verdict = unseen_end(reason, takes_calls, self.silent(contact), busy);
+        if matches!(verdict, Unseen::Nothing) {
+            return Ok(());
+        }
+        if matches!(verdict, Unseen::Refused) {
+            self.refused_quietly();
+            return Ok(());
+        }
+        let at = now();
+        let record = CallRecord {
+            call_id: call.to_string(),
+            contact: contact.device_id.clone(),
+            outgoing: false,
+            // The hang-up does not say; the offer that would have did not come.
+            video: false,
+            started_at: at,
+            answered_at: None,
+            ended_at: Some(at),
+            outcome: Some(CallOutcome::Missed),
+        };
+        if !self.store.insert_call(&record).await? {
+            return Ok(());
+        }
+        match verdict {
+            Unseen::Missed { busy: true } => self.announce_call(&record, CallUpdate::MissedWhileBusy),
+            Unseen::Missed { busy: false } => {
+                // What the user said on the phone's own screen was about this call.
+                self.early_answer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+                self.announce_call(&record, CallUpdate::Ended { outcome: CallOutcome::Missed });
+            }
+            _ => self.refused_quietly(),
+        }
+        Ok(())
     }
 
     /// The call, if it is still going on, goes the given way, and its contact.
@@ -336,6 +448,10 @@ impl Core {
 
     pub(crate) async fn close_call(&self, record: &CallRecord, outcome: CallOutcome) -> Result<()> {
         self.store.finish_call(&record.call_id, now(), outcome).await?;
+        if record.outgoing {
+            // Whichever way it ended, a redial rings again (2026-10-01).
+            self.transport.call_over(&record.contact).await;
+        }
         // The voice stops with the call, whichever side ended it.
         self.drop_native(&record.call_id).await;
         {
@@ -378,6 +494,23 @@ mod tests {
         assert!(stale(&ringing(1_000), 1_000 + limit + 1));
         let answered = CallRecord { answered_at: Some(2_000), ..ringing(1_000) };
         assert!(!stale(&answered, 1_000 + 10 * limit), "a call in progress is never stale");
+    }
+
+    // 2026-10-01: a hang-up for a call this phone never heard of (its caller gave up before the
+    // phone's core connected). Only a caller's own give-up says that someone called us; it then
+    // follows the rules an offer would have: calls off or a stranger leave no trace (the push's
+    // ringing stops), a closed session keeps it quietly, anyone else is a missed call, which during
+    // another call must not read as that call's end.
+    #[test]
+    fn a_hang_up_for_a_call_never_seen_follows_the_rules_of_its_offer() {
+        assert_eq!(unseen_end(EndReason::Cancelled, true, false, false), Unseen::Missed { busy: false });
+        assert_eq!(unseen_end(EndReason::Cancelled, true, false, true), Unseen::Missed { busy: true });
+        assert_eq!(unseen_end(EndReason::Cancelled, true, true, false), Unseen::KeptQuiet);
+        assert_eq!(unseen_end(EndReason::Cancelled, false, false, false), Unseen::Refused);
+        assert_eq!(unseen_end(EndReason::Cancelled, false, true, true), Unseen::Refused);
+        for reason in [EndReason::Hangup, EndReason::Declined, EndReason::Busy, EndReason::Failed] {
+            assert_eq!(unseen_end(reason, true, false, false), Unseen::Nothing, "{reason:?} is not a caller giving up");
+        }
     }
 
     #[test]

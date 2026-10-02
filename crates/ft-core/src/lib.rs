@@ -49,6 +49,9 @@ pub const MAX_RETRY_DELAY: Duration = Duration::from_secs(300);
 pub(crate) const RECEIPT_WAIT: Duration = Duration::from_secs(30);
 /// After leaving it in the mailbox, how long before trying again.
 pub(crate) const MAILBOX_WAIT: Duration = Duration::from_secs(600);
+/// How often a message already in the mailbox gets a new copy there (2026-10-01): the router keeps
+/// a blob for 7 days, and the copy is for a router that lost its table.
+pub(crate) const MAILBOX_COPY: Duration = Duration::from_secs(24 * 3600);
 
 const NAME: &str = "name";
 const MAILBOX: &str = "mailbox";
@@ -63,6 +66,11 @@ const PAID_UNTIL: &str = "paid_until";
 const ASK_FOR_THE_EURO: &str = "a subscription is needed to start something new";
 
 pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 3600);
+
+/// Whether this attempt may leave a copy in the mailbox: the first time, and then once a day.
+fn mail_copy_due(in_mailbox: bool, mailed_at: Option<i64>, now: i64) -> bool {
+    !in_mailbox || mailed_at.is_none_or(|at| now - at >= MAILBOX_COPY.as_millis() as i64)
+}
 
 pub fn retry_delay(attempts: i64) -> Duration {
     let exponent = attempts.clamp(1, 16) as u32 - 1;
@@ -92,6 +100,12 @@ pub trait Transport: Send + Sync {
     async fn send_direct_call(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct(to, bytes).await
     }
+    /// Hands the packet to the direct connection already open with the peer, and never opens one
+    /// (2026-10-01): `false` without one. What checks that an open connection still reaches the
+    /// peer must not make an offer of its own through the router.
+    async fn send_open(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
+        self.send_direct(to, bytes).await
+    }
     /// Opens a direct connection for a call, sending nothing yet (2026-09-29): the caller opens
     /// the way while its media offer gathers. `false` when the peer cannot be reached now.
     async fn open_direct_call(&self, _to: &Peer) -> Result<bool> {
@@ -99,6 +113,9 @@ pub trait Transport: Send + Sync {
     }
     /// Leaves the packet, already encrypted, in the peer's mailbox on the router (§19).
     async fn send_mailbox(&self, to: &Peer, bytes: Vec<u8>) -> Result<()>;
+    /// Our call to the device is over (2026-10-01): an offer of ours that rang for it rings no more,
+    /// so the next call makes its own and the device rings again.
+    async fn call_over(&self, _device_id: &str) {}
     /// Closes any direct connection with the device (a blocked contact, §35).
     async fn disconnect(&self, _device_id: &str) {}
     /// Where a native call's media listens and the servers that help it: the router's STUN and
@@ -214,6 +231,9 @@ pub struct Core {
     keeping_sessions: Mutex<()>,
     /// Bumped whenever the router must be told something new: the hashes or the silent slots.
     registration: tokio::sync::watch::Sender<u64>,
+    /// How many pongs each contact has sent us (2026-10-01): a call's offer sent over a direct
+    /// connection is known to have arrived once a ping sent after it is answered.
+    pongs: tokio::sync::watch::Sender<HashMap<String, u64>>,
     /// Woken when the router can be reached again, so a registration that failed is tried now.
     registration_retry: Arc<tokio::sync::Notify>,
     /// The user's cloud (plan-drive), once connected and open.
@@ -325,6 +345,7 @@ impl Core {
             open_sessions: std::sync::Mutex::new(open_sessions),
             keeping_sessions: Mutex::new(()),
             registration: tokio::sync::watch::Sender::new(0),
+            pongs: tokio::sync::watch::Sender::new(HashMap::new()),
             registration_retry: Arc::default(),
             vault: Mutex::new(None),
             cloud: OnceLock::new(),
@@ -654,8 +675,8 @@ impl Core {
         let mut files = Vec::new();
         for contact in self.store.session_contacts(session).await? {
             files.extend(self.store.files(&contact.device_id).await?);
-            self.transport.disconnect(&contact.device_id).await;
         }
+        self.cut_off(session).await?;
         forget_session(&self.store, session).await?;
         for file in files {
             let _ = std::fs::remove_file(self.file_path(&file));
@@ -678,12 +699,27 @@ impl Core {
     pub async fn close_session(&self, session: &str) -> Result<bool> {
         self.open_sessions.lock().expect("sessions poisoned").remove(session);
         self.keep_open_sessions().await?;
+        self.cut_off(session).await?;
         if !self.store.empty_sessions().await?.iter().any(|empty| empty == session) {
             return Ok(false);
         }
         forget_session(&self.store, session).await?;
         self.registration_changed();
         Ok(true)
+    }
+
+    /// A session left or deleted closes its direct connections at once (2026-10-01): the router
+    /// stops what comes for a silent slot, but cannot close a connection already open. A call with
+    /// one of its contacts is hung up first, so that its end still goes out by that connection;
+    /// from now on the router would hold back their side of it.
+    async fn cut_off(&self, session: &str) -> Result<()> {
+        let all = self.store.all_contacts().await?;
+        let contacts: Vec<String> = all.into_iter().filter(|contact| contact.session.as_deref() == Some(session)).map(|contact| contact.device_id).collect();
+        self.hang_up_with(&contacts).await?;
+        for contact in &contacts {
+            self.transport.disconnect(contact).await;
+        }
+        Ok(())
     }
 
     /// The sessions open right now, oldest first.
@@ -1243,6 +1279,7 @@ impl Core {
             Body::Ping => {
                 let _ = self.send_control(contact, Body::Pong).await;
             }
+            Body::Pong => self.pongs.send_modify(|pongs| *pongs.entry(id.to_owned()).or_default() += 1),
             Body::File { name, size, mime, hash, chunk } => {
                 self.offered(contact, packet.id, packet.sent_at, name, size, mime, hash, chunk).await?
             }
@@ -1263,7 +1300,7 @@ impl Core {
             Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
             Body::PluginEvent { plugin, data } => self.plugin_event_received(contact, plugin, data).await?,
             // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Pong | Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
+            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }
@@ -1318,7 +1355,12 @@ impl Core {
         }
         let packet = Packet::resend(MessageId::parse(&message.message_id)?, message.sent_at as u64, Body::Message { text: message.body });
         let attempts = entry.attempts + 1;
-        let (next, in_mailbox) = match self.transmit(&contact, &packet).await? {
+        let copy = mail_copy_due(entry.in_mailbox, entry.mailed_at, now());
+        let route = self.transmit_as(&contact, &packet, copy).await?;
+        if copy && matches!(route, Route::Mailbox) {
+            self.store.mailed(&entry.message_id, now()).await?;
+        }
+        let (next, in_mailbox) = match route {
             Route::Direct => (RECEIPT_WAIT, entry.in_mailbox),
             Route::Mailbox => (MAILBOX_WAIT, true),
             Route::Unreachable => (retry_delay(attempts), entry.in_mailbox),
@@ -1378,6 +1420,27 @@ impl Core {
         Ok(self.transport.send_direct_call(&peer, bytes).await.unwrap_or(false))
     }
 
+    /// Sends over the direct connection already open with the contact, never opening one.
+    pub(crate) async fn transmit_open(&self, contact: &Contact, packet: &Packet) -> Result<bool> {
+        let bytes = self.seal_for(contact, packet).await?;
+        let card = ContactCard::decode(&contact.card)?;
+        let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
+        Ok(self.transport.send_open(&peer, bytes).await.unwrap_or(false))
+    }
+
+    /// The pongs the contact has sent so far, and a way to wait for the next.
+    pub(crate) fn pongs_from(&self, contact: &str) -> (u64, tokio::sync::watch::Receiver<HashMap<String, u64>>) {
+        let pongs = self.pongs.subscribe();
+        let heard = pongs.borrow().get(contact).copied().unwrap_or(0);
+        (heard, pongs)
+    }
+
+    /// Drops the direct connection with the contact (one found dead), so that the next send opens
+    /// a new one through the router.
+    pub(crate) async fn drop_connection(&self, contact: &str) {
+        self.transport.disconnect(contact).await;
+    }
+
     /// Opens the way to the contact for a call's offer, sending nothing yet.
     pub(crate) async fn open_direct_call(&self, contact: &Contact) -> Result<bool> {
         let card = ContactCard::decode(&contact.card)?;
@@ -1386,6 +1449,12 @@ impl Core {
     }
 
     async fn transmit(&self, contact: &Contact, packet: &Packet) -> Result<Route> {
+        self.transmit_as(contact, packet, true).await
+    }
+
+    /// Like `transmit`; with `copy` false, a packet already in the mailbox gets no new copy there,
+    /// and `Mailbox` says it is still there.
+    async fn transmit_as(&self, contact: &Contact, packet: &Packet, copy: bool) -> Result<Route> {
         let bytes = self.seal_for(contact, packet).await?;
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
@@ -1396,6 +1465,9 @@ impl Core {
         let direct = if mailbox { self.transport.try_direct(&peer, bytes.clone()).await } else { self.transport.send_direct(&peer, bytes.clone()).await };
         if direct.unwrap_or(false) {
             return Ok(Route::Direct);
+        }
+        if mailbox && !copy {
+            return Ok(Route::Mailbox);
         }
         if mailbox {
             // Through the router it goes in an envelope (A1): the router sees only who it is for.
@@ -1556,6 +1628,17 @@ mod tests {
         assert_eq!(clean_name(&"x".repeat(100)).chars().count(), NAME_LIMIT);
         assert_eq!(clean_name("\t\n"), "");
         assert_eq!(clean_name("Zoë 😀"), "Zoë 😀");
+    }
+
+    // 2026-10-01: a message the mailbox took gets a new copy there once a day, not at every retry.
+    #[test]
+    fn a_message_in_the_mailbox_gets_a_new_copy_there_once_a_day() {
+        let day = MAILBOX_COPY.as_millis() as i64;
+        assert!(mail_copy_due(false, None, 1_000), "the first copy goes as always");
+        assert!(mail_copy_due(true, None, 1_000), "queued before the time was kept: a copy now");
+        assert!(!mail_copy_due(true, Some(1_000), 1_000 + MAILBOX_WAIT.as_millis() as i64));
+        assert!(!mail_copy_due(true, Some(1_000), 1_000 + day - 1));
+        assert!(mail_copy_due(true, Some(1_000), 1_000 + day));
     }
 
     #[test]

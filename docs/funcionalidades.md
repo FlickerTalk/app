@@ -75,6 +75,11 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
 - Voz y vídeo 1 a 1, por WebRTC. La llamada entrante suena con el tono del teléfono y aparece como
   notificación de llamada con **Answer** y **Decline**, también con la app cerrada o la pantalla
   bloqueada. Contestar desde la notificación abre la pantalla de llamada.
+- En Android, con la app cerrada, el push de la llamada arranca el núcleo sin abrir la app: en unos
+  segundos la notificación dice quién llama (o se queda en silencio si el contacto está silenciado o
+  fuera del horario, o desaparece si la llamada se rechaza sin rastro), deja de sonar en cuanto el
+  que llama cuelga y la llamada perdida queda en el historial, en la lista o la sesión que le toca.
+  Rechazar desde la notificación no abre la app.
 - En llamada: silenciar micrófono, altavoz, cámara y colgar.
 - Una llamada a la vez: si ya estás en una, el otro recibe «busy».
 - Pestaña **Calls:** historial (entrantes, salientes, perdidas) con botón de devolver la llamada.

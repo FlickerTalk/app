@@ -16,11 +16,18 @@ func reportedAsVideo(callHasVideo: Bool, openAppOnAnswer: Bool, outgoing: Bool =
     return callHasVideo || openAppOnAnswer
 }
 
-/// What CallKit hears when a call is reported, renamed or started: who, and whether it has video
-/// (`reportedAsVideo`). An empty name is the generic "incoming call" (PushKit knows nobody yet).
+/// The name CallKit shows for a call: the caller's, or, while nobody knows it yet (PushKit reported
+/// the call before the core heard of it), "Incoming call" from the app's own tables in the app's
+/// language (`Localizable.strings`, one per language of the app).
+func incomingCallName(caller: String, bundle: Bundle = .main) -> String {
+    caller.isEmpty ? NSLocalizedString("FT_INCOMING_CALL", bundle: bundle, comment: "") : caller
+}
+
+/// What CallKit hears when a call is reported, renamed or started: who (`incomingCallName`), and
+/// whether it has video (`reportedAsVideo`).
 func callUpdate(caller: String, video: Bool, outgoing: Bool, openAppOnAnswer: Bool) -> CXCallUpdate {
     let update = CXCallUpdate()
-    let name = caller.isEmpty ? NSLocalizedString("FT_INCOMING_CALL", comment: "") : caller
+    let name = incomingCallName(caller: caller)
     update.remoteHandle = CXHandle(type: .generic, value: name)
     update.localizedCallerName = name
     update.hasVideo = reportedAsVideo(callHasVideo: video, openAppOnAnswer: openAppOnAnswer, outgoing: outgoing)
