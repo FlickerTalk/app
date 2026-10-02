@@ -95,7 +95,7 @@ import {
   type Sending,
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
-import { closeOnBackWhile } from "../back";
+import { closeOnBack, closeOnBackWhile } from "../back";
 import { t } from "../i18n";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
@@ -352,6 +352,20 @@ function pluginClosed() {
   next = null;
 }
 
+// While the plugin says goodbye, Back stays taken: one press closed it, and another neither closes
+// it again nor falls through to leave the chat. `back.ts` lets go of what a press closed, so the
+// hold takes Back again each time, until the plugin has gone.
+let releaseHold: (() => void) | undefined;
+function holdBack() {
+  releaseHold = leaving.value ? closeOnBack(holdBack) : undefined;
+}
+watch(leaving, (now) => {
+  releaseHold?.();
+  releaseHold = undefined;
+  if (now) holdBack();
+});
+onUnmounted(() => releaseHold?.());
+
 // Ioan, 2026-10-02 (option A): a game is played inside the conversation, so the two can write to
 // each other while they play. It takes the place of the messages, which stay mounted underneath;
 // the header (with the voice call) and the composer stay. No video and no files while playing.
@@ -407,8 +421,7 @@ function pluginDone() {
 closeOnBackWhile(() => emoji.value, () => (emoji.value = false));
 closeOnBackWhile(() => Boolean(acting.value), () => closeActions());
 closeOnBackWhile(() => showApps.value, () => (showApps.value = false));
-// Held while the plugin says goodbye, so a second press does not leave the chat meanwhile.
-closeOnBackWhile(() => Boolean(plugin.value), () => closePlugin());
+closeOnBackWhile(() => Boolean(plugin.value) && !leaving.value, () => closePlugin());
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);

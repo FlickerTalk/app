@@ -13,11 +13,14 @@ import { startViewportFit } from "../viewport";
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
 // Android's back button: the handler the app listens with while something is open on top.
-const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+// Each listener is its own, as Tauri's: letting one go late never takes a newer one.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void), listener: null as null | object }));
 vi.mock("@tauri-apps/api/app", () => ({
   onBackButtonPress: async (handler: () => void) => {
+    const listener = {};
     back.handler = handler;
-    return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
+    back.listener = listener;
+    return { unregister: async () => void (back.listener === listener && ((back.handler = null), (back.listener = null))) };
   },
 }));
 const recorder = vi.hoisted(() => ({
@@ -1190,17 +1193,6 @@ describe("ChatThread", () => {
         return { wrapper, ...(await up(wrapper)) };
       }
 
-      // Back is pressed on a viewer opened by a tap: the test's back button forgets a listener when
-      // the apps sheet lets go of it, a moment after the plugin took it.
-      async function withViewer() {
-        withPlugins([VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" }, core_plugin_ref: "ref_4" });
-        const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
-        await flushPromises();
-        await tapped(wrapper, "m4");
-        expect(back.handler).not.toBeNull();
-        return { wrapper, ...(await up(wrapper)) };
-      }
-
       async function withGame() {
         bridge({ installed: [CODE, CHESS] });
         const wrapper = await thread({ play: CHESS.id });
@@ -1221,28 +1213,78 @@ describe("ChatThread", () => {
       });
 
       it("goes through the plugin with the back button, and stays in the chat", async () => {
-        const { wrapper, says, closings } = await withViewer();
+        const { wrapper, says, closings } = await withTool();
+        const sheet = sheets(wrapper)[0];
+        expect(back.handler).not.toBeNull();
         back.handler?.();
         await flushPromises();
         expect(closings()).toBe(1);
         expect(hidden(wrapper.find(".ft-app"))).toBe(true);
         await says({ type: "ft.closed" });
         expect(sheets(wrapper)).toHaveLength(0);
+        expect(sheet.emitted("closed")).toHaveLength(1);
+        expect(back.handler).toBeNull();
+        expect(push).not.toHaveBeenCalled();
+      });
+
+      // One press closes the plugin, and only that: while it says goodbye, Back stays taken, so
+      // another press neither closes it again nor falls through to leave the chat.
+      it("keeps Back taken while the plugin says goodbye, however often it is pressed", async () => {
+        const { wrapper, says, closings } = await withTool();
+        const sheet = sheets(wrapper)[0];
+        back.handler?.();
+        await flushPromises();
+        expect(back.handler).not.toBeNull();
+        back.handler?.();
+        await flushPromises();
+        back.handler?.();
+        await flushPromises();
+        expect(back.handler).not.toBeNull();
+        expect(closings()).toBe(1);
+        expect(sheets(wrapper)).toHaveLength(1);
+        expect(push).not.toHaveBeenCalled();
+
+        await says({ type: "ft.closed" });
+        expect(sheet.emitted("closed")).toHaveLength(1);
+        expect(sheets(wrapper)).toHaveLength(0);
+        // Gone, Back is the system's again.
         expect(back.handler).toBeNull();
         expect(push).not.toHaveBeenCalled();
       });
 
       // ✕, then Back while the plugin says goodbye: one goodbye, and Back does not leave the chat.
       it("says goodbye once when it is closed twice", async () => {
-        const { wrapper, says, closings } = await withViewer();
+        const { wrapper, says, closings } = await withTool();
+        const sheet = sheets(wrapper)[0];
         await wrapper.find("[data-test='close-app']").trigger("click");
+        await flushPromises();
         back.handler?.();
         await flushPromises();
+        back.handler?.();
+        await flushPromises();
+        expect(back.handler).not.toBeNull();
         expect(closings()).toBe(1);
         expect(sheets(wrapper)).toHaveLength(1);
         expect(push).not.toHaveBeenCalled();
         await says({ type: "ft.closed" });
+        expect(sheet.emitted("closed")).toHaveLength(1);
         expect(sheets(wrapper)).toHaveLength(0);
+        expect(back.handler).toBeNull();
+      });
+
+      // Back during a goodbye with another plugin chosen meanwhile: that one, once open, has Back.
+      it("gives Back to a plugin opened while another said goodbye", async () => {
+        const { wrapper, says } = await withGame();
+        back.handler?.();
+        await flushPromises();
+        await openTool(wrapper);
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)[0].props("plugin")).toMatchObject({ id: CODE.id });
+        expect(back.handler).not.toBeNull();
+        back.handler?.();
+        await flushPromises();
+        expect(wrapper.find(".ft-app").exists()).toBe(false);
+        expect(push).not.toHaveBeenCalled();
       });
 
       it("goes through the plugin when it asks to be closed (done)", async () => {
