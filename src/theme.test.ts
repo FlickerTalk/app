@@ -82,6 +82,14 @@ describe("the theme handed to Ionic", () => {
     expect(token(dark, "ion-background-color")).toBe("var(--ft-surface)");
     expect(token(dark, "ion-toolbar-background")).toBe("var(--ft-surface)");
   });
+
+  // Ionic dims the page under a sheet by `--ion-backdrop-opacity` times the sheet's height (0.32 ×
+  // 0.5 at half height): on a black page that is no dimming at all. In the dark it dims twice as
+  // much, so a sheet reads as lifted off the page (seen on the Samsung, 2026-10-03).
+  it("dims the page under a modal enough to be seen in the dark", () => {
+    const dark = css.match(/html\.ft-dark\[data-direction\] ion-modal\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(Number(token(dark, "ion-backdrop-opacity"))).toBeGreaterThanOrEqual(0.6);
+  });
 });
 
 // 2026-10-03 (Ioan): a plugin's frame is isolated, so the app hands it its colours: Ionic's names,
