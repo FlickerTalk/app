@@ -222,10 +222,10 @@ function chooseAppearance(id: Appearance) {
               :value="store.me.autoDownload"
               data-test="auto-download"
               :aria-label="$t('settings.autoDownload')"
-              :label="$t('settings.autoDownload')"
               interface="action-sheet"
               @ion-change="onAutoDownloadChange"
             >
+              <div slot="label">{{ $t("settings.autoDownload") }}</div>
               <ion-select-option v-for="bytes in AUTO_DOWNLOAD_CHOICES" :key="bytes" :value="bytes">{{ autoDownloadLabel(bytes) }}</ion-select-option>
             </ion-select>
           </ion-item>
@@ -261,10 +261,10 @@ function chooseAppearance(id: Appearance) {
             <ion-select
               :value="callRouting"
               :aria-label="$t('settings.calls')"
-              :label="$t('settings.calls')"
               interface="action-sheet"
               @ion-change="onCallRoutingChange"
             >
+              <div slot="label">{{ $t("settings.calls") }}</div>
               <ion-select-option value="direct">{{ $t("settings.callsDirect") }}</ion-select-option>
               <ion-select-option value="auto">{{ $t("settings.callsAuto") }}</ion-select-option>
               <ion-select-option value="always">{{ $t("settings.callsAlways") }}</ion-select-option>
@@ -523,6 +523,12 @@ function chooseAppearance(id: Appearance) {
   background: var(--ft-surface);
   color: var(--ft-accent);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* A long note at the end of a row (the plan's days left) wraps before the row's label gives up a
+   word: without this Ionic shrinks the label's box to nothing (iOS) or breaks its word (Android). */
+.ft-group ion-item::part(container) {
+  min-width: min-content;
 }
 
 .ft-item__title {
