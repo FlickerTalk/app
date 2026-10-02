@@ -110,12 +110,13 @@ const asksToErase = ref(false);
 // A4: up to what size a file comes on its own; 0 asks every time, the last choice never asks.
 const MB = 1024 * 1024;
 const AUTO_DOWNLOAD_CHOICES = [0, 10 * MB, 100 * MB, 1024 * MB, Number.MAX_SAFE_INTEGER] as const;
+// The size keeps its number and unit together (a no-break space) when the row's value wraps.
 const autoDownloadLabel = (bytes: number) =>
   bytes === 0
     ? t("settings.autoDownloadAsk")
     : bytes === Number.MAX_SAFE_INTEGER
       ? t("settings.autoDownloadAlways")
-      : t("settings.autoDownloadUpTo", { size: formatSize(bytes) });
+      : t("settings.autoDownloadUpTo", { size: formatSize(bytes).replace(" ", " ") });
 
 async function onAutoDownloadChange(event: CustomEvent<{ value: number }>) {
   await setAutoDownload(Number(event.detail.value));

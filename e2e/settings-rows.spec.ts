@@ -22,12 +22,13 @@ async function shot(app: Page, name: string) {
   await app.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
 }
 
-type Drawn = { text: string; lines: number; cut: string[]; brokenWord: boolean };
+type Drawn = { text: string; lines: number; cut: string[]; brokenWord: boolean; splitSize: boolean };
 
 /**
  * Every text drawn in the rows, with how many lines it takes and where it is cut: a line that
  * sticks out of a box hiding its overflow (Ionic's labels, the select's value, the item) or out of
- * its row, or a single word split across lines because its box is narrower than the word. It walks into the shadow roots, where Ionic draws labels and values, and climbs back
+ * its row, a single word split across lines because its box is narrower than the word, or a
+ * size whose number and unit ("10 MB") land on different lines. It walks into the shadow roots, where Ionic draws labels and values, and climbs back
  * up through the slots, so a slotted title meets the boxes Ionic puts around it.
  */
 function textsIn(rows: Element[]): Drawn[] {
@@ -65,7 +66,13 @@ function textsIn(rows: Element[]): Drawn[] {
     const count = new Set(lines.map((line) => Math.round(line.top))).size;
     // Chinese, Japanese and Thai break between letters, not at spaces: no word to split there.
     const oneWord = !/\s/.test(text) && !/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}]/u.test(text);
-    texts.push({ text, lines: count, cut, brokenWord: count > 1 && oneWord });
+    const splitSize = [...node.data.matchAll(/\d+(?:[.,]\d+)?\s+(?:B|KB|MB|GB|TB)\b/gu)].some((size) => {
+      const part = document.createRange();
+      part.setStart(node, size.index!);
+      part.setEnd(node, size.index! + size[0].length);
+      return new Set([...part.getClientRects()].filter((line) => line.width > 0).map((line) => Math.round(line.top))).size > 1;
+    });
+    texts.push({ text, lines: count, cut, brokenWord: count > 1 && oneWord, splitSize });
   };
   const visit = (node: Node, row: Element) => {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -114,7 +121,7 @@ async function cutAtEachWidth(app: Page, rows: Locator, shotName?: string): Prom
     if (shotName && width === 384) await shot(app, shotName);
     const texts = await rows.evaluateAll(textsIn);
     expect(texts.length).toBeGreaterThan(0);
-    found[width] = texts.filter((one) => one.cut.length || one.brokenWord);
+    found[width] = texts.filter((one) => one.cut.length || one.brokenWord || one.splitSize);
   }
   return found;
 }
