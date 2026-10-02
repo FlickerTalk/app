@@ -68,6 +68,23 @@ impl Core {
         }
     }
 
+    /// Deletes the bytes of these files, whose messages are gone, unless a message still points to
+    /// them: a forward is the same bytes as the message it came from (2026-10-02). If the store
+    /// cannot say, the bytes stay; the start's sweep takes them once nothing points to them.
+    pub(crate) async fn forget_bytes(&self, files: Vec<FileRecord>) {
+        if files.is_empty() {
+            return;
+        }
+        let files_dir = self.files_dir.get().map_or(Path::new(""), PathBuf::as_path);
+        let Ok(referenced) = referenced_files(&self.store, files_dir).await else { return };
+        for file in files {
+            let path = self.file_path(&file);
+            if !referenced.contains(&canonical(&path)) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
     /// How a path is kept: relative when it is inside the files folder.
     fn stored_path(&self, path: &Path) -> String {
         match self.files_dir.get().and_then(|dir| path.strip_prefix(dir).ok()) {

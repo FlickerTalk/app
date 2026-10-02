@@ -678,9 +678,7 @@ impl Core {
         }
         self.cut_off(session).await?;
         forget_session(&self.store, session).await?;
-        for file in files {
-            let _ = std::fs::remove_file(self.file_path(&file));
-        }
+        self.forget_bytes(files).await;
         self.open_sessions.lock().expect("sessions poisoned").remove(session);
         self.keep_open_sessions().await?;
         let _ = self.events.send(Event::ContactsChanged);
@@ -969,11 +967,7 @@ impl Core {
             let _ = self.events.send(Event::ContactsChanged);
         }
         // The bytes of the files whose message is gone.
-        for file in theirs {
-            if self.store.file(&file.message_id).await?.is_none() {
-                let _ = std::fs::remove_file(self.file_path(&file));
-            }
-        }
+        self.forget_bytes(theirs).await;
         Ok(())
     }
 
@@ -1003,9 +997,7 @@ impl Core {
         if !self.store.forget_message(message_id).await? {
             bail!("that message is not here");
         }
-        if let Some(file) = file {
-            let _ = std::fs::remove_file(self.file_path(&file));
-        }
+        self.forget_bytes(file.into_iter().collect()).await;
         let _ = self.events.send(Event::MessagesChanged { contact: stored.contact });
         Ok(())
     }
