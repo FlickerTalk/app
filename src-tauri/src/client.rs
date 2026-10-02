@@ -956,15 +956,30 @@ fn transit_folders(dir: &Path) -> Vec<PathBuf> {
     ft_core::files::TRANSIT_FOLDERS.iter().map(|name| files.join(name)).chain([dir.join("uploads")]).collect()
 }
 
+/// Whether this process has had its first start, and with it its one sweep (`open_store`). A
+/// process value, like `RUNNING`: a push's core has no app state to keep it in.
+static SWEPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The phone's database. On the first start in this process only, what waited on its way
+/// somewhere and no message points to goes first (2026-10-02). That start runs before any screen
+/// is up (`main.ts` mounts once `start()` has settled, and every core command waits under
+/// `RUNNING` for it). A later start in the same process (a failed one tried again, iOS after
+/// erasing or restoring, the app after a push's core) has a WebView that may hold a staged or
+/// just-picked file: never swept then, only at the next cold start. A first start that fails
+/// uses the sweep up too. A store that cannot say what messages point to deletes nothing.
+async fn open_store(dir: &Path, swept: &std::sync::atomic::AtomicBool) -> anyhow::Result<Store> {
+    let sweeps = !swept.swap(true, std::sync::atomic::Ordering::SeqCst);
+    let store = Store::open(&dir.join(DATABASE)).await?;
+    if sweeps {
+        let _ = ft_core::files::sweep_orphans(&store, &dir.join("files"), transit_folders(dir)).await;
+    }
+    Ok(store)
+}
+
 /// Opens the core over what this phone keeps in `dir` and connects it to the router, for the app
 /// or for a call push before it (Android, 2026-10-01).
 async fn boot(dir: &Path, key: [u8; 32]) -> anyhow::Result<Online> {
-    let store = Store::open(&dir.join(DATABASE)).await?;
-    // What waited on its way somewhere and no message points to goes (2026-10-02), before the
-    // core is up: every command that goes through it waits for this (`RUNNING` is held), and
-    // nothing can be picked or staged without a chat the core lists. A store that cannot say
-    // what messages point to deletes nothing; a failure here never stops the start.
-    let _ = ft_core::files::sweep_orphans(&store, &dir.join("files"), transit_folders(dir)).await;
+    let store = open_store(dir, &SWEPT).await?;
     let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
     online.core.set_files_dir(dir.join("files"));
     online.core.set_move_dir(dir.join(MOVE_DIR));
@@ -4471,6 +4486,47 @@ mod tests {
         let went = tauri::async_runtime::block_on(upload_all_picked(&dir, &[picked(&made, "made.pdf")], |_, _| async { panic!("never uploaded") }));
         assert!(went.is_err());
         assert_eq!(std::fs::read(&made).unwrap(), b"keep");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 2026-10-02: the sweep runs on the first start in a process only. A core started again in
+    // the same process (a failed start tried again, iOS after erasing or restoring, the app after
+    // a push's core) has a WebView that may hold a staged or just-picked file: that file is left
+    // for the next cold start, when the WebView's memory is gone too.
+    #[test]
+    fn only_the_first_start_in_a_process_sweeps() {
+        let dir = scratch("first-start");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let (left, staged) = (uploads.join("1-left.jpg"), uploads.join("2-staged.jpg"));
+        std::fs::write(&left, b"left by an older run").unwrap();
+        let swept = std::sync::atomic::AtomicBool::new(false);
+
+        tauri::async_runtime::block_on(open_store(&dir, &swept)).unwrap();
+        assert!(!left.exists(), "the first start sweeps");
+        std::fs::write(&staged, b"picked while the app is up").unwrap();
+        tauri::async_runtime::block_on(open_store(&dir, &swept)).unwrap();
+        assert!(staged.exists(), "a second start in the same process does not");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A first start that fails before it could sweep uses the sweep up all the same: the start
+    // tried again comes with the UI up.
+    #[test]
+    fn a_first_start_that_fails_uses_up_the_sweep() {
+        let dir = scratch("failed-start");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        // A folder where the database should be: the store does not open.
+        std::fs::create_dir_all(dir.join(DATABASE)).unwrap();
+        let swept = std::sync::atomic::AtomicBool::new(false);
+        assert!(tauri::async_runtime::block_on(open_store(&dir, &swept)).is_err());
+
+        std::fs::remove_dir_all(dir.join(DATABASE)).unwrap();
+        let staged = uploads.join("2-staged.jpg");
+        std::fs::write(&staged, b"picked while the app is up").unwrap();
+        tauri::async_runtime::block_on(open_store(&dir, &swept)).unwrap();
+        assert!(staged.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
