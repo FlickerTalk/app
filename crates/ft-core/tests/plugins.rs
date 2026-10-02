@@ -922,3 +922,152 @@ async fn what_a_plugin_keeps_outlives_its_update() {
     assert_eq!(core.plugin_remembers(id, None, "theme").await.unwrap().as_deref(), Some("dark"));
     assert_eq!(core.plugin_reminders(id, None).await.unwrap().len(), 1);
 }
+
+/// A package with any manifest, signed by the catalogue.
+fn package_of(manifest: &str, script: &[u8], catalogue: &Ed25519SecretKey) -> Vec<u8> {
+    sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), script.to_vec())], catalogue)
+}
+
+fn tool(id: &str, version: &str) -> String {
+    format!(r#"{{"id":"{id}","name":"Code","version":"{version}","minCoreVersion":"0.1.0","components":["ft-code"]}}"#)
+}
+
+/// The catalogue listing these packages (each with its manifest), as `ftcatalogue` writes the
+/// entries.
+fn listing(packages: &[(&str, &[u8])]) -> (Shop, Vec<ft_plugins::CatalogueEntry>) {
+    let mut files = std::collections::HashMap::new();
+    let mut entries = Vec::new();
+    for (manifest, package) in packages {
+        let manifest: ft_plugins::Manifest = serde_json::from_str(manifest).expect("a manifest");
+        let url = format!("{}/{}/{}.ftplugin", ft_core::CATALOGUE_HOME, manifest.id, manifest.version);
+        entries.push(ft_plugins::CatalogueEntry {
+            id: manifest.id,
+            name: manifest.name,
+            version: manifest.version,
+            min_core_version: manifest.min_core_version,
+            size: package.len() as u64,
+            hash: blake3::hash(package).to_hex().to_string(),
+            url: url.clone(),
+            summary: String::new(),
+            kind: manifest.kind,
+        });
+        files.insert(url, package.to_vec());
+    }
+    (Shop { files }, entries)
+}
+
+async fn installed_code(core: &Core, catalogue: &Ed25519SecretKey) {
+    core.install_plugin(&package_of(&tool("com.example.code", "1.0.0"), b"old()", catalogue), &catalogue.public_key(), Permissions::default())
+        .await
+        .expect("installs");
+}
+
+fn script(dir: &std::path::Path) -> Vec<u8> {
+    std::fs::read(dir.join("com.example.code/dist/index.js")).unwrap()
+}
+
+// 2026-10-03: a plugin downloaded from the catalogue is updated when the signed catalogue lists a
+// higher version of it, as the seeds are with the app. The screens hear of it.
+#[tokio::test]
+async fn a_downloaded_plugin_is_updated_when_the_catalogue_lists_a_higher_version() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.code", "1.0.1");
+    let newer = package_of(&manifest, b"new()", &catalogue);
+    let (shop, listed) = listing(&[(&manifest, &newer)]);
+    let mut events = core.events();
+
+    let updated = core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await;
+    assert_eq!(updated, ["com.example.code"]);
+    assert_eq!(script(&dir), b"new()");
+    assert_eq!(grant_and_version(&core, "com.example.code").await.1, "1.0.1");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::PluginsChanged));
+}
+
+// The version decides, not the bytes: the same or a lower one changes nothing, even repackaged.
+#[tokio::test]
+async fn the_same_or_a_lower_version_changes_nothing() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    for version in ["1.0.0", "0.9.9"] {
+        let manifest = tool("com.example.code", version);
+        let other = package_of(&manifest, b"other()", &catalogue);
+        let (shop, listed) = listing(&[(&manifest, &other)]);
+        assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "{version}");
+        assert_eq!(script(&dir), b"old()");
+    }
+}
+
+// §53: only what the user installed is updated; what the catalogue lists besides is only offered.
+#[tokio::test]
+async fn an_update_never_installs_a_plugin_the_user_did_not_install() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.other", "2.0.0");
+    let stranger = package_of(&manifest, b"x()", &catalogue);
+    let (shop, listed) = listing(&[(&manifest, &stranger)]);
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty());
+    assert_eq!(core.plugins().await.unwrap().iter().map(|one| one.manifest.id.as_str()).collect::<Vec<_>>(), ["com.example.code"]);
+}
+
+// Not when the new version needs a newer FlickerTalk (§51), turns a tool into a game, or weighs
+// more than a package may.
+#[tokio::test]
+async fn an_update_that_needs_a_newer_core_changes_kind_or_is_too_big_is_skipped() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let future = tool("com.example.code", "1.0.1").replace("0.1.0", "99.0.0");
+    let game = r#"{"id":"com.example.code","name":"Code","version":"1.0.2","minCoreVersion":"1.3.0","components":["ft-code"],"kind":"game"}"#.to_owned();
+    let big = tool("com.example.code", "1.0.3");
+    for (manifest, size) in [(&future, None), (&game, None), (&big, Some(9 * 1024 * 1024))] {
+        let package = package_of(manifest, b"new()", &catalogue);
+        let (shop, mut listed) = listing(&[(manifest, &package)]);
+        if let Some(size) = size {
+            listed[0].size = size;
+        }
+        let version = listed[0].version.clone();
+        assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "{version}");
+        assert_eq!(script(&dir), b"old()", "{version}");
+    }
+}
+
+// A download that fails, or bytes that are not the ones the index listed, leave the installed
+// version as it was.
+#[tokio::test]
+async fn a_failed_download_or_other_bytes_leave_the_installed_version() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.code", "1.0.1");
+    let newer = package_of(&manifest, b"new()", &catalogue);
+    let (mut shop, listed) = listing(&[(&manifest, &newer)]);
+    shop.files.clear();
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "offline");
+    let (mut shop, listed) = listing(&[(&manifest, &newer)]);
+    let swapped = package_of(&tool("com.example.code", "1.0.1"), b"evil()", &catalogue);
+    shop.files.insert(listed[0].url.clone(), swapped);
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "other bytes");
+    assert_eq!(script(&dir), b"old()");
+    assert_eq!(grant_and_version(&core, "com.example.code").await.1, "1.0.0");
+}
+
+// A plugin open on the screen (or still saying goodbye) does not change under it: it is updated
+// on a later pass, once it is closed.
+#[tokio::test]
+async fn an_open_plugin_waits_for_the_next_pass() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.code", "1.0.1");
+    let newer = package_of(&manifest, b"new()", &catalogue);
+    let (shop, listed) = listing(&[(&manifest, &newer)]);
+    let open: std::collections::HashSet<String> = ["com.example.code".to_owned()].into();
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &open).await.is_empty());
+    assert_eq!(script(&dir), b"old()");
+    assert_eq!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await, ["com.example.code"]);
+    assert_eq!(script(&dir), b"new()");
+}
