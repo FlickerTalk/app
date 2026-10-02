@@ -3,7 +3,7 @@
 // bottom, a line above it shows what the other one writes, and the thread is one tap away. The game
 // keeps running while the thread is shown, and across a trip to the call screen.
 import type { Locator, Page } from "@playwright/test";
-import { callsTo, expect, frameHeard, servePluginFrames, test } from "./helpers";
+import { callsTo, expect, frameHeard, frameSays, servePluginFrames, test } from "./helpers";
 
 const BOB = "ft_bob123456789";
 const TICTACTOE = "com.flickertalk.game.tictactoe";
@@ -147,6 +147,44 @@ test.describe("on a phone", () => {
     await expect.poll(() => app.evaluate(() => document.documentElement.classList.contains("ft-keyboard-open"))).toBe(true);
     await laidOut(app, { width: 360, height: 740 - 300 });
     await shot(app, "phone-keyboard-dark");
+  });
+
+  // Seen on the Samsung (2026-10-03): with the keyboard open the user scrolls the board in the
+  // small area; once the message is sent and the keyboard goes, the game is shown from its top
+  // again (its score and status), not left scrolled down.
+  test("the game is shown from its top again when the keyboard goes", async ({ app }) => {
+    await app.addInitScript(() => {
+      const real = window.visualViewport!;
+      let keyboard = 0;
+      const fake = new EventTarget();
+      Object.defineProperties(fake, {
+        height: { get: () => window.innerHeight - keyboard },
+        offsetTop: { get: () => 0 },
+        width: { get: () => real.width },
+        offsetLeft: { get: () => 0 },
+        pageTop: { get: () => 0 },
+        pageLeft: { get: () => 0 },
+        scale: { get: () => 1 },
+      });
+      Object.defineProperty(window, "visualViewport", { value: fake, configurable: true });
+      (window as unknown as { __keyboard: (height: number) => void }).__keyboard = (height) => {
+        keyboard = height;
+        fake.dispatchEvent(new Event("resize"));
+      };
+    });
+    await app.goto(`/chat/${BOB}`);
+    await playFromTheChat(app, app.getByTestId("apps"));
+    // A game taller than the room, as a chess board with its score is on a phone.
+    await frameSays(app, { type: "ft.height", height: 900 });
+    const area = app.getByTestId("game-area");
+    await app.evaluate(() => (window as unknown as { __keyboard: (height: number) => void }).__keyboard(300));
+    await expect.poll(() => app.evaluate(() => document.documentElement.classList.contains("ft-keyboard-open"))).toBe(true);
+    await area.evaluate((element) => (element.scrollTop = 160));
+    expect(await area.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+
+    await app.evaluate(() => (window as unknown as { __keyboard: (height: number) => void }).__keyboard(0));
+    await expect.poll(() => app.evaluate(() => document.documentElement.classList.contains("ft-keyboard-open"))).toBe(false);
+    await expect.poll(() => area.evaluate((element) => element.scrollTop)).toBe(0);
   });
 
   // 📞 goes to the call screen as from any chat; back in the chat, the game is still there and

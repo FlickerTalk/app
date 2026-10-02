@@ -97,7 +97,7 @@ import {
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBackWhile } from "../back";
 import { t } from "../i18n";
-import { useStickToEnd, type Scrollable } from "../viewport";
+import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string }>(), {
@@ -340,6 +340,18 @@ async function peek() {
     await scrollToEnd();
   }
 }
+// The keyboard gone (seen on the Samsung, 2026-10-03): the game is shown from its top again, its
+// score and status, not left where it was scrolled in the small room the keyboard left.
+const gameArea = ref<HTMLElement | null>(null);
+let keyboardWasOpen = false;
+const unwatchKeyboard = watchViewport({
+  before: () => (keyboardWasOpen = document.documentElement.classList.contains("ft-keyboard-open")),
+  after: () => {
+    if (keyboardWasOpen && !document.documentElement.classList.contains("ft-keyboard-open") && gameArea.value) gameArea.value.scrollTop = 0;
+  },
+});
+onUnmounted(unwatchKeyboard);
+
 /** A file a game made waits in the composer; the `done` that follows it does not end the game. */
 let stagedByGame = false;
 function pluginDone() {
@@ -690,7 +702,7 @@ watch(
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
-      <div v-show="!peeking" class="ft-room__game" data-test="game-area">
+      <div v-show="!peeking" ref="gameArea" class="ft-room__game" data-test="game-area">
         <PluginSheet
           :plugin="plugin"
           :contact="chatId"
