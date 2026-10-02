@@ -2923,16 +2923,30 @@ pub async fn core_send_file(contact: String, upload: String, name: String, mime:
 pub const PLUGIN_FILE_LIMIT: u64 = 32 * 1024 * 1024;
 
 /// Reads a file the user picked, for a plugin that asked for one. Only a file the user chose in
-/// the system picker (so only from the picker's own folder, M1), and only up to the limit.
+/// the system picker (so only from the picker's own folder, M1), and only up to the limit. The
+/// picker's copy goes with the read (`take_picked`).
 #[tauri::command]
 pub async fn core_read_picked(path: String, client: State<'_, Client>) -> Result<String, String> {
-    let path = picked_path(client.dir()?, &path)?;
-    let size = std::fs::metadata(&path).map_err(failed)?.len();
-    if size > PLUGIN_FILE_LIMIT {
-        return Err("that file is too big to hand over".to_owned());
+    Ok(BASE64.encode(take_picked(client.dir()?, &path)?))
+}
+
+/// The bytes of the picker's copy of what the user chose for a plugin, and the copy is deleted,
+/// handed over or not: the original, with what Clean strips (a photo's place), does not stay in
+/// the app (2026-10-02). Only a copy in the picker's own folders: each pick is a fresh one that no
+/// message points to, never a file a plugin made or one from the drive.
+pub fn take_picked(dir: &Path, path: &str) -> Result<Vec<u8>, String> {
+    let path = picked_path(dir, path)?;
+    let pickers = [dir.join("uploads"), dir.join("files").join("uploads")];
+    if !pickers.iter().filter_map(|root| root.canonicalize().ok()).any(|root| path.starts_with(&root)) {
+        return Err("that is not a file the user picked".to_owned());
     }
-    let bytes = std::fs::read(&path).map_err(failed)?;
-    Ok(BASE64.encode(bytes))
+    let read = match std::fs::metadata(&path) {
+        Ok(meta) if meta.len() > PLUGIN_FILE_LIMIT => Err("that file is too big to hand over".to_owned()),
+        Ok(_) => std::fs::read(&path).map_err(failed),
+        Err(error) => Err(failed(error)),
+    };
+    let _ = std::fs::remove_file(&path);
+    read
 }
 
 /// What became of a file a plugin made (A2): sent by itself (`auto`), or left in the composer
@@ -4213,6 +4227,64 @@ mod tests {
         ] {
             assert!(picked_path(&dir, &refused.to_string_lossy()).is_err(), "{}", refused.display());
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 2026-10-02: the picker's copy of what the user chose for a plugin (a photo with its place,
+    // before Clean strips it) does not stay in the app once the plugin has the bytes.
+    #[test]
+    fn a_picked_copy_is_gone_once_a_plugin_has_it() {
+        let dir = scratch("taken");
+        for folder in [dir.join("files").join("uploads"), dir.join("uploads")] {
+            std::fs::create_dir_all(&folder).unwrap();
+            let copy = folder.join("1759400000000-photo.jpg");
+            std::fs::write(&copy, b"jpg with gps").unwrap();
+
+            assert_eq!(take_picked(&dir, &copy.to_string_lossy()).unwrap(), b"jpg with gps");
+            assert!(!copy.exists(), "{}", copy.display());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Only the picker's own copies go: a file a plugin made, one from the drive or anything else
+    // a picked path may name is refused and left as it was.
+    #[test]
+    fn only_the_pickers_copies_can_be_taken() {
+        let dir = scratch("not-taken");
+        std::fs::create_dir_all(dir.join("files").join("outgoing")).unwrap();
+        std::fs::create_dir_all(dir.join("files").join("drive").join("f1")).unwrap();
+        std::fs::create_dir_all(dir.join("files").join("uploads")).unwrap();
+        let kept = [
+            dir.join("files").join("outgoing").join("1-made.pdf"),
+            dir.join("files").join("drive").join("f1").join("doc.pdf"),
+            dir.join("flickertalk.db"),
+        ];
+        for file in &kept {
+            std::fs::write(file, b"keep").unwrap();
+        }
+        // A link in the picker's folder to a file elsewhere is the file elsewhere.
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&kept[0], dir.join("files").join("uploads").join("link.pdf")).unwrap();
+
+        for refused in kept.iter().cloned().chain([dir.join("files").join("uploads").join("link.pdf")]) {
+            assert!(take_picked(&dir, &refused.to_string_lossy()).is_err(), "{}", refused.display());
+        }
+        for file in &kept {
+            assert_eq!(std::fs::read(file).unwrap(), b"keep", "{}", file.display());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Too big to hand over is not a reason to keep it.
+    #[test]
+    fn a_picked_copy_too_big_for_a_plugin_is_gone_too() {
+        let dir = scratch("too-big");
+        std::fs::create_dir_all(dir.join("files").join("uploads")).unwrap();
+        let copy = dir.join("files").join("uploads").join("1759400000000-video.mp4");
+        std::fs::File::create(&copy).unwrap().set_len(PLUGIN_FILE_LIMIT + 1).unwrap();
+
+        assert!(take_picked(&dir, &copy.to_string_lossy()).is_err());
+        assert!(!copy.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -595,7 +595,10 @@ export async function takePhoto(): Promise<PickedFile[]> {
   return invoke<PickedFile[]>("core_take_photo");
 }
 
-/** The bytes of a file the user picked, for a plugin that asked for one (issue app#3). */
+/**
+ * The bytes of a file the user picked, for a plugin that asked for one (issue app#3). The core
+ * deletes the picker's copy with the read, handed over or not: call it once per pick.
+ */
 export async function readPicked(path: string): Promise<string> {
   return invoke<string>("core_read_picked", { path });
 }
