@@ -1,5 +1,5 @@
-// The chat header on a phone (2026-10-03, seen on a Samsung at 360 px): with the call, video and
-// apps buttons (the games are a tab of the apps since Ioan's decision of 2026-10-03), a long name is
+// The chat header on a phone (2026-10-02, seen on a Samsung at 360 px): with the call, video and
+// apps buttons (the games are a tab of the apps since Ioan's decision of 2026-10-02), a long name is
 // cut with an ellipsis and never drawn under a button, in any language and either direction. The
 // buttons keep their full tap size. Room for the name and status: about 98 px at 360 px and 150 px
 // at 412 px (with four buttons it was 50 and 80).

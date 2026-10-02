@@ -1,6 +1,6 @@
-// The chat's apps sheet (Ioan, 2026-10-03): Ionic's sheet modal with a segment for the plugins and
+// The chat's apps sheet (Ioan, 2026-10-02): Ionic's sheet modal with a segment for the plugins and
 // one for the games, as the apps themselves open. On a phone it is the width of the screen; on a
-// tablet, beside the list, Ionic centres it with a limited width. Long names are cut, not wrapped.
+// tablet, beside the list, it covers exactly the chat pane. Long names are cut, not wrapped.
 import type { Page } from "@playwright/test";
 import { expect, test } from "./helpers";
 
@@ -57,9 +57,10 @@ for (const appearance of ["dark", "light"]) {
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(size.width + 0.5);
         if (size.width >= 768) {
-          // Centred, and not the width of the whole tablet.
-          expect(box.width).toBeLessThanOrEqual(600);
-          expect(Math.abs(box.x + box.width / 2 - size.width / 2)).toBeLessThan(2);
+          // The tablet (decided 2026-10-02): the sheet covers exactly the chat pane, beside the list.
+          const pane = (await app.locator(".ft-chats__detail").boundingBox())!;
+          expect(Math.abs(box.x - pane.x), "starts where the chat pane starts").toBeLessThanOrEqual(1);
+          expect(Math.abs(box.x + box.width - size.width), "ends at the window's end").toBeLessThanOrEqual(1);
         }
         await shot(app, `${size.name}-plugins-${appearance}`);
 

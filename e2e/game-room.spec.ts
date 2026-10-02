@@ -1,4 +1,4 @@
-// The game room (Ioan, 2026-10-03, option A): a game is played inside the conversation, so the
+// The game room (Ioan, 2026-10-02, option A): a game is played inside the conversation, so the
 // two can write while they play. The header (with the voice call) stays on top, the composer at the
 // bottom, a line above it shows what the other one writes, and the thread is one tap away. The game
 // keeps running while the thread is shown, and across a trip to the call screen.
@@ -149,7 +149,7 @@ test.describe("on a phone", () => {
     await shot(app, "phone-keyboard-dark");
   });
 
-  // Seen on the Samsung (2026-10-03): with the keyboard open the user scrolls the board in the
+  // Seen on the Samsung (2026-10-02): with the keyboard open the user scrolls the board in the
   // small area; once the message is sent and the keyboard goes, the game is shown from its top
   // again (its score and status), not left scrolled down.
   test("the game is shown from its top again when the keyboard goes", async ({ app }) => {
