@@ -51,7 +51,7 @@ closeOnBackWhile(() => Boolean(scanner.refused), dismissRefusal);
   align-items: center;
   justify-content: center;
   gap: 28px;
-  padding: calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px);
+  padding: calc(env(safe-area-inset-top) + 24px) 24px calc(var(--ion-safe-area-bottom, 0px) + 24px);
   color: #fff;
 }
 .ft-scanner__frame {
@@ -80,7 +80,7 @@ closeOnBackWhile(() => Boolean(scanner.refused), dismissRefusal);
   position: fixed;
   z-index: 2000;
   inset-inline: 12px;
-  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  bottom: calc(var(--ion-safe-area-bottom, 0px) + 12px);
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
