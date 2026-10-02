@@ -54,3 +54,34 @@ export function initTheme() {
   applyDirection(storedDirection());
   applyAppearance(storedAppearance());
 }
+
+/**
+ * The colours a plugin is handed (2026-10-03): its frame is isolated, so the app's CSS variables
+ * never reach it. Ionic's names, so a plugin's `var(--ion-text-color, …)` follows the app.
+ */
+export const PLUGIN_COLOURS = [
+  "--ion-background-color",
+  "--ion-text-color",
+  "--ion-color-medium",
+  "--ion-item-background",
+  "--ion-border-color",
+  "--ion-color-primary",
+  "--ion-color-primary-contrast",
+  "--ion-color-success",
+  "--ion-color-danger",
+];
+
+/** Where the app keeps a colour a plugin gets under another name: a row of the app is see-through, a plugin's is the surface of a card. */
+const PLUGIN_SOURCES: Record<string, string> = { "--ion-item-background": "--ion-card-background" };
+
+/** Whether the app is dark, and the colours it shows right now, as the plugin gets them. */
+export function pluginTheme(): { dark: boolean; theme: Record<string, string> } {
+  // Ionic's variables are set on the body (variables.css), so that is where they are read.
+  const computed = getComputedStyle(document.body);
+  const theme: Record<string, string> = {};
+  for (const name of PLUGIN_COLOURS) {
+    const value = computed.getPropertyValue(PLUGIN_SOURCES[name] ?? name).trim();
+    if (value) theme[name] = value;
+  }
+  return { dark: root().classList.contains("ft-dark"), theme };
+}

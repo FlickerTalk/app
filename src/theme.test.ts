@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import variablesCss from "./theme/variables.css?raw";
-import { applyAppearance, applyDirection, storedAppearance, storedDirection } from "./theme";
+import { applyAppearance, applyDirection, PLUGIN_COLOURS, pluginTheme, storedAppearance, storedDirection } from "./theme";
 
 function systemPrefersDark(dark: boolean) {
   vi.spyOn(window, "matchMedia").mockReturnValue({
@@ -81,5 +81,56 @@ describe("the theme handed to Ionic", () => {
     const dark = css.match(/html\.ft-dark\[data-direction\] ion-modal\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(token(dark, "ion-background-color")).toBe("var(--ft-surface)");
     expect(token(dark, "ion-toolbar-background")).toBe("var(--ft-surface)");
+  });
+});
+
+// 2026-10-03 (Ioan): a plugin's frame is isolated, so the app hands it its colours: Ionic's names,
+// with the values the app shows right now, and whether it is dark.
+describe("the colours a plugin is handed", () => {
+  afterEach(() => {
+    document.body.removeAttribute("style");
+    document.documentElement.classList.remove("ft-dark");
+  });
+
+  it("are the nine Ionic colours, as the app computes them, and whether it is dark", () => {
+    expect(PLUGIN_COLOURS).toEqual([
+      "--ion-background-color",
+      "--ion-text-color",
+      "--ion-color-medium",
+      "--ion-item-background",
+      "--ion-border-color",
+      "--ion-color-primary",
+      "--ion-color-primary-contrast",
+      "--ion-color-success",
+      "--ion-color-danger",
+    ]);
+    const body = document.body.style;
+    PLUGIN_COLOURS.forEach((name, at) => body.setProperty(name, ` #00000${at}`));
+    // A row of the app is see-through; a plugin is handed the surface of a card instead.
+    body.setProperty("--ion-item-background", "transparent");
+    body.setProperty("--ion-card-background", "#111111");
+
+    const light = pluginTheme();
+    expect(light.dark).toBe(false);
+    expect(light.theme["--ion-text-color"]).toBe("#000001");
+    expect(light.theme["--ion-item-background"]).toBe("#111111");
+    expect(Object.keys(light.theme)).toEqual(PLUGIN_COLOURS);
+
+    document.documentElement.classList.add("ft-dark");
+    expect(pluginTheme().dark).toBe(true);
+  });
+
+  it("leave out a colour the app does not have", () => {
+    document.body.style.setProperty("--ion-text-color", "#ffffff");
+    expect(pluginTheme().theme).toEqual({ "--ion-text-color": "#ffffff" });
+  });
+
+  // Every colour comes from a design token: none is made up for plugins.
+  it("are all defined by the app's tokens", () => {
+    const block = variablesCss.slice(variablesCss.indexOf("html[data-direction] body {"));
+    for (const name of ["--ion-color-medium", "--ion-card-background", "--ion-color-danger", "--ion-border-color"]) {
+      expect(block).toMatch(new RegExp(`${name}:`));
+    }
+    expect(block).toMatch(/--ion-color-medium:\s*var\(--ft-muted\)/);
   });
 });

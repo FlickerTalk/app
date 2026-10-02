@@ -137,6 +137,8 @@ html[data-direction] body {
   --ion-color-primary-shade: var(--ft-accent-2);
   --ion-color-primary-tint: var(--ft-accent);
   --ion-color-danger: #ff4d5e;
+  /* Secondary text; also what a plugin is handed as its muted colour (2026-10-03). */
+  --ion-color-medium: var(--ft-muted);
 
   --ion-toolbar-background: var(--ft-bg);
   --ion-toolbar-border-color: transparent;
