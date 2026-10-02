@@ -20,6 +20,7 @@ import {
 } from "@ionic/vue";
 import {
   banOutline,
+  bulbOutline,
   callOutline,
   checkmarkDoneOutline,
   colorPaletteOutline,
@@ -365,6 +366,11 @@ function chooseAppearance(id: Appearance) {
             <span slot="start" class="ft-tile"><ion-icon :icon="sparklesOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.plan") }}</ion-label>
             <ion-note slot="end">{{ plan }}</ion-note>
+          </ion-item>
+          <!-- 2026-10-02: an anonymous suggestion, mailed on by the router, which keeps nothing. -->
+          <ion-item button detail lines="none" data-test="feedback" @click="router.push('/feedback')">
+            <span slot="start" class="ft-tile"><ion-icon :icon="bulbOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.feedback") }}</ion-label>
           </ion-item>
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="informationCircleOutline" aria-hidden="true" /></span>

@@ -72,6 +72,14 @@ describe("SettingsPage", () => {
     expect(push).toHaveBeenCalledWith("/blocked");
   });
 
+  // 2026-10-02: an anonymous suggestion, from its own page.
+  it("opens the page to suggest something", async () => {
+    const entry = mount(SettingsPage, { shallow: true }).find("[data-test='feedback']");
+    expect(entry.text()).toContain("Suggest something");
+    await entry.trigger("click");
+    expect(push).toHaveBeenCalledWith("/feedback");
+  });
+
   it("lets the user choose how calls are routed", () => {
     const wrapper = mount(SettingsPage, { shallow: true });
     const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Calls");
