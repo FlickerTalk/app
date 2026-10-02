@@ -7,12 +7,12 @@ import {
   IonItem,
   IonLabel,
   IonList,
-  IonNote,
   IonPage,
   IonTitle,
   IonToggle,
   IonToolbar,
   onIonViewWillEnter,
+  onIonViewWillLeave,
 } from "@ionic/vue";
 import { downloadOutline, gameControllerOutline, lockClosedOutline, play, trashOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
@@ -44,6 +44,13 @@ closeOnBackWhile(() => Boolean(picking.value), () => (picking.value = ""));
 onMounted(refresh);
 // A game installed from a chat's invitation shows up when the tab comes back.
 onIonViewWillEnter(refresh);
+// Ionic keeps the tab mounted behind the others: a question left open is forgotten on the way out.
+onIonViewWillLeave(() => (asksToRemove.value = ""));
+
+/** 🗑️ asks about this game, or stops asking when tapped again; one game at a time. */
+function askToRemove(id: string) {
+  asksToRemove.value = asksToRemove.value === id ? "" : id;
+}
 
 async function refresh() {
   await refreshPlugins();
@@ -143,23 +150,29 @@ function playWith(contact: string) {
               <ion-icon :icon="play" aria-hidden="true" />
             </button>
             <button
-              v-if="asksToRemove !== game.id"
               slot="end"
               type="button"
               class="ft-games__button ft-games__remove"
               :data-test="`remove-${game.id}`"
               :aria-label="$t('games.remove')"
-              @click="asksToRemove = game.id"
+              :aria-pressed="asksToRemove === game.id"
+              @click="askToRemove(game.id)"
             >
               <ion-icon :icon="trashOutline" aria-hidden="true" />
             </button>
-            <button v-else slot="end" type="button" class="ft-games__confirm" data-test="remove-confirm" @click="remove(game.id)">
-              {{ $t("games.remove") }}
-            </button>
           </ion-item>
-          <!-- Removing deletes its saved games: said before, next to the button that does it. -->
+          <!-- Removing deletes its saved games: asked once, as Settings asks before erasing, with a
+               way back. -->
           <ion-item v-if="asksToRemove === game.id" lines="none">
-            <ion-note class="ft-games__warning">{{ $t("games.removeWarning") }}</ion-note>
+            <ion-label class="ft-games__warning">{{ $t("games.removeWarning") }}</ion-label>
+            <span slot="end" class="ft-games__choices">
+              <button type="button" class="ft-games__cancel" data-test="remove-cancel" @click="asksToRemove = ''">
+                {{ $t("common.cancel") }}
+              </button>
+              <button type="button" class="ft-games__confirm" data-test="remove-confirm" @click="remove(game.id)">
+                {{ $t("games.remove") }}
+              </button>
+            </span>
           </ion-item>
 
           <ion-item v-for="permission in permissionsOf(game)" :key="permission.key" lines="none">
@@ -259,22 +272,36 @@ function playWith(contact: string) {
 .ft-games__install {
   color: var(--ft-accent);
 }
-.ft-games__remove,
-.ft-games__confirm {
+.ft-games__remove {
   color: var(--ion-color-danger);
-}
-.ft-games__confirm {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
 }
 .ft-games__warning {
   color: var(--ion-color-danger);
   font-size: 13px;
+  white-space: normal;
+}
+/* The same pair as Settings' erase: a quiet way back and a red yes. */
+.ft-games__choices {
+  display: flex;
+  gap: 8px;
+}
+.ft-games__cancel,
+.ft-games__confirm {
+  appearance: none;
+  padding: 7px 14px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ft-games__confirm {
+  border-color: transparent;
+  background: var(--ion-color-danger);
+  color: #fff;
+  font-weight: 600;
 }
 .ft-games__sheet {
   position: fixed;

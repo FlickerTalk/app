@@ -50,6 +50,19 @@ for (const appearance of ["dark", "light"]) {
 
     test("with no game installed, the tab says so", async ({ app }) => {
       await app.goto("/tabs/games");
+      // A question left open is forgotten when the tab is left, and can be cancelled.
+      await app.getByTestId(`remove-${TICTACTOE}`).click();
+      await shot(app, "games-remove-ask");
+      await app.getByRole("tab", { name: "Chats" }).click();
+      await expect(app).toHaveURL(/\/tabs\/chats$/);
+      await expect(app.getByTestId("my-games")).toBeHidden();
+      await app.getByRole("tab", { name: "Games" }).click();
+      await expect(app.getByTestId("my-games")).toBeVisible();
+      await expect(app.getByTestId("remove-confirm")).toHaveCount(0);
+      await app.getByTestId(`remove-${TICTACTOE}`).click();
+      await app.getByTestId("remove-cancel").click();
+      await expect(app.getByTestId("remove-confirm")).toHaveCount(0);
+
       await app.getByTestId(`remove-${TICTACTOE}`).click();
       await expect(app.getByTestId("my-games")).toContainText("Removing it deletes its saved games on this phone.");
       await app.getByTestId("remove-confirm").click();
