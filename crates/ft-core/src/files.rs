@@ -490,7 +490,7 @@ pub async fn referenced_files(store: &Store, files_dir: &Path) -> Result<HashSet
     Ok(store.file_paths().await?.iter().map(|stored| canonical(&resolve(Path::new(stored), files_dir))).collect())
 }
 
-fn canonical(path: &Path) -> PathBuf {
+pub(crate) fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
