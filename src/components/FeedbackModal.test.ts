@@ -130,6 +130,33 @@ describe("FeedbackModal", () => {
     expect(outcome(wrapper).text()).toBe("Sent. Thank you");
   });
 
+  // Found on the phones (2026-10-02): the thanks stayed under the button while the next suggestion
+  // was typed. What came of the last send shows until the text is touched again, then goes.
+  it("shows the thanks until something new is typed, then lets it go", async () => {
+    answering("sent");
+    const wrapper = open();
+    await write(wrapper, "Stickers, please");
+    await send(wrapper);
+    expect(outcome(wrapper).text()).toBe("Sent. Thank you");
+    await flushPromises();
+    expect(outcome(wrapper).exists()).toBe(true);
+    await write(wrapper, "A");
+    expect(outcome(wrapper).exists()).toBe(false);
+  });
+
+  it("shows why it did not go until the kept text is edited, then lets it go", async () => {
+    for (const word of ["failed", "tooMany"]) {
+      answering(word);
+      const wrapper = open();
+      await write(wrapper, "One more idea");
+      await send(wrapper);
+      expect(outcome(wrapper).exists()).toBe(true);
+      await write(wrapper, "One more idea!");
+      expect(outcome(wrapper).exists(), word).toBe(false);
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("One more idea!");
+    }
+  });
+
   // Ionic asks before a tap outside (or Escape, or a swipe) dismisses the modal: nothing of a
   // suggestion is kept, so a stray tap must not throw away what was written.
   it("lets a tap outside dismiss it only with nothing written", async () => {
