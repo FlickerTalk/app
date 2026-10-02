@@ -31,7 +31,7 @@ rand = "0.9"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
 
 [dev-dependencies]
-# A fake router with a real WebSocket, for the app leaving the foreground (tests/background.rs).
+# A fake router with a real WebSocket, for the app leaving the foreground and suggestions (tests/background.rs).
 axum = { version = "0.8", features = ["ws"] }
 # SHA-256, to check the login's PKCE challenge (already in the tree through ft-vault).
 ring = "0.17"
