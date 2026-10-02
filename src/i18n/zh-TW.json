@@ -193,6 +193,7 @@
     "title": "設定",
     "yourId": "你的 FlickerTalk ID",
     "copyId": "複製 ID",
+    "idCopied": "已複製 ID",
     "showQr": "顯示我的 QR 碼",
     "mailbox": "離線信箱",
     "mailboxNote": "已加密 · 取回後刪除",

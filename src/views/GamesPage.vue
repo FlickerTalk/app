@@ -240,7 +240,7 @@ function playWith(contact: string) {
           </ion-list-header>
           <ion-item v-for="chat in place.chats" :key="chat.id" button :detail="false" :data-test="`play-with-${chat.id}`" @click="playWith(chat.id)">
             <Avatar slot="start" :name="chat.name" :hue="chat.hue" :size="36" />
-            <ion-label class="ion-text-nowrap">{{ chat.name }}</ion-label>
+            <ion-label class="ion-text-nowrap" dir="auto">{{ chat.name }}</ion-label>
           </ion-item>
         </ion-list>
       </ion-content>

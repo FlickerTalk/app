@@ -38,6 +38,12 @@ describe("CallBar", () => {
     expect(bar(mount(CallBar, { shallow: true })).exists()).toBe(false);
   });
 
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the name in its own direction", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    expect(mount(CallBar, { shallow: true }).find(".ft-callbar__name").attributes("dir")).toBe("auto");
+  });
+
   it("goes back to the call going on", async () => {
     Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
     const wrapper = mount(CallBar, { shallow: true });

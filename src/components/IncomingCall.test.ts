@@ -26,6 +26,12 @@ describe("IncomingCall", () => {
     expect(wrapper.find("[aria-label='Video']").exists()).toBe(true);
   });
 
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the name in its own direction", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "ringing" });
+    expect(mount(IncomingCall, { shallow: true }).find(".ft-incoming__name").attributes("dir")).toBe("auto");
+  });
+
   it("answers and opens the call", async () => {
     Object.assign(call, { id: "x", contact: "c1", phase: "ringing" });
     const wrapper = mount(IncomingCall, { shallow: true });
