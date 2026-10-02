@@ -113,6 +113,7 @@ const colors: { id: Direction; label: string; swatch: string }[] = [
   { id: "mono", label: t("colors.mono"), swatch: "linear-gradient(135deg, #ffffff 50%, #000000 50%)" },
   { id: "ember", label: t("colors.ember"), swatch: "linear-gradient(135deg, #ffa24c, #ff6a3d)" },
   { id: "aurora", label: t("colors.aurora"), swatch: "linear-gradient(135deg, #3ddbc4, #7b7cff)" },
+  { id: "lime", label: t("colors.lime"), swatch: "linear-gradient(135deg, #000000 50%, #c6f432 50%)" },
 ];
 const appearances: { id: Appearance; label: string; icon: string }[] = [
   { id: "system", label: t("settings.system"), icon: phonePortraitOutline },

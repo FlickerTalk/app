@@ -219,14 +219,20 @@ describe("SettingsPage", () => {
     expect(mount(SettingsPage, { shallow: true }).find("[data-test='poc']").exists()).toBe(false);
   });
 
-  it("lets the user pick one of the three colors", async () => {
+  it("lets the user pick one of the four colors", async () => {
     const wrapper = mount(SettingsPage, { shallow: true });
-    for (const label of ["Ember", "Aurora", "Mono"]) {
-      expect(wrapper.find(`button[aria-label='${label}']`).exists()).toBe(true);
-    }
+    expect(wrapper.findAll(".ft-swatch").map((swatch) => swatch.attributes("aria-label"))).toEqual(["Mono", "Ember", "Aurora", "Lime"]);
     await wrapper.find("button[aria-label='Aurora']").trigger("click");
     expect(document.documentElement.dataset.direction).toBe("aurora");
     expect(wrapper.find("button[aria-label='Aurora']").attributes("aria-pressed")).toBe("true");
+  });
+
+  it("applies the lime colors when they are picked", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("button[aria-label='Lime']").trigger("click");
+    expect(document.documentElement.dataset.direction).toBe("lime");
+    expect(localStorage.getItem("ft-direction")).toBe("lime");
+    expect(wrapper.find("button[aria-label='Lime']").attributes("aria-pressed")).toBe("true");
   });
 
   it("lets the user choose a light, dark or system appearance", async () => {

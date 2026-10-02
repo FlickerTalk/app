@@ -269,7 +269,8 @@
   "colors": {
     "ember": "Brace",
     "aurora": "Aurora",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Lime"
   },
   "qr": {
     "label": "Codice QR"
