@@ -1,6 +1,6 @@
 /*
  * FlickerTalk design tokens (prototype).
- * Three visual directions (ember, aurora, mono), each in light and dark (`html.ft-dark`).
+ * Four visual directions (ember, aurora, mono, lime), each in light and dark (`html.ft-dark`).
  * Tokens (`--ft-*`) are mapped onto Ionic's CSS variables at the bottom.
  * No external fonts or CDNs: system fonts only (privacy).
  */
@@ -43,9 +43,11 @@ html[data-direction="ember"] {
   --ft-text-rgb: 28, 23, 20;
   --ft-bg-rgb: 251, 248, 245;
   --ft-muted: #7d726a;
-  --ft-accent: #e8731f;
-  --ft-accent-rgb: 232, 115, 31;
-  --ft-accent-2: #d9481e;
+  /* Darkened, same hue, to read at WCAG AA (2026-10-02; were #e8731f and #d9481e): white on them,
+     and they as text on the page, the surfaces and their own tint. */
+  --ft-accent: #9e4c10;
+  --ft-accent-rgb: 158, 76, 16;
+  --ft-accent-2: #b53c19;
   --ft-on-accent: #ffffff;
   --ft-glow: rgba(232, 115, 31, 0.35);
 }
@@ -75,9 +77,10 @@ html[data-direction="aurora"] {
   --ft-text-rgb: 18, 24, 33;
   --ft-bg-rgb: 246, 248, 251;
   --ft-muted: #66758a;
-  --ft-accent: #0fa89a;
-  --ft-accent-rgb: 15, 168, 154;
-  --ft-accent-2: #5b5cf0;
+  /* Darkened, same hue, to read at WCAG AA (2026-10-02; were #0fa89a and #5b5cf0). */
+  --ft-accent: #0a6f66;
+  --ft-accent-rgb: 10, 111, 102;
+  --ft-accent-2: #4a4bee;
   --ft-on-accent: #ffffff;
   --ft-glow: rgba(15, 168, 154, 0.3);
 }
@@ -134,6 +137,39 @@ html[data-direction="mono"] .ft-avatar {
   filter: grayscale(1);
 }
 
+/* ---------- Lime: the first Mono, black with an electric lime, back as a choice (Ioan, 2026-10-02) ---------- */
+/* In the light the lime is darkened, same hue, so white reads on it and it reads on white (WCAG AA). */
+html[data-direction="lime"] {
+  --ft-bg: #ffffff;
+  --ft-surface: #ffffff;
+  --ft-surface-2: #f1f1f3;
+  --ft-border: rgba(0, 0, 0, 0.08);
+  --ft-text: #0a0a0b;
+  --ft-text-rgb: 10, 10, 11;
+  --ft-bg-rgb: 255, 255, 255;
+  --ft-muted: #6e6e73;
+  --ft-accent: #516806;
+  --ft-accent-rgb: 81, 104, 6;
+  --ft-accent-2: #516806;
+  --ft-on-accent: #ffffff;
+  --ft-glow: rgba(120, 170, 0, 0.35);
+}
+html.ft-dark[data-direction="lime"] {
+  --ft-bg: #000000;
+  --ft-surface: #0e0e0f;
+  --ft-surface-2: #1b1b1d;
+  --ft-border: rgba(255, 255, 255, 0.08);
+  --ft-text: #f5f5f7;
+  --ft-text-rgb: 245, 245, 247;
+  --ft-bg-rgb: 0, 0, 0;
+  --ft-muted: #8e8e93;
+  --ft-accent: #c6f432;
+  --ft-accent-rgb: 198, 244, 50;
+  --ft-accent-2: #c6f432;
+  --ft-on-accent: #0b0f00;
+  --ft-glow: rgba(198, 244, 50, 0.4);
+}
+
 /* ---------- Tokens → Ionic ---------- */
 html[data-direction] body {
   color-scheme: light;
@@ -150,7 +186,20 @@ html[data-direction] body {
   --ion-color-primary-contrast: var(--ft-on-accent);
   --ion-color-primary-shade: var(--ft-accent-2);
   --ion-color-primary-tint: var(--ft-accent);
-  --ion-color-danger: #ff4d5e;
+  /* Light: the surface, with the text on it; in the dark themes that is dark, as in Ionic's own dark
+     palette. A button on the primary (the Play of this phone's invitation, 2026-10-02). */
+  --ion-color-light: var(--ft-surface);
+  --ion-color-light-contrast: var(--ft-text);
+  --ion-color-light-shade: var(--ft-surface-2);
+  --ion-color-light-tint: var(--ft-surface);
+  /* Danger in the light themes: #ff4d5e darkened, same hue, to read at 4.5:1 on the page and the
+     surfaces (2026-10-02; it was about 3:1). The dark themes keep #ff4d5e (below). The companions
+     are read by Ionic's color="danger" (labels, buttons). */
+  --ion-color-danger: #d80015;
+  --ion-color-danger-rgb: 216, 0, 21;
+  --ion-color-danger-contrast: #ffffff;
+  --ion-color-danger-shade: #be0012;
+  --ion-color-danger-tint: #dc1a2c;
   /* Secondary text; also what a plugin is handed as its muted colour (2026-10-02). */
   --ion-color-medium: var(--ft-muted);
 
@@ -179,6 +228,11 @@ html[data-direction] body {
 }
 html.ft-dark[data-direction] body {
   color-scheme: dark;
+  --ion-color-danger: #ff4d5e;
+  --ion-color-danger-rgb: 255, 77, 94;
+  --ion-color-danger-contrast: #ffffff;
+  --ion-color-danger-shade: #e04453;
+  --ion-color-danger-tint: #ff5f6e;
 }
 /* As Ionic's own dark palette does: a modal (the apps sheet) is lifted onto the surface colour, or
    on a black page it would have no edge at all (2026-10-02). */

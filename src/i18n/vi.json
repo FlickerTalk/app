@@ -193,6 +193,7 @@
     "title": "Cài đặt",
     "yourId": "ID FlickerTalk của bạn",
     "copyId": "Sao chép ID",
+    "idCopied": "Đã sao chép ID",
     "showQr": "Hiện mã QR của tôi",
     "mailbox": "Hộp thư ngoại tuyến",
     "mailboxNote": "Đã mã hóa · xóa khi được nhận",
@@ -268,7 +269,8 @@
   "colors": {
     "ember": "Ember",
     "aurora": "Aurora",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Lime"
   },
   "qr": {
     "label": "Mã QR"

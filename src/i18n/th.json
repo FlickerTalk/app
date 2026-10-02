@@ -193,6 +193,7 @@
     "title": "ตั้งค่า",
     "yourId": "ID FlickerTalk ของคุณ",
     "copyId": "คัดลอก ID",
+    "idCopied": "คัดลอก ID แล้ว",
     "showQr": "แสดง QR ของฉัน",
     "mailbox": "กล่องข้อความออฟไลน์",
     "mailboxNote": "เข้ารหัส · ลบเมื่อรับแล้ว",
@@ -268,7 +269,8 @@
   "colors": {
     "ember": "เอมเบอร์",
     "aurora": "ออโรรา",
-    "mono": "โมโน"
+    "mono": "โมโน",
+    "lime": "ไลม์"
   },
   "qr": {
     "label": "คิวอาร์โค้ด"

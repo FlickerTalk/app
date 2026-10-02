@@ -18,6 +18,11 @@ describe("ContactPage", () => {
     expect(wrapper.find("[data-test='fingerprint']").text()).toBe("a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718");
   });
 
+  // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.
+  it("shows the name in its own direction", () => {
+    expect(mount(ContactPage, { shallow: true }).find(".ft-contact__name").attributes("dir")).toBe("auto");
+  });
+
   // The fingerprint card is how to verify in person; no separate button that does nothing.
   it("offers blocking and reporting", () => {
     const wrapper = mount(ContactPage, { shallow: true });

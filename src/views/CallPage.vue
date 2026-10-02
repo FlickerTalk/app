@@ -30,6 +30,7 @@ import {
   type VideoLayout,
 } from "../calls";
 import { t } from "../i18n";
+import { darkScreen } from "../theme";
 
 const route = useRoute();
 const router = useRouter();
@@ -125,6 +126,8 @@ function hide() {
 // While the pictures show, the app is see-through around them (the class lives on `html`).
 const seeThrough = ref(true);
 watchEffect(() => document.documentElement.classList.toggle("ft-call-video", Boolean(stage.value) && seeThrough.value));
+// A dark screen whatever the appearance: the system bars' icons turn light over it (2026-10-02).
+watchEffect(() => darkScreen("call", onScreen.value && Boolean(stage.value || dark.value)));
 
 watch([native, stage, showRemote, showLocal, () => call.view.facing], relayout, { flush: "post" });
 const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(relayout);
@@ -220,6 +223,7 @@ onUnmounted(() => {
   hide();
   seeThrough.value = false;
   document.documentElement.classList.remove("ft-call-video");
+  darkScreen("call", false);
   left = true;
   clearTimeout(leaving);
 });
@@ -272,7 +276,7 @@ watch(
 
         <div class="ft-call__peer">
           <Avatar v-if="native ? !stage : !isVideo || !call.remote" :name="contact.name" :hue="contact.hue" :size="132" />
-          <h1 class="ft-call__name">{{ contact.name }}</h1>
+          <h1 class="ft-call__name" dir="auto">{{ contact.name }}</h1>
           <span class="ft-call__state" :class="{ 'is-live': call.phase === 'active' }">{{ state }}</span>
         </div>
 
@@ -395,7 +399,7 @@ watch(
   justify-content: space-between;
   min-height: 100%;
   padding: calc(env(safe-area-inset-top) + var(--ft-space-5)) var(--ft-space-4)
-    calc(env(safe-area-inset-bottom) + var(--ft-space-5));
+    calc(var(--ion-safe-area-bottom, 0px) + var(--ft-space-5));
 }
 
 .ft-call__video {
@@ -418,7 +422,7 @@ watch(
   transform: scaleX(-1);
   position: absolute;
   inset-inline-end: var(--ft-space-4);
-  bottom: calc(env(safe-area-inset-bottom) + 110px);
+  bottom: calc(var(--ion-safe-area-bottom, 0px) + 110px);
   width: 96px;
   height: 140px;
   border: 1px solid var(--ft-border);
@@ -505,7 +509,7 @@ watch(
 .ft-call__slot--local.is-thumb {
   inset: auto;
   inset-inline-end: var(--ft-space-4);
-  bottom: calc(env(safe-area-inset-bottom) + 110px);
+  bottom: calc(var(--ion-safe-area-bottom, 0px) + 110px);
   width: 96px;
   height: 140px;
   border-radius: 16px;

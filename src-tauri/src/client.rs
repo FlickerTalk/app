@@ -25,6 +25,8 @@ use crate::push_core::{may_start_from_push, CallScreen, Host, PushSide};
 pub const ROUTER: &str = "https://api.flickertalk.com";
 /// Sent to the UI whenever contacts or messages change; `contact` says which conversation.
 pub const CHANGED_EVENT: &str = "ft://changed";
+/// Sent to the UI when the plugins installed here changed (an update, 2026-10-03): it reads them again.
+pub const PLUGINS_EVENT: &str = "ft://plugins";
 
 pub fn state_name(state: MessageState) -> &'static str {
     match state {
@@ -920,6 +922,8 @@ impl Client {
             let _ = online.core.set_entitlement(until).await;
         }
         refresh_served_plugins(app, &online.core, dir).await;
+        // And what the user downloaded, from the catalogue, in the background (2026-10-03).
+        look_for_updates(app, online.core.clone(), dir);
         // The weekly hours live in the core; the native side keeps its own copy (app#7).
         if let Ok(week) = online.core.quiet_week().await {
             let _ = app.platform().set_quiet_hours(&week);
@@ -949,10 +953,37 @@ fn opened_key(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<[u8; 3
     storage_key(dir, vault)
 }
 
+/// Where files wait on their way somewhere (`ft_core::files::TRANSIT_FOLDERS`), and the pickers'
+/// old folder outside `files/`.
+fn transit_folders(dir: &Path) -> Vec<PathBuf> {
+    let files = dir.join("files");
+    ft_core::files::TRANSIT_FOLDERS.iter().map(|name| files.join(name)).chain([dir.join("uploads")]).collect()
+}
+
+/// Whether this process has had its first start, and with it its one sweep (`open_store`). A
+/// process value, like `RUNNING`: a push's core has no app state to keep it in.
+static SWEPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The phone's database. On the first start in this process only, what waited on its way
+/// somewhere and no message points to goes first (2026-10-02). That start runs before any screen
+/// is up (`main.ts` mounts once `start()` has settled, and every core command waits under
+/// `RUNNING` for it). A later start in the same process (a failed one tried again, iOS after
+/// erasing or restoring, the app after a push's core) has a WebView that may hold a staged or
+/// just-picked file: never swept then, only at the next cold start. A first start that fails
+/// uses the sweep up too. A store that cannot say what messages point to deletes nothing.
+async fn open_store(dir: &Path, swept: &std::sync::atomic::AtomicBool) -> anyhow::Result<Store> {
+    let sweeps = !swept.swap(true, std::sync::atomic::Ordering::SeqCst);
+    let store = Store::open(&dir.join(DATABASE)).await?;
+    if sweeps {
+        let _ = ft_core::files::sweep_orphans(&store, &dir.join("files"), transit_folders(dir)).await;
+    }
+    Ok(store)
+}
+
 /// Opens the core over what this phone keeps in `dir` and connects it to the router, for the app
 /// or for a call push before it (Android, 2026-10-01).
 async fn boot(dir: &Path, key: [u8; 32]) -> anyhow::Result<Online> {
-    let store = Store::open(&dir.join(DATABASE)).await?;
+    let store = open_store(dir, &SWEPT).await?;
     let online = online::start(store, key, ROUTER, SessionConfig::default()).await?;
     online.core.set_files_dir(dir.join("files"));
     online.core.set_move_dir(dir.join(MOVE_DIR));
@@ -1017,6 +1048,7 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                     if let Some(app) = host.app().cloned() {
                         let _ = app.emit(CHANGED_EVENT, EverythingChanged::default());
                         let _ = app.emit(VAULT_EVENT, ());
+                        let _ = app.emit(PLUGINS_EVENT, ());
                         sync_reminders(&app, &core_for_events).await;
                     }
                     continue;
@@ -1025,6 +1057,7 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
             };
             host.saw(&event, std::time::Instant::now());
             let app = host.app().cloned();
+            let plugins = matches!(event, Event::PluginsChanged);
             let (contact, circle) = match event {
                 Event::MessagesChanged { contact } => (Some(contact), None),
                 Event::CircleMessagesChanged { circle } => (None, Some(circle)),
@@ -1112,6 +1145,9 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
             };
             if let Some(app) = app {
                 let _ = app.emit(CHANGED_EVENT, Changed { contact, circle });
+                if plugins {
+                    let _ = app.emit(PLUGINS_EVENT, ());
+                }
             }
         }
     });
@@ -1464,6 +1500,7 @@ pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, 
                 dir: dir.join("plugins").join(&plugin.manifest.id),
                 component,
                 policy: crate::plugins::policy_for(&plugin.granted),
+                version: plugin.manifest.version.clone(),
             },
         );
     }
@@ -2305,7 +2342,7 @@ fn downloads() -> bool {
 /// The tools the user may add: what the app carries, plus the catalogue where it is read (§56).
 /// A catalogue that cannot be reached is not an error: what the app carries is still offered.
 #[tauri::command]
-pub async fn core_catalogue(client: State<'_, Client>) -> Result<Vec<OfferedPlugin>, String> {
+pub async fn core_catalogue(app: AppHandle, client: State<'_, Client>) -> Result<Vec<OfferedPlugin>, String> {
     let core = client.core().await?;
     let here: Vec<String> =
         core.plugins().await.map_err(failed)?.into_iter().map(|plugin| plugin.manifest.id).collect();
@@ -2313,6 +2350,11 @@ pub async fn core_catalogue(client: State<'_, Client>) -> Result<Vec<OfferedPlug
         true => core.catalogue(client.web(), &ft_plugins::catalogue()).await.unwrap_or_default(),
         false => Vec::new(),
     };
+    // What the user downloaded is updated from what was just read (2026-10-03); the list the
+    // screen gets now is the same either way, and it hears of the update by `ft://plugins`.
+    if !listed.is_empty() {
+        update_downloaded(&app, core.clone(), listed.clone());
+    }
     Ok(merged(seeds(), &listed, &here))
 }
 
@@ -2345,6 +2387,85 @@ pub async fn core_plugin_add(plugin: String, app: AppHandle, client: State<'_, C
     }
     refresh_served_plugins(&app, &core, client.dir()?).await;
     Ok(())
+}
+
+/// Which plugins have a frame on screen, or one still saying goodbye (2026-10-03): an update
+/// never changes the code under them. The screens say when a frame opens and when it has closed.
+#[derive(Default)]
+pub struct OpenPlugins(std::sync::Mutex<HashMap<String, u32>>);
+
+impl OpenPlugins {
+    pub fn set(&self, id: &str, open: bool) {
+        let mut frames = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let count = frames.entry(id.to_owned()).or_default();
+        *count = if open { *count + 1 } else { count.saturating_sub(1) };
+        if *count == 0 {
+            frames.remove(id);
+        }
+    }
+
+    pub fn ids(&self) -> std::collections::HashSet<String> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).keys().cloned().collect()
+    }
+}
+
+/// A frame of a plugin opened (`open`) or has closed for good, as the screen says.
+#[tauri::command]
+pub fn core_plugin_open(plugin: String, open: bool, frames: State<'_, OpenPlugins>) {
+    frames.set(&plugin, open);
+}
+
+/// How often the app looks for updates on its own, after it starts: the screens that read the
+/// catalogue look every time they do.
+const UPDATE_EVERY_MS: i64 = 12 * 3_600_000;
+/// When it last looked, in milliseconds; next to the plugins, never inside their folder.
+const UPDATE_LOOK: &str = "plugin-updates.at";
+
+fn updates_due(last: Option<i64>, now: i64) -> bool {
+    last.is_none_or(|last| now - last >= UPDATE_EVERY_MS || last > now)
+}
+
+fn last_update_look(dir: &Path) -> Option<i64> {
+    std::fs::read_to_string(dir.join(UPDATE_LOOK)).ok()?.trim().parse().ok()
+}
+
+fn looked_for_updates(dir: &Path, now: i64) {
+    let _ = std::fs::write(dir.join(UPDATE_LOOK), now.to_string());
+}
+
+/// Updates what the user downloaded from the catalogue just read (2026-10-03), in the background:
+/// the screen never waits for it, nothing is logged, and only the catalogue's own host is asked
+/// for the packages (`add_plugin`). A plugin with a frame open waits for a later pass.
+fn update_downloaded(app: &AppHandle, core: Arc<ft_core::Core>, listed: Vec<ft_plugins::CatalogueEntry>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let client = app.state::<Client>();
+        let open = app.state::<OpenPlugins>().ids();
+        let updated = core.update_plugins(&listed, client.web(), &ft_plugins::catalogue(), &open).await;
+        if !updated.is_empty() {
+            if let Ok(dir) = client.dir() {
+                refresh_served_plugins(&app, &core, dir).await;
+            }
+        }
+    });
+}
+
+/// After the app starts, at most every twelve hours: the catalogue is read and what the user
+/// downloaded is updated. Where nothing is downloaded (iOS today), nothing is asked.
+fn look_for_updates(app: &AppHandle, core: Arc<ft_core::Core>, dir: &Path) {
+    if !downloads() || !updates_due(last_update_look(dir), now_ms()) {
+        return;
+    }
+    let (app, dir) = (app.clone(), dir.to_path_buf());
+    tauri::async_runtime::spawn(async move {
+        let listed = {
+            let client = app.state::<Client>();
+            core.catalogue(client.web(), &ft_plugins::catalogue()).await
+        };
+        let Ok(listed) = listed else { return };
+        looked_for_updates(&dir, now_ms());
+        update_downloaded(&app, core, listed);
+    });
 }
 
 /// Keeps what the user installed in step with what the app now carries: a new version of the app
@@ -2862,6 +2983,14 @@ pub async fn core_call_video_layout(layout: Option<VideoLayout>, app: AppHandle,
         let _ = core.set_call_shown(layout.is_some()).await;
     }
     Ok(())
+}
+
+/// The system bars' icons follow the app's appearance (2026-10-02): the page says whether it is
+/// `dark` when it applies its appearance and each time it changes. Off the main thread: Kotlin
+/// answers from it.
+#[tauri::command]
+pub async fn core_system_bars(dark: bool, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || app.platform().set_system_bars(dark)).await.map_err(failed)?.map_err(failed)
 }
 
 /// The call's voice on the speaker or the receiver (2026-09-28).
@@ -3411,27 +3540,41 @@ pub async fn core_vault_remove(id: String, client: State<'_, Client>) -> Result<
     client.core().await?.vault_remove(&id).await.map_err(failed)
 }
 
-/// Puts a file the user picked in the drive; `null` when it waits for the network.
+/// Puts what the user picks in the drive, for a plugin granted it: the system picker, then each
+/// file sealed into the drive (sent, or queued for the network), and every copy the picker made
+/// deleted (`upload_all_picked`). How many went. The paths never reach the WebView (2026-10-02).
 #[tauri::command]
-pub async fn core_vault_upload(file: PickedView, parent: Option<String>, client: State<'_, Client>) -> Result<Option<String>, String> {
+pub async fn core_vault_upload_picked(parent: Option<String>, app: AppHandle, client: State<'_, Client>) -> Result<usize, String> {
+    let dir = client.dir()?.to_owned();
     let core = client.core().await?;
-    upload_picked(client.dir()?, &file.path, |path| async move { core.vault_upload(&path, &file.name, &file.mime, parent.as_deref()).await }).await
+    let picked = core_pick_files(None, app).await?;
+    upload_all_picked(&dir, &picked, |file, path| {
+        let (core, parent) = (core.clone(), parent.clone());
+        async move { core.vault_upload(&path, &file.name, &file.mime, parent.as_deref()).await }
+    })
+    .await
 }
 
-/// Puts a picked file in the drive with `upload`, then deletes the picker's plain copy, if that is
-/// what it is (`forget_picked`), sent, queued or failed (2026-10-02): the drive seals it first and
-/// its queue keeps the sealed copy, never the path; a failed upload is picked again, not retried
-/// from here. A file a plugin made or one from the drive stays, and so does a message's file,
-/// which goes through `core_vault_upload_message`, not here.
-pub async fn upload_picked<Upload, Uploading>(dir: &Path, path: &str, upload: Upload) -> Result<Option<String>, String>
+/// Puts each picked file in the drive with `upload`, and deletes every copy the picker made,
+/// uploaded or not (2026-10-02): the drive seals a file first and its queue keeps the sealed copy,
+/// never the path. The first that fails stops the rest, and the plugin picks again. Only the
+/// picker's own copies are uploaded or deleted (`picker_copy`).
+pub async fn upload_all_picked<Upload, Uploading>(dir: &Path, picked: &[PickedView], mut upload: Upload) -> Result<usize, String>
 where
-    Upload: FnOnce(PathBuf) -> Uploading,
+    Upload: FnMut(PickedView, PathBuf) -> Uploading,
     Uploading: std::future::Future<Output = anyhow::Result<Option<String>>>,
 {
-    let path = picked_path(dir, path)?;
-    let uploaded = upload(path.clone()).await.map_err(failed);
-    forget_picked(dir, &path.to_string_lossy());
-    uploaded
+    let mut went = Ok(0);
+    for file in picked {
+        if let Ok(count) = went {
+            went = match picker_copy(dir, &file.path) {
+                Ok(path) => upload(file.clone(), path).await.map(|_| count + 1).map_err(failed),
+                Err(error) => Err(error),
+            };
+        }
+        forget_picked(dir, &file.path);
+    }
+    went
 }
 
 /// Puts the file of a message in the drive: what "keep in my drive" does from a bubble.
@@ -3763,6 +3906,47 @@ mod tests {
         let here = ["com.flickertalk.sketch".to_owned()];
         let offered = merged(vec![carried("com.flickertalk.sketch", "1.0.0")], &[], &here);
         assert!(offered[0].installed);
+    }
+
+    // 2026-10-03 (updates): a plugin is open while any frame of it is on screen or still saying
+    // goodbye; the screens say when one opens and when it has closed.
+    #[test]
+    fn a_plugin_is_open_until_every_frame_of_it_has_closed() {
+        let open = OpenPlugins::default();
+        let ids = |open: &OpenPlugins| {
+            let mut ids: Vec<String> = open.ids().into_iter().collect();
+            ids.sort();
+            ids
+        };
+        open.set("com.example.a", true);
+        open.set("com.example.a", true);
+        open.set("com.example.b", true);
+        open.set("com.example.a", false);
+        assert_eq!(ids(&open), ["com.example.a", "com.example.b"], "one frame of it is still there");
+        open.set("com.example.a", false);
+        open.set("com.example.a", false);
+        assert_eq!(ids(&open), ["com.example.b"]);
+        // A close too many is not a debt: the next opening counts as open.
+        open.set("com.example.a", true);
+        assert_eq!(ids(&open), ["com.example.a", "com.example.b"]);
+    }
+
+    // At most every twelve hours after the app starts (the catalogue read from the screens looks
+    // every time); a clock that went back looks again.
+    #[test]
+    fn updates_are_looked_for_at_most_every_twelve_hours() {
+        let now = 1_800_000_000_000_i64;
+        let hour = 3_600_000;
+        assert!(updates_due(None, now), "never looked");
+        assert!(!updates_due(Some(now - 11 * hour), now));
+        assert!(updates_due(Some(now - 12 * hour), now));
+        assert!(updates_due(Some(now + hour), now), "the clock went back");
+
+        let dir = std::env::temp_dir().join(format!("ft-updates-{now}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(last_update_look(&dir), None);
+        looked_for_updates(&dir, now);
+        assert_eq!(last_update_look(&dir), Some(now));
     }
 
     #[test]
@@ -4431,48 +4615,126 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // Row 8 (2026-10-02): what the user picked for the drive is sealed there, sent or queued, and
-    // the picker's plain copy does not stay, not even when the upload fails (the plugin picks again).
+    // Row 8 (2026-10-02): what the user picks for the drive is sealed there, each file sent or
+    // queued for the network, and none of the picker's plain copies stays.
     #[test]
-    fn a_picked_copy_is_gone_once_the_drive_had_it() {
+    fn every_copy_a_drive_upload_picked_is_gone() {
         let dir = scratch("drive-up");
         let uploads = dir.join("files").join("uploads");
         std::fs::create_dir_all(&uploads).unwrap();
-        for outcome in [Ok(Some("x1".to_owned())), Ok(None), Err(anyhow::anyhow!("no network"))] {
-            let copy = uploads.join("1759400000000-a.jpg");
-            std::fs::write(&copy, b"plain with gps").unwrap();
-            let fine = outcome.is_ok();
-            let answer = tauri::async_runtime::block_on(upload_picked(&dir, &copy.to_string_lossy(), |path| async move {
-                assert_eq!(std::fs::read(path).unwrap(), b"plain with gps", "sealed from the copy, before it goes");
-                outcome
-            }));
-            assert_eq!(answer.is_ok(), fine);
-            assert!(!copy.exists());
+        let copies: Vec<_> = (0..3).map(|index| uploads.join(format!("1759400000000-{index}-a.jpg"))).collect();
+        for copy in &copies {
+            std::fs::write(copy, b"plain with gps").unwrap();
         }
+        let picks: Vec<_> = copies.iter().map(|copy| picked(copy, "a.jpg")).collect();
+        let mut answers = vec![Ok(Some("x1".to_owned())), Ok(None), Ok(Some("x3".to_owned()))].into_iter();
+
+        let went = tauri::async_runtime::block_on(upload_all_picked(&dir, &picks, |file, path| {
+            assert_eq!(file.name, "a.jpg");
+            let answer = answers.next().unwrap();
+            async move {
+                assert_eq!(std::fs::read(path).unwrap(), b"plain with gps", "sealed from the copy, before it goes");
+                answer
+            }
+        }));
+        assert_eq!(went, Ok(3));
+        assert!(copies.iter().all(|copy| !copy.exists()));
+        assert_eq!(tauri::async_runtime::block_on(upload_all_picked(&dir, &[], |_, _| async { panic!("nothing to upload") })), Ok(0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // Only the picker's copies go: a file a plugin made or one from the drive is put in the drive
-    // and stays; a path no picked file may have is refused before anything is uploaded.
+    // The first that fails stops the rest, as before (the plugin hears `false`); the copies go
+    // all the same: the plugin picks again, nothing is retried from them.
     #[test]
-    fn a_drive_upload_keeps_what_the_picker_did_not_make() {
+    fn a_failed_drive_upload_leaves_no_copy_either() {
+        let dir = scratch("drive-fails");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let copies: Vec<_> = (0..3).map(|index| uploads.join(format!("1759400000000-{index}-a.jpg"))).collect();
+        for copy in &copies {
+            std::fs::write(copy, b"plain").unwrap();
+        }
+        let picks: Vec<_> = copies.iter().map(|copy| picked(copy, "a.jpg")).collect();
+        let mut tries = 0;
+
+        let went = tauri::async_runtime::block_on(upload_all_picked(&dir, &picks, |_, _| {
+            tries += 1;
+            let answer = if tries == 1 { Ok(Some("x1".to_owned())) } else { Err(anyhow::anyhow!("no such folder")) };
+            async move { answer }
+        }));
+        assert!(went.is_err());
+        assert_eq!(tries, 2, "the third is not tried");
+        assert!(copies.iter().all(|copy| !copy.exists()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Only the picker's copies are uploaded or deleted: anything else the list could name is
+    // refused before anything goes, and stays.
+    #[test]
+    fn a_drive_upload_takes_only_the_pickers_copies() {
         let dir = scratch("drive-keep");
         std::fs::create_dir_all(dir.join("files").join("outgoing")).unwrap();
-        std::fs::create_dir_all(dir.join("files").join("drive").join("f1")).unwrap();
         let made = dir.join("files").join("outgoing").join("1-made.pdf");
-        let down = dir.join("files").join("drive").join("f1").join("doc.pdf");
-        for file in [&made, &down] {
-            std::fs::write(file, b"keep").unwrap();
-            let answer = tauri::async_runtime::block_on(upload_picked(&dir, &file.to_string_lossy(), |_| async { Ok(Some("x1".to_owned())) }));
-            assert_eq!(answer.unwrap().as_deref(), Some("x1"));
-            assert_eq!(std::fs::read(file).unwrap(), b"keep", "{}", file.display());
-        }
-        let db = dir.join("flickertalk.db");
-        std::fs::write(&db, b"secret").unwrap();
-        let answer = tauri::async_runtime::block_on(upload_picked(&dir, &db.to_string_lossy(), |_| async { panic!("never uploaded") }));
-        assert!(answer.is_err());
-        assert!(db.exists());
+        std::fs::write(&made, b"keep").unwrap();
+
+        let went = tauri::async_runtime::block_on(upload_all_picked(&dir, &[picked(&made, "made.pdf")], |_, _| async { panic!("never uploaded") }));
+        assert!(went.is_err());
+        assert_eq!(std::fs::read(&made).unwrap(), b"keep");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 2026-10-02: the sweep runs on the first start in a process only. A core started again in
+    // the same process (a failed start tried again, iOS after erasing or restoring, the app after
+    // a push's core) has a WebView that may hold a staged or just-picked file: that file is left
+    // for the next cold start, when the WebView's memory is gone too.
+    #[test]
+    fn only_the_first_start_in_a_process_sweeps() {
+        let dir = scratch("first-start");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let (left, staged) = (uploads.join("1-left.jpg"), uploads.join("2-staged.jpg"));
+        std::fs::write(&left, b"left by an older run").unwrap();
+        let swept = std::sync::atomic::AtomicBool::new(false);
+
+        tauri::async_runtime::block_on(open_store(&dir, &swept)).unwrap();
+        assert!(!left.exists(), "the first start sweeps");
+        std::fs::write(&staged, b"picked while the app is up").unwrap();
+        tauri::async_runtime::block_on(open_store(&dir, &swept)).unwrap();
+        assert!(staged.exists(), "a second start in the same process does not");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A first start that fails before it could sweep uses the sweep up all the same: the start
+    // tried again comes with the UI up.
+    #[test]
+    fn a_first_start_that_fails_uses_up_the_sweep() {
+        let dir = scratch("failed-start");
+        let uploads = dir.join("files").join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        // A folder where the database should be: the store does not open.
+        std::fs::create_dir_all(dir.join(DATABASE)).unwrap();
+        let swept = std::sync::atomic::AtomicBool::new(false);
+        assert!(tauri::async_runtime::block_on(open_store(&dir, &swept)).is_err());
+
+        std::fs::remove_dir_all(dir.join(DATABASE)).unwrap();
+        let staged = uploads.join("2-staged.jpg");
+        std::fs::write(&staged, b"picked while the app is up").unwrap();
+        tauri::async_runtime::block_on(open_store(&dir, &swept)).unwrap();
+        assert!(staged.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 2026-10-02: the start sweeps where files wait on their way — the pickers' folders (the old
+    // one too), what is written to be sent and the drive's plain copies — and nothing else: not
+    // the received files, the printer's (it clears its own), the drive's queue or a move.
+    #[test]
+    fn the_start_sweeps_only_where_files_wait_on_their_way() {
+        let dir = Path::new("/data");
+        let files = dir.join("files");
+        assert_eq!(
+            transit_folders(dir),
+            vec![files.join("uploads"), files.join("outgoing"), files.join("drive"), dir.join("uploads")]
+        );
     }
 
     // Too big to hand over is not a reason to keep it.

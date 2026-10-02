@@ -25,6 +25,7 @@ import {
   bulbOutline,
   callOutline,
   checkmarkDoneOutline,
+  checkmarkOutline,
   colorPaletteOutline,
   contrastOutline,
   copyOutline,
@@ -68,6 +69,21 @@ const plan = computed(() => {
   return days > 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");
 });
 
+// The ID on the card, to paste anywhere. The tick says so only once the clipboard took it, and for
+// a moment: then the button copies again.
+const idCopied = ref(false);
+let idCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+async function copyId() {
+  try {
+    await navigator.clipboard.writeText(store.me.id);
+  } catch {
+    return;
+  }
+  idCopied.value = true;
+  clearTimeout(idCopiedTimer);
+  idCopiedTimer = setTimeout(() => (idCopied.value = false), 2000);
+}
+
 const version = ref("");
 // Issue app#7: whether the weekly hours are on, shown on their row.
 const hoursOn = ref(false);
@@ -97,6 +113,7 @@ const colors: { id: Direction; label: string; swatch: string }[] = [
   { id: "mono", label: t("colors.mono"), swatch: "linear-gradient(135deg, #ffffff 50%, #000000 50%)" },
   { id: "ember", label: t("colors.ember"), swatch: "linear-gradient(135deg, #ffa24c, #ff6a3d)" },
   { id: "aurora", label: t("colors.aurora"), swatch: "linear-gradient(135deg, #3ddbc4, #7b7cff)" },
+  { id: "lime", label: t("colors.lime"), swatch: "linear-gradient(135deg, #000000 50%, #c6f432 50%)" },
 ];
 const appearances: { id: Appearance; label: string; icon: string }[] = [
   { id: "system", label: t("settings.system"), icon: phonePortraitOutline },
@@ -110,12 +127,13 @@ const asksToErase = ref(false);
 // A4: up to what size a file comes on its own; 0 asks every time, the last choice never asks.
 const MB = 1024 * 1024;
 const AUTO_DOWNLOAD_CHOICES = [0, 10 * MB, 100 * MB, 1024 * MB, Number.MAX_SAFE_INTEGER] as const;
+// The size keeps its number and unit together (a no-break space) when the row's value wraps.
 const autoDownloadLabel = (bytes: number) =>
   bytes === 0
     ? t("settings.autoDownloadAsk")
     : bytes === Number.MAX_SAFE_INTEGER
       ? t("settings.autoDownloadAlways")
-      : t("settings.autoDownloadUpTo", { size: formatSize(bytes) });
+      : t("settings.autoDownloadUpTo", { size: formatSize(bytes).replace(" ", "\u00a0") });
 
 async function onAutoDownloadChange(event: CustomEvent<{ value: number }>) {
   await setAutoDownload(Number(event.detail.value));
@@ -192,10 +210,23 @@ function chooseAppearance(id: Appearance) {
             <span class="ft-me__label">{{ $t("settings.yourId") }}</span>
             <code class="ft-me__id">{{ store.me.id }}</code>
           </span>
-          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('settings.copyId')">
-            <ion-icon :icon="copyOutline" aria-hidden="true" />
+          <button
+            type="button"
+            class="ft-round ft-round--ghost"
+            data-test="copy-id"
+            :aria-label="idCopied ? $t('settings.idCopied') : $t('settings.copyId')"
+            @click="copyId"
+          >
+            <ion-icon :icon="idCopied ? checkmarkOutline : copyOutline" aria-hidden="true" />
           </button>
-          <button type="button" class="ft-round ft-round--accent" :aria-label="$t('settings.showQr')">
+          <!-- My code is «Add contact» on its first tab: the QR another phone scans to add this one. -->
+          <button
+            type="button"
+            class="ft-round ft-round--accent"
+            data-test="show-qr"
+            :aria-label="$t('settings.showQr')"
+            @click="router.push('/add-contact')"
+          >
             <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
           </button>
         </section>
@@ -228,10 +259,10 @@ function chooseAppearance(id: Appearance) {
               :value="store.me.autoDownload"
               data-test="auto-download"
               :aria-label="$t('settings.autoDownload')"
-              :label="$t('settings.autoDownload')"
               interface="action-sheet"
               @ion-change="onAutoDownloadChange"
             >
+              <div slot="label">{{ $t("settings.autoDownload") }}</div>
               <ion-select-option v-for="bytes in AUTO_DOWNLOAD_CHOICES" :key="bytes" :value="bytes">{{ autoDownloadLabel(bytes) }}</ion-select-option>
             </ion-select>
           </ion-item>
@@ -267,10 +298,10 @@ function chooseAppearance(id: Appearance) {
             <ion-select
               :value="callRouting"
               :aria-label="$t('settings.calls')"
-              :label="$t('settings.calls')"
               interface="action-sheet"
               @ion-change="onCallRoutingChange"
             >
+              <div slot="label">{{ $t("settings.calls") }}</div>
               <ion-select-option value="direct">{{ $t("settings.callsDirect") }}</ion-select-option>
               <ion-select-option value="auto">{{ $t("settings.callsAuto") }}</ion-select-option>
               <ion-select-option value="always">{{ $t("settings.callsAlways") }}</ion-select-option>
@@ -529,6 +560,12 @@ function chooseAppearance(id: Appearance) {
   background: var(--ft-surface);
   color: var(--ft-accent);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* A long note at the end of a row (the plan's days left) wraps before the row's label gives up a
+   word: without this Ionic shrinks the label's box to nothing (iOS) or breaks its word (Android). */
+.ft-group ion-item::part(container) {
+  min-width: min-content;
 }
 
 .ft-item__title {

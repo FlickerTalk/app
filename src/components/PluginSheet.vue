@@ -2,7 +2,6 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import {
-  pickFiles,
   pickForPlugin,
   pluginMayUseDrive,
   pluginFetch,
@@ -11,6 +10,7 @@ import {
   pluginLiveSend,
   pluginLocation,
   pluginMade,
+  pluginOpen,
   pluginOpenChat,
   pluginPrint,
   pluginRead,
@@ -41,8 +41,8 @@ import {
   vaultRetry,
   vaultSave,
   vaultStatus,
-  vaultUpload,
   vaultUploadMessage,
+  vaultUploadPicked,
   PLUGIN_EVENT,
   type PickedFile,
   type PluginEvent,
@@ -291,16 +291,10 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
     case "remove":
       await vaultRemove(said.a);
       return true;
-    case "upload": {
-      // The plugin never opens the picker: the app asks the user, and the core seals what they chose.
-      const picked = await pickFiles("");
-      let went = 0;
-      for (const file of picked) {
-        await vaultUpload(file, parent(said.a));
-        went += 1;
-      }
-      return went;
-    }
+    case "upload":
+      // The plugin never opens the picker: the core asks the user, seals what they chose and
+      // deletes the picker's copies (2026-10-02).
+      return vaultUploadPicked(parent(said.a));
     case "keep": {
       // The file this plugin was opened with, by its ref: the bytes never pass through the frame.
       if (!props.reference) return false;
@@ -371,13 +365,26 @@ const looks = new MutationObserver(() => {
   tell({ type: "ft.theme", ...now });
 });
 
+// The core never updates a plugin under an open frame (2026-10-03): open from here until the
+// sheet goes, its goodbye included.
+const reportOpen = (id: string, open: boolean) => void pluginOpen(id, open).catch(() => undefined);
+watch(
+  () => props.plugin.id,
+  (now, before) => {
+    reportOpen(before, false);
+    reportOpen(now, true);
+  },
+);
+
 onMounted(async () => {
+  reportOpen(props.plugin.id, true);
   lastTheme = JSON.stringify(pluginTheme());
   looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction"] });
   window.addEventListener("message", onMessage);
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });
 onBeforeUnmount(() => {
+  reportOpen(props.plugin.id, false);
   // Torn down without `close()` (a page that went): one word on the way out, without waiting. The
   // frame goes in this same tick, so it may well never hear it.
   gone = true;

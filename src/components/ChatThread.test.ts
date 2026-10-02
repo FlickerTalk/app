@@ -92,6 +92,38 @@ describe("ChatThread", () => {
     expect(wrapper.findAllComponents(MessageBubble)).toHaveLength(fixture.chats[0].messages.length);
   });
 
+  // One fixed «Today» used to sit above every thread, whatever day its messages were from (seen
+  // on real phones, 2026-10-02): each day of the thread now starts with its own separator.
+  describe("day separators", () => {
+    afterEach(() => vi.useRealTimers());
+    const days = (wrapper: ReturnType<typeof mount>) => wrapper.findAll(".ft-thread__day").map((one) => one.text());
+
+    it("names the day of earlier messages and puts today's under «Today»", async () => {
+      // The fixture's conversation is from 22 September 2026.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(2026, 9, 2, 12, 0));
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      chat("c1")?.messages.push({ id: "new", mine: false, text: "still there?", time: "11:58", sentAt: new Date(2026, 9, 2, 11, 58).getTime() });
+      await flushPromises();
+
+      expect(days(wrapper)).toEqual(["September 22", "Today"]);
+      const [first, today] = wrapper.findAll(".ft-thread__day");
+      const bubbles = wrapper.findAllComponents(MessageBubble);
+      expect(first.element.nextElementSibling).toBe(bubbles[0].element);
+      expect(today.element.nextElementSibling).toBe(bubbles[bubbles.length - 1].element);
+    });
+
+    it("shows no separator in an empty thread", async () => {
+      store.chats.push({ ...store.chats[0], id: "c9", messages: [] });
+      const wrapper = mount(ChatThread, { props: { chatId: "c9" }, shallow: true });
+      await flushPromises();
+
+      expect(wrapper.findAllComponents(MessageBubble)).toHaveLength(0);
+      expect(days(wrapper)).toEqual([]);
+    });
+  });
+
   it("loads the conversation from the core and marks it read", async () => {
     mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     await flushPromises();
@@ -107,7 +139,7 @@ describe("ChatThread", () => {
     // The list's unread count may still be stale when the new message shows up.
     const shown = chat("c1");
     if (shown) shown.unread = 0;
-    shown?.messages.push({ id: "new", mine: false, text: "still there?", time: "09:50" });
+    shown?.messages.push({ id: "new", mine: false, text: "still there?", time: "09:50", sentAt: Date.now() });
     await flushPromises();
     expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
   });
@@ -760,6 +792,15 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // Seen in Arabic (2026-10-02): a contact's name reads in its own direction, not in the app's.
+  it("offers to forward to contacts whose names read in their own direction", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+    await flushPromises();
+    await pressed(wrapper);
+    await wrapper.find("[data-test='forward']").trigger("click");
+    expect(wrapper.find(`[data-test='to-${fixture.chats[1].id}']`).attributes("dir")).toBe("auto");
+  });
+
   // The keyboard shrinks the conversation: the last message stays in sight above the composer.
   it("keeps the last message in sight when the keyboard opens", async () => {
     const viewport = new FakeViewport();
@@ -1107,7 +1148,7 @@ describe("ChatThread", () => {
       const room = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.find("[data-test='game-room']");
       const hidden = (element: { attributes: (name: string) => string | undefined }) => /display:\s*none/.test(element.attributes("style") ?? "");
       const arrives = (text: string) => {
-        chat("c1")!.messages.push({ id: `in-${text}`, mine: false, text, time: "10:00" });
+        chat("c1")!.messages.push({ id: `in-${text}`, mine: false, text, time: "10:00", sentAt: Date.now() });
       };
 
       it("opens a game between the header and the composer, the thread hidden but kept", async () => {
@@ -1206,6 +1247,14 @@ describe("ChatThread", () => {
         expect(hidden(wrapper.find(".ft-thread__content"))).toBe(true);
         expect(hidden(wrapper.find("[data-test='game-area']"))).toBe(false);
         expect(strip().html()).not.toContain("nice move!");
+      });
+
+      // Seen in Arabic (2026-10-02): the line the other one wrote reads in its own direction.
+      it("shows the other one's line in its own direction", async () => {
+        const wrapper = await playChess();
+        arrives("¿otra?");
+        await flushPromises();
+        expect(wrapper.find("[data-test='game-strip'] ion-label").attributes("dir")).toBe("auto");
       });
 
       // §84: read only once it could be read: in the strip, the latest of what arrived; when the

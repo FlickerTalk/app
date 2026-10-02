@@ -193,6 +193,7 @@
     "title": "設定",
     "yourId": "あなたのFlickerTalk ID",
     "copyId": "IDをコピー",
+    "idCopied": "IDをコピーしました",
     "showQr": "マイQRを表示",
     "mailbox": "オフラインメールボックス",
     "mailboxNote": "暗号化 · 受け取り後に削除",
@@ -268,7 +269,8 @@
   "colors": {
     "ember": "エンバー",
     "aurora": "オーロラ",
-    "mono": "モノ"
+    "mono": "モノ",
+    "lime": "ライム"
   },
   "qr": {
     "label": "QRコード"

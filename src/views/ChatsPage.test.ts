@@ -4,7 +4,7 @@ import ChatsPage from "./ChatsPage.vue";
 import ChatThread from "../components/ChatThread.vue";
 import { fixture, seed } from "../__tests__/seed";
 import { calls } from "../__tests__/seed";
-import { store } from "../core";
+import { store, type Circle } from "../core";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -280,6 +280,27 @@ describe("ChatsPage", () => {
       expect(calls.some(([command]) => command.startsWith("core_session"))).toBe(false);
       expect(store.sessions).toHaveLength(0);
     });
+  });
+
+  // Seen in Arabic (2026-10-02): a name or a last line someone wrote reads in its own direction,
+  // not in the app's, or «¿Probamos?» shows as «?Probamos¿». On phones and on wide screens.
+  it("shows every name and last line in its own direction", () => {
+    const circle: Circle = {
+      id: "circle1", name: "Amigos!", hue: 120, members: [{ id: "ft_me", name: "Me", admin: true, me: true }],
+      admin: true, adminsOnly: false, left: false, unread: 0, time: "10:02", preview: "¿Cenamos?",
+      lastMine: false, lastSender: "Ana", status: "delivered", messages: [],
+    };
+    for (const wide of [false, true]) {
+      screen(wide);
+      store.requests = [{ ...store.chats[1], id: "ft_stranger12345", name: "Ana (work)", preview: "hey!" }];
+      store.circles = [circle];
+      store.sessions = [{ id: "s1", chats: [{ ...store.chats[0], id: "ft_pablo", name: "Pablo", unread: 0 }], requests: [], circles: [circle] }];
+      const wrapper = mount(ChatsPage, { shallow: true });
+      const texts = wrapper.findAll(".ft-row__name, .ft-row__preview");
+      expect(texts.length).toBeGreaterThan(10);
+      for (const text of texts) expect(text.attributes("dir"), text.text()).toBe("auto");
+      wrapper.unmount();
+    }
   });
 
   // A5: strangers who wrote first with this phone's link wait apart from the list.

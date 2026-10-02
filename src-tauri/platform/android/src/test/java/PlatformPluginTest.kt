@@ -205,6 +205,40 @@ class PlatformPluginTest {
         assertEquals("uploads", PICKED_FOLDER)
     }
 
+    // 2026-10-02: each copy the picker makes is a new file of its own, named as on iOS. Two files
+    // with the same name in one pick, or a clock set back, never write over one a message points to.
+    @Test
+    fun aPickedCopyNeverTakesTheNameOfAFileThatIsThere() {
+        val folder = java.nio.file.Files.createTempDirectory("ft-picked").toFile()
+        assertEquals("1759400000000-0-a.jpg", pickedBase(1759400000000, 0, "a.jpg"))
+        assertEquals("a name never makes a path", "1-0-a_b.pdf", pickedBase(1, 0, "a/b.pdf"))
+
+        val first = newPickedFile(folder, pickedBase(1759400000000, 0, "a.jpg"))
+        val second = newPickedFile(folder, pickedBase(1759400000000, 1, "a.jpg"))
+        assertEquals("1759400000000-1-a.jpg", second.name)
+        first.writeText("sent")
+        val again = newPickedFile(folder, pickedBase(1759400000000, 0, "a.jpg"))
+        assertEquals("1759400000000-0-a-2.jpg", again.name)
+        assertEquals("sent", first.readText())
+        assertTrue("it is ours from the start", again.exists())
+        folder.deleteRecursively()
+    }
+
+    // The camera names a photo by the second it was taken: a second one in that second is its own file.
+    @Test
+    fun twoPhotosInOneSecondAreTwoFiles() {
+        val folder = java.nio.file.Files.createTempDirectory("ft-photo").toFile()
+        val name = photoName(0, java.util.TimeZone.getTimeZone("UTC"))
+        val first = newPickedFile(folder, name)
+        first.writeText("first")
+        val second = newPickedFile(folder, name)
+        assertEquals("photo-19700101-000000-2.jpg", second.name)
+        assertEquals("first", first.readText())
+        val third = newPickedFile(folder, name)
+        assertEquals("photo-19700101-000000-3.jpg", third.name)
+        folder.deleteRecursively()
+    }
+
     // Issue app#7: the weekly hours, Monday first, as the core hands them over.
     private val week = "1080-1320;1080-1320;1080-1320;1080-1320;900-1320;all;all"
 
@@ -578,5 +612,20 @@ class PlatformPluginTest {
         assertTrue(refusalCancels(coreRinging = false, inCall = false))
         assertFalse(refusalCancels(coreRinging = true, inCall = false))
         assertFalse(refusalCancels(coreRinging = false, inCall = true))
+    }
+
+    // 2026-10-02: the system bars' icons follow the app's appearance, not the system's: light on
+    // the dark app, dark on the light one. Before Android 8 the navigation bar's icons cannot be
+    // dark, so on the light app the bar gets a dark scrim behind its light ones; otherwise it
+    // stays see-through over the app's own strip.
+    @Test
+    fun theSystemBarsFollowTheAppsAppearance() {
+        assertEquals(SystemBarsLook(darkIcons = false, navigationBarColor = 0), systemBarsLook(dark = true, sdk = 33))
+        assertEquals(SystemBarsLook(darkIcons = true, navigationBarColor = 0), systemBarsLook(dark = false, sdk = 33))
+        assertEquals(SystemBarsLook(darkIcons = true, navigationBarColor = 0), systemBarsLook(dark = false, sdk = 26))
+        assertEquals(SystemBarsLook(darkIcons = true, navigationBarColor = NAVIGATION_SCRIM), systemBarsLook(dark = false, sdk = 25))
+        assertEquals(SystemBarsLook(darkIcons = false, navigationBarColor = 0), systemBarsLook(dark = true, sdk = 24))
+        // androidx's own dark scrim (`SystemBarStyle.auto`), half-transparent.
+        assertEquals(0x801B1B1B.toInt(), NAVIGATION_SCRIM)
     }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   IonBackButton,
   IonButtons,
@@ -27,13 +27,14 @@ import {
 import { useRouter } from "vue-router";
 import { isGame } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
-import { byPluginName, pluginName, pluginSummary, refreshOffered, refreshPlugins } from "../plugins";
+import { byPluginName, pluginName, pluginSummary, refreshOffered, refreshPlugins, tools } from "../plugins";
 
 const router = useRouter();
 
 // Plan §53: a plugin is granted nothing by installing. Every permission it asked for is shown on
 // its own, with a switch, and can be taken back at any time.
-const installed = ref<PluginView[]>([]);
+// The app's one list (2026-10-03): an update made in the background shows here at once.
+const installed = computed(() => tools.value);
 const offered = ref<OfferedPlugin[]>([]);
 const asksToRemove = ref("");
 
@@ -43,7 +44,7 @@ onMounted(refresh);
 // Each is named in the phone's language (2026-10-02): the catalogue is kept for every screen, so an
 // installed tool whose package has no translation takes the catalogue's.
 async function refresh() {
-  installed.value = byPluginName((await refreshPlugins()).filter((one) => !isGame(one)));
+  await refreshPlugins();
   offered.value = byPluginName((await refreshOffered().catch(() => [])).filter((one) => !one.installed && !isGame(one)));
 }
 
@@ -175,9 +176,6 @@ async function remove(id: string) {
 .ft-plugins {
   --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
-.ft-plugins__open {
-  color: var(--ft-accent);
-}
 .ft-plugins__hint {
   margin: var(--ft-space-4);
   color: var(--ft-muted);
@@ -210,5 +208,9 @@ async function remove(id: string) {
 }
 .ft-plugins__confirm {
   font-weight: 600;
+}
+/* Open shares the remove button's reset; declared after it, so it keeps the accent, not the red. */
+.ft-plugins__open {
+  color: var(--ion-color-primary);
 }
 </style>

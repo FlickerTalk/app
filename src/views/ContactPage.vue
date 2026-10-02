@@ -143,7 +143,7 @@ async function toggleBlock() {
           :size="88"
           :connected="contact.connected"
         />
-        <h1 class="ft-contact__name">{{ contact.name }}</h1>
+        <h1 class="ft-contact__name" dir="auto">{{ contact.name }}</h1>
         <span class="ft-contact__status" :class="{ 'is-direct': contact.connected }">
           {{ contact.connected ? $t("chat.direct") : $t("chat.notConnected") }}
         </span>
@@ -183,9 +183,9 @@ async function toggleBlock() {
               :value="keepFor"
               data-test="history"
               interface="popover"
-              :label="$t('contact.history')"
               @ion-change="chooseHistory($event.detail.value)"
             >
+              <div slot="label">{{ $t("contact.history") }}</div>
               <ion-select-option v-for="option in HISTORIES" :key="option" :value="option">
                 {{ historyLabel(option) }}
               </ion-select-option>
@@ -197,9 +197,9 @@ async function toggleBlock() {
               :value="burnAfterRead"
               data-test="burn"
               interface="popover"
-              :label="$t('contact.burn')"
               @ion-change="chooseBurn($event.detail.value)"
             >
+              <div slot="label">{{ $t("contact.burn") }}</div>
               <ion-select-option v-for="option in BURNS" :key="option" :value="option">
                 {{ burnLabel(option) }}
               </ion-select-option>
