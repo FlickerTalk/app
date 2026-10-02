@@ -141,6 +141,12 @@ html[data-direction] body {
   --ion-color-primary-contrast: var(--ft-on-accent);
   --ion-color-primary-shade: var(--ft-accent-2);
   --ion-color-primary-tint: var(--ft-accent);
+  /* Light: the surface, with the text on it; in the dark themes that is dark, as in Ionic's own dark
+     palette. A button on the primary (the Play of this phone's invitation, 2026-10-02). */
+  --ion-color-light: var(--ft-surface);
+  --ion-color-light-contrast: var(--ft-text);
+  --ion-color-light-shade: var(--ft-surface-2);
+  --ion-color-light-tint: var(--ft-surface);
   /* Danger in the light themes: #ff4d5e darkened, same hue, to read at 4.5:1 on the page and the
      surfaces (2026-10-02; it was about 3:1). The dark themes keep #ff4d5e (below). The companions
      are read by Ionic's color="danger" (labels, buttons). */

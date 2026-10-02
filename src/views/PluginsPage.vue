@@ -209,6 +209,6 @@ async function remove(id: string) {
 }
 /* Open shares the remove button's reset; declared after it, so it keeps the accent, not the red. */
 .ft-plugins__open {
-  color: var(--ft-accent);
+  color: var(--ion-color-primary);
 }
 </style>
