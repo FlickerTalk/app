@@ -76,7 +76,8 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   notificación de llamada con **Answer** y **Decline**, también con la app cerrada o la pantalla
   bloqueada. Contestar desde la notificación abre la pantalla de llamada.
 - En Android, con la app cerrada, el push de la llamada arranca el núcleo sin abrir la app: la
-  notificación dice «Alguien» mientras suena (volver a publicarla con el nombre cortaría el tono);
+  notificación dice «Alguien» mientras suena, a propósito (decisión del 2026-10-01, `Plan.md` §66:
+  volver a publicarla con el nombre corta el tono y un tono propio anula las teclas de volumen);
   si el contacto está silenciado o fuera del horario se calla en cuanto el núcleo sabe quién llama,
   y desaparece si la llamada se rechaza sin rastro. Deja de sonar en cuanto el que llama cuelga y
   la llamada perdida queda en el historial, en la lista o la sesión que le toca. Rechazar desde la
