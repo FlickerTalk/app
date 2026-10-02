@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonModal, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
+import { IonIcon, IonModal, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
+import { checkmarkOutline, copyOutline } from "ionicons/icons";
 import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
@@ -73,6 +74,46 @@ describe("SettingsPage", () => {
   it("moves to a new phone from here, as the old phone", async () => {
     await mount(SettingsPage, { shallow: true }).find("[data-test='move']").trigger("click");
     expect(push).toHaveBeenCalledWith("/move?role=old");
+  });
+
+  // Seen in the UI review (2026-10-02): the two buttons beside the ID did nothing.
+  describe("beside the ID", () => {
+    const copy = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='copy-id']");
+
+    it("copies the ID shown, says so for a moment, and is the copy button again after", async () => {
+      vi.useFakeTimers();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      const wrapper = mount(SettingsPage, { shallow: true });
+      expect(copy(wrapper).attributes("aria-label")).toBe("Copy ID");
+      await copy(wrapper).trigger("click");
+      await flushPromises();
+      expect(writeText).toHaveBeenCalledWith(store.me.id);
+      expect(copy(wrapper).attributes("aria-label")).toBe("ID copied");
+      expect(copy(wrapper).findComponent(IonIcon).props("icon")).toBe(checkmarkOutline);
+      vi.advanceTimersByTime(2000);
+      await flushPromises();
+      expect(copy(wrapper).attributes("aria-label")).toBe("Copy ID");
+      expect(copy(wrapper).findComponent(IonIcon).props("icon")).toBe(copyOutline);
+      vi.useRealTimers();
+    });
+
+    // §84: honest; a phone that did not take it to the clipboard is not told it did.
+    it("says nothing was copied when the phone refuses", async () => {
+      const writeText = vi.fn().mockRejectedValue(new Error("not allowed"));
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      const wrapper = mount(SettingsPage, { shallow: true });
+      await copy(wrapper).trigger("click");
+      await flushPromises();
+      expect(writeText).toHaveBeenCalled();
+      expect(copy(wrapper).attributes("aria-label")).toBe("Copy ID");
+    });
+
+    it("shows my QR code, the one that adds me", async () => {
+      push.mockClear();
+      await mount(SettingsPage, { shallow: true }).find("[data-test='show-qr']").trigger("click");
+      expect(push).toHaveBeenCalledWith("/add-contact");
+    });
   });
 
   it("lists the blocked contacts", async () => {
