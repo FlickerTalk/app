@@ -57,6 +57,23 @@ func pickedTarget(folder: URL, name: String, now: Date, index: Int) -> URL {
     return folder.appendingPathComponent("\(millis)-\(index)-\(pickedName(name))")
 }
 
+/// Where a new file named `name` goes in `folder`: `name`, or, if that is taken (two photos in
+/// one second, a clock set back), `name` with `-2`, `-3`… before its extension. Never a file that
+/// is there already, which a message may point to (2026-10-02, as Android's `newPickedFile`).
+func freshTarget(folder: URL, name: String) -> URL {
+    let stem = (name as NSString).deletingPathExtension
+    let suffix = (name as NSString).pathExtension
+    var attempt = 1
+    while true {
+        let candidate = attempt == 1 ? name : (suffix.isEmpty ? "\(stem)-\(attempt)" : "\(stem)-\(attempt).\(suffix)")
+        let target = folder.appendingPathComponent(candidate)
+        if !FileManager.default.fileExists(atPath: target.path) {
+            return target
+        }
+        attempt += 1
+    }
+}
+
 /// What a picked file is, as far as its extension tells.
 func pickedMime(fileExtension: String) -> String {
     guard !fileExtension.isEmpty, let type = UTType(filenameExtension: fileExtension), let mime = type.preferredMIMEType else {
@@ -171,8 +188,9 @@ final class PhotoTaker: NSObject, UIImagePickerControllerDelegate, UINavigationC
             return
         }
         do {
-            let target = try appPickedFolder().appendingPathComponent(photoName(Date()))
-            try data.write(to: target, options: .completeFileProtectionUntilFirstUserAuthentication)
+            let target = freshTarget(folder: try appPickedFolder(), name: photoName(Date()))
+            // Never over a file that is there: it fails instead, and the user takes it again.
+            try data.write(to: target, options: [.withoutOverwriting, .completeFileProtectionUntilFirstUserAuthentication])
             invoke.resolve(["files": [pickedEntry(target, name: target.lastPathComponent)]])
         } catch {
             invoke.reject("cannot keep the photo: \(error.localizedDescription)")
