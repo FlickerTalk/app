@@ -633,3 +633,26 @@ describe("the Store's price", () => {
     expect(await core.subscriptionPrice()).toBeNull();
   });
 });
+
+// A suggestion from Settings (2026-10-02): what the core says, and "failed" when it cannot say.
+describe("a suggestion", () => {
+  beforeEach(() => tauri.invoke.mockReset());
+
+  it("goes through the core and says what became of it", async () => {
+    for (const word of ["sent", "tooMany", "failed"]) {
+      tauri.invoke.mockResolvedValueOnce(word);
+      expect(await core.sendFeedback("Stickers, please")).toBe(word);
+      expect(tauri.invoke).toHaveBeenLastCalledWith("core_send_feedback", { text: "Stickers, please" });
+    }
+  });
+
+  // No network, an old router that answers 404, an app with no such command: never a throw.
+  it("is failed when the core fails or answers something else", async () => {
+    tauri.invoke.mockRejectedValueOnce("cannot reach the router");
+    expect(await core.sendFeedback("an idea")).toBe("failed");
+    tauri.invoke.mockRejectedValueOnce(new Error("command core_send_feedback not found"));
+    expect(await core.sendFeedback("an idea")).toBe("failed");
+    tauri.invoke.mockResolvedValueOnce(undefined);
+    expect(await core.sendFeedback("an idea")).toBe("failed");
+  });
+});
