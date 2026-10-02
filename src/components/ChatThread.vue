@@ -748,6 +748,7 @@ watch(
     <ion-modal
       :is-open="showApps"
       class="ft-apps-sheet"
+      :aria-label="$t('plugins.title')"
       :breakpoints="[0, 0.5, 1]"
       :initial-breakpoint="0.5"
       :expand-to-scroll="false"
@@ -763,7 +764,8 @@ watch(
           </ion-segment>
         </ion-toolbar>
       </ion-header>
-      <ion-content class="ft-apps-sheet__content">
+      <!-- With no segment header, the content keeps clear of the drag handle (iOS draws it over it). -->
+      <ion-content class="ft-apps-sheet__content" :class="{ 'ion-padding-top': !gamesOn }">
         <ion-list v-if="!gamesOn || appsTab === 'tools'" data-test="apps-sheet-tools">
           <ion-item v-for="one in tools" :key="one.id" button :detail="false" :data-test="`app-${one.id}`" @click="useApp(one.id)">
             <ion-icon slot="start" :icon="appsOutline" aria-hidden="true" />

@@ -49,6 +49,8 @@ for (const appearance of ["dark", "light"]) {
         await app.locator(size.apps).click();
         await expect(app.getByTestId("apps-tab-tools")).toHaveClass(/segment-button-checked/);
         await expect(app.getByTestId("app-com.flickertalk.markdown")).toBeVisible();
+        // A dialog with a name, for a screen reader.
+        await expect(app.getByRole("dialog", { name: "Plugins" })).toBeVisible();
         // One sheet, even with another page of the app kept behind this one.
         await expect(app.locator("ion-modal.ft-apps-sheet")).toHaveCount(1);
         const box = await sheetBox(app);
