@@ -75,6 +75,9 @@ function dismissed() {
 /* Above Android's navigation bar when the app runs edge to edge, as the composer keeps itself. */
 .ft-game-ask__body {
   padding-bottom: calc(var(--ion-padding, 16px) + var(--ion-safe-area-bottom, 0px));
+  /* And clear of the side insets (a phone held sideways), which are physical. */
+  padding-left: calc(var(--ion-padding, 16px) + var(--ion-safe-area-left, 0px));
+  padding-right: calc(var(--ion-padding, 16px) + var(--ion-safe-area-right, 0px));
 }
 .ft-game-ask__icon {
   font-size: 44px;
