@@ -884,6 +884,13 @@ impl Store {
         row.as_ref().map(file_from).transpose()
     }
 
+    /// Where the bytes of every file any message points to are, as stored, each place once: the
+    /// sweep of what nothing points to and two messages sharing bytes need all of them (2026-10-02).
+    pub async fn file_paths(&self) -> Result<Vec<String>> {
+        let rows = sqlx::query("SELECT DISTINCT path FROM files").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(|row| row.get("path")).collect())
+    }
+
     /// The files exchanged with a contact.
     pub async fn files(&self, contact: &str) -> Result<Vec<FileRecord>> {
         let rows = sqlx::query("SELECT files.* FROM files JOIN messages USING (message_id) WHERE messages.contact = ? ORDER BY sent_at")
@@ -1790,6 +1797,35 @@ mod tests {
         store.set_file_progress("f1", 2, false).await.expect("updates");
         assert_eq!(store.file("f1").await.unwrap().unwrap().chunks_done, 2);
         assert_eq!(store.files("ft_bob").await.expect("lists").len(), 1);
+    }
+
+    // 2026-10-02: where every file any message points to is, whoever it is with — the main list,
+    // a hidden session, a stranger still in the requests — once per place, for the sweep of what
+    // nothing points to and for keeping bytes two messages share.
+    #[tokio::test]
+    async fn every_path_a_message_points_to_is_listed_once() {
+        let store = store().await;
+        store.add_session("s1", &[1; 32], 1).await.expect("creates");
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.add_contact(&NewContact { session: Some("s1".to_owned()), ..contact("ft_carol") }).await.expect("adds inside");
+        store.add_contact(&NewContact { accepted: false, ..contact("ft_eve") }).await.expect("a request");
+        assert!(store.file_paths().await.expect("lists").is_empty());
+
+        for (id, contact, path) in [
+            ("m1", "ft_bob", "uploads/1-a.jpg"),
+            ("m2", "ft_bob", "uploads/1-a.jpg"), // forwarded: the same bytes
+            ("m3", "ft_carol", "drive/x1/doc.pdf"),
+            ("m4", "ft_eve", "m4/photo.jpg"),
+            ("m5", "ft_bob", "/old/container/files/outgoing/u1"),
+        ] {
+            store.insert_message(&message(id, contact, true, 1)).await.unwrap();
+            store.insert_file(&FileRecord { path: path.to_owned(), ..file(id) }).await.unwrap();
+        }
+        store.insert_message(&message("t1", "ft_bob", true, 2)).await.unwrap();
+
+        let mut paths = store.file_paths().await.expect("lists");
+        paths.sort();
+        assert_eq!(paths, ["/old/container/files/outgoing/u1", "drive/x1/doc.pdf", "m4/photo.jpg", "uploads/1-a.jpg"]);
     }
 
     // Incoming files still missing chunks are resumed when the sender is back (§63).

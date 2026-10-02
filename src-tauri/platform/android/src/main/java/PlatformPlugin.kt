@@ -1144,6 +1144,26 @@ fun photoName(now: Long, zone: java.util.TimeZone = java.util.TimeZone.getDefaul
     return format.format(java.util.Date(now))
 }
 
+/** How one picked file's copy is named, as on iOS: when it was picked, its place in the pick and
+ *  its name, which never makes a path. */
+fun pickedBase(now: Long, index: Int, name: String): String = "$now-$index-${name.replace('/', '_')}"
+
+/**
+ * A new, empty file for a picked file or a photo, named `base` or, if that is taken (a clock set
+ * back, two photos in one second), `base` with `-2`, `-3`… before its extension. Never one that is
+ * there already: a message may point to it (2026-10-02). Created here, so nothing else gets it.
+ */
+fun newPickedFile(folder: File, base: String): File {
+    val dot = base.lastIndexOf('.').takeIf { it > 0 }
+    val (stem, extension) = if (dot == null) base to "" else base.substring(0, dot) to base.substring(dot)
+    var attempt = 1
+    while (true) {
+        val file = File(folder, if (attempt == 1) base else "$stem-$attempt$extension")
+        if (file.createNewFile()) return file
+        attempt += 1
+    }
+}
+
 /** A photo is kept only if the camera app came back with one that has bytes. */
 fun keepsPhoto(resultCode: Int, size: Long): Boolean = resultCode == Activity.RESULT_OK && size > 0
 
@@ -1777,7 +1797,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             return
         }
         val folder = File(activity.filesDir, PICKED_FOLDER).apply { mkdirs() }
-        val target = File(folder, photoName(System.currentTimeMillis()))
+        val target = newPickedFile(folder, photoName(System.currentTimeMillis()))
         pendingPhoto = target
         val uri = FileProvider.getUriForFile(activity, fileProviderAuthority(activity.packageName), target)
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
@@ -1816,8 +1836,9 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             val uris = mutableListOf<android.net.Uri>()
             data?.clipData?.let { clip -> for (index in 0 until clip.itemCount) uris.add(clip.getItemAt(index).uri) }
             data?.data?.let(uris::add)
-            for (uri in uris) {
-                copyIn(uri)?.let(picked::put)
+            val now = System.currentTimeMillis()
+            for ((index, uri) in uris.withIndex()) {
+                copyIn(uri, now, index)?.let(picked::put)
             }
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot read what was picked")
@@ -1826,8 +1847,8 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(JSObject().apply { put("files", picked) })
     }
 
-    /** Copies what was picked into the app's folder, and says what it is. */
-    private fun copyIn(uri: android.net.Uri): JSObject? {
+    /** Copies what was picked into a new file of the app's folder, and says what it is. */
+    private fun copyIn(uri: android.net.Uri, now: Long, index: Int): JSObject? {
         val resolver = activity.contentResolver
         var name = "file"
         var size = 0L
@@ -1840,10 +1861,9 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             }
         }
         val folder = File(activity.filesDir, PICKED_FOLDER).apply { mkdirs() }
-        val target = File(folder, "${System.currentTimeMillis()}-${name.replace('/', '_')}")
-        resolver.openInputStream(uri)?.use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
-        } ?: return null
+        val input = resolver.openInputStream(uri) ?: return null
+        val target = newPickedFile(folder, pickedBase(now, index, name))
+        input.use { target.outputStream().use { output -> it.copyTo(output) } }
         return JSObject().apply {
             put("path", target.absolutePath)
             put("name", name)

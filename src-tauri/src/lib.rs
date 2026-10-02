@@ -165,7 +165,7 @@ pub fn run() {
             client::core_vault_rename,
             client::core_vault_move,
             client::core_vault_remove,
-            client::core_vault_upload,
+            client::core_vault_upload_picked,
             client::core_vault_upload_message,
             client::core_vault_retry,
             client::core_vault_cancel_pending,

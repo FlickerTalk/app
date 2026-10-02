@@ -1120,6 +1120,63 @@ async fn a_message_can_be_sent_on_to_someone_else() {
     assert!(alice.forward("not a message", &id(&carol)).await.is_err());
 }
 
+// 2026-10-02: a forwarded file is the same bytes for two messages. Erasing one of them leaves
+// the bytes for the other; erasing both takes them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_forwarded_file_keeps_its_bytes_while_a_message_points_to_them() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    pair(&alice, &bob).await;
+    pair(&alice, &carol).await;
+    let (path, bytes) = some_file(1_000);
+    let sent = alice.send_file(&id(&bob), &path, "holiday.jpg", "image/jpeg").await.expect("offers");
+    let on = alice.forward(&sent, &id(&carol)).await.expect("forwards");
+    assert_eq!(alice.file_path(&file_of(&alice, &on).await), alice.file_path(&file_of(&alice, &sent).await), "the same bytes");
+
+    alice.forget_message(&on).await.expect("erases the forward");
+    assert_eq!(std::fs::read(alice.file_path(&file_of(&alice, &sent).await)).expect("the first still opens"), bytes);
+
+    alice.forget_message(&sent).await.expect("erases the first");
+    assert!(!path.exists(), "nothing points to the bytes any more");
+}
+
+// The same when a hidden session goes with its files (A3): what a message outside it shares stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_session_leaves_the_bytes_a_message_outside_it_shares() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    pair(&alice, &bob).await;
+    let session = alice.open_session("246810").await.expect("opens").expect("a session");
+    let link = carol.my_card().await.expect("card").to_link();
+    alice.add_contact_in(&link, None, Some(&session)).await.expect("adds carol inside");
+    let (path, bytes) = some_file(1_000);
+    let sent = alice.send_file(&id(&bob), &path, "holiday.jpg", "image/jpeg").await.expect("offers");
+    alice.forward(&sent, &id(&carol)).await.expect("forwards inside the session");
+
+    alice.remove_session(&session).await.expect("removes");
+    assert_eq!(std::fs::read(alice.file_path(&file_of(&alice, &sent).await)).expect("still opens"), bytes);
+}
+
+// And when a contact's history expires: the forward to someone without that rule keeps them.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_expired_history_leaves_the_bytes_a_forward_shares() {
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    pair(&alice, &bob).await;
+    pair(&alice, &carol).await;
+    let (path, bytes) = some_file(1_000);
+    let sent = alice.send_file(&id(&bob), &path, "holiday.jpg", "image/jpeg").await.expect("offers");
+    let on = alice.forward(&sent, &id(&carol)).await.expect("forwards");
+    // A message still in the outbox is never swept: bob has to have it first.
+    until("bob has the file", || async { bob.store().file(&sent).await.unwrap().is_some_and(|file| file.complete) }).await;
+    until("it left alice's outbox", || async { alice.store().outbox().await.unwrap().iter().all(|entry| entry.message_id != sent) }).await;
+
+    alice.set_history(&id(&bob), 86_400, 0).await.expect("a day of history with bob");
+    alice.sweep_history_at(now() + 2 * 86_400_000).await.expect("sweeps");
+    assert!(alice.store().file(&sent).await.unwrap().is_none(), "bob's conversation is gone");
+    assert_eq!(std::fs::read(alice.file_path(&file_of(&alice, &on).await)).expect("the forward still opens"), bytes);
+}
+
 // Hidden sessions (Plan, 2026-09-23): a 6-digit PIN opens a space of its own. Every PIN opens
 // one, the same way: the one that has it, or a new empty one, and nothing says which.
 #[tokio::test(flavor = "multi_thread")]

@@ -2,7 +2,6 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import {
-  pickFiles,
   pickForPlugin,
   pluginMayUseDrive,
   pluginFetch,
@@ -41,8 +40,8 @@ import {
   vaultRetry,
   vaultSave,
   vaultStatus,
-  vaultUpload,
   vaultUploadMessage,
+  vaultUploadPicked,
   PLUGIN_EVENT,
   type PickedFile,
   type PluginEvent,
@@ -291,16 +290,10 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
     case "remove":
       await vaultRemove(said.a);
       return true;
-    case "upload": {
-      // The plugin never opens the picker: the app asks the user, and the core seals what they chose.
-      const picked = await pickFiles("");
-      let went = 0;
-      for (const file of picked) {
-        await vaultUpload(file, parent(said.a));
-        went += 1;
-      }
-      return went;
-    }
+    case "upload":
+      // The plugin never opens the picker: the core asks the user, seals what they chose and
+      // deletes the picker's copies (2026-10-02).
+      return vaultUploadPicked(parent(said.a));
     case "keep": {
       // The file this plugin was opened with, by its ref: the bytes never pass through the frame.
       if (!props.reference) return false;
