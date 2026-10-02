@@ -1014,5 +1014,142 @@ describe("ChatThread", () => {
       await thread();
       expect(calls.map(([command]) => command)).not.toContain("core_catalogue");
     });
+
+    // Ioan, 2026-10-03 (option A): a game is played inside the conversation, so the two can write
+    // while playing. It takes the place of the messages; the header and the composer stay.
+    describe("the game room", () => {
+      const playChess = async (installed: unknown[] = [CODE, CHESS]) => {
+        bridge({ installed });
+        const wrapper = await thread({ play: CHESS.id });
+        return wrapper;
+      };
+      const room = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.find("[data-test='game-room']");
+      const hidden = (element: { attributes: (name: string) => string | undefined }) => /display:\s*none/.test(element.attributes("style") ?? "");
+      const arrives = (text: string) => {
+        chat("c1")!.messages.push({ id: `in-${text}`, mine: false, text, time: "10:00" });
+      };
+
+      it("opens a game between the header and the composer, the thread hidden but kept", async () => {
+        const wrapper = await playChess();
+        expect(room(wrapper).exists()).toBe(true);
+        expect(room(wrapper).findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ id: CHESS.id });
+        // Not the full-screen window of a tool.
+        expect(wrapper.find(".ft-app").exists()).toBe(false);
+        expect(wrapper.find("[data-test='peer']").exists()).toBe(true);
+        expect(wrapper.findComponent(IonTextarea).exists()).toBe(true);
+        const messages = wrapper.find(".ft-thread__content");
+        expect(messages.exists()).toBe(true);
+        expect(hidden(messages)).toBe(true);
+      });
+
+      it("still opens a tool in its own full-screen window", async () => {
+        bridge({ installed: [CODE, CHESS] });
+        const wrapper = await thread();
+        await wrapper.find("[data-test='apps']").trigger("click");
+        await wrapper.find(`[data-test='app-${CODE.id}']`).trigger("click");
+        await flushPromises();
+        expect(wrapper.find(".ft-app").exists()).toBe(true);
+        expect(room(wrapper).exists()).toBe(false);
+      });
+
+      it("has a bar with a way out, the game's name and an invitation that leaves the game open", async () => {
+        const wrapper = await playChess();
+        const bar = wrapper.find("[data-test='game-bar']");
+        expect(bar.html()).toContain("Chess");
+        await wrapper.find("[data-test='game-invite']").trigger("click");
+        await flushPromises();
+        expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Shall we play Chess? https://flickertalk.com/games/chess");
+        expect(room(wrapper).exists()).toBe(true);
+
+        await wrapper.find("[data-test='close-game']").trigger("click");
+        await flushPromises();
+        expect(room(wrapper).exists()).toBe(false);
+        expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
+      });
+
+      // Plan finding 4: with the composer in sight, what a game says waits there and the game goes on.
+      it("keeps the game open when it proposes a text or a file", async () => {
+        const wrapper = await playChess();
+        const sheet = wrapper.findComponent({ name: "PluginSheet" });
+        sheet.vm.$emit("text", "♟️ Chess: I won");
+        await flushPromises();
+        expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("♟️ Chess: I won");
+        expect(room(wrapper).exists()).toBe(true);
+
+        // A file it made: staged, and the `done` that follows it does not close the game.
+        sheet.vm.$emit("attach", { path: "/p/game.pgn", name: "game.pgn", mime: "application/x-chess-pgn", size: 9 });
+        sheet.vm.$emit("done");
+        await flushPromises();
+        expect(wrapper.find("[data-test='staged']").exists()).toBe(true);
+        expect(room(wrapper).exists()).toBe(true);
+
+        // The game asking to close itself still closes it.
+        wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("done");
+        await flushPromises();
+        expect(room(wrapper).exists()).toBe(false);
+      });
+
+      // Ioan: no video while playing; and no files from the room.
+      it("hides the attach button and the video call while playing, and brings them back after", async () => {
+        const wrapper = await playChess();
+        expect(wrapper.find(`[aria-label='Attach']`).exists()).toBe(false);
+        expect(wrapper.find(`[aria-label='Video call']`).exists()).toBe(false);
+        expect(wrapper.find(`[aria-label='Voice call']`).exists()).toBe(true);
+        expect(wrapper.find("[data-test='open-emoji']").exists()).toBe(true);
+        await wrapper.find("[data-test='close-game']").trigger("click");
+        await flushPromises();
+        expect(wrapper.find(`[aria-label='Attach']`).exists()).toBe(true);
+        expect(wrapper.find(`[aria-label='Video call']`).exists()).toBe(true);
+      });
+
+      it("shows what the other one writes, and the thread on a tap, with the game still running", async () => {
+        const wrapper = await playChess();
+        const strip = () => wrapper.find("[data-test='game-strip']");
+        expect(strip().exists()).toBe(true);
+        expect(strip().html()).not.toContain("nice move");
+        // Nothing new yet: the strip says what a tap does.
+        expect(strip().find("ion-label").element.innerHTML).toBe("Show the chat");
+        arrives("nice move!");
+        await flushPromises();
+        expect(strip().html()).toContain("nice move!");
+
+        await wrapper.find("[data-test='game-peek']").trigger("click");
+        await flushPromises();
+        expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
+        expect(hidden(wrapper.find("[data-test='game-area']"))).toBe(true);
+        expect(room(wrapper).findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+
+        // Back to the game: what was read is not shown again.
+        await wrapper.find("[data-test='game-peek']").trigger("click");
+        await flushPromises();
+        expect(hidden(wrapper.find(".ft-thread__content"))).toBe(true);
+        expect(hidden(wrapper.find("[data-test='game-area']"))).toBe(false);
+        expect(strip().html()).not.toContain("nice move!");
+      });
+
+      // §84: read only once it could be read: in the strip, the latest of what arrived; when the
+      // thread is shown, all of it.
+      it("marks read what arrives while playing only when the thread is shown", async () => {
+        const wrapper = await playChess();
+        calls.length = 0;
+        arrives("one");
+        arrives("two");
+        await flushPromises();
+        expect(calls.map(([command]) => command)).not.toContain("core_mark_read");
+        await wrapper.find("[data-test='game-peek']").trigger("click");
+        await flushPromises();
+        expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+      });
+
+      it("closes the game with the back button and stays in the chat", async () => {
+        const wrapper = await playChess();
+        expect(back.handler).not.toBeNull();
+        back.handler?.();
+        await flushPromises();
+        expect(room(wrapper).exists()).toBe(false);
+        expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
+      });
+    });
   });
 });
+

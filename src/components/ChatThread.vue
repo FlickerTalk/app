@@ -17,6 +17,7 @@ import {
   IonSegment,
   IonSegmentButton,
   IonTextarea,
+  IonTitle,
   IonToolbar,
 } from "@ionic/vue";
 import {
@@ -24,7 +25,10 @@ import {
   appsOutline,
   arrowUp,
   banOutline,
+  chatbubblesOutline,
   checkmarkOutline,
+  chevronDownOutline,
+  chevronUpOutline,
   callOutline,
   contractOutline,
   expandOutline,
@@ -292,8 +296,59 @@ async function forwardTo(contact: string) {
 // Issue app#3: the apps of this phone, each in its own window. The list is the app's, not this
 // component's: what Settings installs or removes shows up here without leaving the conversation.
 const showApps = ref(false);
-/** The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back. */
-const plugin = ref<{ id: string; name: string; sending: Sending; live: boolean; text?: string; file?: HandedFile; reference?: string } | null>(null);
+/**
+ * The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back.
+ * `game`: a game, played in the conversation's own room rather than in a window over it.
+ */
+const plugin = ref<{
+  id: string;
+  name: string;
+  sending: Sending;
+  live: boolean;
+  text?: string;
+  file?: HandedFile;
+  reference?: string;
+  game?: boolean;
+} | null>(null);
+
+// Ioan, 2026-10-03 (option A): a game is played inside the conversation, so the two can write to
+// each other while they play. It takes the place of the messages, which stay mounted underneath;
+// the header (with the voice call) and the composer stay. No video and no files while playing.
+const playing = computed(() => Boolean(plugin.value?.game));
+/** The thread shown for a moment, with the game still running behind it. */
+const peeking = ref(false);
+/** How many messages there were when the game opened or the thread was last seen. */
+const seenUpTo = ref(0);
+/** The latest message from the other one since then: one line above the composer. */
+const lastFromThem = computed(() =>
+  messages.value
+    .slice(seenUpTo.value)
+    .filter((one) => !one.mine)
+    .at(-1),
+);
+watch(playing, (now) => {
+  peeking.value = false;
+  seenUpTo.value = messages.value.length;
+  // What arrived while the game covered the thread is read once the thread is back.
+  if (!now) void markRead(props.chatId);
+});
+async function peek() {
+  peeking.value = !peeking.value;
+  seenUpTo.value = messages.value.length;
+  if (peeking.value) {
+    await markRead(props.chatId);
+    await scrollToEnd();
+  }
+}
+/** A file a game made waits in the composer; the `done` that follows it does not end the game. */
+let stagedByGame = false;
+function pluginDone() {
+  if (plugin.value?.game && stagedByGame) {
+    stagedByGame = false;
+    return;
+  }
+  plugin.value = null;
+}
 
 // Android's back button closes what is open on top, and only that (2026-09-28).
 closeOnBackWhile(() => emoji.value, () => (emoji.value = false));
@@ -331,7 +386,13 @@ function openApps() {
 }
 
 function openGame(game: PluginView) {
-  plugin.value = { id: game.id, name: game.name, sending: game.granted.send, live: Boolean(game.granted.live) };
+  plugin.value = { id: game.id, name: game.name, sending: game.granted.send, live: Boolean(game.granted.live), game: true };
+}
+
+/** 📨 from the game's own bar: the same invitation, and the game goes on. */
+function inviteToPlaying() {
+  const game = installed.value.find((one) => one.id === plugin.value?.id);
+  if (game) invite(game);
 }
 
 /**
@@ -475,10 +536,10 @@ async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean
   }
 }
 
-/** A plugin proposes; the user sends (§53). */
+/** A plugin proposes; the user sends (§53). A game goes on: the composer is in sight below it. */
 function fromPlugin(text: string) {
   draft.value = text;
-  plugin.value = null;
+  if (!plugin.value?.game) plugin.value = null;
 }
 
 // A2: a file a plugin made with the `propose` permission waits in the composer, like a text it
@@ -487,7 +548,8 @@ const staged = ref<PickedFile | null>(null);
 
 function stage(file: PickedFile) {
   staged.value = file;
-  plugin.value = null;
+  if (plugin.value?.game) stagedByGame = true;
+  else plugin.value = null;
 }
 
 async function sendStaged() {
@@ -559,6 +621,8 @@ watch(
 watch(
   () => messages.value.length,
   async () => {
+    // Behind a game only the latest line shows: read once the thread is (§84).
+    if (playing.value && !peeking.value) return;
     await markRead(props.chatId);
     await scrollToEnd();
   },
@@ -598,7 +662,8 @@ watch(
           <ion-button :aria-label="$t('chat.voiceCall')" @click="router.push(`/call/${chat.id}`)">
             <ion-icon slot="icon-only" :icon="callOutline" aria-hidden="true" />
           </ion-button>
-          <ion-button :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
+          <!-- Ioan, 2026-10-03: no video while playing. -->
+          <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
           <!-- Issue app#3: the utilities installed on this phone and, where there are games, the games. -->
@@ -609,8 +674,39 @@ watch(
       </ion-toolbar>
     </ion-header>
 
-    <!-- Issue app#3: each plugin does its thing inside its own window. -->
-    <div v-if="plugin" class="ft-app" role="dialog" :aria-label="plugin.name">
+    <!-- The game room (Ioan, 2026-10-03): the game where the messages are, with a bar of its own:
+         a way out, its name and the invitation. The thread stays mounted under it. -->
+    <section v-if="plugin && plugin.game" class="ft-room" data-test="game-room" :aria-label="plugin.name">
+      <ion-toolbar class="ft-room__bar" data-test="game-bar">
+        <ion-buttons slot="start">
+          <ion-button data-test="close-game" :aria-label="$t('common.close')" @click="plugin = null">
+            <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+          </ion-button>
+        </ion-buttons>
+        <ion-title size="small">{{ plugin.name }}</ion-title>
+        <ion-buttons v-if="gameUrl(plugin.id)" slot="end">
+          <ion-button data-test="game-invite" :aria-label="$t('games.invite')" @click="inviteToPlaying">
+            <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
+          </ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+      <div v-show="!peeking" class="ft-room__game" data-test="game-area">
+        <PluginSheet
+          :plugin="plugin"
+          :contact="chatId"
+          :sending="plugin.sending"
+          :live="plugin.live"
+          :session="sessionOf(chatId)"
+          @text="fromPlugin"
+          @attach="stage"
+          @open-chat="(contact) => router.push(`/chat/${contact}`)"
+          @done="pluginDone"
+        />
+      </div>
+    </section>
+
+    <!-- Issue app#3: each tool does its thing inside its own window. -->
+    <div v-if="plugin && !plugin.game" class="ft-app" role="dialog" :aria-label="plugin.name">
       <div class="ft-app__bar">
         <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="plugin = null">
           <ion-icon :icon="closeOutline" aria-hidden="true" />
@@ -695,7 +791,7 @@ watch(
 
     <GamePermissions v-if="asking" :name="asking.name" :size="asking.size" @allow="allowGame" @cancel="asking = null" />
 
-    <ion-content ref="content" class="ft-thread__content">
+    <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
       <div class="ft-thread__day"><span>{{ $t("chat.today") }}</span></div>
       <MessageBubble
         v-for="message in messages"
@@ -810,6 +906,31 @@ watch(
       </div>
     </ion-footer>
     <ion-footer v-else class="ion-no-border">
+      <!-- While playing: the latest line from the other one, and the thread or the game on a tap. -->
+      <ion-item
+        v-if="playing"
+        button
+        :detail="false"
+        lines="full"
+        class="ft-room__strip"
+        data-test="game-strip"
+        @click="peek"
+      >
+        <ion-icon slot="start" :icon="peeking ? gameControllerOutline : chatbubblesOutline" aria-hidden="true" />
+        <ion-label v-if="peeking" class="ion-text-nowrap">{{ plugin?.name }}</ion-label>
+        <ion-label v-else-if="lastFromThem" class="ion-text-nowrap">{{ lastFromThem.kind === "file" ? lastFromThem.file?.name : lastFromThem.text }}</ion-label>
+        <ion-label v-else class="ion-text-nowrap" color="medium">{{ $t("games.showChat") }}</ion-label>
+        <ion-button
+          slot="end"
+          fill="clear"
+          size="default"
+          data-test="game-peek"
+          :aria-label="peeking ? $t('games.showGame') : $t('games.showChat')"
+          @click.stop="peek"
+        >
+          <ion-icon slot="icon-only" :icon="peeking ? chevronDownOutline : chevronUpOutline" aria-hidden="true" />
+        </ion-button>
+      </ion-item>
       <p v-if="composerError" class="ft-composer__error" role="alert">{{ composerError }}</p>
       <!-- A2: what a plugin made, waiting for the user to send it or throw it away. -->
       <div v-if="staged" class="ft-staged" data-test="staged">
@@ -825,7 +946,7 @@ watch(
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
       <div class="ft-composer">
         <div class="ft-composer__row">
-          <div class="ft-attach">
+          <div v-if="!playing" class="ft-attach">
             <button
               type="button"
               class="ft-round ft-round--ghost"
@@ -1015,6 +1136,19 @@ watch(
 }
 .ft-peer__status.is-direct {
   color: var(--ft-accent);
+}
+
+/* The game room: under the header, over the composer, scrolling as the tool window does. */
+.ft-room {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.ft-room__game {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .ft-thread__content {

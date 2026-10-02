@@ -428,6 +428,8 @@
     "none": "Nenhum jogo ainda",
     "offline": "Não há jogos para adicionar agora. Verifique sua conexão e tente de novo.",
     "installFailed": "Não foi possível instalar o jogo. Verifique sua conexão e tente de novo.",
-    "live": "Falar com o mesmo jogo no telefone da outra pessoa"
+    "live": "Falar com o mesmo jogo no telefone da outra pessoa",
+    "showChat": "Ver a conversa",
+    "showGame": "Voltar ao jogo"
   }
 }
