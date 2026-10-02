@@ -385,6 +385,7 @@ function open() {
       <ion-button
         v-if="game"
         expand="block"
+        :color="message.mine ? 'light' : 'primary'"
         class="ft-play-game"
         data-test="play-game"
         @pointerdown.stop
@@ -515,23 +516,15 @@ function open() {
   text-underline-offset: 2px;
 }
 
-/* Plan 10.6: the way to play a game an invitation is for, under its text: Ionic's button, in the
-   bubble's colours through its own hooks. The words take the bubble's own text colour by name:
-   `inherit` on a custom property inherits the `--color` of `ion-content` (the page's text), which
-   was light on a light bubble of this phone's (Mono, dark). */
+/* Plan 10.6: the way to play a game an invitation is for, under its text: Ionic's button in one of
+   Ionic's named colours (the owner's rule, 2026-10-02): `primary` on the other one's bubble, `light`
+   (the surface, mapped in variables.css) on this phone's, whose bubble is the primary itself. */
 .ft-play-game {
   margin: 8px 0 0;
-  --background: color-mix(in srgb, currentColor 14%, transparent);
-  --background-activated: color-mix(in srgb, currentColor 24%, transparent);
-  --color: var(--ft-on-accent);
   --border-radius: 12px;
   --box-shadow: none;
   text-transform: none;
   letter-spacing: normal;
-}
-.is-theirs .ft-play-game {
-  --background: var(--ft-surface);
-  --color: var(--ft-accent);
 }
 .ft-play-game__label {
   font-weight: 600;
