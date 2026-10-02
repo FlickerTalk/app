@@ -204,3 +204,36 @@ describe("the palettes' contrast", () => {
     expect(worst).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+// Danger red (decided 2026-10-02): as text it reads at 4.5:1 on the light themes' page and surfaces;
+// Ionic's color="danger" reads the companions, which match the colour in each appearance.
+describe("the danger colour", () => {
+  const body = (selector: string) => variablesCss.slice(variablesCss.indexOf(`${selector} {`)).split("}")[0];
+  const value = (block: string, name: string) => block.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim();
+  const numbers = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)).join(", ");
+
+  it.each(["html[data-direction] body", "html.ft-dark[data-direction] body"])("%s: the companions match", (selector) => {
+    const block = body(selector);
+    const danger = value(block, "ion-color-danger")!;
+    expect(value(block, "ion-color-danger-rgb")).toBe(numbers(danger));
+    for (const name of ["contrast", "shade", "tint"]) expect(value(block, `ion-color-danger-${name}`), name).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("reads as text on every light theme's page and surfaces", () => {
+    const danger = value(body("html[data-direction] body"), "ion-color-danger")!;
+    const lights = [...variablesCss.matchAll(/html\[data-direction="\w+"\]\s*\{([^}]*)\}/g)].map(([, block]) => block);
+    const parse = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+    const luminance = (hex: string) => {
+      const [r, g, b] = parse(hex).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (one: string, other: string) => {
+      const [light, dark] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+      return (light + 0.05) / (dark + 0.05);
+    };
+    expect(lights).toHaveLength(3);
+    for (const block of lights) {
+      for (const under of ["ft-bg", "ft-surface", "ft-surface-2"]) expect(contrast(danger, value(block, under)!), under).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
