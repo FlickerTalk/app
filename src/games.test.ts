@@ -19,6 +19,23 @@ describe("games", () => {
     expect(gameUrl("com.flickertalk.game.chess.extra")).toBeUndefined();
   });
 
+  // 2026-10-02 (decision 6 of the plan of the catalogue's translations): the game's name, in the
+  // sender's language, stands before the question, never inside it: names are translated now, and
+  // "¿Jugamos a Ajedrez?" or a declined name in Russian or German reads wrong. The link closes the
+  // text in every language, so this app, and any that reads the link, finds the game.
+  it("invites with the game's name before the question and the link at the end, in every language", async () => {
+    const catalogues = import.meta.glob<{ games: { inviteText: string } }>("./i18n/*.json", { eager: true, import: "default" });
+    expect(Object.keys(catalogues)).toHaveLength(21);
+    for (const [path, messages] of Object.entries(catalogues)) {
+      const text = messages.games.inviteText;
+      expect(text, path).toMatch(/^🎮 \{game\} · [^{}]+ \{url\}$/);
+      const sent = text.replace("{game}", "Ajedrez").replace("{url}", "https://flickertalk.com/games/chess");
+      expect(gameIdFromText(sent), path).toBe(CHESS);
+    }
+    // What an app before this wording sent is still an invitation.
+    expect(gameIdFromText("🎮 ¿Jugamos a Ajedrez? https://flickertalk.com/games/chess")).toBe(CHESS);
+  });
+
   it("reads the game of an exact link in a message", () => {
     expect(gameIdFromText("https://flickertalk.com/games/chess")).toBe(CHESS);
     expect(gameIdFromText("🎮 Shall we play Chess? https://flickertalk.com/games/chess")).toBe(CHESS);

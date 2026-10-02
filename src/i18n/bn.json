@@ -424,7 +424,7 @@
     "pickContact": "যার সাথে খেলবেন",
     "noContacts": "খেলতে একটি পরিচিতি যোগ করুন",
     "invite": "আমন্ত্রণ",
-    "inviteText": "🎮 চলো {game} খেলি? {url}",
+    "inviteText": "🎮 {game} · চলো খেলি? {url}",
     "installAndPlay": "ইনস্টল করে খেলুন",
     "permissionsBody": "এই গেমটি অন্যজনের ফোনের সাথে কথা বলে এবং ফলাফল চ্যাটে রেখে যেতে পারে।",
     "permissionsAllow": "অনুমতি দিয়ে খেলুন",

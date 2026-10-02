@@ -8,6 +8,7 @@ import { IonButton, IonIcon } from "@ionic/vue";
 import MessageBubble from "./MessageBubble.vue";
 import { installed, offered } from "../plugins";
 import type { OfferedPlugin, PluginView } from "../core";
+import { setLocale } from "../i18n";
 
 const base = { id: "m1", text: "Hi", time: "10:02", mine: true };
 
@@ -440,6 +441,21 @@ describe("MessageBubble", () => {
       await play.trigger("click");
       expect(wrapper.emitted("play")).toEqual([[CHESS.id]]);
       expect(wrapper.emitted("actions")).toBeUndefined();
+    });
+
+    // 2026-10-02 (plan of the catalogue's translations): the button names the game in the
+    // receiver's language, whatever language the invitation was written in.
+    it("names the game in the phone's language", async () => {
+      await setLocale("es");
+      try {
+        const fourInARow = { ...GO, id: "com.flickertalk.game.fourinarow", name: "Four in a Row", locales: { es: { name: "Cuatro en raya" } } };
+        offered.value = [fourInARow];
+        const play = invite("🎮 Four in a Row · Shall we play? https://flickertalk.com/games/fourinarow").find("[data-test='play-game']");
+        expect(play.text()).toContain("Cuatro en raya");
+        expect(play.text()).not.toContain("Four in a Row");
+      } finally {
+        await setLocale("en");
+      }
     });
 
     it("says what a game of the catalogue is and weighs before installing it", async () => {

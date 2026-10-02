@@ -13,7 +13,7 @@ import {
 } from "@ionic/vue";
 import { useRoute, useRouter } from "vue-router";
 import PluginSheet from "../components/PluginSheet.vue";
-import { installed, refreshPlugins } from "../plugins";
+import { installed, pluginName, refreshPlugins } from "../plugins";
 
 // A plugin on its own (2026-09-27): from Settings, or from a reminder it set. There is no chat
 // behind it, so it cannot write in one nor talk to another side; it can open the conversation a
@@ -66,7 +66,7 @@ function reopen() {
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
-        <ion-title>{{ plugin?.name ?? "" }}</ion-title>
+        <ion-title>{{ plugin ? pluginName(plugin) : "" }}</ion-title>
       </ion-toolbar>
     </ion-header>
     <ion-content class="ft-plugin-page">
