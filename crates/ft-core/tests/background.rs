@@ -7,6 +7,8 @@
 //! Two complete phones (`online::start`, with the real router client) against a fake router with a
 //! real WebSocket, which records who is connected and what it had to push. The direct connections
 //! are real WebRTC on loopback.
+//!
+//! The same fake router also takes the app's suggestions (2026-10-02), the last test here.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
@@ -23,7 +25,7 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ft_core::online::{self, Online, LINGER};
-use ft_core::{CallPhase, Core};
+use ft_core::{CallPhase, Core, Feedback};
 use ft_storage::{MessageState, Store};
 use ft_webrtc::SessionConfig;
 use serde_json::{json, Value};
@@ -54,6 +56,10 @@ struct Inner {
     registrations: Vec<(String, u8)>,
     register_tries: usize,
     refusing: bool,
+    /// Suggestions from the app (2026-10-02): who signed each, and its body.
+    feedback: Vec<(String, Value)>,
+    /// What a suggestion is answered with; 204 unless a test says otherwise.
+    feedback_answer: Option<StatusCode>,
 }
 
 #[derive(Default)]
@@ -194,6 +200,15 @@ async fn fake_router() -> (String, Arc<Fake>) {
                     }
                 });
                 StatusCode::NO_CONTENT
+            }),
+        )
+        .route(
+            "/v1/feedback",
+            post(|State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes| async move {
+                fake.with(|inner| {
+                    inner.feedback.push((device_of(&headers), serde_json::from_slice(&body).unwrap()));
+                    inner.feedback_answer.unwrap_or(StatusCode::NO_CONTENT)
+                })
             }),
         )
         .with_state(fake.clone());
@@ -566,4 +581,21 @@ async fn leaving_a_session_hangs_up_a_call_with_one_of_its_contacts() {
     let ended = carol.core().store().call(&call).await.unwrap().expect("the call");
     assert_eq!(ended.outcome, Some(ft_storage::CallOutcome::Answered), "hung up, not failed");
     until_within("carol sees the connection closed", Duration::from_secs(3), || async { !carol.online.network.is_connected(&bob.id()).await }).await;
+}
+
+// A suggestion from the app (2026-10-02): it goes to the router signed by this phone, as the app
+// writes it without the spaces around it, with the app's version and the platform it runs on.
+// Only the router's 204 is "sent"; its 429 is the day's limit and anything else a failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_suggestion_reaches_the_router_with_the_app_version_and_the_platform() {
+    let (base, fake) = fake_router().await;
+    let phone = phone(&base, "Alice", true).await;
+    assert_eq!(phone.online.send_feedback("  Stickers, please\n", "1.3.0").await, Feedback::Sent);
+    let sent = fake.with(|inner| inner.feedback.clone());
+    assert_eq!(sent, [(phone.id(), json!({ "text": "Stickers, please", "app": "1.3.0", "platform": std::env::consts::OS }))]);
+
+    fake.with(|inner| inner.feedback_answer = Some(StatusCode::TOO_MANY_REQUESTS));
+    assert_eq!(phone.online.send_feedback("one more", "1.3.0").await, Feedback::TooMany);
+    fake.with(|inner| inner.feedback_answer = Some(StatusCode::SERVICE_UNAVAILABLE));
+    assert_eq!(phone.online.send_feedback("one more", "1.3.0").await, Feedback::Failed);
 }

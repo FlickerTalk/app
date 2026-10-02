@@ -233,7 +233,8 @@
     "renewLink": "Rinnova il mio link",
     "renewLinkHint": "Chi ha il tuo vecchio link non può più raggiungerti; i tuoi contatti ricevono quello nuovo",
     "renewLinkConfirm": "Rinnova",
-    "renewed": "Link rinnovato"
+    "renewed": "Link rinnovato",
+    "feedback": "Suggerisci qualcosa"
   },
   "hours": {
     "title": "Orari",
@@ -431,5 +432,14 @@
     "live": "Parlare con lo stesso gioco sul telefono dell'altra persona",
     "showChat": "Mostra la chat",
     "showGame": "Torna al gioco"
+  },
+  "feedback": {
+    "title": "Suggerisci qualcosa",
+    "placeholder": "Cosa ti piacerebbe trovare in FlickerTalk?",
+    "hint": "Ci arriva senza il tuo nome né alcun identificativo. Non possiamo risponderti. Non scrivere dati personali.",
+    "send": "Invia",
+    "sent": "Inviato. Grazie",
+    "tooMany": "Ne hai già inviati diversi oggi. Riprova domani",
+    "failed": "Impossibile inviare. Riprova più tardi"
   }
 }

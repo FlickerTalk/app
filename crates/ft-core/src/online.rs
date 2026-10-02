@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use ft_push::{RouterClient, Signer};
+use ft_push::{Feedback, RouterClient, Signer};
 use ft_storage::Store;
 use ft_webrtc::SessionConfig;
 
@@ -403,6 +403,13 @@ impl Online {
     /// See `Lifecycle::woken`.
     pub async fn woken(&self) -> bool {
         self.lifecycle.woken().await
+    }
+
+    /// Sends a suggestion to the project's mailbox (2026-10-02), without the spaces around it,
+    /// with the app's version (the app's, not a crate's) and the platform it runs on. Here and not
+    /// on `Core`: the router client lives with the running client. Nothing of it is kept.
+    pub async fn send_feedback(&self, text: &str, app_version: &str) -> Feedback {
+        self.router.feedback(text.trim(), app_version, std::env::consts::OS).await
     }
 
     /// Resolves once the client is stopped: whoever follows its events lets them go.

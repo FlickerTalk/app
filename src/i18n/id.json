@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "Usulkan sesuatu"
   },
   "hours": {
     "title": "Jam aktif",
@@ -431,5 +432,14 @@
     "live": "Berbicara dengan game yang sama di ponsel orang lain",
     "showChat": "Tampilkan obrolan",
     "showGame": "Kembali ke game"
+  },
+  "feedback": {
+    "title": "Usulkan sesuatu",
+    "placeholder": "Apa yang ingin kamu lihat di FlickerTalk?",
+    "hint": "Usulanmu sampai ke kami tanpa namamu atau pengenal apa pun. Kami tidak bisa membalas. Jangan tulis data pribadi.",
+    "send": "Kirim",
+    "sent": "Terkirim. Terima kasih",
+    "tooMany": "Kamu sudah mengirim beberapa hari ini. Coba lagi besok",
+    "failed": "Tidak dapat mengirim. Coba lagi nanti"
   }
 }
