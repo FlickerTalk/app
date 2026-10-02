@@ -395,7 +395,7 @@ watch(
   justify-content: space-between;
   min-height: 100%;
   padding: calc(env(safe-area-inset-top) + var(--ft-space-5)) var(--ft-space-4)
-    calc(env(safe-area-inset-bottom) + var(--ft-space-5));
+    calc(var(--ion-safe-area-bottom, 0px) + var(--ft-space-5));
 }
 
 .ft-call__video {
@@ -418,7 +418,7 @@ watch(
   transform: scaleX(-1);
   position: absolute;
   inset-inline-end: var(--ft-space-4);
-  bottom: calc(env(safe-area-inset-bottom) + 110px);
+  bottom: calc(var(--ion-safe-area-bottom, 0px) + 110px);
   width: 96px;
   height: 140px;
   border: 1px solid var(--ft-border);
@@ -505,7 +505,7 @@ watch(
 .ft-call__slot--local.is-thumb {
   inset: auto;
   inset-inline-end: var(--ft-space-4);
-  bottom: calc(env(safe-area-inset-bottom) + 110px);
+  bottom: calc(var(--ion-safe-area-bottom, 0px) + 110px);
   width: 96px;
   height: 140px;
   border-radius: 16px;
