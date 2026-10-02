@@ -197,14 +197,28 @@ for (const mode of MODES) {
 
     test("a title that fits stays on one line, where Ionic puts it, and the bar keeps Ionic's height", async ({ app }) => {
       // Ionic's heights, as they were before titles could wrap: in `md` every bar is 56 px; in
-      // `ios` a page's bar is 44 px, the large title's 52 px and a sheet's (its grabber above) 56 px.
-      const heights: Record<Place, number> = mode === "md" ? { bar: 56, large: 56, sheet: 56 } : { bar: 44, large: 52, sheet: 56 };
+      // `ios` a page's bar is 44 px and a sheet's (its grabber above) 56 px. The iPhone's large title
+      // has no fixed height (one line of its 34 px font: 51 px with Linux's fonts, 52 px with the
+      // Mac's), so its bar is compared with the same bar holding a single letter.
+      const heights: Record<Exclude<Place, "large">, number> = mode === "md" ? { bar: 56, sheet: 56 } : { bar: 44, sheet: 56 };
       for (const screen of SCREENS) {
         const root = await screen.open(app, mode);
         await app.evaluate(() => document.fonts.ready);
         const titles = await root.evaluateAll(titlesIn);
         expect(titles.filter((one) => one.lines !== 1 || one.cut.length), screen.name).toEqual([]);
-        expect(titles.filter((one) => one.bar !== heights[one.place]), screen.name).toEqual([]);
+        expect(titles.filter((one) => one.place !== "large" && one.bar !== heights[one.place]), screen.name).toEqual([]);
+        for (const large of await root.locator("ion-title.title-large .ft-title").all()) {
+          const [now, oneLetter] = await large.evaluate((text) => {
+            const bar = text.closest("ion-toolbar")!;
+            const now = bar.getBoundingClientRect().height;
+            const was = text.textContent;
+            text.textContent = "A";
+            const oneLetter = bar.getBoundingClientRect().height;
+            text.textContent = was;
+            return [now, oneLetter];
+          });
+          expect(now, `${screen.name}, large title`).toBe(oneLetter);
+        }
         // The iPhone's titles stay in the middle of their bar, where Ionic puts them.
         if (mode === "ios") expect(titles.filter((one) => one.place !== "large" && Math.abs(one.offCentre) > 1), screen.name).toEqual([]);
       }
