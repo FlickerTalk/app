@@ -133,9 +133,9 @@ html[data-direction="lime"] {
   --ft-text-rgb: 10, 10, 11;
   --ft-bg-rgb: 255, 255, 255;
   --ft-muted: #6e6e73;
-  --ft-accent: #5a7406;
-  --ft-accent-rgb: 90, 116, 6;
-  --ft-accent-2: #5a7406;
+  --ft-accent: #516806;
+  --ft-accent-rgb: 81, 104, 6;
+  --ft-accent-2: #516806;
   --ft-on-accent: #ffffff;
   --ft-glow: rgba(120, 170, 0, 0.35);
 }
