@@ -118,3 +118,32 @@ ion-modal.modal-sheet > .ion-page {
     --ion-safe-area-right: 0px;
   }
 }
+/* The list beside the chat reaches no edge at its inline end either. */
+html:not([dir="rtl"]) .ft-chats.is-wide > .ft-chats__list {
+  --ion-safe-area-right: 0px;
+}
+html[dir="rtl"] .ft-chats.is-wide > .ft-chats__list {
+  --ion-safe-area-left: 0px;
+}
+
+/* What a page shows keeps clear of the side insets, wherever the page reaches an edge: a content
+   (unless it pads itself with Ionic's padding classes) and a footer take them, and what they hold
+   does not take them again (Ionic's items would). Toolbars already keep clear on their own. The
+   backgrounds still reach the edges. The insets are physical, a content's paddings logical. */
+ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) {
+  --padding-start: var(--ion-safe-area-left, 0px);
+  --padding-end: var(--ion-safe-area-right, 0px);
+}
+[dir="rtl"] ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) {
+  --padding-start: var(--ion-safe-area-right, 0px);
+  --padding-end: var(--ion-safe-area-left, 0px);
+}
+ion-footer {
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
+}
+ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) > *,
+ion-footer > * {
+  --ion-safe-area-left: 0px;
+  --ion-safe-area-right: 0px;
+}

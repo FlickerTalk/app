@@ -9,7 +9,7 @@
 // `--ion-safe-area-*` on the root; Chromium cannot fake `env()`, so the test sets those variables,
 // as `safe-area.spec.ts` does for the bottom.
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "./helpers";
+import { expect, servePluginFrames, test } from "./helpers";
 
 const BOB = "ft_bob123456789";
 const TICTACTOE = "com.flickertalk.game.tictactoe";
@@ -28,7 +28,7 @@ async function shot(app: Page, name: string) {
 }
 
 /** Where something is once it has stopped moving (a sheet sliding up, a page coming in). */
-async function settled(one: Locator): Promise<Box> {
+async function settled(one: Locator, label = "it"): Promise<Box> {
   let last = "";
   await expect
     .poll(async () => {
@@ -36,14 +36,15 @@ async function settled(one: Locator): Promise<Box> {
       const still = now === last && now !== "null";
       last = now;
       return still;
-    }, { intervals: [100] })
+    }, { intervals: [100], message: `${label} stands still on the screen` })
     .toBe(true);
   return (await one.boundingBox())!;
 }
 
 /** Every visible match stands between the two side insets. */
 async function clearOfTheSides(what: Locator, label: string) {
-  await settled(what.first());
+  await settled(what.filter({ visible: true }).first(), label);
+  const width = what.page().viewportSize()!.width;
   const boxes = (await what.evaluateAll((all) =>
     all
       .map((one) => one.getBoundingClientRect())
@@ -53,7 +54,7 @@ async function clearOfTheSides(what: Locator, label: string) {
   expect(boxes.length, `${label}: something to measure`).toBeGreaterThan(0);
   for (const box of boxes) {
     expect(box.x, `${label} starts under the left inset`).toBeGreaterThanOrEqual(SIDE - 0.5);
-    expect(box.right, `${label} ends under the right inset`).toBeLessThanOrEqual(WIDTH - SIDE + 0.5);
+    expect(box.right, `${label} ends under the right inset`).toBeLessThanOrEqual(width - SIDE + 0.5);
   }
 }
 
@@ -89,6 +90,13 @@ for (const locale of ["en", "ar"]) {
       const row = (await pane.locator(".ft-composer__row").boundingBox())!;
       if (locale === "ar") expect(paneBox.x + paneBox.width - (row.x + row.width), "no inset beside the list").toBeLessThan(SIDE);
       else expect(row.x - paneBox.x, "no inset beside the list").toBeLessThan(SIDE);
+
+      // Nor does the list, between the rail and the chat: its toolbar's buttons end where Ionic
+      // ends them, not an inset away from the chat pane.
+      const list = (await app.locator(".ft-chats__list").boundingBox())!;
+      const buttons = (await app.locator(".ft-chats__list ion-header ion-buttons").first().boundingBox())!;
+      if (locale === "ar") expect(buttons.x - list.x, "no inset beside the chat pane").toBeLessThan(SIDE);
+      else expect(list.x + list.width - (buttons.x + buttons.width), "no inset beside the chat pane").toBeLessThan(SIDE);
 
       await pane.locator("[data-test='apps']").click();
       const sheet = app.locator("ion-modal.ft-apps-sheet");
@@ -146,6 +154,104 @@ for (const locale of ["en", "ar"]) {
       if (locale === "ar") expect(rail.x - (face.x + face.width), "no inset beside the rail").toBeLessThan(SIDE);
       else expect(face.x - (rail.x + rail.width), "no inset beside the rail").toBeLessThan(SIDE);
       await shot(app, `${locale}-games-picker`);
+    });
+
+    test("the pages of the tabs and of Settings keep their texts and buttons clear of the sides", async ({ app }) => {
+      const PAGES: Array<[string, string[]]> = [
+        ["/tabs/calls", ["[data-test='empty']"]],
+        ["/tabs/games", [".ft-games__title", "[data-test='my-games'] ion-label"]],
+        ["/tabs/settings", [".ft-me", ".ft-me button", "ion-item ion-label"]],
+        ["/plugins", [".ft-plugins__hint", "ion-item ion-label"]],
+        ["/plan", ["[data-test='where']", "[data-test='hint']"]],
+        ["/blocked", ["[data-test='empty']"]],
+      ];
+      for (const [route, parts] of PAGES) {
+        await app.goto(route);
+        for (const part of parts) await clearOfTheSides(app.locator(`.ion-page:not(.ion-page-hidden) ${part}`), `${route} ${part}`);
+        await shot(app, `${locale}-page-${route.replaceAll("/", "-")}`);
+      }
+    });
+
+    test("a tool on its own page stays clear of the sides", async ({ app }) => {
+      await app.goto("/plugin/com.flickertalk.sketch");
+      await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+      await clearOfTheSides(app.locator("iframe.ft-plugin__frame"), "the tool");
+      await shot(app, `${locale}-plugin-page`);
+    });
+
+    test("a circle: its note, bubbles and composer stay clear of the sides", async ({ app }) => {
+      await app.goto("/circle/circle1");
+      await expect(app.getByTestId("circle-send")).toBeVisible();
+      await clearOfTheSides(app.locator(".ft-thread__note"), "the circle's note");
+      await clearOfTheSides(app.locator(".ft-bubble"), "a bubble");
+      await clearOfTheSides(app.locator(".ft-composer__row"), "the composer");
+      await shot(app, `${locale}-circle`);
+    });
+
+    test("a request: its panel stays clear of the side it reaches", async ({ app }) => {
+      await app.goto("/tabs/chats");
+      await app.getByTestId("requests").getByTestId("request-row").click();
+      await expect(app.getByTestId("request-panel")).toBeVisible();
+      await clearOfTheSides(app.locator("[data-test='request-panel'] p, [data-test='request-panel'] button"), "the request panel");
+      await shot(app, `${locale}-request`);
+    });
+
+    test("the game room: the game, the last line and the composer stay clear of the sides", async ({ app }) => {
+      await servePluginFrames(app);
+      await app.goto(`/chat/${BOB}`);
+      await app.getByTestId("apps").click();
+      await app.getByTestId("apps-tab-games").click();
+      await app.getByTestId(`game-${TICTACTOE}`).click();
+      await app.getByTestId("game-allow").click();
+      await expect(app.getByTestId("game-room")).toBeVisible();
+      await clearOfTheSides(app.locator("[data-test='game-area'] iframe"), "the game");
+      await clearOfTheSides(app.locator("[data-test='game-bar'] ion-buttons"), "the game's bar");
+      await clearOfTheSides(app.locator("[data-test='game-strip'] ion-icon, [data-test='game-strip'] ion-label"), "the last line");
+      await clearOfTheSides(app.locator(".ft-composer__row"), "the composer");
+      await shot(app, `${locale}-game-room`);
+    });
+
+    test("the message actions stay clear of the sides, however long the bar grows", async ({ app }) => {
+      await app.goto(`/chat/${BOB}`);
+      await app.locator(".ft-bubble").first().hover();
+      await app.mouse.down();
+      await app.waitForTimeout(700);
+      await app.mouse.up();
+      await expect(app.getByTestId("actions")).toBeVisible();
+      await app.getByTestId("forward").click();
+      // A bar of many contacts wraps at the room it is given: the test gives it all of it.
+      await app.locator(".ft-actions__bar").evaluate((bar) => ((bar as HTMLElement).style.width = "100%"));
+      await clearOfTheSides(app.locator(".ft-actions__bar"), "the actions bar");
+      await shot(app, `${locale}-actions`);
+    });
+  });
+}
+
+// One column (narrower than the split view, 740×360: a small Android phone held sideways): no rail,
+// the tab bar at the bottom, every page from edge to edge.
+for (const locale of ["en", "ar"]) {
+  test.describe(`one column, ${locale}`, () => {
+    test.use({ viewport: { width: 740, height: 360 }, locale });
+
+    test("the list, Settings and a conversation stay clear of both sides", async ({ app }) => {
+      await app.goto("/tabs/chats");
+      await expect(app.getByTestId("requests")).toBeVisible();
+      await clearOfTheSides(app.locator(".ft-requests__title, .ft-requests__hint, [data-test='request-row']"), "a request");
+      await clearOfTheSides(app.locator(".ft-row"), "a chat's row");
+      await clearOfTheSides(app.locator("ion-tab-bar ion-tab-button"), "a tab");
+      await shot(app, `${locale}-narrow-chats`);
+
+      await app.goto("/tabs/settings");
+      await clearOfTheSides(app.locator(".ion-page:not(.ion-page-hidden) .ft-me"), "the identity card");
+      // Clear once, not twice: an item keeps Ionic's own padding past the inset.
+      const icon = (await app.locator(".ion-page:not(.ion-page-hidden) ion-item ion-icon").first().boundingBox())!;
+      if (locale === "ar") expect(740 - SIDE - (icon.x + icon.width), "one inset, not two").toBeLessThan(SIDE);
+      else expect(icon.x - SIDE, "one inset, not two").toBeLessThan(SIDE);
+      await shot(app, `${locale}-narrow-settings`);
+
+      await app.goto(`/chat/${BOB}`);
+      await clearOfTheSides(app.locator(".ft-bubble"), "a bubble");
+      await clearOfTheSides(app.locator(".ft-composer__row"), "the composer");
     });
   });
 }
