@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
+import { IonModal, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
 import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
@@ -80,19 +80,20 @@ describe("SettingsPage", () => {
     expect(push).toHaveBeenCalledWith("/blocked");
   });
 
-  // 2026-10-02: an anonymous suggestion. Ioan: a modal over Settings, not a page of its own.
+  // 2026-10-02: an anonymous suggestion. Ioan: an Ionic modal over Settings, not a page of its own.
   it("opens the suggestion modal over Settings, without leaving them", async () => {
     push.mockClear();
     const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
-    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(false);
+    const modal = () => wrapper.findComponent(IonModal);
+    expect(modal().props("isOpen")).toBe(false);
     const entry = wrapper.find("[data-test='feedback']");
     expect(entry.text()).toContain("Suggest something");
     await entry.trigger("click");
-    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(true);
+    expect(modal().props("isOpen")).toBe(true);
     expect(push).not.toHaveBeenCalled();
   });
 
-  // Android's Back closes the modal, as it closes the app's other sheets, and stays in Settings.
+  // Android's Back closes the modal, as it closes the app's other overlays, and stays in Settings.
   it("closes the suggestion modal with the back button", async () => {
     push.mockClear();
     const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
@@ -100,7 +101,7 @@ describe("SettingsPage", () => {
     await flushPromises();
     back.handler?.();
     await flushPromises();
-    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(false);
+    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(false);
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -108,6 +109,7 @@ describe("SettingsPage", () => {
   it("opens the suggestion modal empty again after closing it", async () => {
     installTauri((command) => (command === "core_send_feedback" ? "failed" : undefined));
     const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    const modal = () => wrapper.findComponent(IonModal);
     await wrapper.find("[data-test='feedback']").trigger("click");
     wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "Stickers");
     await flushPromises();
@@ -115,9 +117,13 @@ describe("SettingsPage", () => {
     await flushPromises();
     expect(wrapper.find("[data-test='outcome']").exists()).toBe(true);
     await wrapper.find("[data-test='feedback-close']").trigger("click");
-    expect(wrapper.find("[data-test='feedback-modal']").exists()).toBe(false);
+    expect(modal().props("isOpen")).toBe(false);
+    // Ionic says when the modal has gone.
+    modal().vm.$emit("didDismiss", new CustomEvent("didDismiss"));
+    await flushPromises();
 
     await wrapper.find("[data-test='feedback']").trigger("click");
+    expect(modal().props("isOpen")).toBe(true);
     expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
     expect(wrapper.find("[data-test='outcome']").exists()).toBe(false);
   });
