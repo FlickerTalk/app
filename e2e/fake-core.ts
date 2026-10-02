@@ -42,6 +42,7 @@
  * catalogue offers another (Chess); installing, granting and removing change the fake's lists as
  * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
  * `window.__ftFakeBobSays` (texts) adds Bob's messages after his others: an invitation, say.
+ * `window.__ftFakeBobName` renames Bob (a long name, to see the chat header truncate it).
  *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
@@ -260,8 +261,10 @@ export function installFakeCore() {
         return "1.0.0-e2e";
       case "core_me":
         return { id: String((window as unknown as Record<string, unknown>).__ftFakeMeId ?? "ft_me"), name: "Me", mailbox: true, receipts: true, freeUntil: Date.now() + 1e10, autoDownload: state.autoDownload };
-      case "core_conversations":
-        return state.conversations;
+      case "core_conversations": {
+        const name = (window as unknown as Record<string, unknown>).__ftFakeBobName;
+        return typeof name === "string" ? state.conversations.map((one) => (one.id === "ft_bob123456789" ? { ...one, name } : one)) : state.conversations;
+      }
       case "core_requests":
         return state.requests;
       case "core_sessions":
