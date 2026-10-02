@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "提个建议"
   },
   "hours": {
     "title": "时段",
@@ -431,5 +432,14 @@
     "live": "与对方手机上的同一游戏通信",
     "showChat": "显示聊天",
     "showGame": "返回游戏"
+  },
+  "feedback": {
+    "title": "提个建议",
+    "placeholder": "你希望 FlickerTalk 有什么功能？",
+    "hint": "建议送达我们时不带你的名字或任何标识符。我们无法回复。请勿填写个人信息。",
+    "send": "发送",
+    "sent": "已发送。谢谢",
+    "tooMany": "你今天已经发送了几条。请明天再试",
+    "failed": "无法发送。请稍后再试"
   }
 }

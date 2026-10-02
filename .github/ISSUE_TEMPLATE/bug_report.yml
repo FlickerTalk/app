@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in FlickerTalk does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Short answers are fine.
+
+        **Security problems must not be reported in a public issue.** Use the private [Report a vulnerability](https://github.com/FlickerTalk/app/security/advisories/new) option of this repository or email info@flickertalk.com. See [Security](https://flickertalk.com/security/).
+
+        **Please do not paste personal data**, contact links, FlickerTalk IDs, private keys or screenshots of conversations. This issue is public.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open…
+        2. Tap…
+        3. See…
+    validations:
+      required: false
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: e.g. 1.2.0
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone and system version
+      placeholder: e.g. Samsung Galaxy S20+, Android 13
+    validations:
+      required: true

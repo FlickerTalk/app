@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "Propune ceva"
   },
   "hours": {
     "title": "Program",
@@ -431,5 +432,14 @@
     "live": "Să vorbească cu același joc de pe telefonul celeilalte persoane",
     "showChat": "Arată conversația",
     "showGame": "Înapoi la joc"
+  },
+  "feedback": {
+    "title": "Propune ceva",
+    "placeholder": "Ce ți-ar plăcea să aibă FlickerTalk?",
+    "hint": "Propunerea ta ne ajunge fără numele tău și fără niciun identificator. Nu îți putem răspunde. Nu scrie date personale.",
+    "send": "Trimite",
+    "sent": "Trimis. Mulțumim",
+    "tooMany": "Ai trimis deja mai multe azi. Încearcă mâine",
+    "failed": "Nu s-a putut trimite. Încearcă mai târziu"
   }
 }

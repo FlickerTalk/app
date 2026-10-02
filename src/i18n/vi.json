@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "Góp ý"
   },
   "hours": {
     "title": "Giờ nhận",
@@ -431,5 +432,14 @@
     "live": "Trao đổi với cùng trò chơi trên điện thoại của người kia",
     "showChat": "Xem cuộc trò chuyện",
     "showGame": "Quay lại trò chơi"
+  },
+  "feedback": {
+    "title": "Góp ý",
+    "placeholder": "Bạn muốn FlickerTalk có thêm gì?",
+    "hint": "Góp ý đến với chúng tôi mà không kèm tên của bạn hay bất kỳ mã định danh nào. Chúng tôi không thể trả lời. Đừng viết dữ liệu cá nhân.",
+    "send": "Gửi",
+    "sent": "Đã gửi. Cảm ơn bạn",
+    "tooMany": "Hôm nay bạn đã gửi vài lần rồi. Hãy thử lại vào ngày mai",
+    "failed": "Không thể gửi. Hãy thử lại sau"
   }
 }

@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "Запропонувати ідею"
   },
   "hours": {
     "title": "Розклад",
@@ -431,5 +432,14 @@
     "live": "Спілкуватися з тією самою грою на телефоні іншої людини",
     "showChat": "Показати чат",
     "showGame": "Повернутися до гри"
+  },
+  "feedback": {
+    "title": "Запропонувати ідею",
+    "placeholder": "Що б ви хотіли бачити у FlickerTalk?",
+    "hint": "Пропозиція надходить до нас без вашого імені та без будь-яких ідентифікаторів. Ми не зможемо вам відповісти. Не вказуйте особисті дані.",
+    "send": "Надіслати",
+    "sent": "Надіслано. Дякуємо",
+    "tooMany": "Ви вже надіслали кілька сьогодні. Спробуйте завтра",
+    "failed": "Не вдалося надіслати. Спробуйте пізніше"
   }
 }

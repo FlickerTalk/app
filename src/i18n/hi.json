@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "कुछ सुझाएँ"
   },
   "hours": {
     "title": "समय",
@@ -431,5 +432,14 @@
     "live": "दूसरे व्यक्ति के फ़ोन पर उसी गेम से बात करना",
     "showChat": "चैट दिखाएँ",
     "showGame": "गेम पर वापस जाएँ"
+  },
+  "feedback": {
+    "title": "कुछ सुझाएँ",
+    "placeholder": "आप FlickerTalk में क्या चाहेंगे?",
+    "hint": "आपका सुझाव हम तक आपके नाम या किसी भी पहचानकर्ता के बिना पहुँचता है। हम जवाब नहीं दे सकते। निजी जानकारी न लिखें।",
+    "send": "भेजें",
+    "sent": "भेज दिया गया। धन्यवाद",
+    "tooMany": "आप आज पहले ही कई भेज चुके हैं। कल फिर कोशिश करें",
+    "failed": "भेजा नहीं जा सका। बाद में फिर कोशिश करें"
   }
 }

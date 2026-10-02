@@ -233,7 +233,8 @@
     "renewLink": "Renew my link",
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
-    "renewed": "Link renewed"
+    "renewed": "Link renewed",
+    "feedback": "제안하기"
   },
   "hours": {
     "title": "수신 시간",
@@ -431,5 +432,14 @@
     "live": "상대방 휴대폰의 같은 게임과 통신",
     "showChat": "채팅 보기",
     "showGame": "게임으로 돌아가기"
+  },
+  "feedback": {
+    "title": "제안하기",
+    "placeholder": "FlickerTalk에 어떤 기능이 있으면 좋겠나요?",
+    "hint": "제안은 이름이나 어떤 식별자도 없이 전달됩니다. 저희는 답장을 드릴 수 없습니다. 개인정보는 적지 마세요.",
+    "send": "보내기",
+    "sent": "보냈습니다. 감사합니다",
+    "tooMany": "오늘은 이미 여러 번 보냈습니다. 내일 다시 시도하세요",
+    "failed": "보낼 수 없습니다. 나중에 다시 시도하세요"
   }
 }
