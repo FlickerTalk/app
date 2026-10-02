@@ -42,6 +42,7 @@
  * catalogue offers another (Chess); installing, granting and removing change the fake's lists as
  * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
  * `window.__ftFakeBobSays` (texts) adds Bob's messages after his others: an invitation, say.
+ * `window.__ftFakeISaid` (texts) adds messages of this phone to Bob, read, after Bob's.
  * `window.__ftFakeBobName` renames Bob (a long name, to see the chat header truncate it).
  * `window.__ftFakeManyPlugins` (a number) installs that many more tools and as many games, for a
  * list longer than the screen.
@@ -282,7 +283,9 @@ export function installFakeCore() {
         }));
         const said = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeBobSays as string[]) ?? []) : [];
         const extra = said.map((text, at) => ({ id: `said${at}`, outgoing: false, text, sentAt: Date.now() - 1000 + at, state: "delivered" }));
-        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra];
+        const mine = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeISaid as string[]) ?? []) : [];
+        const sent = mine.map((text, at) => ({ id: `mine${at}`, outgoing: true, text, sentAt: Date.now() - 500 + at, state: "read" }));
+        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra, ...sent];
       }
       case "core_plugins": {
         const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
