@@ -810,8 +810,9 @@ describe("ChatThread", () => {
       expect(endButtons(wrapper)).toHaveLength(3);
       expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
       await wrapper.find("[data-test='apps']").trigger("click");
-      // A sheet: it rises from the bottom and has heights to be dragged between.
+      // A sheet: it rises from the bottom and has heights to be dragged between; and a name.
       const sheet = wrapper.findComponent(IonModalStub);
+      expect(sheet.attributes("aria-label")).toBe("Plugins");
       expect(sheet.props("isOpen")).toBe(true);
       expect(sheet.props("breakpoints")).toContain(sheet.props("initialBreakpoint"));
       const segments = wrapper.findAllComponents(IonSegmentButton);
@@ -876,6 +877,8 @@ describe("ChatThread", () => {
       const wrapper = await thread();
       await wrapper.find("[data-test='apps']").trigger("click");
       expect(wrapper.findComponent(IonSegment).exists()).toBe(false);
+      // No header for the handle to sit on (iOS draws it over the content): the list keeps clear of it.
+      expect(wrapper.find(".ft-apps-sheet__content").classes()).toContain("ion-padding-top");
       expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
       expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
 
