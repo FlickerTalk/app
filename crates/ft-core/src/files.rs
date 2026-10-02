@@ -9,6 +9,7 @@
 //! - Resuming (§63): a transfer that stalls, because the connection dropped, is asked again from
 //!   the first missing chunk once the sender can be reached.
 
+use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use ft_protocol::{Body, MessageId, Packet, FILE_CHUNK};
-use ft_storage::{Contact, FileRecord, Message, MessageState, OutboxEntry};
+use ft_storage::{Contact, FileRecord, Message, MessageState, OutboxEntry, Store};
 
 use crate::{now, retry_delay, Core, Event, RECEIPT_WAIT};
 
@@ -461,6 +462,50 @@ fn resolve(stored: &Path, files_dir: &Path) -> PathBuf {
     }
 }
 
+/// Where files wait on their way somewhere, under the files folder (2026-10-02): what the pickers
+/// and the camera leave, what the WebView and plugins write to be sent, and what comes down from
+/// the drive. Once no message points to one of them, nothing needs it.
+pub const TRANSIT_FOLDERS: [&str; 3] = ["uploads", "outgoing", "drive"];
+
+/// Every file a stored message points to on this device, canonical where it is there: a path is
+/// kept relative to the files folder, or absolute by an older version (`resolve`).
+pub async fn referenced_files(store: &Store, files_dir: &Path) -> Result<HashSet<PathBuf>> {
+    Ok(store.file_paths().await?.iter().map(|stored| canonical(&resolve(Path::new(stored), files_dir))).collect())
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_owned())
+}
+
+/// Deletes every file in `folders` that no stored message points to, and the folders that leaves
+/// empty inside them (a drive copy's own), never `folders` themselves (2026-10-02): a pick a plugin
+/// never got, an attachment thrown away, an upload cut short, a plain copy from the drive. It runs
+/// at start, before anything can be picked or staged. If the store cannot say what messages point
+/// to, nothing is deleted. Returns how many files went.
+pub async fn sweep_orphans(store: &Store, files_dir: &Path, folders: Vec<PathBuf>) -> Result<usize> {
+    let referenced = referenced_files(store, files_dir).await?;
+    Ok(tokio::task::spawn_blocking(move || folders.iter().map(|folder| sweep_folder(folder, &referenced, false)).sum()).await?)
+}
+
+fn sweep_folder(folder: &Path, referenced: &HashSet<PathBuf>, inner: bool) -> usize {
+    let Ok(entries) = std::fs::read_dir(folder) else { return 0 };
+    let mut gone = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => gone += sweep_folder(&path, referenced, true),
+            // A link goes as itself, whatever it points to.
+            Ok(_) if !referenced.contains(&canonical(&path)) && std::fs::remove_file(&path).is_ok() => gone += 1,
+            _ => {}
+        }
+    }
+    if inner {
+        // Only if nothing is left in it.
+        let _ = std::fs::remove_dir(folder);
+    }
+    gone
+}
+
 /// Bytes of chunk `index`: all are full but the last.
 fn chunk_length(file: &FileRecord, index: u64) -> usize {
     let start = index as i64 * file.chunk;
@@ -514,6 +559,107 @@ pub fn safe_file_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ft_storage::NewContact;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ft-core-{name}-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn put(path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"bytes").unwrap();
+    }
+
+    /// A store whose messages point to these stored paths.
+    async fn pointing_to(paths: &[&str]) -> Store {
+        let store = Store::open_in_memory().await.unwrap();
+        store
+            .add_contact(&NewContact { device_id: "ft_bob".into(), name: "Bob".into(), card: vec![1], mailbox: true, session: None, receipts: true, accepted: true })
+            .await
+            .unwrap();
+        for (index, path) in paths.iter().enumerate() {
+            let id = format!("m{index}");
+            store
+                .insert_message(&Message { message_id: id.clone(), contact: "ft_bob".into(), outgoing: true, body: "f".into(), sent_at: 1, received_at: 1, state: MessageState::Sent })
+                .await
+                .unwrap();
+            let file = FileRecord {
+                message_id: id,
+                name: "f".into(),
+                size: 5,
+                mime: "image/jpeg".into(),
+                hash: [0; 32],
+                chunk: 5,
+                path: (*path).to_owned(),
+                chunks_done: 0,
+                complete: false,
+                failed: false,
+                waiting: false,
+            };
+            store.insert_file(&file).await.unwrap();
+        }
+        store
+    }
+
+    // 2026-10-02: what waited on its way somewhere and no message points to goes at start —
+    // a pick a plugin never got, an attachment thrown away, a copy of the drive — and what a
+    // message points to stays, however its path was kept.
+    #[tokio::test]
+    async fn the_sweep_keeps_what_messages_point_to_and_nothing_else() {
+        let dir = scratch("sweep");
+        let files = dir.join("files");
+        let legacy = dir.join("uploads");
+        let kept = [
+            files.join("uploads").join("1-a.jpg"),           // sent, and forwarded: two messages
+            files.join("drive").join("x1").join("doc.pdf"),  // a drive file sent in a chat
+            files.join("m9").join("photo.jpg"),              // received
+            files.join("outgoing").join("u1"),               // kept by an older version, absolute
+            legacy.join("old.jpg"),                          // the legacy picker's folder
+        ];
+        let gone = [
+            files.join("uploads").join("2-b.jpg"),
+            files.join("outgoing").join("3-made.pdf"),
+            files.join("drive").join("x2").join("tax.pdf"),
+            files.join("drive").join("x3").join("deep").join("a.part"),
+            legacy.join("stale.jpg"),
+        ];
+        for file in kept.iter().chain(&gone) {
+            put(file);
+        }
+        let old_outgoing = "/old/container/files/outgoing/u1";
+        let legacy_kept = legacy.join("old.jpg").to_string_lossy().into_owned();
+        let store = pointing_to(&["uploads/1-a.jpg", "uploads/1-a.jpg", "drive/x1/doc.pdf", "m9/photo.jpg", old_outgoing, &legacy_kept]).await;
+
+        let folders = vec![files.join("uploads"), files.join("outgoing"), files.join("drive"), legacy.clone()];
+        assert_eq!(sweep_orphans(&store, &files, folders).await.unwrap(), gone.len());
+        for file in &kept {
+            assert!(file.exists(), "{}", file.display());
+        }
+        for file in &gone {
+            assert!(!file.exists(), "{}", file.display());
+        }
+        // A drive copy's own folder goes with it; the one of a file still pointed to stays.
+        assert!(!files.join("drive").join("x2").exists() && !files.join("drive").join("x3").exists());
+        assert!(files.join("drive").join("x1").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // If the store cannot say what messages point to, nothing is deleted.
+    #[tokio::test]
+    async fn a_sweep_that_cannot_ask_the_store_deletes_nothing() {
+        let dir = scratch("sweep-fails");
+        let files = dir.join("files");
+        let waiting = files.join("uploads").join("2-b.jpg");
+        put(&waiting);
+        let store = pointing_to(&[]).await;
+        store.close().await;
+
+        assert!(sweep_orphans(&store, &files, vec![files.join("uploads")]).await.is_err());
+        assert!(waiting.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn file_names_cannot_escape_their_directory() {
