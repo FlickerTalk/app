@@ -23,6 +23,7 @@ import {
   bulbOutline,
   callOutline,
   checkmarkDoneOutline,
+  checkmarkOutline,
   colorPaletteOutline,
   contrastOutline,
   copyOutline,
@@ -65,6 +66,21 @@ const plan = computed(() => {
   const days = daysLeft(store.me.freeUntil);
   return days > 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");
 });
+
+// The ID on the card, to paste anywhere. The tick says so only once the clipboard took it, and for
+// a moment: then the button copies again.
+const idCopied = ref(false);
+let idCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+async function copyId() {
+  try {
+    await navigator.clipboard.writeText(store.me.id);
+  } catch {
+    return;
+  }
+  idCopied.value = true;
+  clearTimeout(idCopiedTimer);
+  idCopiedTimer = setTimeout(() => (idCopied.value = false), 2000);
+}
 
 const version = ref("");
 // Issue app#7: whether the weekly hours are on, shown on their row.
@@ -186,10 +202,23 @@ function chooseAppearance(id: Appearance) {
             <span class="ft-me__label">{{ $t("settings.yourId") }}</span>
             <code class="ft-me__id">{{ store.me.id }}</code>
           </span>
-          <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('settings.copyId')">
-            <ion-icon :icon="copyOutline" aria-hidden="true" />
+          <button
+            type="button"
+            class="ft-round ft-round--ghost"
+            data-test="copy-id"
+            :aria-label="idCopied ? $t('settings.idCopied') : $t('settings.copyId')"
+            @click="copyId"
+          >
+            <ion-icon :icon="idCopied ? checkmarkOutline : copyOutline" aria-hidden="true" />
           </button>
-          <button type="button" class="ft-round ft-round--accent" :aria-label="$t('settings.showQr')">
+          <!-- My code is «Add contact» on its first tab: the QR another phone scans to add this one. -->
+          <button
+            type="button"
+            class="ft-round ft-round--accent"
+            data-test="show-qr"
+            :aria-label="$t('settings.showQr')"
+            @click="router.push('/add-contact')"
+          >
             <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
           </button>
         </section>

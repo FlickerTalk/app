@@ -193,6 +193,7 @@
     "title": "Settings",
     "yourId": "Your FlickerTalk ID",
     "copyId": "Copy ID",
+    "idCopied": "ID copied",
     "showQr": "Show my QR",
     "mailbox": "Offline mailbox",
     "mailboxNote": "Encrypted · deleted on pickup",
