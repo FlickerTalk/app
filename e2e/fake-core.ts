@@ -50,6 +50,8 @@
  * `ft.openChat` then leads to her conversation.
  * `window.__ftFakeManyPlugins` (a number) installs that many more tools and as many games, for a
  * list longer than the screen.
+ * `window.__ftFakeCatalogue` (entries) adds to what the catalogue lists, with their `locales`
+ * (2026-10-02): entries for installed plugins too, as the real core lists them.
  *
  * The live channel (2026-10-02): `window.__ftFakeLivePlugins` (ids) start with `live` granted, and
  * `core_plugin_live_send` takes what such a plugin says to its twin (kept in `calls`), as the core
@@ -123,8 +125,17 @@ export function installFakeCore() {
     ] as Array<Record<string, unknown> & { id: string; name: string; granted: Record<string, unknown> }>,
     /** What the catalogue offers besides what is installed (2026-10-02, plan 10). */
     catalogue: [
-      { id: "com.flickertalk.game.chess", name: "Chess", version: "1.0.0", summary: "Chess for two, move by move.", size: 412_000, carried: false, kind: "game" },
-    ],
+      {
+        id: "com.flickertalk.game.chess",
+        name: "Chess",
+        version: "1.0.0",
+        summary: "Chess for two, move by move.",
+        size: 412_000,
+        carried: false,
+        kind: "game",
+        locales: { es: { name: "Ajedrez", summary: "Ajedrez para dos, jugada a jugada." } },
+      },
+    ] as Array<Record<string, unknown> & { id: string; name: string; version: string; kind: string }>,
     nextSession: 1,
     // Circles (2026-09-27): one of Bob and me, made by me.
     circles: [
@@ -158,6 +169,7 @@ export function installFakeCore() {
     video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
   };
   const flag = (name: string) => Boolean((window as unknown as Record<string, unknown>)[name]);
+  const catalogue = () => [...state.catalogue, ...(((window as unknown as Record<string, unknown>).__ftFakeCatalogue as typeof state.catalogue) ?? [])];
   /** Read when asked, as the other knobs are: a test may set it after the fake is installed. */
   const grantLive = () => {
     const ids = ((window as unknown as Record<string, unknown>).__ftFakeLivePlugins as string[] | undefined) ?? [];
@@ -326,10 +338,10 @@ export function installFakeCore() {
         return JSON.parse(JSON.stringify(state.plugins));
       }
       case "core_catalogue":
-        return state.catalogue.map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
+        return catalogue().map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
       case "core_plugin_add": {
         if (flag("__ftFakeInstallFails")) throw new Error("the catalogue could not be reached");
-        const entry = state.catalogue.find((one) => one.id === a.plugin);
+        const entry = catalogue().find((one) => one.id === a.plugin);
         if (!entry) throw new Error("that tool is not offered here");
         if (!state.plugins.some((p) => p.id === entry.id)) {
           state.plugins.push({

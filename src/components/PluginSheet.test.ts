@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import PluginSheet from "./PluginSheet.vue";
+import { setLocale } from "../i18n";
 import { CLOSING_WAIT } from "../plugins";
 
 const plugin = { id: "com.flickertalk.markdown", name: "Markdown" };
@@ -25,6 +26,20 @@ function framed(wrapper: ReturnType<typeof mount>) {
 
 describe("PluginSheet", () => {
   beforeEach(() => tauri.invoke.mockReset());
+
+  // 2026-10-02 (plan of the catalogue's translations): a screen reader names the frame as the
+  // phone's language does.
+  it("names its frame in the phone's language", async () => {
+    await setLocale("es");
+    try {
+      const notes = { id: "com.flickertalk.notes", name: "Notes", locales: { es: { name: "Notas" } } };
+      const wrapper = mount(PluginSheet, { props: { plugin: notes, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      expect(wrapper.find("iframe").attributes("title")).toBe("Notas");
+    } finally {
+      await setLocale("en");
+    }
+  });
 
   it("shows the plugin in a frame of its own, locked down", async () => {
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });

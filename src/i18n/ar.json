@@ -424,7 +424,7 @@
     "pickContact": "العب مع",
     "noContacts": "أضف جهة اتصال لتلعب معها",
     "invite": "دعوة",
-    "inviteText": "🎮 هل نلعب {game}؟ {url}",
+    "inviteText": "🎮 {game} · هل نلعب؟ {url}",
     "installAndPlay": "ثبّت والعب",
     "permissionsBody": "تتواصل هذه اللعبة مع هاتف الشخص الآخر ويمكنها ترك النتيجة في المحادثة.",
     "permissionsAllow": "اسمح والعب",

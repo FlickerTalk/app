@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import {
+  byPluginName,
   followPluginChanges,
   fromFrame,
   frameUrl,
@@ -24,12 +25,15 @@ import {
   offeredOnce,
   openersOf,
   opensKind,
+  pluginName,
+  pluginSummary,
   refreshOffered,
   refreshPlugins,
   tools,
   viewerOf,
 } from "./plugins";
 import type { OfferedPlugin, PluginView } from "./core";
+import { setLocale } from "./i18n";
 
 const CODE: PluginView = {
   id: "com.flickertalk.code",
@@ -298,6 +302,97 @@ describe("plugins in the app", () => {
       tauri.invoke.mockRejectedValueOnce(new Error("no core"));
       await expect(refreshOffered()).rejects.toThrow("no core");
       expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
+    });
+  });
+
+  // 2026-10-02 (plan of the catalogue's translations): a plugin's name and summary in the phone's
+  // language. The installed package's own, then the catalogue's entry with the same id, then the
+  // English; for each, the exact language, then its base language.
+  describe("names and summaries in the phone's language", () => {
+    const LIST: PluginView = {
+      ...CODE,
+      id: "com.flickertalk.list",
+      name: "List",
+      kind: "tool",
+      locales: { es: { name: "Listas" }, zh: { name: "清单" } },
+    };
+    const LISTED: OfferedPlugin = {
+      id: "com.flickertalk.list",
+      name: "List",
+      version: "1.0.1",
+      summary: "A list you both edit.",
+      size: 9000,
+      installed: true,
+      carried: false,
+      locales: {
+        es: { name: "Lista vieja", summary: "Una lista que editáis los dos." },
+        "zh-TW": { name: "清單", summary: "兩人一起編輯的清單。" },
+      },
+    };
+
+    beforeEach(async () => {
+      installed.value = [];
+      offered.value = [];
+      await setLocale("en");
+    });
+
+    it("is the English one on an English phone, and without any translation", async () => {
+      installed.value = [LIST];
+      offered.value = [LISTED];
+      expect(pluginName(LIST)).toBe("List");
+      expect(pluginSummary(LISTED)).toBe("A list you both edit.");
+      await setLocale("fr");
+      expect(pluginName(LIST)).toBe("List");
+      expect(pluginSummary(LISTED)).toBe("A list you both edit.");
+    });
+
+    it("is the installed package's own, before the catalogue's", async () => {
+      installed.value = [LIST];
+      offered.value = [LISTED];
+      await setLocale("es");
+      expect(pluginName(LIST)).toBe("Listas");
+      expect(pluginName(LISTED), "the same plugin, wherever it is shown").toBe("Listas");
+      // The package says nothing of its summary: the catalogue does.
+      expect(pluginSummary(LISTED)).toBe("Una lista que editáis los dos.");
+    });
+
+    it("is the catalogue's when the installed package has none", async () => {
+      const bare = { ...LIST, locales: undefined };
+      installed.value = [bare];
+      offered.value = [LISTED];
+      await setLocale("es");
+      expect(pluginName(bare)).toBe("Lista vieja");
+      // Even when only the id is known, as for the game of an invitation.
+      expect(pluginName({ id: LIST.id, name: "List" })).toBe("Lista vieja");
+    });
+
+    it("is the exact language first, then the base language of a regional one", async () => {
+      installed.value = [LIST];
+      offered.value = [LISTED];
+      await setLocale("zh-TW");
+      expect(pluginName(LIST), "the catalogue's zh-TW before the package's zh").toBe("清單");
+      await setLocale("zh-CN");
+      expect(pluginName(LIST), "no zh-CN anywhere: the base language").toBe("清单");
+      expect(pluginSummary(LISTED), "zh-TW is not zh-CN").toBe("A list you both edit.");
+    });
+
+    it("never takes an empty translation", async () => {
+      const blank = { ...LIST, locales: { es: { name: "  ", summary: "" } } };
+      await setLocale("es");
+      expect(pluginName(blank)).toBe("List");
+    });
+
+    it("sorts by the name the phone shows, in the phone's own order", async () => {
+      const named = (id: string, name: string, es: string): PluginView => ({ ...CODE, id, name, locales: { es: { name: es } } });
+      const list = [named("a", "Zebra", "Árbol"), named("b", "Apple", "Zorro"), named("c", "Mango", "Bingo")];
+      await setLocale("es");
+      // Code points would put "Árbol" after "Zorro".
+      expect(byPluginName(list).map(pluginName)).toEqual(["Árbol", "Bingo", "Zorro"]);
+      expect(list.map((one) => one.id), "a sorted copy").toEqual(["a", "b", "c"]);
+      installed.value = list;
+      expect(tools.value.map(pluginName)).toEqual(["Árbol", "Bingo", "Zorro"]);
+      await setLocale("en");
+      expect(tools.value.map(pluginName)).toEqual(["Apple", "Mango", "Zebra"]);
     });
   });
 });

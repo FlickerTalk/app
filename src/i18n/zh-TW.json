@@ -424,7 +424,7 @@
     "pickContact": "和誰一起玩",
     "noContacts": "新增一位聯絡人才能一起玩",
     "invite": "邀請",
-    "inviteText": "🎮 一起玩{game}吧？{url}",
+    "inviteText": "🎮 {game} · 一起玩吧？ {url}",
     "installAndPlay": "安裝並開始玩",
     "permissionsBody": "這個遊戲會與對方的手機通訊，並可能把結果留在聊天中。",
     "permissionsAllow": "允許並開始玩",

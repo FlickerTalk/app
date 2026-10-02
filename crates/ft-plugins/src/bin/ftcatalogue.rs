@@ -31,6 +31,7 @@ fn entry_of(manifest: &Manifest, package: &[u8], base: &str) -> CatalogueEntry {
         hash: blake3::hash(package).to_hex().to_string(),
         summary: manifest.summary.clone(),
         kind: manifest.kind,
+        locales: manifest.locales.clone(),
     }
 }
 
@@ -219,6 +220,40 @@ mod tests {
         let signature = std::fs::read_to_string(home.join("site").join(format!("{LEGACY_INDEX}.sig"))).unwrap();
         let listed = catalogue_entries(&legacy, &signature, &key.public_key()).unwrap();
         assert_eq!(listed.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), ["com.flickertalk.sketch"]);
+    }
+
+    // 2026-10-02 (plan of the catalogue's translations, option A): the index copies each plugin's
+    // name and summary in other languages, so the app shows them before installing. Both indexes
+    // carry them; a plugin without them is listed exactly as before.
+    #[test]
+    fn the_index_copies_each_plugins_translations() {
+        let home = std::env::temp_dir().join(format!("ftcat-{}", blake3::hash(b"locales").to_hex()));
+        let _ = std::fs::remove_dir_all(&home);
+        a_plugin(&home.join("src/sketch"), "com.flickertalk.sketch");
+        let manifest = home.join("src/sketch/module.json");
+        let said = std::fs::read_to_string(&manifest).unwrap().replacen(
+            '{',
+            r#"{"locales":{"es":{"name":"Dibujo","summary":"Dibuja con el dedo."},"ja":{"name":"スケッチ"}},"#,
+            1,
+        );
+        std::fs::write(&manifest, said).unwrap();
+        a_plugin(&home.join("src/pdf"), "com.flickertalk.pdf");
+        let key = Ed25519SecretKey::new();
+        build(&home.join("src"), &home.join("site"), &key, BASE).unwrap();
+
+        for name in [INDEX, LEGACY_INDEX] {
+            let index = std::fs::read_to_string(home.join("site").join(name)).unwrap();
+            let signature = std::fs::read_to_string(home.join("site").join(format!("{name}.sig"))).unwrap();
+            let listed = catalogue_entries(&index, &signature, &key.public_key()).expect("signed");
+            let sketch = listed.iter().find(|entry| entry.id == "com.flickertalk.sketch").unwrap();
+            assert_eq!(sketch.locales["es"].name.as_deref(), Some("Dibujo"), "{name}");
+            assert_eq!(sketch.locales["es"].summary.as_deref(), Some("Dibuja con el dedo."), "{name}");
+            assert_eq!((sketch.locales["ja"].name.as_deref(), sketch.locales["ja"].summary.as_deref()), (Some("スケッチ"), None));
+            let raw: serde_json::Value = serde_json::from_str(&index).unwrap();
+            let pdf = raw["plugins"].as_array().unwrap().iter().find(|entry| entry["id"] == "com.flickertalk.pdf").unwrap();
+            assert!(pdf.get("locales").is_none(), "nothing to say, nothing written: {pdf}");
+            assert!(raw["plugins"][1]["locales"]["ja"].get("summary").is_none(), "only what was said: {index}");
+        }
     }
 
     #[test]
