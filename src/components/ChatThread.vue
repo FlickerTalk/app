@@ -570,7 +570,8 @@ watch(
         >
           <Avatar :name="chat.name" :hue="chat.hue" :size="38" :connected="chat.connected" />
           <span class="ft-peer__text">
-            <span class="ft-peer__name">{{ chat.name }}</span>
+            <!-- `auto`: a name keeps its own direction, so a Latin name in Arabic is cut at its end. -->
+            <span class="ft-peer__name" dir="auto">{{ chat.name }}</span>
             <span class="ft-peer__status" :class="{ 'is-direct': chat.connected }">
               {{ chat.connected ? $t("chat.direct") : $t("chat.notConnected") }}
             </span>
@@ -948,8 +949,15 @@ watch(
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Never wider than the room the toolbar leaves between its buttons: a long name is cut with an
+     ellipsis instead of being drawn under them (seen at 360 px with four buttons, 2026-10-03). */
   min-width: 0;
+  max-width: 100%;
   padding-inline-start: 8px;
+}
+/* The avatar keeps its size; the text is what gives way. */
+.ft-peer > :first-child {
+  flex-shrink: 0;
 }
 .ft-peer.has-back {
   padding-inline-start: 0;
@@ -960,12 +968,15 @@ watch(
   min-width: 0;
   line-height: 1.2;
 }
-.ft-peer__name {
-  font-size: var(--ft-font-title);
-  font-weight: 600;
+.ft-peer__name,
+.ft-peer__status {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ft-peer__name {
+  font-size: var(--ft-font-title);
+  font-weight: 600;
 }
 .ft-peer__status {
   font-size: var(--ft-font-meta);
