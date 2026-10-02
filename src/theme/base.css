@@ -17,6 +17,34 @@ ion-app.ion-page {
 html.ft-keyboard-open {
   --ion-safe-area-bottom: 0px;
 }
+/* Android's navigation bar (2026-10-02, seen on the Samsung): the app is edge to edge and the bar
+   is drawn over the WebView's bottom, as tall as the inset it reports. On Android the app ends
+   above the bar, nothing of it is drawn below (`clip`), the strip under it is the page's
+   background, and inside the app there is no inset left, so no screen keeps room for it twice.
+   With the keyboard open the inset is 0 (the rule above) and the app ends on the keyboard. iOS
+   keeps the home indicator over the content, its norm. `plt-android` is Ionic's class. */
+html.plt-android {
+  --ft-navigation-bar: var(--ion-safe-area-bottom, 0px);
+}
+html.plt-android ion-app.ion-page {
+  --ion-safe-area-bottom: 0px;
+  block-size: calc(var(--ft-viewport-height, 100%) - var(--ft-navigation-bar));
+  overflow: clip;
+}
+/* Its own paint: it stays when the app turns see-through (the camera, a video call). */
+html.plt-android body::after {
+  content: "";
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: var(--ft-navigation-bar);
+  background: var(--ft-bg);
+  pointer-events: none;
+}
+/* Under a dark screen (a call's pictures, the camera): the call's dark background (CallPage). */
+html.plt-android.ft-dark-screen body::after {
+  background: #07090c;
+}
 
 ion-toolbar {
   --padding-start: 12px;

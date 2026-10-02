@@ -1433,7 +1433,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  padding: 14px 16px calc(14px + var(--ion-safe-area-bottom, 0px));
   border-top: 1px solid var(--ft-border);
   background: var(--ft-surface);
   text-align: center;

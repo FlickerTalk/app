@@ -2879,6 +2879,14 @@ pub async fn core_call_video_layout(layout: Option<VideoLayout>, app: AppHandle,
     Ok(())
 }
 
+/// The system bars' icons follow the app's appearance (2026-10-02): the page says whether it is
+/// `dark` when it applies its appearance and each time it changes. Off the main thread: Kotlin
+/// answers from it.
+#[tauri::command]
+pub async fn core_system_bars(dark: bool, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || app.platform().set_system_bars(dark)).await.map_err(failed)?.map_err(failed)
+}
+
 /// The call's voice on the speaker or the receiver (2026-09-28).
 #[tauri::command]
 pub async fn core_call_speaker(on: bool, app: AppHandle) -> Result<(), String> {

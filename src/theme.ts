@@ -1,4 +1,5 @@
 // Visual preferences chosen in Settings. They stay on this device (localStorage), never on a server.
+import { invoke } from "@tauri-apps/api/core";
 
 // Black and white first: it is the default (Ioan, 2026-09-22). Lime, the first Mono, is back as
 // a choice (Ioan, 2026-10-02).
@@ -34,18 +35,48 @@ export function applyDirection(direction: Direction) {
 
 let stopFollowingSystem: (() => void) | undefined;
 
+/** Screens dark whatever the appearance (a video call, the camera), by who asked. */
+const darkScreens = new Set<string>();
+/** What the system bars were last told: dark or not. */
+let toldDark: boolean | undefined;
+
+/**
+ * The system bars' icons follow what is on the screen (2026-10-02): light over the dark app or a
+ * dark screen, dark over the light app. Only Android acts on it (the bridge's `setSystemBars`);
+ * a plain browser has no bridge and nothing breaks.
+ */
+function tellSystemBars() {
+  const dark = root().classList.contains("ft-dark") || darkScreens.size > 0;
+  if (dark === toldDark) return;
+  toldDark = dark;
+  void invoke("core_system_bars", { dark }).catch(() => undefined);
+}
+
+function setDark(dark: boolean) {
+  root().classList.toggle("ft-dark", dark);
+  tellSystemBars();
+}
+
+/** A screen that is dark whatever the appearance (`key`: who shows it) comes or goes. */
+export function darkScreen(key: string, on: boolean) {
+  if (on) darkScreens.add(key);
+  else darkScreens.delete(key);
+  root().classList.toggle("ft-dark-screen", darkScreens.size > 0);
+  tellSystemBars();
+}
+
 export function applyAppearance(appearance: Appearance) {
   stopFollowingSystem?.();
   stopFollowingSystem = undefined;
   localStorage.setItem(APPEARANCE_KEY, appearance);
 
   if (appearance !== "system") {
-    root().classList.toggle("ft-dark", appearance === "dark");
+    setDark(appearance === "dark");
     return;
   }
 
   const query = window.matchMedia("(prefers-color-scheme: dark)");
-  const follow = () => root().classList.toggle("ft-dark", query.matches);
+  const follow = () => setDark(query.matches);
   follow();
   query.addEventListener("change", follow);
   stopFollowingSystem = () => query.removeEventListener("change", follow);
@@ -53,6 +84,8 @@ export function applyAppearance(appearance: Appearance) {
 
 export function initTheme() {
   applyDirection(storedDirection());
+  // A new page tells the bars at once, whatever an earlier page told them.
+  toldDark = undefined;
   applyAppearance(storedAppearance());
 }
 
