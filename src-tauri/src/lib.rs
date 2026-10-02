@@ -1,4 +1,5 @@
 mod client;
+mod core_events;
 mod plugins;
 mod push_core;
 mod video_surfaces;
