@@ -31,9 +31,11 @@ html[data-direction="ember"] {
   --ft-text-rgb: 28, 23, 20;
   --ft-bg-rgb: 251, 248, 245;
   --ft-muted: #7d726a;
-  --ft-accent: #e8731f;
-  --ft-accent-rgb: 232, 115, 31;
-  --ft-accent-2: #d9481e;
+  /* Darkened, same hue, to read at WCAG AA (2026-10-02; were #e8731f and #d9481e): white on them,
+     and they as text on the page, the surfaces and their own tint. */
+  --ft-accent: #9e4c10;
+  --ft-accent-rgb: 158, 76, 16;
+  --ft-accent-2: #b53c19;
   --ft-on-accent: #ffffff;
   --ft-glow: rgba(232, 115, 31, 0.35);
 }
@@ -63,9 +65,10 @@ html[data-direction="aurora"] {
   --ft-text-rgb: 18, 24, 33;
   --ft-bg-rgb: 246, 248, 251;
   --ft-muted: #66758a;
-  --ft-accent: #0fa89a;
-  --ft-accent-rgb: 15, 168, 154;
-  --ft-accent-2: #5b5cf0;
+  /* Darkened, same hue, to read at WCAG AA (2026-10-02; were #0fa89a and #5b5cf0). */
+  --ft-accent: #0a6f66;
+  --ft-accent-rgb: 10, 111, 102;
+  --ft-accent-2: #4a4bee;
   --ft-on-accent: #ffffff;
   --ft-glow: rgba(15, 168, 154, 0.3);
 }

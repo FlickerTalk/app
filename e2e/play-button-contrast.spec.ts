@@ -10,12 +10,12 @@ const BOB = "ft_bob123456789";
 const INVITATION = "🎮 Shall we play Tic-tac-toe? https://flickertalk.com/games/tictactoe";
 
 /**
- * Where the palette itself is under 4.5:1, whatever the button does: white on Ember's and Aurora's
- * light accents (this phone's bubble, its own text too, about 3:1) and those accents as text on white
- * (the other one's button). The owner's decision, not this button's; marked so the day it changes
- * the test says so.
+ * The time under this phone's message is its text at 70 % opacity: under 4.5:1 on the accents of
+ * Ember and Aurora, light and dark, whatever the light palette does (2026-10-02). Raising that
+ * opacity (0.85 would do) changes the dark themes too: the owner's call. Marked so the day it
+ * changes the test says so.
  */
-const PALETTE_UNDER_AA = new Set(["ember light mine", "ember light theirs", "aurora light mine", "aurora light theirs"]);
+const TIME_UNDER_AA = new Set(["ember light", "ember dark", "aurora light", "aurora dark"]);
 
 type Rgba = [number, number, number, number];
 
@@ -94,11 +94,35 @@ for (const direction of ["ember", "aurora", "mono"]) {
 
       for (const side of ["mine", "theirs"]) {
         test(`Play reads in ${side === "mine" ? "this phone's" : "the other one's"} bubble`, async ({ app }) => {
-          test.fail(PALETTE_UNDER_AA.has(`${direction} ${appearance} ${side}`), "the palette itself is under 4.5:1 here");
           const play = app.locator(`.ft-msg.is-${side} [data-test='play-game']`);
           await expect(play).toBeVisible();
           const seen = await measure(play);
           expect(seen.worst, `label ${seen.label} on ${seen.tint} over ${seen.stops.join(" → ") || seen.solid}`).toBeGreaterThanOrEqual(4.5);
+        });
+      }
+
+      // This phone's message and the time under it, over every point of the bubble's gradient (the
+      // light palettes were retouched for it on 2026-10-02).
+      for (const part of ["text", "time"] as const) {
+        test(`this phone's ${part === "text" ? "message" : "time"} reads over all its bubble`, async ({ app }) => {
+          test.fail(part === "time" && TIME_UNDER_AA.has(`${direction} ${appearance}`), "the time's 70 % opacity is under 4.5:1 here");
+          const bubble = app.locator(".ft-msg.is-mine .ft-bubble").first();
+          await expect(bubble).toBeVisible();
+          const seen = await bubble.evaluate((node, which) => {
+            const element = which === "text" ? node.querySelector(".ft-bubble__text")! : node.querySelector(".ft-bubble__meta")!;
+            return {
+              colour: getComputedStyle(element).color,
+              opacity: Number(getComputedStyle(element).opacity),
+              stops: getComputedStyle(node).backgroundImage.match(/(?:rgba?|color)\([^)]*\)/g)!,
+            };
+          }, part);
+          const [from, to] = seen.stops.map(parse);
+          const ratios = Array.from({ length: 21 }, (_, at) => {
+            const under = between(from, to, at / 20);
+            const [r, g, b, a] = parse(seen.colour);
+            return contrast(over([r, g, b, a * seen.opacity], under), under);
+          });
+          expect(Math.min(...ratios), `${seen.colour} at ${seen.opacity} over ${seen.stops.join(" → ")}`).toBeGreaterThanOrEqual(4.5);
         });
       }
     });
