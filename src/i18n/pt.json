@@ -60,7 +60,10 @@
     "download": "Transferir",
     "resend": "Enviar de novo",
     "discardAttachment": "Descartar o anexo",
-    "otherApp": "Outra app"
+    "otherApp": "Outra app",
+    "location": "Localização",
+    "accuracy": "±{metres} m",
+    "openLocation": "{place}: abrir nos mapas"
   },
   "status": {
     "pending": "Aguardando o dispositivo",
@@ -284,6 +287,7 @@
     "remind": "Pôr lembretes neste telemóvel",
     "drive": "Guardar ficheiros na sua própria nuvem",
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
+    "location": "A sua localização, só quando você pedir",
     "opens": "Abre: {kinds}",
     "open": "Abrir"
   },

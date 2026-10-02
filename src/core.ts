@@ -456,9 +456,13 @@ export async function start(): Promise<void> {
   const me = await invoke<Omit<Me, "hue">>("core_me");
   store.me = { ...me, hue: hueOf(me.id) };
   await refreshChats();
-  await listen<{ contact: string | null; circle?: string | null }>(CHANGED_EVENT, ({ payload }) => {
+  await listen<{ contact: string | null; circle?: string | null; all?: boolean }>(CHANGED_EVENT, ({ payload }) => {
     // The list first: an open conversation's files depend on the connection it reports.
     void refreshChats().then(() => {
+      // Events were lost to a burst (2026-10-01): whatever is shown may be out of date.
+      if (payload.all) {
+        return Promise.all([...[...loaded].map(loadMessages), ...[...loadedCircles].map(loadCircleMessages)]).then(() => {});
+      }
       if (payload.contact && loaded.has(payload.contact)) {
         return loadMessages(payload.contact);
       }
@@ -746,6 +750,8 @@ export interface PluginPermissions {
   drive?: boolean;
   /** How much it may keep in its records: "small" (settings, notes) or "large" (boards). */
   storage?: "small" | "large";
+  /** Whether it may ask for the phone's current position, once (2026-10-02). */
+  location?: boolean;
 }
 
 export interface PluginView {
@@ -869,6 +875,19 @@ export async function pluginSave(name: string, mime: string, data: string): Prom
 
 export async function pluginPrint(plugin: string, name: string, mime: string, data: string): Promise<void> {
   await invoke("core_plugin_print", { plugin, name, mime, data });
+}
+
+/** Where the phone is, once, for a plugin granted `location` (2026-10-02): metres and ms. */
+export interface PluginLocation {
+  lat: number;
+  lon: number;
+  accuracy: number;
+  at: number;
+}
+
+/** The core checks the grant before it asks the phone; `null` when there is no place to give. */
+export async function pluginLocation(plugin: string): Promise<PluginLocation | null> {
+  return invoke<PluginLocation | null>("core_plugin_location", { plugin });
 }
 
 export async function pluginFetch(

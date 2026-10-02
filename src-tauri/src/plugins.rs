@@ -66,6 +66,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("image-outline", include_bytes!("../resources/icons/image-outline.svg")),
     ("key-outline", include_bytes!("../resources/icons/key-outline.svg")),
     ("link-outline", include_bytes!("../resources/icons/link-outline.svg")),
+    ("location-outline", include_bytes!("../resources/icons/location-outline.svg")),
     ("lock-closed-outline", include_bytes!("../resources/icons/lock-closed-outline.svg")),
     ("move-outline", include_bytes!("../resources/icons/move-outline.svg")),
     ("options-outline", include_bytes!("../resources/icons/options-outline.svg")),
@@ -219,6 +220,13 @@ globalThis.ft = {
     backupInfo: () => ask("ft.drive", { op: "backupInfo" }),
     restore: () => ask("ft.drive", { op: "restore" }),
   },
+  /** The phone's current position, once, while the app is open (2026-10-02). Needs `location`.
+   *  Resolves {lat, lon, accuracy (metres), at (ms)}, or null: refused, off or no fix in ~15 s. */
+  location: () => ask("ft.location", {}).then((fix) =>
+    fix && typeof fix === "object" && Number.isFinite(fix.lat) && Number.isFinite(fix.lon)
+      ? { lat: Number(fix.lat), lon: Number(fix.lon), accuracy: Number(fix.accuracy), at: Number(fix.at) }
+      : null,
+  ),
   /** Goes back to the conversation a `ref` came from. Resolves false if it is gone. */
   openChat(ref) {
     return ask("ft.openChat", { ref: String(ref) });
@@ -409,6 +417,8 @@ mod tests {
         assert!(script.contains(r#"typeof said.chat === "string" ? { chat: said.chat } : {}"#), "onOpen says nothing of chat");
         // The user's cloud, one question with an operation, never bytes.
         assert!(script.contains(r#"ask("ft.drive", { op: "list""#));
+        // 2026-10-02: the phone's position, once; anything but a place comes back as null.
+        assert!(script.contains(r#"location: () => ask("ft.location", {})"#), "a plugin cannot ask where the phone is");
         assert!(!script.contains("__TAURI"), "a plugin never reaches the app's own bridge");
     }
 
@@ -437,7 +447,7 @@ mod tests {
         assert!(icon("../../secret").is_none(), "an icon is a name, never a path");
         assert!(icon("not-an-icon").is_none());
         // Everything the tools ask for is really there.
-        for wanted in ["eye-outline", "folder-open-outline", "send-outline", "trash-outline", "image-outline", "alarm-outline", "calculator-outline", "cloud-outline", "search-outline"] {
+        for wanted in ["eye-outline", "folder-open-outline", "send-outline", "trash-outline", "image-outline", "alarm-outline", "calculator-outline", "cloud-outline", "search-outline", "location-outline"] {
             assert!(icon(wanted).is_some(), "{wanted} is missing");
         }
     }

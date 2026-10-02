@@ -8,6 +8,7 @@ import {
   pluginForget,
   pluginChat,
   pluginLiveSend,
+  pluginLocation,
   pluginMade,
   pluginOpenChat,
   pluginPrint,
@@ -194,9 +195,11 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
         if (target) emit("openChat", target.contact);
         value = Boolean(target);
       } else if (said.type === "ft.drive") value = await drive(said);
+      else if (said.type === "ft.location") value = await pluginLocation(id);
       tell({ type: "ft.done", id: said.id, answer: value ?? null });
     } catch {
-      tell({ type: "ft.done", id: said.id, answer: false });
+      // A position the plugin may not have is no position: `null`, as the contract says.
+      tell({ type: "ft.done", id: said.id, answer: said.type === "ft.location" ? null : false });
     }
   });
 }

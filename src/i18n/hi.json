@@ -60,7 +60,10 @@
     "download": "Download",
     "resend": "फिर से भेजें",
     "discardAttachment": "Discard attachment",
-    "otherApp": "दूसरा ऐप"
+    "otherApp": "दूसरा ऐप",
+    "location": "स्थान",
+    "accuracy": "±{metres} मी",
+    "openLocation": "{place}: मैप्स में खोलें"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",
@@ -284,6 +287,7 @@
     "remind": "इस फ़ोन पर रिमाइंडर लगाना",
     "drive": "अपने क्लाउड में फ़ाइलें रखना",
     "storageLarge": "इस फ़ोन पर बहुत सा डेटा रखना (256 MB तक)",
+    "location": "आपका स्थान, सिर्फ़ जब आप माँगें",
     "opens": "खोलता है: {kinds}",
     "open": "खोलें"
   },

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the WebView may ask of Tauri: events, the app's version and opening mail (reports, §36). Everything else goes through the app's own commands.",
+  "description": "What the WebView may ask of Tauri: events, the app's version, opening mail (reports, §36), web links and, on Android, a place in the phone's maps app (geo:, 2026-10-02). Everything else goes through the app's own commands.",
   "windows": [
     "main"
   ],
@@ -19,6 +19,9 @@
         },
         {
           "url": "http://*"
+        },
+        {
+          "url": "geo:*"
         }
       ]
     }

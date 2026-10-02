@@ -6,8 +6,8 @@ const BOARD: PluginView = {
   id: "com.flickertalk.board",
   name: "Board",
   version: "1.0.0",
-  asks: { network: ["api.example.com"], messages: true, send: "propose", live: true, remind: true, drive: true, storage: "large" },
-  granted: { network: [], messages: false, send: "nothing", live: false, remind: false, drive: false, storage: "small" },
+  asks: { network: ["api.example.com"], messages: true, send: "propose", live: true, remind: true, drive: true, location: true, storage: "large" },
+  granted: { network: [], messages: false, send: "nothing", live: false, remind: false, drive: false, location: false, storage: "small" },
   installedAt: 1,
 };
 
@@ -21,6 +21,7 @@ describe("plugin permissions", () => {
       ["live", false],
       ["remind", false],
       ["drive", false],
+      ["location", false],
       ["storage", false],
     ]);
     expect(permissionsOf({ ...BOARD, asks: { network: [], messages: false, send: "nothing" } })).toEqual([]);
@@ -33,6 +34,9 @@ describe("plugin permissions", () => {
     expect(withPermission({ ...BOARD, granted: { ...BOARD.granted, send: "propose" } }, "send", false).send).toBe("nothing");
     expect(withPermission(BOARD, "network:api.example.com", true).network).toEqual(["api.example.com"]);
     expect(withPermission(BOARD, "storage", true).storage).toBe("large");
+    // 2026-10-02 (app#32): the phone's position has a switch of its own, and the others keep it.
+    expect(withPermission(BOARD, "location", true).location).toBe(true);
+    expect(withPermission({ ...BOARD, granted: { ...BOARD.granted, location: true } }, "live", true).location).toBe(true);
   });
 
   // A game talks to the same game on the other phone: the switch says so, not "plugin".
