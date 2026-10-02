@@ -10,13 +10,21 @@ const TICTACTOE = "com.flickertalk.game.tictactoe";
 
 type Box = { x: number; y: number; width: number; height: number };
 
-/** Screenshots for review, only when asked for: `FT_SHOTS=<dir> npx playwright test e2e/sheets-width.spec.ts`. */
+/**
+ * Screenshots for review, only when asked for: `FT_SHOTS=<dir> [FT_APPEARANCE=light] npx playwright
+ * test e2e/sheets-width.spec.ts` (dark is the app's default).
+ */
+const APPEARANCE = process.env.FT_APPEARANCE ?? "dark";
 async function shot(app: Page, name: string) {
   const dir = process.env.FT_SHOTS;
   if (!dir) return;
   await app.waitForTimeout(450);
-  await app.screenshot({ path: `${dir}/${name}.png` });
+  await app.screenshot({ path: `${dir}/${name}-${APPEARANCE}.png` });
 }
+
+test.beforeEach(async ({ app }) => {
+  await app.addInitScript((chosen) => localStorage.setItem("ft-appearance", chosen), APPEARANCE);
+});
 
 /** A sheet's box, once Ionic has finished bringing it up. */
 async function settled(wrapper: Locator): Promise<Box> {
