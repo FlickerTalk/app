@@ -9,6 +9,8 @@ import {
   IonPage,
   IonTitle,
   IonToolbar,
+  onIonViewDidEnter,
+  onIonViewWillLeave,
 } from "@ionic/vue";
 import {
   alertCircleOutline,
@@ -42,6 +44,12 @@ const onWidthChange = (event: MediaQueryListEvent) => {
 };
 onMounted(() => wideQuery.addEventListener("change", onWidthChange));
 onBeforeUnmount(() => wideQuery.removeEventListener("change", onWidthChange));
+
+// On another tab, what the conversation beside the list left open lets go of Android's back
+// button; back on Chats it takes it again (2026-10-02).
+const onScreen = ref(true);
+onIonViewWillLeave(() => (onScreen.value = false));
+onIonViewDidEnter(() => (onScreen.value = true));
 
 const selectedId = ref(store.chats[0]?.id ?? "");
 // Circles (2026-09-27) sit in the same list; on a wide screen one opens next to it like a chat.
@@ -435,7 +443,7 @@ const STATUS_ICON: Record<string, string> = {
         <CircleThread :circle-id="selectedCircle" />
       </section>
       <section v-else-if="wide && selectedId" class="ft-chats__detail">
-        <ChatThread :chat-id="selectedId" split />
+        <ChatThread :chat-id="selectedId" split :active="onScreen" />
       </section>
     </div>
   </ion-page>
