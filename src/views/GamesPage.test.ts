@@ -130,6 +130,52 @@ describe("GamesPage", () => {
     expect(calls).toContainEqual(["core_plugin_remove", { plugin: CHESS.id }]);
   });
 
+  // As Settings asks before erasing: the question has a way back, and only one is asked at a time.
+  describe("asking before removing", () => {
+    const armed = (wrapper: Awaited<ReturnType<typeof page>>) => wrapper.findAll("[data-test='remove-confirm']");
+    // Ionic keeps a tab mounted when another is in front: leaving it is what tells it.
+    const leaveView = (wrapper: { vm: unknown }) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
+
+    it("goes back without removing anything when cancelled", async () => {
+      const wrapper = await page();
+      await wrapper.find(`[data-test='remove-${CHESS.id}']`).trigger("click");
+      const cancel = wrapper.find("[data-test='remove-cancel']");
+      expect(cancel.text()).toBe("Cancel");
+      await cancel.trigger("click");
+      expect(armed(wrapper)).toHaveLength(0);
+      expect(wrapper.text()).not.toContain("Removing it deletes its saved games on this phone.");
+      expect(wrapper.find(`[data-test='remove-${CHESS.id}']`).exists()).toBe(true);
+      expect(calls.map(([command]) => command)).not.toContain("core_plugin_remove");
+    });
+
+    it("goes back when the trash is tapped again", async () => {
+      const wrapper = await page();
+      await wrapper.find(`[data-test='remove-${CHESS.id}']`).trigger("click");
+      await wrapper.find(`[data-test='remove-${CHESS.id}']`).trigger("click");
+      expect(armed(wrapper)).toHaveLength(0);
+    });
+
+    it("asks about one game at a time", async () => {
+      const wrapper = await page();
+      await wrapper.find(`[data-test='remove-${CHESS.id}']`).trigger("click");
+      await wrapper.find(`[data-test='remove-${READY.id}']`).trigger("click");
+      expect(armed(wrapper)).toHaveLength(1);
+      await armed(wrapper)[0].trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_plugin_remove", { plugin: READY.id }]);
+      expect(calls).not.toContainEqual(["core_plugin_remove", { plugin: CHESS.id }]);
+    });
+
+    it("forgets the question when the tab is left", async () => {
+      const wrapper = await page();
+      await wrapper.find(`[data-test='remove-${CHESS.id}']`).trigger("click");
+      leaveView(wrapper);
+      await flushPromises();
+      expect(armed(wrapper)).toHaveLength(0);
+    });
+  });
+
   // Its permissions can be taken back here, as a tool's in Settings.
   it("shows a switch for each permission a game asks for", async () => {
     const wrapper = await page();
