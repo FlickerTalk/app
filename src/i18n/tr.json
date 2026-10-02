@@ -269,7 +269,8 @@
   "colors": {
     "ember": "Köz",
     "aurora": "Aurora",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Misket limonu"
   },
   "qr": {
     "label": "QR kodu"

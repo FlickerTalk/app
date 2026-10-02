@@ -269,7 +269,8 @@
   "colors": {
     "ember": "余烬",
     "aurora": "极光",
-    "mono": "单色"
+    "mono": "单色",
+    "lime": "青柠"
   },
   "qr": {
     "label": "二维码"

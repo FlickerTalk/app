@@ -269,7 +269,8 @@
   "colors": {
     "ember": "Żar",
     "aurora": "Zorza",
-    "mono": "Mono"
+    "mono": "Mono",
+    "lime": "Limonka"
   },
   "qr": {
     "label": "Kod QR"
