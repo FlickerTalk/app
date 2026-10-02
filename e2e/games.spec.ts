@@ -88,21 +88,30 @@ for (const appearance of ["dark", "light"]) {
       expect(granted?.[1]).toMatchObject({ plugin: TICTACTOE, granted: { live: true, send: "propose" } });
     });
 
-    test("the chat's games sheet invites without sending, and leads to more games", async ({ app }) => {
+    // Ioan, 2026-10-03: one apps button in the header; its sheet has a tab for the apps and one
+    // for the games.
+    test("the chat's apps sheet has the tools and the games apart; a game invites without sending", async ({ app }) => {
       await app.goto(`/chat/${BOB}`);
-      // The tools button shows tools only.
+      await expect(app.getByTestId("games")).toHaveCount(0);
       await app.getByTestId("apps").click();
+      // With tools installed it opens on them, and they are tools only.
+      await expect(app.getByTestId("apps-tab-tools")).toHaveAttribute("aria-selected", "true");
+      await expect(app.getByTestId("app-com.flickertalk.markdown")).toBeVisible();
       await expect(app.getByTestId(`app-${TICTACTOE}`)).toHaveCount(0);
-      await app.locator(".ft-apps").click({ position: { x: 10, y: 10 } });
+      await shot(app, "chat-apps-tab");
 
-      await app.getByTestId("games").click();
+      await app.getByTestId("apps-tab-games").click();
       await expect(app.getByTestId("games-sheet")).toContainText("Tic-tac-toe");
+      await expect(app.getByTestId("app-com.flickertalk.markdown")).toHaveCount(0);
       await shot(app, "chat-games-sheet");
       await app.getByTestId(`invite-${TICTACTOE}`).click();
       await expect(app.locator("ion-textarea textarea")).toHaveValue("🎮 Shall we play Tic-tac-toe? https://flickertalk.com/games/tictactoe");
       expect((await callsTo(app)).some(([command]) => command === "core_send")).toBe(false);
 
-      await app.getByTestId("games").click();
+      // Opened again, it starts on the tools: nothing is remembered.
+      await app.getByTestId("apps").click();
+      await expect(app.getByTestId("apps-tab-tools")).toHaveAttribute("aria-selected", "true");
+      await app.getByTestId("apps-tab-games").click();
       await app.getByTestId("more-games-link").click();
       await expect(app).toHaveURL(/\/tabs\/games$/);
     });
@@ -133,7 +142,7 @@ for (const appearance of ["dark", "light"]) {
 
 test("a chat without invitations does not read the catalogue", async ({ app }) => {
   await app.goto(`/chat/${BOB}`);
-  await expect(app.getByTestId("games")).toBeVisible();
+  await expect(app.getByTestId("apps")).toBeVisible();
   expect((await callsTo(app)).some(([command]) => command === "core_catalogue")).toBe(false);
 });
 
@@ -147,11 +156,14 @@ test("an install that fails says so", async ({ app }) => {
 test.describe("on an iPhone", () => {
   test.use({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148" });
 
-  // No downloads on iOS (App Store 4.7, §52): no games tab, no games button in a chat.
+  // No downloads on iOS (App Store 4.7, §52): no games tab, and the chat's apps have no tabs.
   test("there are no games", async ({ app }) => {
     await app.goto(`/chat/${BOB}`);
     await expect(app.getByTestId("peer")).toBeVisible();
-    await expect(app.getByTestId("games")).toHaveCount(0);
+    await app.getByTestId("apps").click();
+    await expect(app.getByTestId("app-com.flickertalk.markdown")).toBeVisible();
+    await expect(app.getByTestId("apps-tab-games")).toHaveCount(0);
+    await expect(app.getByTestId("games-sheet")).toHaveCount(0);
     await app.goto("/tabs/chats");
     await expect(app.getByRole("tab", { name: "Calls" })).toBeVisible();
     await expect(app.getByRole("tab", { name: "Games" })).toHaveCount(0);

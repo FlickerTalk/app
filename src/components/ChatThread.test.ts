@@ -293,21 +293,39 @@ describe("ChatThread", () => {
     expect(await open()).toBe("s1");
   });
 
-  // The apps button follows what is installed. Adding or removing a tool in Settings has to show
-  // up in a conversation that is already open, not only the next time it is entered.
+  // The apps follow what is installed. Adding or removing a tool in Settings has to show up in a
+  // conversation that is already open, not only the next time it is entered. Where there are no
+  // games (iOS), the button is there only with a tool to show; elsewhere it also leads to the games.
   it("notices a tool added or removed while the conversation stays open", async () => {
-    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
-    await flushPromises();
-    expect(wrapper.find("[data-test='apps']").exists()).toBe(true);
+    const removeAll = async () => {
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        return command === "core_plugins" ? [] : undefined;
+      });
+      await refreshPlugins();
+      await flushPromises();
+    };
+    const open = async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: { IonIcon: true } } });
+      await flushPromises();
+      return wrapper;
+    };
 
+    const android = await open();
+    await android.find("[data-test='apps']").trigger("click");
+    expect(android.find("[data-test='app-com.flickertalk.code']").exists()).toBe(true);
     // The user removes it from Settings, without leaving the conversation.
-    installTauri((command, args) => {
-      calls.push([command, args]);
-      return command === "core_plugins" ? [] : undefined;
-    });
-    await refreshPlugins();
-    await flushPromises();
-    expect(wrapper.find("[data-test='apps']").exists()).toBe(false);
+    await removeAll();
+    expect(android.find("[data-test='app-com.flickertalk.code']").exists()).toBe(false);
+    expect(android.find("[data-test='apps']").exists()).toBe(true);
+
+    seed();
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)");
+    const iphone = await open();
+    expect(iphone.find("[data-test='apps']").exists()).toBe(true);
+    await removeAll();
+    expect(iphone.find("[data-test='apps']").exists()).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it("puts in the composer the text a plugin proposes", async () => {
@@ -539,6 +557,8 @@ describe("ChatThread", () => {
       expect(wrapper.findComponent(IonTextarea).exists()).toBe(false);
       expect(wrapper.find(`[aria-label='Voice call']`).exists()).toBe(false);
       expect(wrapper.find(`[aria-label='Video call']`).exists()).toBe(false);
+      // Nor the apps and games, even on a phone that can have games.
+      expect(wrapper.find("[data-test='apps']").exists()).toBe(false);
     });
 
     it("blocks only after asking once", async () => {
@@ -749,10 +769,15 @@ describe("ChatThread", () => {
       await flushPromises();
       return wrapper;
     };
+    /** The apps button, then the Games tab of its sheet. */
     const openGames = async (wrapper: Awaited<ReturnType<typeof thread>>) => {
-      await wrapper.find("[data-test='games']").trigger("click");
+      await wrapper.find("[data-test='apps']").trigger("click");
+      await wrapper.find("[data-test='apps-tab-games']").trigger("click");
       await flushPromises();
     };
+    const endButtons = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.findAll(".ft-thread__bar ion-buttons[slot='end'] ion-button");
+    const selected = (wrapper: Awaited<ReturnType<typeof thread>>) =>
+      wrapper.findAll("[role='tab']").filter((tab) => tab.attributes("aria-selected") === "true").map((tab) => tab.attributes("data-test"));
 
     beforeEach(() => {
       offered.value = [];
@@ -760,26 +785,64 @@ describe("ChatThread", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    // Plan 10.3: the tools button shows tools only; a phone with only games has none.
-    it("keeps the games out of the tools", async () => {
-      bridge({ installed: [CHESS] });
-      expect((await thread()).find("[data-test='apps']").exists()).toBe(false);
-
+    // Ioan, 2026-10-03: one button, the apps, whose sheet has two tabs: the apps and the games.
+    // Three buttons in the header, so a name has room on a small phone.
+    it("has one button for the apps and the games, with a tab for each", async () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
+      expect(wrapper.find("[data-test='games']").exists()).toBe(false);
+      expect(endButtons(wrapper)).toHaveLength(3);
       await wrapper.find("[data-test='apps']").trigger("click");
+      const tabs = wrapper.findAll("[role='tablist'] [role='tab']");
+      expect(tabs.map((tab) => tab.attributes("aria-label"))).toEqual(["Plugins", "Games"]);
+      // With a tool installed it opens on the apps, and they are tools only.
+      expect(selected(wrapper)).toEqual(["apps-tab-tools"]);
       expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
       expect(wrapper.find(`[data-test='app-${CHESS.id}']`).exists()).toBe(false);
+      // The games tab: games only.
+      await wrapper.find("[data-test='apps-tab-games']").trigger("click");
+      expect(selected(wrapper)).toEqual(["apps-tab-games"]);
+      expect(wrapper.find("[data-test='games-sheet']").text()).toContain("Chess");
+      expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(false);
     });
 
-    // Shown wherever the games tab is, so they can be found even before one is installed.
-    it("offers the games next to the tools, but not on an iPhone", async () => {
+    // Shown wherever games can be had, so they can be found even with nothing installed.
+    it("opens on the games when there is no tool, and is there with nothing installed", async () => {
+      bridge({ installed: [CHESS] });
+      const games = await thread();
+      await games.find("[data-test='apps']").trigger("click");
+      expect(selected(games)).toEqual(["apps-tab-games"]);
+      expect(games.find("[data-test='games-sheet']").text()).toContain("Chess");
+
+      bridge({ installed: [] });
+      const empty = await thread();
+      await empty.find("[data-test='apps']").trigger("click");
+      expect(selected(empty)).toEqual(["apps-tab-games"]);
+      expect(empty.find("[data-test='games-sheet']").text()).toContain("No games yet");
+    });
+
+    it("remembers nothing between two openings", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      await wrapper.find(".ft-apps").trigger("click");
+      expect(wrapper.find("[role='tablist']").exists()).toBe(false);
+      await wrapper.find("[data-test='apps']").trigger("click");
+      expect(selected(wrapper)).toEqual(["apps-tab-tools"]);
+    });
+
+    // No downloads on iOS, so no games: the sheet is the tools as they were, with no tabs.
+    it("has no tabs on an iPhone, and no button without a tool", async () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(IPHONE);
       bridge({ installed: [CODE] });
       const wrapper = await thread();
-      expect(wrapper.find("[data-test='games']").attributes("aria-label")).toBe("Games");
+      await wrapper.find("[data-test='apps']").trigger("click");
+      expect(wrapper.find("[role='tablist']").exists()).toBe(false);
+      expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
+      expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
 
-      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(IPHONE);
-      expect((await thread()).find("[data-test='games']").exists()).toBe(false);
+      bridge({ installed: [] });
+      expect((await thread()).find("[data-test='apps']").exists()).toBe(false);
     });
 
     it("shows the installed games, and the way to more", async () => {
