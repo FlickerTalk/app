@@ -100,10 +100,16 @@ import { t } from "../i18n";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
-const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean }>(), {
+/**
+ * `active`: whether the page holding the conversation is the one on screen (2026-10-02). Ionic
+ * keeps a page mounted under the next one; what it left open must not take Android's back button
+ * there, and takes it again when the page is back (seen on the Samsung).
+ */
+const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean; active?: boolean }>(), {
   showBack: false,
   play: undefined,
   split: false,
+  active: true,
 });
 /**
  * The pane the conversation's sheets cover on a wide screen (2026-10-02): the chat pane beside the
@@ -418,10 +424,11 @@ function pluginDone() {
 }
 
 // Android's back button closes what is open on top, and only that (2026-09-28).
-closeOnBackWhile(() => emoji.value, () => (emoji.value = false));
-closeOnBackWhile(() => Boolean(acting.value), () => closeActions());
-closeOnBackWhile(() => showApps.value, () => (showApps.value = false));
-closeOnBackWhile(() => Boolean(plugin.value) && !leaving.value, () => closePlugin());
+// Only while the conversation is on screen (`active`).
+closeOnBackWhile(() => props.active && emoji.value, () => (emoji.value = false));
+closeOnBackWhile(() => props.active && Boolean(acting.value), () => closeActions());
+closeOnBackWhile(() => props.active && showApps.value, () => (showApps.value = false));
+closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, () => closePlugin());
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
@@ -444,7 +451,7 @@ const APPS_TABS = [
 ] as const;
 /** The game whose permissions sheet is open (plan decision 11); `size` when it is a download. */
 const asking = ref<{ id: string; name: string; size?: number } | null>(null);
-closeOnBackWhile(() => Boolean(asking.value), () => (asking.value = null));
+closeOnBackWhile(() => props.active && Boolean(asking.value), () => (asking.value = null));
 
 /** The apps sheet, on the tools if there are any, otherwise on the games; nothing is remembered. */
 function openApps() {

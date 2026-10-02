@@ -18,6 +18,7 @@
  *
  * Android's back button: `window.__ftFake.back()` presses it; it returns whether the app was
  * listening (`onBackButtonPress`), `false` when the system would do its usual job.
+ * `window.__ftFake.listening()` says whether it listens, without pressing.
  *
  * `window.__ftFakeMeId` gives this phone a real-length FlickerTalk ID instead of `ft_me`.
  *
@@ -43,6 +44,8 @@
  * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
  * `window.__ftFakeBobSays` (texts) adds Bob's messages after his others: an invitation, say.
  * `window.__ftFakeBobName` renames Bob (a long name, to see the chat header truncate it).
+ * `window.__ftFakeCarol` adds a second contact, Carol (`ft_carol12345678`), and a plugin's
+ * `ft.openChat` then leads to her conversation.
  * `window.__ftFakeManyPlugins` (a number) installs that many more tools and as many games, for a
  * list longer than the screen.
  *
@@ -266,8 +269,8 @@ export function installFakeCore() {
         if (a.event === "back-button") back = { channel: Number((args?.handler as { id: number }).id), index: 0 };
         return undefined;
       case "plugin:app|remove_listener":
-        // Only the listener it names, as Tauri does: one let go late must not take a newer one.
-        if (a.event === "back-button" && back?.channel === Number(a.channelId)) back = null;
+        // As Tauri does: only the listener named goes (a newer one may already be in its place).
+        if (a.event === "back-button" && back && Number(a.channelId) === back.channel) back = null;
         return undefined;
       case "plugin:app|version":
         return "1.0.0-e2e";
@@ -275,8 +278,11 @@ export function installFakeCore() {
         return { id: String((window as unknown as Record<string, unknown>).__ftFakeMeId ?? "ft_me"), name: "Me", mailbox: true, receipts: true, freeUntil: Date.now() + 1e10, autoDownload: state.autoDownload };
       case "core_conversations": {
         const name = (window as unknown as Record<string, unknown>).__ftFakeBobName;
-        return typeof name === "string" ? state.conversations.map((one) => (one.id === "ft_bob123456789" ? { ...one, name } : one)) : state.conversations;
+        const all = flag("__ftFakeCarol") ? [...state.conversations, conversation("ft_carol12345678", "Carol", "hi!")] : state.conversations;
+        return typeof name === "string" ? all.map((one) => (one.id === "ft_bob123456789" ? { ...one, name } : one)) : all;
       }
+      case "core_plugin_open_chat":
+        return flag("__ftFakeCarol") ? { contact: "ft_carol12345678", message: "" } : null;
       case "core_requests":
         return state.requests;
       case "core_sessions":
@@ -659,6 +665,8 @@ export function installFakeCore() {
       scanning?.resolve({ content, format: "QR_CODE", bounds: null });
       scanning = null;
     },
+    /** Whether the app listens to the back button now, without pressing it. */
+    listening: () => back !== null,
     back: () => {
       if (!back) return false;
       const channel = handlers.get(back.channel) as unknown as ((raw: { message: unknown; index: number }) => void) | undefined;
