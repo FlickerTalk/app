@@ -1950,6 +1950,23 @@ pub async fn core_subscription_price(app: AppHandle) -> Result<PriceView, String
     Ok(price_view(answer))
 }
 
+/// Sends a suggestion to the project's mailbox through the router (2026-10-02), with this app's
+/// version (`tauri.conf.json`, not a crate's). Says `sent`, `tooMany` or `failed`. Nothing of it is
+/// kept on the phone or logged.
+#[tauri::command]
+pub async fn core_send_feedback(text: String, app: AppHandle, client: State<'_, Client>) -> Result<&'static str, String> {
+    let version = app.package_info().version.to_string();
+    Ok(feedback_word(client.online().await?.send_feedback(&text, &version).await))
+}
+
+fn feedback_word(outcome: ft_core::Feedback) -> &'static str {
+    match outcome {
+        ft_core::Feedback::Sent => "sent",
+        ft_core::Feedback::TooMany => "tooMany",
+        ft_core::Feedback::Failed => "failed",
+    }
+}
+
 /// What the user said about their age. Under 21 is always free (§40); it never leaves the phone.
 #[tauri::command]
 pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), String> {
@@ -3431,6 +3448,15 @@ mod tests {
     use tauri_plugin_ft_platform::{VideoLayout, VideoRect};
 
     use super::*;
+
+    // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in
+    // core.ts knows, and says "sent" only for the router's 204.
+    #[test]
+    fn what_became_of_a_suggestion_reaches_the_screen_as_one_of_three_words() {
+        assert_eq!(feedback_word(ft_core::Feedback::Sent), "sent");
+        assert_eq!(feedback_word(ft_core::Feedback::TooMany), "tooMany");
+        assert_eq!(feedback_word(ft_core::Feedback::Failed), "failed");
+    }
 
     // 2026-10-02: the screen shows whether a plugin asks for the phone's position and whether it
     // was granted, and what the user switches on reaches the core as it is.
