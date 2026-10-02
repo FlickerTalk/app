@@ -46,7 +46,7 @@ pub fn run() {
                         return Some((svg.to_vec(), kind, one.policy));
                     }
                     let (body, kind) = if file == "frame.html" {
-                        (plugins::frame_html(&one.component).into_bytes(), plugins::content_type("frame.html"))
+                        (plugins::frame_html(&one.component, &one.version).into_bytes(), plugins::content_type("frame.html"))
                     } else if file == "frame.js" {
                         (plugins::frame_js().as_bytes().to_vec(), plugins::content_type("frame.js"))
                     } else {
@@ -56,11 +56,9 @@ pub fn run() {
                     Some((body, kind, one.policy))
                 });
             match answer {
-                Some((body, kind, policy)) => tauri::http::Response::builder()
-                    .header(tauri::http::header::CONTENT_TYPE, kind)
-                    .header(tauri::http::header::CONTENT_SECURITY_POLICY, policy)
-                    .header(plugins::ALLOW_OPAQUE_ORIGIN.0, plugins::ALLOW_OPAQUE_ORIGIN.1)
-                    .header("Cross-Origin-Resource-Policy", "cross-origin")
+                Some((body, kind, policy)) => plugins::response_headers(kind, &policy)
+                    .into_iter()
+                    .fold(tauri::http::Response::builder(), |answer, (name, value)| answer.header(name, value))
                     .body(body)
                     .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
                 None => tauri::http::Response::builder()

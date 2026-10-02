@@ -13,7 +13,10 @@ import { isGame } from "./games";
  * `convertFileSrc`, which would turn the slash of a path into `%2F`.
  */
 export function frameUrl(id: string): string {
-  return `${convertFileSrc(id, "ftplugin")}/frame.html`;
+  // The version installed (2026-10-03): after an update, the next opening never gets the old
+  // code from a cache by the same address.
+  const version = installed.value.find((one) => one.id === id)?.version;
+  return `${convertFileSrc(id, "ftplugin")}/frame.html${version ? `?v=${encodeURIComponent(version)}` : ""}`;
 }
 
 /**

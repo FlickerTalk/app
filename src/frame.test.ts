@@ -11,7 +11,8 @@ async function frame(plugin: () => void = () => {}) {
   const posted: Said[] = [];
   const window = new EventTarget();
   const watched: { resized: () => void; targets: Element[] } = { resized: () => {}, targets: [] };
-  const code = source.replace('await import("./dist/index.js");', "await load();");
+  // The plugin's code, at the version the frame was opened for (2026-10-03).
+  const code = source.replace("await import(`./dist/index.js${new URL(import.meta.url).search}`);", "await load();");
   expect(code).not.toBe(source);
   const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
   const run = new AsyncFunction("parent", "load", "addEventListener", "removeEventListener", "ResizeObserver", "requestAnimationFrame", code);

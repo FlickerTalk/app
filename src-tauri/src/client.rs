@@ -1473,6 +1473,7 @@ pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, 
                 dir: dir.join("plugins").join(&plugin.manifest.id),
                 component,
                 policy: crate::plugins::policy_for(&plugin.granted),
+                version: plugin.manifest.version.clone(),
             },
         );
     }
