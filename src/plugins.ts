@@ -73,6 +73,8 @@ export type FrameMessage =
   /** The frame asks for the app's colours before it loads the plugin (2026-10-02). */
   | { type: "ft.hello" }
   | { type: "ft.close" }
+  /** The answer to `ft.closing` (2026-10-02): the plugin has said goodbye. */
+  | { type: "ft.closed" }
   | { type: "ft.height"; height: number }
   | { type: "ft.pickFile"; id: string; accept?: string }
   | { type: "ft.made"; name: string; mime: string; data: string }
@@ -99,6 +101,12 @@ export type FrameMessage =
   // The user's cloud (plan-drive): one question with an operation and up to two strings.
   | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string };
 
+/**
+ * How long a closing plugin is kept, out of sight, to say goodbye to its twin (2026-10-02): its
+ * window goes at once, and the frame goes when the plugin answers `ft.closed` or after this, in ms.
+ */
+export const CLOSING_WAIT = 400;
+
 /** What a plugin may ask of the drive. Anything else is ignored. */
 export const DRIVE_OPS = [
   "status", "connect", "setup", "unlock", "disconnect", "list", "mkdir", "rename", "move", "remove",
@@ -124,6 +132,8 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       return { type: "ft.hello" };
     case "ft.close":
       return { type: "ft.close" };
+    case "ft.closed":
+      return { type: "ft.closed" };
     case "ft.height":
       return typeof said.height === "number" ? { type: "ft.height", height: said.height } : null;
     case "ft.pickFile":
