@@ -725,20 +725,23 @@ watch(
         </button>
         <span class="ft-app__name">{{ plugin.name }}</span>
       </div>
-      <PluginSheet
-        :plugin="plugin"
-        :contact="chatId"
-        :sending="plugin.sending"
-        :live="plugin.live"
-        :text="plugin.text"
-        :file="plugin.file"
-        :reference="plugin.reference"
-        :session="sessionOf(chatId)"
-        @text="fromPlugin"
-        @attach="stage"
-        @open-chat="(contact) => router.push(`/chat/${contact}`)"
-        @done="plugin = null"
-      />
+      <!-- Only the tool scrolls, below its bar: nothing of it reaches the status bar's strip. -->
+      <div class="ft-app__body">
+        <PluginSheet
+          :plugin="plugin"
+          :contact="chatId"
+          :sending="plugin.sending"
+          :live="plugin.live"
+          :text="plugin.text"
+          :file="plugin.file"
+          :reference="plugin.reference"
+          :session="sessionOf(chatId)"
+          @text="fromPlugin"
+          @attach="stage"
+          @open-chat="(contact) => router.push(`/chat/${contact}`)"
+          @done="plugin = null"
+        />
+      </div>
     </div>
 
     <!-- The apps of this phone, in Ionic's sheet modal: it rises from the bottom as the apps
@@ -1172,18 +1175,24 @@ watch(
   position: fixed;
   inset: 0;
   z-index: 25;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   background: var(--ft-bg);
-  /* The window starts under the status bar, or the way out ends up beneath the clock. */
-  padding-top: env(safe-area-inset-top);
-  /* And the tool's last pixel can be scrolled above Android's navigation bar (edge to edge). */
+  /* The window starts under the status bar, or the way out ends up beneath the clock. The window
+     itself does not scroll, so this strip stays its own at any scroll position (seen on the
+     Samsung, 2026-10-03, when it was the padding of what scrolled). Ionic's inset, as its headers. */
+  padding-top: var(--ion-safe-area-top, 0px);
+}
+/* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar. */
+.ft-app__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 /* A bar of its own, so the way out is always there while the tool scrolls under it. */
 .ft-app__bar {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--ft-space-2);

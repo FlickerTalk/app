@@ -122,6 +122,14 @@ test.describe("with many plugins and games", () => {
 // "Clean" button, Poll's "Close the poll") and could not be scrolled higher. A tool taller than
 // the screen, scrolled to its end, ends above the bar.
 test.describe("a tool taller than the screen", () => {
+  /** Scrolls the tool's window, whichever of its parts scrolls, to its middle or its end. */
+  async function scrollTool(app: Page, to: "half" | "end") {
+    await app.evaluate((where) => {
+      const scroller = document.querySelector(".ft-app__body") ?? document.querySelector(".ft-app");
+      if (scroller) scroller.scrollTop = where === "end" ? scroller.scrollHeight : scroller.scrollHeight / 2;
+    }, to);
+  }
+
   /** The frame's bottom edge, once the frame stands still. */
   async function frameEnd(app: Page) {
     const frame = app.locator("iframe.ft-plugin__frame");
@@ -136,8 +144,37 @@ test.describe("a tool taller than the screen", () => {
     await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
     await frameSays(app, { type: "ft.height", height: 1400 });
     const frame = await frameEnd(app);
-    await app.locator(".ft-app").evaluate((window) => (window.scrollTop = window.scrollHeight));
+    await scrollTool(app, "end");
     await aboveTheBar(app, frame);
+  });
+
+  // Found on the Samsung (2026-10-03): scrolled down, a tool was painted under the status bar,
+  // above its own bar. The status bar's strip stays the window's own, and the tool scrolls below
+  // its bar, at any scroll position.
+  test("in a chat's window, scrolled, stays below its bar and out of the status bar", async ({ app }) => {
+    const TOP = 30;
+    await app.addInitScript((inset) => {
+      document.addEventListener("DOMContentLoaded", () => document.documentElement.style.setProperty("--ion-safe-area-top", `${inset}px`));
+    }, TOP);
+    await app.goto(`/chat/${BOB}`);
+    await app.getByTestId("apps").click();
+    await app.getByTestId("app-com.flickertalk.markdown").click();
+    await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+    await frameSays(app, { type: "ft.height", height: 1400 });
+    await frameEnd(app);
+    for (const to of ["half", "end"] as const) {
+      await scrollTool(app, to);
+      const bar = (await app.locator(".ft-app__bar").boundingBox())!;
+      expect(Math.round(bar.y), `${to}: the bar starts under the status bar`).toBe(TOP);
+      // What is drawn in the status bar's strip, and right under the bar, is not the plugin.
+      // (Polled: the apps sheet that opened the tool may still be sliding away over it.)
+      await expect
+        .poll(
+          () => app.evaluate(([top, under]) => [document.elementFromPoint(180, top / 2), document.elementFromPoint(180, under - 2)].map((one) => one?.closest("iframe, .ft-app__bar, .ft-app")?.className ?? "nothing"), [TOP, bar.y + bar.height] as const),
+          { message: to },
+        )
+        .toEqual(["ft-app", "ft-app__bar"]);
+    }
   });
 
   test("on its own page, scrolled to its end, ends above the bar", async ({ app }) => {
