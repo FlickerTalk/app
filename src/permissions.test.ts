@@ -46,4 +46,11 @@ describe("plugin permissions", () => {
     expect(live(BOARD)).toBe("Talk to the same plugin on the other side of the chat");
     expect(live({ ...BOARD, kind: "tool" })).toBe("Talk to the same plugin on the other side of the chat");
   });
+
+  // A game never learns where the phone is: its switches never offer it, whatever it says it asks.
+  it("never offers a game the phone's position", () => {
+    const keys = permissionsOf({ ...BOARD, kind: "game" }).map((one) => one.key);
+    expect(keys).not.toContain("location");
+    expect(permissionsOf(BOARD).map((one) => one.key)).toContain("location");
+  });
 });

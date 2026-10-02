@@ -104,5 +104,13 @@ describe("games", () => {
       expect(gameGrant({ ...CHESS, asks: { ...CHESS.asks, send: "auto" } }).send).toBe("propose");
       expect(gameGrant({ ...CHESS, asks: { network: [], messages: false, send: "nothing" } })).toEqual({ ...CHESS.granted, live: false, send: "nothing" });
     });
+
+    // A game never learns where the phone is (app#32): the core refuses a game that asks, and one
+    // allow never carries it, whatever the grant said before.
+    it("never grants a game the phone's position, nor waits for it", () => {
+      const asking = { ...CHESS, asks: { ...CHESS.asks, location: true }, granted: { ...CHESS.granted, location: true } };
+      expect("location" in gameGrant(asking)).toBe(false);
+      expect(needsGameGrant({ ...asking, granted: { ...asking.granted, live: true, send: "propose", location: false } })).toBe(false);
+    });
   });
 });
