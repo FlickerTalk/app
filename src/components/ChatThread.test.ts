@@ -1295,6 +1295,26 @@ describe("ChatThread", () => {
         expect(closings()).toBe(0);
       });
 
+      // A chat page under another reads the address of the page on top (`ft.openChat` to another
+      // conversation, say): its `chatId` changes for a while without anyone leaving it. Its plugin
+      // stays, and still belongs to its own conversation.
+      // The address changes before Ionic says the page is leaving: `active` is still true then.
+      it("keeps a plugin whose page is under another when that page's chatId follows the address", async () => {
+        const { wrapper, says, closings } = await withGame();
+        await wrapper.setProps({ chatId: "c2" });
+        await flushPromises();
+        await wrapper.setProps({ active: false });
+        await flushPromises();
+        await wrapper.setProps({ chatId: "c1" });
+        await wrapper.setProps({ active: true });
+        await flushPromises();
+        expect(closings()).toBe(0);
+        expect(hidden(wrapper.find("[data-test='game-room']"))).toBe(false);
+        calls.length = 0;
+        await says({ type: "ft.liveSend", id: "q1", data: "aGk=" });
+        expect(calls).toContainEqual(["core_plugin_live_send", { plugin: CHESS.id, contact: "c1", data: "aGk=" }]);
+      });
+
       // ✕, then Back while the plugin says goodbye: one goodbye, and Back does not leave the chat.
       it("says goodbye once when it is closed twice", async () => {
         const { wrapper, says, closings } = await withTool();
@@ -1414,7 +1434,9 @@ describe("ChatThread", () => {
       // The split view shows another conversation: the plugin says goodbye to the one it was opened
       // in, never to the one now on screen.
       it("says goodbye to the conversation it was opened in when another one is shown", async () => {
-        const { wrapper, says, closings } = await withGame();
+        bridge({ installed: [CODE, CHESS] });
+        const wrapper = await thread({ play: CHESS.id, split: true });
+        const { says, closings } = await up(wrapper);
         await wrapper.setProps({ chatId: "c2" });
         await flushPromises();
         expect(closings()).toBe(1);
