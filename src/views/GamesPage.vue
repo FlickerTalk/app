@@ -14,6 +14,7 @@ import {
   IonTitle,
   IonToggle,
   IonToolbar,
+  onIonViewDidEnter,
   onIonViewWillEnter,
   onIonViewWillLeave,
 } from "@ionic/vue";
@@ -41,8 +42,12 @@ const asksToRemove = ref("");
 const asking = ref<PluginView | null>(null);
 const picking = ref("");
 
-closeOnBackWhile(() => Boolean(asking.value), () => (asking.value = null));
-closeOnBackWhile(() => Boolean(picking.value), () => (picking.value = ""));
+// Only while the tab is on screen: Ionic keeps it mounted under the others (2026-10-02).
+const onScreen = ref(true);
+onIonViewWillLeave(() => (onScreen.value = false));
+onIonViewDidEnter(() => (onScreen.value = true));
+closeOnBackWhile(() => onScreen.value && Boolean(asking.value), () => (asking.value = null));
+closeOnBackWhile(() => onScreen.value && Boolean(picking.value), () => (picking.value = ""));
 
 onMounted(refresh);
 // A game installed from a chat's invitation shows up when the tab comes back.

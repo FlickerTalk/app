@@ -97,15 +97,21 @@ import {
   type Sending,
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
-import { closeOnBackWhile } from "../back";
+import { closeOnBack, closeOnBackWhile } from "../back";
 import { t } from "../i18n";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
-const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean }>(), {
+/**
+ * `active`: whether the page holding the conversation is the one on screen (2026-10-02). Ionic
+ * keeps a page mounted under the next one; what it left open must not take Android's back button
+ * there, and takes it again when the page is back (seen on the Samsung).
+ */
+const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean; active?: boolean }>(), {
   showBack: false,
   play: undefined,
   split: false,
+  active: true,
 });
 /**
  * The pane the conversation's sheets cover on a wide screen (2026-10-02): the chat pane beside the
@@ -307,8 +313,10 @@ const showApps = ref(false);
 /**
  * The plugin on screen, and what it was opened with (2026-09-27): a text, a file, a way back.
  * `game`: a game, played in the conversation's own room rather than in a window over it.
+ * `contact`: the conversation it was opened in, which stays its own until it has gone; `opening`:
+ * which opening it is, so each one gets a frame of its own (2026-10-02).
  */
-const plugin = ref<{
+type Opening = {
   id: string;
   name: string;
   sending: Sending;
@@ -317,12 +325,64 @@ const plugin = ref<{
   file?: HandedFile;
   reference?: string;
   game?: boolean;
-} | null>(null);
+};
+const plugin = ref<(Opening & { contact: string; opening: number }) | null>(null);
+const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
+// 2026-10-02 (seen on two phones and the iOS simulator): closed by the app, a plugin in a live
+// session vanished without a word and the other side kept saying both were there. Every way out
+// (✕, Back, the plugin done, another plugin, another conversation) now goes through the sheet's
+// `close()`: the window goes at once (`leaving`), the plugin says goodbye out of sight for a few
+// tenths of a second at most, and only then is it gone. What was opened meanwhile opens then.
+const leaving = ref(false);
+let next: typeof plugin.value = null;
+let openings = 0;
+
+function openPlugin(chosen: Opening) {
+  const opening = { ...chosen, contact: props.chatId, opening: (openings += 1) };
+  if (!plugin.value) {
+    plugin.value = opening;
+    return;
+  }
+  next = opening;
+  closePlugin();
+}
+
+function closePlugin() {
+  if (!plugin.value || leaving.value) return;
+  leaving.value = true;
+  if (sheet.value) void sheet.value.close();
+  else pluginClosed();
+}
+
+function pluginClosed() {
+  leaving.value = false;
+  plugin.value = next;
+  next = null;
+}
+// The page holding the conversation closes what is open here as it goes back (2026-10-02), so the
+// goodbye goes out during Ionic's transition, before the page is taken down.
+defineExpose({ leave: closePlugin });
+
+// While the plugin says goodbye, Back stays taken: one press closed it, and another neither closes
+// it again nor falls through to leave the chat. `back.ts` lets go of what a press closed, so the
+// hold takes Back again each time, until the plugin has gone. Only while the conversation is on
+// screen (`active`), as everything else that takes Back here.
+const holding = () => props.active && leaving.value;
+let releaseHold: (() => void) | undefined;
+function holdBack() {
+  releaseHold = holding() ? closeOnBack(holdBack) : undefined;
+}
+watch(holding, (now) => {
+  releaseHold?.();
+  releaseHold = undefined;
+  if (now) holdBack();
+});
+onUnmounted(() => releaseHold?.());
 
 // Ioan, 2026-10-02 (option A): a game is played inside the conversation, so the two can write to
 // each other while they play. It takes the place of the messages, which stay mounted underneath;
 // the header (with the voice call) and the composer stay. No video and no files while playing.
-const playing = computed(() => Boolean(plugin.value?.game));
+const playing = computed(() => Boolean(plugin.value?.game) && !leaving.value);
 /** The thread shown for a moment, with the game still running behind it. */
 const peeking = ref(false);
 /** How many messages there were when the game opened or the thread was last seen. */
@@ -367,20 +427,21 @@ function pluginDone() {
     stagedByGame = false;
     return;
   }
-  plugin.value = null;
+  closePlugin();
 }
 
 // Android's back button closes what is open on top, and only that (2026-09-28).
-closeOnBackWhile(() => emoji.value, () => (emoji.value = false));
-closeOnBackWhile(() => Boolean(acting.value), () => closeActions());
-closeOnBackWhile(() => showApps.value, () => (showApps.value = false));
-closeOnBackWhile(() => Boolean(plugin.value), () => (plugin.value = null));
+// Only while the conversation is on screen (`active`).
+closeOnBackWhile(() => props.active && emoji.value, () => (emoji.value = false));
+closeOnBackWhile(() => props.active && Boolean(acting.value), () => closeActions());
+closeOnBackWhile(() => props.active && showApps.value, () => (showApps.value = false));
+closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, () => closePlugin());
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   if (!chosen) return;
   showApps.value = false;
-  plugin.value = { id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) };
+  openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) });
 }
 
 // Plan 10 (app 1.3.0): games, wherever the games tab is (not on iOS). Ioan, 2026-10-02: they are
@@ -397,7 +458,7 @@ const APPS_TABS = [
 ] as const;
 /** The game whose permissions sheet is open (plan decision 11); `size` when it is a download. */
 const asking = ref<{ id: string; name: string; size?: number } | null>(null);
-closeOnBackWhile(() => Boolean(asking.value), () => (asking.value = null));
+closeOnBackWhile(() => props.active && Boolean(asking.value), () => (asking.value = null));
 
 /** The apps sheet, on the tools if there are any, otherwise on the games; nothing is remembered. */
 function openApps() {
@@ -406,7 +467,7 @@ function openApps() {
 }
 
 function openGame(game: PluginView) {
-  plugin.value = { id: game.id, name: pluginName(game), sending: game.granted.send, live: Boolean(game.granted.live), game: true };
+  openPlugin({ id: game.id, name: pluginName(game), sending: game.granted.send, live: Boolean(game.granted.live), game: true });
 }
 
 /** 📨 from the game's own bar: the same invitation, and the game goes on. */
@@ -541,7 +602,7 @@ async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean
           ? { name: message.file?.name ?? "", mime: message.file?.mime ?? "application/octet-stream", data: "" }
           : await readMessageFile(message.id);
     const reference = await pluginRef(chosen.id, message.id).catch(() => undefined);
-    plugin.value = {
+    openPlugin({
       id: chosen.id,
       name: pluginName(chosen),
       sending: chosen.granted.send,
@@ -549,7 +610,7 @@ async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean
       text: message.kind === "file" ? undefined : message.text,
       file,
       reference,
-    };
+    });
     return true;
   } catch {
     // A file not here whole, or too big for a plugin: nothing opens here.
@@ -560,7 +621,7 @@ async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean
 /** A plugin proposes; the user sends (§53). A game goes on: the composer is in sight below it. */
 function fromPlugin(text: string) {
   draft.value = text;
-  if (!plugin.value?.game) plugin.value = null;
+  if (!plugin.value?.game) closePlugin();
 }
 
 // A2: a file a plugin made with the `propose` permission waits in the composer, like a text it
@@ -570,7 +631,7 @@ const staged = ref<PickedFile | null>(null);
 function stage(file: PickedFile) {
   staged.value = file;
   if (plugin.value?.game) stagedByGame = true;
-  else plugin.value = null;
+  else closePlugin();
 }
 
 async function sendStaged() {
@@ -604,6 +665,18 @@ watch(
   },
 );
 onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
+// Another conversation on screen (the split view): the plugin of this one says goodbye and goes,
+// and what was about to open here does not open there. Only there: a chat page has one
+// conversation (Ionic gives another its own page), and its `chatId` follows the address of the
+// page pushed over it for a while (`ft.openChat`) before it even hears it is leaving.
+watch(
+  () => props.chatId,
+  () => {
+    if (!props.split || !props.active) return;
+    next = null;
+    closePlugin();
+  },
+);
 
 function onVisible() {
   if (document.visibilityState === "visible") void refreshPlugins();
@@ -697,10 +770,10 @@ watch(
 
     <!-- The game room (Ioan, 2026-10-02): the game where the messages are, with a bar of its own:
          a way out, its name and the invitation. The thread stays mounted under it. -->
-    <section v-if="plugin && plugin.game" class="ft-room" data-test="game-room" :aria-label="plugin.name">
+    <section v-if="plugin && plugin.game" v-show="!leaving" class="ft-room" data-test="game-room" :aria-label="plugin.name">
       <ion-toolbar class="ft-room__bar" data-test="game-bar">
         <ion-buttons slot="start">
-          <ion-button data-test="close-game" :aria-label="$t('common.close')" @click="plugin = null">
+          <ion-button data-test="close-game" :aria-label="$t('common.close')" @click="closePlugin">
             <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
           </ion-button>
         </ion-buttons>
@@ -713,23 +786,26 @@ watch(
       </ion-toolbar>
       <div v-show="!peeking" ref="gameArea" class="ft-room__game" data-test="game-area">
         <PluginSheet
+          ref="sheet"
+          :key="plugin.opening"
           :plugin="plugin"
-          :contact="chatId"
+          :contact="plugin.contact"
           :sending="plugin.sending"
           :live="plugin.live"
-          :session="sessionOf(chatId)"
+          :session="sessionOf(plugin.contact)"
           @text="fromPlugin"
           @attach="stage"
           @open-chat="(contact) => router.push(`/chat/${contact}`)"
           @done="pluginDone"
+          @closed="pluginClosed"
         />
       </div>
     </section>
 
     <!-- Issue app#3: each tool does its thing inside its own window. -->
-    <div v-if="plugin && !plugin.game" class="ft-app" role="dialog" :aria-label="plugin.name">
+    <div v-if="plugin && !plugin.game" v-show="!leaving" class="ft-app" role="dialog" :aria-label="plugin.name">
       <div class="ft-app__bar">
-        <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="plugin = null">
+        <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="closePlugin">
           <ion-icon :icon="closeOutline" aria-hidden="true" />
         </button>
         <span class="ft-app__name">{{ plugin.name }}</span>
@@ -737,18 +813,21 @@ watch(
       <!-- Only the tool scrolls, below its bar: nothing of it reaches the status bar's strip. -->
       <div class="ft-app__body">
         <PluginSheet
+          ref="sheet"
+          :key="plugin.opening"
           :plugin="plugin"
-          :contact="chatId"
+          :contact="plugin.contact"
           :sending="plugin.sending"
           :live="plugin.live"
           :text="plugin.text"
           :file="plugin.file"
           :reference="plugin.reference"
-          :session="sessionOf(chatId)"
+          :session="sessionOf(plugin.contact)"
           @text="fromPlugin"
           @attach="stage"
           @open-chat="(contact) => router.push(`/chat/${contact}`)"
-          @done="plugin = null"
+          @done="pluginDone"
+          @closed="pluginClosed"
         />
       </div>
     </div>
@@ -1065,6 +1144,9 @@ watch(
   place-items: end center;
   padding: var(--ft-space-4);
   padding-bottom: calc(var(--ft-space-4) + 72px);
+  /* Clear of the side insets (a phone held sideways), which are physical. */
+  padding-left: calc(var(--ft-space-4) + var(--ion-safe-area-left, 0px));
+  padding-right: calc(var(--ft-space-4) + var(--ion-safe-area-right, 0px));
   background: rgba(0, 0, 0, 0.25);
 }
 .ft-actions__bar {
@@ -1183,6 +1265,9 @@ watch(
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The game keeps clear of the side insets (a phone held sideways); its bar does by itself. */
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
 }
 
 .ft-thread__content {
@@ -1199,6 +1284,9 @@ watch(
      itself does not scroll, so this strip stays its own at any scroll position (seen on the
      Samsung, 2026-10-02, when it was the padding of what scrolled). Ionic's inset, as its headers. */
   padding-top: var(--ion-safe-area-top, 0px);
+  /* And out of the side insets (a phone held sideways): bar and tool both. */
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
 }
 /* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar. */
 .ft-app__body {

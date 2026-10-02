@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
+import {
+  IonBackButton,
+  IonButtons,
+  IonContent,
+  IonHeader,
+  IonPage,
+  IonTitle,
+  IonToolbar,
+  onIonViewWillEnter,
+  onIonViewWillLeave,
+} from "@ionic/vue";
 import { useRoute, useRouter } from "vue-router";
 import PluginSheet from "../components/PluginSheet.vue";
 import { installed, pluginName, refreshPlugins } from "../plugins";
@@ -23,6 +33,30 @@ onMounted(async () => {
   if (!plugin.value) await refreshPlugins();
   ready.value = true;
 });
+
+// 2026-10-02: leaving the page closes the plugin through its sheet, so it can say goodbye while the
+// page goes (Ionic keeps it a moment, and under the next page if one is pushed). Back on the page
+// after that, the plugin is opened afresh (`opening`, a frame of its own).
+const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
+const opening = ref(0);
+let here = false;
+let saidGoodbye = false;
+onIonViewWillEnter(() => {
+  here = true;
+  if (saidGoodbye) reopen();
+});
+onIonViewWillLeave(() => {
+  here = false;
+  void sheet.value?.close();
+});
+function closed() {
+  if (here) reopen();
+  else saidGoodbye = true;
+}
+function reopen() {
+  saidGoodbye = false;
+  opening.value += 1;
+}
 </script>
 
 <template>
@@ -38,12 +72,15 @@ onMounted(async () => {
     <ion-content class="ft-plugin-page">
       <PluginSheet
         v-if="ready && plugin"
+        ref="sheet"
+        :key="opening"
         :plugin="plugin"
         contact=""
         :reminder="reminder"
         :session="session"
         @open-chat="(contact) => router.push(`/chat/${contact}`)"
         @done="router.back()"
+        @closed="closed"
       />
       <p v-else-if="ready" class="ft-plugin-page__missing">{{ $t("plugins.none") }}</p>
     </ion-content>

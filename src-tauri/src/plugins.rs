@@ -246,6 +246,9 @@ mod tests {
         assert!(script.contains(r#"ask("ft.drive", { op: "list""#));
         // 2026-10-02: the phone's position, once; anything but a place comes back as null.
         assert!(script.contains(r#"location: () => ask("ft.location", {})"#), "a plugin cannot ask where the phone is");
+        // 2026-10-02: told the window is closing, the frame runs the plugin's goodbye and answers.
+        assert!(script.contains("onClose"), "a plugin cannot say goodbye when the app closes it");
+        assert!(script.contains(r#"said.type === "ft.closing""#) && script.contains(r#"type: "ft.closed""#));
         assert!(!script.contains("__TAURI"), "a plugin never reaches the app's own bridge");
     }
 

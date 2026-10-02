@@ -135,6 +135,8 @@ describe("plugins in the app", () => {
     });
     expect(said({ type: "ft.forget", id: "q6", key: "pen" })).toEqual({ type: "ft.forget", id: "q6", key: "pen" });
     expect(said({ type: "ft.close" })).toEqual({ type: "ft.close" });
+    // 2026-10-02: the answer to the app's `ft.closing`, once the plugin has said goodbye.
+    expect(said({ type: "ft.closed" })).toEqual({ type: "ft.closed" });
 
     // A question with no id could never be answered, and a fetch to nowhere is not a fetch.
     expect(said({ type: "ft.read", key: "pen" })).toBeNull();

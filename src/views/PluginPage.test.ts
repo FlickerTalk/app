@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { reactive } from "vue";
+import { defineComponent, h, reactive } from "vue";
 import { setLocale } from "../i18n";
 
 const route = vi.hoisted(() => ({ value: null as unknown as { params: Record<string, string>; query: Record<string, string> } }));
@@ -56,5 +56,63 @@ describe("PluginPage", () => {
     } finally {
       await setLocale("en");
     }
+  });
+
+  // 2026-10-02: leaving the page closes the plugin through the sheet, so it can say goodbye while
+  // the page goes; back on the page after that, it is opened afresh.
+  describe("closing", () => {
+    const close = vi.fn(async () => {});
+    let mounted = 0;
+    const Sheet = defineComponent({
+      name: "PluginSheet",
+      props: ["plugin", "contact", "reminder", "session"],
+      emits: ["done", "closed", "openChat"],
+      setup(_, { expose }) {
+        mounted += 1;
+        expose({ close });
+        return () => h("div");
+      },
+    });
+    const hooks = (wrapper: { vm: unknown }, name: string) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+
+    async function page() {
+      close.mockClear();
+      mounted = 0;
+      route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: {} });
+      const wrapper = mount(PluginPage, { shallow: true, global: { stubs: { PluginSheet: Sheet } } });
+      await flushPromises();
+      hooks(wrapper, "onIonViewWillEnter");
+      return wrapper;
+    }
+
+    it("closes the plugin through its sheet when the page is left", async () => {
+      const wrapper = await page();
+      expect(close).not.toHaveBeenCalled();
+      hooks(wrapper, "onIonViewWillLeave");
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("opens the plugin afresh when the page is back after it said goodbye", async () => {
+      const wrapper = await page();
+      expect(mounted).toBe(1);
+      hooks(wrapper, "onIonViewWillLeave");
+      wrapper.findComponent(Sheet).vm.$emit("closed");
+      await flushPromises();
+      expect(mounted).toBe(1);
+      hooks(wrapper, "onIonViewWillEnter");
+      await flushPromises();
+      expect(mounted).toBe(2);
+    });
+
+    // Back before it finished saying goodbye: once it has, it is opened again in sight.
+    it("opens the plugin afresh at once when it said goodbye with the page on screen", async () => {
+      const wrapper = await page();
+      hooks(wrapper, "onIonViewWillLeave");
+      hooks(wrapper, "onIonViewWillEnter");
+      wrapper.findComponent(Sheet).vm.$emit("closed");
+      await flushPromises();
+      expect(mounted).toBe(2);
+    });
   });
 });
