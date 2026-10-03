@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { flushPromises, mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import CircleThread from "./CircleThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, seed } from "../__tests__/seed";
@@ -61,6 +61,9 @@ const contentWith = (scroller: { scrollHeight: number; clientHeight: number; scr
     },
   });
 
+// Each thread goes when its test ends, as a page does: a stale one must not mark the next one read.
+enableAutoUnmount(afterEach);
+
 describe("CircleThread", () => {
   beforeEach(() => {
     push.mockClear();
@@ -91,6 +94,50 @@ describe("CircleThread", () => {
     await flushPromises();
     expect(calls).toContainEqual(["core_circle_messages", { circle: "circle1", limit: 200 }]);
     expect(calls).toContainEqual(["core_circle_mark_read", { circle: "circle1" }]);
+  });
+
+  // architecture#21, as in a chat: the page stays mounted with the app behind Android's home
+  // screen, and what arrives there must not leave the list without its unread count.
+  describe("read only while on screen", () => {
+    let visibility: DocumentVisibilityState = "visible";
+    const setVisibility = (state: DocumentVisibilityState) => {
+      visibility = state;
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+    };
+    afterEach(() => Reflect.deleteProperty(document, "visibilityState"));
+    const arrive = () =>
+      store.circles[0].messages.push({ id: "m9", mine: false, text: "anyone?", time: "10:05", status: "delivered", kind: "text", sender: "ft_bob", senderName: "Bob" });
+    const markedRead = () => calls.some(([command]) => command === "core_circle_mark_read");
+
+    it("does not mark read what arrives while the app is in the background", async () => {
+      mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
+      await flushPromises();
+      setVisibility("hidden");
+      calls.length = 0;
+      arrive();
+      await flushPromises();
+      expect(markedRead()).toBe(false);
+    });
+
+    it("marks it read once the app is back on the screen", async () => {
+      mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
+      await flushPromises();
+      setVisibility("hidden");
+      arrive();
+      await flushPromises();
+      calls.length = 0;
+      setVisibility("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+      await flushPromises();
+      expect(calls).toContainEqual(["core_circle_mark_read", { circle: "circle1" }]);
+    });
+
+    it("does not mark the circle read when it opens with the app in the background", async () => {
+      setVisibility("hidden");
+      mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
+      await flushPromises();
+      expect(markedRead()).toBe(false);
+    });
   });
 
   it("sends a text to the circle", async () => {

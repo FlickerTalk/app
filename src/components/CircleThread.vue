@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { IonBackButton, IonButtons, IonContent, IonFooter, IonHeader, IonIcon, IonTextarea, IonToolbar } from "@ionic/vue";
 import { arrowUp, happyOutline, peopleOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
@@ -24,9 +24,20 @@ const emoji = ref(false);
 /** Whether this phone may write here now. */
 const mayWrite = computed(() => !!circle.value && !circle.value.left && (!circle.value.adminsOnly || circle.value.admin));
 
+/**
+ * Whether the app is in front (architecture#21): Android keeps the page mounted behind the home
+ * screen, and what arrives there has not been seen. A circle tells nobody when you read, but the
+ * list's unread count must stay honest.
+ */
+const seen = () => document.visibilityState === "visible";
+
 async function show() {
   await loadCircleMessages(props.circleId);
-  await markCircleRead(props.circleId);
+  if (seen()) await markCircleRead(props.circleId);
+}
+/** Back in front of the user: what arrived meanwhile is read now. */
+function onVisible() {
+  if (seen()) void markCircleRead(props.circleId);
 }
 
 async function send() {
@@ -56,6 +67,7 @@ async function scrollToEnd() {
 }
 
 onMounted(async () => {
+  document.addEventListener("visibilitychange", onVisible);
   await show();
   await scrollToEnd();
 });
@@ -69,10 +81,11 @@ watch(
 watch(
   () => messages.value.length,
   async () => {
-    await markCircleRead(props.circleId);
+    if (seen()) await markCircleRead(props.circleId);
     await scrollToEnd();
   },
 );
+onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
 </script>
 
 <template>
