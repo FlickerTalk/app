@@ -289,6 +289,7 @@
     "none": "Niciun plugin încă",
     "available": "Instrumente pe care le poți adăuga",
     "install": "Instalează",
+    "installFailed": "Instrumentul nu a putut fi instalat. Verifică-ți conexiunea și încearcă din nou.",
     "live": "Să vorbească cu același plugin de cealaltă parte a conversației",
     "remind": "Să seteze mementouri pe acest telefon",
     "drive": "Să păstreze fișiere în propriul tău cloud",

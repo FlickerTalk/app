@@ -289,6 +289,7 @@
     "none": "Brak wtyczek",
     "available": "Narzędzia do dodania",
     "install": "Zainstaluj",
+    "installFailed": "Nie udało się zainstalować narzędzia. Sprawdź połączenie i spróbuj ponownie.",
     "live": "Rozmawiać z tą samą wtyczką po drugiej stronie czatu",
     "remind": "Ustawiać przypomnienia na tym telefonie",
     "drive": "Przechowywać pliki w twojej własnej chmurze",

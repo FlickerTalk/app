@@ -289,6 +289,7 @@
     "none": "Nenhum plugin ainda",
     "available": "Ferramentas para adicionar",
     "install": "Instalar",
+    "installFailed": "Não foi possível instalar a ferramenta. Verifique sua conexão e tente de novo.",
     "live": "Falar com o mesmo plugin do outro lado da conversa",
     "remind": "Pôr lembretes neste telemóvel",
     "drive": "Guardar ficheiros na sua própria nuvem",

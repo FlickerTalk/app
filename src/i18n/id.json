@@ -289,6 +289,7 @@
     "none": "Belum ada plugin",
     "available": "Alat yang bisa Anda tambahkan",
     "install": "Pasang",
+    "installFailed": "Alat tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi.",
     "live": "Berbicara dengan plugin yang sama di sisi lain obrolan",
     "remind": "Memasang pengingat di ponsel ini",
     "drive": "Menyimpan berkas di cloud milikmu sendiri",

@@ -512,6 +512,9 @@ const STATUS_ICON: Record<string, string> = {
   align-items: center;
   gap: 12px;
   width: 100%;
+  /* A flex item of its row: without this it is as wide as its preview and pushes the ⋮ off screen
+     (app#69); with it the preview gives way, cut with an ellipsis. */
+  min-width: 0;
   padding: 10px;
   border: 0;
   border-radius: 16px;
