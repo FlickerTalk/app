@@ -257,8 +257,10 @@ export function clock(ms: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Sizes as people read them: 512 B, 1.5 KB, 48 MB. */
-/** A size in decimal units, in the number format of the app's language ("1,5 KB" in Spanish). */
+/**
+ * Sizes as people read them, in decimal units and in the number format of the app's language:
+ * 512 B, 1.5 KB, 48 MB ("1,5 KB" in Spanish).
+ */
 export function formatSize(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
