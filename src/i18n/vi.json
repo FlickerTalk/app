@@ -287,6 +287,7 @@
     "none": "Chưa có plugin nào",
     "available": "Công cụ bạn có thể thêm",
     "install": "Cài đặt",
+    "installFailed": "Không thể cài đặt công cụ. Hãy kiểm tra kết nối rồi thử lại.",
     "live": "Trò chuyện với cùng plugin ở phía bên kia cuộc trò chuyện",
     "remind": "Đặt lời nhắc trên điện thoại này",
     "drive": "Giữ tệp trong đám mây của riêng bạn",

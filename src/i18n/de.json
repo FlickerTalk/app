@@ -287,6 +287,7 @@
     "none": "Noch keine Plugins",
     "available": "Tools zum Hinzufügen",
     "install": "Installieren",
+    "installFailed": "Das Tool konnte nicht installiert werden. Prüfe deine Verbindung und versuch es noch einmal.",
     "live": "Mit demselben Plugin auf der anderen Seite des Chats sprechen",
     "remind": "Erinnerungen auf diesem Telefon setzen",
     "drive": "Dateien in deiner eigenen Cloud behalten",
