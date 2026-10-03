@@ -31,7 +31,7 @@ const MAX_CHUNK: u32 = 256 * 1024;
 /// refused outright, whoever sends it.
 pub const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 /// Files up to this size are pulled as they are offered; bigger ones wait for the user (A4).
-pub const DEFAULT_AUTO_DOWNLOAD: i64 = 10 * 1024 * 1024;
+pub const DEFAULT_AUTO_DOWNLOAD: i64 = 10_000_000;
 const AUTO_DOWNLOAD: &str = "auto_download";
 /// The UI hears about a transfer's progress every so many chunks.
 const PROGRESS_EVERY: i64 = 8;

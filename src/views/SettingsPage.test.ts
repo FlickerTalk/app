@@ -189,7 +189,7 @@ describe("SettingsPage", () => {
   it("lets the user choose up to what size files download on their own", async () => {
     const wrapper = mount(SettingsPage, { shallow: true });
     const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Auto-download files");
-    // The core's default (10 × 1024² bytes) is shown as the round choice it stands for (app#74).
+    // A limit saved as 10 × 1024² bytes (the core's old default) shows as the round choice (app#74).
     expect(select?.attributes("value")).toBe(String(10_000_000));
     expect(select?.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual([
       "Always ask",

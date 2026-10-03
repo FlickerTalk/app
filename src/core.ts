@@ -457,8 +457,8 @@ export async function acceptFile(message: string): Promise<void> {
 export const AUTO_DOWNLOAD_CHOICES = [0, 10_000_000, 100_000_000, 1_000_000_000, Number.MAX_SAFE_INTEGER] as const;
 
 /**
- * The choice a saved limit stands for. Limits saved before the choices were decimal (and the
- * core's default, 10 × 1024² bytes) map to the nearest one, so the list still shows them (app#74).
+ * The choice a saved limit stands for. Limits saved before the choices were decimal (10, 100 or
+ * 1024 × 1024² bytes) map to the nearest one, so the list still shows them (app#74).
  */
 export function autoDownloadChoice(bytes: number): number {
   if (AUTO_DOWNLOAD_CHOICES.includes(bytes as (typeof AUTO_DOWNLOAD_CHOICES)[number])) return bytes;
