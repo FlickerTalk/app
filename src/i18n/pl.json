@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Zablokowane",
-    "empty": "Nikt nie jest zablokowany"
+    "empty": "Nikt nie jest zablokowany",
+    "notice": "Ten kontakt jest zablokowany",
+    "hint": "Odblokuj go, aby do niego pisać i odbierać jego wiadomości i połączenia."
   },
   "settings": {
     "title": "Ustawienia",

@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Blocați",
-    "empty": "Nimeni nu este blocat"
+    "empty": "Nimeni nu este blocat",
+    "notice": "Ai blocat acest contact",
+    "hint": "Deblochează-l ca să-i poți scrie și să primești mesajele și apelurile lui."
   },
   "settings": {
     "title": "Setări",

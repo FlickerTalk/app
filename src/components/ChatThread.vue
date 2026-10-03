@@ -70,6 +70,7 @@ import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant } from "../g
 import {
   acceptContact,
   acceptFile,
+  block,
   chat as chatOf,
   forgetMessage,
   forwardMessage,
@@ -1028,6 +1029,15 @@ watch(
             </button>
           </div>
         </div>
+      </div>
+    </ion-footer>
+    <!-- app#78: nothing can be sent to someone blocked; it would wait forever. -->
+    <ion-footer v-else-if="chat.blocked" class="ion-no-border">
+      <div class="ft-request" data-test="blocked-panel">
+        <p class="ft-request__text">{{ $t("blocked.notice") }}</p>
+        <ion-button class="ion-align-self-center" fill="outline" shape="round" data-test="unblock" @click="block(chatId, false)">
+          {{ $t("contact.unblock") }}
+        </ion-button>
       </div>
     </ion-footer>
     <ion-footer v-else class="ion-no-border">

@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Bloqueados",
-    "empty": "Ninguém bloqueado"
+    "empty": "Ninguém bloqueado",
+    "notice": "Você bloqueou este contato",
+    "hint": "Desbloqueie para escrever para ele e receber as mensagens e chamadas dele."
   },
   "settings": {
     "title": "Configurações",
