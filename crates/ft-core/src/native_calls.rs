@@ -110,7 +110,8 @@ impl NativeCall {
         media_version(self.video.is_some())
     }
 
-    /// The call's video as the UI sees it: before it is ready, our camera as the user wants it.
+    /// The call's video as the UI sees it: before it is ready, our camera as the user wants it
+    /// and nothing available yet (`before_ready`).
     fn view(&self) -> Option<VideoState> {
         let video = self.video.as_ref()?;
         let ready = self.video_ready.load(Ordering::SeqCst);
@@ -1126,12 +1127,14 @@ fn held(app_visible: bool, call_shown: bool) -> bool {
     !(app_visible && call_shown)
 }
 
-/// The video's state until it is ready (`video_ready`): our camera as the user wants it.
+/// The video's state until it is ready (`video_ready`): our camera as the user wants it, and not
+/// available yet. The engine says `available` as the connection comes up, a moment before the
+/// core can apply the camera; a camera turned on in between would be kept as a wish.
 fn before_ready(state: VideoState, ready: bool, wish: bool) -> VideoState {
     if ready {
         state
     } else {
-        VideoState { camera: wish, ..state }
+        VideoState { camera: wish, available: false, ..state }
     }
 }
 
