@@ -113,10 +113,8 @@ impl NativeCall {
     /// The call's video as the UI sees it: before it is ready, our camera as the user wants it.
     fn view(&self) -> Option<VideoState> {
         let video = self.video.as_ref()?;
-        let mut state = video.state();
-        if !self.video_ready.load(Ordering::SeqCst) {
-            state.camera = self.camera.load(Ordering::SeqCst);
-        }
+        let ready = self.video_ready.load(Ordering::SeqCst);
+        let state = before_ready(video.state(), ready, self.camera.load(Ordering::SeqCst));
         Some(shown(state, self.peer_media(), self.video_call))
     }
 
@@ -1128,6 +1126,15 @@ fn held(app_visible: bool, call_shown: bool) -> bool {
     !(app_visible && call_shown)
 }
 
+/// The video's state until it is ready (`video_ready`): our camera as the user wants it.
+fn before_ready(state: VideoState, ready: bool, wish: bool) -> VideoState {
+    if ready {
+        state
+    } else {
+        VideoState { camera: wish, ..state }
+    }
+}
+
 /// The call's video as the UI sees it: with an older app's voice call, never available.
 fn shown(state: VideoState, peer_media: u16, video_call: bool) -> VideoState {
     VideoState { available: state.available && camera_allowed(peer_media, video_call), ..state }
@@ -1192,6 +1199,19 @@ mod tests {
         assert!(shown(available, 0, true).available);
         assert!(shown(available, 1, false).available);
         assert!(!shown(VideoState::default(), 1, false).available, "never more than ft-media says");
+    }
+
+    // Until the video is ready, our camera is the user's wish, and the camera cannot be turned
+    // on right now: a wish is kept for the connection. Saying `available` in that moment (the
+    // engine says so a moment before the core is ready) let a camera turned on then answer `Ok`
+    // and fail later with an event, as if nobody had asked (app#94).
+    #[test]
+    fn before_the_video_is_ready_the_camera_is_the_wish_and_not_available() {
+        let engine = VideoState { available: true, ..VideoState::default() };
+        let waiting = before_ready(engine, false, true);
+        assert!(waiting.camera, "the user's wish");
+        assert!(!waiting.available, "not available until the video is ready");
+        assert_eq!(before_ready(engine, true, true), engine, "once ready, the engine's state as it is");
     }
 
     // What `CallMedia` says of our camera: held only means something while it is on.
