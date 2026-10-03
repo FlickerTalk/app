@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonButton, IonItem, IonLabel, IonListHeader, IonToggle } from "@ionic/vue";
+import { IonButton, IonIcon, IonItem, IonLabel, IonListHeader, IonToggle } from "@ionic/vue";
+import { addCircleOutline, downloadOutline } from "ionicons/icons";
 import GamesPage from "./GamesPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
@@ -89,6 +90,19 @@ describe("GamesPage", () => {
     expect(more).not.toContain("Sketch");
     // What is installed is not offered again.
     expect(wrapper.find("[data-test='install-com.flickertalk.game.chess']").exists()).toBe(false);
+  });
+
+  // 2026-10-03: the app carries the games, so adding one of those downloads nothing: no size and
+  // no download icon; a game only the catalogue has is still a download.
+  it("shows a carried game as an addition, not a download", async () => {
+    answering({ installed: [CODE], offered: [offer("com.flickertalk.game.tictactoe", "Tic-tac-toe", { carried: true, size: 44_904 }), offer("com.flickertalk.game.go", "Go")] });
+    const wrapper = await page();
+    const items = wrapper.find("[data-test='more-games']").findAllComponents(IonItem);
+    const of = (name: string) => items.find((item: { text(): string }) => item.text().includes(name))!;
+    expect(of("Tic-tac-toe").text()).not.toContain("KB");
+    expect(of("Tic-tac-toe").find("[data-test='install-com.flickertalk.game.tictactoe']").findComponent(IonIcon).props("icon")).toBe(addCircleOutline);
+    expect(of("Go").text()).toContain("1.2 MB");
+    expect(of("Go").find("[data-test='install-com.flickertalk.game.go']").findComponent(IonIcon).props("icon")).toBe(downloadOutline);
   });
 
   // 2026-10-02 (plan of the catalogue's translations): a Spanish phone names each game in Spanish:

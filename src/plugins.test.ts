@@ -278,7 +278,7 @@ describe("plugins in the app", () => {
       expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
     });
 
-    it("asks the catalogue only while no game is known, and once at a time", async () => {
+    it("asks the catalogue once at a time", async () => {
       tauri.invoke.mockResolvedValue([SKETCH, CHESS]);
       await Promise.all([offeredOnce(), offeredOnce()]);
       await offeredOnce();
@@ -286,14 +286,30 @@ describe("plugins in the app", () => {
       expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
     });
 
-    // Offline, the core answers with what the app carries and no game: the next look asks again.
-    it("asks again when the last answer had no game", async () => {
+    // 2026-10-03: the app carries the three games, so games are always known. An invitation to a
+    // game it does not carry (a fourth one, on Android) still has to be looked up once.
+    it("asks the catalogue even when the games the app carries are already known", async () => {
+      const CARRIED_CHESS = { ...CHESS, carried: true };
+      const GO = { ...CHESS, id: "com.flickertalk.game.go", name: "Go" };
+      offered.value = [SKETCH, CARRIED_CHESS];
+      tauri.invoke.mockResolvedValue([SKETCH, CARRIED_CHESS, GO]);
+      await offeredOnce();
+      expect(tauri.invoke).toHaveBeenCalledTimes(1);
+      expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id, GO.id]);
+    });
+
+    // Once per run: what it read is kept, and a later look does not ask again until a screen
+    // refreshes the list itself.
+    it("does not ask again after it has asked once", async () => {
       tauri.invoke.mockResolvedValue([SKETCH]);
       await offeredOnce();
       tauri.invoke.mockResolvedValue([SKETCH, CHESS]);
       await offeredOnce();
-      expect(tauri.invoke).toHaveBeenCalledTimes(2);
-      expect(offeredGames.value.map((one) => one.id)).toEqual([CHESS.id]);
+      expect(tauri.invoke).toHaveBeenCalledTimes(1);
+      // A screen that refreshes the list itself (the games tab) lets the next look ask again.
+      await refreshOffered();
+      await offeredOnce();
+      expect(tauri.invoke).toHaveBeenCalledTimes(3);
     });
 
     it("keeps what it had when the core cannot answer", async () => {

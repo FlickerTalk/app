@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonList, IonToggle } from "@ionic/vue";
+import { IonIcon, IonList, IonToggle } from "@ionic/vue";
+import { addCircleOutline, downloadOutline } from "ionicons/icons";
 import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
@@ -141,6 +142,15 @@ describe("PluginsPage", () => {
     expect(wrapper.text()).toContain("Draw with a finger.");
     expect(wrapper.find("[data-test='install-com.flickertalk.sketch']").exists()).toBe(true);
     expect(wrapper.find("[data-test='install-com.flickertalk.code']").exists()).toBe(false);
+  });
+
+  // 2026-10-03: adding a tool the app carries downloads nothing, so it is not shown as a download.
+  it("shows a carried tool as an addition and a catalogue one as a download", async () => {
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    const icon = (id: string) => wrapper.find(`[data-test='install-${id}']`).findComponent(IonIcon).props("icon");
+    expect(icon("com.flickertalk.sketch")).toBe(addCircleOutline);
+    expect(icon("com.flickertalk.ocr")).toBe(downloadOutline);
   });
 
   it("installs one when the user asks for it", async () => {
