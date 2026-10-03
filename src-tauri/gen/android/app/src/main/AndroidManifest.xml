@@ -22,10 +22,13 @@
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <!-- The keyboard (2026-09-29): never pan the window. Edge to edge, the WebView gets the
              keyboard as an inset and shrinks its visual viewport, which the app follows
-             (src/viewport.ts); a pan took the whole app, header included, up out of the screen. -->
+             (src/viewport.ts); a pan took the whole app, header included, up out of the screen.
+             A change of language never recreates the activity (app#82, 2026-10-03): Android flags
+             locale and layoutDirection together, and a recreated activity got a new WebView while
+             the plugins kept the old one alive. The page follows the language in place (i18n.ts). -->
         <activity
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
             android:name=".MainActivity"

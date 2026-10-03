@@ -62,8 +62,15 @@ export async function setLocale(locale: Locale): Promise<void> {
 /** What `followPhoneLanguage` reads the phone's languages from and listens on. */
 export type LanguageSource = Pick<Window, "addEventListener"> & { navigator: Pick<Navigator, "languages" | "language"> };
 
-/** The texts follow the phone's language. */
+/**
+ * The texts follow the phone's language: at start, and in place when it changes while the app
+ * runs (app#82: on Android the activity is no longer recreated for it, so neither is the page).
+ */
 export function followPhoneLanguage(source: LanguageSource = window): Promise<void> {
-  const { navigator } = source;
-  return setLocale(pickLocale(navigator.languages ?? [navigator.language]));
+  const current = () => {
+    const { navigator } = source;
+    return setLocale(pickLocale(navigator.languages ?? [navigator.language]));
+  };
+  source.addEventListener("languagechange", () => void current());
+  return current();
 }
