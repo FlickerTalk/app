@@ -283,6 +283,7 @@
     "writes": "Scrive nella chat",
     "sendsAlone": "Invia messaggi da solo",
     "asksNothing": "Non chiede nulla",
+    "mayNotWrite": "Questo strumento non può scrivere nella chat. Attiva «Scrive nella chat» per lui in Impostazioni → Plugin.",
     "remove": "Rimuovi",
     "none": "Ancora nessun plugin",
     "available": "Strumenti che puoi aggiungere",

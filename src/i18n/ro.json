@@ -283,6 +283,7 @@
     "writes": "Scrie în chat",
     "sendsAlone": "Trimite mesaje singur",
     "asksNothing": "Nu cere nimic",
+    "mayNotWrite": "Acest instrument nu poate scrie în chat. Activează „Scrie în chat” pentru el în Setări → Pluginuri.",
     "remove": "Elimină",
     "none": "Niciun plugin încă",
     "available": "Instrumente pe care le poți adăuga",

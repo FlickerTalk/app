@@ -283,6 +283,7 @@
     "writes": "Sohbete yazma",
     "sendsAlone": "Kendi başına mesaj gönderme",
     "asksNothing": "Hiçbir şey istemiyor",
+    "mayNotWrite": "Bu araç sohbete yazamaz. Ayarlar → Eklentiler bölümünden onun için “Sohbete yazma” seçeneğini açın.",
     "remove": "Kaldır",
     "none": "Henüz eklenti yok",
     "available": "Ekleyebileceğiniz araçlar",

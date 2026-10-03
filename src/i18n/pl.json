@@ -283,6 +283,7 @@
     "writes": "Pisanie w czacie",
     "sendsAlone": "Samodzielne wysyłanie wiadomości",
     "asksNothing": "Nie prosi o nic",
+    "mayNotWrite": "To narzędzie nie może pisać w czacie. Włącz dla niego „Pisanie w czacie” w Ustawienia → Wtyczki.",
     "remove": "Usuń",
     "none": "Brak wtyczek",
     "available": "Narzędzia do dodania",

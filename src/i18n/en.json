@@ -283,6 +283,7 @@
     "writes": "Write in the chat",
     "sendsAlone": "Send messages by itself",
     "asksNothing": "Asks for nothing",
+    "mayNotWrite": "This tool may not write in the chat. Turn on “Write in the chat” for it in Settings → Plugins.",
     "remove": "Remove",
     "none": "No plugins yet",
     "available": "Tools you can add",

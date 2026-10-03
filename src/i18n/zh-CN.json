@@ -283,6 +283,7 @@
     "writes": "在聊天中写入",
     "sendsAlone": "自行发送消息",
     "asksNothing": "不需要任何权限",
+    "mayNotWrite": "此工具无权在聊天中写入。请在“设置 → 插件”中为它开启“在聊天中写入”。",
     "remove": "移除",
     "none": "还没有插件",
     "available": "可添加的工具",
