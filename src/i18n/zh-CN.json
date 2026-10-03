@@ -107,6 +107,7 @@
     "turnOnCamera": "打开你的摄像头",
     "hangUp": "挂断",
     "backToCall": "返回通话",
+    "minimize": "返回聊天",
     "answer": "接听",
     "decline": "拒绝",
     "empty": "还没有通话记录"

@@ -4,6 +4,7 @@ import { nextTick } from "vue";
 import { IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
+import { setLocale } from "../i18n";
 import CallPage from "./CallPage.vue";
 import source from "./CallPage.vue?raw";
 
@@ -212,6 +213,44 @@ describe("CallPage", () => {
     await flushPromises();
     expect(nav.replace).toHaveBeenCalledWith("/chat/c1");
     expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  // Tablets and iPhones have no back button (2026-10-03): an on-screen one does what Android's does.
+  const minimize = (wrapper: ReturnType<typeof mount>) => wrapper.find("[aria-label='Back to the chat']");
+
+  it("goes back from the call screen with the on-screen button, and keeps the call", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    await minimize(wrapper).trigger("click");
+    await flushPromises();
+    expect(nav.back).toHaveBeenCalledTimes(1);
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  it("with nothing behind, the on-screen button opens the conversation", async () => {
+    window.history.replaceState({ back: null }, "");
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    await minimize(wrapper).trigger("click");
+    await flushPromises();
+    expect(nav.replace).toHaveBeenCalledWith("/chat/c1");
+    expect(actions.hangUp).not.toHaveBeenCalled();
+  });
+
+  it("names the on-screen back button in the phone's language", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    await setLocale("es");
+    try {
+      const wrapper = mount(CallPage, { shallow: true });
+      expect(wrapper.find("[aria-label='Volver al chat']").exists()).toBe(true);
+    } finally {
+      await setLocale("en");
+    }
+  });
+
+  it("has no on-screen back button once the call has ended (the screen leaves by itself)", () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "ended", outcome: "busy" });
+    expect(minimize(mount(CallPage, { shallow: true })).exists()).toBe(false);
   });
 
   // Ionic keeps the page mounted under the next one: it must act as gone.
