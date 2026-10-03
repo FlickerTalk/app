@@ -32,7 +32,11 @@ function framed(wrapper: ReturnType<typeof mount>) {
 }
 
 describe("PluginSheet", () => {
-  beforeEach(() => tauri.invoke.mockReset());
+  beforeEach(() => {
+    tauri.invoke.mockReset();
+    // Every test gets a toast that shows: a plugin refused for want of a permission says so (app#76).
+    toast.create.mockReset().mockResolvedValue({ present: toast.present });
+  });
 
   // 2026-10-02 (plan of the catalogue's translations): a screen reader names the frame as the
   // phone's language does.
@@ -499,7 +503,6 @@ describe("PluginSheet", () => {
   // app#76: refused for want of the permission, a plugin's main action used to do nothing at all.
   // Now the user hears why, and where to allow it.
   it("tells the user when a plugin may not write in the chat, and where to allow it", async () => {
-    toast.create.mockReset().mockResolvedValue({ present: toast.present });
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
     await flushPromises();
     const { says } = framed(wrapper);
@@ -517,7 +520,6 @@ describe("PluginSheet", () => {
 
   // Opened from Settings there is no chat to write in: nothing to tell.
   it("says nothing of the chat for a plugin opened outside a conversation", async () => {
-    toast.create.mockReset().mockResolvedValue({ present: toast.present });
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
     await flushPromises();
     const { says } = framed(wrapper);
