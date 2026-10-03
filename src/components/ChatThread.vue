@@ -696,7 +696,8 @@ async function save(id: string) {
 }
 
 const content = ref<Scrollable | null>(null);
-useStickToEnd(content);
+const list = ref<HTMLElement | null>(null);
+useStickToEnd(content, list);
 
 async function scrollToEnd() {
   await nextTick();
@@ -912,23 +913,26 @@ watch(
     />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
-      <template v-for="(message, index) in messages" :key="message.id">
-        <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
-        <MessageBubble
-          :message="message"
-          :saved="saved.has(message.id)"
-          :folded="folded.has(message.id)"
-          games
-          @open="tapFile"
-          @save="save"
-          @download="download"
-          @actions="act"
-          @resend="resendMessage"
-          @play="playGame"
-        />
-      </template>
+      <!-- One box for the messages: its size is followed to keep the end in sight (app#81). -->
+      <div ref="list">
+        <template v-for="(message, index) in messages" :key="message.id">
+          <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
+          <MessageBubble
+            :message="message"
+            :saved="saved.has(message.id)"
+            :folded="folded.has(message.id)"
+            games
+            @open="tapFile"
+            @save="save"
+            @download="download"
+            @actions="act"
+            @resend="resendMessage"
+            @play="playGame"
+          />
+        </template>
 
-      <div class="ft-thread__end" />
+        <div class="ft-thread__end" />
+      </div>
     </ion-content>
 
     <!-- What can be done with the message that was pressed (§61). -->

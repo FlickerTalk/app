@@ -83,19 +83,50 @@ export function stickToEnd(scroller: () => ScrollMetrics | null): () => void {
   });
 }
 
+/**
+ * A conversation at its end stays there while what is around it settles (app#81, seen on the
+ * iPhone): the scroller or its `list` changing size (the footer and its home indicator's band laid
+ * out after the scroll to the end, a card or a picture that grows) brings the end back. One the
+ * user scrolled back in time stays where it was. Returns the way out.
+ */
+export function followEnd(scroller: HTMLElement, list: Element, Observer: typeof ResizeObserver = ResizeObserver): () => void {
+  let atEnd = isAtEnd(scroller);
+  const onScroll = () => (atEnd = isAtEnd(scroller));
+  scroller.addEventListener("scroll", onScroll, { passive: true });
+  const observer = new Observer(() => {
+    if (atEnd) scroller.scrollTop = scroller.scrollHeight;
+  });
+  observer.observe(scroller);
+  observer.observe(list);
+  return () => {
+    scroller.removeEventListener("scroll", onScroll);
+    observer.disconnect();
+  };
+}
+
 /** What a conversation keeps of its `ion-content`. */
 export type Scrollable = {
   $el?: { scrollToBottom?: (duration: number) => Promise<void>; getScrollElement?: () => Promise<HTMLElement> };
 };
 
-/** `stickToEnd` for a component's `ion-content`, for as long as the component lives. */
-export function useStickToEnd(content: Ref<Scrollable | null>): void {
-  let scroller: ScrollMetrics | null = null;
+/**
+ * `stickToEnd` for a component's `ion-content`, for as long as the component lives; with the
+ * element that holds its messages, `followEnd` too.
+ */
+export function useStickToEnd(content: Ref<Scrollable | null>, list?: Ref<HTMLElement | null>): void {
+  let scroller: HTMLElement | null = null;
+  let unfollow: (() => void) | null = null;
+  let gone = false;
   const unstick = stickToEnd(() => scroller);
   onMounted(async () => {
     scroller = (await content.value?.$el?.getScrollElement?.()) ?? null;
+    if (!gone && scroller && list?.value && typeof ResizeObserver !== "undefined") unfollow = followEnd(scroller, list.value);
   });
-  onUnmounted(unstick);
+  onUnmounted(() => {
+    gone = true;
+    unstick();
+    unfollow?.();
+  });
 }
 
 /**
