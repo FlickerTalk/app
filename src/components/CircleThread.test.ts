@@ -6,6 +6,7 @@ import { calls, seed } from "../__tests__/seed";
 import { store, type Circle } from "../core";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
+import { setLocale } from "../i18n";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -84,6 +85,38 @@ describe("CircleThread", () => {
     expect(events).toHaveLength(1);
     expect(events[0].text()).toBe("You created the circle «Friends»");
     expect(wrapper.text()).toContain("Members: 3");
+  });
+
+  // Found on the phones (2026-10-03, app#79): "Tú creó el círculo" in Spanish. What I did is told
+  // in the first person, with its own sentence in each language, never "you" as a third person.
+  it("tells what I did in the first person, in the phone's language", async () => {
+    const me = { mine: true, time: "10:00", sender: "ft_me", senderName: "Me" };
+    store.circles = [
+      friends({
+        messages: [
+          { ...me, id: "e1", text: "Friends", kind: "created" },
+          { ...me, id: "e2", text: "Friends B", kind: "renamed" },
+          { ...me, id: "e3", text: "Dave", kind: "joined" },
+          { ...me, id: "e4", text: "Carol", kind: "removed" },
+          { ...me, id: "e5", text: "Me", kind: "left" },
+          { id: "e6", mine: false, text: "Friends C", time: "10:05", kind: "renamed", sender: "ft_bob", senderName: "Bob" },
+        ],
+      }),
+    ];
+    await setLocale("es");
+    try {
+      const wrapper = mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
+      expect(wrapper.findAll("[data-test='circle-event']").map((line) => line.text())).toEqual([
+        "Creaste el círculo «Friends»",
+        "Cambiaste el nombre del círculo a «Friends B»",
+        "Añadiste a Dave",
+        "Sacaste a Carol",
+        "Saliste del círculo",
+        "Bob cambió el nombre del círculo a «Friends C»",
+      ]);
+    } finally {
+      await setLocale("en");
+    }
   });
 
   it("loads the circle's messages from the core and marks them read", async () => {
