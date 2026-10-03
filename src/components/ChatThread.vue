@@ -1358,6 +1358,13 @@ watch(
   padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
   background: var(--ft-bg);
 }
+/* The emoji open (app#72): the home indicator's band goes under the panel, not between it and the
+   message box. The panel rises over the composer's band and carries the band itself; a sibling
+   selector, not `:has()`, which iOS 15.0–15.3 lacks. */
+.ft-composer + .ft-emoji {
+  margin-top: calc(-1 * var(--ion-safe-area-bottom, 0px));
+  padding-bottom: var(--ion-safe-area-bottom, 0px);
+}
 .ft-composer__row {
   display: flex;
   align-items: flex-end;
