@@ -285,6 +285,7 @@
     "writes": "在聊天中寫入",
     "sendsAlone": "自行傳送訊息",
     "asksNothing": "不需要任何權限",
+    "mayNotWrite": "此工具無權在聊天中寫入。請在「設定 → 外掛程式」中為它開啟「在聊天中寫入」。",
     "remove": "移除",
     "none": "還沒有外掛程式",
     "available": "可新增的工具",

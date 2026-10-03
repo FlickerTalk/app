@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
+import { toastController } from "@ionic/vue";
 import {
   pickForPlugin,
   pluginMayUseDrive,
@@ -126,7 +127,7 @@ async function onMessage(event: MessageEvent) {
     });
   } else if (said.type === "ft.made") {
     // Nothing leaves without the permission: the core checks it again on its side (A2).
-    if (props.sending === "nothing") return;
+    if (props.sending === "nothing") return void mayNotWrite();
     await busy(async () => {
       try {
         const made = await pluginMade(props.plugin.id, props.contact, said.name, said.mime, said.data);
@@ -138,6 +139,7 @@ async function onMessage(event: MessageEvent) {
     });
   } else if (said.type === "ft.text") {
     if (props.sending !== "nothing") emit("text", said.text);
+    else void mayNotWrite();
   } else if (said.type === "ft.close") {
     // Asked again by a goodbye that ends with `ft.close()`: it is already closing.
     if (!closing) emit("done");
@@ -146,6 +148,17 @@ async function onMessage(event: MessageEvent) {
   } else {
     await answer(said);
   }
+}
+
+/**
+ * app#76: a plugin that writes in the chat without the `send` permission is refused, and its main
+ * action used to do nothing at all. The user is told why, and where to allow it. Opened outside a
+ * conversation there is no chat to write in, so nothing to tell.
+ */
+async function mayNotWrite() {
+  if (!props.contact) return;
+  const toast = await toastController.create({ message: i18n.global.t("plugins.mayNotWrite"), duration: 4000, position: "bottom" });
+  await toast.present();
 }
 
 /**

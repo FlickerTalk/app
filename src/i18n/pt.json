@@ -285,6 +285,7 @@
     "writes": "Escrever na conversa",
     "sendsAlone": "Enviar mensagens sozinho",
     "asksNothing": "Não pede nada",
+    "mayNotWrite": "Esta ferramenta não pode escrever na conversa. Ative “Escrever na conversa” para ela em Configurações → Plugins.",
     "remove": "Remover",
     "none": "Nenhum plugin ainda",
     "available": "Ferramentas para adicionar",

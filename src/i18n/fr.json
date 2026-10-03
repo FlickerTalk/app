@@ -285,6 +285,7 @@
     "writes": "Écrire dans la discussion",
     "sendsAlone": "Envoyer des messages tout seul",
     "asksNothing": "Ne demande rien",
+    "mayNotWrite": "Cet outil ne peut pas écrire dans la discussion. Activez « Écrire dans la discussion » pour lui dans Paramètres → Plugins.",
     "remove": "Retirer",
     "none": "Aucun plugin",
     "available": "Outils à ajouter",

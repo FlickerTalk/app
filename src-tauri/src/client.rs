@@ -3790,6 +3790,38 @@ mod tests {
         assert!(total <= SEEDS_LIMIT, "the seeds weigh {total} bytes, which is no longer little");
     }
 
+    /// Every seed is, byte for byte, the package the catalogue serves for its id and version: a
+    /// seed rebuilt on its own, or forgotten after the catalogue moved on, would differ from what a
+    /// downloading phone gets. The catalogue lives in the web repo, so this runs where it is
+    /// checked out: `FT_CATALOGUE_DIR`, or `web/site/plugins` next to the app.
+    #[test]
+    #[ignore = "needs the web repo's catalogue on disk"]
+    fn every_seed_is_the_package_the_catalogue_serves() {
+        let served = std::env::var("FT_CATALOGUE_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/site/plugins"));
+        for package in BUNDLED_PLUGINS {
+            let manifest = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is signed for us").manifest;
+            let path = served.join(&manifest.id).join(format!("{}.ftplugin", manifest.version));
+            let listed = std::fs::read(&path).unwrap_or_else(|_| panic!("{} {} is not in the catalogue ({})", manifest.id, manifest.version, path.display()));
+            assert!(listed == *package, "the seed of {} {} is not the package the catalogue serves", manifest.id, manifest.version);
+        }
+    }
+
+    /// app#76: a carried plugin that hands its result to the chat (`ft.send`, `ft.say`) has to ask
+    /// for `send`; without it the core refuses the call and the plugin's main action does nothing.
+    #[test]
+    fn a_seed_that_writes_in_the_chat_asks_for_it() {
+        for package in BUNDLED_PLUGINS {
+            let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is signed for us");
+            let code = String::from_utf8_lossy(plugin.file("dist/index.js").unwrap_or_default());
+            let writes = ["ft.send(", "ft?.send(", "ft.say(", "ft?.say("].iter().any(|call| code.contains(call));
+            if writes {
+                assert_ne!(plugin.manifest.permissions.send, ft_plugins::Sending::Nothing, "{} writes in the chat without asking", plugin.manifest.id);
+            }
+        }
+    }
+
     /// 2026-10-03 (Ioan): the three games travel inside the app like the tools, so an iPhone,
     /// which downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
     #[test]

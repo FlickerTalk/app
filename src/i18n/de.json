@@ -285,6 +285,7 @@
     "writes": "Im Chat schreiben",
     "sendsAlone": "Selbst Nachrichten senden",
     "asksNothing": "Fordert nichts an",
+    "mayNotWrite": "Dieses Werkzeug darf nicht im Chat schreiben. Schalte dafür „Im Chat schreiben“ unter Einstellungen → Plugins ein.",
     "remove": "Entfernen",
     "none": "Noch keine Plugins",
     "available": "Tools zum Hinzufügen",

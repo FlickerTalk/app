@@ -285,6 +285,7 @@
     "writes": "Viết trong cuộc trò chuyện",
     "sendsAlone": "Tự gửi tin nhắn",
     "asksNothing": "Không yêu cầu gì",
+    "mayNotWrite": "Công cụ này không được phép viết trong cuộc trò chuyện. Hãy bật “Viết trong cuộc trò chuyện” cho nó trong Cài đặt → Plugin.",
     "remove": "Gỡ",
     "none": "Chưa có plugin nào",
     "available": "Công cụ bạn có thể thêm",
