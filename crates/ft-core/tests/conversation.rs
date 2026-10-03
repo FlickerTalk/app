@@ -1011,23 +1011,39 @@ async fn a_call_waits_for_the_contact_to_wake_up() {
     calling.await.unwrap().expect("offered");
 }
 
+// The hang-up still reaches Bob once he is back (it keeps trying while a call would): since
+// 2026-10-01 it leaves a missed call there, so what proves the offer stopped is that Bob never
+// heard it ring. Everything waits on what it expects, never on a fixed delay: on a slow machine
+// the hang-up's next try used to land inside a half-second sleep.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_call_given_up_while_waiting_stops_trying() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
     pair(&alice, &bob).await;
     net.set_direct(false);
+    let mut at_bob = bob.events();
     let call = alice.place_call(&id(&bob), false).await.unwrap();
+    let tried = net.tried(&id(&bob));
     let calling = {
         let (alice, call) = (alice.clone(), call.clone());
         tokio::spawn(async move { alice.offer_call_within(&call, "offer", Duration::from_secs(10)).await })
     };
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    until("alice tried to reach bob", || async { net.tried(&id(&bob)) > tried }).await;
     alice.end_call(&call, false).await.expect("gives up");
     tokio::time::timeout(Duration::from_secs(5), calling).await.expect("stops trying").unwrap().expect("ends quietly");
     net.set_direct(true);
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(bob.store().call(&call).await.unwrap().is_none(), "bob never rang");
+    until("bob heard the hang-up", || async {
+        bob.store().call(&call).await.unwrap().is_some_and(|record| record.ended_at.is_some())
+    })
+    .await;
+    // The direct link delivers in order: an offer would have rung before the hang-up arrived.
+    while let Ok(event) = at_bob.try_recv() {
+        if let Event::Call { update: CallUpdate::Incoming { .. }, .. } = event {
+            panic!("bob never rang");
+        }
+    }
+    let record = bob.store().call(&call).await.unwrap().expect("logged");
+    assert_eq!((record.answered_at, record.outcome), (None, Some(CallOutcome::Missed)));
 }
 
 // Issue app#1: each contact can have their history expire and their read messages burn. It is a

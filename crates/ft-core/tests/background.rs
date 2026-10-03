@@ -52,9 +52,10 @@ struct Inner {
     /// Signals sent to each device, connected or not.
     signalled: HashMap<String, usize>,
     mail: HashMap<String, Vec<(String, Vec<u8>)>>,
-    /// Each registration that went through: who, and its silent slots.
-    registrations: Vec<(String, u8)>,
-    register_tries: usize,
+    /// Each registration that went through: who, its silent slots, and when.
+    registrations: Vec<(String, u8, Instant)>,
+    /// Each registration refused while `refusing`: who, and when.
+    refused: Vec<(String, Instant)>,
     refusing: bool,
     /// Suggestions from the app (2026-10-02): who signed each, and its body.
     feedback: Vec<(String, Value)>,
@@ -151,11 +152,11 @@ async fn fake_router() -> (String, Arc<Fake>) {
             post(|State(fake): State<Arc<Fake>>, headers: HeaderMap, body: Bytes| async move {
                 let registration: Value = serde_json::from_slice(&body).unwrap();
                 fake.with(|inner| {
-                    inner.register_tries += 1;
                     if inner.refusing {
+                        inner.refused.push((device_of(&headers), Instant::now()));
                         return StatusCode::SERVICE_UNAVAILABLE;
                     }
-                    inner.registrations.push((device_of(&headers), registration["silent_slots"].as_u64().unwrap() as u8));
+                    inner.registrations.push((device_of(&headers), registration["silent_slots"].as_u64().unwrap() as u8, Instant::now()));
                     StatusCode::NO_CONTENT
                 })
             }),
@@ -383,28 +384,41 @@ async fn the_other_phone_sees_the_direct_connection_close() {
 
 // A registration still waiting when the app leaves (the router could not be reached) is not lost:
 // it goes as soon as the app is back, with what the phone says then.
+//
+// "As soon as" is measured against the phone's own timer, not a stopwatch: after three refusals
+// the phone waits 8 s before trying again by itself (2 s, doubled each time: `REGISTER_RETRY`),
+// so a registration that goes out sooner than that after the last refusal went because the app
+// came back. A fixed 1.5 s from the return failed on a slow machine.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_registration_waiting_when_the_app_leaves_goes_out_when_it_is_back() {
+    const OWN_RETRY_AFTER_THREE: Duration = Duration::from_secs(8);
     let (fake, _alice, bob) = two_phones().await;
-    until("bob registered", || async { fake.with(|inner| inner.registrations.iter().any(|(who, _)| *who == bob.id())) }).await;
-    let tries = fake.with(|inner| {
-        inner.refusing = true;
-        inner.register_tries
-    });
+    let refused = |inner: &Inner| inner.refused.iter().filter(|(who, _)| *who == bob.id()).map(|(_, at)| *at).collect::<Vec<_>>();
+    until("bob registered", || async { fake.with(|inner| inner.registrations.iter().any(|(who, _, _)| *who == bob.id())) }).await;
+    fake.with(|inner| inner.refusing = true);
     bob.core().open_session("482915").await.unwrap().expect("a session");
-    // Three tries failed: the next waits several seconds more (the phone backs off).
-    until("three tries failed", || async { fake.with(|inner| inner.register_tries) >= tries + 3 }).await;
+    // Three of bob's tries failed: the next waits several seconds more (the phone backs off).
+    until("three tries failed", || async { fake.with(|inner| refused(inner).len()) >= 3 }).await;
     bob.online.set_foreground(false).await;
-    fake.with(|inner| inner.refusing = false);
+    let (last_refused, before) = fake.with(|inner| {
+        inner.refusing = false;
+        (*refused(inner).last().expect("refused"), inner.registrations.len())
+    });
 
     let back = Instant::now();
     bob.online.set_foreground(true).await;
     let wanted = bob.core().silent_slots().await.unwrap();
-    until_within("the waiting registration went out", Duration::from_millis(1_500), || async {
-        fake.with(|inner| inner.registrations.last().is_some_and(|(who, silent)| *who == bob.id() && *silent == wanted & !1))
-    })
-    .await;
-    eprintln!("registered {:?} after coming back", back.elapsed());
+    let went = |inner: &Inner| {
+        inner.registrations[before..].iter().find(|(who, silent, _)| *who == bob.id() && *silent == wanted & !1).map(|(_, _, at)| *at)
+    };
+    until("the waiting registration went out", || async { fake.with(|inner| went(inner).is_some()) }).await;
+    let went_at = fake.with(|inner| went(inner)).expect("it went");
+    eprintln!("registered {:?} after coming back", went_at.saturating_duration_since(back));
+    assert!(
+        went_at.duration_since(last_refused) < OWN_RETRY_AFTER_THREE,
+        "it went {:?} after the last refusal: on the phone's own timer, not because the app came back",
+        went_at.duration_since(last_refused)
+    );
 }
 
 // Leaving twice or coming back twice changes nothing more than once: one socket when back.
