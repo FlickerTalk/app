@@ -3790,6 +3790,20 @@ mod tests {
         assert!(total <= SEEDS_LIMIT, "the seeds weigh {total} bytes, which is no longer little");
     }
 
+    /// app#76: a carried plugin that hands its result to the chat (`ft.send`, `ft.say`) has to ask
+    /// for `send`; without it the core refuses the call and the plugin's main action does nothing.
+    #[test]
+    fn a_seed_that_writes_in_the_chat_asks_for_it() {
+        for package in BUNDLED_PLUGINS {
+            let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is signed for us");
+            let code = String::from_utf8_lossy(plugin.file("dist/index.js").unwrap_or_default());
+            let writes = ["ft.send(", "ft?.send(", "ft.say(", "ft?.say("].iter().any(|call| code.contains(call));
+            if writes {
+                assert_ne!(plugin.manifest.permissions.send, ft_plugins::Sending::Nothing, "{} writes in the chat without asking", plugin.manifest.id);
+            }
+        }
+    }
+
     /// 2026-10-03 (Ioan): the three games travel inside the app like the tools, so an iPhone,
     /// which downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
     #[test]
