@@ -25,10 +25,11 @@
              (src/viewport.ts); a pan took the whole app, header included, up out of the screen.
              A change of language never recreates the activity (app#82, 2026-10-03): Android flags
              locale and layoutDirection together, and a recreated activity got a new WebView while
-             the plugins kept the old one alive. The page follows the language in place (i18n.ts). -->
+             the plugins kept the old one alive. The page follows the language in place (i18n.ts).
+             Nor does a change of font size, display size or bold text (app#92, 2026-10-03). -->
         <activity
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|smallestScreenSize|screenLayout|uiMode"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|smallestScreenSize|screenLayout|uiMode|fontScale|density|fontWeightAdjustment"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
             android:name=".MainActivity"
