@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { IonAlert } from "@ionic/vue";
 import AddContactPage from "./AddContactPage.vue";
 import QrCode from "../components/QrCode.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
@@ -104,6 +105,59 @@ describe("AddContactPage", () => {
     await wrapper.find("[data-test='add']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_add_contact", { link: "https://flickertalk.com/add#theirs", session: "s1" }]);
+  });
+
+  // app#78 (Samsung, 2026-10-03): adding the link of someone blocked kept them blocked and opened a
+  // chat where nothing could be sent. Now it says they are blocked and offers to unblock them.
+  describe("with the link of a contact who is blocked", () => {
+    beforeEach(() => {
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        if (command === "core_card") return "https://flickertalk.com/add#card";
+        if (command === "core_add_contact") return "ft_eve";
+        if (command === "core_conversations") return [{ id: "ft_eve", name: "Eve", connected: false, unread: 0, blocked: true }];
+        return undefined;
+      });
+    });
+
+    async function addEve() {
+      const wrapper = mount(AddContactPage, { shallow: true });
+      await wrapper.find("[data-test='mode-scan']").trigger("click");
+      await wrapper.find("[data-test='paste']").setValue("https://flickertalk.com/add#eve");
+      await wrapper.find("[data-test='add']").trigger("click");
+      await flushPromises();
+      return wrapper;
+    }
+
+    type Button = { text: string; role?: string; handler?: () => unknown };
+    const buttonsOf = (wrapper: Awaited<ReturnType<typeof addEve>>) => wrapper.findComponent(IonAlert).props("buttons") as Button[];
+
+    it("says the contact is blocked instead of opening the chat", async () => {
+      const wrapper = await addEve();
+      const alert = wrapper.findComponent(IonAlert);
+      expect(alert.props("isOpen")).toBe(true);
+      expect(alert.props("header")).toBe("You blocked this contact");
+      expect(replace).not.toHaveBeenCalled();
+      expect(buttonsOf(wrapper).map((button) => button.text)).toEqual(["Cancel", "Unblock"]);
+    });
+
+    it("unblocks them and opens the chat when asked", async () => {
+      const wrapper = await addEve();
+      buttonsOf(wrapper).find((button) => button.text === "Unblock")!.handler!();
+      await flushPromises();
+      expect(calls).toContainEqual(["core_block", { contact: "ft_eve", blocked: false }]);
+      expect(replace).toHaveBeenCalledWith("/chat/ft_eve");
+    });
+
+    it("leaves them blocked and stays here on cancel", async () => {
+      const wrapper = await addEve();
+      expect(buttonsOf(wrapper).find((button) => button.text === "Cancel")!.role).toBe("cancel");
+      await wrapper.findComponent(IonAlert).vm.$emit("didDismiss");
+      await flushPromises();
+      expect(wrapper.findComponent(IonAlert).props("isOpen")).toBe(false);
+      expect(calls.some(([command]) => command === "core_block")).toBe(false);
+      expect(replace).not.toHaveBeenCalled();
+    });
   });
 
   // app#9: from a session, the QR is the session's own card, so whoever scans it lands there.

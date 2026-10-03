@@ -636,6 +636,31 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
   });
 
+  // app#78 (Samsung, 2026-10-03): with a blocked contact, a message waited forever and nothing said
+  // why. The composer gives way to a notice and a way to unblock them.
+  describe("with a contact who is blocked", () => {
+    beforeEach(() => {
+      store.chats[0].blocked = true;
+    });
+
+    it("shows a notice and Unblock instead of the composer", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      const panel = wrapper.find("[data-test='blocked-panel']");
+      expect(panel.exists()).toBe(true);
+      expect(panel.text()).toContain("You blocked this contact");
+      expect(wrapper.findComponent(IonTextarea).exists()).toBe(false);
+    });
+
+    it("unblocks them from the notice", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await wrapper.find("[data-test='unblock']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_block", { contact: "c1", blocked: false }]);
+    });
+  });
+
   // A5, as WhatsApp does it (2026-09-28): a stranger who wrote first is answered from the
   // conversation, where the yes and the no stand apart and blocking asks once; not from the list.
   describe("with someone who wrote first", () => {
