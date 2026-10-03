@@ -1205,13 +1205,13 @@ fun shareableText(text: String): String? = text.trim().ifEmpty { null }
 /** androidx's dark scrim, behind light navigation icons that cannot turn dark (before Android 8). */
 val NAVIGATION_SCRIM: Int = 0x801B1B1B.toInt()
 
-/** How the system bars look over the app: dark icons or light, and the navigation bar's colour. */
 /**
  * The WebView text zoom (percent) for a font scale (app#92). A WebView takes it from the font
  * scale only when it is created, and the activity is no longer recreated for a new one.
  */
 fun textZoomFor(fontScale: Float): Int = (fontScale * 100).roundToInt()
 
+/** How the system bars look over the app: dark icons or light, and the navigation bar's colour. */
 data class SystemBarsLook(val darkIcons: Boolean, val navigationBarColor: Int)
 
 /**
