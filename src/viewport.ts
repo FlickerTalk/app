@@ -114,13 +114,13 @@ export type Scrollable = {
  * element that holds its messages, `followEnd` too.
  */
 export function useStickToEnd(content: Ref<Scrollable | null>, list?: Ref<HTMLElement | null>): void {
-  let scroller: HTMLElement | null = null;
+  let scroller: ScrollMetrics | null = null;
   let unfollow: (() => void) | null = null;
   let gone = false;
   const unstick = stickToEnd(() => scroller);
   onMounted(async () => {
     scroller = (await content.value?.$el?.getScrollElement?.()) ?? null;
-    if (!gone && scroller && list?.value && typeof ResizeObserver !== "undefined") unfollow = followEnd(scroller, list.value);
+    if (!gone && scroller instanceof HTMLElement && list?.value && typeof ResizeObserver !== "undefined") unfollow = followEnd(scroller, list.value);
   });
   onUnmounted(() => {
     gone = true;
