@@ -12,6 +12,7 @@ import {
   onIonViewWillLeave,
 } from "@ionic/vue";
 import { useRoute, useRouter } from "vue-router";
+import { closeOnBackWhile } from "../back";
 import PluginSheet from "../components/PluginSheet.vue";
 import { installed, pluginName, refreshPlugins } from "../plugins";
 
@@ -39,24 +40,35 @@ onMounted(async () => {
 // after that, the plugin is opened afresh (`opening`, a frame of its own).
 const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
 const opening = ref(0);
-let here = false;
+const here = ref(false);
 let saidGoodbye = false;
 onIonViewWillEnter(() => {
-  here = true;
+  here.value = true;
   if (saidGoodbye) reopen();
 });
 onIonViewWillLeave(() => {
-  here = false;
+  here.value = false;
   void sheet.value?.close();
 });
 function closed() {
-  if (here) reopen();
+  if (here.value) reopen();
   else saidGoodbye = true;
 }
 function reopen() {
   saidGoodbye = false;
   opening.value += 1;
 }
+
+// Android's back button (issue #61, 2026-10-03): left to the system, Back follows the WebView's
+// history, and Android's WebView skips the entries added without a touch on the page (a reminder
+// tapped in the notifications opens this page that way). With nothing left to go back to, Android
+// put the app away, still on the plugin. While the page is on screen the app takes the button and
+// goes where the back arrow goes: back, or to Settings with nothing behind.
+function leave() {
+  if (window.history.state?.back) router.back();
+  else void router.replace("/tabs/settings");
+}
+closeOnBackWhile(() => here.value, leave);
 </script>
 
 <template>
