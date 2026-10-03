@@ -82,7 +82,10 @@ onMounted(async () => {
 });
 
 async function saveName() {
-  if (name.value.trim()) await renameContact(id, name.value);
+  if (!name.value.trim()) return;
+  await renameContact(id, name.value);
+  // The saved name is what Save compares with from now on (app#77).
+  if (details.value) details.value.name = name.value.trim();
 }
 
 async function chooseHistory(seconds: number) {

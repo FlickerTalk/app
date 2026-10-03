@@ -611,6 +611,15 @@ async fn with_every_slot_taken_a_new_pin_opens_nothing() {
 // A4 · Files: small ones come alone, big ones wait for the user, absurd ones are refused.
 // ---------------------------------------------------------------------------------------------
 
+// app#74: the screen offers decimal sizes (10 MB, 100 MB, 1 GB), so the limit a phone starts with
+// is the decimal 10 MB it reads, not 10 × 1024² bytes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_phone_downloads_files_up_to_10_mb_on_their_own() {
+    let net = Net::new();
+    let bob = device(&net, "Bob").await;
+    assert_eq!(bob.auto_download_limit().await.expect("reads"), 10_000_000);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_big_file_waits_for_the_user_and_a_small_one_does_not() {
     let net = Net::new();

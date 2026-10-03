@@ -189,13 +189,14 @@ describe("SettingsPage", () => {
   it("lets the user choose up to what size files download on their own", async () => {
     const wrapper = mount(SettingsPage, { shallow: true });
     const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Auto-download files");
-    expect(select?.attributes("value")).toBe(String(10 * 1024 * 1024));
+    // A limit saved as 10 × 1024² bytes (the core's old default) shows as the round choice (app#74).
+    expect(select?.attributes("value")).toBe(String(10_000_000));
     expect(select?.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual([
       "Always ask",
       // A no-break space keeps the number with its unit when the value wraps ("Bis 10 / MB").
       "Up to 10\u00a0MB",
-      "Up to 105\u00a0MB",
-      "Up to 1.1\u00a0GB",
+      "Up to 100\u00a0MB",
+      "Up to 1\u00a0GB",
       "Always",
     ]);
     select?.vm.$emit("ionChange", { detail: { value: 0 } });

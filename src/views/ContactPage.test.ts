@@ -63,6 +63,21 @@ describe("ContactPage", () => {
     expect(calls).toContainEqual(["core_rename", { contact: "c1", name: "Maria" }]);
   });
 
+  // app#77: once saved, the new name is what Save compares with, so going back is possible.
+  it("lets the user go back to the previous name after saving a new one", async () => {
+    const wrapper = mount(ContactPage, { shallow: true });
+    await flushPromises();
+    const name = wrapper.find("[data-test='name']");
+    const save = () => wrapper.find<HTMLButtonElement>("[data-test='save-name']").element;
+    const loaded = (name.element as HTMLInputElement).value;
+    await name.setValue("Maria");
+    save().click();
+    await flushPromises();
+    expect(save().disabled).toBe(true);
+    await name.setValue(loaded);
+    expect(save().disabled).toBe(false);
+  });
+
   it("sets how long the history lasts and when read messages burn", async () => {
     const wrapper = mount(ContactPage, { shallow: true });
     await flushPromises();

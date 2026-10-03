@@ -21,6 +21,7 @@ test("the size files download on their own is chosen in settings", async ({ app 
   await app.goto("/tabs/settings");
   const select = app.getByTestId("auto-download");
   await expect(select).toBeVisible();
-  await expect(select).toHaveJSProperty("value", 10 * 1024 * 1024);
+  // A limit saved as 10 × 1024² bytes (the core's old default) shows as the round choice (app#74).
+  await expect(select).toHaveJSProperty("value", 10_000_000);
   await expect(select).toContainText("Up to 10 MB");
 });

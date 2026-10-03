@@ -6,6 +6,7 @@ import { reactive } from "vue";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { i18n } from "./i18n";
 
 export type Status = "unsent" | "pending" | "sent" | "delivered" | "read";
 
@@ -256,7 +257,10 @@ export function clock(ms: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Sizes as people read them: 512 B, 1.5 KB, 48 MB. */
+/**
+ * Sizes as people read them, in decimal units and in the number format of the app's language:
+ * 512 B, 1.5 KB, 48 MB ("1,5 KB" in Spanish).
+ */
 export function formatSize(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
@@ -265,7 +269,8 @@ export function formatSize(bytes: number): string {
     value /= 1000;
     unit += 1;
   }
-  const shown = unit === 0 || value >= 10 ? Math.round(value).toString() : value.toFixed(1).replace(/\.0$/, "");
+  const digits = unit === 0 || value >= 10 ? 0 : 1;
+  const shown = new Intl.NumberFormat(i18n.global.locale.value, { maximumFractionDigits: digits }).format(value);
   return `${shown} ${units[unit]}`;
 }
 
@@ -446,6 +451,20 @@ export async function resend(message: string): Promise<void> {
 /** The user asks for a file that was waiting for them (A4). */
 export async function acceptFile(message: string): Promise<void> {
   await invoke("core_accept_file", { message });
+}
+
+/** The download limits the user picks from: always ask, 10 MB, 100 MB, 1 GB, always (A4). */
+export const AUTO_DOWNLOAD_CHOICES = [0, 10_000_000, 100_000_000, 1_000_000_000, Number.MAX_SAFE_INTEGER] as const;
+
+/**
+ * The choice a saved limit stands for. Limits saved before the choices were decimal (10, 100 or
+ * 1024 × 1024² bytes) map to the nearest one, so the list still shows them (app#74).
+ */
+export function autoDownloadChoice(bytes: number): number {
+  if (AUTO_DOWNLOAD_CHOICES.includes(bytes as (typeof AUTO_DOWNLOAD_CHOICES)[number])) return bytes;
+  const sizes = AUTO_DOWNLOAD_CHOICES.slice(1, -1);
+  const distance = (size: number) => Math.abs(Math.log(bytes / size));
+  return sizes.reduce((best, size) => (distance(size) < distance(best) ? size : best));
 }
 
 /** Files up to this many bytes come on their own; 0 means always ask (A4). */
