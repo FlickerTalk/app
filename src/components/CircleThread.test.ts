@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flushPromises, mount } from "@vue/test-utils";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import CircleThread from "./CircleThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, seed } from "../__tests__/seed";
@@ -60,6 +60,9 @@ const contentWith = (scroller: { scrollHeight: number; clientHeight: number; scr
       return h("div", this.$slots.default?.());
     },
   });
+
+// Each thread goes when its test ends, as a page does: a stale one must not mark the next one read.
+enableAutoUnmount(afterEach);
 
 describe("CircleThread", () => {
   beforeEach(() => {
