@@ -5,6 +5,7 @@ import { callOutline, pauseCircleOutline, videocamOutline } from "ionicons/icons
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import CallBar from "./CallBar.vue";
+import source from "./CallBar.vue?raw";
 
 const push = vi.fn();
 const route = { path: "/tabs/chats" };
@@ -103,5 +104,14 @@ describe("CallBar", () => {
       Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: false, video: true });
       expect(icon()).toBe(videocamOutline);
     });
+  });
+
+  // Seen on the iPhone (QA, 2026-10-03): over the chat's header the pill cut the contact's name and
+  // status. On a phone it sits just below the header (the chat's bar is the tallest, 60 px); on a
+  // wide screen it stays in the header's empty middle.
+  it("sits below the header on a phone, and in it on a wide screen", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    expect(styles).toMatch(/\.ft-callbar\s*{[^}]*top:\s*calc\(env\(safe-area-inset-top\) \+ 6px\)/);
+    expect(styles).toMatch(/@media \(max-width: 767px\)\s*{\s*\.ft-callbar\s*{[^}]*top:\s*calc\(env\(safe-area-inset-top\) \+ 60px \+ var\(--ft-space-2\)\)/);
   });
 });

@@ -88,6 +88,14 @@ function back() {
   color: #fff;
   box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
 }
+/* On a phone the header has no empty middle: over it, the pill cut the contact's name and status
+   (QA on the iPhone, 2026-10-03). Just below it instead; the chat's bar (ChatThread) is the
+   tallest, 60 px. Wide screens keep it in the header, as above. */
+@media (max-width: 767px) {
+  .ft-callbar {
+    top: calc(env(safe-area-inset-top) + 60px + var(--ft-space-2));
+  }
+}
 .ft-callbar__back {
   appearance: none;
   display: flex;
