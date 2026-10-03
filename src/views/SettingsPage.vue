@@ -48,7 +48,7 @@ import {
 import Avatar from "../components/Avatar.vue";
 import FeedbackModal from "../components/FeedbackModal.vue";
 import { closeOnBackWhile } from "../back";
-import { daysLeft, erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
+import { AUTO_DOWNLOAD_CHOICES, autoDownloadChoice, daysLeft, erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
 import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -125,8 +125,6 @@ const direction = ref(storedDirection());
 const asksToErase = ref(false);
 
 // A4: up to what size a file comes on its own; 0 asks every time, the last choice never asks.
-const MB = 1024 * 1024;
-const AUTO_DOWNLOAD_CHOICES = [0, 10 * MB, 100 * MB, 1024 * MB, Number.MAX_SAFE_INTEGER] as const;
 // The size keeps its number and unit together (a no-break space) when the row's value wraps.
 const autoDownloadLabel = (bytes: number) =>
   bytes === 0
@@ -256,7 +254,7 @@ function chooseAppearance(id: Appearance) {
           <ion-item lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="cloudDownloadOutline" aria-hidden="true" /></span>
             <ion-select
-              :value="store.me.autoDownload"
+              :value="autoDownloadChoice(store.me.autoDownload)"
               data-test="auto-download"
               :aria-label="$t('settings.autoDownload')"
               interface="action-sheet"
