@@ -369,7 +369,12 @@
       "joined": "{who} เพิ่ม {what}",
       "left": "{what} ออกจากแวดวงแล้ว",
       "removed": "{who} นำ {what} ออกจากแวดวง",
-      "renamed": "{who} เปลี่ยนชื่อแวดวงเป็น “{what}”"
+      "renamed": "{who} เปลี่ยนชื่อแวดวงเป็น “{what}”",
+      "createdByMe": "คุณสร้างแวดวง “{what}”",
+      "joinedByMe": "คุณเพิ่ม {what}",
+      "leftByMe": "คุณออกจากแวดวงแล้ว",
+      "removedByMe": "คุณนำ {what} ออกจากแวดวง",
+      "renamedByMe": "คุณเปลี่ยนชื่อแวดวงเป็น “{what}”"
     }
   },
   "backup": {

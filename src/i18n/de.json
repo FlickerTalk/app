@@ -369,7 +369,12 @@
       "joined": "{who} hat {what} hinzugefügt",
       "left": "{what} hat den Kreis verlassen",
       "removed": "{who} hat {what} entfernt",
-      "renamed": "{who} hat den Kreis in „{what}“ umbenannt"
+      "renamed": "{who} hat den Kreis in „{what}“ umbenannt",
+      "createdByMe": "Du hast den Kreis „{what}“ erstellt",
+      "joinedByMe": "Du hast {what} hinzugefügt",
+      "leftByMe": "Du hast den Kreis verlassen",
+      "removedByMe": "Du hast {what} entfernt",
+      "renamedByMe": "Du hast den Kreis in „{what}“ umbenannt"
     }
   },
   "backup": {

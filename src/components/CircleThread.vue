@@ -6,6 +6,7 @@ import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import MessageBubble from "./MessageBubble.vue";
+import { closeOnBackWhile } from "../back";
 import { circle as circleOf, loadCircleMessages, markCircleRead, sendCircleText, type CircleMessage } from "../core";
 import { t } from "../i18n";
 import { useStickToEnd, type Scrollable } from "../viewport";
@@ -13,7 +14,14 @@ import { useStickToEnd, type Scrollable } from "../viewport";
 // A circle's conversation (2026-09-27): like a chat, with who said what over each bubble that is
 // not ours, and what happened (who joined, who left) as a line between them. Texts only: files
 // and calls in a circle are not in this version.
-const props = withDefaults(defineProps<{ circleId: string; showBack?: boolean }>(), { showBack: false });
+/**
+ * `active`: whether the page holding the circle is the one on screen. Ionic keeps a page mounted
+ * under the next one; what it left open must not take Android's back button there.
+ */
+const props = withDefaults(defineProps<{ circleId: string; showBack?: boolean; active?: boolean }>(), {
+  showBack: false,
+  active: true,
+});
 
 const router = useRouter();
 const circle = computed(() => circleOf(props.circleId));
@@ -23,6 +31,9 @@ const emoji = ref(false);
 
 /** Whether this phone may write here now. */
 const mayWrite = computed(() => !!circle.value && !circle.value.left && (!circle.value.adminsOnly || circle.value.admin));
+
+// Android's back button closes the emoji while they are open, and only that (app#80), as in a chat.
+closeOnBackWhile(() => props.active && emoji.value && mayWrite.value, () => (emoji.value = false));
 
 /**
  * Whether the app is in front (architecture#21): Android keeps the page mounted behind the home
@@ -48,10 +59,13 @@ async function send() {
   await sendCircleText(props.circleId, text);
 }
 
-/** What happened, as a sentence: who did it, and to whom or what. */
+/**
+ * What happened, as a sentence: who did it, and to whom or what. What I did has its own sentence
+ * in the first person (app#79): "you" as the subject of another's sentence only reads in English.
+ */
 function eventText(message: CircleMessage): string {
-  const who = message.mine ? t("circle.you") : message.senderName;
-  return t(`circle.events.${message.kind}`, { who, what: message.text });
+  if (message.mine) return t(`circle.events.${message.kind}ByMe`, { what: message.text });
+  return t(`circle.events.${message.kind}`, { who: message.senderName, what: message.text });
 }
 
 const content = ref<Scrollable | null>(null);

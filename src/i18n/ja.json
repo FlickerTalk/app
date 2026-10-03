@@ -369,7 +369,12 @@
       "joined": "{who}が{what}を追加しました",
       "left": "{what}が退出しました",
       "removed": "{who}が{what}をサークルから外しました",
-      "renamed": "{who}がサークル名を「{what}」に変更しました"
+      "renamed": "{who}がサークル名を「{what}」に変更しました",
+      "createdByMe": "サークル「{what}」を作成しました",
+      "joinedByMe": "{what}を追加しました",
+      "leftByMe": "サークルから退出しました",
+      "removedByMe": "{what}をサークルから外しました",
+      "renamedByMe": "サークル名を「{what}」に変更しました"
     }
   },
   "backup": {

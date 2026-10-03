@@ -369,7 +369,12 @@
       "joined": "{who} ने {what} को जोड़ा",
       "left": "{what} ने सर्कल छोड़ दिया",
       "removed": "{who} ने {what} को हटाया",
-      "renamed": "{who} ने सर्कल का नाम बदलकर “{what}” किया"
+      "renamed": "{who} ने सर्कल का नाम बदलकर “{what}” किया",
+      "createdByMe": "आपने सर्कल “{what}” बनाया",
+      "joinedByMe": "आपने {what} को जोड़ा",
+      "leftByMe": "आपने सर्कल छोड़ दिया",
+      "removedByMe": "आपने {what} को हटाया",
+      "renamedByMe": "आपने सर्कल का नाम बदलकर “{what}” किया"
     }
   },
   "backup": {

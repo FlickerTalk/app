@@ -369,7 +369,12 @@
       "joined": "{who}: dodano osobę {what}",
       "left": "{what} nie jest już w kręgu",
       "removed": "{who}: usunięto osobę {what}",
-      "renamed": "{who}: zmieniono nazwę kręgu na „{what}”"
+      "renamed": "{who}: zmieniono nazwę kręgu na „{what}”",
+      "createdByMe": "Ty: utworzono krąg „{what}”",
+      "joinedByMe": "Ty: dodano osobę {what}",
+      "leftByMe": "Nie jesteś już w kręgu",
+      "removedByMe": "Ty: usunięto osobę {what}",
+      "renamedByMe": "Ty: zmieniono nazwę kręgu na „{what}”"
     }
   },
   "backup": {

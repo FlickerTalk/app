@@ -369,7 +369,12 @@
       "joined": "{who} a adăugat în cerc: {what}",
       "left": "{what} a ieșit din cerc",
       "removed": "{who} a scos din cerc: {what}",
-      "renamed": "{who} a schimbat numele cercului în „{what}”"
+      "renamed": "{who} a schimbat numele cercului în „{what}”",
+      "createdByMe": "Ai creat cercul „{what}”",
+      "joinedByMe": "Ai adăugat în cerc: {what}",
+      "leftByMe": "Ai ieșit din cerc",
+      "removedByMe": "Ai scos din cerc: {what}",
+      "renamedByMe": "Ai schimbat numele cercului în „{what}”"
     }
   },
   "backup": {

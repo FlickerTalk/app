@@ -369,7 +369,12 @@
       "joined": "{who}: додано учасника {what}",
       "left": "{what} більше не в колі",
       "removed": "{who}: вилучено учасника {what}",
-      "renamed": "{who}: коло перейменовано на «{what}»"
+      "renamed": "{who}: коло перейменовано на «{what}»",
+      "createdByMe": "Ви створили коло «{what}»",
+      "joinedByMe": "Ви додали учасника {what}",
+      "leftByMe": "Ви вийшли з кола",
+      "removedByMe": "Ви вилучили учасника {what}",
+      "renamedByMe": "Ви перейменували коло на «{what}»"
     }
   },
   "backup": {

@@ -369,7 +369,12 @@
       "joined": "{who} adicionou {what}",
       "left": "{what} saiu",
       "removed": "{who} tirou {what}",
-      "renamed": "{who} mudou o nome do círculo para «{what}»"
+      "renamed": "{who} mudou o nome do círculo para «{what}»",
+      "createdByMe": "Você criou o círculo «{what}»",
+      "joinedByMe": "Você adicionou {what}",
+      "leftByMe": "Você saiu do círculo",
+      "removedByMe": "Você tirou {what}",
+      "renamedByMe": "Você mudou o nome do círculo para «{what}»"
     }
   },
   "backup": {

@@ -2,13 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import CircleThread from "./CircleThread.vue";
 import MessageBubble from "./MessageBubble.vue";
+import EmojiPicker from "./EmojiPicker.vue";
 import { calls, seed } from "../__tests__/seed";
 import { store, type Circle } from "../core";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
+import { setLocale } from "../i18n";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
+// Android's back button: the handler the app listens with while something is open on top.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void), listener: null as null | object }));
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: async (handler: () => void) => {
+    const listener = {};
+    back.handler = handler;
+    back.listener = listener;
+    return { unregister: async () => void (back.listener === listener && ((back.handler = null), (back.listener = null))) };
+  },
+}));
 
 function friends(overrides: Partial<Circle> = {}): Circle {
   return {
@@ -89,6 +101,38 @@ describe("CircleThread", () => {
     expect(wrapper.text()).toContain("Members: 3");
   });
 
+  // Found on the phones (2026-10-03, app#79): "Tú creó el círculo" in Spanish. What I did is told
+  // in the first person, with its own sentence in each language, never "you" as a third person.
+  it("tells what I did in the first person, in the phone's language", async () => {
+    const me = { mine: true, time: "10:00", sender: "ft_me", senderName: "Me" };
+    store.circles = [
+      friends({
+        messages: [
+          { ...me, id: "e1", text: "Friends", kind: "created" },
+          { ...me, id: "e2", text: "Friends B", kind: "renamed" },
+          { ...me, id: "e3", text: "Dave", kind: "joined" },
+          { ...me, id: "e4", text: "Carol", kind: "removed" },
+          { ...me, id: "e5", text: "Me", kind: "left" },
+          { id: "e6", mine: false, text: "Friends C", time: "10:05", kind: "renamed", sender: "ft_bob", senderName: "Bob" },
+        ],
+      }),
+    ];
+    await setLocale("es");
+    try {
+      const wrapper = mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
+      expect(wrapper.findAll("[data-test='circle-event']").map((line) => line.text())).toEqual([
+        "Creaste el círculo «Friends»",
+        "Cambiaste el nombre del círculo a «Friends B»",
+        "Añadiste a Dave",
+        "Sacaste a Carol",
+        "Saliste del círculo",
+        "Bob cambió el nombre del círculo a «Friends C»",
+      ]);
+    } finally {
+      await setLocale("en");
+    }
+  });
+
   it("loads the circle's messages from the core and marks them read", async () => {
     mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
     await flushPromises();
@@ -166,6 +210,42 @@ describe("CircleThread", () => {
     const wrapper = mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
     expect(wrapper.find("[data-test='circle-left']").text()).toBe("You are no longer in this circle");
     expect(wrapper.find("[data-test='circle-send']").exists()).toBe(false);
+  });
+
+  // Found on the phones (2026-10-03, app#80): Back did nothing with the emoji open, as in a chat it
+  // closes them. It closes the panel, and only that: the circle stays on screen.
+  it("closes the emoji with the back button, and stays in the circle", async () => {
+    const wrapper = mount(CircleThread, { props: { circleId: "circle1" }, shallow: true });
+    await flushPromises();
+    expect(back.handler).toBeNull();
+
+    await wrapper.find("[data-test='open-emoji']").trigger("click");
+    await flushPromises();
+    expect(wrapper.findComponent(EmojiPicker).exists()).toBe(true);
+    expect(back.handler).not.toBeNull();
+
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent(EmojiPicker).exists()).toBe(false);
+    expect(back.handler).toBeNull();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  // Ionic keeps the circle mounted under its settings: the emoji it left open must not take Back
+  // there, and take it again when the circle is back on screen.
+  it("lets go of the back button while the circle is not on screen", async () => {
+    const wrapper = mount(CircleThread, { props: { circleId: "circle1", active: true }, shallow: true });
+    await wrapper.find("[data-test='open-emoji']").trigger("click");
+    await flushPromises();
+    expect(back.handler).not.toBeNull();
+
+    await wrapper.setProps({ active: false });
+    await flushPromises();
+    expect(back.handler).toBeNull();
+
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+    expect(back.handler).not.toBeNull();
   });
 
   // The keyboard shrinks the conversation: the last message stays in sight above the composer.

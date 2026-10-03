@@ -369,7 +369,12 @@
       "joined": "{who} đã thêm {what}",
       "left": "{what} đã rời đi",
       "removed": "{who} đã xóa {what} khỏi vòng kết nối",
-      "renamed": "{who} đã đổi tên vòng kết nối thành “{what}”"
+      "renamed": "{who} đã đổi tên vòng kết nối thành “{what}”",
+      "createdByMe": "Bạn đã tạo vòng kết nối “{what}”",
+      "joinedByMe": "Bạn đã thêm {what}",
+      "leftByMe": "Bạn đã rời vòng kết nối",
+      "removedByMe": "Bạn đã xóa {what} khỏi vòng kết nối",
+      "renamedByMe": "Bạn đã đổi tên vòng kết nối thành “{what}”"
     }
   },
   "backup": {

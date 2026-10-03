@@ -440,7 +440,7 @@ const STATUS_ICON: Record<string, string> = {
       </section>
 
       <section v-if="wide && selectedCircle" class="ft-chats__detail">
-        <CircleThread :circle-id="selectedCircle" />
+        <CircleThread :circle-id="selectedCircle" :active="onScreen" />
       </section>
       <section v-else-if="wide && selectedId" class="ft-chats__detail">
         <ChatThread :chat-id="selectedId" split :active="onScreen" />

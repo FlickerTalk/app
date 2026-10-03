@@ -369,7 +369,12 @@
       "joined": "{who} menambahkan {what}",
       "left": "{what} keluar",
       "removed": "{who} mengeluarkan {what}",
-      "renamed": "{who} mengubah nama lingkaran menjadi “{what}”"
+      "renamed": "{who} mengubah nama lingkaran menjadi “{what}”",
+      "createdByMe": "Anda membuat lingkaran “{what}”",
+      "joinedByMe": "Anda menambahkan {what}",
+      "leftByMe": "Anda keluar dari lingkaran",
+      "removedByMe": "Anda mengeluarkan {what}",
+      "renamedByMe": "Anda mengubah nama lingkaran menjadi “{what}”"
     }
   },
   "backup": {
