@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonIcon, IonList, IonToggle } from "@ionic/vue";
+import { IonIcon, IonList, IonNote, IonToggle } from "@ionic/vue";
 import { addCircleOutline, downloadOutline } from "ionicons/icons";
 import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
@@ -176,6 +176,9 @@ describe("PluginsPage", () => {
     await wrapper.find("[data-test='install-com.flickertalk.ocr']").trigger("click");
     await flushPromises();
     expect(wrapper.find("[role='alert']").text()).toBe("The tool could not be installed. Check your connection and try again.");
+    // An Ionic note in the palette's danger colour, not a hand-made paragraph.
+    const note = wrapper.findAllComponents(IonNote).find((one) => one.attributes("role") === "alert");
+    expect(note?.props("color")).toBe("danger");
     // The tool is still offered, so the user can try again once the network is back.
     expect(wrapper.find("[data-test='install-com.flickertalk.ocr']").attributes("disabled")).toBeUndefined();
   });

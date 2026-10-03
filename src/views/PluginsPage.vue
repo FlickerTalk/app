@@ -159,7 +159,7 @@ async function remove(id: string) {
            from the catalogue (§56). -->
       <template v-if="offered.length">
         <h2 class="ft-plugins__title">{{ $t("plugins.available") }}</h2>
-        <p v-if="installFailed" class="ft-plugins__error" role="alert">{{ $t("plugins.installFailed") }}</p>
+        <ion-note v-if="installFailed" color="danger" class="ft-plugins__error" role="alert">{{ $t("plugins.installFailed") }}</ion-note>
         <ion-list inset class="ft-group">
           <ion-item v-for="one in offered" :key="one.id" lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
@@ -205,9 +205,8 @@ async function remove(id: string) {
   color: var(--ft-muted);
 }
 .ft-plugins__error {
+  display: block;
   margin: var(--ft-space-2) var(--ft-space-4) 0;
-  color: var(--ion-color-danger);
-  font-size: 14px;
 }
 .ft-plugins__install {
   appearance: none;
