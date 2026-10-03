@@ -1,19 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { initials as initialsOf } from "../initials";
 
 const props = withDefaults(
   defineProps<{ name: string; hue: number; size?: number; connected?: boolean }>(),
   { size: 48, connected: false },
 );
 
-const initials = computed(() =>
-  props.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join(""),
-);
+const initials = computed(() => initialsOf(props.name));
 
 const style = computed(() => ({
   width: `${props.size}px`,
