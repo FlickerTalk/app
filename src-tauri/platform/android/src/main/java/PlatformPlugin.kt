@@ -86,6 +86,7 @@ import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The plugin's own FileProvider class: the app already declares `androidx.core.content.FileProvider`
@@ -151,9 +152,16 @@ fun keepOpenSlots(context: Context, slots: Set<Int>) {
     context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(OPEN_SLOTS, keptSlots(slots)).commit()
 }
 
-/** Whether to show the system prompt for notifications: Android 13 and up, while not granted. */
+/**
+ * Whether to show the system prompt for notifications: Android 13 and up, while not granted, and
+ * at most once per process start (app#70). Closing the prompt makes the page visible again, which
+ * hands the push token over once more; that must not ask again, nor must every return to the
+ * screen after a refusal. Process-wide, so a recreated activity does not ask again either.
+ */
 class NotificationPrompt {
-    fun shouldAsk(sdk: Int, granted: Boolean): Boolean = sdk >= 33 && !granted
+    private val asked = AtomicBoolean(false)
+
+    fun shouldAsk(sdk: Int, granted: Boolean): Boolean = sdk >= 33 && !granted && asked.compareAndSet(false, true)
 
     companion object {
         val process = NotificationPrompt()
