@@ -205,7 +205,9 @@ test.describe("on a phone", () => {
     expect(await frame.evaluate(() => (window as unknown as { mark?: string }).mark)).toBe("still me");
 
     const callBar = await box(app.getByTestId("call-bar"));
-    for (const control of [app.getByTestId("close-game"), app.getByTestId("game-invite"), app.getByTestId("game-bar")]) {
+    // On a phone the bar has its own band above the header (2026-10-03): the contact's name and
+    // status are not under it either.
+    for (const control of [app.getByTestId("peer"), app.getByTestId("close-game"), app.getByTestId("game-invite"), app.getByTestId("game-bar")]) {
       expect(overlap(callBar, await box(control))).toBe(false);
     }
     await laidOut(app, { width: 360, height: 740 });

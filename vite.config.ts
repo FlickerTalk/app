@@ -39,7 +39,7 @@ export default defineConfig(() => ({
     setupFiles: ["src/__tests__/setup.ts"],
     // The end-to-end specs are Playwright's (`npm run test:e2e`), not Vitest's.
     exclude: [...configDefaults.exclude, "e2e/**"],
-    // Theme tests read the design tokens as text.
-    css: { include: [/theme\/variables\.css/] },
+    // Theme tests read the design tokens, and the call bar's test its band, as text.
+    css: { include: [/theme\/variables\.css/, /theme\/base\.css/] },
   },
 }));

@@ -17,6 +17,15 @@ ion-app.ion-page {
 html.ft-keyboard-open {
   --ion-safe-area-bottom: 0px;
 }
+/* The call bar's band on a phone (2026-10-03, CallBar.vue): while the bar shows, the top inset is
+   44 px taller, so every header (and what pads by the inset) moves down under it. Over a header the
+   bar cut the contact's name; under it, it covered the game room's bar. Wide screens keep the bar
+   in the header's empty middle. */
+@media (max-width: 767px) {
+  html.ft-call-bar {
+    --ion-safe-area-top: calc(env(safe-area-inset-top) + 44px);
+  }
+}
 /* Android's navigation bar (2026-10-02, seen on the Samsung): the app is edge to edge and the bar
    is drawn over the WebView's bottom, as tall as the inset it reports. On Android the app ends
    above the bar, nothing of it is drawn below (`clip`), the strip under it is the page's

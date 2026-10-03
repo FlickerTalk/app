@@ -24,7 +24,8 @@ const icon = computed(() => {
   return video ? videocamOutline : callOutline;
 });
 
-// The call's clock, only while the bar is on the screen.
+// The call's clock, only while the bar is on the screen. On a phone the bar has its own band above
+// the headers while it shows (`ft-call-bar`, theme/base.css): over a header it cut what was there.
 const now = ref(Date.now());
 let ticking: ReturnType<typeof setInterval> | undefined;
 watch(
@@ -32,10 +33,14 @@ watch(
   (visible) => {
     clearInterval(ticking);
     if (visible) ticking = setInterval(() => (now.value = Date.now()), 1000);
+    document.documentElement.classList.toggle("ft-call-bar", visible);
   },
   { immediate: true },
 );
-onUnmounted(() => clearInterval(ticking));
+onUnmounted(() => {
+  clearInterval(ticking);
+  document.documentElement.classList.remove("ft-call-bar");
+});
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const clock = computed(() => {
@@ -89,11 +94,11 @@ function back() {
   box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
 }
 /* On a phone the header has no empty middle: over it, the pill cut the contact's name and status
-   (QA on the iPhone, 2026-10-03). Just below it instead; the chat's bar (ChatThread) is the
-   tallest, 60 px. Wide screens keep it in the header, as above. */
+   (QA on the iPhone, 2026-10-03). It sits in its own band above the headers instead (`ft-call-bar`
+   in theme/base.css). Wide screens keep it in the header, as above. */
 @media (max-width: 767px) {
   .ft-callbar {
-    top: calc(env(safe-area-inset-top) + 60px + var(--ft-space-2));
+    top: calc(env(safe-area-inset-top) + 4px);
   }
 }
 .ft-callbar__back {
