@@ -8,6 +8,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
+// Ionic's toasts are overlays of the real app; here, what the sheet asks of them.
+const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+vi.mock("@ionic/vue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@ionic/vue")>()),
+  toastController: { create: toast.create },
+}));
+
 import PluginSheet from "./PluginSheet.vue";
 import { setLocale } from "../i18n";
 import { CLOSING_WAIT } from "../plugins";
@@ -487,6 +494,37 @@ describe("PluginSheet", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_plugin_made", expect.anything());
     expect(wrapper.emitted("text")).toBeUndefined();
     expect(wrapper.emitted("attach")).toBeUndefined();
+  });
+
+  // app#76: refused for want of the permission, a plugin's main action used to do nothing at all.
+  // Now the user hears why, and where to allow it.
+  it("tells the user when a plugin may not write in the chat, and where to allow it", async () => {
+    toast.create.mockReset().mockResolvedValue({ present: toast.present });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { says } = framed(wrapper);
+
+    says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+    await flushPromises();
+    const message = "This tool may not write in the chat. Turn on “Write in the chat” for it in Settings → Plugins.";
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message }));
+    expect(toast.present).toHaveBeenCalled();
+
+    says({ type: "ft.text", text: "# Title" });
+    await flushPromises();
+    expect(toast.create).toHaveBeenCalledTimes(2);
+  });
+
+  // Opened from Settings there is no chat to write in: nothing to tell.
+  it("says nothing of the chat for a plugin opened outside a conversation", async () => {
+    toast.create.mockReset().mockResolvedValue({ present: toast.present });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
+    await flushPromises();
+    const { says } = framed(wrapper);
+
+    says({ type: "ft.text", text: "# Title" });
+    await flushPromises();
+    expect(toast.create).not.toHaveBeenCalled();
   });
 
   it("offers the text a plugin proposes, without sending it", async () => {
