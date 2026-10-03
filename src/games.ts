@@ -2,7 +2,8 @@
  * Games (plan 10, app 1.3.0): a game is a plugin the core marks `kind: "game"`, one package per
  * game in the signed catalogue, with the id `com.flickertalk.game.<name>`. Inviting someone is a
  * plain text with the game's page on our site, `https://flickertalk.com/games/<name>`: an older app
- * or an iPhone shows the link, this one turns it into a way to play (plan 10.6).
+ * shows the link, this one turns it into a way to play (plan 10.6). The app carries the three games
+ * (2026-10-03), so every phone has them, an iPhone included.
  */
 
 import type { PluginPermissions, PluginView } from "./core";
@@ -34,16 +35,6 @@ export function gameIdFromText(text: string): string | undefined {
 /** Whether a plugin is a game. A missing or unknown kind is a tool, as the core defaults it. */
 export function isGame(plugin: { kind?: "tool" | "game" }): boolean {
   return plugin.kind === "game";
-}
-
-/**
- * Whether this phone can have games: only where plugins are downloaded, which is not iOS (App
- * Store 4.7, §52; `downloads()` in the core). The core does not tell the WebView, so it is read
- * from the WebView itself: an iPhone says so, an iPad says it is a Mac but has a touch screen.
- */
-export function gamesAvailable(agent = navigator.userAgent, touch = navigator.maxTouchPoints ?? 0): boolean {
-  if (/iPhone|iPad|iPod/.test(agent)) return false;
-  return !(/Macintosh/.test(agent) && touch > 1);
 }
 
 /**

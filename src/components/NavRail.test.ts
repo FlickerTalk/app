@@ -29,12 +29,13 @@ describe("NavRail", () => {
     expect(push).toHaveBeenCalledWith("/tabs/games");
   });
 
-  // No downloads on iOS, so no games there (plan 10.3).
-  it("has no games entry on an iPhone", () => {
-    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)");
+  // 2026-10-03: the games travel inside the app, so an iPad has them too.
+  it("has the games entry on an iPad too", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)");
+    vi.spyOn(navigator, "maxTouchPoints", "get").mockReturnValue(5);
     const wrapper = mount(NavRail, { shallow: true });
     const labels = wrapper.findAll("button.ft-rail__item").map((button) => button.attributes("aria-label"));
-    expect(labels).toEqual(["Chats", "Calls", "Settings"]);
+    expect(labels).toEqual(["Chats", "Calls", "Games", "Settings"]);
   });
 
   it("marks the current section", () => {

@@ -2,14 +2,13 @@
 import { IonIcon, IonPage, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } from "@ionic/vue";
 import { callOutline, chatbubblesOutline, gameControllerOutline, settingsOutline } from "ionicons/icons";
 import NavRail from "../components/NavRail.vue";
-import { gamesAvailable } from "../games";
 import { t } from "../i18n";
 
-// Plan 10.3: the games between Calls and Settings, only where games can be downloaded (not iOS).
+// Plan 10.3: the games between Calls and Settings, on every phone: the app carries them (2026-10-03).
 const tabs = [
   { tab: "chats", href: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline },
   { tab: "calls", href: "/tabs/calls", label: t("tabs.calls"), icon: callOutline },
-  ...(gamesAvailable() ? [{ tab: "games", href: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline }] : []),
+  { tab: "games", href: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline },
   { tab: "settings", href: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline },
 ];
 </script>

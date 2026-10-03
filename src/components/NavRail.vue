@@ -14,13 +14,12 @@ import { useRoute, useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import { t } from "../i18n";
 import { store } from "../core";
-import { gamesAvailable } from "../games";
 
-// Plan 10.3: the games between Calls and Settings, only where games can be downloaded (not iOS).
+// Plan 10.3: the games between Calls and Settings, on every phone: the app carries them (2026-10-03).
 const sections = [
   { path: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline, activeIcon: chatbubbles },
   { path: "/tabs/calls", label: t("tabs.calls"), icon: callOutline, activeIcon: call },
-  ...(gamesAvailable() ? [{ path: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline, activeIcon: gameController }] : []),
+  { path: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline, activeIcon: gameController },
   { path: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline, activeIcon: settings },
 ];
 

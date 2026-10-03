@@ -15,7 +15,7 @@ import {
   IonToggle,
   IonToolbar,
 } from "@ionic/vue";
-import { downloadOutline, extensionPuzzleOutline, openOutline, trashOutline } from "ionicons/icons";
+import { addCircleOutline, downloadOutline, extensionPuzzleOutline, openOutline, trashOutline } from "ionicons/icons";
 import {
   formatSize,
   grantPlugin,
@@ -143,8 +143,8 @@ async function remove(id: string) {
 
       <p v-if="!installed.length" class="ft-plugins__hint">{{ $t("plugins.none") }}</p>
 
-      <!-- What the catalogue offers and this phone does not have yet; nothing travels inside the
-           app, so this list is a download (§56). -->
+      <!-- What this phone does not have yet: carried by the app (added, no size) or a download
+           from the catalogue (§56). -->
       <template v-if="offered.length">
         <h2 class="ft-plugins__title">{{ $t("plugins.available") }}</h2>
         <ion-list inset class="ft-group">
@@ -162,7 +162,7 @@ async function remove(id: string) {
               :aria-label="$t('plugins.install')"
               @click="install(one.id)"
             >
-              <ion-icon :icon="downloadOutline" aria-hidden="true" />
+              <ion-icon :icon="one.carried ? addCircleOutline : downloadOutline" aria-hidden="true" />
             </button>
           </ion-item>
         </ion-list>

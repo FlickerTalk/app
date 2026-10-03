@@ -18,7 +18,7 @@ import {
   onIonViewWillEnter,
   onIonViewWillLeave,
 } from "@ionic/vue";
-import { downloadOutline, gameControllerOutline, lockClosedOutline, play, trashOutline } from "ionicons/icons";
+import { addCircleOutline, downloadOutline, gameControllerOutline, lockClosedOutline, play, trashOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import GamePermissions from "../components/GamePermissions.vue";
@@ -62,7 +62,7 @@ function askToRemove(id: string) {
 
 async function refresh() {
   await refreshPlugins();
-  // The core answers offline with what the app carries: no game, which the page says honestly.
+  // Offline the core answers with what the app carries, the three games included (2026-10-03).
   await refreshOffered().catch(() => undefined);
 }
 
@@ -189,7 +189,7 @@ function playWith(contact: string) {
       </div>
       <p v-else class="ft-games__hint">{{ $t("games.none") }}</p>
 
-      <!-- What the catalogue offers and this phone does not have yet: a download (§56). -->
+      <!-- What this phone does not have yet: carried by the app, or a download (§56). -->
       <template v-if="more.length">
         <h2 class="ft-games__title">{{ $t("games.more") }}</h2>
         <ion-list inset class="ft-group" data-test="more-games">
@@ -197,10 +197,11 @@ function playWith(contact: string) {
             <span slot="start" class="ft-tile"><ion-icon :icon="gameControllerOutline" aria-hidden="true" /></span>
             <ion-label>
               {{ pluginName(one) }}
-              <p class="ft-muted">{{ pluginSummary(one) }} · {{ formatSize(one.size) }}</p>
+              <p class="ft-muted">{{ pluginSummary(one) }}<template v-if="!one.carried"> · {{ formatSize(one.size) }}</template></p>
             </ion-label>
+            <!-- A game the app carries is added, not downloaded (2026-10-03). -->
             <ion-button slot="end" fill="clear" size="default" :data-test="`install-${one.id}`" :aria-label="$t('games.install')" @click="install(one.id)">
-              <ion-icon slot="icon-only" :icon="downloadOutline" aria-hidden="true" />
+              <ion-icon slot="icon-only" :icon="one.carried ? addCircleOutline : downloadOutline" aria-hidden="true" />
             </ion-button>
           </ion-item>
         </ion-list>

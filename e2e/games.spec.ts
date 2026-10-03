@@ -156,16 +156,17 @@ test("an install that fails says so", async ({ app }) => {
 test.describe("on an iPhone", () => {
   test.use({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148" });
 
-  // No downloads on iOS (App Store 4.7, §52): no games tab, and the chat's apps have no tabs.
-  test("there are no games", async ({ app }) => {
+  // 2026-10-03: nothing is downloaded on iOS (App Store 4.7, §52), but the app carries the games,
+  // so an iPhone has the games tab and the games segment of the chat's apps like any phone.
+  test("there are games", async ({ app }) => {
     await app.goto(`/chat/${BOB}`);
     await expect(app.getByTestId("peer")).toBeVisible();
     await app.getByTestId("apps").click();
     await expect(app.getByTestId("app-com.flickertalk.markdown")).toBeVisible();
-    await expect(app.getByTestId("apps-tab-games")).toHaveCount(0);
-    await expect(app.getByTestId("games-sheet")).toHaveCount(0);
+    await app.getByTestId("apps-tab-games").click();
+    await expect(app.getByTestId("games-sheet")).toBeVisible();
     await app.goto("/tabs/chats");
     await expect(app.getByRole("tab", { name: "Calls" })).toBeVisible();
-    await expect(app.getByRole("tab", { name: "Games" })).toHaveCount(0);
+    await expect(app.getByRole("tab", { name: "Games" })).toBeVisible();
   });
 });

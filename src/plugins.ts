@@ -112,14 +112,20 @@ export function byPluginName<T extends Named>(list: readonly T[]): T[] {
 }
 
 let asking: Promise<OfferedPlugin[]> | null = null;
+/** The list `offeredOnce` last read; a screen that refreshes the list itself replaces it. */
+let lastAsked: OfferedPlugin[] | null = null;
 
 /**
- * What the catalogue offers, asked only while no game is known yet, and once at a time. Offline
- * the core answers with what the app carries, which has no game, so a later look asks again.
+ * What the catalogue offers, for an invitation to a game this phone does not have: asked once per
+ * run, and once at a time, however many games are known. The seeds include the games
+ * (2026-10-03), so games are always known; a game the app does not carry is only in the
+ * catalogue. A screen that refreshes the list itself (the games tab) lets the next look ask again.
+ * Offline, the core answers with what the app carries.
  */
 export async function offeredOnce(): Promise<OfferedPlugin[]> {
-  if (offeredGames.value.length) return offered.value;
+  if (lastAsked && offered.value === lastAsked) return offered.value;
   asking ??= refreshOffered()
+    .then((list) => (lastAsked = list))
     .catch(() => offered.value)
     .finally(() => (asking = null));
   return asking;

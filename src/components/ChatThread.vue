@@ -66,7 +66,7 @@ import {
   viewerOf,
   type HandedFile,
 } from "../plugins";
-import { gameGrant, gameIdFromText, gameUrl, gamesAvailable, isGame, needsGameGrant } from "../games";
+import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant } from "../games";
 import {
   acceptContact,
   acceptFile,
@@ -454,12 +454,11 @@ function useApp(id: string) {
   openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) });
 }
 
-// Plan 10 (app 1.3.0): games, wherever the games tab is (not on iOS). Ioan, 2026-10-02: they are
-// a tab of the apps sheet, not a button of their own, so the header keeps three buttons and a name
-// has room on a small phone. The apps button is there with a tool, or wherever games can be had,
-// so they can be found with nothing installed. A game is opened here, in this conversation, with
+// Plan 10 (app 1.3.0): games, on every phone, since the app carries them (2026-10-03). Ioan,
+// 2026-10-02: they are a tab of the apps sheet, not a button of their own, so the header keeps
+// three buttons and a name has room on a small phone. The apps button is always there, so the
+// games can be found with nothing installed. A game is opened here, in this conversation, with
 // the live channel to the same game on the other phone.
-const gamesOn = gamesAvailable();
 type AppsTab = "tools" | "games";
 const appsTab = ref<AppsTab>("tools");
 const APPS_TABS = [
@@ -472,7 +471,7 @@ closeOnBackWhile(() => props.active && Boolean(asking.value), () => (asking.valu
 
 /** The apps sheet, on the tools if there are any, otherwise on the games; nothing is remembered. */
 function openApps() {
-  appsTab.value = !gamesOn || tools.value.length ? "tools" : "games";
+  appsTab.value = tools.value.length ? "tools" : "games";
   showApps.value = true;
 }
 
@@ -546,7 +545,6 @@ function moreGames() {
 const pluginsLoaded = ref(false);
 const invitedToUnknown = computed(
   () =>
-    gamesOn &&
     pluginsLoaded.value &&
     messages.value.some((message) => {
       if (message.kind === "file") return false;
@@ -770,8 +768,8 @@ watch(
           <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
-          <!-- Issue app#3: the utilities installed on this phone and, where there are games, the games. -->
-          <ion-button v-if="tools.length || gamesOn" data-test="apps" :aria-label="$t('plugins.title')" @click="openApps">
+          <!-- Issue app#3: the utilities installed on this phone, and the games. -->
+          <ion-button data-test="apps" :aria-label="$t('plugins.title')" @click="openApps">
             <ion-icon slot="icon-only" :icon="appsOutline" aria-hidden="true" />
           </ion-button>
         </ion-buttons>
@@ -856,7 +854,7 @@ watch(
       :expand-to-scroll="false"
       @did-dismiss="showApps = false"
     >
-      <ion-header v-if="gamesOn">
+      <ion-header>
         <ion-toolbar>
           <ion-segment :value="appsTab" @ion-change="appsTab = $event.detail.value === 'games' ? 'games' : 'tools'">
             <ion-segment-button v-for="tab in APPS_TABS" :key="tab.id" :value="tab.id" layout="icon-start" :data-test="`apps-tab-${tab.id}`">
@@ -866,9 +864,8 @@ watch(
           </ion-segment>
         </ion-toolbar>
       </ion-header>
-      <!-- With no segment header, the content keeps clear of the drag handle (iOS draws it over it). -->
-      <ion-content class="ft-apps-sheet__content" :class="{ 'ion-padding-top': !gamesOn }">
-        <ion-list v-if="!gamesOn || appsTab === 'tools'" data-test="apps-sheet-tools">
+      <ion-content class="ft-apps-sheet__content">
+        <ion-list v-if="appsTab === 'tools'" data-test="apps-sheet-tools">
           <ion-item v-for="one in tools" :key="one.id" button :detail="false" :data-test="`app-${one.id}`" @click="useApp(one.id)">
             <ion-icon slot="start" :icon="appsOutline" aria-hidden="true" />
             <ion-label class="ion-text-nowrap">{{ pluginName(one) }}</ion-label>
@@ -921,7 +918,7 @@ watch(
           :message="message"
           :saved="saved.has(message.id)"
           :folded="folded.has(message.id)"
-          :games="gamesOn"
+          games
           @open="tapFile"
           @save="save"
           @download="download"
