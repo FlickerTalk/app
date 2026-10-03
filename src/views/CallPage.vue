@@ -420,6 +420,9 @@ watch(
   z-index: 1;
   top: calc(env(safe-area-inset-top) + var(--ft-space-2));
   inset-inline-start: calc(max(env(safe-area-inset-left), env(safe-area-inset-right)) + var(--ft-space-2));
+  /* Apple's 44 pt tap target. */
+  min-width: 44px;
+  min-height: 44px;
   /* Ionic's medium, not the color prop: a colored clear button drops its background, and the
      button needs one to show over the pictures. */
   --color: var(--ion-color-medium);

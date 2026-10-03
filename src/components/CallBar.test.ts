@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { nextTick } from "vue";
 import { IonIcon } from "@ionic/vue";
 import { callOutline, pauseCircleOutline, videocamOutline } from "ionicons/icons";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import CallBar from "./CallBar.vue";
+import source from "./CallBar.vue?raw";
+import base from "../theme/base.css?raw";
 
 const push = vi.fn();
 const route = { path: "/tabs/chats" };
@@ -102,6 +105,49 @@ describe("CallBar", () => {
     it("keeps the call's kind on the desktop", () => {
       Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: false, video: true });
       expect(icon()).toBe(videocamOutline);
+    });
+  });
+
+  // Seen on the iPhone (QA, 2026-10-03): over the chat's header the pill cut the contact's name and
+  // status, and just below it, it covered the game room's bar. On a phone the bar has a band of its
+  // own above the header: while it shows, the page gives it 44 px more of the top inset, so every
+  // header moves down. On a wide screen it stays in the header's empty middle.
+  describe("its own band on a phone", () => {
+    const band = () => document.documentElement.classList.contains("ft-call-bar");
+    beforeEach(() => document.documentElement.classList.remove("ft-call-bar"));
+
+    it("takes the band while it shows", async () => {
+      Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+      const wrapper = mount(CallBar, { shallow: true });
+      expect(band()).toBe(true);
+      call.phase = "ended";
+      await nextTick();
+      expect(band()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("leaves no band on the call's own screen", () => {
+      route.path = "/call/c1";
+      Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+      const wrapper = mount(CallBar, { shallow: true });
+      expect(band()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it("gives the band back when it goes", () => {
+      Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+      mount(CallBar, { shallow: true }).unmount();
+      expect(band()).toBe(false);
+    });
+
+    it("sits in the band on a phone, and in the header on a wide screen", () => {
+      const styles = source.slice(source.indexOf("<style"));
+      expect(styles).toMatch(/\.ft-callbar\s*{[^}]*top:\s*calc\(env\(safe-area-inset-top\) \+ 6px\)/);
+      expect(styles).toMatch(/@media \(max-width: 767px\)\s*{\s*\.ft-callbar\s*{[^}]*top:\s*calc\(env\(safe-area-inset-top\) \+ 4px\)/);
+      expect(styles).not.toMatch(/\+ 60px/);
+      expect(base).toMatch(
+        /@media \(max-width: 767px\)\s*{\s*html\.ft-call-bar\s*{\s*--ion-safe-area-top:\s*calc\(env\(safe-area-inset-top\) \+ 44px\);/,
+      );
     });
   });
 });

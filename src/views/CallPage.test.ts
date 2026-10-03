@@ -542,6 +542,14 @@ describe("CallPage with native video", () => {
     expect(document.documentElement.classList.contains("ft-call-video")).toBe(false);
   });
 
+  // Apple asks for 44 pt tap targets (QA, 2026-10-03): Ionic's round clear button is 38-40.
+  it("gives the on-screen back button a 44 px tap target", () => {
+    const rule = source.slice(source.indexOf(".ft-call__minimize {"));
+    const body = rule.slice(0, rule.indexOf("}"));
+    expect(body).toMatch(/min-width:\s*44px/);
+    expect(body).toMatch(/min-height:\s*44px/);
+  });
+
   // Arabic reads right to left: no physical sides in the layout (src/CLAUDE.md).
   it("uses no left or right in its styles", () => {
     const styles = source.slice(source.indexOf("<style"));
