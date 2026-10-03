@@ -1204,6 +1204,9 @@ fun shareableText(text: String): String? = text.trim().ifEmpty { null }
 val NAVIGATION_SCRIM: Int = 0x801B1B1B.toInt()
 
 /** How the system bars look over the app: dark icons or light, and the navigation bar's colour. */
+/** The WebView text zoom (percent) for a font scale (app#92). */
+fun textZoomFor(fontScale: Float): Int = 100
+
 data class SystemBarsLook(val darkIcons: Boolean, val navigationBarColor: Int)
 
 /**

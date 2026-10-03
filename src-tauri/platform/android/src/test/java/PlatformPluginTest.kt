@@ -130,6 +130,17 @@ class PlatformPluginTest {
         assertTrue(handled.toString(), handled.containsAll(setOf("fontScale", "density", "fontWeightAdjustment")))
     }
 
+    // Without a recreation the WebView keeps the text zoom it took from the font scale when it
+    // was created (Chromium's AwSettings), so a new font scale has to reach it as its text zoom.
+    @Test
+    fun theWebViewTextZoomFollowsTheFontScale() {
+        assertEquals(100, textZoomFor(1.0f))
+        assertEquals(130, textZoomFor(1.3f))
+        assertEquals(85, textZoomFor(0.85f))
+        assertEquals(115, textZoomFor(1.15f))
+        assertEquals(200, textZoomFor(2.0f))
+    }
+
     // The sealed storage key: the 12-byte GCM nonce, then the ciphertext with its tag.
     @Test
     fun aSealedKeySplitsIntoNonceAndCiphertext() {
