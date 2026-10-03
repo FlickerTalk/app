@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Blockiert",
-    "empty": "Niemand ist blockiert"
+    "empty": "Niemand ist blockiert",
+    "notice": "Du hast diesen Kontakt blockiert",
+    "hint": "Hebe die Blockierung auf, um ihm zu schreiben und seine Nachrichten und Anrufe zu erhalten."
   },
   "settings": {
     "title": "Einstellungen",

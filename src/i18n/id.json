@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Diblokir",
-    "empty": "Tidak ada yang diblokir"
+    "empty": "Tidak ada yang diblokir",
+    "notice": "Anda memblokir kontak ini",
+    "hint": "Buka blokir untuk mengirim pesan dan menerima pesan serta panggilannya."
   },
   "settings": {
     "title": "Pengaturan",

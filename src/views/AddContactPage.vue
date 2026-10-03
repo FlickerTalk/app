@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
+  IonAlert,
   IonBackButton,
   IonButton,
   IonButtons,
@@ -14,7 +15,7 @@ import {
 import { checkmarkOutline, scanOutline, shareOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import QrCode from "../components/QrCode.vue";
-import { addContact, myCardLink, refreshChats, shareText, store } from "../core";
+import { addContact, block, chat, myCardLink, refreshChats, shareText, store } from "../core";
 import { scanQr } from "../scanner";
 import { t } from "../i18n";
 
@@ -54,10 +55,25 @@ async function add(value: string) {
   try {
     const id = await addContact(value, session);
     await refreshChats();
-    router.replace(`/chat/${id}`);
+    // app#78: adding someone blocked again leaves them blocked; a chat with them could not send.
+    if (chat(id)?.blocked) blockedId.value = id;
+    else router.replace(`/chat/${id}`);
   } catch {
     error.value = t("addContact.invalid");
   }
+}
+
+/** The contact just added who turned out to be blocked: asked about in an alert. */
+const blockedId = ref<string | null>(null);
+const blockedButtons = computed(() => [
+  { text: t("common.cancel"), role: "cancel" },
+  { text: t("contact.unblock"), handler: () => void unblock(blockedId.value) },
+]);
+
+async function unblock(id: string | null) {
+  if (!id) return;
+  await block(id, false);
+  router.replace(`/chat/${id}`);
 }
 </script>
 
@@ -137,6 +153,13 @@ async function add(value: string) {
             </button>
           </div>
           <p v-if="error" class="ft-add__error" role="alert">{{ error }}</p>
+          <ion-alert
+            :is-open="blockedId !== null"
+            :header="$t('blocked.notice')"
+            :message="$t('blocked.hint')"
+            :buttons="blockedButtons"
+            @did-dismiss="blockedId = null"
+          />
         </template>
       </div>
     </ion-content>

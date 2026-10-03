@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Đã chặn",
-    "empty": "Chưa chặn ai"
+    "empty": "Chưa chặn ai",
+    "notice": "Bạn đã chặn liên hệ này",
+    "hint": "Bỏ chặn để nhắn tin và nhận tin nhắn, cuộc gọi của họ."
   },
   "settings": {
     "title": "Cài đặt",

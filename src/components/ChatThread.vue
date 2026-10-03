@@ -70,6 +70,7 @@ import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant } from "../g
 import {
   acceptContact,
   acceptFile,
+  block,
   chat as chatOf,
   forgetMessage,
   forwardMessage,
@@ -696,7 +697,8 @@ async function save(id: string) {
 }
 
 const content = ref<Scrollable | null>(null);
-useStickToEnd(content);
+const list = ref<HTMLElement | null>(null);
+useStickToEnd(content, list);
 
 async function scrollToEnd() {
   await nextTick();
@@ -912,23 +914,26 @@ watch(
     />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
-      <template v-for="(message, index) in messages" :key="message.id">
-        <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
-        <MessageBubble
-          :message="message"
-          :saved="saved.has(message.id)"
-          :folded="folded.has(message.id)"
-          games
-          @open="tapFile"
-          @save="save"
-          @download="download"
-          @actions="act"
-          @resend="resendMessage"
-          @play="playGame"
-        />
-      </template>
+      <!-- One box for the messages: its size is followed to keep the end in sight (app#81). -->
+      <div ref="list">
+        <template v-for="(message, index) in messages" :key="message.id">
+          <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
+          <MessageBubble
+            :message="message"
+            :saved="saved.has(message.id)"
+            :folded="folded.has(message.id)"
+            games
+            @open="tapFile"
+            @save="save"
+            @download="download"
+            @actions="act"
+            @resend="resendMessage"
+            @play="playGame"
+          />
+        </template>
 
-      <div class="ft-thread__end" />
+        <div class="ft-thread__end" />
+      </div>
     </ion-content>
 
     <!-- What can be done with the message that was pressed (§61). -->
@@ -1024,6 +1029,15 @@ watch(
             </button>
           </div>
         </div>
+      </div>
+    </ion-footer>
+    <!-- app#78: nothing can be sent to someone blocked; it would wait forever. -->
+    <ion-footer v-else-if="chat.blocked" class="ion-no-border">
+      <div class="ft-request" data-test="blocked-panel">
+        <p class="ft-request__text">{{ $t("blocked.notice") }}</p>
+        <ion-button class="ion-align-self-center" fill="outline" shape="round" data-test="unblock" @click="block(chatId, false)">
+          {{ $t("contact.unblock") }}
+        </ion-button>
       </div>
     </ion-footer>
     <ion-footer v-else class="ion-no-border">
@@ -1357,6 +1371,13 @@ watch(
 .ft-composer {
   padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
   background: var(--ft-bg);
+}
+/* The emoji open (app#72): the home indicator's band goes under the panel, not between it and the
+   message box. The panel rises over the composer's band and carries the band itself; a sibling
+   selector, not `:has()`, which iOS 15.0–15.3 lacks. */
+.ft-composer + .ft-emoji {
+  margin-top: calc(-1 * var(--ion-safe-area-bottom, 0px));
+  padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 .ft-composer__row {
   display: flex;
