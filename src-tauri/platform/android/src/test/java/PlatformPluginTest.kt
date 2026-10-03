@@ -118,12 +118,27 @@ class PlatformPluginTest {
     // (Android flags locale and layoutDirection together) must not recreate the app's activity.
     @Test
     fun aLanguageChangeDoesNotRecreateTheAppActivity() {
-        val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-            .parse(File("../../gen/android/app/src/main/AndroidManifest.xml")).getElementsByTagName("activity")
-        val main = (0 until nodes.length).map { nodes.item(it) as Element }
-            .first { it.getAttribute("android:name") == ".MainActivity" }
-        val handled = main.getAttribute("android:configChanges").split("|").toSet()
+        val handled = mainActivityConfigChanges()
         assertTrue(handled.toString(), handled.containsAll(setOf("locale", "layoutDirection", "uiMode", "orientation", "screenSize")))
+    }
+
+    // app#92 (2026-10-03): the same leak followed a change of font size, display size or bold
+    // text. None of them may recreate the app's activity; the WebView follows them in place.
+    @Test
+    fun aFontOrDisplaySizeChangeDoesNotRecreateTheAppActivity() {
+        val handled = mainActivityConfigChanges()
+        assertTrue(handled.toString(), handled.containsAll(setOf("fontScale", "density", "fontWeightAdjustment")))
+    }
+
+    // Without a recreation the WebView keeps the text zoom it took from the font scale when it
+    // was created (Chromium's AwSettings), so a new font scale has to reach it as its text zoom.
+    @Test
+    fun theWebViewTextZoomFollowsTheFontScale() {
+        assertEquals(100, textZoomFor(1.0f))
+        assertEquals(130, textZoomFor(1.3f))
+        assertEquals(85, textZoomFor(0.85f))
+        assertEquals(115, textZoomFor(1.15f))
+        assertEquals(200, textZoomFor(2.0f))
     }
 
     // The sealed storage key: the 12-byte GCM nonce, then the ciphertext with its tag.
@@ -678,5 +693,14 @@ class PlatformPluginTest {
         assertEquals(SystemBarsLook(darkIcons = false, navigationBarColor = 0), systemBarsLook(dark = true, sdk = 24))
         // androidx's own dark scrim (`SystemBarStyle.auto`), half-transparent.
         assertEquals(0x801B1B1B.toInt(), NAVIGATION_SCRIM)
+    }
+
+    // The configuration changes the app's MainActivity handles itself, from its manifest.
+    private fun mainActivityConfigChanges(): Set<String> {
+        val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("../../gen/android/app/src/main/AndroidManifest.xml")).getElementsByTagName("activity")
+        val main = (0 until nodes.length).map { nodes.item(it) as Element }
+            .first { it.getAttribute("android:name") == ".MainActivity" }
+        return main.getAttribute("android:configChanges").split("|").toSet()
     }
 }

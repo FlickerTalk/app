@@ -25,6 +25,7 @@ import android.content.BroadcastReceiver
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import org.json.JSONArray
@@ -58,6 +59,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import android.webkit.WebView
+import kotlin.math.roundToInt
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
@@ -1203,6 +1205,12 @@ fun shareableText(text: String): String? = text.trim().ifEmpty { null }
 /** androidx's dark scrim, behind light navigation icons that cannot turn dark (before Android 8). */
 val NAVIGATION_SCRIM: Int = 0x801B1B1B.toInt()
 
+/**
+ * The WebView text zoom (percent) for a font scale (app#92). A WebView takes it from the font
+ * scale only when it is created, and the activity is no longer recreated for a new one.
+ */
+fun textZoomFor(fontScale: Float): Int = (fontScale * 100).roundToInt()
+
 /** How the system bars look over the app: dark icons or light, and the navigation bar's colour. */
 data class SystemBarsLook(val darkIcons: Boolean, val navigationBarColor: Int)
 
@@ -1325,6 +1333,12 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         // Opened while a push's call rings (2026-10-01): the core a push started told the
         // notification, not this activity, so it shows over the lock screen from here.
         if (IncomingCall.showing) showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))
+    }
+
+    /** A new font size reaches the page in place: the activity is not recreated (app#92). */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        webView?.settings?.textZoom = textZoomFor(newConfig.fontScale)
     }
 
     /**
