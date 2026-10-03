@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gameGrant, gameIdFromText, gameUrl, gamesAvailable, isGame, needsGameGrant } from "./games";
+import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant } from "./games";
 import type { PluginView } from "./core";
 
 const CHESS = "com.flickertalk.game.chess";
@@ -79,18 +79,6 @@ describe("games", () => {
     expect(isGame({ kind: "tool" })).toBe(false);
     expect(isGame({})).toBe(false);
     expect(isGame({ kind: "toy" as never })).toBe(false);
-  });
-
-  // Plan 10.3: no downloads on iOS, so no games there (App Store 4.7, §52).
-  it("offers games where plugins are downloaded, not on an iPhone or an iPad", () => {
-    const android = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36";
-    const iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
-    const ipad = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)";
-    expect(gamesAvailable(android, 5)).toBe(true);
-    expect(gamesAvailable(iphone, 5)).toBe(false);
-    // An iPad's WebView says it is a Mac; a Mac has no touch screen.
-    expect(gamesAvailable(ipad, 5)).toBe(false);
-    expect(gamesAvailable(ipad, 0)).toBe(true);
   });
 
   // Plan decision 11: installing grants nothing (§53); the first time a game is played one sheet

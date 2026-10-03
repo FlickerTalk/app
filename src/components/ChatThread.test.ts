@@ -345,8 +345,8 @@ describe("ChatThread", () => {
   });
 
   // The apps follow what is installed. Adding or removing a tool in Settings has to show up in a
-  // conversation that is already open, not only the next time it is entered. Where there are no
-  // games (iOS), the button is there only with a tool to show; elsewhere it also leads to the games.
+  // conversation that is already open, not only the next time it is entered. The button stays with
+  // nothing installed, because it also leads to the games, on an iPhone too (2026-10-03).
   it("notices a tool added or removed while the conversation stays open", async () => {
     const removeAll = async () => {
       installTauri((command, args) => {
@@ -375,7 +375,7 @@ describe("ChatThread", () => {
     const iphone = await open();
     expect(iphone.find("[data-test='apps']").exists()).toBe(true);
     await removeAll();
-    expect(iphone.find("[data-test='apps']").exists()).toBe(false);
+    expect(iphone.find("[data-test='apps']").exists()).toBe(true);
     vi.restoreAllMocks();
   });
 
@@ -652,7 +652,7 @@ describe("ChatThread", () => {
       expect(wrapper.findComponent(IonTextarea).exists()).toBe(false);
       expect(wrapper.find(`[aria-label='Voice call']`).exists()).toBe(false);
       expect(wrapper.find(`[aria-label='Video call']`).exists()).toBe(false);
-      // Nor the apps and games, even on a phone that can have games.
+      // Nor the apps and games.
       expect(wrapper.find("[data-test='apps']").exists()).toBe(false);
     });
 
@@ -959,20 +959,20 @@ describe("ChatThread", () => {
       expect(wrapper.findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ id: CODE.id });
     });
 
-    // No downloads on iOS, so no games: the sheet has the tools only, with no segment.
-    it("has no segment on an iPhone, and no button without a tool", async () => {
+    // 2026-10-03: the games travel inside the app, so an iPhone, which downloads nothing (App
+    // Store 4.7, §52), has the games segment, and the button with nothing installed, like any phone.
+    it("has the games segment on an iPhone too, and the button without a tool", async () => {
       vi.spyOn(navigator, "userAgent", "get").mockReturnValue(IPHONE);
-      bridge({ installed: [CODE] });
+      bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       await wrapper.find("[data-test='apps']").trigger("click");
-      expect(wrapper.findComponent(IonSegment).exists()).toBe(false);
-      // No header for the handle to sit on (iOS draws it over the content): the list keeps clear of it.
-      expect(wrapper.find(".ft-apps-sheet__content").classes()).toContain("ion-padding-top");
-      expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
-      expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
+      expect(wrapper.findComponent(IonSegment).exists()).toBe(true);
+      wrapper.findComponent(IonSegment).vm.$emit("ionChange", { detail: { value: "games" } });
+      await flushPromises();
+      expect(wrapper.find("[data-test='games-sheet']").html()).toContain("Chess");
 
       bridge({ installed: [] });
-      expect((await thread()).find("[data-test='apps']").exists()).toBe(false);
+      expect((await thread()).find("[data-test='apps']").exists()).toBe(true);
     });
 
     it("shows the installed games, and the way to more", async () => {

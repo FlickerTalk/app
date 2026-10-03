@@ -18,12 +18,13 @@ describe("TabsPage", () => {
     expect(wrapper.findAllComponents(IonTabButton)[2].attributes("aria-label")).toBe("Games");
   });
 
-  // No downloads on iOS, so nothing to put in it (App Store 4.7, §52).
-  it("has no games tab on an iPhone", () => {
+  // 2026-10-03: the games travel inside the app, so an iPhone, which downloads nothing (App Store
+  // 4.7, §52), has the games tab too.
+  it("has the games tab on an iPhone too", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(IPHONE);
     const wrapper = mount(TabsPage, { shallow: true });
     const tabs = wrapper.findAllComponents(IonTabButton).map((tab) => tab.attributes("tab"));
-    expect(tabs).toEqual(["chats", "calls", "settings"]);
+    expect(tabs).toEqual(["chats", "calls", "games", "settings"]);
   });
 
   it("includes the navigation rail used on wide screens", () => {

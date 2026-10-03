@@ -2225,24 +2225,29 @@ pub async fn core_plugin_remove(plugin: String, app: AppHandle, client: State<'_
     Ok(())
 }
 
-/// The tools the app carries: a **seed**, not a store (§52). They weigh almost nothing, so a
-/// phone with no network —and an iPhone, where nothing is downloaded in v1— still has them. What
-/// is heavy never travels here: it is a download, and only for whoever wants it.
+/// The tools and games the app carries: a **seed**, not a store (§52). They weigh little, so a
+/// phone with no network —and an iPhone, where nothing is downloaded in v1— still has them. The
+/// three games travel here too (decision 2026-10-03), so every iPhone has them. What is heavy
+/// never travels here: it is a download, and only for whoever wants it.
 const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/markdown.ftplugin"),
     include_bytes!("../resources/plugins/images.ftplugin"),
     include_bytes!("../resources/plugins/pdf.ftplugin"),
     include_bytes!("../resources/plugins/redact.ftplugin"),
     include_bytes!("../resources/plugins/sketch.ftplugin"),
+    include_bytes!("../resources/plugins/game.tictactoe.ftplugin"),
+    include_bytes!("../resources/plugins/game.fourinarow.ftplugin"),
+    include_bytes!("../resources/plugins/game.chess.ftplugin"),
 ];
 
-/// What a seed may weigh, and what all of them may weigh together. Past this, a tool is a
+/// What a seed may weigh, and what all of them may weigh together. Past this, a plugin is a
 /// download: the app does not grow because the catalogue does. The test is what holds the line,
-/// so a heavy tool never reaches a release.
+/// so a heavy plugin never reaches a release. Raised on 2026-10-03 for the games (chess is the
+/// largest seed, about 87 KiB; tools and games together, about 203 KiB).
 #[cfg(test)]
-const SEED_LIMIT: u64 = 32 * 1024;
+const SEED_LIMIT: u64 = 96 * 1024;
 #[cfg(test)]
-const SEEDS_LIMIT: u64 = 128 * 1024;
+const SEEDS_LIMIT: u64 = 256 * 1024;
 
 /// A tool the user may add, from the app itself or from the catalogue (§56).
 #[derive(Serialize, Deserialize, Clone)]
@@ -3766,15 +3771,15 @@ mod tests {
         assert_eq!((json["state"].as_str(), json["triesLeft"].as_u64(), json["retryAt"].as_i64()), (Some("locked"), Some(0), Some(42)));
     }
 
-    /// The tools the app carries are a seed, not a store: what is heavy is a download and only
-    /// for whoever wants it. The app stays small, whatever the catalogue grows to (§52).
+    /// The tools and games the app carries are a seed, not a store: what is heavy is a download
+    /// and only for whoever wants it. The app stays small, whatever the catalogue grows to (§52).
     #[test]
     fn what_travels_inside_the_app_stays_tiny() {
         let mut total = 0;
         for package in BUNDLED_PLUGINS {
             assert!(
                 package.len() as u64 <= SEED_LIMIT,
-                "a tool of {} bytes is a download, not a seed",
+                "a plugin of {} bytes is a download, not a seed",
                 package.len()
             );
             let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is not signed for us");
@@ -3783,6 +3788,18 @@ mod tests {
             total += package.len() as u64;
         }
         assert!(total <= SEEDS_LIMIT, "the seeds weigh {total} bytes, which is no longer little");
+    }
+
+    /// 2026-10-03 (Ioan): the three games travel inside the app like the tools, so an iPhone,
+    /// which downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
+    #[test]
+    fn the_app_carries_the_three_games() {
+        let offered = seeds();
+        for id in ["com.flickertalk.game.tictactoe", "com.flickertalk.game.fourinarow", "com.flickertalk.game.chess"] {
+            let game = offered.iter().find(|one| one.id == id).unwrap_or_else(|| panic!("{id} is not carried"));
+            assert_eq!(game.kind, ft_plugins::Kind::Game, "{id} is a game");
+            assert!(game.carried, "{id} is inside the app");
+        }
     }
 
     /// 2026-10-02 (the catalogue's translations): a phone without network, and every iPhone, only
