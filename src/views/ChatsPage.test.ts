@@ -153,6 +153,23 @@ describe("ChatsPage", () => {
       expect(wide.findComponent({ name: "CircleThread" }).exists()).toBe(true);
     });
 
+    // app#80 (2026-10-03): on another tab, the emoji the circle beside the list left open let go
+    // of Android's back button; back on Chats they take it again.
+    it("tells the circle beside the list whether Chats is on screen", async () => {
+      screen(true);
+      const wide = mount(ChatsPage, { shallow: true });
+      await wide.find("[data-test='circle-row']").trigger("click");
+      const hooks = (name: string) =>
+        ((wide.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+      expect(wide.findComponent({ name: "CircleThread" }).props("active")).toBe(true);
+      hooks("onIonViewWillLeave");
+      await wide.vm.$nextTick();
+      expect(wide.findComponent({ name: "CircleThread" }).props("active")).toBe(false);
+      hooks("onIonViewDidEnter");
+      await wide.vm.$nextTick();
+      expect(wide.findComponent({ name: "CircleThread" }).props("active")).toBe(true);
+    });
+
     it("offers a new circle only when there is someone to put in it", async () => {
       screen(false);
       const wrapper = mount(ChatsPage, { shallow: true });
