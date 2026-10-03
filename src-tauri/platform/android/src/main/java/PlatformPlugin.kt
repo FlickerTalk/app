@@ -151,6 +151,15 @@ fun keepOpenSlots(context: Context, slots: Set<Int>) {
     context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(OPEN_SLOTS, keptSlots(slots)).commit()
 }
 
+/** Whether to show the system prompt for notifications: Android 13 and up, while not granted. */
+class NotificationPrompt {
+    fun shouldAsk(sdk: Int, granted: Boolean): Boolean = sdk >= 33 && !granted
+
+    companion object {
+        val process = NotificationPrompt()
+    }
+}
+
 /** An app on screen is already connected and gets everything: no notification then. */
 fun shouldNotify(importance: Int): Boolean =
     importance > ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
@@ -1715,9 +1724,10 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /** Android 13 and up ask before showing notifications. */
     @Command
     fun requestNotifications(invoke: Invoke) {
-        val needed = Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(activity, "android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
-        if (needed) activity.requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 4242)
+        val granted = ContextCompat.checkSelfPermission(activity, "android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED
+        if (NotificationPrompt.process.shouldAsk(Build.VERSION.SDK_INT, granted)) {
+            activity.requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 4242)
+        }
         invoke.resolve()
     }
 

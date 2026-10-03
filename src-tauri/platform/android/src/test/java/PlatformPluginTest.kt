@@ -93,6 +93,26 @@ class PlatformPluginTest {
         assertEquals(true, shouldNotify(ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE))
     }
 
+    // app#70 (2026-10-03): the system prompt hides the page, and closing it makes the page
+    // visible again, which hands the push token over once more. Asking again then showed the
+    // prompt a second time, whose refusal is final. Once per process start, only where needed.
+    @Test
+    fun asksForNotificationsAtMostOncePerProcess() {
+        val prompt = NotificationPrompt()
+        assertTrue(prompt.shouldAsk(33, granted = false))
+        assertFalse(prompt.shouldAsk(33, granted = false))
+        assertFalse(prompt.shouldAsk(36, granted = false))
+    }
+
+    @Test
+    fun neverAsksForNotificationsBeforeAndroid13OrOnceGranted() {
+        assertFalse(NotificationPrompt().shouldAsk(32, granted = false))
+        assertFalse(NotificationPrompt().shouldAsk(33, granted = true))
+        val prompt = NotificationPrompt()
+        assertFalse(prompt.shouldAsk(33, granted = true))
+        assertTrue(prompt.shouldAsk(33, granted = false))
+    }
+
     // The sealed storage key: the 12-byte GCM nonce, then the ciphertext with its tag.
     @Test
     fun aSealedKeySplitsIntoNonceAndCiphertext() {
