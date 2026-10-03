@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Blockiert",
-    "empty": "Niemand ist blockiert"
+    "empty": "Niemand ist blockiert",
+    "notice": "Du hast diesen Kontakt blockiert",
+    "hint": "Hebe die Blockierung auf, um ihm zu schreiben und seine Nachrichten und Anrufe zu erhalten."
   },
   "settings": {
     "title": "Einstellungen",
@@ -287,6 +289,7 @@
     "none": "Noch keine Plugins",
     "available": "Tools zum Hinzufügen",
     "install": "Installieren",
+    "installFailed": "Das Tool konnte nicht installiert werden. Prüfe deine Verbindung und versuch es noch einmal.",
     "live": "Mit demselben Plugin auf der anderen Seite des Chats sprechen",
     "remind": "Erinnerungen auf diesem Telefon setzen",
     "drive": "Dateien in deiner eigenen Cloud behalten",

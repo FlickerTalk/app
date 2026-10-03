@@ -153,13 +153,17 @@ async function scanInvite() {
   background: var(--ft-accent);
   transition: width 0.3s ease;
 }
+/* The field keeps room for its whole hint (app#83): when the button does not fit beside it, the
+   button goes below, as wide as the row. */
 .ft-move__paste {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   width: 100%;
 }
 .ft-move__input {
-  flex: 1;
+  flex: 1 1 16rem;
+  box-sizing: border-box;
   min-width: 0;
   padding: 12px 14px;
   border: 1px solid var(--ft-border);
@@ -168,7 +172,8 @@ async function scanInvite() {
   background: var(--ft-surface);
 }
 .ft-move__go {
-  padding: 0 16px;
+  flex: 1 0 auto;
+  padding: 12px 16px;
   border: 0;
   border-radius: 14px;
   font-weight: 600;

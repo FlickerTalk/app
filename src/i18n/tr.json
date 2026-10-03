@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Engellenenler",
-    "empty": "Engellenen kimse yok"
+    "empty": "Engellenen kimse yok",
+    "notice": "Bu kişiyi engellediniz",
+    "hint": "Ona yazmak, mesajlarını ve aramalarını almak için engeli kaldırın."
   },
   "settings": {
     "title": "Ayarlar",
@@ -287,6 +289,7 @@
     "none": "Henüz eklenti yok",
     "available": "Ekleyebileceğiniz araçlar",
     "install": "Yükle",
+    "installFailed": "Araç yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
     "live": "Sohbetin öbür ucundaki aynı eklentiyle konuşmak",
     "remind": "Bu telefonda hatırlatıcı kurmak",
     "drive": "Dosyaları kendi bulutunda saklamak",

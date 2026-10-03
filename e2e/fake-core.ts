@@ -46,6 +46,7 @@
  * `window.__ftFakeISaid` (texts) adds messages of this phone to Bob, read, after Bob's.
  * `window.__ftFakeFiles` (`{ outgoing, name, mime, state }`) adds files to Bob's conversation, last.
  * `window.__ftFakeBobName` renames Bob (a long name, to see the chat header truncate it).
+ * `window.__ftFakeBobLast` replaces the text of Bob's last message (a long preview in the list).
  * `window.__ftFakeCarol` adds a second contact, Carol (`ft_carol12345678`), and a plugin's
  * `ft.openChat` then leads to her conversation.
  * `window.__ftFakeManyPlugins` (a number) installs that many more tools and as many games, for a
@@ -292,8 +293,17 @@ export function installFakeCore() {
         return { id: String((window as unknown as Record<string, unknown>).__ftFakeMeId ?? "ft_me"), name: "Me", mailbox: true, receipts: true, freeUntil: Date.now() + 1e10, autoDownload: state.autoDownload };
       case "core_conversations": {
         const name = (window as unknown as Record<string, unknown>).__ftFakeBobName;
+        const lastText = (window as unknown as Record<string, unknown>).__ftFakeBobLast;
         const all = flag("__ftFakeCarol") ? [...state.conversations, conversation("ft_carol12345678", "Carol", "hi!")] : state.conversations;
-        return typeof name === "string" ? all.map((one) => (one.id === "ft_bob123456789" ? { ...one, name } : one)) : all;
+        return all.map((one) =>
+          one.id !== "ft_bob123456789"
+            ? one
+            : {
+                ...one,
+                ...(typeof name === "string" ? { name } : {}),
+                ...(typeof lastText === "string" ? { last: { ...one.last, text: lastText } } : {}),
+              },
+        );
       }
       case "core_plugin_open_chat":
         return flag("__ftFakeCarol") ? { contact: "ft_carol12345678", message: "" } : null;

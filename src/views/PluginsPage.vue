@@ -11,6 +11,7 @@ import {
   IonList,
   IonNote,
   IonPage,
+  IonSpinner,
   IonTitle,
   IonToggle,
   IonToolbar,
@@ -37,6 +38,9 @@ const router = useRouter();
 const installed = computed(() => tools.value);
 const offered = ref<OfferedPlugin[]>([]);
 const asksToRemove = ref("");
+/** The tool being installed now, and whether the last install failed (app#75). */
+const installing = ref("");
+const installFailed = ref(false);
 
 onMounted(refresh);
 
@@ -55,7 +59,15 @@ function weight(one: OfferedPlugin): string {
 
 /** Nothing arrives installed: the user picks the tool, and it starts with no permission (§53). */
 async function install(id: string) {
-  await installPlugin(id);
+  installing.value = id;
+  installFailed.value = false;
+  try {
+    await installPlugin(id);
+  } catch {
+    installFailed.value = true;
+  } finally {
+    installing.value = "";
+  }
   await refresh();
 }
 
@@ -147,6 +159,7 @@ async function remove(id: string) {
            from the catalogue (§56). -->
       <template v-if="offered.length">
         <h2 class="ft-plugins__title">{{ $t("plugins.available") }}</h2>
+        <ion-note v-if="installFailed" color="danger" class="ft-plugins__error" role="alert">{{ $t("plugins.installFailed") }}</ion-note>
         <ion-list inset class="ft-group">
           <ion-item v-for="one in offered" :key="one.id" lines="none">
             <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
@@ -160,9 +173,12 @@ async function remove(id: string) {
               class="ft-plugins__install"
               :data-test="`install-${one.id}`"
               :aria-label="$t('plugins.install')"
+              :disabled="installing === one.id"
+              :aria-busy="installing === one.id ? 'true' : undefined"
               @click="install(one.id)"
             >
-              <ion-icon :icon="one.carried ? addCircleOutline : downloadOutline" aria-hidden="true" />
+              <ion-spinner v-if="installing === one.id" name="crescent" aria-hidden="true" />
+              <ion-icon v-else :icon="one.carried ? addCircleOutline : downloadOutline" aria-hidden="true" />
             </button>
           </ion-item>
         </ion-list>
@@ -188,6 +204,10 @@ async function remove(id: string) {
   font-weight: 600;
   color: var(--ft-muted);
 }
+.ft-plugins__error {
+  display: block;
+  margin: var(--ft-space-2) var(--ft-space-4) 0;
+}
 .ft-plugins__install {
   appearance: none;
   border: 0;
@@ -195,6 +215,10 @@ async function remove(id: string) {
   color: var(--ft-accent);
   font-size: 20px;
   cursor: pointer;
+}
+.ft-plugins__install ion-spinner {
+  width: 20px;
+  height: 20px;
 }
 .ft-plugins__remove,
 .ft-plugins__confirm {

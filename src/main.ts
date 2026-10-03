@@ -16,7 +16,7 @@ import "@ionic/vue/css/text-alignment.css";
 import "./theme/variables.css";
 import "./theme/base.css";
 import { initTheme } from "./theme";
-import { i18n, pickLocale, setLocale, t } from "./i18n";
+import { followPhoneLanguage, i18n, t } from "./i18n";
 import { ionicConfig } from "./ionic";
 import { enablePush, start } from "./core";
 import { isOnboarded } from "./preferences";
@@ -40,7 +40,7 @@ const ready = start().then(async () => {
   await loadHistory();
 });
 // The texts follow the phone's language; the catalogue loads before the first screen.
-const language = setLocale(pickLocale(navigator.languages ?? [navigator.language]));
+const language = followPhoneLanguage();
 Promise.allSettled([ready, language, router.isReady()]).then(() => {
   // Ionic reads its settings when installed, so it waits for the texts (the back button's word).
   app.use(IonicVue, ionicConfig(t("common.back"), isPlatform("ios")));

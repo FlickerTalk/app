@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonIcon, IonList, IonToggle } from "@ionic/vue";
+import { IonIcon, IonList, IonNote, IonToggle } from "@ionic/vue";
 import { addCircleOutline, downloadOutline } from "ionicons/icons";
 import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
@@ -160,6 +160,48 @@ describe("PluginsPage", () => {
     await flushPromises();
     expect(calls).toContainEqual(["core_plugin_add", { plugin: "com.flickertalk.sketch" }]);
     expect(calls.filter(([command]) => command === "core_plugins").length).toBeGreaterThan(1);
+  });
+
+  // app#75: offline, the install was rejected and the screen showed nothing; the tap seemed lost.
+  it("says so when a tool cannot be installed", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_plugins") return [CODE, AI];
+      if (command === "core_catalogue") return OFFERED;
+      if (command === "core_plugin_add") throw new Error("download failed");
+      return undefined;
+    });
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[data-test='install-com.flickertalk.ocr']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[role='alert']").text()).toBe("The tool could not be installed. Check your connection and try again.");
+    // An Ionic note in the palette's danger colour, not a hand-made paragraph.
+    const note = wrapper.findAllComponents(IonNote).find((one) => one.attributes("role") === "alert");
+    expect(note?.props("color")).toBe("danger");
+    // The tool is still offered, so the user can try again once the network is back.
+    expect(wrapper.find("[data-test='install-com.flickertalk.ocr']").attributes("disabled")).toBeUndefined();
+  });
+
+  it("shows that it is installing until the core answers", async () => {
+    let finish = () => {};
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_plugins") return [CODE, AI];
+      if (command === "core_catalogue") return OFFERED;
+      if (command === "core_plugin_add") return new Promise<void>((resolve) => (finish = resolve));
+      return undefined;
+    });
+    const wrapper = mount(PluginsPage, { shallow: true });
+    await flushPromises();
+    const button = () => wrapper.find("[data-test='install-com.flickertalk.ocr']");
+    await button().trigger("click");
+    await flushPromises();
+    expect(button().attributes("disabled")).toBeDefined();
+    expect(button().attributes("aria-busy")).toBe("true");
+    finish();
+    await flushPromises();
+    expect(button().attributes("aria-busy")).toBeUndefined();
   });
 
   // What is downloaded says what it will cost; what the app already carries costs nothing and

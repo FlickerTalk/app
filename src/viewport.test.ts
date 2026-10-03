@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // Samsung S20+): neither WebView shrinks the page for the keyboard. Only the visual viewport
 // shrinks, and the WebView pans it to show the focused field, which pushed the chat's header off
 // the screen. The app follows the visual viewport instead: it is as tall as what can be seen.
-import { fitViewport, isAtEnd, startViewportFit, stickToEnd, watchViewport } from "./viewport";
+import { fitViewport, followEnd, isAtEnd, startViewportFit, stickToEnd, watchViewport } from "./viewport";
 
 describe("fitting the app to the visible area", () => {
   it("takes the whole page while no keyboard is up", () => {
@@ -56,6 +56,93 @@ describe("staying at the end of a conversation", () => {
 
   it("is at the end when everything fits", () => {
     expect(isAtEnd({ scrollHeight: 500, clientHeight: 800, scrollTop: 0 })).toBe(true);
+  });
+});
+
+/** A ResizeObserver the test drives: `resize()` is the browser saying a watched box changed size. */
+class FakeResizeObserver {
+  static last: FakeResizeObserver | null = null;
+  watched: Element[] = [];
+  constructor(private readonly callback: ResizeObserverCallback) {
+    FakeResizeObserver.last = this;
+  }
+  observe(element: Element) {
+    this.watched.push(element);
+  }
+  unobserve() {}
+  disconnect() {
+    this.watched = [];
+  }
+  resize() {
+    if (this.watched.length) this.callback([], this as unknown as ResizeObserver);
+  }
+}
+
+/** A scroller with the numbers a test sets, which says when it is scrolled, as a browser does. */
+function fakeScroller(scrollHeight: number, clientHeight: number, scrollTop: number) {
+  const element = document.createElement("div");
+  const box = { scrollHeight, clientHeight, scrollTop };
+  Object.defineProperty(element, "scrollHeight", { get: () => box.scrollHeight });
+  Object.defineProperty(element, "clientHeight", { get: () => box.clientHeight });
+  Object.defineProperty(element, "scrollTop", {
+    get: () => box.scrollTop,
+    set: (top: number) => (box.scrollTop = Math.max(0, Math.min(top, box.scrollHeight - box.clientHeight))),
+  });
+  return { element, box, scroll: (top: number) => ((element.scrollTop = top), element.dispatchEvent(new Event("scroll"))) };
+}
+
+// app#81 (iPhone 13 mini, 2026-10-03): the thread opened 60 px short of its end. The footer, its
+// home indicator's band or the last message took their final size only after the scroll to the
+// end. A thread at its end stays there while what is around it settles.
+describe("following the end of a conversation while it settles", () => {
+  const Observer = FakeResizeObserver as unknown as typeof ResizeObserver;
+  const list = document.createElement("div");
+
+  it("watches the scroller and its list", () => {
+    const { element } = fakeScroller(2000, 800, 1200);
+    const stop = followEnd(element, list, Observer);
+    expect(FakeResizeObserver.last!.watched).toEqual([element, list]);
+    stop();
+  });
+
+  it("brings the end back when the footer grows or the last message grows", () => {
+    const { element, box } = fakeScroller(2000, 800, 1200);
+    const stop = followEnd(element, list, Observer);
+    // The footer 60 px taller: the scroller shows 60 px less, from the same top.
+    box.clientHeight = 740;
+    FakeResizeObserver.last!.resize();
+    expect(box.scrollTop).toBe(1260);
+    // A card or a picture that grows at the end.
+    box.scrollHeight = 2200;
+    FakeResizeObserver.last!.resize();
+    expect(box.scrollTop).toBe(1460);
+    stop();
+  });
+
+  it("leaves where it was a conversation scrolled back in time on purpose", () => {
+    const { element, box, scroll } = fakeScroller(2000, 800, 1200);
+    const stop = followEnd(element, list, Observer);
+    scroll(300);
+    box.clientHeight = 740;
+    box.scrollHeight = 2200;
+    FakeResizeObserver.last!.resize();
+    expect(box.scrollTop).toBe(300);
+    // Back at the end, by hand: followed again.
+    scroll(1460);
+    box.scrollHeight = 2400;
+    FakeResizeObserver.last!.resize();
+    expect(box.scrollTop).toBe(1660);
+    stop();
+  });
+
+  it("stops following when asked", () => {
+    const { element, box } = fakeScroller(2000, 800, 1200);
+    const stop = followEnd(element, list, Observer);
+    const observer = FakeResizeObserver.last!;
+    stop();
+    box.clientHeight = 740;
+    observer.resize();
+    expect(box.scrollTop).toBe(1200);
   });
 });
 

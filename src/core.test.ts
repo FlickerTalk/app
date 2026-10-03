@@ -19,6 +19,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import * as core from "./core";
+import { setLocale } from "./i18n";
 
 const at = (hours: number, minutes: number) => new Date(2026, 8, 22, hours, minutes).getTime();
 
@@ -213,6 +214,35 @@ describe("core bridge", () => {
       "48 MB",
       "2.3 GB",
     ]);
+  });
+
+  // app#74: a size is written in the phone's number format ("1,5 KB" in Spanish, not "1.5 KB").
+  it("writes sizes in the number format of the app's language", async () => {
+    await setLocale("es");
+    try {
+      expect([1_500, 2_300_000_000, 48_000_000].map((bytes) => core.formatSize(bytes))).toEqual(["1,5 KB", "2,3 GB", "48 MB"]);
+    } finally {
+      await setLocale("en");
+    }
+  });
+
+  // app#74: the download limits are round decimal sizes, read "10 MB", "100 MB" and "1 GB".
+  it("offers round download limits", () => {
+    expect(core.AUTO_DOWNLOAD_CHOICES.map((bytes) => core.formatSize(bytes)).slice(1, -1)).toEqual(["10 MB", "100 MB", "1 GB"]);
+  });
+
+  // app#74: a limit saved before the sizes were decimal (10, 100 or 1024 × 1024² bytes, and the
+  // core's own default) shows as the nearest choice, so nobody's setting disappears from the list.
+  it("shows a limit saved in binary sizes as the nearest choice", () => {
+    const MiB = 1024 * 1024;
+    expect([0, 10 * MiB, 100 * MiB, 1024 * MiB, Number.MAX_SAFE_INTEGER].map(core.autoDownloadChoice)).toEqual([
+      0,
+      10_000_000,
+      100_000_000,
+      1_000_000_000,
+      Number.MAX_SAFE_INTEGER,
+    ]);
+    expect(core.AUTO_DOWNLOAD_CHOICES.map(core.autoDownloadChoice)).toEqual([...core.AUTO_DOWNLOAD_CHOICES]);
   });
 
   // §36: a report goes by email, outside the messaging system, and only with what the user

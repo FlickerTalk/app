@@ -188,7 +188,9 @@
   },
   "blocked": {
     "title": "Bloqués",
-    "empty": "Personne n’est bloqué"
+    "empty": "Personne n’est bloqué",
+    "notice": "Vous avez bloqué ce contact",
+    "hint": "Débloquez-le pour lui écrire et recevoir ses messages et ses appels."
   },
   "settings": {
     "title": "Paramètres",
@@ -287,6 +289,7 @@
     "none": "Aucun plugin",
     "available": "Outils à ajouter",
     "install": "Installer",
+    "installFailed": "Impossible d’installer l’outil. Vérifiez votre connexion et réessayez.",
     "live": "Parler au même plugin de l'autre côté de la conversation",
     "remind": "Programmer des rappels sur ce téléphone",
     "drive": "Garder des fichiers dans votre propre cloud",

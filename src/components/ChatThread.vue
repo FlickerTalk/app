@@ -70,6 +70,7 @@ import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant } from "../g
 import {
   acceptContact,
   acceptFile,
+  block,
   chat as chatOf,
   forgetMessage,
   forwardMessage,
@@ -156,10 +157,22 @@ async function blockRequest() {
 const draft = ref("");
 const router = useRouter();
 
+/**
+ * Whether the user can see the conversation now (architecture#21): its page is the one on screen
+ * and the app is in front. Android keeps the page mounted behind the home screen, and a message
+ * that wakes the core there must not tell its sender it was read.
+ */
+const seen = () => props.active && document.visibilityState === "visible";
+
 // Plan §38: what is on screen has been read; new messages arriving while it is open too.
 async function show() {
   await loadMessages(props.chatId);
-  await markRead(props.chatId);
+  if (seen()) await markRead(props.chatId);
+}
+/** Back in front of the user, the app or the page: what arrived meanwhile is read now. */
+function readOnReturn() {
+  // Behind a game only the latest line shows: read once the thread is (§84).
+  if (seen() && !(playing.value && !peeking.value)) void markRead(props.chatId);
 }
 
 async function send() {
@@ -687,8 +700,11 @@ watch(
 );
 
 function onVisible() {
-  if (document.visibilityState === "visible") void refreshPlugins();
+  if (document.visibilityState !== "visible") return;
+  void refreshPlugins();
+  readOnReturn();
 }
+watch(() => props.active, readOnReturn);
 
 async function save(id: string) {
   await saveFile(id);
@@ -696,7 +712,8 @@ async function save(id: string) {
 }
 
 const content = ref<Scrollable | null>(null);
-useStickToEnd(content);
+const list = ref<HTMLElement | null>(null);
+useStickToEnd(content, list);
 
 async function scrollToEnd() {
   await nextTick();
@@ -718,14 +735,14 @@ watch(
     await scrollToEnd();
   },
 );
-// Unconditional: the list's unread count may still be stale when a new message shows up, and
-// the core does nothing when there is nothing to mark.
+// Whatever the list's unread count says, which may still be stale when a new message shows up:
+// the core does nothing when there is nothing to mark. Only while the user sees it (`seen`).
 watch(
   () => messages.value.length,
   async () => {
     // Behind a game only the latest line shows: read once the thread is (§84).
     if (playing.value && !peeking.value) return;
-    await markRead(props.chatId);
+    if (seen()) await markRead(props.chatId);
     await scrollToEnd();
   },
 );
@@ -912,23 +929,26 @@ watch(
     />
 
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
-      <template v-for="(message, index) in messages" :key="message.id">
-        <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
-        <MessageBubble
-          :message="message"
-          :saved="saved.has(message.id)"
-          :folded="folded.has(message.id)"
-          games
-          @open="tapFile"
-          @save="save"
-          @download="download"
-          @actions="act"
-          @resend="resendMessage"
-          @play="playGame"
-        />
-      </template>
+      <!-- One box for the messages: its size is followed to keep the end in sight (app#81). -->
+      <div ref="list">
+        <template v-for="(message, index) in messages" :key="message.id">
+          <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
+          <MessageBubble
+            :message="message"
+            :saved="saved.has(message.id)"
+            :folded="folded.has(message.id)"
+            games
+            @open="tapFile"
+            @save="save"
+            @download="download"
+            @actions="act"
+            @resend="resendMessage"
+            @play="playGame"
+          />
+        </template>
 
-      <div class="ft-thread__end" />
+        <div class="ft-thread__end" />
+      </div>
     </ion-content>
 
     <!-- What can be done with the message that was pressed (§61). -->
@@ -1024,6 +1044,15 @@ watch(
             </button>
           </div>
         </div>
+      </div>
+    </ion-footer>
+    <!-- app#78: nothing can be sent to someone blocked; it would wait forever. -->
+    <ion-footer v-else-if="chat.blocked" class="ion-no-border">
+      <div class="ft-request" data-test="blocked-panel">
+        <p class="ft-request__text">{{ $t("blocked.notice") }}</p>
+        <ion-button class="ion-align-self-center" fill="outline" shape="round" data-test="unblock" @click="block(chatId, false)">
+          {{ $t("contact.unblock") }}
+        </ion-button>
       </div>
     </ion-footer>
     <ion-footer v-else class="ion-no-border">
@@ -1357,6 +1386,13 @@ watch(
 .ft-composer {
   padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
   background: var(--ft-bg);
+}
+/* The emoji open (app#72): the home indicator's band goes under the panel, not between it and the
+   message box. The panel rises over the composer's band and carries the band itself; a sibling
+   selector, not `:has()`, which iOS 15.0–15.3 lacks. */
+.ft-composer + .ft-emoji {
+  margin-top: calc(-1 * var(--ion-safe-area-bottom, 0px));
+  padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 .ft-composer__row {
   display: flex;

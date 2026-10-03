@@ -144,6 +144,63 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
   });
 
+  // architecture#21: on Android the page stays mounted with the app behind the home screen, and a
+  // message that woke the core was told to its sender as read, though nobody had seen it.
+  describe("read receipts only for what is on screen", () => {
+    let visibility: DocumentVisibilityState = "visible";
+    const setVisibility = (state: DocumentVisibilityState) => {
+      visibility = state;
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+    };
+    afterEach(() => Reflect.deleteProperty(document, "visibilityState"));
+    const arrive = () => chat("c1")?.messages.push({ id: "new", mine: false, text: "still there?", time: "09:50", sentAt: Date.now() });
+    const markedRead = () => calls.some(([command]) => command === "core_mark_read");
+
+    it("does not mark read a message that arrives while the app is in the background", async () => {
+      mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      setVisibility("hidden");
+      calls.length = 0;
+      arrive();
+      await flushPromises();
+      expect(markedRead()).toBe(false);
+    });
+
+    it("marks it read once the app is back on the screen", async () => {
+      mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      setVisibility("hidden");
+      arrive();
+      await flushPromises();
+      calls.length = 0;
+      setVisibility("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+      await flushPromises();
+      expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+    });
+
+    it("does not mark the conversation read when it opens with the app in the background", async () => {
+      setVisibility("hidden");
+      mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      expect(markedRead()).toBe(false);
+    });
+
+    it("waits while another page covers the conversation and marks read once it is back", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", active: true }, shallow: true });
+      await flushPromises();
+      await wrapper.setProps({ active: false });
+      calls.length = 0;
+      arrive();
+      await flushPromises();
+      expect(markedRead()).toBe(false);
+
+      await wrapper.setProps({ active: true });
+      await flushPromises();
+      expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+    });
+  });
+
   it("sends what is written and clears the composer", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "  hello there ");
@@ -634,6 +691,31 @@ describe("ChatThread", () => {
     await tapped(wrapper, "m4");
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
     expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+  });
+
+  // app#78 (Samsung, 2026-10-03): with a blocked contact, a message waited forever and nothing said
+  // why. The composer gives way to a notice and a way to unblock them.
+  describe("with a contact who is blocked", () => {
+    beforeEach(() => {
+      store.chats[0].blocked = true;
+    });
+
+    it("shows a notice and Unblock instead of the composer", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      const panel = wrapper.find("[data-test='blocked-panel']");
+      expect(panel.exists()).toBe(true);
+      expect(panel.text()).toContain("You blocked this contact");
+      expect(wrapper.findComponent(IonTextarea).exists()).toBe(false);
+    });
+
+    it("unblocks them from the notice", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await wrapper.find("[data-test='unblock']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_block", { contact: "c1", blocked: false }]);
+    });
   });
 
   // A5, as WhatsApp does it (2026-09-28): a stranger who wrote first is answered from the
