@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from "vue";
-import { IonContent, IonIcon, IonPage, onIonViewDidEnter, onIonViewWillLeave } from "@ionic/vue";
+import { IonButton, IonContent, IonIcon, IonPage, onIonViewDidEnter, onIonViewWillLeave } from "@ionic/vue";
 import {
   callOutline,
   cameraReverseOutline,
+  chevronDown,
   micOffOutline,
   micOutline,
   pauseCircleOutline,
@@ -198,7 +199,8 @@ onMounted(() => {
 // (opened from a notification, or reloaded), to the conversation. Hanging up always leaves, even
 // when the call already ended on its own ("Unreachable"): the screen used to stay there.
 // Leaving keeps the call (2026-09-29): the call bar shows it and my camera is held; only the
-// hang-up button ends it. Android's back button leaves the same way, never out of the app.
+// hang-up button ends it. Android's back button leaves the same way, never out of the app, and
+// so does the on-screen button at the top (2026-10-03): tablets and iPhones have no back button.
 let left = false;
 let leaving: ReturnType<typeof setTimeout> | undefined;
 function leave() {
@@ -244,6 +246,16 @@ watch(
         class="ft-call__body"
         :class="native ? { 'is-video': stage, 'is-live': stage } : { 'is-video': isVideo, 'is-live': Boolean(call.remote) }"
       >
+        <ion-button
+          v-if="call.phase !== 'ended'"
+          class="ft-call__minimize"
+          fill="clear"
+          shape="round"
+          :aria-label="$t('calls.minimize')"
+          @click="leave"
+        >
+          <ion-icon slot="icon-only" :icon="chevronDown" aria-hidden="true" />
+        </ion-button>
         <div v-if="native" class="ft-call__stage" :data-test="stage ? 'video' : undefined">
           <div v-if="showRemote" ref="remoteSlot" class="ft-call__slot ft-call__slot--remote" data-test="remote-slot">
             <p v-if="call.view.remotePaused" class="ft-call__paused" data-test="remote-paused">
@@ -400,6 +412,18 @@ watch(
   min-height: 100%;
   padding: calc(env(safe-area-inset-top) + var(--ft-space-5)) var(--ft-space-4)
     calc(var(--ion-safe-area-bottom, 0px) + var(--ft-space-5));
+}
+
+/* Leaves the screen and keeps the call, like Android's back button: top corner, inline start. */
+.ft-call__minimize {
+  position: absolute;
+  z-index: 1;
+  top: calc(env(safe-area-inset-top) + var(--ft-space-2));
+  inset-inline-start: calc(max(env(safe-area-inset-left), env(safe-area-inset-right)) + var(--ft-space-2));
+  /* Ionic's medium, not the color prop: a colored clear button drops its background, and the
+     button needs one to show over the pictures. */
+  --color: var(--ion-color-medium);
+  --background: rgba(var(--ion-color-medium-rgb), 0.18);
 }
 
 .ft-call__video {
