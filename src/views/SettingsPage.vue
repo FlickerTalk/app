@@ -260,6 +260,7 @@ function chooseAppearance(id: Appearance) {
               data-test="auto-download"
               :aria-label="$t('settings.autoDownload')"
               interface="action-sheet"
+              :cancel-text="$t('common.cancel')"
               @ion-change="onAutoDownloadChange"
             >
               <div slot="label">{{ $t("settings.autoDownload") }}</div>
@@ -299,6 +300,7 @@ function chooseAppearance(id: Appearance) {
               :value="callRouting"
               :aria-label="$t('settings.calls')"
               interface="action-sheet"
+              :cancel-text="$t('common.cancel')"
               @ion-change="onCallRoutingChange"
             >
               <div slot="label">{{ $t("settings.calls") }}</div>
