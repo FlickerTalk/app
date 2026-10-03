@@ -40,3 +40,55 @@ test("the emoji panel sits right under the message box, and the home indicator's
   expect((await edges(app, ".ft-emoji__grid")).bottom).toBeLessThanOrEqual(height - INSET);
   expect(panel.bottom).toBe(height);
 });
+
+/** How far the thread is from its end: 0 when its last pixel shows. */
+async function gapToEnd(app: Page) {
+  return app.locator(".ft-thread ion-content").evaluate(async (content) => {
+    const scroller = await (content as HTMLIonContentElement).getScrollElement();
+    return Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
+  });
+}
+
+test.describe("a conversation longer than the screen", () => {
+  test.beforeEach(async ({ app }) => {
+    await app.addInitScript(() => ((window as unknown as Record<string, unknown>).__ftFakeLongChat = 40));
+  });
+
+  // On the iPhone the thread stopped 60 px short: the footer, its home indicator's band or the last
+  // message took their final height only after the scroll to the end. Played here by growing them
+  // once the thread is at its end.
+  async function openAtEnd(app: Page) {
+    await app.goto("/tabs/chats");
+    await app.getByTestId("chat-row").filter({ hasText: "Bob" }).first().click();
+    await expect(app.locator(".ft-thread").getByTestId("bubble").last()).toBeVisible();
+    await expect.poll(() => gapToEnd(app)).toBeLessThanOrEqual(1);
+  }
+
+  test("opens at its end, the last message above the message box (app#81)", async ({ app }) => {
+    await openAtEnd(app);
+    const bubble = (await app.locator(".ft-thread").getByTestId("bubble").last().boundingBox())!;
+    const footer = (await app.locator(".ft-thread ion-footer").boundingBox())!;
+    expect(bubble.y + bubble.height).toBeLessThanOrEqual(footer.y);
+  });
+
+  test("stays at its end when the footer grows after it opened (app#81)", async ({ app }) => {
+    await openAtEnd(app);
+    await app.evaluate(() => document.documentElement.style.setProperty("--ion-safe-area-bottom", "94px"));
+    await expect.poll(() => gapToEnd(app)).toBeLessThanOrEqual(1);
+  });
+
+  test("stays at its end when its last message grows after it opened, as a card or a picture does (app#81)", async ({ app }) => {
+    await openAtEnd(app);
+    await app.locator(".ft-thread").getByTestId("bubble").last().evaluate((bubble) => ((bubble as HTMLElement).style.minHeight = "200px"));
+    await expect.poll(() => gapToEnd(app)).toBeLessThanOrEqual(1);
+  });
+
+  test("scrolled back on purpose, is not taken to its end when the footer grows (app#81)", async ({ app }) => {
+    await openAtEnd(app);
+    await app.locator(".ft-thread ion-content").evaluate(async (content) => ((await (content as HTMLIonContentElement).getScrollElement()).scrollTop = 200));
+    await expect.poll(() => gapToEnd(app)).toBeGreaterThan(1000);
+    await app.evaluate(() => document.documentElement.style.setProperty("--ion-safe-area-bottom", "94px"));
+    await app.waitForTimeout(300);
+    expect(await gapToEnd(app)).toBeGreaterThan(1000);
+  });
+});
