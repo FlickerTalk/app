@@ -156,10 +156,22 @@ async function blockRequest() {
 const draft = ref("");
 const router = useRouter();
 
+/**
+ * Whether the user can see the conversation now (architecture#21): its page is the one on screen
+ * and the app is in front. Android keeps the page mounted behind the home screen, and a message
+ * that wakes the core there must not tell its sender it was read.
+ */
+const seen = () => props.active && document.visibilityState === "visible";
+
 // Plan §38: what is on screen has been read; new messages arriving while it is open too.
 async function show() {
   await loadMessages(props.chatId);
-  await markRead(props.chatId);
+  if (seen()) await markRead(props.chatId);
+}
+/** Back in front of the user, the app or the page: what arrived meanwhile is read now. */
+function readOnReturn() {
+  // Behind a game only the latest line shows: read once the thread is (§84).
+  if (seen() && !(playing.value && !peeking.value)) void markRead(props.chatId);
 }
 
 async function send() {
@@ -687,8 +699,11 @@ watch(
 );
 
 function onVisible() {
-  if (document.visibilityState === "visible") void refreshPlugins();
+  if (document.visibilityState !== "visible") return;
+  void refreshPlugins();
+  readOnReturn();
 }
+watch(() => props.active, readOnReturn);
 
 async function save(id: string) {
   await saveFile(id);
@@ -718,14 +733,14 @@ watch(
     await scrollToEnd();
   },
 );
-// Unconditional: the list's unread count may still be stale when a new message shows up, and
-// the core does nothing when there is nothing to mark.
+// Whatever the list's unread count says, which may still be stale when a new message shows up:
+// the core does nothing when there is nothing to mark. Only while the user sees it (`seen`).
 watch(
   () => messages.value.length,
   async () => {
     // Behind a game only the latest line shows: read once the thread is (§84).
     if (playing.value && !peeking.value) return;
-    await markRead(props.chatId);
+    if (seen()) await markRead(props.chatId);
     await scrollToEnd();
   },
 );
