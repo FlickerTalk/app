@@ -209,3 +209,31 @@ describe("i18n", () => {
     expect(document.documentElement.dir).toBe("ltr");
   });
 });
+
+// Seen on a phone in Spanish (app#73): an action-sheet select ends with Ionic's own "Cancel", in
+// English whatever the language, unless the select names that button itself.
+describe("option sheets", () => {
+  const pages = import.meta.glob<string>("./**/*.vue", {
+    eager: true,
+    query: "?raw",
+    import: "default",
+  });
+  // The opening tag of every select, attributes in quotes included (they may hold a `>`).
+  const selects = Object.entries(pages).flatMap(([path, source]) =>
+    [...source.matchAll(/<ion-select\b((?:"[^"]*"|'[^']*'|[^'">])*)>/g)].map(
+      (match) => [path, match[1]] as const,
+    ),
+  );
+  const sheets = selects.filter(([, attributes]) => /\binterface="action-sheet"/.test(attributes));
+
+  it("finds the action-sheet selects of the app", () => {
+    expect(sheets.length).toBeGreaterThan(0);
+  });
+
+  it("gives every action sheet a Cancel button in the phone's language", () => {
+    const untranslated = sheets
+      .filter(([, attributes]) => !attributes.includes(`:cancel-text="$t('common.cancel')"`))
+      .map(([path]) => path);
+    expect(untranslated).toEqual([]);
+  });
+});
