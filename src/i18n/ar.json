@@ -365,7 +365,12 @@
       "joined": "{who} أضاف {what}",
       "left": "{what} غادر",
       "removed": "{who} أزال {what}",
-      "renamed": "{who} غيّر اسم الدائرة إلى «{what}»"
+      "renamed": "{who} غيّر اسم الدائرة إلى «{what}»",
+      "createdByMe": "أنشأت الدائرة «{what}»",
+      "joinedByMe": "أضفت {what}",
+      "leftByMe": "غادرت الدائرة",
+      "removedByMe": "أزلت {what}",
+      "renamedByMe": "غيّرت اسم الدائرة إلى «{what}»"
     }
   },
   "backup": {

@@ -365,7 +365,12 @@
       "joined": "{who} a ajouté {what}",
       "left": "{what} est parti",
       "removed": "{who} a retiré {what}",
-      "renamed": "{who} a renommé le cercle « {what} »"
+      "renamed": "{who} a renommé le cercle « {what} »",
+      "createdByMe": "Vous avez créé le cercle « {what} »",
+      "joinedByMe": "Vous avez ajouté {what}",
+      "leftByMe": "Vous avez quitté le cercle",
+      "removedByMe": "Vous avez retiré {what}",
+      "renamedByMe": "Vous avez renommé le cercle « {what} »"
     }
   },
   "backup": {

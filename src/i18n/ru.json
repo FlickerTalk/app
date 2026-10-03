@@ -365,7 +365,12 @@
       "joined": "{who}: добавлен участник {what}",
       "left": "{what} больше не в кругу",
       "removed": "{who}: удалён участник {what}",
-      "renamed": "{who}: круг переименован в «{what}»"
+      "renamed": "{who}: круг переименован в «{what}»",
+      "createdByMe": "Вы создали круг «{what}»",
+      "joinedByMe": "Вы добавили участника {what}",
+      "leftByMe": "Вы вышли из круга",
+      "removedByMe": "Вы удалили участника {what}",
+      "renamedByMe": "Вы переименовали круг в «{what}»"
     }
   },
   "backup": {

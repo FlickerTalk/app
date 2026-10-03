@@ -365,7 +365,12 @@
       "joined": "{who} 將 {what} 加入了圈子",
       "left": "{what} 離開了圈子",
       "removed": "{who} 將 {what} 移出了圈子",
-      "renamed": "{who} 將圈子名稱改為「{what}」"
+      "renamed": "{who} 將圈子名稱改為「{what}」",
+      "createdByMe": "你建立了圈子「{what}」",
+      "joinedByMe": "你將 {what} 加入了圈子",
+      "leftByMe": "你離開了圈子",
+      "removedByMe": "你將 {what} 移出了圈子",
+      "renamedByMe": "你將圈子名稱改為「{what}」"
     }
   },
   "backup": {

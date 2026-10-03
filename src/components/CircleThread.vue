@@ -37,10 +37,13 @@ async function send() {
   await sendCircleText(props.circleId, text);
 }
 
-/** What happened, as a sentence: who did it, and to whom or what. */
+/**
+ * What happened, as a sentence: who did it, and to whom or what. What I did has its own sentence
+ * in the first person (app#79): "you" as the subject of another's sentence only reads in English.
+ */
 function eventText(message: CircleMessage): string {
-  const who = message.mine ? t("circle.you") : message.senderName;
-  return t(`circle.events.${message.kind}`, { who, what: message.text });
+  if (message.mine) return t(`circle.events.${message.kind}ByMe`, { what: message.text });
+  return t(`circle.events.${message.kind}`, { who: message.senderName, what: message.text });
 }
 
 const content = ref<Scrollable | null>(null);

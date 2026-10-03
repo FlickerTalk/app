@@ -365,7 +365,12 @@
       "joined": "{who} added {what}",
       "left": "{what} left",
       "removed": "{who} removed {what}",
-      "renamed": "{who} renamed the circle to «{what}»"
+      "renamed": "{who} renamed the circle to «{what}»",
+      "createdByMe": "You created the circle «{what}»",
+      "joinedByMe": "You added {what}",
+      "leftByMe": "You left the circle",
+      "removedByMe": "You removed {what}",
+      "renamedByMe": "You renamed the circle to «{what}»"
     }
   },
   "backup": {

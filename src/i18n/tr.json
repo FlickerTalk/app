@@ -365,7 +365,12 @@
       "joined": "{who}, {what} adlı kişiyi ekledi",
       "left": "{what} ayrıldı",
       "removed": "{who}, {what} adlı kişiyi çıkardı",
-      "renamed": "{who}, çevrenin adını “{what}” olarak değiştirdi"
+      "renamed": "{who}, çevrenin adını “{what}” olarak değiştirdi",
+      "createdByMe": "“{what}” çevresini oluşturdunuz",
+      "joinedByMe": "{what} adlı kişiyi eklediniz",
+      "leftByMe": "Çevreden ayrıldınız",
+      "removedByMe": "{what} adlı kişiyi çıkardınız",
+      "renamedByMe": "Çevrenin adını “{what}” olarak değiştirdiniz"
     }
   },
   "backup": {
