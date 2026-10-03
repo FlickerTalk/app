@@ -58,3 +58,12 @@ export async function setLocale(locale: Locale): Promise<void> {
   document.documentElement.lang = locale;
   document.documentElement.dir = isRtl(locale) ? "rtl" : "ltr";
 }
+
+/** What `followPhoneLanguage` reads the phone's languages from and listens on. */
+export type LanguageSource = Pick<Window, "addEventListener"> & { navigator: Pick<Navigator, "languages" | "language"> };
+
+/** The texts follow the phone's language. */
+export function followPhoneLanguage(source: LanguageSource = window): Promise<void> {
+  const { navigator } = source;
+  return setLocale(pickLocale(navigator.languages ?? [navigator.language]));
+}

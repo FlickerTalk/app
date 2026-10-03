@@ -113,6 +113,19 @@ class PlatformPluginTest {
         assertTrue(prompt.shouldAsk(33, granted = false))
     }
 
+    // app#82 (2026-10-03): a recreated activity gets a new WebView, but the plugins keep the first
+    // activity and its WebView, so the old page lived on with the bridge. A change of language
+    // (Android flags locale and layoutDirection together) must not recreate the app's activity.
+    @Test
+    fun aLanguageChangeDoesNotRecreateTheAppActivity() {
+        val nodes = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("../../gen/android/app/src/main/AndroidManifest.xml")).getElementsByTagName("activity")
+        val main = (0 until nodes.length).map { nodes.item(it) as Element }
+            .first { it.getAttribute("android:name") == ".MainActivity" }
+        val handled = main.getAttribute("android:configChanges").split("|").toSet()
+        assertTrue(handled.toString(), handled.containsAll(setOf("locale", "layoutDirection", "uiMode", "orientation", "screenSize")))
+    }
+
     // The sealed storage key: the 12-byte GCM nonce, then the ciphertext with its tag.
     @Test
     fun aSealedKeySplitsIntoNonceAndCiphertext() {

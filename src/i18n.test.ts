@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { i18n, isRtl, type Locale, LOCALES, pickLocale, setLocale, t } from "./i18n";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { followPhoneLanguage, i18n, isRtl, type Locale, LOCALES, pickLocale, setLocale, t } from "./i18n";
 import en from "./i18n/en.json";
 
 function leaves(node: unknown, path: string[] = []): [string, unknown][] {
@@ -207,5 +207,24 @@ describe("i18n", () => {
     await setLocale("en");
     expect(t("tabs.settings")).toBe("Settings");
     expect(document.documentElement.dir).toBe("ltr");
+  });
+
+  it("starts in the phone's language", async () => {
+    const phone = Object.assign(new EventTarget(), { navigator: { languages: ["es-ES"], language: "es-ES" } });
+    await followPhoneLanguage(phone);
+    expect(i18n.global.locale.value).toBe("es");
+  });
+
+  // app#82 (2026-10-03): on Android a change of language no longer recreates the activity (that
+  // left the old WebView alive), so the page switches its texts in place when the phone says so.
+  it("follows a change of the phone's language while the app runs", async () => {
+    const phone = Object.assign(new EventTarget(), { navigator: { languages: ["de-DE"], language: "de-DE" } });
+    await followPhoneLanguage(phone);
+    expect(i18n.global.locale.value).toBe("de");
+
+    phone.navigator = { languages: ["ar-EG"], language: "ar-EG" };
+    phone.dispatchEvent(new Event("languagechange"));
+    await vi.waitFor(() => expect(i18n.global.locale.value).toBe("ar"));
+    expect(document.documentElement.dir).toBe("rtl");
   });
 });
