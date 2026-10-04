@@ -198,12 +198,10 @@ impl ContactCard {
         format!("{LINK_PREFIX}{}", URL_SAFE_NO_PAD.encode(self.encode()))
     }
 
+    /// Reads the card from its link, also when the link comes inside pasted text.
     pub fn from_link(link: &str) -> Result<Self> {
-        let encoded = link
-            .trim()
-            .strip_prefix(LINK_PREFIX)
-            .or_else(|| link.trim().strip_prefix(APP_LINK_PREFIX))
-            .ok_or_else(|| anyhow!("not a FlickerTalk contact link"))?;
+        let encoded =
+            payload_after(link, &[LINK_PREFIX, APP_LINK_PREFIX]).ok_or_else(|| anyhow!("not a FlickerTalk contact link"))?;
         Self::decode(&URL_SAFE_NO_PAD.decode(encoded).context("not a FlickerTalk contact link")?)
     }
 
@@ -244,7 +242,7 @@ impl MoveInvite {
     }
 
     pub fn from_link(link: &str) -> Result<Self> {
-        let encoded = link.trim().strip_prefix(MOVE_LINK_PREFIX).ok_or_else(|| anyhow!("not a FlickerTalk move link"))?;
+        let encoded = payload_after(link, &[MOVE_LINK_PREFIX]).ok_or_else(|| anyhow!("not a FlickerTalk move link"))?;
         let bytes = URL_SAFE_NO_PAD.decode(encoded).context("not a FlickerTalk move link")?;
         let wire: MoveInviteWire = ciborium::from_reader(bytes.as_slice()).context("not a FlickerTalk move link")?;
         Ok(Self { card: ContactCard::decode(&wire.card)?, secret: wire.secret })
@@ -274,6 +272,15 @@ pub fn fingerprint(one: &Ed25519PublicKey, other: &Ed25519PublicKey) -> String {
         .map(|pair| format!("{:02x}{:02x}", pair[0], pair[1]))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The base64url run that follows the first of `prefixes` found anywhere in `text`. A link is
+/// often pasted with the message it was shared in, or followed by punctuation or more text.
+fn payload_after<'a>(text: &'a str, prefixes: &[&str]) -> Option<&'a str> {
+    let (start, prefix) = prefixes.iter().filter_map(|prefix| Some((text.find(prefix)?, prefix))).min_by_key(|(start, _)| *start)?;
+    let rest = &text[start + prefix.len()..];
+    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')).unwrap_or(rest.len());
+    Some(&rest[..end])
 }
 
 fn key_bytes(bytes: &[u8]) -> Result<[u8; 32]> {
@@ -449,6 +456,63 @@ mod tests {
     fn links_that_are_not_cards_are_rejected() {
         assert!(ContactCard::from_link("https://flickertalk.com/add#bm90IGEgY2FyZA").is_err());
         assert!(ContactCard::from_link("https://example.com/").is_err());
+    }
+
+    /// How a link reaches the paste field: inside the share sentence, with whatever the chat app
+    /// or the person put around it.
+    fn pasted_forms(link: &str) -> Vec<String> {
+        vec![
+            format!("Add me on FlickerTalk: {link}"),
+            format!("Hi!\nAdd me on FlickerTalk: {link}\nSee you there"),
+            format!("{link}."),
+            format!("({link})"),
+            format!("{link}\n"),
+            format!("  \t{link}  \n"),
+            format!("Add me on FlickerTalk: {link}. Thanks"),
+        ]
+    }
+
+    // The share sheet sends "Add me on FlickerTalk: <link>", and copying the message copies all of
+    // it: the card is found wherever the link sits in the pasted text.
+    #[test]
+    fn a_card_link_is_found_inside_pasted_text() {
+        let card = card_of(&mut Identity::generate());
+        let link = card.to_link();
+        for text in pasted_forms(&link) {
+            assert_eq!(ContactCard::from_link(&text).expect(&text), card, "{text:?}");
+        }
+        let app_link = link.replacen(LINK_PREFIX, APP_LINK_PREFIX, 1);
+        assert_eq!(ContactCard::from_link(&format!("Open {app_link}, please.")).expect("app link"), card);
+    }
+
+    #[test]
+    fn pasted_text_without_a_valid_card_is_rejected() {
+        let error = ContactCard::from_link("Add me on FlickerTalk!").expect_err("no link");
+        assert_eq!(error.to_string(), "not a FlickerTalk contact link");
+        assert!(ContactCard::from_link("Add me on FlickerTalk: https://flickertalk.com/add#garbage.").is_err());
+        assert!(ContactCard::from_link("Add me on FlickerTalk: https://flickertalk.com/add#bm90IGEgY2FyZA").is_err());
+        let invite = MoveInvite::new(card_of(&mut Identity::generate())).to_link();
+        assert!(ContactCard::from_link(&format!("Scan this: {invite}")).is_err(), "a move invite is not a card");
+    }
+
+    #[test]
+    fn a_move_invite_is_found_inside_pasted_text() {
+        let mut identity = Identity::generate();
+        let invite = MoveInvite::new(card_of(&mut identity));
+        for text in pasted_forms(&invite.to_link()) {
+            let back = MoveInvite::from_link(&text).expect(&text);
+            assert_eq!(back.secret, invite.secret, "{text:?}");
+            assert_eq!(back.card.device_id(), identity.device_id(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn pasted_text_without_a_valid_invite_is_rejected() {
+        let error = MoveInvite::from_link("Move to my new phone").expect_err("no link");
+        assert_eq!(error.to_string(), "not a FlickerTalk move link");
+        assert!(MoveInvite::from_link("Move here: https://flickertalk.com/move#garbage.").is_err());
+        let card = card_of(&mut Identity::generate()).to_link();
+        assert!(MoveInvite::from_link(&format!("Add me on FlickerTalk: {card}")).is_err(), "a card is not an invite");
     }
 
     // §29: both phones compute the same safety number and the users compare it in person.
