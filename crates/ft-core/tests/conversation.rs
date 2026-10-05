@@ -1417,6 +1417,44 @@ async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
 }
 
+// 2026-10-05: an emoji on a message reaches the other phone, replaces the one before, and goes
+// away when taken back; one on a message that is not here, or from elsewhere, is nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reaction_reaches_the_other_phone_and_can_be_taken_back() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let message = alice.send_text(&id(&bob), "look at this").await.expect("sends");
+    until("bob has it", || async { texts(&bob, &id(&alice)).await.contains(&"look at this".to_owned()) }).await;
+
+    bob.react(&id(&alice), &message, Some("👍")).await.expect("reacts");
+    assert_eq!(bob.store().reactions(&id(&alice)).await.unwrap()[&message].mine.as_deref(), Some("👍"));
+    until("alice sees it", || async {
+        alice.store().reactions(&id(&bob)).await.unwrap().get(&message).and_then(|r| r.theirs.clone()).as_deref() == Some("👍")
+    })
+    .await;
+
+    bob.react(&id(&alice), &message, Some("❤️")).await.expect("changes");
+    until("alice sees the new one", || async {
+        alice.store().reactions(&id(&bob)).await.unwrap().get(&message).and_then(|r| r.theirs.clone()).as_deref() == Some("❤️")
+    })
+    .await;
+    alice.react(&id(&bob), &message, Some("😂")).await.expect("reacts to her own");
+    until("bob sees hers", || async {
+        bob.store().reactions(&id(&alice)).await.unwrap().get(&message).and_then(|r| r.theirs.clone()).as_deref() == Some("😂")
+    })
+    .await;
+
+    bob.react(&id(&alice), &message, None).await.expect("takes back");
+    until("alice sees it gone", || async { alice.store().reactions(&id(&bob)).await.unwrap().get(&message).is_none_or(|r| r.theirs.is_none()) }).await;
+
+    assert!(bob.react(&id(&alice), &message, Some("not an emoji")).await.is_err(), "a sentence is not a reaction");
+    assert!(bob.react(&id(&alice), "no-such-message", Some("👍")).await.is_err());
+    let carol = device(&net, "Carol").await;
+    pair(&bob, &carol).await;
+    assert!(bob.react(&id(&carol), &message, Some("👍")).await.is_err(), "another conversation's message");
+}
+
 // 2026-10-05: an answer carries the id of the message it answers; the other phone keeps the link,
 // and a message that answers nothing travels exactly as before.
 #[tokio::test(flavor = "multi_thread")]

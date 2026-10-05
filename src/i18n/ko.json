@@ -70,7 +70,10 @@
     "cancelReply": "답장 취소",
     "quoteGone": "메시지가 더 이상 없습니다",
     "you": "나",
-    "them": "상대방"
+    "them": "상대방",
+    "react": "반응",
+    "reactWith": "{emoji}(으)로 반응",
+    "unreact": "반응 지우기"
   },
   "status": {
     "pending": "상대 기기 대기 중",

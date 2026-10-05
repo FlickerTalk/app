@@ -170,6 +170,12 @@ pub(crate) enum Route {
     Unreachable,
 }
 
+/// Whether a text is one emoji, as a reaction is (2026-10-05): short, with nothing blank or
+/// invisible in it. Not a check against Unicode's tables: the other side draws what it gets.
+fn is_reaction(text: &str) -> bool {
+    !text.is_empty() && text.len() <= 32 && text.chars().count() <= 8 && !text.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 pub struct Core {
     store: Store,
     /// Seals the identity and the Olm sessions at rest.
@@ -1025,6 +1031,25 @@ impl Core {
         Ok(())
     }
 
+    /// One emoji on a message of the conversation (2026-10-05), theirs or ours; `None` takes it
+    /// back. Shown here at once, and told to the contact like a receipt: directly, or through
+    /// the mailbox when there is one; a contact out of reach hears nothing.
+    pub async fn react(&self, contact: &str, message_id: &str, emoji: Option<&str>) -> Result<()> {
+        let contact = self.contact(contact).await?;
+        ensure!(contact.accepted && !contact.blocked, "not a conversation to react in");
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        ensure!(message.contact == contact.device_id, "that message is from another conversation");
+        let emoji = emoji.map(str::trim).filter(|emoji| !emoji.is_empty());
+        if let Some(emoji) = emoji {
+            ensure!(is_reaction(emoji), "a reaction is one emoji");
+        }
+        self.store.set_reaction(message_id, true, emoji).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        let packet = Packet::new(Body::Reaction { to: MessageId::parse(message_id)?, emoji: emoji.unwrap_or("").to_owned() });
+        let _ = self.transmit(&contact, &packet).await;
+        Ok(())
+    }
+
     pub async fn block(&self, contact: &str, blocked: bool) -> Result<()> {
         self.store.set_blocked(contact, blocked).await?;
         if blocked {
@@ -1340,8 +1365,18 @@ impl Core {
             Body::Typing if contact.rules.accepts_chat && contact.accepted => {
                 let _ = self.events.send(Event::Typing { contact: id.to_string() });
             }
+            // Their emoji on a message of this conversation (2026-10-05); on anything else, nothing.
+            Body::Reaction { to, emoji } if contact.rules.accepts_chat && contact.accepted => {
+                let to = to.to_string();
+                if self.store.message(&to).await?.is_some_and(|message| message.contact == id) {
+                    let emoji = emoji.trim();
+                    let emoji = (!emoji.is_empty() && is_reaction(emoji)).then_some(emoji);
+                    self.store.set_reaction(&to, false, emoji).await?;
+                    self.announce_messages(contact);
+                }
+            }
             // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
+            Body::Typing | Body::Reaction { .. } | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }

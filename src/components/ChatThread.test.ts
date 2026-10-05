@@ -918,6 +918,36 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-05: an emoji on a message, from the sheet; the same one again takes it back.
+  describe("reacting to a message", () => {
+    it("offers a row of emoji and puts the chosen one on the message", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressed(wrapper);
+      const id = fixture.chats[0].messages[0].id;
+      expect(wrapper.findAll(".ft-actions__react")).toHaveLength(6);
+      await wrapper.find("[data-test='react-👍']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_react", { contact: "c1", message: id, emoji: "👍" }]);
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+    });
+
+    it("takes the emoji back when it is already there", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      const first = chat("c1")!.messages[0];
+      first.reactions = { mine: "👍" };
+      await flushPromises();
+      await pressed(wrapper);
+      const lit = wrapper.find("[data-test='react-👍']");
+      expect(lit.classes()).toContain("is-active");
+      expect(lit.attributes("aria-label")).toBe("Remove reaction");
+      await lit.trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_react", { contact: "c1", message: first.id }]);
+    });
+  });
+
   // 2026-10-05: answering quotes the message; the quote waits in the composer until sent or dropped.
   describe("answering a message", () => {
     const open = async () => {

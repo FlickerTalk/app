@@ -29,6 +29,8 @@ export interface Message {
   file?: TransferredFile;
   /** The message it answers (2026-10-05): a text, a file's name, or one no longer here. */
   quote?: { id: string; text: string; mine: boolean; kind: "text" | "file" | "gone" };
+  /** The emoji each side put on it (2026-10-05). */
+  reactions?: { mine?: string; theirs?: string };
 }
 
 /**
@@ -429,6 +431,11 @@ function open() {
         />
       </span>
     </div>
+    <!-- The emoji on it (2026-10-05), under the bubble's outer corner: theirs first, then mine. -->
+    <span v-if="message.reactions?.mine || message.reactions?.theirs" class="ft-reactions" data-test="reactions">
+      <span v-if="message.reactions?.theirs" class="ft-reactions__one is-theirs" data-test="reaction-theirs">{{ message.reactions.theirs }}</span>
+      <span v-if="message.reactions?.mine" class="ft-reactions__one is-mine" data-test="reaction-mine">{{ message.reactions.mine }}</span>
+    </span>
     <!-- Outside the bubble, so the fold does not hide the sign that it is folded. -->
     <span v-if="folded" class="ft-fold" data-test="folded" :aria-label="t('chat.folded')">⌄</span>
   </div>
@@ -436,6 +443,27 @@ function open() {
 
 <style scoped>
 /* In a circle, who said it, over the text; the colour of a name, not of a message. */
+/* The emoji on a message (2026-10-05): small chips under the bubble, at its outer corner. */
+.ft-reactions {
+  display: flex;
+  gap: 4px;
+  margin-top: -6px;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1;
+}
+.ft-reactions__one {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--ft-surface-2);
+  border: 1px solid var(--ft-border);
+}
+.ft-reactions__one.is-mine {
+  border-color: var(--ft-accent);
+}
+.is-mine .ft-reactions {
+  justify-content: flex-end;
+}
 /* The quote over an answer (2026-10-05): a bar in the other side's colour, the text in one line. */
 .ft-quote {
   appearance: none;

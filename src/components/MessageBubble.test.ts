@@ -59,6 +59,17 @@ describe("MessageBubble", () => {
     });
   });
 
+  // 2026-10-05: the emoji each side put on a message show under it; none, nothing.
+  it("shows the emoji each side put on the message", () => {
+    const both = mount(MessageBubble, { props: { message: { ...base, reactions: { mine: "👍", theirs: "❤️" } } }, shallow: true });
+    expect(both.find("[data-test='reaction-mine']").text()).toBe("👍");
+    expect(both.find("[data-test='reaction-theirs']").text()).toBe("❤️");
+    const theirs = mount(MessageBubble, { props: { message: { ...base, reactions: { theirs: "❤️" } } }, shallow: true });
+    expect(theirs.find("[data-test='reaction-mine']").exists()).toBe(false);
+    expect(theirs.find("[data-test='reaction-theirs']").text()).toBe("❤️");
+    expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='reactions']").exists()).toBe(false);
+  });
+
   // §84: a message the router refused says so, and can be sent again from where it is.
   it("offers to send again a message that was not sent", async () => {
     const wrapper = mount(MessageBubble, { props: { message: { ...base, status: "unsent" } }, shallow: true });

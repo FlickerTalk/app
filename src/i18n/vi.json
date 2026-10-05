@@ -70,7 +70,10 @@
     "cancelReply": "Hủy trả lời",
     "quoteGone": "Tin nhắn không còn nữa",
     "you": "Bạn",
-    "them": "Người kia"
+    "them": "Người kia",
+    "react": "Bày tỏ cảm xúc",
+    "reactWith": "Bày tỏ cảm xúc {emoji}",
+    "unreact": "Bỏ cảm xúc"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

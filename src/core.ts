@@ -38,6 +38,13 @@ export interface ChatMessage {
   file?: ChatFile;
   /** The message this one answers (2026-10-05), shown over the bubble. */
   quote?: Quote;
+  /** The emoji each side put on it (2026-10-05). */
+  reactions?: Reactions;
+}
+
+export interface Reactions {
+  mine?: string;
+  theirs?: string;
 }
 
 /** What an answer quotes: a text, a file's name, or a message no longer here. */
@@ -175,6 +182,7 @@ interface MessageView {
   state: Status;
   file?: FileView;
   quote?: Quote;
+  reactions?: Reactions;
 }
 
 interface ConversationView {
@@ -352,6 +360,7 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
     message.file = toFile(view.file, view.outgoing, connected);
   }
   if (view.quote) message.quote = view.quote;
+  if (view.reactions) message.reactions = view.reactions;
   return message;
 }
 
@@ -979,6 +988,11 @@ export async function subscribe(): Promise<void> {
 }
 
 /** What the user does with one message of theirs (§61). */
+/** One emoji on a message of the conversation (2026-10-05); `null` takes it back. */
+export async function react(contact: string, message: string, emoji: string | null): Promise<void> {
+  await invoke("core_react", emoji ? { contact, message, emoji } : { contact, message });
+}
+
 export async function forgetMessage(message: string): Promise<void> {
   await invoke("core_forget_message", { message });
 }

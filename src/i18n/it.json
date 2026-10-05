@@ -70,7 +70,10 @@
     "cancelReply": "Annulla la risposta",
     "quoteGone": "Messaggio non più disponibile",
     "you": "Tu",
-    "them": "L’altra persona"
+    "them": "L’altra persona",
+    "react": "Reagisci",
+    "reactWith": "Reagisci con {emoji}",
+    "unreact": "Togli la reazione"
   },
   "status": {
     "pending": "In attesa del dispositivo",

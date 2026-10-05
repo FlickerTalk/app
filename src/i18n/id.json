@@ -70,7 +70,10 @@
     "cancelReply": "Batalkan balasan",
     "quoteGone": "Pesan sudah tidak ada",
     "you": "Anda",
-    "them": "Lawan bicara"
+    "them": "Lawan bicara",
+    "react": "Bereaksi",
+    "reactWith": "Bereaksi dengan {emoji}",
+    "unreact": "Hapus reaksi"
   },
   "status": {
     "pending": "Menunggu perangkat",
