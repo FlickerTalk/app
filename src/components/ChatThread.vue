@@ -46,6 +46,7 @@ import {
   openOutline,
   trashOutline,
   videocamOutline,
+  arrowUndoOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
@@ -180,9 +181,31 @@ function readOnReturn() {
 async function send() {
   const text = draft.value.trim();
   if (!text) return;
+  const answering = replying.value?.id;
   draft.value = "";
   emoji.value = false;
-  await sendText(props.chatId, text);
+  replying.value = null;
+  await sendText(props.chatId, text, answering);
+}
+
+// 2026-10-05: answering a message quotes it over the text. The quote shows in the composer until
+// it is sent or dropped; it goes with the conversation it was picked in.
+const replying = ref<ChatMessage | null>(null);
+watch(() => props.chatId, () => (replying.value = null));
+
+function reply() {
+  const id = acting.value;
+  closeActions();
+  replying.value = messages.value.find((message) => message.id === id) ?? null;
+}
+
+/** The quote in the composer: a text, or a file's name. */
+const replyingText = computed(() => (replying.value?.kind === "file" ? replying.value.file?.name ?? "" : replying.value?.text ?? ""));
+
+/** A tap on a quote goes to the message it answers, if it is on the screen. */
+function jumpTo(id: string) {
+  const target = document.querySelector(`[data-message="${CSS.escape(id)}"]`);
+  target?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 // 2026-10-05: while the user writes, the contact hears "typing…", only over the direct connection
@@ -952,6 +975,7 @@ watch(
             @actions="act"
             @resend="resendMessage"
             @play="playGame"
+            @jump="jumpTo"
           />
         </template>
 
@@ -994,6 +1018,10 @@ watch(
         </button>
       </div>
       <div v-else class="ft-actions__bar">
+        <!-- 2026-10-05: answer it, quoting it; not a stranger's message still in the requests. -->
+        <button v-if="!isRequest" type="button" class="ft-round ft-round--ghost" data-test="reply" :aria-label="$t('chat.reply')" @click="reply">
+          <ion-icon :icon="arrowUndoOutline" aria-hidden="true" />
+        </button>
         <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
           <ion-icon :icon="folded.has(acting) ? expandOutline : contractOutline" aria-hidden="true" />
         </button>
@@ -1102,6 +1130,16 @@ watch(
         </button>
       </div>
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
+      <!-- 2026-10-05: the message being answered, until it is sent or dropped. -->
+      <div v-if="replying" class="ft-replying" data-test="replying">
+        <span class="ft-replying__text">
+          <span class="ft-replying__who">{{ replying.mine ? $t("chat.you") : chat?.name }}</span>
+          <span class="ft-replying__quote" dir="auto">{{ replyingText }}</span>
+        </span>
+        <button type="button" class="ft-round ft-round--ghost" data-test="cancel-reply" :aria-label="$t('chat.cancelReply')" @click="replying = null">
+          <ion-icon :icon="closeOutline" aria-hidden="true" />
+        </button>
+      </div>
       <div class="ft-composer">
         <div class="ft-composer__row">
           <div v-if="!playing" class="ft-attach">
@@ -1181,6 +1219,35 @@ watch(
 </template>
 
 <style scoped>
+/* The message being answered (2026-10-05), over the composer. */
+.ft-replying {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--ft-space-4) 6px;
+  padding: 6px 6px 6px 12px;
+  border-inline-start: 3px solid var(--ft-accent);
+  border-radius: 10px;
+  background: var(--ft-surface-2);
+}
+.ft-replying__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ft-replying__who {
+  font-size: var(--ft-font-meta);
+  font-weight: 600;
+  color: var(--ft-accent);
+}
+.ft-replying__quote {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ft-font-meta);
+  color: var(--ft-muted);
+}
 .ft-actions {
   position: fixed;
   inset: 0;

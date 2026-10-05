@@ -1036,15 +1036,29 @@ impl Core {
 
     /// Stores the text and tries to deliver it right away; returns its message id.
     pub async fn send_text(&self, contact: &str, text: &str) -> Result<String> {
+        self.send_text_replying(contact, text, None).await
+    }
+
+    /// Like `send_text`, answering one of the conversation's messages (2026-10-05): the other
+    /// phone shows the quote over the text. The quoted message has to be in this conversation.
+    pub async fn send_text_replying(&self, contact: &str, text: &str, reply_to: Option<&str>) -> Result<String> {
         let text = text.trim();
         if text.is_empty() {
             bail!("nothing to send");
         }
         self.chosen(contact).await?;
+        let reply_to = match reply_to {
+            Some(quoted) => {
+                let quoted_message = self.store.message(quoted).await?.context("the message answered is not here")?;
+                ensure!(quoted_message.contact == contact, "the message answered is from another conversation");
+                Some(MessageId::parse(quoted)?)
+            }
+            None => None,
+        };
         // Answering is always allowed; writing to someone for the first time is starting (§42).
         let started = !self.store.messages(contact, 1).await?.is_empty();
         self.allowed(if started { Doing::Reply } else { Doing::Start }).await?;
-        let packet = Packet::new(Body::Message { text: text.to_owned() });
+        let packet = Packet::new(Body::Message { text: text.to_owned(), reply_to });
         let message_id = packet.id.to_string();
         self.store
             .insert_message(&Message {
@@ -1057,6 +1071,9 @@ impl Core {
                 state: MessageState::Pending,
             })
             .await?;
+        if let Some(quoted) = reply_to {
+            self.store.set_reply(&message_id, &quoted.to_string()).await?;
+        }
         self.store.enqueue(&message_id, contact, now()).await?;
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
 
@@ -1243,7 +1260,7 @@ impl Core {
                 // Chat off (app#5): nothing is kept; they stop retrying and see only sent.
                 let _ = self.send_control(contact, Body::Received { ids: vec![packet.id] }).await;
             }
-            Body::Message { text } => {
+            Body::Message { text, reply_to } => {
                 let stored = self
                     .store
                     .insert_message(&Message {
@@ -1257,6 +1274,11 @@ impl Core {
                     })
                     .await?;
                 if stored {
+                    // What it answers (2026-10-05), as the sender says; the quote shows if the
+                    // message is still here.
+                    if let Some(quoted) = reply_to {
+                        self.store.set_reply(&packet.id.to_string(), &quoted.to_string()).await?;
+                    }
                     self.announce_messages(contact);
                 }
                 // Always acknowledged, even a duplicate: the sender is waiting for it (§27).
@@ -1372,7 +1394,11 @@ impl Core {
         if let Some(file) = self.store.file(&entry.message_id).await? {
             return self.deliver_file(entry, &contact, &message, &file).await;
         }
-        let packet = Packet::resend(MessageId::parse(&message.message_id)?, message.sent_at as u64, Body::Message { text: message.body });
+        let reply_to = match self.store.reply_to(&message.message_id).await? {
+            Some(quoted) => Some(MessageId::parse(&quoted)?),
+            None => None,
+        };
+        let packet = Packet::resend(MessageId::parse(&message.message_id)?, message.sent_at as u64, Body::Message { text: message.body, reply_to });
         let attempts = entry.attempts + 1;
         let copy = mail_copy_due(entry.in_mailbox, entry.mailed_at, now());
         let route = self.transmit_as(&contact, &packet, copy).await?;

@@ -24,6 +24,41 @@ describe("MessageBubble", () => {
     expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
   });
 
+  // 2026-10-05: an answer shows what it answers over the text; a tap goes there.
+  describe("an answer", () => {
+    it("quotes the message it answers and goes to it on a tap", async () => {
+      const quote = { id: "m0", text: "dinner on friday?", mine: false, kind: "text" as const };
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "yes!", quote } }, shallow: true });
+      const shown = wrapper.find("[data-test='quote']");
+      expect(shown.text()).toContain("dinner on friday?");
+      expect(shown.text()).toContain("Them");
+      await shown.trigger("click");
+      expect(wrapper.emitted("jump")).toEqual([["m0"]]);
+      expect(wrapper.attributes("data-message")).toBe("m1");
+    });
+
+    it("names me when it quotes my own message, and the sender in a circle", () => {
+      const mine = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "ok", mine: true, kind: "text" } } }, shallow: true });
+      expect(mine.find("[data-test='quote']").text()).toContain("You");
+      const circle = mount(MessageBubble, {
+        props: { message: { ...base, mine: false, quote: { id: "m0", text: "ok", mine: false, kind: "text" } }, sender: "Bob" },
+        shallow: true,
+      });
+      expect(circle.find("[data-test='quote']").text()).toContain("Bob");
+    });
+
+    it("says so when the quoted message is no longer here, and names a quoted file", () => {
+      const gone = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "", mine: false, kind: "gone" } } }, shallow: true });
+      expect(gone.find("[data-test='quote']").text()).toBe("Message no longer here");
+      const file = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "holiday.jpg", mine: false, kind: "file" } } }, shallow: true });
+      expect(file.find("[data-test='quote']").text()).toContain("holiday.jpg");
+    });
+
+    it("has no quote on a plain message", () => {
+      expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='quote']").exists()).toBe(false);
+    });
+  });
+
   // §84: a message the router refused says so, and can be sent again from where it is.
   it("offers to send again a message that was not sent", async () => {
     const wrapper = mount(MessageBubble, { props: { message: { ...base, status: "unsent" } }, shallow: true });

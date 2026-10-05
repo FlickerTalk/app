@@ -65,7 +65,12 @@
     "location": "位置情報",
     "accuracy": "±{metres} m",
     "openLocation": "{place}：マップで開く",
-    "typing": "入力中…"
+    "typing": "入力中…",
+    "reply": "返信",
+    "cancelReply": "返信を取り消す",
+    "quoteGone": "メッセージはもうありません",
+    "you": "あなた",
+    "them": "相手"
   },
   "status": {
     "pending": "相手の端末を待っています",

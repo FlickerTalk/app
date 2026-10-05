@@ -36,6 +36,16 @@ export interface ChatMessage {
   status?: Status;
   kind?: "file";
   file?: ChatFile;
+  /** The message this one answers (2026-10-05), shown over the bubble. */
+  quote?: Quote;
+}
+
+/** What an answer quotes: a text, a file's name, or a message no longer here. */
+export interface Quote {
+  id: string;
+  text: string;
+  mine: boolean;
+  kind: "text" | "file" | "gone";
 }
 
 export interface Chat {
@@ -164,6 +174,7 @@ interface MessageView {
   sentAt: number;
   state: Status;
   file?: FileView;
+  quote?: Quote;
 }
 
 interface ConversationView {
@@ -340,6 +351,7 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
     message.kind = "file";
     message.file = toFile(view.file, view.outgoing, connected);
   }
+  if (view.quote) message.quote = view.quote;
   return message;
 }
 
@@ -570,8 +582,9 @@ export async function loadMessages(contact: string): Promise<void> {
   }
 }
 
-export async function sendText(contact: string, text: string): Promise<void> {
-  await invoke("core_send", { contact, text });
+/** Sends a text; `replyTo` (2026-10-05) is the id of the message it answers, quoted over it. */
+export async function sendText(contact: string, text: string, replyTo?: string): Promise<void> {
+  await invoke("core_send", replyTo ? { contact, text, replyTo } : { contact, text });
 }
 
 // ---- Circles (2026-09-27) ----

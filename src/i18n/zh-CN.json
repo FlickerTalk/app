@@ -65,7 +65,12 @@
     "location": "位置",
     "accuracy": "±{metres} 米",
     "openLocation": "{place}：在地图中打开",
-    "typing": "正在输入…"
+    "typing": "正在输入…",
+    "reply": "回复",
+    "cancelReply": "取消回复",
+    "quoteGone": "消息已不存在",
+    "you": "你",
+    "them": "对方"
   },
   "status": {
     "pending": "等待对方设备",

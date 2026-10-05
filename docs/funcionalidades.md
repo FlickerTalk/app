@@ -65,8 +65,12 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   un fichero.
 - **Estados de cada mensaje:** esperando al otro teléfono, enviado, entregado, leído. Nunca se marca
   como entregado algo que no lo está.
-- **Pulsación larga en un mensaje:** plegar, reenviar a otro contacto, compartir con otra app o
-  borrar de este teléfono.
+- **Pulsación larga en un mensaje:** responder (desde el 2026-10-05), plegar, reenviar a otro
+  contacto, compartir con otra app o borrar de este teléfono.
+- **Responder citando** (desde el 2026-10-05): la cita queda sobre el compositor hasta enviar o
+  descartarla, y viaja con el mensaje como el identificador del citado. El otro lado la ve sobre la
+  burbuja (el texto, el nombre de un fichero, o «mensaje ya no disponible» si lo borró) y tocarla
+  lleva al mensaje citado. Una app anterior enseña el texto sin la cita.
 - **Herramientas (plugins):** el botón de apps del chat abre las instaladas (ver «Plugins»).
 - **«Escribiendo…»** (desde el 2026-10-05): mientras el otro escribe, la cabecera lo dice en lugar
   del estado de conexión, y se apaga al llegar su mensaje o a los pocos segundos. Viaja solo por la

@@ -65,7 +65,12 @@
     "location": "Locație",
     "accuracy": "±{metres} m",
     "openLocation": "{place}: deschide în hărți",
-    "typing": "scrie…"
+    "typing": "scrie…",
+    "reply": "Răspunde",
+    "cancelReply": "Renunță la răspuns",
+    "quoteGone": "Mesaj indisponibil",
+    "you": "Tu",
+    "them": "Cealaltă persoană"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

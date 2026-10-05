@@ -4,6 +4,7 @@
 //! (pending → sent → delivered → read, §38) and an outgoing message stays in `pending_outbox`
 //! until the DELIVERED receipt arrives (§26).
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -651,6 +652,33 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    /// The message answers another (2026-10-05); the quoted one need not be here any more.
+    pub async fn set_reply(&self, message_id: &str, reply_to: &str) -> Result<()> {
+        sqlx::query("INSERT INTO message_replies (message_id, reply_to) VALUES (?, ?) ON CONFLICT (message_id) DO UPDATE SET reply_to = excluded.reply_to")
+            .bind(message_id)
+            .bind(reply_to)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Which message this one answers, if any.
+    pub async fn reply_to(&self, message_id: &str) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT reply_to FROM message_replies WHERE message_id = ?").bind(message_id).fetch_optional(&self.pool).await?;
+        Ok(row.map(|row| row.get("reply_to")))
+    }
+
+    /// Every answer in the conversation: message id → the id it answers.
+    pub async fn replies(&self, contact: &str) -> Result<HashMap<String, String>> {
+        let rows = sqlx::query(
+            "SELECT r.message_id, r.reply_to FROM message_replies r JOIN messages m ON m.message_id = r.message_id WHERE m.contact = ?",
+        )
+        .bind(contact)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|row| (row.get("message_id"), row.get("reply_to"))).collect())
     }
 
     pub async fn message(&self, message_id: &str) -> Result<Option<Message>> {
@@ -1995,6 +2023,25 @@ mod tests {
         assert_eq!(bob.name, "Robert");
         assert!(bob.blocked);
         assert_eq!(store.contacts().await.expect("lists").len(), 1);
+    }
+
+    // 2026-10-05: an answer remembers what it answers, and forgets it with the message.
+    #[tokio::test]
+    async fn a_message_can_answer_another_and_the_answer_goes_with_it() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+        store.insert_message(&message("m2", "ft_bob", true, 2)).await.expect("inserts");
+        assert_eq!(store.reply_to("m2").await.unwrap(), None);
+        store.set_reply("m2", "m1").await.expect("sets");
+        assert_eq!(store.reply_to("m2").await.unwrap(), Some("m1".to_owned()));
+        assert_eq!(store.replies("ft_bob").await.unwrap(), HashMap::from([("m2".to_owned(), "m1".to_owned())]));
+        // The quoted message may go: the answer keeps pointing at it.
+        store.forget_message("m1").await.expect("forgets");
+        assert_eq!(store.reply_to("m2").await.unwrap(), Some("m1".to_owned()));
+        store.forget_message("m2").await.expect("forgets");
+        assert_eq!(store.reply_to("m2").await.unwrap(), None);
+        assert!(store.replies("ft_bob").await.unwrap().is_empty());
     }
 
     // Scanning the same card again refreshes it without losing the conversation.

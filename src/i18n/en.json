@@ -65,7 +65,12 @@
     "location": "Location",
     "accuracy": "±{metres} m",
     "openLocation": "{place}: open in maps",
-    "typing": "typing…"
+    "typing": "typing…",
+    "reply": "Reply",
+    "cancelReply": "Cancel reply",
+    "quoteGone": "Message no longer here",
+    "you": "You",
+    "them": "Them"
   },
   "status": {
     "pending": "Waiting for device",

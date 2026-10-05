@@ -65,7 +65,12 @@
     "location": "Konum",
     "accuracy": "±{metres} m",
     "openLocation": "{place}: haritalarda aç",
-    "typing": "yazıyor…"
+    "typing": "yazıyor…",
+    "reply": "Yanıtla",
+    "cancelReply": "Yanıtı iptal et",
+    "quoteGone": "Mesaj artık burada değil",
+    "you": "Sen",
+    "them": "Karşı taraf"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

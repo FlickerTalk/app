@@ -470,6 +470,14 @@ describe("circles", () => {
     ]);
   });
 
+  // 2026-10-05: an answer quotes the message it answers; the core is told which one.
+  it("sends an answer with the message it quotes, and a plain text without", async () => {
+    await core.sendText("ft_bob", "yes!", "m1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "yes!", replyTo: "m1" });
+    await core.sendText("ft_bob", "hi");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hi" });
+  });
+
   // 2026-10-05: "typing…" is a moment's state, never stored; the contact's message ends it.
   describe("typing", () => {
     beforeEach(() => vi.useFakeTimers());

@@ -65,7 +65,12 @@
     "location": "الموقع",
     "accuracy": "±{metres} م",
     "openLocation": "{place}: فتح في الخرائط",
-    "typing": "يكتب…"
+    "typing": "يكتب…",
+    "reply": "رد",
+    "cancelReply": "إلغاء الرد",
+    "quoteGone": "الرسالة لم تعد موجودة",
+    "you": "أنت",
+    "them": "الطرف الآخر"
   },
   "status": {
     "pending": "بانتظار الجهاز",
