@@ -64,7 +64,8 @@
     "otherApp": "Altă aplicație",
     "location": "Locație",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: deschide în hărți"
+    "openLocation": "{place}: deschide în hărți",
+    "typing": "scrie…"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
@@ -171,7 +172,8 @@
     "never": "Niciodată",
     "days": "Zile: {days}",
     "hours": "{hours} h",
-    "minutes": "{minutes} min"
+    "minutes": "{minutes} min",
+    "typing": "Arată când scriu"
   },
   "move": {
     "fromOld": "De pe telefonul vechi",

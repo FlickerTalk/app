@@ -64,7 +64,8 @@
     "otherApp": "Інший застосунок",
     "location": "Місцезнаходження",
     "accuracy": "±{metres} м",
-    "openLocation": "{place}: відкрити на мапі"
+    "openLocation": "{place}: відкрити на мапі",
+    "typing": "друкує…"
   },
   "status": {
     "pending": "Очікування пристрою",
@@ -171,7 +172,8 @@
     "never": "Ніколи",
     "days": "{days} дн.",
     "hours": "{hours} год",
-    "minutes": "{minutes} хв"
+    "minutes": "{minutes} хв",
+    "typing": "Показувати, коли я друкую"
   },
   "move": {
     "fromOld": "Зі старого телефона",

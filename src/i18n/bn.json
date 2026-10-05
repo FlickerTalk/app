@@ -64,7 +64,8 @@
     "otherApp": "অন্য অ্যাপ",
     "location": "অবস্থান",
     "accuracy": "±{metres} মি",
-    "openLocation": "{place}: ম্যাপে খুলুন"
+    "openLocation": "{place}: ম্যাপে খুলুন",
+    "typing": "লিখছে…"
   },
   "status": {
     "pending": "ডিভাইসের অপেক্ষায়",
@@ -171,7 +172,8 @@
     "never": "কখনও না",
     "days": "{days} দিন",
     "hours": "{hours} ঘণ্টা",
-    "minutes": "{minutes} মিনিট"
+    "minutes": "{minutes} মিনিট",
+    "typing": "আমি লিখলে দেখান"
   },
   "move": {
     "fromOld": "আপনার পুরোনো ফোন থেকে",

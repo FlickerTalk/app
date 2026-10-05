@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
 
 const tauri = vi.hoisted(() => ({
@@ -120,7 +120,7 @@ describe("core bridge", () => {
 
   // Issues app#4–#6: what this phone takes from a contact and tells them, only in the core.
   it("sets a contact's rules and the receipts default through the core", async () => {
-    const rules = { muted: true, acceptsChat: true, acceptsCalls: false, receipts: false };
+    const rules = { muted: true, acceptsChat: true, acceptsCalls: false, receipts: false, typing: true };
     await core.setRules("ft_bob", rules);
     expect(tauri.invoke).toHaveBeenCalledWith("core_set_rules", { contact: "ft_bob", rules });
     await core.setReceipts(false);
@@ -468,6 +468,45 @@ describe("circles", () => {
       { id: "e1", mine: true, text: "Friends", time: "10:00", status: "read", kind: "created", sender: "ft_me", senderName: "Me" },
       { id: "m1", mine: false, text: "dinner?", time: "10:02", status: "delivered", kind: "text", sender: "ft_bob", senderName: "Bob" },
     ]);
+  });
+
+  // 2026-10-05: "typing…" is a moment's state, never stored; the contact's message ends it.
+  describe("typing", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("hears a contact typing, and forgets it when their message arrives or after a while", async () => {
+      await core.start();
+      expect(core.isTyping("ft_bob")).toBe(false);
+      tauri.handlers[core.TYPING_EVENT]({ payload: { contact: "ft_bob" } });
+      expect(core.isTyping("ft_bob")).toBe(true);
+      expect(core.store.typing).toEqual({ ft_bob: true });
+      tauri.handlers[core.CHANGED_EVENT]({ payload: { contact: "ft_bob" } });
+      expect(core.isTyping("ft_bob")).toBe(false);
+
+      tauri.handlers[core.TYPING_EVENT]({ payload: { contact: "ft_bob" } });
+      vi.advanceTimersByTime(core.TYPING_FADE - 1);
+      expect(core.isTyping("ft_bob")).toBe(true);
+      // Heard again: the moment starts over.
+      tauri.handlers[core.TYPING_EVENT]({ payload: { contact: "ft_bob" } });
+      vi.advanceTimersByTime(core.TYPING_FADE - 1);
+      expect(core.isTyping("ft_bob")).toBe(true);
+      vi.advanceTimersByTime(2);
+      expect(core.isTyping("ft_bob")).toBe(false);
+    });
+
+    it("tells the core the user is typing at most once every few seconds, and never fails", async () => {
+      await core.sendTyping("ft_bob");
+      await core.sendTyping("ft_bob");
+      expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_typing")).toEqual([["core_typing", { contact: "ft_bob" }]]);
+      vi.advanceTimersByTime(core.TYPING_EVERY);
+      tauri.invoke.mockRejectedValueOnce(new Error("no core"));
+      await expect(core.sendTyping("ft_bob")).resolves.toBeUndefined();
+      expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_typing")).toHaveLength(2);
+      // Another contact has a moment of their own.
+      await core.sendTyping("ft_carol");
+      expect(tauri.invoke).toHaveBeenCalledWith("core_typing", { contact: "ft_carol" });
+    });
   });
 
   it("reloads an open circle when the core says it changed", async () => {

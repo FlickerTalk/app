@@ -64,7 +64,8 @@
     "otherApp": "其他應用程式",
     "location": "位置",
     "accuracy": "±{metres} 公尺",
-    "openLocation": "{place}：在地圖中開啟"
+    "openLocation": "{place}：在地圖中開啟",
+    "typing": "正在輸入…"
   },
   "status": {
     "pending": "等待對方裝置",
@@ -171,7 +172,8 @@
     "never": "永不",
     "days": "{days} 天",
     "hours": "{hours} 小時",
-    "minutes": "{minutes} 分鐘"
+    "minutes": "{minutes} 分鐘",
+    "typing": "顯示我正在輸入"
   },
   "move": {
     "fromOld": "從舊手機移轉",

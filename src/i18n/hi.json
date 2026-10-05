@@ -64,7 +64,8 @@
     "otherApp": "दूसरा ऐप",
     "location": "स्थान",
     "accuracy": "±{metres} मी",
-    "openLocation": "{place}: मैप्स में खोलें"
+    "openLocation": "{place}: मैप्स में खोलें",
+    "typing": "लिख रहे हैं…"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",
@@ -171,7 +172,8 @@
     "never": "कभी नहीं",
     "days": "{days} दिन",
     "hours": "{hours} घं.",
-    "minutes": "{minutes} मि."
+    "minutes": "{minutes} मि.",
+    "typing": "जब मैं लिख रहा हूँ तो दिखाएँ"
   },
   "move": {
     "fromOld": "अपने पुराने फ़ोन से",

@@ -64,7 +64,8 @@
     "otherApp": "別のアプリ",
     "location": "位置情報",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}：マップで開く"
+    "openLocation": "{place}：マップで開く",
+    "typing": "入力中…"
   },
   "status": {
     "pending": "相手の端末を待っています",
@@ -171,7 +172,8 @@
     "never": "しない",
     "days": "{days}日",
     "hours": "{hours}時間",
-    "minutes": "{minutes}分"
+    "minutes": "{minutes}分",
+    "typing": "入力中であることを表示"
   },
   "move": {
     "fromOld": "古いスマホから",

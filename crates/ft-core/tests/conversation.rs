@@ -1417,6 +1417,59 @@ async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
 }
 
+// 2026-10-05: "typing…" goes only over a direct connection already open, and only when the
+// contact's switch is on; the other phone hears it as an event and keeps nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn typing_is_heard_over_the_direct_connection_and_nowhere_else() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let mut at_bob = bob.events();
+
+    assert!(alice.typing(&id(&bob)).await.expect("tells"), "sent over the direct link");
+    let heard = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if at_bob.recv().await.expect("events") == (Event::Typing { contact: id(&alice) }) {
+                break;
+            }
+        }
+    })
+    .await;
+    assert!(heard.is_ok(), "bob hears alice typing");
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "nothing is stored");
+    assert_eq!(net.mailbox_len(&id(&bob)), 0, "nothing waits in the mailbox");
+
+    // Without the direct link nothing is sent, and nothing is queued for later.
+    net.set_direct(false);
+    assert!(!alice.typing(&id(&bob)).await.expect("tells"), "not sent");
+    assert_eq!(net.mailbox_len(&id(&bob)), 0);
+    assert_eq!(outbox_len(&alice).await, 0);
+    net.set_direct(true);
+
+    // Alice's switch for Bob is off: she tells him nothing.
+    alice.set_rules(&id(&bob), ContactRules { typing: false, ..ContactRules::default() }).await.expect("sets");
+    let before = net.sent_to(&id(&bob));
+    assert!(!alice.typing(&id(&bob)).await.expect("tells"));
+    assert_eq!(net.sent_to(&id(&bob)), before, "nothing left alice's phone");
+    alice.set_rules(&id(&bob), ContactRules::default()).await.expect("sets");
+
+    // Bob keeps nothing of Alice's (chat off): he does not see her typing either.
+    bob.set_rules(&id(&alice), ContactRules { accepts_chat: false, ..ContactRules::default() }).await.expect("sets");
+    while at_bob.try_recv().is_ok() {}
+    assert!(alice.typing(&id(&bob)).await.expect("tells"));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    while let Ok(event) = at_bob.try_recv() {
+        assert_ne!(event, Event::Typing { contact: id(&alice) }, "chat off hears no typing");
+    }
+
+    // A stranger waiting in the requests is told nothing.
+    let carol = device(&net, "Carol").await;
+    let link = bob.my_card().await.expect("card").to_link();
+    carol.add_contact(&link, None).await.expect("carol adds bob");
+    until("bob knows carol", || async { bob.store().contact(&id(&carol)).await.unwrap().is_some() }).await;
+    assert!(!bob.typing(&id(&carol)).await.expect("tells"), "nothing to a stranger in the requests");
+}
+
 // The Settings switch is the default for contacts added afterwards.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_receipts_default_applies_to_new_contacts() {

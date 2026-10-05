@@ -64,7 +64,8 @@
     "otherApp": "تطبيق آخر",
     "location": "الموقع",
     "accuracy": "±{metres} م",
-    "openLocation": "{place}: فتح في الخرائط"
+    "openLocation": "{place}: فتح في الخرائط",
+    "typing": "يكتب…"
   },
   "status": {
     "pending": "بانتظار الجهاز",
@@ -171,7 +172,8 @@
     "never": "أبدًا",
     "days": "الأيام: {days}",
     "hours": "{hours} س",
-    "minutes": "{minutes} د"
+    "minutes": "{minutes} د",
+    "typing": "إظهار عندما أكتب"
   },
   "move": {
     "fromOld": "من هاتفك القديم",

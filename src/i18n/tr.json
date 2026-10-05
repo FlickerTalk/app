@@ -64,7 +64,8 @@
     "otherApp": "Başka bir uygulama",
     "location": "Konum",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: haritalarda aç"
+    "openLocation": "{place}: haritalarda aç",
+    "typing": "yazıyor…"
   },
   "status": {
     "pending": "Cihaz bekleniyor",
@@ -171,7 +172,8 @@
     "never": "Asla",
     "days": "{days} gün",
     "hours": "{hours} sa",
-    "minutes": "{minutes} dk"
+    "minutes": "{minutes} dk",
+    "typing": "Yazarken göster"
   },
   "move": {
     "fromOld": "Eski telefonunuzdan",
