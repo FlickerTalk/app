@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonSelect, IonToggle } from "@ionic/vue";
+import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
 import ContactPage from "./ContactPage.vue";
 import { calls, seed } from "../__tests__/seed";
 
-vi.mock("vue-router", () => ({ useRoute: () => ({ params: { id: "c1" } }), useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("vue-router", () => ({ useRoute: () => ({ params: { id: "c1" } }), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
 describe("ContactPage", () => {
   beforeEach(() => seed());
@@ -50,6 +50,20 @@ describe("ContactPage", () => {
     await wrapper.find("[data-test='block']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_block", { contact: "c1", blocked: true }]);
+  });
+
+  it("deletes the contact only after confirmation", async () => {
+    const wrapper = mount(ContactPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[data-test='delete-contact']").trigger("click");
+    const alert = wrapper.findComponent(IonAlert);
+    expect(alert.props("isOpen")).toBe(true);
+    expect(calls).not.toContainEqual(["core_remove_contact", { contact: "c1" }]);
+
+    const buttons = alert.props("buttons") as Array<{ text: string; handler?: () => void }>;
+    await buttons.find((button) => button.text === "Delete")?.handler?.();
+    await flushPromises();
+    expect(calls).toContainEqual(["core_remove_contact", { contact: "c1" }]);
   });
 
   // Issue app#1: each contact carries their own name and history rules, kept on this phone.

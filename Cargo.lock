@@ -1718,6 +1718,7 @@ dependencies = [
  "ft-core",
  "ft-media",
  "ft-plugins",
+ "ft-push",
  "ft-storage",
  "ft-vault",
  "ft-webrtc",

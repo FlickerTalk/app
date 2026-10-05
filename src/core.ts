@@ -435,6 +435,12 @@ export async function declineContact(contact: string): Promise<void> {
   await refreshChats();
 }
 
+/** Removes a contact and its local conversation from this phone. */
+export async function removeContact(contact: string): Promise<void> {
+  await invoke("core_remove_contact", { contact });
+  await refreshChats();
+}
+
 /**
  * Retires this phone's link and makes a new one (A5): whoever kept the old one can no longer
  * reach it. Of the main list, or of an open session. Returns the new link.

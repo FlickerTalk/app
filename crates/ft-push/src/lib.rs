@@ -168,6 +168,10 @@ enum Link {
 
 /// An HTTPS client that carries its own cryptography. A phone has no crypto provider installed,
 /// so one built without this aborts the app the first time it is made.
+pub fn initialize_tls() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 pub fn https_client(timeout: Duration) -> Result<reqwest::Client> {
     let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
     let tls = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
@@ -493,6 +497,15 @@ fn query_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn https_client_initializes_tls_for_the_mobile_dev_proxy() {
+        assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+        initialize_tls();
+        initialize_tls();
+        https_client(Duration::from_secs(20)).expect("HTTPS client builds without global TLS setup");
+        reqwest::Client::builder().build().expect("Tauri's mobile development proxy can build its client");
+    }
 
     // The very same vector as ft-router's auth tests.
     #[test]

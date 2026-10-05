@@ -30,6 +30,7 @@ ft-contacts = { path = "../crates/ft-contacts" }
 ft-billing = { path = "../crates/ft-billing" }
 ft-core = { path = "../crates/ft-core" }
 ft-plugins = { path = "../crates/ft-plugins" }
+ft-push = { path = "../crates/ft-push" }
 ft-storage = { path = "../crates/ft-storage" }
 ft-vault = { path = "../crates/ft-vault" }
 ft-webrtc = { path = "../crates/ft-webrtc" }
