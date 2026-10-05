@@ -70,7 +70,10 @@
     "cancelReply": "返信を取り消す",
     "quoteGone": "メッセージはもうありません",
     "you": "あなた",
-    "them": "相手"
+    "them": "相手",
+    "react": "リアクション",
+    "reactWith": "{emoji} でリアクション",
+    "unreact": "リアクションを取り消す"
   },
   "status": {
     "pending": "相手の端末を待っています",

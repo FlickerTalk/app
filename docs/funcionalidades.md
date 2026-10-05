@@ -67,6 +67,9 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   como entregado algo que no lo está.
 - **Pulsación larga en un mensaje:** responder (desde el 2026-10-05), plegar, reenviar a otro
   contacto, compartir con otra app o borrar de este teléfono.
+- **Reacciones** (desde el 2026-10-05): en la pulsación larga, una fila de seis emojis; uno por
+  persona y mensaje, el mismo otra vez lo quita. Se ven bajo la burbuja y viajan como un acuse,
+  en directo o por el buzón; una app anterior los ignora.
 - **Responder citando** (desde el 2026-10-05): la cita queda sobre el compositor hasta enviar o
   descartarla, y viaja con el mensaje como el identificador del citado. El otro lado la ve sobre la
   burbuja (el texto, el nombre de un fichero, o «mensaje ya no disponible» si lo borró) y tocarla

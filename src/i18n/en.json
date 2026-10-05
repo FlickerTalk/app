@@ -70,7 +70,10 @@
     "cancelReply": "Cancel reply",
     "quoteGone": "Message no longer here",
     "you": "You",
-    "them": "Them"
+    "them": "Them",
+    "react": "React",
+    "reactWith": "React with {emoji}",
+    "unreact": "Remove reaction"
   },
   "status": {
     "pending": "Waiting for device",

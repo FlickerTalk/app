@@ -205,6 +205,9 @@ pub enum Body {
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },
+    /// A reaction to a message (2026-10-05): one emoji per person and message; an empty `emoji`
+    /// takes it back. An older app decodes it as `Unknown` and ignores it.
+    Reaction { to: MessageId, emoji: String },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -403,6 +406,8 @@ mod tests {
     fn every_packet_type_survives_the_wire() {
         round_trip(Body::Message { text: "hello".to_owned(), reply_to: None });
         round_trip(Body::Message { text: "yes".to_owned(), reply_to: Some(MessageId::new()) });
+        round_trip(Body::Reaction { to: MessageId::new(), emoji: "👍".to_owned() });
+        round_trip(Body::Reaction { to: MessageId::new(), emoji: String::new() });
         round_trip(Body::Delivered { ids: vec![MessageId::new(), MessageId::new()] });
         round_trip(Body::Received { ids: vec![MessageId::new()] });
         round_trip(Body::Read { ids: vec![MessageId::new()] });

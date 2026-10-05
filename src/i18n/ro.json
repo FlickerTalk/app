@@ -70,7 +70,10 @@
     "cancelReply": "Renunță la răspuns",
     "quoteGone": "Mesaj indisponibil",
     "you": "Tu",
-    "them": "Cealaltă persoană"
+    "them": "Cealaltă persoană",
+    "react": "Reacționează",
+    "reactWith": "Reacționează cu {emoji}",
+    "unreact": "Elimină reacția"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

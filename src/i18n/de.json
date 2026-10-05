@@ -70,7 +70,10 @@
     "cancelReply": "Antwort verwerfen",
     "quoteGone": "Nachricht nicht mehr vorhanden",
     "you": "Du",
-    "them": "Die andere Person"
+    "them": "Die andere Person",
+    "react": "Reagieren",
+    "reactWith": "Mit {emoji} reagieren",
+    "unreact": "Reaktion entfernen"
   },
   "status": {
     "pending": "Warte auf Gerät",

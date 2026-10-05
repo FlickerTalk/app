@@ -53,6 +53,24 @@ pub struct MessageView {
     /// The message this one answers (2026-10-05), as it is shown over the bubble.
     #[serde(skip_serializing_if = "Option::is_none")]
     quote: Option<QuoteView>,
+    /// The emoji each side put on it (2026-10-05).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reactions: Option<ReactionsView>,
+}
+
+/// What each side put on a message (2026-10-05): one emoji each, or none.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct ReactionsView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    theirs: Option<String>,
+}
+
+impl From<&ft_storage::Reactions> for ReactionsView {
+    fn from(reactions: &ft_storage::Reactions) -> Self {
+        Self { mine: reactions.mine.clone(), theirs: reactions.theirs.clone() }
+    }
 }
 
 impl MessageView {
@@ -65,11 +83,17 @@ impl MessageView {
             state: state_name(message.state),
             file: file.map(FileView::from),
             quote: None,
+            reactions: None,
         }
     }
 
     pub fn answering(mut self, quote: QuoteView) -> Self {
         self.quote = Some(quote);
+        self
+    }
+
+    pub fn reacted(mut self, reactions: Option<&ft_storage::Reactions>) -> Self {
+        self.reactions = reactions.map(ReactionsView::from);
         self
     }
 }
@@ -1965,10 +1989,11 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
             }
         }
     }
+    let reactions = core.store().reactions(&contact).await.map_err(failed)?;
     Ok(messages
         .iter()
         .map(|message| {
-            let view = MessageView::new(message, files.get(&message.message_id));
+            let view = MessageView::new(message, files.get(&message.message_id)).reacted(reactions.get(&message.message_id));
             match replies.get(&message.message_id) {
                 Some(quoted_id) => view.answering(QuoteView::of(quoted_id, quoted.get(quoted_id), files.get(quoted_id))),
                 None => view,
@@ -2102,6 +2127,12 @@ fn now_ms() -> i64 {
 #[tauri::command]
 pub async fn core_forget_message(message: String, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.forget_message(&message).await.map_err(failed)
+}
+
+/// One emoji on a message of the conversation (2026-10-05); no emoji takes it back.
+#[tauri::command]
+pub async fn core_react(contact: String, message: String, emoji: Option<String>, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.react(&contact, &message, emoji.as_deref()).await.map_err(failed)
 }
 
 /// Sends a message on to another contact: the same text, or the same file (§61).
@@ -5131,6 +5162,19 @@ mod tests {
         let view = serde_json::to_value(MessageView::new(&message, None).answering(QuoteView::of("m0", None, None))).unwrap();
         assert_eq!(view["quote"]["kind"], "gone");
         assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("quote").is_none(), "no quote, no field");
+    }
+
+    // 2026-10-05: the emoji each side put on a message, only the sides that did.
+    #[test]
+    fn a_message_carries_the_reactions_of_each_side() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: false, body: "hi".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        let both = ft_storage::Reactions { mine: Some("👍".into()), theirs: Some("❤️".into()) };
+        let view = serde_json::to_value(MessageView::new(&message, None).reacted(Some(&both))).unwrap();
+        assert_eq!(view["reactions"], serde_json::json!({ "mine": "👍", "theirs": "❤️" }));
+        let theirs = ft_storage::Reactions { mine: None, theirs: Some("❤️".into()) };
+        let view = serde_json::to_value(MessageView::new(&message, None).reacted(Some(&theirs))).unwrap();
+        assert_eq!(view["reactions"], serde_json::json!({ "theirs": "❤️" }));
+        assert!(serde_json::to_value(MessageView::new(&message, None).reacted(None)).unwrap().get("reactions").is_none());
     }
 
     // 2026-10-05: a page from before the typing switch sends rules without it; it stays on.

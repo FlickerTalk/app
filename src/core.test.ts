@@ -478,6 +478,14 @@ describe("circles", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hi" });
   });
 
+  // 2026-10-05: one emoji on a message; none takes it back.
+  it("puts an emoji on a message through the core, and takes it back", async () => {
+    await core.react("ft_bob", "m1", "👍");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_react", { contact: "ft_bob", message: "m1", emoji: "👍" });
+    await core.react("ft_bob", "m1", null);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_react", { contact: "ft_bob", message: "m1" });
+  });
+
   // 2026-10-05: "typing…" is a moment's state, never stored; the contact's message ends it.
   describe("typing", () => {
     beforeEach(() => vi.useFakeTimers());

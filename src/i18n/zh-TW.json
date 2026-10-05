@@ -70,7 +70,10 @@
     "cancelReply": "取消回覆",
     "quoteGone": "訊息已不存在",
     "you": "你",
-    "them": "對方"
+    "them": "對方",
+    "react": "回應",
+    "reactWith": "用 {emoji} 回應",
+    "unreact": "移除回應"
   },
   "status": {
     "pending": "等待對方裝置",

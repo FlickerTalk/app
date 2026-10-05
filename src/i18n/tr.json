@@ -70,7 +70,10 @@
     "cancelReply": "Yanıtı iptal et",
     "quoteGone": "Mesaj artık burada değil",
     "you": "Sen",
-    "them": "Karşı taraf"
+    "them": "Karşı taraf",
+    "react": "Tepki ver",
+    "reactWith": "{emoji} ile tepki ver",
+    "unreact": "Tepkiyi kaldır"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

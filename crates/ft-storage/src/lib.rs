@@ -147,6 +147,13 @@ pub struct Message {
     pub state: MessageState,
 }
 
+/// The emoji each side put on a message (2026-10-05).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reactions {
+    pub mine: Option<String>,
+    pub theirs: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboxEntry {
     pub message_id: String,
@@ -652,6 +659,43 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    /// One emoji on a message (2026-10-05), ours or theirs; `None` takes it back.
+    pub async fn set_reaction(&self, message_id: &str, mine: bool, emoji: Option<&str>) -> Result<()> {
+        match emoji {
+            Some(emoji) => {
+                sqlx::query("INSERT INTO reactions (message_id, mine, emoji) VALUES (?, ?, ?) ON CONFLICT (message_id, mine) DO UPDATE SET emoji = excluded.emoji")
+                    .bind(message_id)
+                    .bind(mine)
+                    .bind(emoji)
+                    .execute(&self.pool)
+                    .await?;
+            }
+            None => {
+                sqlx::query("DELETE FROM reactions WHERE message_id = ? AND mine = ?").bind(message_id).bind(mine).execute(&self.pool).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The reactions in the conversation, by message.
+    pub async fn reactions(&self, contact: &str) -> Result<HashMap<String, Reactions>> {
+        let rows = sqlx::query("SELECT r.message_id, r.mine, r.emoji FROM reactions r JOIN messages m ON m.message_id = r.message_id WHERE m.contact = ?")
+            .bind(contact)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut all: HashMap<String, Reactions> = HashMap::new();
+        for row in rows {
+            let entry = all.entry(row.get("message_id")).or_default();
+            let emoji: String = row.get("emoji");
+            if row.get::<bool, _>("mine") {
+                entry.mine = Some(emoji);
+            } else {
+                entry.theirs = Some(emoji);
+            }
+        }
+        Ok(all)
     }
 
     /// The message answers another (2026-10-05); the quoted one need not be here any more.
@@ -2042,6 +2086,24 @@ mod tests {
         store.forget_message("m2").await.expect("forgets");
         assert_eq!(store.reply_to("m2").await.unwrap(), None);
         assert!(store.replies("ft_bob").await.unwrap().is_empty());
+    }
+
+    // 2026-10-05: one emoji per side on a message; a new one replaces it, None takes it back.
+    #[tokio::test]
+    async fn each_side_puts_one_emoji_on_a_message() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+        store.set_reaction("m1", true, Some("👍")).await.expect("reacts");
+        store.set_reaction("m1", false, Some("❤️")).await.expect("reacts");
+        let all = store.reactions("ft_bob").await.unwrap();
+        assert_eq!(all.get("m1"), Some(&Reactions { mine: Some("👍".to_owned()), theirs: Some("❤️".to_owned()) }));
+        store.set_reaction("m1", true, Some("😂")).await.expect("changes");
+        store.set_reaction("m1", false, None).await.expect("takes back");
+        let all = store.reactions("ft_bob").await.unwrap();
+        assert_eq!(all.get("m1"), Some(&Reactions { mine: Some("😂".to_owned()), theirs: None }));
+        store.forget_message("m1").await.expect("forgets");
+        assert!(store.reactions("ft_bob").await.unwrap().is_empty(), "gone with the message");
     }
 
     // Scanning the same card again refreshes it without losing the conversation.

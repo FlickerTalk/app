@@ -83,6 +83,7 @@ import {
   openFile,
   pickFiles,
   pluginRef,
+  react,
   readMessageFile,
   resend,
   takePhoto,
@@ -197,6 +198,17 @@ function reply() {
   const id = acting.value;
   closeActions();
   replying.value = messages.value.find((message) => message.id === id) ?? null;
+}
+
+// 2026-10-05: one emoji on a message, from the sheet; the same one again takes it back.
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const actingMessage = computed(() => messages.value.find((message) => message.id === acting.value));
+
+async function reactWith(emoji: string) {
+  const id = acting.value;
+  const same = actingMessage.value?.reactions?.mine === emoji;
+  closeActions();
+  await react(props.chatId, id, same ? null : emoji).catch(() => {});
 }
 
 /** The quote in the composer: a text, or a file's name. */
@@ -1018,6 +1030,22 @@ watch(
         </button>
       </div>
       <div v-else class="ft-actions__bar">
+        <!-- 2026-10-05: one emoji on it, lit when it is already there; again takes it back. -->
+        <span v-if="!isRequest" class="ft-actions__emoji" role="group" :aria-label="$t('chat.react')">
+          <button
+            v-for="emoji in QUICK_REACTIONS"
+            :key="emoji"
+            type="button"
+            class="ft-actions__react"
+            :class="{ 'is-active': actingMessage?.reactions?.mine === emoji }"
+            :data-test="`react-${emoji}`"
+            :aria-label="actingMessage?.reactions?.mine === emoji ? $t('chat.unreact') : $t('chat.reactWith', { emoji })"
+            :aria-pressed="actingMessage?.reactions?.mine === emoji"
+            @click="reactWith(emoji)"
+          >
+            {{ emoji }}
+          </button>
+        </span>
         <!-- 2026-10-05: answer it, quoting it; not a stranger's message still in the requests. -->
         <button v-if="!isRequest" type="button" class="ft-round ft-round--ghost" data-test="reply" :aria-label="$t('chat.reply')" @click="reply">
           <ion-icon :icon="arrowUndoOutline" aria-hidden="true" />
@@ -1275,6 +1303,27 @@ watch(
   padding: 0 8px;
   color: var(--ft-muted);
   font-size: 13px;
+}
+/* The emoji row of the sheet (2026-10-05): a full line over the buttons. */
+.ft-actions__emoji {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: space-around;
+  gap: 2px;
+}
+.ft-actions__react {
+  appearance: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ft-actions__react.is-active {
+  background: color-mix(in srgb, var(--ft-accent) 22%, transparent);
 }
 .ft-actions__to {
   appearance: none;
