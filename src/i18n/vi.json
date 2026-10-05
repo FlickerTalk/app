@@ -65,7 +65,12 @@
     "location": "Vị trí",
     "accuracy": "±{metres} m",
     "openLocation": "{place}: mở trong bản đồ",
-    "typing": "đang nhập…"
+    "typing": "đang nhập…",
+    "reply": "Trả lời",
+    "cancelReply": "Hủy trả lời",
+    "quoteGone": "Tin nhắn không còn nữa",
+    "you": "Bạn",
+    "them": "Người kia"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

@@ -65,7 +65,12 @@
     "location": "위치",
     "accuracy": "±{metres}m",
     "openLocation": "{place}: 지도에서 열기",
-    "typing": "입력 중…"
+    "typing": "입력 중…",
+    "reply": "답장",
+    "cancelReply": "답장 취소",
+    "quoteGone": "메시지가 더 이상 없습니다",
+    "you": "나",
+    "them": "상대방"
   },
   "status": {
     "pending": "상대 기기 대기 중",

@@ -65,7 +65,12 @@
     "location": "Position",
     "accuracy": "±{metres} m",
     "openLocation": "{place} : ouvrir dans Plans",
-    "typing": "en train d’écrire…"
+    "typing": "en train d’écrire…",
+    "reply": "Répondre",
+    "cancelReply": "Annuler la réponse",
+    "quoteGone": "Message plus disponible",
+    "you": "Vous",
+    "them": "L’autre personne"
   },
   "status": {
     "pending": "En attente de l’appareil",

@@ -918,6 +918,57 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-05: answering quotes the message; the quote waits in the composer until sent or dropped.
+  describe("answering a message", () => {
+    const open = async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressed(wrapper);
+      const first = fixture.chats[0].messages[0];
+      return { wrapper, first };
+    };
+
+    it("offers to answer, shows the quote in the composer and sends the text with it", async () => {
+      const { wrapper, first } = await open();
+      await wrapper.find("[data-test='reply']").trigger("click");
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+      const bar = wrapper.find("[data-test='replying']");
+      expect(bar.exists()).toBe(true);
+      expect(bar.text()).toContain(first.text ?? "");
+      expect(bar.text()).toContain(first.mine ? "You" : "Maria López");
+
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "yes!");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "yes!", replyTo: first.id }]);
+      expect(wrapper.find("[data-test='replying']").exists()).toBe(false);
+    });
+
+    it("can drop the answer, and then sends a plain text", async () => {
+      const { wrapper } = await open();
+      await wrapper.find("[data-test='reply']").trigger("click");
+      await wrapper.find("[data-test='cancel-reply']").trigger("click");
+      expect(wrapper.find("[data-test='replying']").exists()).toBe(false);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hi");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hi" }]);
+    });
+
+    it("goes to the quoted message when its quote is tapped", async () => {
+      const { wrapper } = await open();
+      const target = document.createElement("div");
+      target.dataset.message = "m-far";
+      target.scrollIntoView = vi.fn();
+      document.body.append(target);
+      wrapper.findAllComponents(MessageBubble)[0].vm.$emit("jump", "m-far");
+      expect(target.scrollIntoView).toHaveBeenCalled();
+      target.remove();
+    });
+  });
+
   // Seen in Arabic (2026-10-02): a contact's name reads in its own direction, not in the app's.
   it("offers to forward to contacts whose names read in their own direction", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });

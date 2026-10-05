@@ -65,7 +65,12 @@
     "location": "स्थान",
     "accuracy": "±{metres} मी",
     "openLocation": "{place}: मैप्स में खोलें",
-    "typing": "लिख रहे हैं…"
+    "typing": "लिख रहे हैं…",
+    "reply": "जवाब दें",
+    "cancelReply": "जवाब रद्द करें",
+    "quoteGone": "संदेश अब उपलब्ध नहीं",
+    "you": "आप",
+    "them": "दूसरा व्यक्ति"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",

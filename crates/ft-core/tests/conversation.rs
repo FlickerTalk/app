@@ -1417,6 +1417,29 @@ async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
 }
 
+// 2026-10-05: an answer carries the id of the message it answers; the other phone keeps the link,
+// and a message that answers nothing travels exactly as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_arrives_with_the_message_it_answers() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+
+    let question = alice.send_text(&id(&bob), "dinner on friday?").await.expect("sends");
+    until("bob has the question", || async { texts(&bob, &id(&alice)).await.contains(&"dinner on friday?".to_owned()) }).await;
+    let answer = bob.send_text_replying(&id(&alice), "yes!", Some(&question)).await.expect("answers");
+    until("alice has the answer", || async { texts(&alice, &id(&bob)).await.contains(&"yes!".to_owned()) }).await;
+    assert_eq!(alice.store().reply_to(&answer).await.unwrap(), Some(question.clone()), "alice sees what it answers");
+    assert_eq!(bob.store().reply_to(&answer).await.unwrap(), Some(question.clone()), "bob keeps it too");
+    assert_eq!(alice.store().reply_to(&question).await.unwrap(), None, "the question answers nothing");
+
+    // Only a message of this conversation can be answered.
+    let carol = device(&net, "Carol").await;
+    pair(&bob, &carol).await;
+    assert!(bob.send_text_replying(&id(&carol), "yes!", Some(&question)).await.is_err(), "another conversation's message");
+    assert!(bob.send_text_replying(&id(&alice), "yes!", Some("not-a-message")).await.is_err(), "a message that is not here");
+}
+
 // 2026-10-05: "typing…" goes only over a direct connection already open, and only when the
 // contact's switch is on; the other phone hears it as an event and keeps nothing.
 #[tokio::test(flavor = "multi_thread")]

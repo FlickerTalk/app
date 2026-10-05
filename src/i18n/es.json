@@ -65,7 +65,12 @@
     "location": "Ubicación",
     "accuracy": "±{metres} m",
     "openLocation": "{place}: abrir en mapas",
-    "typing": "escribiendo…"
+    "typing": "escribiendo…",
+    "reply": "Responder",
+    "cancelReply": "Cancelar la respuesta",
+    "quoteGone": "Mensaje ya no disponible",
+    "you": "Tú",
+    "them": "La otra persona"
   },
   "status": {
     "pending": "Esperando al dispositivo",

@@ -65,7 +65,12 @@
     "location": "Местоположение",
     "accuracy": "±{metres} м",
     "openLocation": "{place}: открыть на карте",
-    "typing": "печатает…"
+    "typing": "печатает…",
+    "reply": "Ответить",
+    "cancelReply": "Отменить ответ",
+    "quoteGone": "Сообщение больше недоступно",
+    "you": "Вы",
+    "them": "Собеседник"
   },
   "status": {
     "pending": "Ожидание устройства",

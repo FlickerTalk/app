@@ -65,7 +65,12 @@
     "location": "ตำแหน่ง",
     "accuracy": "±{metres} ม.",
     "openLocation": "{place}: เปิดในแผนที่",
-    "typing": "กำลังพิมพ์…"
+    "typing": "กำลังพิมพ์…",
+    "reply": "ตอบกลับ",
+    "cancelReply": "ยกเลิกการตอบกลับ",
+    "quoteGone": "ข้อความไม่อยู่แล้ว",
+    "you": "คุณ",
+    "them": "อีกฝ่าย"
   },
   "status": {
     "pending": "รออุปกรณ์",

@@ -65,7 +65,12 @@
     "location": "Lokasi",
     "accuracy": "±{metres} m",
     "openLocation": "{place}: buka di peta",
-    "typing": "sedang mengetik…"
+    "typing": "sedang mengetik…",
+    "reply": "Balas",
+    "cancelReply": "Batalkan balasan",
+    "quoteGone": "Pesan sudah tidak ada",
+    "you": "Anda",
+    "them": "Lawan bicara"
   },
   "status": {
     "pending": "Menunggu perangkat",

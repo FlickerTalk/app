@@ -50,6 +50,9 @@ pub struct MessageView {
     state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     file: Option<FileView>,
+    /// The message this one answers (2026-10-05), as it is shown over the bubble.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quote: Option<QuoteView>,
 }
 
 impl MessageView {
@@ -61,6 +64,33 @@ impl MessageView {
             sent_at: message.sent_at,
             state: state_name(message.state),
             file: file.map(FileView::from),
+            quote: None,
+        }
+    }
+
+    pub fn answering(mut self, quote: QuoteView) -> Self {
+        self.quote = Some(quote);
+        self
+    }
+}
+
+/// The message an answer quotes (2026-10-05): its text, or a file's name; `gone` when it is no
+/// longer on this phone (deleted, burnt, or never here).
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct QuoteView {
+    id: String,
+    text: String,
+    mine: bool,
+    kind: &'static str,
+}
+
+impl QuoteView {
+    pub fn of(id: &str, quoted: Option<&Message>, file: Option<&FileRecord>) -> Self {
+        match (quoted, file) {
+            (Some(message), Some(file)) => Self { id: id.to_owned(), text: file.name.clone(), mine: message.outgoing, kind: "file" },
+            (Some(message), None) => Self { id: id.to_owned(), text: message.body.clone(), mine: message.outgoing, kind: "text" },
+            (None, _) => Self { id: id.to_owned(), text: String::new(), mine: false, kind: "gone" },
         }
     }
 }
@@ -1924,7 +1954,27 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
         .map(|file| (file.message_id.clone(), located(&core, file)))
         .collect();
     let messages = core.store().messages(&contact, limit).await.map_err(failed)?;
-    Ok(messages.iter().map(|message| MessageView::new(message, files.get(&message.message_id))).collect())
+    // The answers (2026-10-05): the quoted message is usually in the list; an older one is read on
+    // its own, and one no longer here shows as gone.
+    let replies = core.store().replies(&contact).await.map_err(failed)?;
+    let mut quoted: HashMap<String, Message> = messages.iter().map(|message| (message.message_id.clone(), message.clone())).collect();
+    for quoted_id in replies.values() {
+        if !quoted.contains_key(quoted_id) {
+            if let Some(message) = core.store().message(quoted_id).await.map_err(failed)?.filter(|message| message.contact == contact) {
+                quoted.insert(quoted_id.clone(), message);
+            }
+        }
+    }
+    Ok(messages
+        .iter()
+        .map(|message| {
+            let view = MessageView::new(message, files.get(&message.message_id));
+            match replies.get(&message.message_id) {
+                Some(quoted_id) => view.answering(QuoteView::of(quoted_id, quoted.get(quoted_id), files.get(quoted_id))),
+                None => view,
+            }
+        })
+        .collect())
 }
 
 /// Starts copying a file from the WebView into the app; returns the upload's id.
@@ -3242,13 +3292,13 @@ pub async fn core_send_picked(contact: String, file: PickedView, client: State<'
 
 /// Stored at once (the UI hears about it); delivered in the background.
 #[tauri::command]
-pub async fn core_send(contact: String, text: String, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_send(contact: String, text: String, reply_to: Option<String>, client: State<'_, Client>) -> Result<(), String> {
     if text.trim().is_empty() {
         return Err("nothing to send".to_owned());
     }
     let core = client.core().await?;
     tauri::async_runtime::spawn(async move {
-        let _ = core.send_text(&contact, &text).await;
+        let _ = core.send_text_replying(&contact, &text, reply_to.as_deref()).await;
     });
     Ok(())
 }
@@ -5068,6 +5118,19 @@ mod tests {
         let rules = ft_storage::ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false, typing: false };
         let view = serde_json::to_value(RulesView::from(rules)).unwrap();
         assert_eq!(view, serde_json::json!({ "muted": true, "acceptsChat": false, "acceptsCalls": true, "receipts": false, "typing": false }));
+    }
+
+    // 2026-10-05: the quote over an answer: the text, a file's name, or gone.
+    #[test]
+    fn a_quote_is_the_text_a_files_name_or_gone() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: false, body: "dinner?".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        let text = serde_json::to_value(QuoteView::of("m1", Some(&message), None)).unwrap();
+        assert_eq!(text, serde_json::json!({ "id": "m1", "text": "dinner?", "mine": false, "kind": "text" }));
+        let gone = serde_json::to_value(QuoteView::of("m0", None, None)).unwrap();
+        assert_eq!(gone, serde_json::json!({ "id": "m0", "text": "", "mine": false, "kind": "gone" }));
+        let view = serde_json::to_value(MessageView::new(&message, None).answering(QuoteView::of("m0", None, None))).unwrap();
+        assert_eq!(view["quote"]["kind"], "gone");
+        assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("quote").is_none(), "no quote, no field");
     }
 
     // 2026-10-05: a page from before the typing switch sends rules without it; it stays on.

@@ -690,7 +690,7 @@ async fn retention_counts_from_arrival_not_from_the_senders_clock() {
         version: ft_protocol::PROTOCOL_VERSION,
         id: ft_protocol::MessageId::new(),
         sent_at: 1_600_000_000_000,
-        body: ft_protocol::Body::Message { text: "from the past".to_owned() },
+        body: ft_protocol::Body::Message { text: "from the past".to_owned(), reply_to: None },
     };
     alice.send_raw_to(&id(&bob), &stale).await.expect("sends");
     until("bob got it", || async { texts(&bob, &id(&alice)).await == ["from the past"] }).await;

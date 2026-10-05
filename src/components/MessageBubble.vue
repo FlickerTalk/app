@@ -27,6 +27,8 @@ export interface Message {
   status?: string;
   kind?: string;
   file?: TransferredFile;
+  /** The message it answers (2026-10-05): a text, a file's name, or one no longer here. */
+  quote?: { id: string; text: string; mine: boolean; kind: "text" | "file" | "gone" };
 }
 
 /**
@@ -42,6 +44,8 @@ const emit = defineEmits<{
   actions: [id: string];
   resend: [id: string];
   play: [id: string];
+  /** A tap on the quote: go to the message it answers. */
+  jump: [id: string];
 }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
@@ -187,6 +191,7 @@ function open() {
   <div
     class="ft-msg"
     :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending', 'is-unsent': unsent }]"
+    :data-message="message.id"
   >
     <!-- Beside the bubble, so it is there for a text, a file or a voice message alike. -->
     <button
@@ -209,6 +214,23 @@ function open() {
       @pointerleave="endPress"
     >
       <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender" dir="auto">{{ sender }}</span>
+      <!-- What it answers (2026-10-05): a tap goes to that message. -->
+      <button
+        v-if="message.quote"
+        type="button"
+        class="ft-quote"
+        :class="{ 'is-theirs': !message.quote.mine, 'is-gone': message.quote.kind === 'gone' }"
+        data-test="quote"
+        :aria-label="t('chat.reply')"
+        @click.stop="emit('jump', message.quote.id)"
+        @pointerdown.stop
+      >
+        <span class="ft-quote__who">{{ message.quote.kind === 'gone' ? '' : message.quote.mine ? t('chat.you') : (sender ?? t('chat.them')) }}</span>
+        <span class="ft-quote__text" dir="auto">
+          <ion-icon v-if="message.quote.kind === 'file'" :icon="documentOutline" aria-hidden="true" />
+          {{ message.quote.kind === 'gone' ? t('chat.quoteGone') : message.quote.text }}
+        </span>
+      </button>
       <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
       <span v-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
@@ -414,6 +436,39 @@ function open() {
 
 <style scoped>
 /* In a circle, who said it, over the text; the colour of a name, not of a message. */
+/* The quote over an answer (2026-10-05): a bar in the other side's colour, the text in one line. */
+.ft-quote {
+  appearance: none;
+  display: block;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 4px 8px 4px 10px;
+  border: 0;
+  border-inline-start: 3px solid currentColor;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.18);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.ft-quote__who {
+  display: block;
+  font-size: var(--ft-font-meta);
+  font-weight: 600;
+  opacity: 0.85;
+}
+.ft-quote__text {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ft-font-meta);
+  opacity: 0.9;
+}
+.ft-quote.is-gone .ft-quote__text {
+  font-style: italic;
+}
 .ft-bubble__sender {
   display: block;
   margin-bottom: 2px;
