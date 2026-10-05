@@ -73,7 +73,10 @@
     "them": "相手",
     "react": "リアクション",
     "reactWith": "{emoji} でリアクション",
-    "unreact": "リアクションを取り消す"
+    "unreact": "リアクションを取り消す",
+    "pin": "ピン留め",
+    "unpin": "ピン留めを外す",
+    "pinned": "ピン留め済み"
   },
   "status": {
     "pending": "相手の端末を待っています",

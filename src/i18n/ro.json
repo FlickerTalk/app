@@ -73,7 +73,10 @@
     "them": "Cealaltă persoană",
     "react": "Reacționează",
     "reactWith": "Reacționează cu {emoji}",
-    "unreact": "Elimină reacția"
+    "unreact": "Elimină reacția",
+    "pin": "Fixează",
+    "unpin": "Anulează fixarea",
+    "pinned": "Fixat"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

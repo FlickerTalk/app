@@ -40,6 +40,8 @@ export interface ChatMessage {
   quote?: Quote;
   /** The emoji each side put on it (2026-10-05). */
   reactions?: Reactions;
+  /** Pinned on this phone (2026-10-05). */
+  pinned?: boolean;
 }
 
 export interface Reactions {
@@ -183,6 +185,7 @@ interface MessageView {
   file?: FileView;
   quote?: Quote;
   reactions?: Reactions;
+  pinned?: boolean;
 }
 
 interface ConversationView {
@@ -361,6 +364,7 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
   }
   if (view.quote) message.quote = view.quote;
   if (view.reactions) message.reactions = view.reactions;
+  if (view.pinned) message.pinned = true;
   return message;
 }
 
@@ -988,6 +992,11 @@ export async function subscribe(): Promise<void> {
 }
 
 /** What the user does with one message of theirs (§61). */
+/** Pins a message on this phone, or unpins it (2026-10-05); nothing of it travels. */
+export async function pinMessage(message: string, pinned: boolean): Promise<void> {
+  await invoke("core_pin", { message, pinned });
+}
+
 /** One emoji on a message of the conversation (2026-10-05); `null` takes it back. */
 export async function react(contact: string, message: string, emoji: string | null): Promise<void> {
   await invoke("core_react", emoji ? { contact, message, emoji } : { contact, message });

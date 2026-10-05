@@ -73,7 +73,10 @@
     "them": "Them",
     "react": "React",
     "reactWith": "React with {emoji}",
-    "unreact": "Remove reaction"
+    "unreact": "Remove reaction",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinned": "Pinned"
   },
   "status": {
     "pending": "Waiting for device",

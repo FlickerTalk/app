@@ -67,6 +67,9 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   como entregado algo que no lo está.
 - **Pulsación larga en un mensaje:** responder (desde el 2026-10-05), plegar, reenviar a otro
   contacto, compartir con otra app o borrar de este teléfono.
+- **Fijar mensajes** (desde el 2026-10-05): desde la pulsación larga; solo en este teléfono, nada
+  viaja. El último fijado se ve en una franja bajo la cabecera; tocarla lleva al mensaje y pasa al
+  siguiente fijado.
 - **Reacciones** (desde el 2026-10-05): en la pulsación larga, una fila de seis emojis; uno por
   persona y mensaje, el mismo otra vez lo quita. Se ven bajo la burbuja y viajan como un acuse,
   en directo o por el buzón; una app anterior los ignora.

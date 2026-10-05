@@ -73,7 +73,10 @@
     "them": "상대방",
     "react": "반응",
     "reactWith": "{emoji}(으)로 반응",
-    "unreact": "반응 지우기"
+    "unreact": "반응 지우기",
+    "pin": "고정",
+    "unpin": "고정 해제",
+    "pinned": "고정됨"
   },
   "status": {
     "pending": "상대 기기 대기 중",

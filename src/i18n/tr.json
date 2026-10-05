@@ -73,7 +73,10 @@
     "them": "Karşı taraf",
     "react": "Tepki ver",
     "reactWith": "{emoji} ile tepki ver",
-    "unreact": "Tepkiyi kaldır"
+    "unreact": "Tepkiyi kaldır",
+    "pin": "Sabitle",
+    "unpin": "Sabitlemeyi kaldır",
+    "pinned": "Sabitlendi"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

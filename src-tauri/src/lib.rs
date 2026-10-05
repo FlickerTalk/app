@@ -110,6 +110,7 @@ pub fn run() {
             client::core_set_rules,
             client::core_typing,
             client::core_react,
+            client::core_pin,
             client::core_set_receipts,
             client::core_quiet_hours,
             client::core_set_quiet_hours,

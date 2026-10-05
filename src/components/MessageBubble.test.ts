@@ -59,6 +59,12 @@ describe("MessageBubble", () => {
     });
   });
 
+  // 2026-10-05: a pinned message carries a pin by its time.
+  it("marks a pinned message", () => {
+    expect(mount(MessageBubble, { props: { message: { ...base, pinned: true } }, shallow: true }).find("[data-test='pinned']").exists()).toBe(true);
+    expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='pinned']").exists()).toBe(false);
+  });
+
   // 2026-10-05: the emoji each side put on a message show under it; none, nothing.
   it("shows the emoji each side put on the message", () => {
     const both = mount(MessageBubble, { props: { message: { ...base, reactions: { mine: "👍", theirs: "❤️" } } }, shallow: true });

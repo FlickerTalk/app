@@ -73,7 +73,10 @@
     "them": "A outra pessoa",
     "react": "Reagir",
     "reactWith": "Reagir com {emoji}",
-    "unreact": "Remover a reação"
+    "unreact": "Remover a reação",
+    "pin": "Fixar",
+    "unpin": "Desafixar",
+    "pinned": "Fixado"
   },
   "status": {
     "pending": "Aguardando o dispositivo",

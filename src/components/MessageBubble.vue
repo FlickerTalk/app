@@ -7,7 +7,7 @@ import { mapsLink, piecesOf, type Place } from "../links";
 import { installed, offered, pluginName } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonButton, IonIcon } from "@ionic/vue";
-import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
+import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, pinOutline, play, refreshOutline, timeOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
 interface TransferredFile {
@@ -31,6 +31,8 @@ export interface Message {
   quote?: { id: string; text: string; mine: boolean; kind: "text" | "file" | "gone" };
   /** The emoji each side put on it (2026-10-05). */
   reactions?: { mine?: string; theirs?: string };
+  /** Pinned on this phone (2026-10-05). */
+  pinned?: boolean;
 }
 
 /**
@@ -421,6 +423,7 @@ function open() {
       </ion-button>
 
       <span class="ft-bubble__meta">
+        <ion-icon v-if="message.pinned" :icon="pinOutline" class="ft-bubble__pin" role="img" :aria-label="t('chat.pinned')" data-test="pinned" />
         <span>{{ message.time }}</span>
         <ion-icon
           v-if="status"
@@ -443,6 +446,10 @@ function open() {
 
 <style scoped>
 /* In a circle, who said it, over the text; the colour of a name, not of a message. */
+.ft-bubble__pin {
+  font-size: 12px;
+  opacity: 0.85;
+}
 /* The emoji on a message (2026-10-05): small chips under the bubble, at its outer corner. */
 .ft-reactions {
   display: flex;
