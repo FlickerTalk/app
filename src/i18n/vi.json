@@ -7,7 +7,8 @@
     "chats": "Trò chuyện",
     "calls": "Cuộc gọi",
     "settings": "Cài đặt",
-    "games": "Trò chơi"
+    "games": "Trò chơi",
+    "plugins": "Plugin"
   },
   "chats": {
     "empty": "Chưa có cuộc trò chuyện nào",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Ai có liên kết cũ của bạn sẽ không liên lạc được với bạn nữa; liên hệ của bạn sẽ nhận liên kết mới",
     "renewLinkConfirm": "Làm mới",
     "renewed": "Đã làm mới liên kết",
-    "feedback": "Góp ý"
+    "feedback": "Góp ý",
+    "tabBar": "Hiển thị trên thanh tab",
+    "tabBarNone": "Không có"
   },
   "hours": {
     "title": "Giờ nhận",

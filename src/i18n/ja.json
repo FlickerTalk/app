@@ -7,7 +7,8 @@
     "chats": "チャット",
     "calls": "通話",
     "settings": "設定",
-    "games": "ゲーム"
+    "games": "ゲーム",
+    "plugins": "プラグイン"
   },
   "chats": {
     "empty": "まだチャットはありません",
@@ -241,7 +242,9 @@
     "renewLinkHint": "古いリンクを持っている人は、もうあなたに連絡できません。連絡先には新しいリンクが届きます",
     "renewLinkConfirm": "更新",
     "renewed": "リンクを更新しました",
-    "feedback": "提案する"
+    "feedback": "提案する",
+    "tabBar": "タブバーに表示",
+    "tabBarNone": "なし"
   },
   "hours": {
     "title": "時間帯",

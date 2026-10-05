@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { IonIcon } from "@ionic/vue";
 import {
   call,
   callOutline,
   chatbubbles,
   chatbubblesOutline,
+  extensionPuzzle,
+  extensionPuzzleOutline,
   gameController,
   gameControllerOutline,
   settings,
@@ -14,14 +17,20 @@ import { useRoute, useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import { t } from "../i18n";
 import { store } from "../core";
+import { extraTab } from "../preferences";
 
 // Plan 10.3: the games between Calls and Settings, on every phone: the app carries them (2026-10-03).
-const sections = [
+// Since 2026-10-05 that place is Settings' choice, as on the tab bar: games, plugins, or nothing.
+const EXTRA = {
+  games: { path: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline, activeIcon: gameController },
+  plugins: { path: "/tabs/plugins", label: t("tabs.plugins"), icon: extensionPuzzleOutline, activeIcon: extensionPuzzle },
+};
+const sections = computed(() => [
   { path: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline, activeIcon: chatbubbles },
   { path: "/tabs/calls", label: t("tabs.calls"), icon: callOutline, activeIcon: call },
-  { path: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline, activeIcon: gameController },
+  ...(extraTab.value === "none" ? [] : [EXTRA[extraTab.value]]),
   { path: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline, activeIcon: settings },
-];
+]);
 
 const route = useRoute();
 const router = useRouter();

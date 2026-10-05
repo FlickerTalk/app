@@ -25,12 +25,14 @@ import {
   type OfferedPlugin,
   type PluginView,
 } from "../core";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { isGame } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
 import { byPluginName, pluginName, pluginSummary, refreshOffered, refreshPlugins, tools } from "../plugins";
 
 const router = useRouter();
+// As a tab (Settings' choice, 2026-10-05) there is nowhere to go back to; from Settings there is.
+const asTab = useRoute().path.startsWith("/tabs/");
 
 // Plan §53: a plugin is granted nothing by installing. Every permission it asked for is shown on
 // its own, with a switch, and can be taken back at any time.
@@ -87,7 +89,7 @@ async function remove(id: string) {
   <ion-page>
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-buttons slot="start">
+        <ion-buttons v-if="!asTab" slot="start">
           <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
         </ion-buttons>
         <ion-title><span class="ft-title">{{ $t("plugins.title") }}</span></ion-title>

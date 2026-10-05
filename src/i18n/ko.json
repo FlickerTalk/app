@@ -7,7 +7,8 @@
     "chats": "채팅",
     "calls": "통화",
     "settings": "설정",
-    "games": "게임"
+    "games": "게임",
+    "plugins": "플러그인"
   },
   "chats": {
     "empty": "아직 채팅이 없습니다",
@@ -241,7 +242,9 @@
     "renewLinkHint": "이전 링크를 가진 사람은 더 이상 나에게 연락할 수 없으며, 내 연락처에는 새 링크가 전달됩니다",
     "renewLinkConfirm": "갱신",
     "renewed": "링크가 갱신되었습니다",
-    "feedback": "제안하기"
+    "feedback": "제안하기",
+    "tabBar": "탭 바에 표시",
+    "tabBarNone": "없음"
   },
   "hours": {
     "title": "수신 시간",

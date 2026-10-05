@@ -7,7 +7,8 @@
     "chats": "Czaty",
     "calls": "Połączenia",
     "settings": "Ustawienia",
-    "games": "Gry"
+    "games": "Gry",
+    "plugins": "Wtyczki"
   },
   "chats": {
     "empty": "Brak czatów",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Kto ma Twój stary link, nie może się już z Tobą skontaktować; Twoje kontakty dostaną nowy",
     "renewLinkConfirm": "Odnów",
     "renewed": "Odnowiono link",
-    "feedback": "Zaproponuj coś"
+    "feedback": "Zaproponuj coś",
+    "tabBar": "Pokazuj na pasku kart",
+    "tabBarNone": "Nic"
   },
   "hours": {
     "title": "Godziny",

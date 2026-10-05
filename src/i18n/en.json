@@ -7,7 +7,8 @@
     "chats": "Chats",
     "calls": "Calls",
     "settings": "Settings",
-    "games": "Games"
+    "games": "Games",
+    "plugins": "Plugins"
   },
   "chats": {
     "empty": "No chats yet",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
     "renewed": "Link renewed",
-    "feedback": "Suggest something"
+    "feedback": "Suggest something",
+    "tabBar": "Show in the tab bar",
+    "tabBarNone": "Nothing"
   },
   "hours": {
     "title": "Hours",

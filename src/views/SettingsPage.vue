@@ -21,6 +21,7 @@ import {
   onIonViewWillLeave,
 } from "@ionic/vue";
 import {
+  appsOutline,
   banOutline,
   bulbOutline,
   callOutline,
@@ -49,7 +50,7 @@ import Avatar from "../components/Avatar.vue";
 import FeedbackModal from "../components/FeedbackModal.vue";
 import { closeOnBackWhile } from "../back";
 import { AUTO_DOWNLOAD_CHOICES, autoDownloadChoice, daysLeft, erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
-import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
+import { extraTab, setCallRouting, setExtraTab, storedCallRouting, type CallRouting, type ExtraTab } from "../preferences";
 import { t } from "../i18n";
 import {
   applyAppearance,
@@ -183,6 +184,12 @@ function chooseColor(id: Direction) {
 function chooseAppearance(id: Appearance) {
   appearance.value = id;
   applyAppearance(id);
+}
+
+// 2026-10-05 (Ioan): the fourth tab is the games, the plugins or none (the default). The bar and
+// the rail change at once, behind the sheet.
+function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
+  setExtraTab(event.detail.value);
 }
 </script>
 
@@ -355,6 +362,24 @@ function chooseAppearance(id: Appearance) {
                 <ion-icon :icon="option.icon" aria-hidden="true" />
               </button>
             </span>
+          </ion-item>
+          <!-- 2026-10-05: what the bar shows between Calls and Settings: nothing, the games or the plugins. -->
+          <ion-item lines="none">
+            <span slot="start" class="ft-tile"><ion-icon :icon="appsOutline" aria-hidden="true" /></span>
+            <ion-select
+              :value="extraTab"
+              data-test="extra-tab"
+              :aria-label="$t('settings.tabBar')"
+              interface="modal"
+              :interface-options="{ header: $t('settings.tabBar') }"
+              :cancel-text="$t('common.cancel')"
+              @ion-change="onExtraTabChange"
+            >
+              <div slot="label">{{ $t("settings.tabBar") }}</div>
+              <ion-select-option value="none">{{ $t("settings.tabBarNone") }}</ion-select-option>
+              <ion-select-option value="games">{{ $t("tabs.games") }}</ion-select-option>
+              <ion-select-option value="plugins">{{ $t("tabs.plugins") }}</ion-select-option>
+            </ion-select>
           </ion-item>
         </ion-list>
 

@@ -7,7 +7,8 @@
     "chats": "Chaturi",
     "calls": "Apeluri",
     "settings": "Setări",
-    "games": "Jocuri"
+    "games": "Jocuri",
+    "plugins": "Pluginuri"
   },
   "chats": {
     "empty": "Niciun chat încă",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Cine are linkul tău vechi nu te mai poate contacta; contactele tale îl primesc pe cel nou",
     "renewLinkConfirm": "Reînnoiește",
     "renewed": "Link reînnoit",
-    "feedback": "Propune ceva"
+    "feedback": "Propune ceva",
+    "tabBar": "Afișează în bara de file",
+    "tabBarNone": "Nimic"
   },
   "hours": {
     "title": "Program",

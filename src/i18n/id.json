@@ -7,7 +7,8 @@
     "chats": "Chat",
     "calls": "Panggilan",
     "settings": "Pengaturan",
-    "games": "Game"
+    "games": "Game",
+    "plugins": "Plugin"
   },
   "chats": {
     "empty": "Belum ada chat",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Siapa pun yang punya tautan lama Anda tidak bisa lagi menghubungi Anda; kontak Anda mendapatkan yang baru",
     "renewLinkConfirm": "Perbarui",
     "renewed": "Tautan diperbarui",
-    "feedback": "Usulkan sesuatu"
+    "feedback": "Usulkan sesuatu",
+    "tabBar": "Tampilkan di bilah tab",
+    "tabBarNone": "Tidak ada"
   },
   "hours": {
     "title": "Jam aktif",

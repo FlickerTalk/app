@@ -7,7 +7,8 @@
     "chats": "Discussions",
     "calls": "Appels",
     "settings": "Paramètres",
-    "games": "Jeux"
+    "games": "Jeux",
+    "plugins": "Plugins"
   },
   "chats": {
     "empty": "Aucune discussion",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Qui a votre ancien lien ne peut plus vous joindre ; vos contacts reçoivent le nouveau",
     "renewLinkConfirm": "Renouveler",
     "renewed": "Lien renouvelé",
-    "feedback": "Suggérer quelque chose"
+    "feedback": "Suggérer quelque chose",
+    "tabBar": "Afficher dans la barre d'onglets",
+    "tabBarNone": "Rien"
   },
   "hours": {
     "title": "Horaires",

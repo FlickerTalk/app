@@ -234,6 +234,9 @@ nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
 - **Delivered and read receipts:** valor por defecto para los contactos nuevos.
 - **Hours**, **Calls**, **Blocked**, **Session** (arriba).
 - **Color** (Mono, Ember, Aurora) y **Appearance** (sistema, oscuro, claro).
+- **Show in the tab bar** (desde el 2026-10-05): qué va en la barra entre Calls y Settings, elegido
+  en una hoja modal: nada (por defecto), **Games** o **Plugins**. La barra y el raíl de pantalla
+  ancha cambian al momento; `/tabs/games` y `/tabs/plugins` siguen existiendo aunque no se muestren.
 - **Plugins**, **Move to a new phone**, **Backup** (la nube del usuario), **Erase this phone**
   (quita el dispositivo del servidor y borra todo el teléfono, con confirmación).
 - **Plan** y **Version**.

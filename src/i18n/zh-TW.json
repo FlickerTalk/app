@@ -7,7 +7,8 @@
     "chats": "聊天",
     "calls": "通話",
     "settings": "設定",
-    "games": "遊戲"
+    "games": "遊戲",
+    "plugins": "外掛程式"
   },
   "chats": {
     "empty": "還沒有聊天",
@@ -241,7 +242,9 @@
     "renewLinkHint": "持有你舊連結的人將無法再聯絡你；你的聯絡人會收到新連結",
     "renewLinkConfirm": "更新",
     "renewed": "已更新連結",
-    "feedback": "提出建議"
+    "feedback": "提出建議",
+    "tabBar": "顯示在標籤列",
+    "tabBarNone": "無"
   },
   "hours": {
     "title": "時段",

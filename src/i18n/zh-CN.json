@@ -7,7 +7,8 @@
     "chats": "聊天",
     "calls": "通话",
     "settings": "设置",
-    "games": "游戏"
+    "games": "游戏",
+    "plugins": "插件"
   },
   "chats": {
     "empty": "还没有聊天",
@@ -241,7 +242,9 @@
     "renewLinkHint": "持有你旧链接的人将无法再联系你；你的联系人会收到新链接",
     "renewLinkConfirm": "更新",
     "renewed": "链接已更新",
-    "feedback": "提个建议"
+    "feedback": "提个建议",
+    "tabBar": "显示在标签栏",
+    "tabBarNone": "无"
   },
   "hours": {
     "title": "时段",

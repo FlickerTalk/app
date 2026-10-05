@@ -7,7 +7,8 @@
     "chats": "Conversas",
     "calls": "Chamadas",
     "settings": "Configurações",
-    "games": "Jogos"
+    "games": "Jogos",
+    "plugins": "Plugins"
   },
   "chats": {
     "empty": "Nenhuma conversa ainda",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Quem tiver o teu link antigo já não te alcança; os teus contactos recebem o novo",
     "renewLinkConfirm": "Renovar",
     "renewed": "Link renovado",
-    "feedback": "Sugerir algo"
+    "feedback": "Sugerir algo",
+    "tabBar": "Mostrar na barra de separadores",
+    "tabBarNone": "Nada"
   },
   "hours": {
     "title": "Horário",

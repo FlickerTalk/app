@@ -7,7 +7,8 @@
     "chats": "Sohbetler",
     "calls": "Aramalar",
     "settings": "Ayarlar",
-    "games": "Oyunlar"
+    "games": "Oyunlar",
+    "plugins": "Eklentiler"
   },
   "chats": {
     "empty": "Henüz sohbet yok",
@@ -241,7 +242,9 @@
     "renewLinkHint": "Eski bağlantınız kimdeyse artık size ulaşamaz; kişileriniz yenisini alır",
     "renewLinkConfirm": "Yenile",
     "renewed": "Bağlantı yenilendi",
-    "feedback": "Bir şey önerin"
+    "feedback": "Bir şey önerin",
+    "tabBar": "Sekme çubuğunda göster",
+    "tabBarNone": "Hiçbiri"
   },
   "hours": {
     "title": "Saatler",
