@@ -1031,6 +1031,15 @@ impl Core {
         Ok(())
     }
 
+    /// Pins a message on this phone, or unpins it (2026-10-05): a choice of this phone, like the
+    /// contact's name; nothing of it travels.
+    pub async fn pin_message(&self, message_id: &str, pinned: bool) -> Result<()> {
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        self.store.set_pinned(message_id, pinned).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: message.contact });
+        Ok(())
+    }
+
     /// One emoji on a message of the conversation (2026-10-05), theirs or ours; `None` takes it
     /// back. Shown here at once, and told to the contact like a receipt: directly, or through
     /// the mailbox when there is one; a contact out of reach hears nothing.

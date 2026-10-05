@@ -73,7 +73,10 @@
     "them": "對方",
     "react": "回應",
     "reactWith": "用 {emoji} 回應",
-    "unreact": "移除回應"
+    "unreact": "移除回應",
+    "pin": "釘選",
+    "unpin": "取消釘選",
+    "pinned": "已釘選"
   },
   "status": {
     "pending": "等待對方裝置",

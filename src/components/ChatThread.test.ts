@@ -918,6 +918,52 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-05: pinned messages: the sheet pins and unpins; a strip under the header shows the
+  // latest pinned, and a tap goes to it and moves on to the next.
+  describe("pinned messages", () => {
+    it("pins a message from the sheet, and unpins a pinned one", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressed(wrapper);
+      const first = chat("c1")!.messages[0];
+      expect(wrapper.find("[data-test='pin']").attributes("aria-label")).toBe("Pin");
+      await wrapper.find("[data-test='pin']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_pin", { message: first.id, pinned: true }]);
+
+      first.pinned = true;
+      await flushPromises();
+      await pressed(wrapper);
+      expect(wrapper.find("[data-test='pin']").attributes("aria-label")).toBe("Unpin");
+      await wrapper.find("[data-test='pin']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_pin", { message: first.id, pinned: false }]);
+    });
+
+    it("shows the latest pinned message in a strip and walks through them on a tap", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='pinned-strip']").exists()).toBe(false);
+      const [first, second] = chat("c1")!.messages;
+      first.pinned = true;
+      second.pinned = true;
+      await flushPromises();
+      const strip = wrapper.find("[data-test='pinned-strip']");
+      expect(strip.text()).toContain(second.text);
+      expect(strip.text()).toContain("1/2");
+
+      const target = document.createElement("div");
+      target.dataset.message = second.id;
+      target.scrollIntoView = vi.fn();
+      document.body.append(target);
+      await strip.trigger("click");
+      expect(target.scrollIntoView).toHaveBeenCalled();
+      target.remove();
+      expect(wrapper.find("[data-test='pinned-strip']").text()).toContain(first.text);
+      expect(wrapper.find("[data-test='pinned-strip']").text()).toContain("2/2");
+    });
+  });
+
   // 2026-10-05: an emoji on a message, from the sheet; the same one again takes it back.
   describe("reacting to a message", () => {
     it("offers a row of emoji and puts the chosen one on the message", async () => {

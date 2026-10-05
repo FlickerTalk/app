@@ -73,7 +73,10 @@
     "them": "Lawan bicara",
     "react": "Bereaksi",
     "reactWith": "Bereaksi dengan {emoji}",
-    "unreact": "Hapus reaksi"
+    "unreact": "Hapus reaksi",
+    "pin": "Sematkan",
+    "unpin": "Lepas sematan",
+    "pinned": "Disematkan"
   },
   "status": {
     "pending": "Menunggu perangkat",

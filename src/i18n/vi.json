@@ -73,7 +73,10 @@
     "them": "Người kia",
     "react": "Bày tỏ cảm xúc",
     "reactWith": "Bày tỏ cảm xúc {emoji}",
-    "unreact": "Bỏ cảm xúc"
+    "unreact": "Bỏ cảm xúc",
+    "pin": "Ghim",
+    "unpin": "Bỏ ghim",
+    "pinned": "Đã ghim"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

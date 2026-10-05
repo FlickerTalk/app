@@ -2,7 +2,7 @@
 //! commands to the UI. No business logic here: every command delegates to the core, and what
 //! crosses to the WebView are plain views (never keys, never the capability, §54).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -56,6 +56,9 @@ pub struct MessageView {
     /// The emoji each side put on it (2026-10-05).
     #[serde(skip_serializing_if = "Option::is_none")]
     reactions: Option<ReactionsView>,
+    /// Pinned on this phone (2026-10-05).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pinned: bool,
 }
 
 /// What each side put on a message (2026-10-05): one emoji each, or none.
@@ -84,7 +87,13 @@ impl MessageView {
             file: file.map(FileView::from),
             quote: None,
             reactions: None,
+            pinned: false,
         }
+    }
+
+    pub fn pinned(mut self, pinned: bool) -> Self {
+        self.pinned = pinned;
+        self
     }
 
     pub fn answering(mut self, quote: QuoteView) -> Self {
@@ -1990,10 +1999,13 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
         }
     }
     let reactions = core.store().reactions(&contact).await.map_err(failed)?;
+    let pinned: HashSet<String> = core.store().pinned(&contact).await.map_err(failed)?.into_iter().collect();
     Ok(messages
         .iter()
         .map(|message| {
-            let view = MessageView::new(message, files.get(&message.message_id)).reacted(reactions.get(&message.message_id));
+            let view = MessageView::new(message, files.get(&message.message_id))
+                .reacted(reactions.get(&message.message_id))
+                .pinned(pinned.contains(&message.message_id));
             match replies.get(&message.message_id) {
                 Some(quoted_id) => view.answering(QuoteView::of(quoted_id, quoted.get(quoted_id), files.get(quoted_id))),
                 None => view,
@@ -2127,6 +2139,12 @@ fn now_ms() -> i64 {
 #[tauri::command]
 pub async fn core_forget_message(message: String, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.forget_message(&message).await.map_err(failed)
+}
+
+/// Pins a message on this phone, or unpins it (2026-10-05).
+#[tauri::command]
+pub async fn core_pin(message: String, pinned: bool, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.pin_message(&message, pinned).await.map_err(failed)
 }
 
 /// One emoji on a message of the conversation (2026-10-05); no emoji takes it back.
@@ -5162,6 +5180,14 @@ mod tests {
         let view = serde_json::to_value(MessageView::new(&message, None).answering(QuoteView::of("m0", None, None))).unwrap();
         assert_eq!(view["quote"]["kind"], "gone");
         assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("quote").is_none(), "no quote, no field");
+    }
+
+    // 2026-10-05: a pinned message says so; an unpinned one says nothing.
+    #[test]
+    fn a_pinned_message_says_so() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: false, body: "hi".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        assert_eq!(serde_json::to_value(MessageView::new(&message, None).pinned(true)).unwrap()["pinned"], true);
+        assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("pinned").is_none());
     }
 
     // 2026-10-05: the emoji each side put on a message, only the sides that did.

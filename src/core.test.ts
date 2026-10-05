@@ -478,6 +478,14 @@ describe("circles", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hi" });
   });
 
+  // 2026-10-05: a pin is this phone's; the core keeps it with the message.
+  it("pins and unpins a message through the core", async () => {
+    await core.pinMessage("m1", true);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pin", { message: "m1", pinned: true });
+    await core.pinMessage("m1", false);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pin", { message: "m1", pinned: false });
+  });
+
   // 2026-10-05: one emoji on a message; none takes it back.
   it("puts an emoji on a message through the core, and takes it back", async () => {
     await core.react("ft_bob", "m1", "👍");

@@ -73,7 +73,10 @@
     "them": "Druga osoba",
     "react": "Reakcja",
     "reactWith": "Zareaguj {emoji}",
-    "unreact": "Usuń reakcję"
+    "unreact": "Usuń reakcję",
+    "pin": "Przypnij",
+    "unpin": "Odepnij",
+    "pinned": "Przypięte"
   },
   "status": {
     "pending": "Czeka na urządzenie",

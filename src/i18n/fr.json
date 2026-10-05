@@ -73,7 +73,10 @@
     "them": "L’autre personne",
     "react": "Réagir",
     "reactWith": "Réagir avec {emoji}",
-    "unreact": "Retirer la réaction"
+    "unreact": "Retirer la réaction",
+    "pin": "Épingler",
+    "unpin": "Désépingler",
+    "pinned": "Épinglé"
   },
   "status": {
     "pending": "En attente de l’appareil",

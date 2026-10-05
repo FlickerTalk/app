@@ -47,6 +47,8 @@ import {
   trashOutline,
   videocamOutline,
   arrowUndoOutline,
+  pin,
+  pinOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
@@ -82,6 +84,7 @@ import {
   markRead,
   openFile,
   pickFiles,
+  pinMessage,
   pluginRef,
   react,
   readMessageFile,
@@ -199,6 +202,30 @@ function reply() {
   closeActions();
   replying.value = messages.value.find((message) => message.id === id) ?? null;
 }
+
+// 2026-10-05: pinned messages, this phone's choice. The strip under the header shows the latest
+// pinned; a tap goes to it and moves on to the next one.
+const pinned = computed(() => messages.value.filter((message) => message.pinned).reverse());
+const pinnedAt = ref(0);
+const shownPin = computed(() => pinned.value[pinnedAt.value % Math.max(pinned.value.length, 1)]);
+watch(pinned, (now) => (pinnedAt.value = now.length ? pinnedAt.value % now.length : 0));
+
+async function togglePin() {
+  const id = acting.value;
+  const was = actingMessage.value?.pinned === true;
+  closeActions();
+  await pinMessage(id, !was).catch(() => {});
+}
+
+function visitPin() {
+  const target = shownPin.value;
+  if (!target) return;
+  jumpTo(target.id);
+  pinnedAt.value = (pinnedAt.value + 1) % pinned.value.length;
+}
+
+/** The text of a pinned message in the strip: a text, or a file's name. */
+const pinText = (message: ChatMessage) => (message.kind === "file" ? message.file?.name ?? "" : message.text);
 
 // 2026-10-05: one emoji on a message, from the sheet; the same one again takes it back.
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -836,6 +863,13 @@ watch(
       </ion-toolbar>
     </ion-header>
 
+    <!-- 2026-10-05: the latest pinned message, under the header; a tap goes to it, then to the next. -->
+    <button v-if="shownPin" type="button" class="ft-pinned" data-test="pinned-strip" :aria-label="$t('chat.pinned')" @click="visitPin">
+      <ion-icon :icon="pinOutline" aria-hidden="true" />
+      <span class="ft-pinned__text" dir="auto">{{ pinText(shownPin) }}</span>
+      <span v-if="pinned.length > 1" class="ft-pinned__count">{{ (pinnedAt % pinned.length) + 1 }}/{{ pinned.length }}</span>
+    </button>
+
     <!-- The game room (Ioan, 2026-10-02): the game where the messages are, with a bar of its own:
          a way out, its name and the invitation. The thread stays mounted under it. -->
     <section v-if="plugin && plugin.game" v-show="!leaving" class="ft-room" data-test="game-room" :aria-label="plugin.name">
@@ -1046,6 +1080,10 @@ watch(
             {{ emoji }}
           </button>
         </span>
+        <!-- 2026-10-05: pin it on this phone, or unpin it. -->
+        <button type="button" class="ft-round ft-round--ghost" :class="{ 'is-active': actingMessage?.pinned }" data-test="pin" :aria-label="$t(actingMessage?.pinned ? 'chat.unpin' : 'chat.pin')" @click="togglePin">
+          <ion-icon :icon="actingMessage?.pinned ? pin : pinOutline" aria-hidden="true" />
+        </button>
         <!-- 2026-10-05: answer it, quoting it; not a stranger's message still in the requests. -->
         <button v-if="!isRequest" type="button" class="ft-round ft-round--ghost" data-test="reply" :aria-label="$t('chat.reply')" @click="reply">
           <ion-icon :icon="arrowUndoOutline" aria-hidden="true" />
@@ -1247,6 +1285,38 @@ watch(
 </template>
 
 <style scoped>
+/* The latest pinned message (2026-10-05), a strip under the header. */
+.ft-pinned {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px var(--ft-space-4);
+  border: 0;
+  border-bottom: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text);
+  font: inherit;
+  font-size: var(--ft-font-meta);
+  text-align: start;
+  cursor: pointer;
+}
+.ft-pinned ion-icon {
+  flex: none;
+  color: var(--ft-accent);
+}
+.ft-pinned__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ft-pinned__count {
+  flex: none;
+  color: var(--ft-muted);
+}
 /* The message being answered (2026-10-05), over the composer. */
 .ft-replying {
   display: flex;

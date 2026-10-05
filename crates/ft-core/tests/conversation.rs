@@ -1417,6 +1417,29 @@ async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
 }
 
+// 2026-10-05: a pin stays on this phone: the UI hears of it, the other phone never does.
+#[tokio::test(flavor = "multi_thread")]
+async fn pinning_a_message_is_this_phones_alone() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let message = alice.send_text(&id(&bob), "the address is 12 Main St").await.expect("sends");
+    until("bob has it", || async { !texts(&bob, &id(&alice)).await.is_empty() }).await;
+    let mut at_alice = alice.events();
+    let before = net.sent_to(&id(&bob));
+
+    alice.pin_message(&message, true).await.expect("pins");
+    assert_eq!(alice.store().pinned(&id(&bob)).await.unwrap(), vec![message.clone()]);
+    assert_eq!(at_alice.recv().await.unwrap(), Event::MessagesChanged { contact: id(&bob) });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(net.sent_to(&id(&bob)), before, "nothing left the phone");
+    assert!(bob.store().pinned(&id(&alice)).await.unwrap().is_empty());
+
+    alice.pin_message(&message, false).await.expect("unpins");
+    assert!(alice.store().pinned(&id(&bob)).await.unwrap().is_empty());
+    assert!(alice.pin_message("no-such-message", true).await.is_err());
+}
+
 // 2026-10-05: an emoji on a message reaches the other phone, replaces the one before, and goes
 // away when taken back; one on a message that is not here, or from elsewhere, is nothing.
 #[tokio::test(flavor = "multi_thread")]
