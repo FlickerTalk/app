@@ -64,7 +64,8 @@
     "otherApp": "Une autre app",
     "location": "Position",
     "accuracy": "±{metres} m",
-    "openLocation": "{place} : ouvrir dans Plans"
+    "openLocation": "{place} : ouvrir dans Plans",
+    "typing": "en train d’écrire…"
   },
   "status": {
     "pending": "En attente de l’appareil",
@@ -171,7 +172,8 @@
     "never": "Jamais",
     "days": "{days} j",
     "hours": "{hours} h",
-    "minutes": "{minutes} min"
+    "minutes": "{minutes} min",
+    "typing": "Montrer quand j’écris"
   },
   "move": {
     "fromOld": "Depuis votre ancien téléphone",

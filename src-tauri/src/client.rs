@@ -25,6 +25,8 @@ use crate::push_core::{may_start_from_push, CallScreen, Host, PushSide};
 pub const ROUTER: &str = "https://api.flickertalk.com";
 /// Sent to the UI whenever contacts or messages change; `contact` says which conversation.
 pub const CHANGED_EVENT: &str = "ft://changed";
+/// Sent to the UI when a contact is writing to this phone (2026-10-05); `contact` says who.
+pub const TYPING_EVENT: &str = "ft://typing";
 /// Sent to the UI when the plugins installed here changed (an update, 2026-10-03): it reads them again.
 pub const PLUGINS_EVENT: &str = "ft://plugins";
 
@@ -228,18 +230,31 @@ pub struct RulesView {
     accepts_chat: bool,
     accepts_calls: bool,
     receipts: bool,
+    /// Absent from a page older than this field: on, as a new contact's.
+    #[serde(default = "yes")]
+    typing: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl From<ft_storage::ContactRules> for RulesView {
     fn from(rules: ft_storage::ContactRules) -> Self {
-        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts }
+        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts, typing: rules.typing }
     }
 }
 
 impl From<RulesView> for ft_storage::ContactRules {
     fn from(rules: RulesView) -> Self {
-        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts }
+        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts, typing: rules.typing }
     }
+}
+
+/// What `ft://typing` carries: who is writing.
+#[derive(Clone, Serialize)]
+struct TypingView {
+    contact: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -1123,6 +1138,10 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                 other => {
                     let Some(app) = app else { continue };
                     match other {
+                        // They are writing (2026-10-05): the open conversation shows it for a moment.
+                        Event::Typing { contact } => {
+                            let _ = app.emit(TYPING_EVENT, TypingView { contact });
+                        }
                         // A plugin on the other side said something to its twin here (2026-09-27).
                         Event::PluginEvent { plugin, contact, data } => {
                             let _ = app.emit(PLUGIN_EVENT, PluginEventView { plugin, contact, data: BASE64.encode(data) });
@@ -3275,6 +3294,12 @@ pub async fn core_set_rules(contact: String, rules: RulesView, client: State<'_,
     client.core().await?.set_rules(&contact, rules.into()).await.map_err(failed)
 }
 
+/// The user is writing to the contact (2026-10-05): told only over an open direct connection.
+#[tauri::command]
+pub async fn core_typing(contact: String, client: State<'_, Client>) -> Result<bool, String> {
+    client.core().await?.typing(&contact).await.map_err(failed)
+}
+
 /// Whether contacts added from now on are told their messages arrived and were read (app#6).
 #[tauri::command]
 pub async fn core_set_receipts(enabled: bool, client: State<'_, Client>) -> Result<(), String> {
@@ -5040,8 +5065,17 @@ mod tests {
     // Issues app#4–#6: the contact's page shows what this phone takes from them.
     #[test]
     fn a_contact_view_carries_its_rules() {
-        let rules = ft_storage::ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false };
+        let rules = ft_storage::ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false, typing: false };
         let view = serde_json::to_value(RulesView::from(rules)).unwrap();
-        assert_eq!(view, serde_json::json!({ "muted": true, "acceptsChat": false, "acceptsCalls": true, "receipts": false }));
+        assert_eq!(view, serde_json::json!({ "muted": true, "acceptsChat": false, "acceptsCalls": true, "receipts": false, "typing": false }));
+    }
+
+    // 2026-10-05: a page from before the typing switch sends rules without it; it stays on.
+    #[test]
+    fn rules_without_the_typing_switch_keep_it_on() {
+        let view: RulesView = serde_json::from_value(serde_json::json!({ "muted": false, "acceptsChat": true, "acceptsCalls": true, "receipts": true })).unwrap();
+        assert!(ft_storage::ContactRules::from(view).typing);
+        let view: RulesView = serde_json::from_value(serde_json::json!({ "muted": false, "acceptsChat": true, "acceptsCalls": true, "receipts": true, "typing": false })).unwrap();
+        assert!(!ft_storage::ContactRules::from(view).typing);
     }
 }

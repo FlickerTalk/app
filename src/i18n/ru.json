@@ -64,7 +64,8 @@
     "otherApp": "Другое приложение",
     "location": "Местоположение",
     "accuracy": "±{metres} м",
-    "openLocation": "{place}: открыть на карте"
+    "openLocation": "{place}: открыть на карте",
+    "typing": "печатает…"
   },
   "status": {
     "pending": "Ожидание устройства",
@@ -171,7 +172,8 @@
     "never": "Никогда",
     "days": "{days} дн.",
     "hours": "{hours} ч",
-    "minutes": "{minutes} мин"
+    "minutes": "{minutes} мин",
+    "typing": "Показывать, когда я печатаю"
   },
   "move": {
     "fromOld": "Со старого телефона",

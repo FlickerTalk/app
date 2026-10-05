@@ -68,6 +68,10 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
 - **Pulsación larga en un mensaje:** plegar, reenviar a otro contacto, compartir con otra app o
   borrar de este teléfono.
 - **Herramientas (plugins):** el botón de apps del chat abre las instaladas (ver «Plugins»).
+- **«Escribiendo…»** (desde el 2026-10-05): mientras el otro escribe, la cabecera lo dice en lugar
+  del estado de conexión, y se apaga al llegar su mensaje o a los pocos segundos. Viaja solo por la
+  conexión directa ya abierta: nunca por el buzón ni por el servidor, y sin conexión no se envía
+  nada. Cada ficha de contacto tiene su interruptor «Show when I'm typing».
 - **Llamada de voz y de vídeo** desde la cabecera.
 
 ## Llamadas
@@ -103,6 +107,7 @@ no se entera y el servidor no lo ve.
 - **Calls:** apagado, sus llamadas no entran; él recibe «busy» y aquí no queda rastro.
 - **Delivered and read receipts:** apagado, él nunca ve «entregado» ni «leído» (sus mensajes se
   quedan en «enviado»), aunque sí deja de reintentar.
+- **Show when I'm typing** (desde el 2026-10-05): apagado, él nunca ve «escribiendo…».
 - **Block:** corta la conexión y descarta todo lo suyo. Se deshace en Ajustes → Blocked.
 - **Report:** abre un correo a FlickerTalk con el motivo y, si quieres, sus últimos mensajes como
   prueba; además lo bloquea.

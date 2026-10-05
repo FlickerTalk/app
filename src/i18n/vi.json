@@ -64,7 +64,8 @@
     "otherApp": "Ứng dụng khác",
     "location": "Vị trí",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: mở trong bản đồ"
+    "openLocation": "{place}: mở trong bản đồ",
+    "typing": "đang nhập…"
   },
   "status": {
     "pending": "Đang chờ thiết bị",
@@ -171,7 +172,8 @@
     "never": "Không bao giờ",
     "days": "{days} ngày",
     "hours": "{hours} giờ",
-    "minutes": "{minutes} phút"
+    "minutes": "{minutes} phút",
+    "typing": "Hiển thị khi tôi đang nhập"
   },
   "move": {
     "fromOld": "Từ điện thoại cũ của bạn",

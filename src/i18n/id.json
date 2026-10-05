@@ -64,7 +64,8 @@
     "otherApp": "Aplikasi lain",
     "location": "Lokasi",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: buka di peta"
+    "openLocation": "{place}: buka di peta",
+    "typing": "sedang mengetik…"
   },
   "status": {
     "pending": "Menunggu perangkat",
@@ -171,7 +172,8 @@
     "never": "Tidak pernah",
     "days": "{days} hari",
     "hours": "{hours} jam",
-    "minutes": "{minutes} mnt"
+    "minutes": "{minutes} mnt",
+    "typing": "Tampilkan saat saya mengetik"
   },
   "move": {
     "fromOld": "Dari ponsel lama Anda",

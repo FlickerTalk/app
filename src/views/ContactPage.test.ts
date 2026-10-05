@@ -111,15 +111,20 @@ describe("ContactPage", () => {
     await flushPromises();
     const toggle = (name: string) =>
       wrapper.findAllComponents(IonToggle).find((one) => one.attributes("data-test") === name)!;
-    for (const name of ["mute", "chat", "calls", "receipts"]) expect(toggle(name).exists()).toBe(true);
+    for (const name of ["mute", "chat", "calls", "receipts", "typing"]) expect(toggle(name).exists()).toBe(true);
     expect(toggle("mute").attributes("checked")).toBe("false");
     expect(toggle("calls").attributes("checked")).toBe("true");
 
     toggle("mute").vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: true } }));
     await flushPromises();
-    expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: true, receipts: true } }]);
+    expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: true, receipts: true, typing: true } }]);
     toggle("calls").vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
     await flushPromises();
-    expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: false, receipts: true } }]);
+    expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: false, receipts: true, typing: true } }]);
+    // 2026-10-05: whether they see "typing…" is a rule like the others.
+    expect(toggle("typing").attributes("checked")).toBe("true");
+    toggle("typing").vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: false, receipts: true, typing: false } }]);
   });
 });

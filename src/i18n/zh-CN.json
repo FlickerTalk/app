@@ -64,7 +64,8 @@
     "otherApp": "其他应用",
     "location": "位置",
     "accuracy": "±{metres} 米",
-    "openLocation": "{place}：在地图中打开"
+    "openLocation": "{place}：在地图中打开",
+    "typing": "正在输入…"
   },
   "status": {
     "pending": "等待对方设备",
@@ -171,7 +172,8 @@
     "never": "从不",
     "days": "{days} 天",
     "hours": "{hours} 小时",
-    "minutes": "{minutes} 分钟"
+    "minutes": "{minutes} 分钟",
+    "typing": "显示我正在输入"
   },
   "move": {
     "fromOld": "从旧手机迁移",

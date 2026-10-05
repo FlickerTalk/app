@@ -123,6 +123,8 @@ export interface ContactRules {
   acceptsCalls: boolean;
   /** They see their messages as delivered and read. */
   receipts: boolean;
+  /** They see when I am writing to them (2026-10-05); only over the direct connection. */
+  typing: boolean;
 }
 
 /** One day of the weekly hours (app#7): all day, never, or a stretch "HH:MM"–"HH:MM". */
@@ -220,6 +222,12 @@ interface SessionView {
 }
 
 export const CHANGED_EVENT = "ft://changed";
+/** A contact is writing to this phone (2026-10-05); the payload says who. */
+export const TYPING_EVENT = "ft://typing";
+/** How long "typing…" stays after the last word heard, when no message follows. */
+export const TYPING_FADE = 6000;
+/** At most one "typing" to a contact every this often while the user writes. */
+export const TYPING_EVERY = 3000;
 const MESSAGE_LIMIT = 200;
 /** Bytes per call when copying a picked file into the app. */
 const UPLOAD_SLICE = 512 * 1024;
@@ -234,7 +242,42 @@ export const store = reactive({
   sessions: [] as Session[],
   /** The circles of the main list (2026-09-27). */
   circles: [] as Circle[],
+  /** Contacts writing to this phone right now (2026-10-05), by id. */
+  typing: {} as Record<string, boolean>,
 });
+
+const typingFades = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** The contact is writing: shown until a message of theirs arrives, or for a moment. */
+export function heardTyping(contact: string): void {
+  store.typing[contact] = true;
+  clearTimeout(typingFades.get(contact));
+  typingFades.set(contact, setTimeout(() => quietTyping(contact), TYPING_FADE));
+}
+
+function quietTyping(contact: string): void {
+  clearTimeout(typingFades.get(contact));
+  typingFades.delete(contact);
+  delete store.typing[contact];
+}
+
+export function isTyping(contact: string): boolean {
+  return store.typing[contact] === true;
+}
+
+const typingSent = new Map<string, number>();
+
+/**
+ * Tells the contact the user is writing to them (2026-10-05), at most once every `TYPING_EVERY`.
+ * The core sends it only over a direct connection already open; the contact's own switch on their
+ * page can turn it off. Never throws: a missed "typing" is nothing.
+ */
+export async function sendTyping(contact: string): Promise<void> {
+  const now = Date.now();
+  if (now - (typingSent.get(contact) ?? 0) < TYPING_EVERY) return;
+  typingSent.set(contact, now);
+  await invoke("core_typing", { contact }).catch(() => undefined);
+}
 
 /** Conversations whose messages are shown, so a change reloads them. */
 const loaded = new Set<string>();
@@ -483,7 +526,10 @@ export async function start(): Promise<void> {
   const me = await invoke<Omit<Me, "hue">>("core_me");
   store.me = { ...me, hue: hueOf(me.id) };
   await refreshChats();
+  await listen<{ contact: string }>(TYPING_EVENT, ({ payload }) => heardTyping(payload.contact));
   await listen<{ contact: string | null; circle?: string | null; all?: boolean }>(CHANGED_EVENT, ({ payload }) => {
+    // Their message arrived: they are no longer "typing" (2026-10-05).
+    if (payload.contact) quietTyping(payload.contact);
     // The list first: an open conversation's files depend on the connection it reports.
     void refreshChats().then(() => {
       // Events were lost to a burst (2026-10-01): whatever is shown may be out of date.

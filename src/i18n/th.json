@@ -64,7 +64,8 @@
     "otherApp": "แอปอื่น",
     "location": "ตำแหน่ง",
     "accuracy": "±{metres} ม.",
-    "openLocation": "{place}: เปิดในแผนที่"
+    "openLocation": "{place}: เปิดในแผนที่",
+    "typing": "กำลังพิมพ์…"
   },
   "status": {
     "pending": "รออุปกรณ์",
@@ -171,7 +172,8 @@
     "never": "ไม่เลย",
     "days": "{days} วัน",
     "hours": "{hours} ชม.",
-    "minutes": "{minutes} นาที"
+    "minutes": "{minutes} นาที",
+    "typing": "แสดงเมื่อฉันกำลังพิมพ์"
   },
   "move": {
     "fromOld": "จากโทรศัพท์เครื่องเก่า",

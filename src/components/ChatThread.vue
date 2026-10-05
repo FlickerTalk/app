@@ -76,6 +76,7 @@ import {
   forwardMessage,
   grantPlugin,
   installPlugin,
+  isTyping,
   loadMessages,
   markRead,
   openFile,
@@ -88,6 +89,7 @@ import {
   sendFile,
   sendPicked,
   sendText,
+  sendTyping,
   sessionOf,
   shareMessage,
   declineContact,
@@ -182,6 +184,17 @@ async function send() {
   emoji.value = false;
   await sendText(props.chatId, text);
 }
+
+// 2026-10-05: while the user writes, the contact hears "typing…", only over the direct connection
+// already open (the core sends nothing otherwise). Not for a stranger still in the requests.
+watch(draft, (now, before) => {
+  if (now.trim() && now !== before && !isRequest.value) void sendTyping(props.chatId);
+});
+
+/** The line under the name: "typing…" while they write, else how the two phones are connected. */
+const peerStatus = computed(() =>
+  isTyping(props.chatId) ? t("chat.typing") : chat.value?.connected ? t("chat.direct") : t("chat.notConnected"),
+);
 
 // §84, issue app#4: the emoji are the app's own, next to the composer.
 const emoji = ref(false);
@@ -760,20 +773,15 @@ watch(
           class="ft-peer"
           :class="{ 'has-back': showBack }"
           data-test="peer"
-          :aria-label="
-            $t('chat.contactDetails', {
-              name: chat.name,
-              status: chat.connected ? $t('chat.direct') : $t('chat.notConnected'),
-            })
-          "
+          :aria-label="$t('chat.contactDetails', { name: chat.name, status: peerStatus })"
           @click="router.push(`/contact/${chat.id}`)"
         >
           <Avatar :name="chat.name" :hue="chat.hue" :size="38" :connected="chat.connected" />
           <span class="ft-peer__text">
             <!-- `auto`: a name keeps its own direction, so a Latin name in Arabic is cut at its end. -->
             <span class="ft-peer__name" dir="auto">{{ chat.name }}</span>
-            <span class="ft-peer__status" :class="{ 'is-direct': chat.connected }">
-              {{ chat.connected ? $t("chat.direct") : $t("chat.notConnected") }}
+            <span class="ft-peer__status" :class="{ 'is-direct': chat.connected, 'is-typing': isTyping(chat.id) }" data-test="peer-status">
+              {{ peerStatus }}
             </span>
           </span>
         </button>
@@ -1289,6 +1297,11 @@ watch(
 }
 .ft-peer__status.is-direct {
   color: var(--ft-accent);
+}
+/* "typing…" (2026-10-05): the same accent, in italics, so a glance tells it from the connection. */
+.ft-peer__status.is-typing {
+  color: var(--ft-accent);
+  font-style: italic;
 }
 
 /* The game room: under the header, over the composer, scrolling as the tool window does. */

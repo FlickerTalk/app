@@ -68,11 +68,13 @@ pub struct ContactRules {
     pub accepts_calls: bool,
     /// They see their messages as delivered and read.
     pub receipts: bool,
+    /// They see when the user is writing to them (2026-10-05); only over the direct connection.
+    pub typing: bool,
 }
 
 impl Default for ContactRules {
     fn default() -> Self {
-        Self { muted: false, accepts_chat: true, accepts_calls: true, receipts: true }
+        Self { muted: false, accepts_chat: true, accepts_calls: true, receipts: true, typing: true }
     }
 }
 
@@ -450,11 +452,12 @@ impl Store {
     }
 
     pub async fn set_rules(&self, device_id: &str, rules: &ContactRules) -> Result<()> {
-        sqlx::query("UPDATE contacts SET muted = ?, accepts_chat = ?, accepts_calls = ?, receipts = ? WHERE device_id = ?")
+        sqlx::query("UPDATE contacts SET muted = ?, accepts_chat = ?, accepts_calls = ?, receipts = ?, typing = ? WHERE device_id = ?")
             .bind(rules.muted)
             .bind(rules.accepts_chat)
             .bind(rules.accepts_calls)
             .bind(rules.receipts)
+            .bind(rules.typing)
             .bind(device_id)
             .execute(&self.pool)
             .await?;
@@ -1513,6 +1516,7 @@ fn contact_from(row: &SqliteRow) -> Contact {
             accepts_chat: row.get("accepts_chat"),
             accepts_calls: row.get("accepts_calls"),
             receipts: row.get("receipts"),
+            typing: row.get("typing"),
         },
         accepted: row.get("accepted"),
         via_circle: row.get("via_circle"),
@@ -2363,9 +2367,12 @@ mod tests {
         store.add_contact(&contact("ft_bob")).await.expect("adds");
         let bob = store.contact("ft_bob").await.unwrap().unwrap();
         assert_eq!(bob.rules, ContactRules::default());
-        assert_eq!(ContactRules::default(), ContactRules { muted: false, accepts_chat: true, accepts_calls: true, receipts: true });
+        assert_eq!(
+            ContactRules::default(),
+            ContactRules { muted: false, accepts_chat: true, accepts_calls: true, receipts: true, typing: true }
+        );
 
-        let rules = ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false };
+        let rules = ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false, typing: false };
         store.set_rules("ft_bob", &rules).await.expect("sets");
         assert_eq!(store.contact("ft_bob").await.unwrap().unwrap().rules, rules);
     }

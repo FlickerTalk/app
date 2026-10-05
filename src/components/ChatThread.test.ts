@@ -5,7 +5,7 @@ import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
-import { chat, store } from "../core";
+import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
 import { offered, refreshPlugins } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
@@ -283,6 +283,50 @@ describe("ChatThread", () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     expect(wrapper.find("[aria-label='Voice call']").exists()).toBe(true);
     expect(wrapper.find("[aria-label='Video call']").exists()).toBe(true);
+  });
+
+  // 2026-10-05: while they write, the header says so instead of the connection, and lets it fade.
+  describe("typing", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("says the contact is typing until their message comes, or for a moment", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      expect(wrapper.find("[data-test='peer-status']").text()).toBe("Direct");
+      heardTyping("c1");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find("[data-test='peer-status']").text()).toBe("typing…");
+      expect(wrapper.find("[data-test='peer-status']").classes()).toContain("is-typing");
+      expect(wrapper.find("[data-test='peer']").attributes("aria-label")).toBe("Contact details: Maria López, typing…");
+      vi.advanceTimersByTime(TYPING_FADE + 1);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find("[data-test='peer-status']").text()).toBe("Direct");
+    });
+
+    it("tells the core the user is writing, once in a while and not for every key", async () => {
+      // Earlier tests wrote in this conversation: the moment since the last "typing" is over.
+      vi.advanceTimersByTime(TYPING_EVERY);
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      const typed = () => calls.filter(([command]) => command === "core_typing");
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "h");
+      await flushPromises();
+      expect(typed()).toEqual([["core_typing", { contact: "c1" }]]);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "he");
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hel");
+      await flushPromises();
+      expect(typed()).toHaveLength(1);
+      vi.advanceTimersByTime(TYPING_EVERY + 1);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hell");
+      await flushPromises();
+      expect(typed()).toHaveLength(2);
+    });
+
+    it("says nothing while the composer is emptied", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "   ");
+      await flushPromises();
+      expect(calls.filter(([command]) => command === "core_typing")).toEqual([]);
+    });
   });
 
   it("tells whether the contact is directly connected", () => {

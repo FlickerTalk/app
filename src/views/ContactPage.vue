@@ -19,6 +19,7 @@ import {
 import {
   banOutline,
   callOutline,
+  chatbubbleEllipsesOutline,
   chatbubbleOutline,
   checkmarkDoneOutline,
   flagOutline,
@@ -64,12 +65,14 @@ const keepFor = ref(0);
 const burnAfterRead = ref(0);
 
 // Issues app#4–#6: what this phone takes from them and tells them. Nothing of it travels.
-const rules = ref<ContactRules>({ muted: false, acceptsChat: true, acceptsCalls: true, receipts: true });
+const rules = ref<ContactRules>({ muted: false, acceptsChat: true, acceptsCalls: true, receipts: true, typing: true });
 const RULES = [
   { key: "muted", label: "contact.mute", icon: notificationsOffOutline, test: "mute" },
   { key: "acceptsChat", label: "contact.acceptsChat", icon: chatbubbleOutline, test: "chat" },
   { key: "acceptsCalls", label: "contact.acceptsCalls", icon: callOutline, test: "calls" },
   { key: "receipts", label: "contact.receipts", icon: checkmarkDoneOutline, test: "receipts" },
+  // 2026-10-05: whether they see "typing…"; it goes only over the direct connection.
+  { key: "typing", label: "contact.typing", icon: chatbubbleEllipsesOutline, test: "typing" },
 ] as const;
 
 async function changeRule(key: keyof ContactRules, on: boolean) {

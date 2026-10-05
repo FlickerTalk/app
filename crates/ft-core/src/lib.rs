@@ -137,6 +137,9 @@ pub enum Event {
     MessagesChanged { contact: String },
     /// A direct connection with the contact opened or closed.
     ConnectionChanged { contact: String },
+    /// The contact is writing to this phone right now (2026-10-05). Heard only over the direct
+    /// connection; the UI shows it for a moment and lets it fade.
+    Typing { contact: String },
     /// Something happened to a call (§66).
     Call { contact: String, call: String, update: CallUpdate },
     /// Moving to a new phone (§60).
@@ -886,6 +889,18 @@ impl Core {
         Ok(())
     }
 
+    /// Tells the contact the user is writing to them (2026-10-05). Only over a direct connection
+    /// already open: it never opens one, never waits in the mailbox and never reaches the server;
+    /// with no connection it says nothing. Nothing goes to a blocked contact, to a stranger still in
+    /// the requests, or to a contact whose `typing` rule is off. Returns whether it was sent.
+    pub async fn typing(&self, contact: &str) -> Result<bool> {
+        let contact = self.contact(contact).await?;
+        if contact.blocked || !contact.accepted || !contact.rules.typing {
+            return Ok(false);
+        }
+        self.transmit_open(&contact, &Packet::new(Body::Typing)).await
+    }
+
     /// Whether contacts added from now on are told their messages arrived and were read.
     pub async fn receipts_default(&self) -> Result<bool> {
         Ok(self.store.setting(RECEIPTS_DEFAULT).await?.as_deref() != Some("0"))
@@ -1299,6 +1314,10 @@ impl Core {
             Body::CircleMessage { circle, text } => self.circle_text_received(contact, packet.id, packet.sent_at, &circle, text).await?,
             Body::CircleLeave { circle } => self.circle_leave_received(contact, packet.id, &circle).await?,
             Body::PluginEvent { plugin, data } => self.plugin_event_received(contact, plugin, data).await?,
+            // They are writing (2026-10-05): shown only for someone whose messages this phone keeps.
+            Body::Typing if contact.rules.accepts_chat && contact.accepted => {
+                let _ = self.events.send(Event::Typing { contact: id.to_string() });
+            }
             // Offers and answers travel as signals (see `open_signal`), never as packets.
             Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }

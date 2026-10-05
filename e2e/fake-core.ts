@@ -645,6 +645,7 @@ export function installFakeCore() {
       case "core_send":
       case "core_mark_read":
       case "core_enable_push":
+      case "core_typing":
       default:
         return undefined;
     }

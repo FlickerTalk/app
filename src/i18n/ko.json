@@ -64,7 +64,8 @@
     "otherApp": "다른 앱",
     "location": "위치",
     "accuracy": "±{metres}m",
-    "openLocation": "{place}: 지도에서 열기"
+    "openLocation": "{place}: 지도에서 열기",
+    "typing": "입력 중…"
   },
   "status": {
     "pending": "상대 기기 대기 중",
@@ -171,7 +172,8 @@
     "never": "안 함",
     "days": "{days}일",
     "hours": "{hours}시간",
-    "minutes": "{minutes}분"
+    "minutes": "{minutes}분",
+    "typing": "입력 중임을 표시"
   },
   "move": {
     "fromOld": "이전 휴대폰에서",
