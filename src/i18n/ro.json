@@ -76,7 +76,13 @@
     "unreact": "Elimină reacția",
     "pin": "Fixează",
     "unpin": "Anulează fixarea",
-    "pinned": "Fixat"
+    "pinned": "Fixat",
+    "edit": "Editează",
+    "edited": "editat",
+    "deleted": "Mesaj șters",
+    "deleteEveryone": "Șterge pentru toți",
+    "cancelEdit": "Renunță la editare",
+    "editing": "Editare"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

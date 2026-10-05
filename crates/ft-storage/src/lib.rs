@@ -4,7 +4,7 @@
 //! (pending → sent → delivered → read, §38) and an outgoing message stays in `pending_outbox`
 //! until the DELIVERED receipt arrives (§26).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -659,6 +659,58 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    /// The message's text, said again with other words (2026-10-05); marked as edited.
+    pub async fn edit_text(&self, message_id: &str, text: &str) -> Result<bool> {
+        let changed = sqlx::query("UPDATE messages SET body = ? WHERE message_id = ?").bind(text).bind(message_id).execute(&self.pool).await?.rows_affected();
+        if changed == 1 {
+            sqlx::query("INSERT INTO message_edits (message_id, edited_at) VALUES (?, ?) ON CONFLICT (message_id) DO UPDATE SET edited_at = excluded.edited_at")
+                .bind(message_id)
+                .bind(now())
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(changed == 1)
+    }
+
+    /// The messages of the conversation said again with other words.
+    pub async fn edited(&self, contact: &str) -> Result<HashSet<String>> {
+        let rows = sqlx::query("SELECT e.message_id FROM message_edits e JOIN messages m ON m.message_id = e.message_id WHERE m.contact = ?")
+            .bind(contact)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|row| row.get("message_id")).collect())
+    }
+
+    /// The message was taken back for both sides (2026-10-05): its words go, its file record goes,
+    /// and only the mark that it was there stays.
+    pub async fn mark_deleted(&self, message_id: &str) -> Result<bool> {
+        let changed = sqlx::query("UPDATE messages SET body = '' WHERE message_id = ?").bind(message_id).execute(&self.pool).await?.rows_affected();
+        if changed == 1 {
+            sqlx::query("DELETE FROM files WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
+            sqlx::query("DELETE FROM reactions WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
+            sqlx::query("INSERT INTO message_deletions (message_id, deleted_at) VALUES (?, ?) ON CONFLICT (message_id) DO NOTHING")
+                .bind(message_id)
+                .bind(now())
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(changed == 1)
+    }
+
+    /// The messages of the conversation taken back for both sides.
+    pub async fn deleted(&self, contact: &str) -> Result<HashSet<String>> {
+        let rows = sqlx::query("SELECT d.message_id FROM message_deletions d JOIN messages m ON m.message_id = d.message_id WHERE m.contact = ?")
+            .bind(contact)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|row| row.get("message_id")).collect())
+    }
+
+    /// Whether the message was taken back for both sides.
+    pub async fn is_deleted(&self, message_id: &str) -> Result<bool> {
+        Ok(sqlx::query("SELECT 1 FROM message_deletions WHERE message_id = ?").bind(message_id).fetch_optional(&self.pool).await?.is_some())
     }
 
     /// Pins a message on this phone (2026-10-05), or unpins it.
@@ -2109,6 +2161,30 @@ mod tests {
         store.forget_message("m2").await.expect("forgets");
         assert_eq!(store.reply_to("m2").await.unwrap(), None);
         assert!(store.replies("ft_bob").await.unwrap().is_empty());
+    }
+
+    // 2026-10-05: other words keep the message and mark it; taking it back empties it and marks it.
+    #[tokio::test]
+    async fn a_message_is_edited_in_place_or_emptied_when_taken_back() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
+        store.insert_message(&message("m2", "ft_bob", true, 2)).await.expect("inserts");
+        store.set_reaction("m2", false, Some("👍")).await.expect("reacts");
+
+        assert!(store.edit_text("m1", "other words").await.expect("edits"));
+        assert!(!store.edit_text("nope", "x").await.expect("edits nothing"));
+        assert_eq!(store.message("m1").await.unwrap().unwrap().body, "other words");
+        assert_eq!(store.edited("ft_bob").await.unwrap(), HashSet::from(["m1".to_owned()]));
+
+        assert!(store.mark_deleted("m2").await.expect("takes back"));
+        assert_eq!(store.message("m2").await.unwrap().unwrap().body, "");
+        assert!(store.is_deleted("m2").await.unwrap());
+        assert!(!store.is_deleted("m1").await.unwrap());
+        assert_eq!(store.deleted("ft_bob").await.unwrap(), HashSet::from(["m2".to_owned()]));
+        assert!(store.reactions("ft_bob").await.unwrap().is_empty(), "its reactions went with it");
+        store.forget_message("m1").await.expect("forgets");
+        assert!(store.edited("ft_bob").await.unwrap().is_empty(), "the mark goes with the message");
     }
 
     // 2026-10-05: a pin is this phone's, the latest first, and goes with the message.

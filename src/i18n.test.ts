@@ -67,6 +67,7 @@ const SAME_AS_ENGLISH: Record<string, SameAsEnglish> = {
   "plugins.title": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
   "settings.plugins": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
   "tabs.plugins": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
+  "chat.edit": { locales: ["id"], reason: SAME_WORD },
   "settings.backup": { locales: ["de", "it", "pt", "ro"], reason: SAME_WORD },
   "settings.plan": { locales: ["es", "pl", "ro", "tr"], reason: SAME_WORD },
   "chat.direct": { locales: ["fr", "ro"], reason: SAME_WORD },

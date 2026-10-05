@@ -76,7 +76,13 @@
     "unreact": "Bỏ cảm xúc",
     "pin": "Ghim",
     "unpin": "Bỏ ghim",
-    "pinned": "Đã ghim"
+    "pinned": "Đã ghim",
+    "edit": "Sửa",
+    "edited": "đã sửa",
+    "deleted": "Tin nhắn đã bị xóa",
+    "deleteEveryone": "Xóa với mọi người",
+    "cancelEdit": "Hủy sửa",
+    "editing": "Đang sửa"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

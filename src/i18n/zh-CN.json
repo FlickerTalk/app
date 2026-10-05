@@ -76,7 +76,13 @@
     "unreact": "移除回应",
     "pin": "置顶",
     "unpin": "取消置顶",
-    "pinned": "已置顶"
+    "pinned": "已置顶",
+    "edit": "编辑",
+    "edited": "已编辑",
+    "deleted": "消息已删除",
+    "deleteEveryone": "对所有人删除",
+    "cancelEdit": "取消编辑",
+    "editing": "编辑中"
   },
   "status": {
     "pending": "等待对方设备",

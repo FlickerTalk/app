@@ -76,7 +76,13 @@
     "unreact": "Tepkiyi kaldır",
     "pin": "Sabitle",
     "unpin": "Sabitlemeyi kaldır",
-    "pinned": "Sabitlendi"
+    "pinned": "Sabitlendi",
+    "edit": "Düzenle",
+    "edited": "düzenlendi",
+    "deleted": "Mesaj silindi",
+    "deleteEveryone": "Herkesten sil",
+    "cancelEdit": "Düzenlemeyi iptal et",
+    "editing": "Düzenleniyor"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

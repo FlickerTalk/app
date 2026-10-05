@@ -170,6 +170,9 @@ pub(crate) enum Route {
     Unreachable,
 }
 
+/// How long after sending a text its words can still change (2026-10-05): a day.
+const EDIT_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
+
 /// Whether a text is one emoji, as a reaction is (2026-10-05): short, with nothing blank or
 /// invisible in it. Not a check against Unicode's tables: the other side draws what it gets.
 fn is_reaction(text: &str) -> bool {
@@ -1031,6 +1034,42 @@ impl Core {
         Ok(())
     }
 
+    /// Says one of our texts again with other words (2026-10-05): here at once, and told to the
+    /// contact like a receipt (directly or through the mailbox). Only our own text, not a file,
+    /// not one taken back, and not one the router refused; within a day of sending it.
+    pub async fn edit_message(&self, message_id: &str, text: &str) -> Result<()> {
+        let text = text.trim();
+        ensure!(!text.is_empty(), "nothing to say");
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        ensure!(message.outgoing, "only our own words can change");
+        ensure!(message.state != MessageState::NotSent, "a message that was not sent is sent again, not edited");
+        ensure!(self.store.file(message_id).await?.is_none(), "a file has no words to change");
+        ensure!(!self.store.is_deleted(message_id).await?, "that message was taken back");
+        ensure!(now() - message.sent_at <= EDIT_WINDOW_MS, "too late to change it");
+        let contact = self.contact(&message.contact).await?;
+        self.store.edit_text(message_id, text).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        let packet = Packet::new(Body::Edit { of: MessageId::parse(message_id)?, text: text.to_owned() });
+        let _ = self.transmit(&contact, &packet).await;
+        Ok(())
+    }
+
+    /// Takes one of our messages back for both sides (2026-10-05): its words and its file go
+    /// here, the mark that it was there stays, and the contact is told like a receipt. A phone
+    /// that already has it shows the mark too; an older app keeps the message.
+    pub async fn delete_for_everyone(&self, message_id: &str) -> Result<()> {
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        ensure!(message.outgoing, "only our own messages can be taken back from the other side");
+        let contact = self.contact(&message.contact).await?;
+        let file = self.store.file(message_id).await?;
+        self.store.mark_deleted(message_id).await?;
+        self.forget_bytes(file.into_iter().collect()).await;
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        let packet = Packet::new(Body::Delete { of: MessageId::parse(message_id)? });
+        let _ = self.transmit(&contact, &packet).await;
+        Ok(())
+    }
+
     /// Pins a message on this phone, or unpins it (2026-10-05): a choice of this phone, like the
     /// contact's name; nothing of it travels.
     pub async fn pin_message(&self, message_id: &str, pinned: bool) -> Result<()> {
@@ -1384,8 +1423,28 @@ impl Core {
                     self.announce_messages(contact);
                 }
             }
+            // Their own text, said again with other words (2026-10-05): only theirs, only a text.
+            Body::Edit { of, text } if contact.rules.accepts_chat && contact.accepted => {
+                let of = of.to_string();
+                let text = text.trim();
+                let theirs = self.store.message(&of).await?.is_some_and(|message| message.contact == id && !message.outgoing);
+                if theirs && !text.is_empty() && self.store.file(&of).await?.is_none() && !self.store.is_deleted(&of).await? {
+                    self.store.edit_text(&of, text).await?;
+                    self.announce_messages(contact);
+                }
+            }
+            // They take their own message back (2026-10-05): its words and its file go, the mark stays.
+            Body::Delete { of } if contact.rules.accepts_chat && contact.accepted => {
+                let of = of.to_string();
+                if self.store.message(&of).await?.is_some_and(|message| message.contact == id && !message.outgoing) {
+                    let file = self.store.file(&of).await?;
+                    self.store.mark_deleted(&of).await?;
+                    self.forget_bytes(file.into_iter().collect()).await;
+                    self.announce_messages(contact);
+                }
+            }
             // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Typing | Body::Reaction { .. } | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
+            Body::Typing | Body::Reaction { .. } | Body::Edit { .. } | Body::Delete { .. } | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }

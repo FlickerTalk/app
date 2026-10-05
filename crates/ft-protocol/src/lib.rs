@@ -208,6 +208,12 @@ pub enum Body {
     /// A reaction to a message (2026-10-05): one emoji per person and message; an empty `emoji`
     /// takes it back. An older app decodes it as `Unknown` and ignores it.
     Reaction { to: MessageId, emoji: String },
+    /// The sender's own text `of`, said again with other words (2026-10-05). An older app keeps
+    /// the first words.
+    Edit { of: MessageId, text: String },
+    /// The sender takes back their own message `of`, for both sides (2026-10-05): the receiver
+    /// keeps only that it was there. An older app keeps it.
+    Delete { of: MessageId },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -408,6 +414,8 @@ mod tests {
         round_trip(Body::Message { text: "yes".to_owned(), reply_to: Some(MessageId::new()) });
         round_trip(Body::Reaction { to: MessageId::new(), emoji: "👍".to_owned() });
         round_trip(Body::Reaction { to: MessageId::new(), emoji: String::new() });
+        round_trip(Body::Edit { of: MessageId::new(), text: "other words".to_owned() });
+        round_trip(Body::Delete { of: MessageId::new() });
         round_trip(Body::Delivered { ids: vec![MessageId::new(), MessageId::new()] });
         round_trip(Body::Received { ids: vec![MessageId::new()] });
         round_trip(Body::Read { ids: vec![MessageId::new()] });

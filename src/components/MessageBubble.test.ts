@@ -59,6 +59,17 @@ describe("MessageBubble", () => {
     });
   });
 
+  // 2026-10-05: a message taken back shows only its mark; an edited one says so by its time.
+  it("shows a message taken back as deleted, and an edited one as edited", () => {
+    const gone = mount(MessageBubble, { props: { message: { ...base, text: "", deleted: true } }, shallow: true });
+    expect(gone.find("[data-test='deleted']").text()).toBe("Message deleted");
+    expect(gone.find(".ft-bubble__text:not(.ft-bubble__gone)").exists()).toBe(false);
+    const edited = mount(MessageBubble, { props: { message: { ...base, edited: true } }, shallow: true });
+    expect(edited.find("[data-test='edited']").text()).toBe("edited");
+    expect(edited.text()).toContain("Hi");
+    expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='edited']").exists()).toBe(false);
+  });
+
   // 2026-10-05: a pinned message carries a pin by its time.
   it("marks a pinned message", () => {
     expect(mount(MessageBubble, { props: { message: { ...base, pinned: true } }, shallow: true }).find("[data-test='pinned']").exists()).toBe(true);
