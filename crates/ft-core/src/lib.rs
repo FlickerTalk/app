@@ -934,6 +934,14 @@ impl Core {
         Ok(())
     }
 
+    /// Removes a contact and its local conversation from this phone.
+    pub async fn remove_contact(&self, contact: &str) -> Result<()> {
+        self.contact(contact).await?;
+        self.store.remove_contact(contact).await?;
+        let _ = self.events.send(Event::ContactsChanged);
+        Ok(())
+    }
+
     /// How long this phone keeps the conversation with a contact, and how long a read message
     /// stays after being read; both in seconds, 0 for forever and never (issue app#1). It is a
     /// choice of this phone: nothing of it travels.

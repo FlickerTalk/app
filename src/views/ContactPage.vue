@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import {
+  IonAlert,
   IonBackButton,
   IonButtons,
   IonContent,
@@ -25,8 +26,9 @@ import {
   notificationsOffOutline,
   pencilOutline,
   timerOutline,
+  trashOutline,
 } from "ionicons/icons";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import {
   block,
@@ -34,6 +36,7 @@ import {
   contactDetails,
   renameContact,
   reportContact,
+  removeContact,
   setHistory,
   setRules,
   type ContactDetails,
@@ -42,6 +45,7 @@ import {
 import { t } from "../i18n";
 
 const route = useRoute();
+const router = useRouter();
 const id = String(route.params.id);
 const contact = computed(() => chat(id) ?? { name: "", hue: 0, connected: false });
 const details = ref<ContactDetails | null>(null);
@@ -126,6 +130,21 @@ async function toggleBlock() {
   await block(id, next);
   if (details.value) details.value.blocked = next;
 }
+
+const deleting = ref(false);
+const deleteButtons = computed(() => [
+  { text: t("common.cancel"), role: "cancel" },
+  {
+    text: t("contact.deleteConfirm"),
+    role: "destructive",
+    handler: async () => {
+      deleting.value = true;
+      await removeContact(id);
+      await router.replace("/tabs/chats");
+      deleting.value = false;
+    },
+  },
+]);
 </script>
 
 <template>
@@ -235,7 +254,21 @@ async function toggleBlock() {
             </span>
             <ion-label color="danger">{{ $t("contact.report") }}</ion-label>
           </ion-item>
+          <ion-item button detail lines="none" data-test="delete-contact" :disabled="deleting" @click="deleting = true">
+            <span slot="start" class="ft-tile ft-tile--danger">
+              <ion-icon :icon="trashOutline" aria-hidden="true" />
+            </span>
+            <ion-label color="danger">{{ $t("contact.delete") }}</ion-label>
+          </ion-item>
         </ion-list>
+
+        <ion-alert
+          :is-open="deleting"
+          :header="$t('contact.delete')"
+          :message="$t('contact.deleteHint')"
+          :buttons="deleteButtons"
+          @did-dismiss="deleting = false"
+        />
 
         <section v-if="reporting" class="ft-report" data-test="report-form">
           <span class="ft-contact__label">{{ $t("contact.reportWhy") }}</span>

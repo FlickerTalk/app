@@ -13,6 +13,7 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    ft_push::initialize_tls();
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_ft_platform::init());
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
@@ -104,6 +105,7 @@ pub fn run() {
             client::core_contact,
             client::core_block,
             client::core_rename,
+            client::core_remove_contact,
             client::core_set_history,
             client::core_set_rules,
             client::core_set_receipts,

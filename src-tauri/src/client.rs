@@ -3312,6 +3312,11 @@ pub async fn core_rename(contact: String, name: String, client: State<'_, Client
     client.core().await?.rename_contact(&contact, &name).await.map_err(failed)
 }
 
+#[tauri::command]
+pub async fn core_remove_contact(contact: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.remove_contact(&contact).await.map_err(failed)
+}
+
 
 // ---------------------------------------------------------------------------------------------
 // The user's cloud (plan-drive, 2026-09-27): the login through the system browser, the drive and
