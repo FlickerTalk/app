@@ -33,6 +33,10 @@ export interface Message {
   reactions?: { mine?: string; theirs?: string };
   /** Pinned on this phone (2026-10-05). */
   pinned?: boolean;
+  /** Said again with other words (2026-10-05). */
+  edited?: boolean;
+  /** Taken back for both sides (2026-10-05): only the mark is left. */
+  deleted?: boolean;
 }
 
 /**
@@ -235,8 +239,10 @@ function open() {
           {{ message.quote.kind === 'gone' ? t('chat.quoteGone') : message.quote.text }}
         </span>
       </button>
+      <!-- Taken back for both sides (2026-10-05): only the mark that it was there. -->
+      <p v-if="message.deleted" class="ft-bubble__text ft-bubble__gone" data-test="deleted">{{ t("chat.deleted") }}</p>
       <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
-      <span v-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
+      <span v-else-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
         <!-- A video that arrived plays here, from the app's own files (§62). -->
         <video v-else-if="file.url && isVideo" class="ft-video" :src="file.url" controls playsinline preload="metadata" @click.stop />
@@ -424,6 +430,7 @@ function open() {
 
       <span class="ft-bubble__meta">
         <ion-icon v-if="message.pinned" :icon="pinOutline" class="ft-bubble__pin" role="img" :aria-label="t('chat.pinned')" data-test="pinned" />
+        <span v-if="message.edited && !message.deleted" class="ft-bubble__edited" data-test="edited">{{ t("chat.edited") }}</span>
         <span>{{ message.time }}</span>
         <ion-icon
           v-if="status"
@@ -449,6 +456,14 @@ function open() {
 .ft-bubble__pin {
   font-size: 12px;
   opacity: 0.85;
+}
+.ft-bubble__edited {
+  font-style: italic;
+  opacity: 0.85;
+}
+.ft-bubble__gone {
+  font-style: italic;
+  opacity: 0.75;
 }
 /* The emoji on a message (2026-10-05): small chips under the bubble, at its outer corner. */
 .ft-reactions {

@@ -76,7 +76,13 @@
     "unreact": "Reaktion entfernen",
     "pin": "Anheften",
     "unpin": "Lösen",
-    "pinned": "Angeheftet"
+    "pinned": "Angeheftet",
+    "edit": "Bearbeiten",
+    "edited": "bearbeitet",
+    "deleted": "Nachricht gelöscht",
+    "deleteEveryone": "Für alle löschen",
+    "cancelEdit": "Bearbeitung abbrechen",
+    "editing": "Bearbeiten"
   },
   "status": {
     "pending": "Warte auf Gerät",

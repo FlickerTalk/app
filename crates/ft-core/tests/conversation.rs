@@ -1417,6 +1417,37 @@ async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
 }
 
+// 2026-10-05: our words change on both phones; a message taken back leaves only its mark on both.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_is_edited_or_taken_back_on_both_phones() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let first = alice.send_text(&id(&bob), "dinner at 7").await.expect("sends");
+    let second = alice.send_text(&id(&bob), "bring wine").await.expect("sends");
+    until("bob has both", || async { texts(&bob, &id(&alice)).await.len() == 2 }).await;
+
+    alice.edit_message(&first, "dinner at 8").await.expect("edits");
+    assert_eq!(alice.store().message(&first).await.unwrap().unwrap().body, "dinner at 8");
+    until("bob reads the new words", || async { bob.store().message(&first).await.unwrap().unwrap().body == "dinner at 8" }).await;
+    assert!(bob.store().edited(&id(&alice)).await.unwrap().contains(&first), "marked as edited");
+    assert!(alice.store().edited(&id(&bob)).await.unwrap().contains(&first));
+
+    alice.delete_for_everyone(&second).await.expect("takes back");
+    assert_eq!(alice.store().message(&second).await.unwrap().unwrap().body, "");
+    until("bob sees it taken back", || async { bob.store().is_deleted(&second).await.unwrap() }).await;
+    assert_eq!(bob.store().message(&second).await.unwrap().unwrap().body, "", "the words are gone");
+    assert!(alice.edit_message(&second, "too late").await.is_err(), "a message taken back has no words to change");
+
+    // Bob cannot change or take back what Alice said, from his phone or over the wire.
+    assert!(bob.edit_message(&first, "lunch").await.is_err());
+    assert!(bob.delete_for_everyone(&first).await.is_err());
+    let reply = bob.send_text(&id(&alice), "ok").await.expect("sends");
+    until("alice has it", || async { texts(&alice, &id(&bob)).await.contains(&"ok".to_owned()) }).await;
+    assert!(alice.edit_message(&reply, "no").await.is_err(), "not her words");
+    assert_eq!(bob.store().message(&reply).await.unwrap().unwrap().body, "ok");
+}
+
 // 2026-10-05: a pin stays on this phone: the UI hears of it, the other phone never does.
 #[tokio::test(flavor = "multi_thread")]
 async fn pinning_a_message_is_this_phones_alone() {

@@ -49,6 +49,7 @@ import {
   arrowUndoOutline,
   pin,
   pinOutline,
+  pencilOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
@@ -98,6 +99,8 @@ import {
   sessionOf,
   shareMessage,
   declineContact,
+  deleteForEveryone,
+  editMessage,
   store,
   type ChatMessage,
   type PickedFile,
@@ -185,11 +188,51 @@ function readOnReturn() {
 async function send() {
   const text = draft.value.trim();
   if (!text) return;
+  // 2026-10-05: other words for a text already sent, instead of a new message.
+  if (editing.value) {
+    const id = editing.value.id;
+    draft.value = "";
+    emoji.value = false;
+    editing.value = null;
+    await editMessage(id, text).catch(() => {});
+    return;
+  }
   const answering = replying.value?.id;
   draft.value = "";
   emoji.value = false;
   replying.value = null;
   await sendText(props.chatId, text, answering);
+}
+
+// 2026-10-05: one of my texts, said again with other words: it goes to the composer, and Send
+// changes it instead of sending anew. Only my own texts, not a file, not one taken back.
+const editing = ref<ChatMessage | null>(null);
+watch(() => props.chatId, () => (editing.value = null));
+const canEdit = computed(() => {
+  const message = actingMessage.value;
+  return message?.mine === true && message.kind !== "file" && !message.deleted && message.status !== "unsent";
+});
+
+function edit() {
+  const message = actingMessage.value;
+  closeActions();
+  if (!message) return;
+  replying.value = null;
+  editing.value = message;
+  draft.value = message.text;
+}
+
+function cancelEdit() {
+  editing.value = null;
+  draft.value = "";
+}
+
+/** Taking back one of my messages for both sides (2026-10-05); it asks once, in the sheet. */
+async function eraseEverywhere() {
+  const id = acting.value;
+  closeActions();
+  folded.delete(id);
+  await deleteForEveryone(id).catch(() => {});
 }
 
 // 2026-10-05: answering a message quotes it over the text. The quote shows in the composer until
@@ -1080,6 +1123,10 @@ watch(
             {{ emoji }}
           </button>
         </span>
+        <!-- 2026-10-05: my own text, said again with other words. -->
+        <button v-if="canEdit" type="button" class="ft-round ft-round--ghost" data-test="edit" :aria-label="$t('chat.edit')" @click="edit">
+          <ion-icon :icon="pencilOutline" aria-hidden="true" />
+        </button>
         <!-- 2026-10-05: pin it on this phone, or unpin it. -->
         <button type="button" class="ft-round ft-round--ghost" :class="{ 'is-active': actingMessage?.pinned }" data-test="pin" :aria-label="$t(actingMessage?.pinned ? 'chat.unpin' : 'chat.pin')" @click="togglePin">
           <ion-icon :icon="actingMessage?.pinned ? pin : pinOutline" aria-hidden="true" />
@@ -1117,9 +1164,21 @@ watch(
         >
           <ion-icon :icon="trashOutline" aria-hidden="true" />
         </button>
-        <button v-else type="button" class="ft-actions__sure" data-test="delete-sure" @click="erase">
-          {{ $t("chat.deleteSure") }}
-        </button>
+        <template v-else>
+          <button type="button" class="ft-actions__sure" data-test="delete-sure" @click="erase">
+            {{ $t("chat.deleteSure") }}
+          </button>
+          <!-- 2026-10-05: my own message, taken back on the other phone too. -->
+          <button
+            v-if="actingMessage?.mine && !actingMessage.deleted"
+            type="button"
+            class="ft-actions__sure"
+            data-test="delete-everyone"
+            @click="eraseEverywhere"
+          >
+            {{ $t("chat.deleteEveryone") }}
+          </button>
+        </template>
       </div>
     </div>
 
@@ -1196,6 +1255,16 @@ watch(
         </button>
       </div>
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
+      <!-- 2026-10-05: the text being said again with other words, until Send or dropped. -->
+      <div v-if="editing" class="ft-replying ft-replying--edit" data-test="editing">
+        <span class="ft-replying__text">
+          <span class="ft-replying__who">{{ $t("chat.editing") }}</span>
+          <span class="ft-replying__quote" dir="auto">{{ editing.text }}</span>
+        </span>
+        <button type="button" class="ft-round ft-round--ghost" data-test="cancel-edit" :aria-label="$t('chat.cancelEdit')" @click="cancelEdit">
+          <ion-icon :icon="closeOutline" aria-hidden="true" />
+        </button>
+      </div>
       <!-- 2026-10-05: the message being answered, until it is sent or dropped. -->
       <div v-if="replying" class="ft-replying" data-test="replying">
         <span class="ft-replying__text">

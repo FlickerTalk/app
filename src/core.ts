@@ -42,6 +42,10 @@ export interface ChatMessage {
   reactions?: Reactions;
   /** Pinned on this phone (2026-10-05). */
   pinned?: boolean;
+  /** Said again with other words (2026-10-05). */
+  edited?: boolean;
+  /** Taken back for both sides (2026-10-05): only the mark is left. */
+  deleted?: boolean;
 }
 
 export interface Reactions {
@@ -186,6 +190,8 @@ interface MessageView {
   quote?: Quote;
   reactions?: Reactions;
   pinned?: boolean;
+  edited?: boolean;
+  deleted?: boolean;
 }
 
 interface ConversationView {
@@ -365,6 +371,8 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
   if (view.quote) message.quote = view.quote;
   if (view.reactions) message.reactions = view.reactions;
   if (view.pinned) message.pinned = true;
+  if (view.edited) message.edited = true;
+  if (view.deleted) message.deleted = true;
   return message;
 }
 
@@ -992,6 +1000,16 @@ export async function subscribe(): Promise<void> {
 }
 
 /** What the user does with one message of theirs (§61). */
+/** Says one of my texts again with other words (2026-10-05); the contact sees the change. */
+export async function editMessage(message: string, text: string): Promise<void> {
+  await invoke("core_edit", { message, text: text.trim() });
+}
+
+/** Takes one of my messages back for both sides (2026-10-05). */
+export async function deleteForEveryone(message: string): Promise<void> {
+  await invoke("core_delete_everyone", { message });
+}
+
 /** Pins a message on this phone, or unpins it (2026-10-05); nothing of it travels. */
 export async function pinMessage(message: string, pinned: boolean): Promise<void> {
   await invoke("core_pin", { message, pinned });

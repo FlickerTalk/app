@@ -76,7 +76,13 @@
     "unreact": "Togli la reazione",
     "pin": "Fissa",
     "unpin": "Sblocca",
-    "pinned": "Fissato"
+    "pinned": "Fissato",
+    "edit": "Modifica",
+    "edited": "modificato",
+    "deleted": "Messaggio eliminato",
+    "deleteEveryone": "Elimina per tutti",
+    "cancelEdit": "Annulla la modifica",
+    "editing": "Modifica in corso"
   },
   "status": {
     "pending": "In attesa del dispositivo",

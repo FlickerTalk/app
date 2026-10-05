@@ -76,7 +76,13 @@
     "unreact": "إزالة التفاعل",
     "pin": "تثبيت",
     "unpin": "إلغاء التثبيت",
-    "pinned": "مثبّت"
+    "pinned": "مثبّت",
+    "edit": "تعديل",
+    "edited": "معدّل",
+    "deleted": "تم حذف الرسالة",
+    "deleteEveryone": "حذف لدى الجميع",
+    "cancelEdit": "إلغاء التعديل",
+    "editing": "تعديل"
   },
   "status": {
     "pending": "بانتظار الجهاز",

@@ -76,7 +76,13 @@
     "unreact": "リアクションを取り消す",
     "pin": "ピン留め",
     "unpin": "ピン留めを外す",
-    "pinned": "ピン留め済み"
+    "pinned": "ピン留め済み",
+    "edit": "編集",
+    "edited": "編集済み",
+    "deleted": "メッセージは削除されました",
+    "deleteEveryone": "全員に対して削除",
+    "cancelEdit": "編集を取り消す",
+    "editing": "編集中"
   },
   "status": {
     "pending": "相手の端末を待っています",

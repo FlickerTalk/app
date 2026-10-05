@@ -478,6 +478,14 @@ describe("circles", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hi" });
   });
 
+  // 2026-10-05: other words for my text, and taking a message back for both sides.
+  it("edits a text and takes a message back through the core", async () => {
+    await core.editMessage("m1", "  other words ");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_edit", { message: "m1", text: "other words" });
+    await core.deleteForEveryone("m1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_delete_everyone", { message: "m1" });
+  });
+
   // 2026-10-05: a pin is this phone's; the core keeps it with the message.
   it("pins and unpins a message through the core", async () => {
     await core.pinMessage("m1", true);

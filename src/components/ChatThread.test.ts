@@ -918,6 +918,64 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-05: my own text can be said again with other words, and any message of mine taken
+  // back for both sides; the sheet offers both only where they apply.
+  describe("editing and taking back", () => {
+    const pressOn = async (wrapper: ReturnType<typeof mount>, index: number) => {
+      await wrapper.findAll("[data-test='bubble']")[index].trigger("pointerdown");
+      await new Promise((wake) => setTimeout(wake, 550));
+      await flushPromises();
+    };
+
+    it("puts my text in the composer and sends the new words as an edit", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1); // m2: mine, a text
+      expect(wrapper.find("[data-test='edit']").exists()).toBe(true);
+      await wrapper.find("[data-test='edit']").trigger("click");
+      const bar = wrapper.find("[data-test='editing']");
+      expect(bar.text()).toContain("Yes! Leaving work at 5:30");
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "Yes! Leaving work at 6");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_edit", { message: "m2", text: "Yes! Leaving work at 6" }]);
+      expect(calls.filter(([command]) => command === "core_send")).toEqual([]);
+      expect(wrapper.find("[data-test='editing']").exists()).toBe(false);
+    });
+
+    it("can drop the edit, and offers none on their message or on my file", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1);
+      await wrapper.find("[data-test='edit']").trigger("click");
+      await wrapper.find("[data-test='cancel-edit']").trigger("click");
+      expect(wrapper.find("[data-test='editing']").exists()).toBe(false);
+      await pressOn(wrapper, 0); // m1: theirs
+      expect(wrapper.find("[data-test='edit']").exists()).toBe(false);
+      await wrapper.find("[data-test='actions']").trigger("click");
+      await pressOn(wrapper, 3); // m4: my file
+      expect(wrapper.find("[data-test='edit']").exists()).toBe(false);
+    });
+
+    it("takes my message back for both sides after asking, and never theirs", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1);
+      await wrapper.find("[data-test='delete']").trigger("click");
+      expect(wrapper.find("[data-test='delete-everyone']").exists()).toBe(true);
+      await wrapper.find("[data-test='delete-everyone']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_delete_everyone", { message: "m2" }]);
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+
+      await pressOn(wrapper, 0);
+      await wrapper.find("[data-test='delete']").trigger("click");
+      expect(wrapper.find("[data-test='delete-sure']").exists()).toBe(true);
+      expect(wrapper.find("[data-test='delete-everyone']").exists()).toBe(false);
+    });
+  });
+
   // 2026-10-05: pinned messages: the sheet pins and unpins; a strip under the header shows the
   // latest pinned, and a tap goes to it and moves on to the next.
   describe("pinned messages", () => {

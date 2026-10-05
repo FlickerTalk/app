@@ -76,7 +76,13 @@
     "unreact": "반응 지우기",
     "pin": "고정",
     "unpin": "고정 해제",
-    "pinned": "고정됨"
+    "pinned": "고정됨",
+    "edit": "수정",
+    "edited": "수정됨",
+    "deleted": "삭제된 메시지입니다",
+    "deleteEveryone": "모두에게서 삭제",
+    "cancelEdit": "수정 취소",
+    "editing": "수정 중"
   },
   "status": {
     "pending": "상대 기기 대기 중",

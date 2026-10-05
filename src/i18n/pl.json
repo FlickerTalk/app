@@ -76,7 +76,13 @@
     "unreact": "Usuń reakcję",
     "pin": "Przypnij",
     "unpin": "Odepnij",
-    "pinned": "Przypięte"
+    "pinned": "Przypięte",
+    "edit": "Edytuj",
+    "edited": "edytowano",
+    "deleted": "Wiadomość usunięta",
+    "deleteEveryone": "Usuń dla wszystkich",
+    "cancelEdit": "Anuluj edycję",
+    "editing": "Edycja"
   },
   "status": {
     "pending": "Czeka na urządzenie",

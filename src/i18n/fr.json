@@ -76,7 +76,13 @@
     "unreact": "Retirer la réaction",
     "pin": "Épingler",
     "unpin": "Désépingler",
-    "pinned": "Épinglé"
+    "pinned": "Épinglé",
+    "edit": "Modifier",
+    "edited": "modifié",
+    "deleted": "Message supprimé",
+    "deleteEveryone": "Supprimer pour tout le monde",
+    "cancelEdit": "Annuler la modification",
+    "editing": "Modification"
   },
   "status": {
     "pending": "En attente de l’appareil",

@@ -59,6 +59,12 @@ pub struct MessageView {
     /// Pinned on this phone (2026-10-05).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pinned: bool,
+    /// Said again with other words (2026-10-05).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    edited: bool,
+    /// Taken back for both sides (2026-10-05): only the mark is left.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    deleted: bool,
 }
 
 /// What each side put on a message (2026-10-05): one emoji each, or none.
@@ -88,11 +94,19 @@ impl MessageView {
             quote: None,
             reactions: None,
             pinned: false,
+            edited: false,
+            deleted: false,
         }
     }
 
     pub fn pinned(mut self, pinned: bool) -> Self {
         self.pinned = pinned;
+        self
+    }
+
+    pub fn marked(mut self, edited: bool, deleted: bool) -> Self {
+        self.edited = edited;
+        self.deleted = deleted;
         self
     }
 
@@ -2000,12 +2014,15 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
     }
     let reactions = core.store().reactions(&contact).await.map_err(failed)?;
     let pinned: HashSet<String> = core.store().pinned(&contact).await.map_err(failed)?.into_iter().collect();
+    let edited = core.store().edited(&contact).await.map_err(failed)?;
+    let deleted = core.store().deleted(&contact).await.map_err(failed)?;
     Ok(messages
         .iter()
         .map(|message| {
             let view = MessageView::new(message, files.get(&message.message_id))
                 .reacted(reactions.get(&message.message_id))
-                .pinned(pinned.contains(&message.message_id));
+                .pinned(pinned.contains(&message.message_id))
+                .marked(edited.contains(&message.message_id), deleted.contains(&message.message_id));
             match replies.get(&message.message_id) {
                 Some(quoted_id) => view.answering(QuoteView::of(quoted_id, quoted.get(quoted_id), files.get(quoted_id))),
                 None => view,
@@ -2139,6 +2156,18 @@ fn now_ms() -> i64 {
 #[tauri::command]
 pub async fn core_forget_message(message: String, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.forget_message(&message).await.map_err(failed)
+}
+
+/// Says one of our texts again with other words (2026-10-05).
+#[tauri::command]
+pub async fn core_edit(message: String, text: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.edit_message(&message, &text).await.map_err(failed)
+}
+
+/// Takes one of our messages back for both sides (2026-10-05).
+#[tauri::command]
+pub async fn core_delete_everyone(message: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.delete_for_everyone(&message).await.map_err(failed)
 }
 
 /// Pins a message on this phone, or unpins it (2026-10-05).
@@ -5180,6 +5209,16 @@ mod tests {
         let view = serde_json::to_value(MessageView::new(&message, None).answering(QuoteView::of("m0", None, None))).unwrap();
         assert_eq!(view["quote"]["kind"], "gone");
         assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("quote").is_none(), "no quote, no field");
+    }
+
+    // 2026-10-05: edited and taken back are marks on the view, absent when false.
+    #[test]
+    fn a_message_says_whether_it_was_edited_or_taken_back() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: true, body: String::new(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        let view = serde_json::to_value(MessageView::new(&message, None).marked(true, false)).unwrap();
+        assert_eq!((view["edited"].clone(), view.get("deleted").cloned()), (serde_json::json!(true), None));
+        let view = serde_json::to_value(MessageView::new(&message, None).marked(false, true)).unwrap();
+        assert_eq!((view.get("edited").cloned(), view["deleted"].clone()), (None, serde_json::json!(true)));
     }
 
     // 2026-10-05: a pinned message says so; an unpinned one says nothing.

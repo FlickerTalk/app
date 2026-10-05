@@ -76,7 +76,13 @@
     "unreact": "Remove reaction",
     "pin": "Pin",
     "unpin": "Unpin",
-    "pinned": "Pinned"
+    "pinned": "Pinned",
+    "edit": "Edit",
+    "edited": "edited",
+    "deleted": "Message deleted",
+    "deleteEveryone": "Delete for everyone",
+    "cancelEdit": "Cancel edit",
+    "editing": "Editing"
   },
   "status": {
     "pending": "Waiting for device",

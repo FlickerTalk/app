@@ -76,7 +76,13 @@
     "unreact": "Hapus reaksi",
     "pin": "Sematkan",
     "unpin": "Lepas sematan",
-    "pinned": "Disematkan"
+    "pinned": "Disematkan",
+    "edit": "Edit",
+    "edited": "diedit",
+    "deleted": "Pesan dihapus",
+    "deleteEveryone": "Hapus untuk semua",
+    "cancelEdit": "Batalkan edit",
+    "editing": "Mengedit"
   },
   "status": {
     "pending": "Menunggu perangkat",
