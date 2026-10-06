@@ -45,10 +45,11 @@ export interface Message {
 
 /**
  * `sender`: in a circle, who said it; shown over a bubble that is not ours (2026-09-27).
+ * `contactName`: in a conversation, the contact's name, said over a quote of theirs (2026-10-06).
  * `games`: where games are played (a conversation, on a phone that has games), an invitation to
  * one gets a way to play it (plan 10.6).
  */
-const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; games?: boolean }>();
+const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; contactName?: string; games?: boolean }>();
 const emit = defineEmits<{
   open: [id: string];
   save: [id: string];
@@ -269,7 +270,7 @@ function open() {
         :aria-label="t('chat.reply')"
         @click.stop="tapQuote(message.quote.id)"
       >
-        <span class="ft-quote__who">{{ message.quote.kind === 'gone' ? '' : message.quote.mine ? t('chat.you') : (sender ?? t('chat.them')) }}</span>
+        <span class="ft-quote__who">{{ message.quote.kind === 'gone' ? '' : message.quote.mine ? t('chat.you') : (contactName ?? sender ?? t('chat.them')) }}</span>
         <span class="ft-quote__text" dir="auto">
           <ion-icon v-if="message.quote.kind === 'file'" :icon="documentOutline" aria-hidden="true" />
           {{ message.quote.kind === 'gone' ? t('chat.quoteGone') : message.quote.text }}

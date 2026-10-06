@@ -1301,6 +1301,14 @@ describe("ChatThread", () => {
       expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hi" }]);
     });
 
+    // The quote in a bubble names the contact as the reply bar does (2026-10-06).
+    it("gives each bubble the contact's name for its quote", async () => {
+      const { wrapper } = await open();
+      const bubbles = wrapper.findAllComponents(MessageBubble);
+      expect(bubbles.length).toBeGreaterThan(0);
+      for (const bubble of bubbles) expect(bubble.props("contactName")).toBe("Maria López");
+    });
+
     it("goes to the quoted message when its quote is tapped", async () => {
       const { wrapper } = await open();
       const target = document.createElement("div");

@@ -74,6 +74,19 @@ describe("MessageBubble", () => {
       expect(circle.find("[data-test='quote']").text()).toContain("Bob");
     });
 
+    // Seen on the phones (2026-10-06): the quote said «Them» while the reply bar said the contact's
+    // name. In a conversation, a quote of theirs names the contact; without a name, the generic word.
+    it("names the contact when it quotes their message in a conversation", () => {
+      const quote = { id: "m0", text: "ok", mine: false, kind: "text" as const };
+      const named = mount(MessageBubble, { props: { message: { ...base, quote }, contactName: "Marcos" }, shallow: true });
+      expect(named.find("[data-test='quote']").text()).toContain("Marcos");
+      expect(named.find("[data-test='quote']").text()).not.toContain("Them");
+      const unnamed = mount(MessageBubble, { props: { message: { ...base, quote } }, shallow: true });
+      expect(unnamed.find("[data-test='quote']").text()).toContain("Them");
+      const mine = mount(MessageBubble, { props: { message: { ...base, quote: { ...quote, mine: true } }, contactName: "Marcos" }, shallow: true });
+      expect(mine.find("[data-test='quote']").text()).toContain("You");
+    });
+
     it("says so when the quoted message is no longer here, and names a quoted file", () => {
       const gone = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "", mine: false, kind: "gone" } } }, shallow: true });
       expect(gone.find("[data-test='quote']").text()).toBe("Message no longer here");

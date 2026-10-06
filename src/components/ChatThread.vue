@@ -1198,6 +1198,7 @@ watch(
             :class="{ 'is-lit': lit === message.id }"
             :saved="saved.has(message.id)"
             :folded="folded.has(message.id)"
+            :contact-name="chat?.name"
             games
             @open="tapFile"
             @save="save"
