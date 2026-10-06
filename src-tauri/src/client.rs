@@ -2227,27 +2227,55 @@ pub async fn core_plugin_remove(plugin: String, app: AppHandle, client: State<'_
 
 /// The tools and games the app carries: a **seed**, not a store (§52). They weigh little, so a
 /// phone with no network —and an iPhone, where nothing is downloaded in v1— still has them. The
-/// three games travel here too (decision 2026-10-03), so every iPhone has them. What is heavy
-/// never travels here: it is a download, and only for whoever wants it.
+/// games travel here too (decisions 2026-10-03 and 2026-10-06), so every iPhone has them. What is
+/// heavy never travels here: it is a download, and only for whoever wants it.
 const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/markdown.ftplugin"),
     include_bytes!("../resources/plugins/images.ftplugin"),
     include_bytes!("../resources/plugins/pdf.ftplugin"),
     include_bytes!("../resources/plugins/redact.ftplugin"),
     include_bytes!("../resources/plugins/sketch.ftplugin"),
+    include_bytes!("../resources/plugins/scanner.ftplugin"),
+    include_bytes!("../resources/plugins/countdown.ftplugin"),
     include_bytes!("../resources/plugins/game.tictactoe.ftplugin"),
     include_bytes!("../resources/plugins/game.fourinarow.ftplugin"),
     include_bytes!("../resources/plugins/game.chess.ftplugin"),
+    include_bytes!("../resources/plugins/game.backgammon.ftplugin"),
+    include_bytes!("../resources/plugins/game.checkers.ftplugin"),
+    include_bytes!("../resources/plugins/game.dotsandboxes.ftplugin"),
+    include_bytes!("../resources/plugins/game.eights.ftplugin"),
+    include_bytes!("../resources/plugins/game.gomoku.ftplugin"),
+    include_bytes!("../resources/plugins/game.mancala.ftplugin"),
+    include_bytes!("../resources/plugins/game.reversi.ftplugin"),
+    include_bytes!("../resources/plugins/game.seabattle.ftplugin"),
+    include_bytes!("../resources/plugins/game.wordduel.ftplugin"),
+    include_bytes!("../resources/plugins/game.wordgrid.ftplugin"),
 ];
 
 /// What a seed may weigh, and what all of them may weigh together. Past this, a plugin is a
 /// download: the app does not grow because the catalogue does. The test is what holds the line,
-/// so a heavy plugin never reaches a release. Raised on 2026-10-03 for the games (chess is the
-/// largest seed, about 87 KiB; tools and games together, about 203 KiB).
+/// so a heavy plugin never reaches a release. Raised on 2026-10-03 for the games (chess, about
+/// 87 KiB), and again on 2026-10-06 (Ioan) when the ten new games, Scanner and Countdown went
+/// inside the app: the two word games carry their MIT word lists (Word Grid, the largest seed,
+/// about 113 KiB), and all the seeds together, about 839 KiB, are negligible next to the ~30 MB
+/// of the app.
 #[cfg(test)]
-const SEED_LIMIT: u64 = 96 * 1024;
+const SEED_LIMIT: u64 = 128 * 1024;
 #[cfg(test)]
-const SEEDS_LIMIT: u64 = 256 * 1024;
+const SEEDS_LIMIT: u64 = 1024 * 1024;
+
+/// Why seeds of these weights cannot travel inside the app, if they cannot.
+#[cfg(test)]
+fn seeds_weight_problem(weights: impl IntoIterator<Item = u64>) -> Option<String> {
+    let mut total = 0;
+    for weight in weights {
+        if weight > SEED_LIMIT {
+            return Some(format!("a plugin of {weight} bytes is a download, not a seed"));
+        }
+        total += weight;
+    }
+    (total > SEEDS_LIMIT).then(|| format!("the seeds weigh {total} bytes, which is no longer little"))
+}
 
 /// A tool the user may add, from the app itself or from the catalogue (§56).
 #[derive(Serialize, Deserialize, Clone)]
@@ -3780,19 +3808,24 @@ mod tests {
     /// and only for whoever wants it. The app stays small, whatever the catalogue grows to (§52).
     #[test]
     fn what_travels_inside_the_app_stays_tiny() {
-        let mut total = 0;
         for package in BUNDLED_PLUGINS {
-            assert!(
-                package.len() as u64 <= SEED_LIMIT,
-                "a plugin of {} bytes is a download, not a seed",
-                package.len()
-            );
             let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is not signed for us");
             assert!(!plugin.manifest.components.is_empty(), "{} shows nothing", plugin.manifest.id);
             assert!(plugin.file("dist/index.js").is_some(), "{} has no code", plugin.manifest.id);
-            total += package.len() as u64;
         }
-        assert!(total <= SEEDS_LIMIT, "the seeds weigh {total} bytes, which is no longer little");
+        let weights = BUNDLED_PLUGINS.iter().map(|package| package.len() as u64);
+        assert_eq!(seeds_weight_problem(weights), None);
+    }
+
+    /// The line still holds after the limits went up on 2026-10-06: a heavy plugin, or too many
+    /// of them, is a download and never reaches a release as a seed.
+    #[test]
+    fn a_heavy_seed_is_a_download() {
+        assert!(seeds_weight_problem([2 * 1024 * 1024]).is_some(), "a seed of 2 MiB is refused");
+        assert!(seeds_weight_problem([SEED_LIMIT + 1]).is_some(), "a seed just over the limit is refused");
+        assert_eq!(seeds_weight_problem([SEED_LIMIT]), None, "a seed at the limit travels");
+        let many = vec![SEED_LIMIT; (SEEDS_LIMIT / SEED_LIMIT) as usize + 1];
+        assert!(seeds_weight_problem(many).is_some(), "seeds that are light one by one but heavy together are refused");
     }
 
     /// Every seed is, byte for byte, the package the catalogue serves for its id and version: a
@@ -3827,16 +3860,27 @@ mod tests {
         }
     }
 
-    /// 2026-10-03 (Ioan): the three games travel inside the app like the tools, so an iPhone,
-    /// which downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
+    /// 2026-10-03 (Ioan): the games travel inside the app like the tools, so an iPhone, which
+    /// downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
+    /// 2026-10-06 (Ioan): the ten new games, Scanner and Countdown travel too, on both platforms.
     #[test]
-    fn the_app_carries_the_three_games() {
+    fn the_app_carries_its_tools_and_games() {
+        const TOOLS: [&str; 7] = ["markdown", "images", "pdf", "redact", "sketch", "scanner", "countdown"];
+        const GAMES: [&str; 13] = [
+            "tictactoe", "fourinarow", "chess", "backgammon", "checkers", "dotsandboxes", "eights", "gomoku", "mancala", "reversi",
+            "seabattle", "wordduel", "wordgrid",
+        ];
         let offered = seeds();
-        for id in ["com.flickertalk.game.tictactoe", "com.flickertalk.game.fourinarow", "com.flickertalk.game.chess"] {
-            let game = offered.iter().find(|one| one.id == id).unwrap_or_else(|| panic!("{id} is not carried"));
-            assert_eq!(game.kind, ft_plugins::Kind::Game, "{id} is a game");
-            assert!(game.carried, "{id} is inside the app");
+        let wanted = TOOLS
+            .iter()
+            .map(|tool| (format!("com.flickertalk.{tool}"), ft_plugins::Kind::Tool))
+            .chain(GAMES.iter().map(|game| (format!("com.flickertalk.game.{game}"), ft_plugins::Kind::Game)));
+        for (id, kind) in wanted {
+            let seed = offered.iter().find(|one| one.id == id).unwrap_or_else(|| panic!("{id} is not carried"));
+            assert_eq!(seed.kind, kind, "{id} is a {kind:?}");
+            assert!(seed.carried, "{id} is inside the app");
         }
+        assert_eq!(offered.len(), TOOLS.len() + GAMES.len(), "every package the app carries is one it means to carry");
     }
 
     /// 2026-10-02 (the catalogue's translations): a phone without network, and every iPhone, only
