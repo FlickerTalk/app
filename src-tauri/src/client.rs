@@ -3296,6 +3296,16 @@ pub async fn core_pick_for_plugin(accept: Option<String>, app: AppHandle, client
     hand_over_picked(&dir, &picked)
 }
 
+/// A photo the user takes now with the camera app for a plugin that asked for one (2026-10-06):
+/// handed over like a pick (`hand_over_picked`), so its path never reaches the WebView and the
+/// copy is deleted. `null` if the user backed out; an error with no camera or none allowed.
+#[tauri::command]
+pub async fn core_take_photo_for_plugin(app: AppHandle, client: State<'_, Client>) -> Result<Option<HandedFile>, String> {
+    let dir = client.dir()?.to_owned();
+    let taken = core_take_photo(app).await?;
+    hand_over_picked(&dir, &taken)
+}
+
 /// What a plugin is handed from a pick: the first file, and none of the picker's copies stays,
 /// handed over or not (2026-10-02): the original, with what Clean strips (a photo's place), does
 /// not stay in the app.

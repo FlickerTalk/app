@@ -384,6 +384,48 @@ describe("PluginSheet", () => {
     expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q2", name: "", mime: "", data: "" }, "*");
   });
 
+  // 2026-10-06: a plugin may ask for a photo taken now with the phone's camera app. The app opens
+  // it and hands the photo back like a picked file; the core deletes its copy, as with a pick.
+  it("takes a photo with the camera when the plugin wants one", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_take_photo_for_plugin" ? { name: "photo.jpg", mime: "image/jpeg", data: "QUJD" } : undefined),
+    );
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.takePhoto", id: "q1" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_take_photo_for_plugin");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_take_photo");
+    expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "photo.jpg", mime: "image/jpeg", data: "QUJD" }, "*");
+  });
+
+  // Backing out, no camera (a simulator) or a camera not allowed: the plugin gets nothing, never
+  // an error.
+  it("hands the plugin no photo when the user backs out or there is no camera", async () => {
+    let fails = false;
+    tauri.invoke.mockImplementation((command: string) =>
+      command === "core_take_photo_for_plugin"
+        ? fails
+          ? Promise.reject(new Error("unsupported"))
+          : Promise.resolve(null)
+        : Promise.resolve(undefined),
+    );
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    const { post, says } = framed(wrapper);
+
+    says({ type: "ft.takePhoto", id: "q1" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q1", name: "", mime: "", data: "" }, "*");
+
+    fails = true;
+    says({ type: "ft.takePhoto", id: "q2" });
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "q2", name: "", mime: "", data: "" }, "*");
+  });
+
   // A2: what a plugin made goes as far as the user allowed. With `auto` the core sends it.
   it("hands what the plugin made to the core, which sends it with the auto permission", async () => {
     tauri.invoke.mockResolvedValue({ sent: true });
@@ -759,6 +801,7 @@ describe("PluginSheet", () => {
       says({ type: "ft.print", id: "q4", name: "a.pdf", mime: "application/pdf", data: "AAAA" });
       says({ type: "ft.save", id: "q5", name: "a.pdf", mime: "application/pdf", data: "AAAA" });
       says({ type: "ft.location", id: "q6" });
+      says({ type: "ft.takePhoto", id: "q7" });
       await flushPromises();
       expect(tauri.invoke).not.toHaveBeenCalled();
       expect(wrapper.emitted("attach")).toBeUndefined();
