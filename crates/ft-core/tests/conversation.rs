@@ -1543,6 +1543,78 @@ async fn the_receiver_checks_who_edits_or_takes_back_and_when() {
     assert!(!bob.store().is_deleted(&recent.id.to_string()).await.unwrap());
 }
 
+// 2026-10-06: an edit, a taking back and a reaction are not sent once and forgotten. With the
+// contact out of reach and no mailbox they wait on this phone, like a message, and go when the
+// contact is back; their receipt takes them out of the queue (§84: no state shown that is not real).
+#[tokio::test(flavor = "multi_thread")]
+async fn edits_takings_back_and_reactions_wait_for_a_contact_out_of_reach() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let first = alice.send_text(&id(&bob), "dinner at 7").await.expect("sends");
+    let second = alice.send_text(&id(&bob), "bring wine").await.expect("sends");
+    until("bob has both", || async { texts(&bob, &id(&alice)).await.len() == 2 }).await;
+    until("both delivered", || async { outbox_len(&alice).await == 0 }).await;
+
+    alice.set_mailbox(false).await.expect("mailbox off");
+    net.set_direct(false);
+    alice.edit_message(&first, "dinner at 8").await.expect("edits");
+    alice.delete_for_everyone(&second).await.expect("takes back");
+    alice.react(&id(&bob), &first, Some("🍷")).await.expect("reacts");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(bob.store().message(&first).await.unwrap().unwrap().body, "dinner at 7", "bob heard nothing yet");
+    assert_eq!(alice.store().update_outbox().await.unwrap().len(), 3, "all three wait on alice's phone");
+
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until("bob reads the new words", || async { bob.store().message(&first).await.unwrap().unwrap().body == "dinner at 8" }).await;
+    until("bob sees it taken back", || async { bob.store().is_deleted(&second).await.unwrap() }).await;
+    until("bob sees the reaction", || async {
+        bob.store().reactions(&id(&alice)).await.unwrap().get(&first).and_then(|r| r.theirs.clone()).as_deref() == Some("🍷")
+    })
+    .await;
+    until("their receipts empty the queue", || async { alice.store().update_outbox().await.unwrap().is_empty() }).await;
+
+    // One that waited longer than the mailbox keeps anything (an older app that never answers
+    // it, say) is given up instead of being tried forever.
+    let stale = ft_protocol::Packet::new(ft_protocol::Body::Delete { of: ft_protocol::MessageId::parse(&first).unwrap() });
+    let eight_days_ago = ft_core::now() - 8 * 24 * 3_600_000;
+    alice.store().enqueue_update(&stale.id.to_string(), &id(&bob), &stale.encode(), eight_days_ago).await.expect("queues");
+    let before = net.sent_to(&id(&bob));
+    alice.retry_now().await.expect("retries");
+    assert!(alice.store().update_outbox().await.unwrap().is_empty(), "given up");
+    assert_eq!(net.sent_to(&id(&bob)), before, "and not sent");
+    assert!(!bob.store().is_deleted(&first).await.unwrap());
+}
+
+// 2026-10-06: an edit or a reaction made earlier and arriving later (a copy from the mailbox, a
+// retry) does not replace a newer one: each carries when it was made.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_older_edit_or_reaction_arriving_later_changes_nothing() {
+    use ft_protocol::{Body, MessageId, Packet};
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let message = alice.send_text(&id(&bob), "dinner at 7").await.expect("sends");
+    until("bob has it", || async { !texts(&bob, &id(&alice)).await.is_empty() }).await;
+    let of = MessageId::parse(&message).unwrap();
+    let a_minute_ago = ft_core::now() as u64 - 60_000;
+
+    alice.edit_message(&message, "dinner at 9").await.expect("edits");
+    alice.react(&id(&bob), &message, Some("👍")).await.expect("reacts");
+    until("bob has both", || async {
+        bob.store().message(&message).await.unwrap().unwrap().body == "dinner at 9"
+            && bob.store().reactions(&id(&alice)).await.unwrap().get(&message).and_then(|r| r.theirs.clone()).as_deref() == Some("👍")
+    })
+    .await;
+    alice.send_raw_to(&id(&bob), &Packet::resend(MessageId::new(), a_minute_ago, Body::Edit { of, text: "dinner at 8".into() })).await.expect("sends");
+    alice.send_raw_to(&id(&bob), &Packet::resend(MessageId::new(), a_minute_ago, Body::Reaction { to: of, emoji: "😢".into() })).await.expect("sends");
+    alice.send_text(&id(&bob), "after").await.expect("sends");
+    until("bob handled them", || async { texts(&bob, &id(&alice)).await.contains(&"after".to_owned()) }).await;
+    assert_eq!(bob.store().message(&message).await.unwrap().unwrap().body, "dinner at 9", "the newer words stay");
+    assert_eq!(bob.store().reactions(&id(&alice)).await.unwrap()[&message].theirs.as_deref(), Some("👍"), "the newer emoji stays");
+}
+
 // A message taken back for everyone before it went out is cancelled: neither it, blank, nor a
 // "taken back" for a message the other phone never had ever reaches it.
 #[tokio::test(flavor = "multi_thread")]

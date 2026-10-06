@@ -40,7 +40,7 @@ use ft_contacts::{ContactCard, RouteCapability};
 use ft_crypto::{accept_first_contact, Channel};
 use ft_identity::{DeviceId, EnvelopeKey, Identity};
 use ft_protocol::{Body, Envelope, MessageId, Packet, Sealed, ENVELOPE_VERSION};
-use ft_storage::{Contact, ContactRules, Conversation, Message, MessageState, NewContact, OutboxEntry, Store};
+use ft_storage::{Contact, ContactRules, Conversation, Message, MessageState, NewContact, OutboxEntry, Store, UpdateEntry};
 use tokio::sync::{broadcast, Mutex};
 
 /// Unreachable contacts are retried after 5 s, 10 s, 20 s… up to this.
@@ -52,6 +52,9 @@ pub(crate) const MAILBOX_WAIT: Duration = Duration::from_secs(600);
 /// How often a message already in the mailbox gets a new copy there (2026-10-01): the router keeps
 /// a blob for 7 days, and the copy is for a router that lost its table.
 pub(crate) const MAILBOX_COPY: Duration = Duration::from_secs(24 * 3600);
+/// How long an edit, a taking back or a reaction is tried before it is given up (2026-10-06): as
+/// long as the router keeps a blob in the mailbox. An app too old to know them never answers.
+pub(crate) const UPDATE_LIFETIME: Duration = Duration::from_secs(7 * 24 * 3600);
 
 const NAME: &str = "name";
 const MAILBOX: &str = "mailbox";
@@ -1083,7 +1086,7 @@ impl Core {
     }
 
     /// Says one of our texts again with other words (2026-10-05): here at once, and told to the
-    /// contact like a receipt (directly or through the mailbox). Only our own text, not a file,
+    /// contact through the update queue (`tell`), directly or through the mailbox. Only our own text, not a file,
     /// not one taken back, and not one the router refused; within a day of sending it.
     pub async fn edit_message(&self, message_id: &str, text: &str) -> Result<()> {
         let text = text.trim();
@@ -1095,15 +1098,14 @@ impl Core {
         ensure!(!self.store.is_deleted(message_id).await?, "that message was taken back");
         ensure!(now() - message.sent_at <= EDIT_WINDOW_MS, "too late to change it");
         let contact = self.contact(&message.contact).await?;
-        self.store.edit_text(message_id, text).await?;
-        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
         let packet = Packet::new(Body::Edit { of: MessageId::parse(message_id)?, text: text.to_owned() });
-        let _ = self.transmit(&contact, &packet).await;
-        Ok(())
+        self.store.edit_text(message_id, text, packet.sent_at as i64).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        self.tell(&contact, &packet).await
     }
 
     /// Takes one of our messages back for both sides (2026-10-05): its words and its file go
-    /// here, the mark that it was there stays, and the contact is told like a receipt. A phone
+    /// here, the mark that it was there stays, and the contact is told through the update queue. A phone
     /// that already has it shows the mark too; an older app keeps the message. One that never
     /// went out (pending, or written for later) is cancelled, and the contact is told nothing.
     pub async fn delete_for_everyone(&self, message_id: &str) -> Result<()> {
@@ -1118,8 +1120,7 @@ impl Core {
             return Ok(());
         }
         let packet = Packet::new(Body::Delete { of: MessageId::parse(message_id)? });
-        let _ = self.transmit(&contact, &packet).await;
-        Ok(())
+        self.tell(&contact, &packet).await
     }
 
     /// Pins a message on this phone, or unpins it (2026-10-05): a choice of this phone, like the
@@ -1132,8 +1133,8 @@ impl Core {
     }
 
     /// One emoji on a message of the conversation (2026-10-05), theirs or ours; `None` takes it
-    /// back. Shown here at once, and told to the contact like a receipt: directly, or through
-    /// the mailbox when there is one; a contact out of reach hears nothing.
+    /// back. Shown here at once, and told to the contact through the update queue: directly, or
+    /// through the mailbox when there is one, and again until they have it.
     pub async fn react(&self, contact: &str, message_id: &str, emoji: Option<&str>) -> Result<()> {
         let contact = self.contact(contact).await?;
         ensure!(contact.accepted && !contact.blocked, "not a conversation to react in");
@@ -1143,11 +1144,10 @@ impl Core {
         if let Some(emoji) = emoji {
             ensure!(is_reaction(emoji), "a reaction is one emoji");
         }
-        self.store.set_reaction(message_id, true, emoji).await?;
-        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
         let packet = Packet::new(Body::Reaction { to: MessageId::parse(message_id)?, emoji: emoji.unwrap_or("").to_owned() });
-        let _ = self.transmit(&contact, &packet).await;
-        Ok(())
+        self.store.set_reaction(message_id, true, emoji, packet.sent_at as i64).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        self.tell(&contact, &packet).await
     }
 
     pub async fn block(&self, contact: &str, blocked: bool) -> Result<()> {
@@ -1235,6 +1235,9 @@ impl Core {
         for entry in self.store.due(now()).await? {
             self.attempt(&entry).await;
         }
+        for entry in self.store.updates_due(now()).await? {
+            self.attempt_update(&entry).await;
+        }
         for entry in self.store.circle_due(now()).await? {
             let _ = self.deliver_circle(&entry).await;
         }
@@ -1262,6 +1265,11 @@ impl Core {
                 self.attempt(&entry).await;
             }
         }
+        for entry in self.store.update_outbox().await? {
+            if entry.contact == contact && entry.attempts > 0 {
+                self.attempt_update(&entry).await;
+            }
+        }
         for entry in self.store.circle_outbox().await? {
             if entry.contact == contact && entry.attempts > 0 {
                 let _ = self.deliver_circle(&entry).await;
@@ -1280,6 +1288,9 @@ impl Core {
                 continue;
             }
             self.attempt(&entry).await;
+        }
+        for entry in self.store.update_outbox().await? {
+            self.attempt_update(&entry).await;
         }
         self.deliver_circle_queue().await;
         Ok(())
@@ -1484,42 +1495,57 @@ impl Core {
                 let _ = self.events.send(Event::Typing { contact: id.to_string() });
             }
             // Their emoji on a message of this conversation (2026-10-05); on anything else, nothing.
-            Body::Reaction { to, emoji } if contact.rules.accepts_chat && contact.accepted => {
+            // One made before the one already here changes nothing (2026-10-06).
+            Body::Reaction { to, emoji } => {
                 let to = to.to_string();
-                if self.store.message(&to).await?.is_some_and(|message| message.contact == id) {
+                if contact.rules.accepts_chat && contact.accepted && self.store.message(&to).await?.is_some_and(|message| message.contact == id) {
                     let emoji = emoji.trim();
                     let emoji = (!emoji.is_empty() && is_reaction(emoji)).then_some(emoji);
-                    self.store.set_reaction(&to, false, emoji).await?;
+                    self.store.set_reaction(&to, false, emoji, packet.sent_at as i64).await?;
                     self.announce_messages(contact);
                 }
+                // Always acknowledged, taken or not: the sender's queue waits for it (2026-10-06).
+                let _ = self.send_control(contact, self.acknowledgement(contact, packet.id)).await;
             }
             // Their own text, said again with other words (2026-10-05): only theirs, only a text,
             // and within the same day as the sender's app allows. Measured with the sender's
             // clock on both ends (the message's stamp and the edit's), so an edit that waited
-            // for this phone to be reachable still counts from when it was made.
-            Body::Edit { of, text } if contact.rules.accepts_chat && contact.accepted => {
+            // for this phone to be reachable still counts from when it was made. One made before
+            // the edit already here changes nothing (2026-10-06).
+            Body::Edit { of, text } => {
                 let of = of.to_string();
                 let text = text.trim();
-                let theirs = self.store.message(&of).await?.is_some_and(|message| {
-                    message.contact == id && !message.outgoing && packet.sent_at as i64 - message.sent_at <= EDIT_WINDOW_MS
-                });
-                if theirs && !text.is_empty() && self.store.file(&of).await?.is_none() && !self.store.is_deleted(&of).await? {
-                    self.store.edit_text(&of, text).await?;
+                let theirs = contact.rules.accepts_chat
+                    && contact.accepted
+                    && self.store.message(&of).await?.is_some_and(|message| {
+                        message.contact == id && !message.outgoing && packet.sent_at as i64 - message.sent_at <= EDIT_WINDOW_MS
+                    });
+                if theirs
+                    && !text.is_empty()
+                    && self.store.file(&of).await?.is_none()
+                    && !self.store.is_deleted(&of).await?
+                    && self.store.edit_text(&of, text, packet.sent_at as i64).await?
+                {
                     self.announce_messages(contact);
                 }
+                let _ = self.send_control(contact, self.acknowledgement(contact, packet.id)).await;
             }
             // They take their own message back (2026-10-05): its words and its file go, the mark stays.
-            Body::Delete { of } if contact.rules.accepts_chat && contact.accepted => {
+            Body::Delete { of } => {
                 let of = of.to_string();
-                if self.store.message(&of).await?.is_some_and(|message| message.contact == id && !message.outgoing) {
+                let theirs = contact.rules.accepts_chat
+                    && contact.accepted
+                    && self.store.message(&of).await?.is_some_and(|message| message.contact == id && !message.outgoing);
+                if theirs {
                     let file = self.store.file(&of).await?;
                     self.store.mark_deleted(&of).await?;
                     self.forget_bytes(file.into_iter().collect()).await;
                     self.announce_messages(contact);
                 }
+                let _ = self.send_control(contact, self.acknowledgement(contact, packet.id)).await;
             }
             // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Typing | Body::Reaction { .. } | Body::Edit { .. } | Body::Delete { .. } | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
+            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }
@@ -1527,6 +1553,10 @@ impl Core {
     async fn receipt(&self, contact: &str, ids: Vec<MessageId>, state: MessageState) -> Result<()> {
         let mut ours = Vec::new();
         for id in ids.iter().map(ToString::to_string) {
+            // An edit's, a taking back's or a reaction's receipt only takes it out of its queue.
+            if self.store.dequeue_update(&id).await? {
+                continue;
+            }
             // A circle packet's receipt clears that member's entry alone (2026-09-27).
             if !self.circle_receipt(contact, &id, state).await? {
                 ours.push(id);
@@ -1605,6 +1635,56 @@ impl Core {
             self.store.reschedule(&entry.message_id, attempts, now() + next.as_millis() as i64, in_mailbox).await?;
         }
         Ok(())
+    }
+
+    /// Tells the contact of an edit, a taking back or a reaction (2026-10-06): queued like a
+    /// message and tried again until their receipt, so that this phone never shows as done what
+    /// the other has not heard of (§84). The first try is now.
+    async fn tell(&self, contact: &Contact, packet: &Packet) -> Result<()> {
+        let at = now();
+        let entry = UpdateEntry {
+            packet_id: packet.id.to_string(),
+            contact: contact.device_id.clone(),
+            packet: packet.encode(),
+            created_at: at,
+            attempts: 0,
+            next_attempt: at,
+            in_mailbox: false,
+        };
+        self.store.enqueue_update(&entry.packet_id, &entry.contact, &entry.packet, at).await?;
+        self.attempt_update(&entry).await;
+        Ok(())
+    }
+
+    /// One try of a queued update, like `attempt` for a message: waits for the receipt after a
+    /// direct send, for longer after the mailbox, and backs off while the contact is out of reach.
+    /// A router that refuses the contact for good, or a week gone by, gives it up.
+    pub(crate) async fn attempt_update(&self, entry: &UpdateEntry) {
+        if now() - entry.created_at > UPDATE_LIFETIME.as_millis() as i64 {
+            let _ = self.store.dequeue_update(&entry.packet_id).await;
+            return;
+        }
+        let attempts = entry.attempts + 1;
+        let (next, in_mailbox) = match self.deliver_update(entry).await {
+            // An old app never answers it: a direct send backs off too.
+            Ok(Route::Direct) => (retry_delay(attempts).max(RECEIPT_WAIT), entry.in_mailbox),
+            Ok(Route::Mailbox) => (MAILBOX_WAIT, true),
+            Ok(Route::Unreachable) => (retry_delay(attempts), entry.in_mailbox),
+            Err(error) if error.downcast_ref::<MailboxRejected>().is_some() => {
+                let _ = self.store.dequeue_update(&entry.packet_id).await;
+                return;
+            }
+            Err(_) => (retry_delay(attempts), entry.in_mailbox),
+        };
+        // A receipt that arrived meanwhile already took it out: this changes nothing then.
+        let _ = self.store.reschedule_update(&entry.packet_id, attempts, now() + next.as_millis() as i64, in_mailbox).await;
+    }
+
+    async fn deliver_update(&self, entry: &UpdateEntry) -> Result<Route> {
+        let contact = self.contact(&entry.contact).await?;
+        let packet = Packet::decode(&entry.packet)?;
+        // Once in the mailbox, a retry goes directly or not at all: the copy there is enough.
+        self.transmit_as(&contact, &packet, !entry.in_mailbox).await
     }
 
     /// Sends our Contact Card, so the contact can read us and reach us.

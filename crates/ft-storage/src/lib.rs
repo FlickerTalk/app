@@ -166,6 +166,19 @@ pub struct OutboxEntry {
     pub mailed_at: Option<i64>,
 }
 
+/// An edit, a taking back or a reaction waiting for the contact's receipt (2026-10-06).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateEntry {
+    pub packet_id: String,
+    pub contact: String,
+    /// The packet as it was made, encoded: a retry sends it with the same id and time.
+    pub packet: Vec<u8>,
+    pub created_at: i64,
+    pub attempts: i64,
+    pub next_attempt: i64,
+    pub in_mailbox: bool,
+}
+
 /// A file sent or received (§62–63); its message carries the name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRecord {
@@ -661,16 +674,24 @@ impl Store {
         Ok(result.rows_affected() == 1)
     }
 
-    /// The message's text, said again with other words (2026-10-05); marked as edited.
-    pub async fn edit_text(&self, message_id: &str, text: &str) -> Result<bool> {
-        let changed = sqlx::query("UPDATE messages SET body = ? WHERE message_id = ?").bind(text).bind(message_id).execute(&self.pool).await?.rows_affected();
+    /// The message's text, said again with other words (2026-10-05); marked as edited. `at` is
+    /// when the edit was made, by its author's clock (ms): an edit made before the one already
+    /// here changes nothing (2026-10-06), whatever order they arrive in.
+    pub async fn edit_text(&self, message_id: &str, text: &str, at: i64) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let newer = sqlx::query("SELECT 1 FROM message_edits WHERE message_id = ? AND edited_at > ?").bind(message_id).bind(at).fetch_optional(&mut *tx).await?;
+        if newer.is_some() {
+            return Ok(false);
+        }
+        let changed = sqlx::query("UPDATE messages SET body = ? WHERE message_id = ?").bind(text).bind(message_id).execute(&mut *tx).await?.rows_affected();
         if changed == 1 {
             sqlx::query("INSERT INTO message_edits (message_id, edited_at) VALUES (?, ?) ON CONFLICT (message_id) DO UPDATE SET edited_at = excluded.edited_at")
                 .bind(message_id)
-                .bind(now())
-                .execute(&self.pool)
+                .bind(at)
+                .execute(&mut *tx)
                 .await?;
         }
+        tx.commit().await?;
         Ok(changed == 1)
     }
 
@@ -739,27 +760,27 @@ impl Store {
         Ok(rows.into_iter().map(|row| row.get("message_id")).collect())
     }
 
-    /// One emoji on a message (2026-10-05), ours or theirs; `None` takes it back.
-    pub async fn set_reaction(&self, message_id: &str, mine: bool, emoji: Option<&str>) -> Result<()> {
-        match emoji {
-            Some(emoji) => {
-                sqlx::query("INSERT INTO reactions (message_id, mine, emoji) VALUES (?, ?, ?) ON CONFLICT (message_id, mine) DO UPDATE SET emoji = excluded.emoji")
-                    .bind(message_id)
-                    .bind(mine)
-                    .bind(emoji)
-                    .execute(&self.pool)
-                    .await?;
-            }
-            None => {
-                sqlx::query("DELETE FROM reactions WHERE message_id = ? AND mine = ?").bind(message_id).bind(mine).execute(&self.pool).await?;
-            }
-        }
+    /// One emoji on a message (2026-10-05), ours or theirs; `None` takes it back. `at` is when it
+    /// was made, by its author's clock (ms): one made before the one already here, emoji or
+    /// taken back, changes nothing (2026-10-06).
+    pub async fn set_reaction(&self, message_id: &str, mine: bool, emoji: Option<&str>, at: i64) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO reactions (message_id, mine, emoji, reacted_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT (message_id, mine) DO UPDATE SET emoji = excluded.emoji, reacted_at = excluded.reacted_at
+             WHERE excluded.reacted_at >= reactions.reacted_at",
+        )
+        .bind(message_id)
+        .bind(mine)
+        .bind(emoji.unwrap_or(""))
+        .bind(at)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     /// The reactions in the conversation, by message.
     pub async fn reactions(&self, contact: &str) -> Result<HashMap<String, Reactions>> {
-        let rows = sqlx::query("SELECT r.message_id, r.mine, r.emoji FROM reactions r JOIN messages m ON m.message_id = r.message_id WHERE m.contact = ?")
+        let rows = sqlx::query("SELECT r.message_id, r.mine, r.emoji FROM reactions r JOIN messages m ON m.message_id = r.message_id WHERE m.contact = ? AND r.emoji <> ''")
             .bind(contact)
             .fetch_all(&self.pool)
             .await?;
@@ -1059,6 +1080,48 @@ impl Store {
     pub async fn dequeue(&self, message_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM pending_outbox WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
         Ok(())
+    }
+
+    /// Queues an edit, a taking back or a reaction for the contact (2026-10-06), as the packet it
+    /// is, until their receipt; queuing the same packet again changes nothing.
+    pub async fn enqueue_update(&self, packet_id: &str, contact: &str, packet: &[u8], now: i64) -> Result<()> {
+        sqlx::query("INSERT INTO update_outbox (packet_id, contact, packet, created_at, next_attempt) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING")
+            .bind(packet_id)
+            .bind(contact)
+            .bind(packet)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Every update still waiting for the contact's receipt, oldest first.
+    pub async fn update_outbox(&self) -> Result<Vec<UpdateEntry>> {
+        let rows = sqlx::query("SELECT * FROM update_outbox ORDER BY created_at, packet_id").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(update_from).collect())
+    }
+
+    /// The updates whose next attempt is due at `now`, oldest first.
+    pub async fn updates_due(&self, now: i64) -> Result<Vec<UpdateEntry>> {
+        let rows = sqlx::query("SELECT * FROM update_outbox WHERE next_attempt <= ? ORDER BY created_at, packet_id").bind(now).fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(update_from).collect())
+    }
+
+    pub async fn reschedule_update(&self, packet_id: &str, attempts: i64, next_attempt: i64, in_mailbox: bool) -> Result<()> {
+        sqlx::query("UPDATE update_outbox SET attempts = ?, next_attempt = ?, in_mailbox = ? WHERE packet_id = ?")
+            .bind(attempts)
+            .bind(next_attempt)
+            .bind(in_mailbox)
+            .bind(packet_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The update reached the contact, or is given up; false if it was not queued.
+    pub async fn dequeue_update(&self, packet_id: &str) -> Result<bool> {
+        Ok(sqlx::query("DELETE FROM update_outbox WHERE packet_id = ?").bind(packet_id).execute(&self.pool).await?.rows_affected() > 0)
     }
 
     /// Returns false when the file was already there (a retried offer).
@@ -1822,6 +1885,18 @@ fn outbox_from(row: &SqliteRow) -> OutboxEntry {
     }
 }
 
+fn update_from(row: &SqliteRow) -> UpdateEntry {
+    UpdateEntry {
+        packet_id: row.get("packet_id"),
+        contact: row.get("contact"),
+        packet: row.get("packet"),
+        created_at: row.get("created_at"),
+        attempts: row.get("attempts"),
+        next_attempt: row.get("next_attempt"),
+        in_mailbox: row.get("in_mailbox"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2267,10 +2342,10 @@ mod tests {
         store.add_contact(&contact("ft_bob")).await.expect("adds");
         store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
         store.insert_message(&message("m2", "ft_bob", true, 2)).await.expect("inserts");
-        store.set_reaction("m2", false, Some("👍")).await.expect("reacts");
+        store.set_reaction("m2", false, Some("👍"), 1).await.expect("reacts");
 
-        assert!(store.edit_text("m1", "other words").await.expect("edits"));
-        assert!(!store.edit_text("nope", "x").await.expect("edits nothing"));
+        assert!(store.edit_text("m1", "other words", 1).await.expect("edits"));
+        assert!(!store.edit_text("nope", "x", 1).await.expect("edits nothing"));
         assert_eq!(store.message("m1").await.unwrap().unwrap().body, "other words");
         assert_eq!(store.edited("ft_bob").await.unwrap(), HashSet::from(["m1".to_owned()]));
 
@@ -2301,6 +2376,62 @@ mod tests {
         assert!(store.scheduled_all().await.unwrap().is_empty(), "nor is for later");
     }
 
+    // 2026-10-06: an edit, a taking back or a reaction to tell the contact waits in its own queue,
+    // as the packet it is, until their receipt; it goes with the contact.
+    #[tokio::test]
+    async fn an_update_waits_in_its_queue_until_its_receipt() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.enqueue_update("p1", "ft_bob", &[1, 2, 3], 1_000).await.expect("queues");
+        store.enqueue_update("p1", "ft_bob", &[9], 1_000).await.expect("twice is once");
+        let queued = store.update_outbox().await.unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!((queued[0].packet_id.as_str(), queued[0].contact.as_str(), queued[0].packet.as_slice()), ("p1", "ft_bob", &[1u8, 2, 3][..]));
+        assert_eq!((queued[0].created_at, queued[0].attempts, queued[0].in_mailbox), (1_000, 0, false));
+        assert_eq!(store.updates_due(1_000).await.unwrap().len(), 1, "due at once");
+
+        store.reschedule_update("p1", 1, 5_000, true).await.expect("reschedules");
+        assert!(store.updates_due(4_999).await.unwrap().is_empty(), "not yet");
+        let again = store.updates_due(5_000).await.unwrap();
+        assert_eq!((again[0].attempts, again[0].in_mailbox), (1, true));
+
+        assert!(store.dequeue_update("p1").await.expect("its receipt"));
+        assert!(!store.dequeue_update("p1").await.expect("again"), "it was not there any more");
+        store.enqueue_update("p2", "ft_bob", &[4], 1_000).await.expect("queues");
+        store.remove_contact("ft_bob").await.expect("removes");
+        assert!(store.update_outbox().await.unwrap().is_empty(), "gone with the contact");
+    }
+
+    // 2026-10-06: an edit or a reaction made earlier and arriving later (from the mailbox, say)
+    // never replaces a newer one; a reaction taken back stays taken back.
+    #[tokio::test]
+    async fn an_older_edit_or_reaction_never_replaces_a_newer_one() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+
+        assert!(store.edit_text("m1", "newer", 200).await.expect("edits"));
+        assert!(!store.edit_text("m1", "older", 100).await.expect("comes late"));
+        assert_eq!(store.message("m1").await.unwrap().unwrap().body, "newer");
+        assert!(store.edit_text("m1", "newest", 300).await.expect("edits"));
+        assert_eq!(store.message("m1").await.unwrap().unwrap().body, "newest");
+
+        async fn theirs(store: &Store) -> Option<String> {
+            store.reactions("ft_bob").await.unwrap().get("m1").and_then(|r| r.theirs.clone())
+        }
+        store.set_reaction("m1", false, Some("👍"), 200).await.expect("reacts");
+        store.set_reaction("m1", false, Some("😂"), 100).await.expect("comes late");
+        assert_eq!(theirs(&store).await.as_deref(), Some("👍"));
+        store.set_reaction("m1", false, None, 300).await.expect("takes back");
+        store.set_reaction("m1", false, Some("❤️"), 250).await.expect("comes late");
+        assert_eq!(theirs(&store).await, None, "taken back is newer");
+        assert!(store.reactions("ft_bob").await.unwrap().is_empty(), "nothing listed for it");
+        store.set_reaction("m1", false, Some("🎉"), 400).await.expect("reacts again");
+        assert_eq!(theirs(&store).await.as_deref(), Some("🎉"));
+        store.set_reaction("m1", true, Some("👍"), 50).await.expect("ours is apart");
+        assert_eq!(store.reactions("ft_bob").await.unwrap()["m1"].mine.as_deref(), Some("👍"));
+    }
+
     // 2026-10-05: a pin is this phone's, the latest first, and goes with the message.
     #[tokio::test]
     async fn messages_are_pinned_on_this_phone_latest_first() {
@@ -2326,12 +2457,12 @@ mod tests {
         let store = store().await;
         store.add_contact(&contact("ft_bob")).await.expect("adds");
         store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
-        store.set_reaction("m1", true, Some("👍")).await.expect("reacts");
-        store.set_reaction("m1", false, Some("❤️")).await.expect("reacts");
+        store.set_reaction("m1", true, Some("👍"), 1).await.expect("reacts");
+        store.set_reaction("m1", false, Some("❤️"), 1).await.expect("reacts");
         let all = store.reactions("ft_bob").await.unwrap();
         assert_eq!(all.get("m1"), Some(&Reactions { mine: Some("👍".to_owned()), theirs: Some("❤️".to_owned()) }));
-        store.set_reaction("m1", true, Some("😂")).await.expect("changes");
-        store.set_reaction("m1", false, None).await.expect("takes back");
+        store.set_reaction("m1", true, Some("😂"), 2).await.expect("changes");
+        store.set_reaction("m1", false, None, 2).await.expect("takes back");
         let all = store.reactions("ft_bob").await.unwrap();
         assert_eq!(all.get("m1"), Some(&Reactions { mine: Some("😂".to_owned()), theirs: None }));
         store.forget_message("m1").await.expect("forgets");
