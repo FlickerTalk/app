@@ -279,12 +279,47 @@ describe("first day of the week", () => {
     expect(firstDayOfWeek("ar", [])).toBe(6);
   });
 
+  // The WebViews differ (2026-10-06): newer ones have `getWeekInfo()`, older ones a `weekInfo`
+  // getter, the oldest neither. Each shape is stubbed on the prototype and put back afterwards, so
+  // the test does not depend on what the runtime running it has.
+  const proto = Intl.Locale.prototype as unknown as Record<string, unknown>;
+  const KEYS = ["getWeekInfo", "weekInfo"] as const;
+  function weekData(shape: Partial<Record<(typeof KEYS)[number], PropertyDescriptor>>): () => void {
+    const saved = KEYS.map((key) => [key, Object.getOwnPropertyDescriptor(proto, key)] as const);
+    for (const key of KEYS) Object.defineProperty(proto, key, shape[key] ?? { value: undefined, configurable: true });
+    return () => {
+      for (const [key, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(proto, key, descriptor);
+        else Reflect.deleteProperty(proto, key);
+      }
+    };
+  }
+
   it("knows the week without the browser's week data", () => {
-    vi.spyOn(Intl.Locale.prototype as unknown as { getWeekInfo: () => unknown }, "getWeekInfo").mockReturnValue(undefined);
-    expect(firstDayOfWeek("es", ["es-ES"])).toBe(1);
-    expect(firstDayOfWeek("en", ["en-US"])).toBe(0);
-    expect(firstDayOfWeek("pt", [])).toBe(0);
-    expect(firstDayOfWeek("ar", ["ar-EG"])).toBe(6);
-    expect(firstDayOfWeek("fr", ["fr-FR"])).toBe(1);
+    const restore = weekData({});
+    try {
+      expect(firstDayOfWeek("es", ["es-ES"])).toBe(1);
+      expect(firstDayOfWeek("en", ["en-US"])).toBe(0);
+      expect(firstDayOfWeek("pt", [])).toBe(0);
+      expect(firstDayOfWeek("ar", ["ar-EG"])).toBe(6);
+      expect(firstDayOfWeek("fr", ["fr-FR"])).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("takes the browser's week data in either shape", () => {
+    let restore = weekData({ getWeekInfo: { value: () => ({ firstDay: 6 }), configurable: true } });
+    try {
+      expect(firstDayOfWeek("es", ["es-ES"])).toBe(6);
+    } finally {
+      restore();
+    }
+    restore = weekData({ weekInfo: { get: () => ({ firstDay: 7 }), configurable: true } });
+    try {
+      expect(firstDayOfWeek("es", ["es-ES"])).toBe(0);
+    } finally {
+      restore();
+    }
   });
 });
