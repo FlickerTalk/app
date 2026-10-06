@@ -18,7 +18,7 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
 import PluginSheet from "./PluginSheet.vue";
 import source from "./PluginSheet.vue?raw";
 import { setLocale } from "../i18n";
-import { CLOSING_WAIT } from "../plugins";
+import { CLOSING_WAIT, NOTICE_DURATION } from "../plugins";
 
 const plugin = { id: "com.flickertalk.markdown", name: "Markdown" };
 
@@ -36,7 +36,10 @@ describe("PluginSheet", () => {
   beforeEach(() => {
     tauri.invoke.mockReset();
     // Every test gets a toast that shows: a plugin refused for want of a permission says so (app#76).
-    toast.create.mockReset().mockResolvedValue({ present: toast.present });
+    // A toast is an element (the sheet fits it to the plugin's pane) that presents and dismisses.
+    toast.create
+      .mockReset()
+      .mockImplementation(async () => Object.assign(document.createElement("div"), { present: toast.present, dismiss: () => Promise.resolve(true) }));
   });
 
   // 2026-10-02 (plan of the catalogue's translations): a screen reader names the frame as the
@@ -561,6 +564,135 @@ describe("PluginSheet", () => {
     expect(toast.create).toHaveBeenCalledTimes(2);
   });
 
+  describe("notices", () => {
+    // Each toast the sheet creates, in order, so a test can see which one went.
+    type Shown = {
+      options: Record<string, unknown>;
+      present: ReturnType<typeof vi.fn>;
+      dismiss: ReturnType<typeof vi.fn>;
+      el: HTMLElement;
+    };
+    let shown: Shown[];
+    beforeEach(() => {
+      shown = [];
+      toast.create.mockReset().mockImplementation(async (options: Record<string, unknown>) => {
+        const present = vi.fn().mockResolvedValue(undefined);
+        const dismiss = vi.fn().mockResolvedValue(true);
+        const el = Object.assign(document.createElement("div"), { present, dismiss });
+        shown.push({ options, present, dismiss, el });
+        return el;
+      });
+    });
+
+    async function sheet(props: Record<string, unknown> = {}) {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", ...props }, shallow: true });
+      await flushPromises();
+      const frame = framed(wrapper);
+      frame.says({ type: "ft.ready" });
+      await flushPromises();
+      return { wrapper, ...frame };
+    }
+
+    // 2026-10-06 (Ioan): the app owns the toast; a plugin or a game only hands it the text. One
+    // toast, at the top, floating over the content; no permission, it never leaves the phone.
+    it("shows a plugin's notice as one toast at the top", async () => {
+      const { says } = await sheet({ sending: "nothing" });
+      says({ type: "ft.notify", text: "Your turn" });
+      await flushPromises();
+      expect(shown).toHaveLength(1);
+      expect(shown[0].options).toEqual(expect.objectContaining({ message: "Your turn", position: "top", duration: NOTICE_DURATION }));
+      expect(shown[0].present).toHaveBeenCalled();
+      expect(tauri.invoke).not.toHaveBeenCalledWith(expect.stringContaining("notify"), expect.anything());
+    });
+
+    it("dismisses the previous notice before it shows the next one", async () => {
+      const { says } = await sheet();
+      says({ type: "ft.notify", text: "Your turn" });
+      says({ type: "ft.notify", text: "That move is not allowed" });
+      await flushPromises();
+      expect(shown.map((one) => one.options.message)).toEqual(["Your turn", "That move is not allowed"]);
+      expect(shown[0].dismiss).toHaveBeenCalled();
+      expect(shown[0].dismiss.mock.invocationCallOrder[0]).toBeLessThan(shown[1].present.mock.invocationCallOrder[0]);
+      expect(shown[1].dismiss).not.toHaveBeenCalled();
+    });
+
+    it("keeps a sticky notice until the plugin clears it with an empty text", async () => {
+      const { says } = await sheet();
+      says({ type: "ft.notify", text: "Waiting for the other player…", sticky: true });
+      await flushPromises();
+      expect(shown[0].options.duration).toBeUndefined();
+
+      says({ type: "ft.notify", text: "" });
+      await flushPromises();
+      expect(shown[0].dismiss).toHaveBeenCalled();
+      expect(shown, "an empty text shows nothing").toHaveLength(1);
+    });
+
+    // Under the window's bar, not over its way out: a sticky notice must never cover the ✕.
+    it("floats the notice from the top of the plugin, under the window's bar", async () => {
+      const { wrapper, says } = await sheet();
+      const anchor = wrapper.find(".ft-plugin__notices").element as HTMLElement;
+      Object.defineProperty(anchor, "offsetParent", { value: wrapper.element, configurable: true });
+      says({ type: "ft.notify", text: "Your turn" });
+      await flushPromises();
+      expect(shown[0].options.positionAnchor).toBe(anchor);
+    });
+
+    // Lenovo tablet (2026-10-06): beside the chat list, the notice was centred on the whole window
+    // and spilled over the list. It is centred over the plugin's pane, with Ionic's own gutter.
+    describe("width", () => {
+      const width = window.innerWidth;
+      afterEach(() => Object.defineProperty(window, "innerWidth", { value: width, configurable: true }));
+
+      async function noticeIn(viewport: number, left: number, right: number) {
+        Object.defineProperty(window, "innerWidth", { value: viewport, configurable: true });
+        const { wrapper, says } = await sheet();
+        const pane = wrapper.find(".ft-plugin").element as HTMLElement;
+        pane.getBoundingClientRect = () => ({ left, right, width: right - left, top: 56, bottom: 800, height: 744, x: left, y: 56, toJSON: () => ({}) });
+        says({ type: "ft.notify", text: "Your turn" });
+        await flushPromises();
+        return shown[0].el.style;
+      }
+
+      it("centres the notice over the plugin's pane beside the chat list", async () => {
+        const style = await noticeIn(1280, 440, 1280);
+        expect(style.getPropertyValue("--start")).toBe("448px");
+        expect(style.getPropertyValue("--end")).toBe("8px");
+      });
+
+      it("leaves the notice as wide as the screen on a phone", async () => {
+        const style = await noticeIn(390, 0, 390);
+        expect(style.getPropertyValue("--start")).toBe("8px");
+        expect(style.getPropertyValue("--end")).toBe("8px");
+      });
+    });
+
+    // Out of sight, the plugin no longer reaches the user, and its notice goes with it.
+    it("ignores notices while the plugin closes, and takes its notice away", async () => {
+      const { wrapper, says } = await sheet();
+      says({ type: "ft.notify", text: "Waiting…", sticky: true });
+      await flushPromises();
+      void (wrapper.vm as unknown as { close: () => Promise<void> }).close();
+      await flushPromises();
+      expect(shown[0].dismiss).toHaveBeenCalled();
+
+      says({ type: "ft.notify", text: "Bye" });
+      await flushPromises();
+      expect(shown).toHaveLength(1);
+    });
+
+    // The refusal of app#76 is a notice too: one toast at a time, at the top.
+    it("tells a refusal in the same single toast at the top", async () => {
+      const { says } = await sheet();
+      says({ type: "ft.notify", text: "Your turn", sticky: true });
+      says({ type: "ft.text", text: "# Title" });
+      await flushPromises();
+      expect(shown).toHaveLength(2);
+      expect(shown[0].dismiss).toHaveBeenCalled();
+      expect(shown[1].options).toEqual(expect.objectContaining({ position: "top" }));
+    });
+  });
+
   // Opened from Settings there is no chat to write in: nothing to tell.
   it("says nothing of the chat for a plugin opened outside a conversation", async () => {
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
@@ -803,8 +935,10 @@ describe("PluginSheet", () => {
       says({ type: "ft.save", id: "q5", name: "a.pdf", mime: "application/pdf", data: "AAAA" });
       says({ type: "ft.location", id: "q6" });
       says({ type: "ft.takePhoto", id: "q7" });
+      says({ type: "ft.notify", text: "Bye" });
       await flushPromises();
       expect(tauri.invoke).not.toHaveBeenCalled();
+      expect(toast.create).not.toHaveBeenCalled();
       expect(wrapper.emitted("attach")).toBeUndefined();
       expect(wrapper.emitted("text")).toBeUndefined();
       expect(wrapper.emitted("openChat")).toBeUndefined();

@@ -35,6 +35,11 @@ globalThis.ft = {
   say(text) {
     post({ type: "ft.text", text: String(text) });
   },
+  /** Hands the app a short notice, shown as its single toast at the top (2026-10-06). Fire and
+   *  forget; sticky stays until the next notice, and an empty text clears it. */
+  notify(text, options) {
+    post({ type: "ft.notify", text: String(text ?? ""), sticky: options?.sticky === true });
+  },
   /** Saves a file on the phone instead of sending it. */
   save(name, mime, data) {
     return ask("ft.save", { name: String(name), mime: String(mime), data: String(data) });
