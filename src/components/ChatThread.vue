@@ -53,7 +53,6 @@ import {
   pin,
   pinOutline,
   pencilOutline,
-  searchOutline,
   timeOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
@@ -98,6 +97,7 @@ import {
   takePhoto,
   saveFile,
   scheduleText,
+  requestPending,
   searchMessages,
   sendFile,
   sendPicked,
@@ -121,14 +121,16 @@ import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
+/** `search` (2026-10-06): the search of the conversation, asked for by the contact page (`?search=1`). */
 /**
  * `active`: whether the page holding the conversation is the one on screen (2026-10-02). Ionic
  * keeps a page mounted under the next one; what it left open must not take Android's back button
  * there, and takes it again when the page is back (seen on the Samsung).
  */
-const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean; active?: boolean }>(), {
+const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; search?: boolean; split?: boolean; active?: boolean }>(), {
   showBack: false,
   play: undefined,
+  search: false,
   split: false,
   active: true,
 });
@@ -155,11 +157,7 @@ const days = computed(() =>
  * and the no stand apart and blocking asks once, never from the list, where a small screen made
  * the no easy to hit by mistake. Until then, no composer and no call.
  */
-const isRequest = computed(
-  () =>
-    store.requests.some((one) => one.id === props.chatId) ||
-    store.sessions.some((session) => session.requests.some((one) => one.id === props.chatId)),
-);
+const isRequest = computed(() => requestPending(props.chatId));
 const asksToBlock = ref(false);
 
 async function acceptRequest() {
@@ -349,6 +347,15 @@ watch(query, (now) => {
   }, 250);
 });
 watch(() => props.chatId, closeSearch);
+// Ioan, 2026-10-06: the search opens from the contact page (`?search=1`), as in Messenger and
+// WhatsApp; the header keeps three buttons.
+watch(
+  () => props.search,
+  (asked) => {
+    if (asked) openSearch();
+  },
+  { immediate: true },
+);
 
 /** What a hit shows: a text, or a file's name. */
 const hitText = (message: ChatMessage) => (message.kind === "file" ? message.file?.name ?? "" : message.text);
@@ -1010,10 +1017,6 @@ watch(
           <!-- Ioan, 2026-10-02: no video while playing. -->
           <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
-          </ion-button>
-          <!-- 2026-10-05: a search in this conversation, on this phone. -->
-          <ion-button data-test="search" :aria-label="$t('chat.search')" @click="searching ? closeSearch() : openSearch()">
-            <ion-icon slot="icon-only" :icon="searchOutline" aria-hidden="true" />
           </ion-button>
           <!-- Issue app#3: the utilities installed on this phone, and the games. -->
           <ion-button data-test="apps" :aria-label="$t('plugins.title')" @click="openApps">

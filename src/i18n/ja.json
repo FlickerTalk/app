@@ -169,6 +169,8 @@
     "openSettings": "設定を開く"
   },
   "contact": {
+    "call": "通話",
+    "video": "ビデオ",
     "fingerprint": "セキュリティ指紋",
     "verify": "対面で確認",
     "verifyHint": "会ったときに両方のコードを見比べてください",

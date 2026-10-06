@@ -169,6 +169,8 @@
     "openSettings": "打开设置"
   },
   "contact": {
+    "call": "通话",
+    "video": "视频",
     "fingerprint": "安全指纹",
     "verify": "当面验证",
     "verifyHint": "见面时比对双方的码",

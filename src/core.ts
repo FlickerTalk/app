@@ -405,6 +405,14 @@ export function chat(id: string): Chat | undefined {
   return allChats().find((candidate) => candidate.id === id);
 }
 
+/**
+ * A5 (2026-09-28): a stranger who wrote first and is not answered yet, here or in a session.
+ * Until then, no composer and no call.
+ */
+export function requestPending(id: string): boolean {
+  return store.requests.some((one) => one.id === id) || store.sessions.some((session) => session.requests.some((one) => one.id === id));
+}
+
 function toCircleMessage(view: CircleMessageView): CircleMessage {
   return {
     id: view.id,

@@ -169,6 +169,8 @@
     "openSettings": "Mở Cài đặt"
   },
   "contact": {
+    "call": "Gọi",
+    "video": "Video",
     "fingerprint": "Dấu vân tay bảo mật",
     "verify": "Xác minh trực tiếp",
     "verifyHint": "So sánh hai mã khi hai bạn ở cạnh nhau",

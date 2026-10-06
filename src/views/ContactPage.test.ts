@@ -3,11 +3,59 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
 import ContactPage from "./ContactPage.vue";
 import { calls, seed } from "../__tests__/seed";
+import { store } from "../core";
 
-vi.mock("vue-router", () => ({ useRoute: () => ({ params: { id: "c1" } }), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
+const routing = vi.hoisted(() => ({ id: "c1", push: vi.fn() }));
+vi.mock("vue-router", () => ({ useRoute: () => ({ params: { id: routing.id } }), useRouter: () => ({ push: routing.push, replace: vi.fn() }) }));
 
 describe("ContactPage", () => {
-  beforeEach(() => seed());
+  beforeEach(() => {
+    seed();
+    routing.id = "c1";
+    routing.push.mockClear();
+  });
+
+  // Ioan, 2026-10-06: as Messenger and WhatsApp do it, the chat header keeps few icons and the
+  // contact page has a row of quick actions under the name: call, video and search.
+  describe("quick actions", () => {
+    const action = (wrapper: ReturnType<typeof mount>, name: string) => wrapper.find(`[data-test='quick-${name}']`);
+
+    it("offers a call, a video call and a search, each with its label and an accessible name", () => {
+      const wrapper = mount(ContactPage, { shallow: true });
+      const row = wrapper.find("[data-test='quick-actions']");
+      expect(row.exists()).toBe(true);
+      expect(row.findAll("[data-test^='quick-']").map((one) => one.attributes("data-test"))).toEqual(["quick-call", "quick-video", "quick-search"]);
+      expect([action(wrapper, "call"), action(wrapper, "video"), action(wrapper, "search")].map((one) => [one.text(), one.attributes("aria-label")])).toEqual([
+        ["Call", "Voice call"],
+        ["Video", "Video call"],
+        ["Search", "Search in this conversation"],
+      ]);
+    });
+
+    it("calls as the chat header does", async () => {
+      const wrapper = mount(ContactPage, { shallow: true });
+      await action(wrapper, "call").trigger("click");
+      expect(routing.push).toHaveBeenCalledWith("/call/c1");
+      await action(wrapper, "video").trigger("click");
+      expect(routing.push).toHaveBeenCalledWith("/call/c1?video=1");
+    });
+
+    it("searches in the conversation", async () => {
+      const wrapper = mount(ContactPage, { shallow: true });
+      await action(wrapper, "search").trigger("click");
+      expect(routing.push).toHaveBeenCalledWith("/chat/c1?search=1");
+    });
+
+    // A stranger who wrote first cannot be called yet, as in the chat header (A5).
+    it("offers no call to someone whose request is still unanswered", () => {
+      store.requests = [{ ...store.chats[1], id: "ft_stranger", name: "Mamá" }];
+      routing.id = "ft_stranger";
+      const wrapper = mount(ContactPage, { shallow: true });
+      expect(action(wrapper, "call").exists()).toBe(false);
+      expect(action(wrapper, "video").exists()).toBe(false);
+      expect(action(wrapper, "search").exists()).toBe(true);
+    });
+  });
 
   // Plan §29: the safety number both phones compute from the two identity keys.
   it("shows the contact and its security fingerprint", async () => {

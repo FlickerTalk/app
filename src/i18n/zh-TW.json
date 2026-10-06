@@ -169,6 +169,8 @@
     "openSettings": "開啟設定"
   },
   "contact": {
+    "call": "通話",
+    "video": "視訊",
     "fingerprint": "安全指紋",
     "verify": "當面驗證",
     "verifyHint": "見面時比對雙方的碼",

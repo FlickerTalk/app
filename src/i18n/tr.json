@@ -169,6 +169,8 @@
     "openSettings": "Ayarlar'ı aç"
   },
   "contact": {
+    "call": "Sesli",
+    "video": "Görüntülü",
     "fingerprint": "Güvenlik parmak izi",
     "verify": "Yüz yüze doğrula",
     "verifyHint": "Birlikteyken iki kodu karşılaştırın",

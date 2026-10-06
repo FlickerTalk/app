@@ -169,6 +169,8 @@
     "openSettings": "Ouvrir les Paramètres"
   },
   "contact": {
+    "call": "Appeler",
+    "video": "Vidéo",
     "fingerprint": "Empreinte de sécurité",
     "verify": "Vérifier en personne",
     "verifyHint": "Comparez les deux codes quand vous êtes ensemble",

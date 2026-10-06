@@ -169,6 +169,8 @@
     "openSettings": "Open Settings"
   },
   "contact": {
+    "call": "Call",
+    "video": "Video",
     "fingerprint": "Security fingerprint",
     "verify": "Verify in person",
     "verifyHint": "Compare both codes when you are together",

@@ -5,13 +5,16 @@ import ChatPage from "./ChatPage.vue";
 import ChatThread from "../components/ChatThread.vue";
 
 // The address, reactive as vue-router's is.
-const routing = vi.hoisted(() => ({ route: null as unknown as { params: { id?: string }; query: Record<string, unknown> } }));
+const routing = vi.hoisted(() => ({
+  route: null as unknown as { params: { id?: string }; query: Record<string, unknown> },
+  replace: vi.fn(),
+}));
 // vue-router's own history: `state.position` is where in the history the page on screen is.
 const history = vi.hoisted(() => ({ state: { position: 3 } as Record<string, unknown> | null }));
 vi.mock("vue-router", async () => {
   const { reactive } = await import("vue");
   routing.route = reactive({ params: { id: "c2" }, query: {} });
-  return { useRoute: () => routing.route, useRouter: () => ({ options: { history } }) };
+  return { useRoute: () => routing.route, useRouter: () => ({ options: { history }, replace: routing.replace }) };
 });
 
 describe("ChatPage", () => {
@@ -42,6 +45,40 @@ describe("ChatPage", () => {
     routing.route.query = { play: "com.flickertalk.game.chess" };
     const thread = mount(ChatPage, { shallow: true }).findComponent(ChatThread);
     expect(thread.props("play")).toBe("com.flickertalk.game.chess");
+  });
+
+  // Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`. The
+  // address then forgets it, so going back and forth does not open the search again.
+  it("opens the search the address asks for, and takes it out of the address", () => {
+    routing.route.query = { search: "1" };
+    const thread = mount(ChatPage, { shallow: true }).findComponent(ChatThread);
+    expect(thread.props("search")).toBe(true);
+    expect(routing.replace).toHaveBeenCalledWith({ query: {} });
+    routing.route.query = {};
+  });
+
+  // Ionic keeps a conversation's page mounted under the next one: the search another
+  // conversation's address asks for is not this one's.
+  it("leaves the search to the conversation the address is for", async () => {
+    routing.route.params = { id: "c2" };
+    routing.route.query = {};
+    const wrapper = mount(ChatPage, { shallow: true });
+    routing.replace.mockClear();
+    routing.route.params = { id: "c3" };
+    routing.route.query = { search: "1" };
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent(ChatThread).props("search")).toBe(false);
+    expect(routing.replace).not.toHaveBeenCalled();
+    routing.route.params = { id: "c2" };
+    routing.route.query = {};
+  });
+
+  it("opens no search when the address does not ask for it", () => {
+    routing.route.query = {};
+    routing.replace.mockClear();
+    const thread = mount(ChatPage, { shallow: true }).findComponent(ChatThread);
+    expect(thread.props("search")).toBe(false);
+    expect(routing.replace).not.toHaveBeenCalled();
   });
 
   // 2026-10-02: left by going back, the page is taken down once Ionic's transition ends, and with

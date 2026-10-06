@@ -169,6 +169,8 @@
     "openSettings": "설정 열기"
   },
   "contact": {
+    "call": "통화",
+    "video": "영상",
     "fingerprint": "보안 지문",
     "verify": "직접 만나서 확인",
     "verifyHint": "함께 있을 때 두 코드를 비교하세요",

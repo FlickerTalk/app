@@ -169,6 +169,8 @@
     "openSettings": "Deschide Setările"
   },
   "contact": {
+    "call": "Sună",
+    "video": "Video",
     "fingerprint": "Amprentă de securitate",
     "verify": "Verifică în persoană",
     "verifyHint": "Comparați ambele coduri când sunteți împreună",

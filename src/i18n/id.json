@@ -169,6 +169,8 @@
     "openSettings": "Buka Pengaturan"
   },
   "contact": {
+    "call": "Panggil",
+    "video": "Video",
     "fingerprint": "Sidik jari keamanan",
     "verify": "Verifikasi saat bertemu",
     "verifyHint": "Bandingkan kedua kode saat kalian bersama",

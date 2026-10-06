@@ -1029,7 +1029,8 @@ describe("ChatThread", () => {
   });
 
   // 2026-10-05: a search in the conversation, on this phone: the hits list under the header and a
-  // tap goes to the message.
+  // tap goes to the message. Since 2026-10-06 it opens from the contact page (`?search=1`), as in
+  // Messenger and WhatsApp, not from a button of the header.
   describe("searching the conversation", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
@@ -1042,11 +1043,16 @@ describe("ChatThread", () => {
       await flushPromises();
     };
 
-    it("opens from the header, lists what it finds and goes to a hit", async () => {
+    it("has no search button in the header", async () => {
       const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
       await flushPromises();
+      expect(wrapper.find("[data-test='search']").exists()).toBe(false);
       expect(wrapper.find("[data-test='search-panel']").exists()).toBe(false);
-      await wrapper.find("[data-test='search']").trigger("click");
+    });
+
+    it("opens when asked, lists what it finds and goes to a hit", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", search: true }, shallow: true });
+      await flushPromises();
       expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
 
       await typed(wrapper, "TABLE");
@@ -1065,10 +1071,16 @@ describe("ChatThread", () => {
       expect(wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === "m3")?.classes()).toContain("is-lit");
     });
 
-    it("says when nothing is found, and closes", async () => {
+    it("opens when asked by a conversation already on screen", async () => {
       const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
       await flushPromises();
-      await wrapper.find("[data-test='search']").trigger("click");
+      await wrapper.setProps({ search: true });
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
+    });
+
+    it("says when nothing is found, and closes", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", search: true }, shallow: true });
+      await flushPromises();
       await typed(wrapper, "zebra");
       expect(wrapper.find("[data-test='search-none']").exists()).toBe(true);
       await typed(wrapper, "");
@@ -1261,9 +1273,8 @@ describe("ChatThread", () => {
     });
 
     it("searches with Ionic's searchbar and closes with a clear icon button", async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", search: true }, shallow: false, global: { stubs } });
       await flushPromises();
-      await wrapper.find("[data-test='search']").trigger("click");
       const bar = wrapper.findComponent(IonSearchbar);
       expect(bar.attributes("data-test")).toBe("search-input");
       expect(bar.attributes("aria-label")).toBe("Search in this conversation");
@@ -1449,8 +1460,9 @@ describe("ChatThread", () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       expect(wrapper.find("[data-test='games']").exists()).toBe(false);
-      // Voice, video, the search (2026-10-05) and the apps.
-      expect(endButtons(wrapper)).toHaveLength(4);
+      // Voice, video and the apps; the search lives on the contact page (Ioan, 2026-10-06).
+      expect(endButtons(wrapper)).toHaveLength(3);
+      expect(wrapper.find("[data-test='search']").exists()).toBe(false);
       expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
       await wrapper.find("[data-test='apps']").trigger("click");
       // A sheet: it rises from the bottom and has heights to be dragged between; and a name.
