@@ -82,7 +82,11 @@
     "deleted": "Wiadomość usunięta",
     "deleteEveryone": "Usuń dla wszystkich",
     "cancelEdit": "Anuluj edycję",
-    "editing": "Edycja"
+    "editing": "Edycja",
+    "search": "Szukaj",
+    "searchIn": "Szukaj w tej rozmowie",
+    "nothingFound": "Nic nie znaleziono",
+    "closeSearch": "Zamknij wyszukiwanie"
   },
   "status": {
     "pending": "Czeka na urządzenie",

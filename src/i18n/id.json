@@ -82,7 +82,11 @@
     "deleted": "Pesan dihapus",
     "deleteEveryone": "Hapus untuk semua",
     "cancelEdit": "Batalkan edit",
-    "editing": "Mengedit"
+    "editing": "Mengedit",
+    "search": "Cari",
+    "searchIn": "Cari di percakapan ini",
+    "nothingFound": "Tidak ada hasil",
+    "closeSearch": "Tutup pencarian"
   },
   "status": {
     "pending": "Menunggu perangkat",

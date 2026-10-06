@@ -918,6 +918,54 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-05: a search in the conversation, on this phone: the hits list under the header and a
+  // tap goes to the message.
+  describe("searching the conversation", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const typed = async (wrapper: ReturnType<typeof mount>, text: string) => {
+      await wrapper.find("[data-test='search-input']").setValue(text);
+      vi.advanceTimersByTime(300);
+      await flushPromises();
+    };
+
+    it("opens from the header, lists what it finds and goes to a hit", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(false);
+      await wrapper.find("[data-test='search']").trigger("click");
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
+
+      await typed(wrapper, "TABLE");
+      expect(calls).toContainEqual(["core_search", { contact: "c1", query: "TABLE" }]);
+      const hits = wrapper.find("[data-test='search-hits']");
+      expect(hits.text()).toContain("Perfect, I'll book the table");
+      expect(hits.text()).toContain("Maria López");
+
+      const target = document.createElement("div");
+      target.dataset.message = "m3";
+      target.scrollIntoView = vi.fn();
+      document.body.append(target);
+      await wrapper.find("[data-test='hit-m3']").trigger("click");
+      expect(target.scrollIntoView).toHaveBeenCalled();
+      target.remove();
+      expect(wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === "m3")?.classes()).toContain("is-lit");
+    });
+
+    it("says when nothing is found, and closes", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      await wrapper.find("[data-test='search']").trigger("click");
+      await typed(wrapper, "zebra");
+      expect(wrapper.find("[data-test='search-none']").exists()).toBe(true);
+      await typed(wrapper, "");
+      expect(wrapper.find("[data-test='search-none']").exists()).toBe(false);
+      await wrapper.find("[data-test='close-search']").trigger("click");
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(false);
+    });
+  });
+
   // 2026-10-05: my own text can be said again with other words, and any message of mine taken
   // back for both sides; the sheet offers both only where they apply.
   describe("editing and taking back", () => {
@@ -1207,7 +1255,8 @@ describe("ChatThread", () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       expect(wrapper.find("[data-test='games']").exists()).toBe(false);
-      expect(endButtons(wrapper)).toHaveLength(3);
+      // Voice, video, the search (2026-10-05) and the apps.
+      expect(endButtons(wrapper)).toHaveLength(4);
       expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
       await wrapper.find("[data-test='apps']").trigger("click");
       // A sheet: it rises from the bottom and has heights to be dragged between; and a name.

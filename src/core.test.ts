@@ -478,6 +478,19 @@ describe("circles", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hi" });
   });
 
+  // 2026-10-05: the search asks the core for the words, and nothing for an empty query.
+  it("searches a conversation through the core", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_search" ? [{ id: "m9", outgoing: false, text: "friday works", sentAt: 1_700_000_000_000, state: "read" }] : answers[command]),
+    );
+    const found = await core.searchMessages("ft_bob", " friday ");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_search", { contact: "ft_bob", query: "friday" });
+    expect(found.map((one) => [one.id, one.text, one.mine])).toEqual([["m9", "friday works", false]]);
+    tauri.invoke.mockClear();
+    expect(await core.searchMessages("ft_bob", "   ")).toEqual([]);
+    expect(tauri.invoke).not.toHaveBeenCalled();
+  });
+
   // 2026-10-05: other words for my text, and taking a message back for both sides.
   it("edits a text and takes a message back through the core", async () => {
     await core.editMessage("m1", "  other words ");

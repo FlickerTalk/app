@@ -42,6 +42,15 @@ export function seed(): void {
   calls.length = 0;
   installTauri((command, args) => {
     calls.push([command, args]);
+    // 2026-10-05: the search, as the core would answer it: the words, any case, newest first.
+    if (command === "core_search") {
+      const chat = fixture.chats.find((candidate) => candidate.id === args?.contact);
+      const needle = String(args?.query ?? "").toLowerCase();
+      return (chat?.messages ?? [])
+        .filter((message) => (message.text ?? "").toLowerCase().includes(needle))
+        .reverse()
+        .map((message) => ({ id: message.id, outgoing: message.mine, text: message.text ?? "", sentAt: at(message.time), state: message.status ?? "delivered" }));
+    }
     if (command === "core_messages") {
       const chat = fixture.chats.find((candidate) => candidate.id === args?.contact);
       return (chat?.messages ?? []).map((message) => ({

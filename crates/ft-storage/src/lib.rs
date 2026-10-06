@@ -819,6 +819,24 @@ impl Store {
         Ok(rows.iter().map(message_from).collect())
     }
 
+    /// The messages of the conversation whose words hold `query` (2026-10-05), newest first, at most
+    /// `limit`. Case does not matter for Latin letters; the search never leaves the phone.
+    pub async fn search_messages(&self, contact: &str, query: &str, limit: i64) -> Result<Vec<Message>> {
+        let needle = query.trim().to_lowercase().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        if needle.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(
+            "SELECT * FROM messages WHERE contact = ? AND lower(body) LIKE ? ESCAPE '\\' ORDER BY received_at DESC, message_id DESC LIMIT ?",
+        )
+        .bind(contact)
+        .bind(format!("%{needle}%"))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(message_from).collect())
+    }
+
     /// Moves messages to `state`, never backwards.
     pub async fn advance(&self, message_ids: &[String], state: MessageState) -> Result<()> {
         self.advance_at(message_ids, state, now()).await
@@ -2161,6 +2179,24 @@ mod tests {
         store.forget_message("m2").await.expect("forgets");
         assert_eq!(store.reply_to("m2").await.unwrap(), None);
         assert!(store.replies("ft_bob").await.unwrap().is_empty());
+    }
+
+    // 2026-10-05: the search looks at the words of one conversation, whatever the case, and treats
+    // SQL's wildcards as plain letters.
+    #[tokio::test]
+    async fn messages_are_searched_by_their_words_in_one_conversation() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.add_contact(&contact("ft_carol")).await.expect("adds");
+        store.insert_message(&Message { body: "Dinner on Friday?".into(), ..message("m1", "ft_bob", false, 1) }).await.expect("inserts");
+        store.insert_message(&Message { body: "100% sure, friday it is".into(), ..message("m2", "ft_bob", true, 2) }).await.expect("inserts");
+        store.insert_message(&Message { body: "friday works".into(), ..message("m3", "ft_carol", false, 3) }).await.expect("inserts");
+        let ids = |found: Vec<Message>| found.into_iter().map(|m| m.message_id).collect::<Vec<_>>();
+        assert_eq!(ids(store.search_messages("ft_bob", "FRIDAY", 10).await.unwrap()), vec!["m2".to_owned(), "m1".to_owned()], "newest first, any case, this conversation only");
+        assert_eq!(ids(store.search_messages("ft_bob", "100%", 10).await.unwrap()), vec!["m2".to_owned()], "a percent sign is a letter");
+        assert_eq!(ids(store.search_messages("ft_bob", "_", 10).await.unwrap()), Vec::<String>::new(), "an underscore too");
+        assert_eq!(ids(store.search_messages("ft_bob", "friday", 1).await.unwrap()), vec!["m2".to_owned()], "at most the limit");
+        assert!(store.search_messages("ft_bob", "   ", 10).await.unwrap().is_empty(), "nothing for nothing");
     }
 
     // 2026-10-05: other words keep the message and mark it; taking it back empties it and marks it.

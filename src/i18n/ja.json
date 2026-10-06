@@ -82,7 +82,11 @@
     "deleted": "メッセージは削除されました",
     "deleteEveryone": "全員に対して削除",
     "cancelEdit": "編集を取り消す",
-    "editing": "編集中"
+    "editing": "編集中",
+    "search": "検索",
+    "searchIn": "この会話内を検索",
+    "nothingFound": "見つかりませんでした",
+    "closeSearch": "検索を閉じる"
   },
   "status": {
     "pending": "相手の端末を待っています",

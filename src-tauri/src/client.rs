@@ -2158,6 +2158,19 @@ pub async fn core_forget_message(message: String, client: State<'_, Client>) -> 
     client.core().await?.forget_message(&message).await.map_err(failed)
 }
 
+/// The messages of the conversation with these words (2026-10-05), newest first; on this phone.
+#[tauri::command]
+pub async fn core_search(contact: String, query: String, client: State<'_, Client>) -> Result<Vec<MessageView>, String> {
+    let core = client.core().await?;
+    let found = core.search(&contact, &query).await.map_err(failed)?;
+    let mut views = Vec::with_capacity(found.len());
+    for message in &found {
+        let file = core.store().file(&message.message_id).await.map_err(failed)?.map(|file| located(&core, file));
+        views.push(MessageView::new(message, file.as_ref()));
+    }
+    Ok(views)
+}
+
 /// Says one of our texts again with other words (2026-10-05).
 #[tauri::command]
 pub async fn core_edit(message: String, text: String, client: State<'_, Client>) -> Result<(), String> {

@@ -82,7 +82,11 @@
     "deleted": "訊息已刪除",
     "deleteEveryone": "對所有人刪除",
     "cancelEdit": "取消編輯",
-    "editing": "編輯中"
+    "editing": "編輯中",
+    "search": "搜尋",
+    "searchIn": "在此對話中搜尋",
+    "nothingFound": "沒有結果",
+    "closeSearch": "關閉搜尋"
   },
   "status": {
     "pending": "等待對方裝置",

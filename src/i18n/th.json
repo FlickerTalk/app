@@ -82,7 +82,11 @@
     "deleted": "ข้อความถูกลบ",
     "deleteEveryone": "ลบสำหรับทุกคน",
     "cancelEdit": "ยกเลิกการแก้ไข",
-    "editing": "กำลังแก้ไข"
+    "editing": "กำลังแก้ไข",
+    "search": "ค้นหา",
+    "searchIn": "ค้นหาในการสนทนานี้",
+    "nothingFound": "ไม่พบอะไร",
+    "closeSearch": "ปิดการค้นหา"
   },
   "status": {
     "pending": "รออุปกรณ์",
