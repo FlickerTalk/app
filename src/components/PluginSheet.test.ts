@@ -36,7 +36,10 @@ describe("PluginSheet", () => {
   beforeEach(() => {
     tauri.invoke.mockReset();
     // Every test gets a toast that shows: a plugin refused for want of a permission says so (app#76).
-    toast.create.mockReset().mockResolvedValue({ present: toast.present, dismiss: () => Promise.resolve(true) });
+    // A toast is an element (the sheet fits it to the plugin's pane) that presents and dismisses.
+    toast.create
+      .mockReset()
+      .mockImplementation(async () => Object.assign(document.createElement("div"), { present: toast.present, dismiss: () => Promise.resolve(true) }));
   });
 
   // 2026-10-02 (plan of the catalogue's translations): a screen reader names the frame as the
@@ -563,14 +566,21 @@ describe("PluginSheet", () => {
 
   describe("notices", () => {
     // Each toast the sheet creates, in order, so a test can see which one went.
-    type Shown = { options: Record<string, unknown>; present: ReturnType<typeof vi.fn>; dismiss: ReturnType<typeof vi.fn> };
+    type Shown = {
+      options: Record<string, unknown>;
+      present: ReturnType<typeof vi.fn>;
+      dismiss: ReturnType<typeof vi.fn>;
+      el: HTMLElement;
+    };
     let shown: Shown[];
     beforeEach(() => {
       shown = [];
       toast.create.mockReset().mockImplementation(async (options: Record<string, unknown>) => {
-        const one = { options, present: vi.fn().mockResolvedValue(undefined), dismiss: vi.fn().mockResolvedValue(true) };
-        shown.push(one);
-        return one;
+        const present = vi.fn().mockResolvedValue(undefined);
+        const dismiss = vi.fn().mockResolvedValue(true);
+        const el = Object.assign(document.createElement("div"), { present, dismiss });
+        shown.push({ options, present, dismiss, el });
+        return el;
       });
     });
 
@@ -626,6 +636,35 @@ describe("PluginSheet", () => {
       says({ type: "ft.notify", text: "Your turn" });
       await flushPromises();
       expect(shown[0].options.positionAnchor).toBe(anchor);
+    });
+
+    // Lenovo tablet (2026-10-06): beside the chat list, the notice was centred on the whole window
+    // and spilled over the list. It is centred over the plugin's pane, with Ionic's own gutter.
+    describe("width", () => {
+      const width = window.innerWidth;
+      afterEach(() => Object.defineProperty(window, "innerWidth", { value: width, configurable: true }));
+
+      async function noticeIn(viewport: number, left: number, right: number) {
+        Object.defineProperty(window, "innerWidth", { value: viewport, configurable: true });
+        const { wrapper, says } = await sheet();
+        const pane = wrapper.find(".ft-plugin").element as HTMLElement;
+        pane.getBoundingClientRect = () => ({ left, right, width: right - left, top: 56, bottom: 800, height: 744, x: left, y: 56, toJSON: () => ({}) });
+        says({ type: "ft.notify", text: "Your turn" });
+        await flushPromises();
+        return shown[0].el.style;
+      }
+
+      it("centres the notice over the plugin's pane beside the chat list", async () => {
+        const style = await noticeIn(1280, 440, 1280);
+        expect(style.getPropertyValue("--start")).toBe("448px");
+        expect(style.getPropertyValue("--end")).toBe("8px");
+      });
+
+      it("leaves the notice as wide as the screen on a phone", async () => {
+        const style = await noticeIn(390, 0, 390);
+        expect(style.getPropertyValue("--start")).toBe("8px");
+        expect(style.getPropertyValue("--end")).toBe("8px");
+      });
     });
 
     // Out of sight, the plugin no longer reaches the user, and its notice goes with it.

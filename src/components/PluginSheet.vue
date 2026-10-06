@@ -98,6 +98,8 @@ const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; don
 const frame = ref<HTMLIFrameElement | null>(null);
 // Where a notice floats from: the top of what the plugin shows, under the window's bar.
 const notices = ref<HTMLElement | null>(null);
+// The plugin's pane: a notice is as wide as it, not as the window (a tablet shows the chats beside).
+const pane = ref<HTMLElement | null>(null);
 const height = ref(320);
 // Requests still unanswered after WORKING_DELAY; the indicator shows while there is one.
 const late = ref(0);
@@ -200,9 +202,27 @@ function notify(message: string, duration?: number): Promise<void> {
     // status bar.
     const anchor = notices.value?.offsetParent ? notices.value : undefined;
     notice = await toastController.create({ message, duration, position: "top", positionAnchor: anchor });
+    fitToPane(notice);
     await notice.present();
   }).catch(() => undefined);
   return noticing;
+}
+
+/**
+ * Lenovo tablet (2026-10-06): beside the chat list, a notice centred on the whole window spilled
+ * over the list. Ionic places the toast between `--start` and `--end`, so these are moved to the
+ * pane's edges, keeping Ionic's own gutter (8 px in `md`, 10 px in `ios`). On a phone the pane is
+ * the whole width and nothing changes.
+ */
+function fitToPane(toast: HTMLElement) {
+  if (!pane.value) return;
+  const { left, right } = pane.value.getBoundingClientRect();
+  const gutter = document.documentElement.getAttribute("mode") === "ios" ? 10 : 8;
+  const fromLeft = Math.max(0, left) + gutter;
+  const fromRight = Math.max(0, window.innerWidth - right) + gutter;
+  const rtl = getComputedStyle(pane.value).direction === "rtl";
+  toast.style.setProperty("--start", `${rtl ? fromRight : fromLeft}px`);
+  toast.style.setProperty("--end", `${rtl ? fromLeft : fromRight}px`);
 }
 
 /**
@@ -478,7 +498,7 @@ watch(
 </script>
 
 <template>
-  <section class="ft-plugin">
+  <section ref="pane" class="ft-plugin">
     <!-- The name and the way out are the window's job; here only what the tool is doing. It floats
          over the frame's top edge: the plugin never moves when it shows or goes (2026-10-06). -->
     <span v-if="working" class="ft-plugin__working" role="status">…</span>
