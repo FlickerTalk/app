@@ -48,6 +48,7 @@ import {
   type ContactRules,
 } from "../core";
 import { t } from "../i18n";
+import { askSearch } from "../pending-search";
 
 const route = useRoute();
 const router = useRouter();
@@ -73,6 +74,21 @@ const QUICK = computed(() => [
     : []),
   { test: "search", icon: searchOutline, label: "chat.search", aria: "chat.searchIn", to: `/chat/${id}?search=1` },
 ]);
+
+/**
+ * As in WhatsApp: reached from the conversation (the page under this one is it), the search goes
+ * back to it and the conversation searches, so the next back goes to the list. From anywhere else
+ * it opens the conversation with `?search=1`.
+ */
+function quick(action: { test: string; to: string }) {
+  const under = router.options.history.state?.back;
+  if (action.test === "search" && typeof under === "string" && under.split("?")[0] === `/chat/${id}`) {
+    askSearch(id);
+    router.back();
+    return;
+  }
+  void router.push(action.to);
+}
 
 const name = ref("");
 // Issue app#1: how long this phone keeps the conversation, and how long a read message stays.
@@ -199,7 +215,7 @@ const deleteButtons = computed(() => [
             class="ft-quick__action"
             :data-test="`quick-${action.test}`"
             :aria-label="$t(action.aria)"
-            @click="router.push(action.to)"
+            @click="quick(action)"
           >
             <span class="ft-quick__inner">
               <span class="ft-quick__icon"><ion-icon :icon="action.icon" aria-hidden="true" /></span>

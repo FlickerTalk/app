@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { IonPage, onIonViewDidEnter, onIonViewWillEnter, onIonViewWillLeave } from "@ionic/vue";
 import { useRoute, useRouter } from "vue-router";
 import ChatThread from "../components/ChatThread.vue";
+import { takeSearch } from "../pending-search";
 
 const route = useRoute();
 // The conversation of this page, for as long as it lives: Ionic gives each one a page of its own
@@ -15,7 +16,11 @@ const play = computed(() => (typeof route.query?.play === "string" && route.quer
 const search = computed(() => String(route.params.id) === chatId && route.query?.search === "1");
 // Under another page, what the conversation left open lets go of Android's back button.
 const onScreen = ref(true);
-onIonViewDidEnter(() => (onScreen.value = true));
+onIonViewDidEnter(() => {
+  onScreen.value = true;
+  // Back from the contact page's search (2026-10-06): the conversation searches now it is seen.
+  if (takeSearch(chatId)) thread.value?.openSearch();
+});
 
 // Left by going back (2026-10-02), the page is taken down once Ionic's transition ends, and with it
 // the plugin or game open in it: it is closed as the page starts to go, so its goodbye goes out

@@ -1078,6 +1078,15 @@ describe("ChatThread", () => {
       expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
     });
 
+    // Back from the contact page's search (2026-10-06), the page asks its conversation directly.
+    it("opens when its page asks", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      (wrapper.vm as unknown as { openSearch: () => void }).openSearch();
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
+    });
+
     it("says when nothing is found, and closes", async () => {
       const wrapper = mount(ChatThread, { props: { chatId: "c1", search: true }, shallow: true });
       await flushPromises();

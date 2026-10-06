@@ -4,15 +4,22 @@ import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
 import ContactPage from "./ContactPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { store } from "../core";
+import { takeSearch } from "../pending-search";
 
-const routing = vi.hoisted(() => ({ id: "c1", push: vi.fn() }));
-vi.mock("vue-router", () => ({ useRoute: () => ({ params: { id: routing.id } }), useRouter: () => ({ push: routing.push, replace: vi.fn() }) }));
+// vue-router's history state: `back` is the address of the page under this one.
+const routing = vi.hoisted(() => ({ id: "c1", push: vi.fn(), back: vi.fn(), state: {} as Record<string, unknown> }));
+vi.mock("vue-router", () => ({
+  useRoute: () => ({ params: { id: routing.id } }),
+  useRouter: () => ({ push: routing.push, back: routing.back, replace: vi.fn(), options: { history: { get state() { return routing.state; } } } }),
+}));
 
 describe("ContactPage", () => {
   beforeEach(() => {
     seed();
     routing.id = "c1";
     routing.push.mockClear();
+    routing.back.mockClear();
+    routing.state = { back: "/tabs/chats" };
   });
 
   // Ioan, 2026-10-06: as Messenger and WhatsApp do it, the chat header keeps few icons and the
@@ -40,10 +47,23 @@ describe("ContactPage", () => {
       expect(routing.push).toHaveBeenCalledWith("/call/c1?video=1");
     });
 
+    // Reached from somewhere else (the list, the tablet's split view), it opens the conversation.
     it("searches in the conversation", async () => {
       const wrapper = mount(ContactPage, { shallow: true });
       await action(wrapper, "search").trigger("click");
       expect(routing.push).toHaveBeenCalledWith("/chat/c1?search=1");
+      expect(routing.back).not.toHaveBeenCalled();
+    });
+
+    // As in WhatsApp (Ioan, 2026-10-06): reached from the conversation, it goes back to it and the
+    // conversation searches, so the next back goes to the list, not here again.
+    it("goes back to the conversation it came from to search there", async () => {
+      routing.state = { back: "/chat/c1" };
+      const wrapper = mount(ContactPage, { shallow: true });
+      await action(wrapper, "search").trigger("click");
+      expect(routing.back).toHaveBeenCalledTimes(1);
+      expect(routing.push).not.toHaveBeenCalled();
+      expect(takeSearch("c1")).toBe(true);
     });
 
     // A stranger who wrote first cannot be called yet, as in the chat header (A5).

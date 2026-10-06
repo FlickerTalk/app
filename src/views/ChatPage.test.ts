@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
 import ChatPage from "./ChatPage.vue";
 import ChatThread from "../components/ChatThread.vue";
+import { askSearch, takeSearch } from "../pending-search";
 
 // The address, reactive as vue-router's is.
 const routing = vi.hoisted(() => ({
@@ -79,6 +80,44 @@ describe("ChatPage", () => {
     const thread = mount(ChatPage, { shallow: true }).findComponent(ChatThread);
     expect(thread.props("search")).toBe(false);
     expect(routing.replace).not.toHaveBeenCalled();
+  });
+
+  // Ioan, 2026-10-06: as in WhatsApp, the contact page's search goes back to the conversation it
+  // came from; the conversation opens its search once it is on screen again.
+  describe("back from the contact page's search", () => {
+    const openSearch = vi.fn();
+    const Thread = defineComponent({
+      name: "ChatThread",
+      props: ["chatId", "showBack", "play", "search", "active"],
+      setup(_, { expose }) {
+        expose({ leave: vi.fn(), openSearch });
+        return () => h("div");
+      },
+    });
+    const entered = (wrapper: { vm: unknown }) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewDidEnter ?? []).forEach((hook) => hook());
+
+    it("opens the search asked for this conversation when it is on screen again", () => {
+      openSearch.mockClear();
+      routing.route.params = { id: "c2" };
+      const wrapper = mount(ChatPage, { shallow: true, global: { stubs: { ChatThread: Thread } } });
+      askSearch("c2");
+      entered(wrapper);
+      expect(openSearch).toHaveBeenCalledTimes(1);
+      expect(takeSearch("c2")).toBe(false);
+      entered(wrapper);
+      expect(openSearch).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves another conversation's search alone", () => {
+      openSearch.mockClear();
+      routing.route.params = { id: "c2" };
+      const wrapper = mount(ChatPage, { shallow: true, global: { stubs: { ChatThread: Thread } } });
+      askSearch("c3");
+      entered(wrapper);
+      expect(openSearch).not.toHaveBeenCalled();
+      expect(takeSearch("c3")).toBe(true);
+    });
   });
 
   // 2026-10-02: left by going back, the page is taken down once Ionic's transition ends, and with
