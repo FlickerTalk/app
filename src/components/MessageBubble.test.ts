@@ -606,4 +606,15 @@ describe("MessageBubble", () => {
       expect(body, selector).not.toMatch(/(padding|margin)(-left|-right)?:\s*\S+\s+\S+\s+\S+\s+\S+;|(padding|margin)-(left|right)|\b(left|right):/);
     }
   });
+  // Ioan, 2026-10-06: the emoji on a message stand alone, no chip around them.
+  it("shows the emoji of a reaction alone, without a background or a border", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+      .filter(({ selector }) => /\.ft-reactions/.test(selector));
+    expect(rules.length).toBeGreaterThan(0);
+    for (const { selector, body } of rules) {
+      expect(body, selector).not.toMatch(/background|border(?!-radius)/);
+    }
+  });
 });

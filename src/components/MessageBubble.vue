@@ -480,24 +480,18 @@ function open() {
   font-style: italic;
   opacity: 0.75;
 }
-/* The emoji on a message (2026-10-05): small chips under the bubble, at its outer corner. */
+/* The emoji on a message (2026-10-05): under the bubble, at its outer corner. Ioan (2026-10-06):
+   the emoji alone, no chip, no background and no border around it. */
 .ft-reactions {
   display: flex;
-  gap: 4px;
-  margin-block-start: -6px;
-  padding-inline: 6px;
-  font-size: 14px;
+  gap: 6px;
+  margin-block-start: -4px;
+  padding-inline: 8px;
+  font-size: 16px;
   line-height: 1;
 }
 .ft-reactions__one {
-  padding-block: 3px;
-  padding-inline: 6px;
-  border-radius: 999px;
-  background: var(--ion-color-light-shade);
-  border: 1px solid var(--ion-border-color);
-}
-.ft-reactions__one.is-mine {
-  border-color: var(--ion-color-primary);
+  padding-block: 2px;
 }
 .is-mine .ft-reactions {
   justify-content: flex-end;
