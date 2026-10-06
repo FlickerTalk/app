@@ -48,7 +48,7 @@ import {
   type ContactRules,
 } from "../core";
 import { t } from "../i18n";
-import { askSearch } from "../pending-search";
+import { askSearch, inPane } from "../pending-search";
 
 const route = useRoute();
 const router = useRouter();
@@ -76,13 +76,15 @@ const QUICK = computed(() => [
 ]);
 
 /**
- * As in WhatsApp: reached from the conversation (the page under this one is it), the search goes
- * back to it and the conversation searches, so the next back goes to the list. From anywhere else
- * it opens the conversation with `?search=1`.
+ * As in WhatsApp: reached from the conversation (the page under this one is it, or on a tablet
+ * the chats tab with it beside the list), the search goes back to it and the conversation
+ * searches, so the next back goes where it went before. From anywhere else it opens the
+ * conversation with `?search=1`.
  */
 function quick(action: { test: string; to: string }) {
   const under = router.options.history.state?.back;
-  if (action.test === "search" && typeof under === "string" && under.split("?")[0] === `/chat/${id}`) {
+  const page = typeof under === "string" ? under.split("?")[0] : "";
+  if (action.test === "search" && (page === `/chat/${id}` || (page === "/tabs/chats" && inPane(id)))) {
     askSearch(id);
     router.back();
     return;

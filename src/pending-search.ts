@@ -14,3 +14,17 @@ export function takeSearch(id: string): boolean {
   asked = null;
   return true;
 }
+
+// QA of 1.4.0 (2026-10-06): on a wide screen the conversation is in the chats tab's pane, beside
+// the list, not on a page of its own. The chats tab says which one; "" is none.
+let pane = "";
+
+/** The conversation the chats tab shows beside its list, or "" when it shows none. */
+export function showInPane(id: string): void {
+  pane = id;
+}
+
+/** Whether the chats tab shows the conversation `id` beside its list. */
+export function inPane(id: string): boolean {
+  return pane !== "" && pane === id;
+}
