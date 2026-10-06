@@ -665,6 +665,13 @@ impl Transport for Network {
         self.send_direct_as(to, bytes, Reach::Call).await
     }
 
+    async fn reach(&self, to: &Peer, fallback: bool) -> Result<bool> {
+        if self.open_link(&to.device_id).await.is_some() {
+            return Ok(true);
+        }
+        Ok(self.reach_as(to, if fallback { Reach::Fallback } else { Reach::Direct }).await?.is_some())
+    }
+
     async fn send_open(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         match self.open_link(&to.device_id).await {
             Some(session) => Ok(session.send_bytes(&bytes).await.is_ok()),
@@ -714,6 +721,15 @@ impl Network {
                 return Ok(true);
             }
         }
+        match self.reach_as(to, reach).await? {
+            Some(session) => Ok(session.send_bytes(&bytes).await.is_ok()),
+            None => Ok(false),
+        }
+    }
+
+    /// The open connection with the peer, opening one first if needed (2026-10-06, split from
+    /// `send_direct_as` so that a message can be looked at again before it is sent).
+    async fn reach_as(&self, to: &Peer, reach: Reach) -> Result<Option<Session>> {
         let gate = self.gate(&to.device_id).await;
         let one_at_a_time = if reach == Reach::Fallback {
             // Behind a call waiting for a contact that is not connected, a message would wait too:
@@ -723,7 +739,7 @@ impl Network {
                     break guard;
                 }
                 if self.open_link(&to.device_id).await.is_none() && self.retained_offer(&to.device_id).await.is_some() {
-                    return Ok(false);
+                    return Ok(None);
                 }
             }
         } else {
@@ -735,10 +751,7 @@ impl Network {
             None => self.connect(to, reach).await?,
         };
         drop(one_at_a_time);
-        match attempt.outcome().await {
-            Some(session) => Ok(session.send_bytes(&bytes).await.is_ok()),
-            None => Ok(false),
-        }
+        Ok(attempt.outcome().await)
     }
 }
 

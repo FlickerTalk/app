@@ -35,6 +35,13 @@ struct Net {
     cut_after: Mutex<Option<(String, usize)>>,
     /// Every device the direct link was asked to reach, reached or not.
     tried: Mutex<Vec<String>>,
+    /// The next attempt to reach this device directly waits until the test lets it go, like a
+    /// connection that takes seconds to open.
+    hold_reach: Mutex<Option<(String, tokio::sync::oneshot::Receiver<()>)>>,
+    /// The next mailbox deposit for this device waits, once stored, until the test lets it go.
+    hold_mailbox: Mutex<Option<(String, tokio::sync::oneshot::Receiver<()>)>>,
+    /// Set while a held attempt waits.
+    holding: AtomicBool,
 }
 
 impl Net {
@@ -56,6 +63,33 @@ impl Net {
         self.tried.lock().unwrap().iter().filter(|to| *to == device).count()
     }
 
+    /// Holds the next attempt to reach the device directly; the sender lets it go.
+    fn hold_reach(&self, device: &str) -> tokio::sync::oneshot::Sender<()> {
+        let (release, held) = tokio::sync::oneshot::channel();
+        *self.hold_reach.lock().unwrap() = Some((device.to_owned(), held));
+        release
+    }
+
+    /// Holds the next mailbox deposit for the device, once stored; the sender lets it go.
+    fn hold_mailbox(&self, device: &str) -> tokio::sync::oneshot::Sender<()> {
+        let (release, held) = tokio::sync::oneshot::channel();
+        *self.hold_mailbox.lock().unwrap() = Some((device.to_owned(), held));
+        release
+    }
+
+    /// Waits while a held attempt for the device is in `slot`, if it is.
+    async fn held(&self, slot: &Mutex<Option<(String, tokio::sync::oneshot::Receiver<()>)>>, device: &str) {
+        let held = {
+            let mut slot = slot.lock().unwrap();
+            if slot.as_ref().is_some_and(|(to, _)| to == device) { slot.take().map(|(_, held)| held) } else { None }
+        };
+        if let Some(held) = held {
+            self.holding.store(true, Ordering::SeqCst);
+            let _ = held.await;
+            self.holding.store(false, Ordering::SeqCst);
+        }
+    }
+
     fn mailbox_len(&self, device: &str) -> usize {
         self.mailboxes.lock().unwrap().get(device).map_or(0, Vec::len)
     }
@@ -75,7 +109,14 @@ struct Link {
 
 #[async_trait]
 impl Transport for Link {
+    async fn reach(&self, to: &Peer, _fallback: bool) -> anyhow::Result<bool> {
+        self.net.held(&self.net.hold_reach, &to.device_id).await;
+        self.net.tried.lock().unwrap().push(to.device_id.clone());
+        Ok(self.net.direct.load(Ordering::SeqCst) && !self.net.unreachable.lock().unwrap().contains(&to.device_id))
+    }
+
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> anyhow::Result<bool> {
+        self.net.held(&self.net.hold_reach, &to.device_id).await;
         self.net.tried.lock().unwrap().push(to.device_id.clone());
         if !self.net.direct.load(Ordering::SeqCst) || self.net.unreachable.lock().unwrap().contains(&to.device_id) {
             return Ok(false);
@@ -101,6 +142,7 @@ impl Transport for Link {
             anyhow::bail!("the router answered 507 Insufficient Storage");
         }
         self.net.mailboxes.lock().unwrap().entry(to.device_id.clone()).or_default().push(bytes);
+        self.net.held(&self.net.hold_mailbox, &to.device_id).await;
         Ok(())
     }
 }
@@ -1615,8 +1657,11 @@ async fn an_older_edit_or_reaction_arriving_later_changes_nothing() {
     assert_eq!(bob.store().reactions(&id(&alice)).await.unwrap()[&message].theirs.as_deref(), Some("👍"), "the newer emoji stays");
 }
 
-// A message taken back for everyone before it went out is cancelled: neither it, blank, nor a
-// "taken back" for a message the other phone never had ever reaches it.
+// A message taken back for everyone before it went out is cancelled: neither it nor anything
+// blank reaches the other phone. One written for later and not yet due is gone from this phone
+// too, and nothing about it is ever sent (2026-10-06): it never went out. One that was pending may
+// have been on its way, so the other phone is told anyway, and drops a taking back for a message it
+// never had.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_taken_back_before_it_went_out_never_goes() {
     let net = Net::new();
@@ -1628,19 +1673,22 @@ async fn a_message_taken_back_before_it_went_out_never_goes() {
     net.set_direct(false);
     let pending = alice.send_text(&id(&bob), "are you there?").await.expect("sends");
     assert_eq!(state_of(&alice, &id(&bob), &pending).await, MessageState::Pending);
-    let before = net.sent_to(&id(&bob));
 
     alice.delete_for_everyone(&later).await.expect("takes back");
+    assert!(alice.store().update_outbox().await.unwrap().is_empty(), "and nothing is told about it");
     alice.delete_for_everyone(&pending).await.expect("takes back");
     assert!(alice.store().outbox().await.unwrap().is_empty(), "both are cancelled");
+    assert!(alice.store().is_deleted(&pending).await.unwrap(), "the pending one keeps its mark");
+    assert_eq!(alice.store().update_outbox().await.unwrap().len(), 1, "and its taking back waits for bob");
 
-    // Their times come and Bob is there again: nothing goes.
+    // Their times come and Bob is there again: neither text goes; the taking back does, and Bob,
+    // who never had the text, keeps nothing of it.
     net.set_direct(true);
     alice.retry_now().await.expect("retries");
     alice.retry_due().await.expect("retries");
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    until("bob's receipt empties the queue", || async { alice.store().update_outbox().await.unwrap().is_empty() }).await;
     assert!(texts(&bob, &id(&alice)).await.is_empty(), "nothing arrived, blank or not");
-    assert_eq!(net.sent_to(&id(&bob)), before, "not even a taken back");
+    assert!(bob.store().message(&pending).await.unwrap().is_none(), "not even a mark");
     assert_eq!(net.mailbox_len(&id(&bob)), 0);
 
     // Even if one is still queued (taken back while a retry was on its way), it goes nowhere.
@@ -1649,6 +1697,77 @@ async fn a_message_taken_back_before_it_went_out_never_goes() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(texts(&bob, &id(&alice)).await.is_empty(), "nothing blank arrived");
     assert!(alice.store().outbox().await.unwrap().is_empty(), "and it left the queue");
+}
+
+// Seen on a Lenovo (2026-10-06): a text with no direct connection, taken back 4 s later, still
+// reached the other phone. Its delivery was on its way, waiting for the connection, and went on to
+// the mailbox. A delivery looks again right before each sending, directly or to the mailbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_taken_back_while_its_delivery_waits_never_arrives() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+
+    // The connection does not open, and the mailbox would take it.
+    net.set_direct(false);
+    let release = net.hold_reach(&id(&bob));
+    let sending = tokio::spawn({
+        let (alice, bob) = (alice.clone(), id(&bob));
+        async move { alice.send_text(&bob, "oops, wrong chat").await.expect("sends") }
+    });
+    until("the delivery waits for the connection", || async { net.holding.load(Ordering::SeqCst) }).await;
+    let message = alice.store().outbox().await.unwrap()[0].message_id.clone();
+    alice.delete_for_everyone(&message).await.expect("takes back");
+    release.send(()).expect("lets it go");
+    sending.await.expect("the send ends");
+    net.collect(&bob).await;
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "the mailbox never got it");
+    assert!(bob.store().message(&message).await.unwrap().is_none());
+    // The taking back went to the mailbox too; Bob's receipt for it, to Alice's.
+    net.collect(&alice).await;
+    assert!(alice.store().update_outbox().await.unwrap().is_empty());
+
+    // The connection opens while it was being taken back: it does not go directly either.
+    net.set_direct(true);
+    let release = net.hold_reach(&id(&bob));
+    let sending = tokio::spawn({
+        let (alice, bob) = (alice.clone(), id(&bob));
+        async move { alice.send_text(&bob, "oops again").await.expect("sends") }
+    });
+    until("the delivery waits for the connection", || async { net.holding.load(Ordering::SeqCst) }).await;
+    let message = alice.store().outbox().await.unwrap()[0].message_id.clone();
+    alice.delete_for_everyone(&message).await.expect("takes back");
+    release.send(()).expect("lets it go");
+    sending.await.expect("the send ends");
+    until("bob's receipt empties the queue", || async { alice.store().update_outbox().await.unwrap().is_empty() }).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "it never went directly");
+    assert!(bob.store().message(&message).await.unwrap().is_none());
+}
+
+// A text taken back right after the mailbox took it, while this phone still showed it pending
+// (2026-10-06): the other phone is told anyway and ends with the mark, not the words.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_taken_back_right_after_reaching_the_mailbox_ends_taken_back() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    net.set_direct(false);
+    let release = net.hold_mailbox(&id(&bob));
+    let sending = tokio::spawn({
+        let (alice, bob) = (alice.clone(), id(&bob));
+        async move { alice.send_text(&bob, "oops, wrong chat").await.expect("sends") }
+    });
+    until("the mailbox has it", || async { net.holding.load(Ordering::SeqCst) }).await;
+    let message = alice.store().outbox().await.unwrap()[0].message_id.clone();
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Pending, "still pending here");
+    alice.delete_for_everyone(&message).await.expect("takes back");
+    release.send(()).expect("lets it go");
+    sending.await.expect("the send ends");
+
+    net.collect(&bob).await;
+    until("bob sees it taken back", || async { bob.store().is_deleted(&message).await.unwrap() }).await;
+    assert_eq!(bob.store().message(&message).await.unwrap().unwrap().body, "", "the words are gone");
 }
 
 // 2026-10-05: a pin stays on this phone: the UI hears of it, the other phone never does.

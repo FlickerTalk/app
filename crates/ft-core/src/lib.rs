@@ -109,6 +109,13 @@ pub trait Transport: Send + Sync {
     async fn send_open(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
         self.send_direct(to, bytes).await
     }
+    /// Opens the way to the peer for a message, sending nothing yet (2026-10-06): `true` once a
+    /// direct connection is open, as `send_direct` (or `try_direct`, with `fallback`) would find
+    /// it. A message taken back while the connection opened is then not sent. By default `true`:
+    /// the send itself finds out.
+    async fn reach(&self, _to: &Peer, _fallback: bool) -> Result<bool> {
+        Ok(true)
+    }
     /// Opens a direct connection for a call, sending nothing yet (2026-09-29): the caller opens
     /// the way while its media offer gathers. `false` when the peer cannot be reached now.
     async fn open_direct_call(&self, _to: &Peer) -> Result<bool> {
@@ -1106,17 +1113,20 @@ impl Core {
 
     /// Takes one of our messages back for both sides (2026-10-05): its words and its file go
     /// here, the mark that it was there stays, and the contact is told through the update queue. A phone
-    /// that already has it shows the mark too; an older app keeps the message. One that never
-    /// went out (pending, or written for later) is cancelled, and the contact is told nothing.
+    /// that already has it shows the mark too; an older app keeps the message. One still waiting
+    /// here is cancelled; the contact is told anyway (2026-10-06), because a try may be on its way
+    /// or may already have reached them, and a phone that never had it drops the taking back. Only
+    /// one written for later whose time has not come never went anywhere, and nothing is told.
     pub async fn delete_for_everyone(&self, message_id: &str) -> Result<()> {
         let message = self.store.message(message_id).await?.context("that message is not here")?;
         ensure!(message.outgoing, "only our own messages can be taken back from the other side");
         let contact = self.contact(&message.contact).await?;
+        let not_yet = self.store.scheduled_all().await?.get(message_id).is_some_and(|send_at| *send_at > now());
         let file = self.store.file(message_id).await?;
         self.store.mark_deleted(message_id).await?;
         self.forget_bytes(file.into_iter().collect()).await;
         let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
-        if matches!(message.state, MessageState::Pending | MessageState::NotSent) {
+        if not_yet {
             return Ok(());
         }
         let packet = Packet::new(Body::Delete { of: MessageId::parse(message_id)? });
@@ -1617,7 +1627,10 @@ impl Core {
         let packet = Packet::resend(MessageId::parse(&message.message_id)?, message.sent_at as u64, Body::Message { text: message.body, reply_to });
         let attempts = entry.attempts + 1;
         let copy = mail_copy_due(entry.in_mailbox, entry.mailed_at, now());
-        let route = self.transmit_as(&contact, &packet, copy).await?;
+        // Taken back while the connection opened (2026-10-06): it goes nowhere.
+        let Some(route) = self.transmit_unless_taken_back(&contact, &packet, copy, &entry.message_id).await? else {
+            return self.store.dequeue(&entry.message_id).await;
+        };
         if copy && matches!(route, Route::Mailbox) {
             self.store.mailed(&entry.message_id, now()).await?;
         }
@@ -1766,6 +1779,22 @@ impl Core {
     /// Like `transmit`; with `copy` false, a packet already in the mailbox gets no new copy there,
     /// and `Mailbox` says it is still there.
     async fn transmit_as(&self, contact: &Contact, packet: &Packet, copy: bool) -> Result<Route> {
+        Ok(self.transmit_checked(contact, packet, copy, None).await?.unwrap_or(Route::Unreachable))
+    }
+
+    /// Like `transmit_as`, for one of our messages (2026-10-06): taken back while its connection
+    /// opened, or before the mailbox took it, it is not sent, and the answer is `None`. Its
+    /// delivery may have started seconds before (a connection takes up to 12 s to open).
+    async fn transmit_unless_taken_back(&self, contact: &Contact, packet: &Packet, copy: bool, message_id: &str) -> Result<Option<Route>> {
+        self.transmit_checked(contact, packet, copy, Some(message_id)).await
+    }
+
+    /// Whether our message is still to be sent: here, and not taken back.
+    async fn still_to_send(&self, message_id: &str) -> Result<bool> {
+        Ok(self.store.message(message_id).await?.is_some() && !self.store.is_deleted(message_id).await?)
+    }
+
+    async fn transmit_checked(&self, contact: &Contact, packet: &Packet, copy: bool, message: Option<&str>) -> Result<Option<Route>> {
         let bytes = self.seal_for(contact, packet).await?;
         let card = ContactCard::decode(&contact.card)?;
         let peer = Peer { device_id: contact.device_id.clone(), capability: card.route_capability() };
@@ -1773,20 +1802,36 @@ impl Core {
         // The message gets delivered first (§17, §19): with the mailbox allowed on both sides, a
         // peer that is not connected does not hold it back (2026-09-29).
         let mailbox = contact.mailbox && self.mailbox().await?;
-        let direct = if mailbox { self.transport.try_direct(&peer, bytes.clone()).await } else { self.transport.send_direct(&peer, bytes.clone()).await };
+        let direct = match message {
+            // Opened first, then looked at again right before sending.
+            Some(message_id) => {
+                let open = self.transport.reach(&peer, mailbox).await.unwrap_or(false);
+                if !self.still_to_send(message_id).await? {
+                    return Ok(None);
+                }
+                if open { self.transport.send_open(&peer, bytes.clone()).await } else { Ok(false) }
+            }
+            None if mailbox => self.transport.try_direct(&peer, bytes.clone()).await,
+            None => self.transport.send_direct(&peer, bytes.clone()).await,
+        };
         if direct.unwrap_or(false) {
-            return Ok(Route::Direct);
+            return Ok(Some(Route::Direct));
         }
         if mailbox && !copy {
-            return Ok(Route::Mailbox);
+            return Ok(Some(Route::Mailbox));
         }
         if mailbox {
+            if let Some(message_id) = message {
+                if !self.still_to_send(message_id).await? {
+                    return Ok(None);
+                }
+            }
             // Through the router it goes in an envelope (A1): the router sees only who it is for.
             let mail = self.wrap_for(&contact.device_id, bytes).await?;
             self.transport.send_mailbox(&peer, mail).await.context("the mailbox is not reachable")?;
-            return Ok(Route::Mailbox);
+            return Ok(Some(Route::Mailbox));
         }
-        Ok(Route::Unreachable)
+        Ok(Some(Route::Unreachable))
     }
 
     async fn channel(&self, contact: &str) -> Result<Channel> {
