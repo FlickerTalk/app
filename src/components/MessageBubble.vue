@@ -222,6 +222,8 @@ function open() {
     >
       <ion-icon :icon="refreshOutline" aria-hidden="true" />
     </button>
+    <!-- The bubble and what hangs under it (2026-10-06): one column at the line's outer side. -->
+    <div class="ft-msg__column" :class="{ 'is-media': file && (isImage || isVideo) }">
     <div
       class="ft-bubble"
       :class="{ 'is-file': file, 'is-media': file && (isImage || isVideo), 'is-voice': file && isVoice, 'is-folded': folded }"
@@ -458,6 +460,7 @@ function open() {
       <span v-if="message.reactions?.theirs" class="ft-reactions__one is-theirs" data-test="reaction-theirs">{{ message.reactions.theirs }}</span>
       <span v-if="message.reactions?.mine" class="ft-reactions__one is-mine" data-test="reaction-mine">{{ message.reactions.mine }}</span>
     </span>
+    </div>
     <!-- Outside the bubble, so the fold does not hide the sign that it is folded. -->
     <span v-if="folded" class="ft-fold" data-test="folded" :aria-label="t('chat.folded')">⌄</span>
   </div>
@@ -480,6 +483,22 @@ function open() {
   font-style: italic;
   opacity: 0.75;
 }
+/* The bubble and what hangs under it (2026-10-06): a column as wide as the bubble may be, at the
+   line's outer side; what is in it keeps its own width, so the reactions sit under the bubble's
+   outer corner (the start for theirs, the end for mine) instead of beside it, stretched. */
+.ft-msg__column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: min(78%, 520px);
+}
+.ft-msg__column.is-media {
+  max-width: min(86%, 520px);
+}
+.is-mine .ft-msg__column {
+  align-items: flex-end;
+}
 /* The emoji on a message (2026-10-05): under the bubble, at its outer corner. Ioan (2026-10-06):
    the emoji alone, no chip, no background and no border around it. */
 .ft-reactions {
@@ -492,9 +511,6 @@ function open() {
 }
 .ft-reactions__one {
   padding-block: 2px;
-}
-.is-mine .ft-reactions {
-  justify-content: flex-end;
 }
 /* The quote over an answer (2026-10-05): a bar in the other side's colour, the text in one line. */
 .ft-quote {
@@ -563,7 +579,7 @@ function open() {
 }
 
 .ft-bubble {
-  max-width: min(78%, 520px);
+  max-width: 100%;
   padding: 9px 12px 6px;
   border-radius: var(--ft-radius-bubble);
   font-size: var(--ft-font-body);
@@ -722,7 +738,6 @@ function open() {
   padding: 0;
   background: none;
   box-shadow: none;
-  max-width: min(86%, 520px);
 }
 .ft-media {
   position: relative;

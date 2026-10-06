@@ -606,6 +606,30 @@ describe("MessageBubble", () => {
       expect(body, selector).not.toMatch(/(padding|margin)(-left|-right)?:\s*\S+\s+\S+\s+\S+\s+\S+;|(padding|margin)-(left|right)|\b(left|right):/);
     }
   });
+  // Seen on the phones (2026-10-06): the reactions sat beside the bubble's top corner, in a box as
+  // tall as the bubble (36×104 px with a quote). They go under the bubble, in the message's own
+  // column, at its outer corner, and never stretch.
+  it.each([
+    [true, "flex-end"],
+    [false, "flex-start"],
+  ])("puts the reactions under the bubble, in its column (mine: %s)", (mine, corner) => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: { ...base, mine, quote: { id: "m0", text: "ok", mine: false, kind: "text" as const }, reactions: { theirs: "❤️" } } },
+      shallow: true,
+    });
+    const reactions = wrapper.find("[data-test='reactions']").element;
+    const bubble = wrapper.find("[data-test='bubble']").element;
+    expect(reactions.previousElementSibling, "right after the bubble").toBe(bubble);
+    expect(reactions.parentElement?.classList.contains("ft-msg__column"), "inside the message's column").toBe(true);
+    expect(reactions.parentElement, "not a flex item beside the bubble").not.toBe(wrapper.element);
+
+    const styles = source.slice(source.indexOf("<style")).replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
+    const body = (selector: string) => rules.filter((rule) => rule.selector === selector).map((rule) => rule.body).join(";");
+    expect(body(".ft-msg__column")).toMatch(/flex-direction:\s*column/);
+    expect(body(mine ? ".is-mine .ft-msg__column" : ".ft-msg__column")).toMatch(new RegExp(`align-items:\\s*${corner}`));
+    expect(body(".ft-reactions")).not.toMatch(/align-self:\s*stretch|height:\s*100%/);
+  });
   // Ioan, 2026-10-06: the emoji on a message stand alone, no chip around them.
   it("shows the emoji of a reaction alone, without a background or a border", () => {
     const styles = source.slice(source.indexOf("<style"));
