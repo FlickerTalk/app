@@ -126,6 +126,21 @@ describe("MessageBubble", () => {
     expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='edited']").exists()).toBe(false);
   });
 
+  // Seen on the phones (2026-10-06): an edited bubble and the mark of one taken back kept the
+  // first message's ✓✓ while the change still waited here. While it waits, the clock; once the
+  // contact's receipt comes, the ticks again.
+  it("shows the clock while a change of the message waits, and the ticks once it arrived", async () => {
+    const wrapper = mount(MessageBubble, { props: { message: { ...base, status: "read", edited: true, updatePending: true } }, shallow: true });
+    expect(wrapper.find("[aria-label='Waiting for device']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Read']").exists()).toBe(false);
+    const gone = mount(MessageBubble, { props: { message: { ...base, text: "", status: "delivered", deleted: true, updatePending: true } }, shallow: true });
+    expect(gone.find("[aria-label='Waiting for device']").exists()).toBe(true);
+    expect(gone.find("[aria-label='Delivered']").exists()).toBe(false);
+    await wrapper.setProps({ message: { ...base, status: "read", edited: true } });
+    expect(wrapper.find("[aria-label='Read']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Waiting for device']").exists()).toBe(false);
+  });
+
   // 2026-10-05: a pinned message carries a pin by its time.
   it("marks a pinned message", () => {
     expect(mount(MessageBubble, { props: { message: { ...base, pinned: true } }, shallow: true }).find("[data-test='pinned']").exists()).toBe(true);

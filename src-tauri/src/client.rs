@@ -68,6 +68,9 @@ pub struct MessageView {
     /// Written to be sent at this time (2026-10-06, ms), still waiting on this phone.
     #[serde(skip_serializing_if = "Option::is_none")]
     scheduled_for: Option<i64>,
+    /// An edit or a taking back of it still waits for the contact's receipt (2026-10-06).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    update_pending: bool,
 }
 
 /// What each side put on a message (2026-10-05): one emoji each, or none.
@@ -100,6 +103,7 @@ impl MessageView {
             edited: false,
             deleted: false,
             scheduled_for: None,
+            update_pending: false,
         }
     }
 
@@ -116,6 +120,11 @@ impl MessageView {
     pub fn marked(mut self, edited: bool, deleted: bool) -> Self {
         self.edited = edited;
         self.deleted = deleted;
+        self
+    }
+
+    pub fn updating(mut self, waiting: bool) -> Self {
+        self.update_pending = waiting;
         self
     }
 
@@ -2026,6 +2035,7 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
     let edited = core.store().edited(&contact).await.map_err(failed)?;
     let deleted = core.store().deleted(&contact).await.map_err(failed)?;
     let later = core.store().scheduled(&contact).await.map_err(failed)?;
+    let changing = core.updates_waiting(&contact).await.map_err(failed)?;
     let moment = ft_core::now();
     Ok(messages
         .iter()
@@ -2034,7 +2044,8 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
                 .reacted(reactions.get(&message.message_id))
                 .pinned(pinned.contains(&message.message_id))
                 .marked(edited.contains(&message.message_id), deleted.contains(&message.message_id))
-                .for_later(later.get(&message.message_id).copied().filter(|send_at| *send_at > moment));
+                .for_later(later.get(&message.message_id).copied().filter(|send_at| *send_at > moment))
+                .updating(changing.contains(&message.message_id));
             match replies.get(&message.message_id) {
                 Some(quoted_id) => view.answering(QuoteView::of(quoted_id, quoted.get(quoted_id), files.get(quoted_id))),
                 None => view,
@@ -5258,6 +5269,16 @@ mod tests {
         assert_eq!((view["edited"].clone(), view.get("deleted").cloned()), (serde_json::json!(true), None));
         let view = serde_json::to_value(MessageView::new(&message, None).marked(false, true)).unwrap();
         assert_eq!((view.get("edited").cloned(), view["deleted"].clone()), (None, serde_json::json!(true)));
+    }
+
+    // 2026-10-06: an edit or a taking back still waiting for the contact's receipt is on the view,
+    // so the bubble shows the clock instead of the first message's ticks; absent when there is none.
+    #[test]
+    fn a_message_says_whether_a_change_of_it_still_waits() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: true, body: "hi".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Delivered };
+        let view = serde_json::to_value(MessageView::new(&message, None).updating(true)).unwrap();
+        assert_eq!((view["updatePending"].clone(), view["state"].clone()), (serde_json::json!(true), serde_json::json!("delivered")));
+        assert!(serde_json::to_value(MessageView::new(&message, None).updating(false)).unwrap().get("updatePending").is_none());
     }
 
     // 2026-10-05: a pinned message says so; an unpinned one says nothing.

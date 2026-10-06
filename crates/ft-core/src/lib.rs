@@ -28,7 +28,7 @@ mod sessions;
 pub use plugins::CATALOGUE_HOME;
 pub use web::{Fetch, Web, WebAnswer, WebRequest};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -1133,6 +1133,21 @@ impl Core {
         self.tell(&contact, &packet).await
     }
 
+    /// Our messages of the conversation with an edit or a taking back still waiting for the
+    /// contact's receipt (2026-10-06).
+    pub async fn updates_waiting(&self, contact: &str) -> Result<HashSet<String>> {
+        let mut waiting = HashSet::new();
+        for entry in self.store.update_outbox().await? {
+            if entry.contact != contact {
+                continue;
+            }
+            if let Ok(Packet { body: Body::Edit { of, .. } | Body::Delete { of }, .. }) = Packet::decode(&entry.packet) {
+                waiting.insert(of.to_string());
+            }
+        }
+        Ok(waiting)
+    }
+
     /// Pins a message on this phone, or unpins it (2026-10-05): a choice of this phone, like the
     /// contact's name; nothing of it travels.
     pub async fn pin_message(&self, message_id: &str, pinned: bool) -> Result<()> {
@@ -1562,9 +1577,12 @@ impl Core {
 
     async fn receipt(&self, contact: &str, ids: Vec<MessageId>, state: MessageState) -> Result<()> {
         let mut ours = Vec::new();
+        let mut updated = false;
         for id in ids.iter().map(ToString::to_string) {
-            // An edit's, a taking back's or a reaction's receipt only takes it out of its queue.
+            // An edit's, a taking back's or a reaction's receipt only takes it out of its queue;
+            // the bubble that showed it waiting changes (2026-10-06).
             if self.store.dequeue_update(&id).await? {
+                updated = true;
                 continue;
             }
             // A circle packet's receipt clears that member's entry alone (2026-09-27).
@@ -1573,6 +1591,9 @@ impl Core {
             }
         }
         if ours.is_empty() {
+            if updated {
+                let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
+            }
             return Ok(());
         }
         self.store.advance(&ours, state).await?;

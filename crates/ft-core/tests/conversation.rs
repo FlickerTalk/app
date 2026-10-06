@@ -1629,6 +1629,48 @@ async fn edits_takings_back_and_reactions_wait_for_a_contact_out_of_reach() {
     assert!(!bob.store().is_deleted(&first).await.unwrap());
 }
 
+// Seen on the phones (2026-10-06): with the contact out of reach, the edited bubble and the mark
+// of one taken back kept the first message's ✓✓ while the edit and the taking back still waited
+// here. The core says which of our messages have one waiting, and tells the UI when its receipt
+// comes. A reaction is not a change of the message: it does not count.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_core_says_which_messages_have_a_change_still_waiting() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let first = alice.send_text(&id(&bob), "dinner at 7").await.expect("sends");
+    let second = alice.send_text(&id(&bob), "bring wine").await.expect("sends");
+    let third = alice.send_text(&id(&bob), "see you").await.expect("sends");
+    until("all delivered", || async { outbox_len(&alice).await == 0 }).await;
+    assert!(alice.updates_waiting(&id(&bob)).await.unwrap().is_empty());
+
+    alice.set_mailbox(false).await.expect("mailbox off");
+    net.set_direct(false);
+    alice.edit_message(&first, "dinner at 8").await.expect("edits");
+    alice.delete_for_everyone(&second).await.expect("takes back");
+    alice.react(&id(&bob), &third, Some("👍")).await.expect("reacts");
+    let waiting = alice.updates_waiting(&id(&bob)).await.unwrap();
+    assert_eq!(waiting, HashSet::from([first.clone(), second.clone()]), "the edit and the taking back, not the reaction");
+    assert_eq!(state_of(&alice, &id(&bob), &first).await, MessageState::Delivered, "the message itself still says what it reached");
+
+    let mut at_alice = alice.events();
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until("their receipts came", || async { alice.updates_waiting(&id(&bob)).await.unwrap().is_empty() }).await;
+    let mut told = false;
+    for _ in 0..50 {
+        match at_alice.try_recv() {
+            Ok(Event::MessagesChanged { contact }) if contact == id(&bob) => {
+                told = true;
+                break;
+            }
+            Ok(_) => {}
+            Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+        }
+    }
+    assert!(told, "the UI hears of the receipts");
+}
+
 // 2026-10-06: an edit or a reaction made earlier and arriving later (a copy from the mailbox, a
 // retry) does not replace a newer one: each carries when it was made.
 #[tokio::test(flavor = "multi_thread")]

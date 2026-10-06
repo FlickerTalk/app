@@ -48,6 +48,8 @@ export interface ChatMessage {
   deleted?: boolean;
   /** Written to be sent at this time (2026-10-06, ms), still waiting on this phone. */
   scheduledFor?: number;
+  /** An edit or a taking back of it still waits for the contact's receipt (2026-10-06). */
+  updatePending?: boolean;
 }
 
 export interface Reactions {
@@ -195,6 +197,7 @@ interface MessageView {
   edited?: boolean;
   deleted?: boolean;
   scheduledFor?: number;
+  updatePending?: boolean;
 }
 
 interface ConversationView {
@@ -377,6 +380,7 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
   if (view.edited) message.edited = true;
   if (view.deleted) message.deleted = true;
   if (view.scheduledFor) message.scheduledFor = view.scheduledFor;
+  if (view.updatePending) message.updatePending = true;
   return message;
 }
 

@@ -39,6 +39,8 @@ export interface Message {
   deleted?: boolean;
   /** Written to be sent at this time (2026-10-06, ms), still waiting on this phone. */
   scheduledFor?: number;
+  /** An edit or a taking back of it still waits for the contact's receipt (2026-10-06). */
+  updatePending?: boolean;
 }
 
 /**
@@ -67,8 +69,14 @@ const STATUS: Record<string, { icon: string; label: string }> = {
   unsent: { icon: alertCircleOutline, label: t("status.unsent") },
 };
 
+/**
+ * The state shown by the time: the message's own, or the clock while an edit or a taking back of
+ * it still waits for the contact (2026-10-06, §84): the ticks of the first words are not shown for
+ * the new ones before the other phone has them.
+ */
+const shownStatus = computed(() => (props.message.updatePending ? "pending" : props.message.status));
 const status = computed(() =>
-  props.message.mine && props.message.status ? STATUS[props.message.status] : undefined,
+  props.message.mine && shownStatus.value ? STATUS[shownStatus.value] : undefined,
 );
 const unsent = computed(() => props.message.mine && props.message.status === "unsent");
 /**
@@ -465,7 +473,7 @@ function open() {
         <ion-icon
           v-if="status && !message.scheduledFor"
           :icon="status.icon"
-          :class="`is-${message.status}`"
+          :class="`is-${shownStatus}`"
           role="img"
           :aria-label="status.label"
         />

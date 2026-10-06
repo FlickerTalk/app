@@ -172,6 +172,26 @@ describe("core bridge", () => {
     expect(sending.file).toMatchObject({ state: "sending", url: "asset://localhost/files/f3/photo.jpg" });
   });
 
+  // 2026-10-06: an edit or a taking back still waiting for the contact's receipt is on the
+  // message, next to the state the message itself reached; absent, nothing.
+  it("says which messages have a change still waiting", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [
+              { id: "m1", outgoing: true, text: "dinner at 8", sentAt: at(9, 50), state: "delivered", edited: true, updatePending: true },
+              { id: "m2", outgoing: true, text: "see you", sentAt: at(9, 51), state: "delivered" },
+            ]
+          : answers[command],
+      ),
+    );
+    await core.start();
+    await core.loadMessages("ft_bob");
+    const [changing, settled] = core.chat("ft_bob")?.messages ?? [];
+    expect(changing).toMatchObject({ status: "delivered", edited: true, updatePending: true });
+    expect(settled.updatePending).toBeUndefined();
+  });
+
   // Without a direct connection a transfer cannot move: it says so instead of pretending.
   it("shows transfers with a disconnected contact as paused", async () => {
     tauri.invoke.mockImplementation((command: string) =>
