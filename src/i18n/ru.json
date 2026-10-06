@@ -82,7 +82,11 @@
     "deleted": "Сообщение удалено",
     "deleteEveryone": "Удалить у всех",
     "cancelEdit": "Отменить изменение",
-    "editing": "Изменение"
+    "editing": "Изменение",
+    "search": "Поиск",
+    "searchIn": "Поиск в этом разговоре",
+    "nothingFound": "Ничего не найдено",
+    "closeSearch": "Закрыть поиск"
   },
   "status": {
     "pending": "Ожидание устройства",

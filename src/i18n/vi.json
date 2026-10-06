@@ -82,7 +82,11 @@
     "deleted": "Tin nhắn đã bị xóa",
     "deleteEveryone": "Xóa với mọi người",
     "cancelEdit": "Hủy sửa",
-    "editing": "Đang sửa"
+    "editing": "Đang sửa",
+    "search": "Tìm kiếm",
+    "searchIn": "Tìm trong cuộc trò chuyện này",
+    "nothingFound": "Không tìm thấy gì",
+    "closeSearch": "Đóng tìm kiếm"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

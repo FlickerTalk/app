@@ -67,6 +67,9 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   como entregado algo que no lo está.
 - **Pulsación larga en un mensaje:** responder (desde el 2026-10-05), plegar, reenviar a otro
   contacto, compartir con otra app o borrar de este teléfono.
+- **Buscar en la conversación** (desde el 2026-10-05): la lupa de la cabecera abre un campo bajo
+  ella; los mensajes con esas palabras (de los dos, sin distinguir mayúsculas) se listan del más
+  reciente al más antiguo y tocar uno lleva a él. Todo en el teléfono: nada de la búsqueda sale.
 - **Editar y borrar para todos** (desde el 2026-10-05): en la pulsación larga de un mensaje mío,
   «Editar» pone el texto en el compositor y Enviar lo cambia en los dos teléfonos (marcado como
   «editado»; solo textos, hasta un día después). «Borrar» ofrece además «Borrar para todos»: en

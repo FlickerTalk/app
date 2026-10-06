@@ -82,7 +82,11 @@
     "deleted": "تم حذف الرسالة",
     "deleteEveryone": "حذف لدى الجميع",
     "cancelEdit": "إلغاء التعديل",
-    "editing": "تعديل"
+    "editing": "تعديل",
+    "search": "بحث",
+    "searchIn": "البحث في هذه المحادثة",
+    "nothingFound": "لا توجد نتائج",
+    "closeSearch": "إغلاق البحث"
   },
   "status": {
     "pending": "بانتظار الجهاز",

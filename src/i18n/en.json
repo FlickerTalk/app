@@ -82,7 +82,11 @@
     "deleted": "Message deleted",
     "deleteEveryone": "Delete for everyone",
     "cancelEdit": "Cancel edit",
-    "editing": "Editing"
+    "editing": "Editing",
+    "search": "Search",
+    "searchIn": "Search in this conversation",
+    "nothingFound": "Nothing found",
+    "closeSearch": "Close search"
   },
   "status": {
     "pending": "Waiting for device",

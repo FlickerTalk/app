@@ -82,7 +82,11 @@
     "deleted": "Mesaj silindi",
     "deleteEveryone": "Herkesten sil",
     "cancelEdit": "Düzenlemeyi iptal et",
-    "editing": "Düzenleniyor"
+    "editing": "Düzenleniyor",
+    "search": "Ara",
+    "searchIn": "Bu konuşmada ara",
+    "nothingFound": "Hiçbir şey bulunamadı",
+    "closeSearch": "Aramayı kapat"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

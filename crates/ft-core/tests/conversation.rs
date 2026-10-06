@@ -1417,6 +1417,25 @@ async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
 }
 
+// 2026-10-05: the search is this phone's and finds both sides' words in one conversation.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conversation_is_searched_on_this_phone() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    alice.send_text(&id(&bob), "Dinner on Friday?").await.expect("sends");
+    until("bob has it", || async { !texts(&bob, &id(&alice)).await.is_empty() }).await;
+    bob.send_text(&id(&alice), "friday works").await.expect("sends");
+    until("alice has it", || async { texts(&alice, &id(&bob)).await.len() == 2 }).await;
+    let before = net.sent_to(&id(&bob));
+
+    let found = alice.search(&id(&bob), "friday").await.expect("searches");
+    assert_eq!(found.iter().map(|m| m.body.as_str()).collect::<Vec<_>>(), vec!["friday works", "Dinner on Friday?"]);
+    assert!(alice.search(&id(&bob), "saturday").await.expect("searches").is_empty());
+    assert_eq!(net.sent_to(&id(&bob)), before, "nothing left the phone");
+    assert!(alice.search("nobody", "friday").await.is_err(), "an unknown contact");
+}
+
 // 2026-10-05: our words change on both phones; a message taken back leaves only its mark on both.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_text_is_edited_or_taken_back_on_both_phones() {

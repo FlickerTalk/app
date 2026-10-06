@@ -50,6 +50,7 @@ import {
   pin,
   pinOutline,
   pencilOutline,
+  searchOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
@@ -92,6 +93,7 @@ import {
   resend,
   takePhoto,
   saveFile,
+  searchMessages,
   sendFile,
   sendPicked,
   sendText,
@@ -244,6 +246,56 @@ function reply() {
   const id = acting.value;
   closeActions();
   replying.value = messages.value.find((message) => message.id === id) ?? null;
+}
+
+// 2026-10-05: a search in this conversation, on this phone. The hits list under the header; a tap
+// goes to the message and lights it for a moment.
+const searching = ref(false);
+const query = ref("");
+const hits = ref<ChatMessage[]>([]);
+const searched = ref(false);
+const lit = ref("");
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+function openSearch() {
+  searching.value = true;
+  query.value = "";
+  hits.value = [];
+  searched.value = false;
+}
+
+function closeSearch() {
+  searching.value = false;
+  query.value = "";
+  hits.value = [];
+  searched.value = false;
+}
+
+watch(query, (now) => {
+  clearTimeout(searchTimer);
+  if (!now.trim()) {
+    hits.value = [];
+    searched.value = false;
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    const asked = now;
+    const found = await searchMessages(props.chatId, asked).catch(() => []);
+    if (query.value === asked) {
+      hits.value = found;
+      searched.value = true;
+    }
+  }, 250);
+});
+watch(() => props.chatId, closeSearch);
+
+/** What a hit shows: a text, or a file's name. */
+const hitText = (message: ChatMessage) => (message.kind === "file" ? message.file?.name ?? "" : message.text);
+
+function visitHit(id: string) {
+  jumpTo(id);
+  lit.value = id;
+  setTimeout(() => (lit.value === id && (lit.value = "")), 1600);
 }
 
 // 2026-10-05: pinned messages, this phone's choice. The strip under the header shows the latest
@@ -898,6 +950,10 @@ watch(
           <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
+          <!-- 2026-10-05: a search in this conversation, on this phone. -->
+          <ion-button data-test="search" :aria-label="$t('chat.search')" @click="searching ? closeSearch() : openSearch()">
+            <ion-icon slot="icon-only" :icon="searchOutline" aria-hidden="true" />
+          </ion-button>
           <!-- Issue app#3: the utilities installed on this phone, and the games. -->
           <ion-button data-test="apps" :aria-label="$t('plugins.title')" @click="openApps">
             <ion-icon slot="icon-only" :icon="appsOutline" aria-hidden="true" />
@@ -906,6 +962,33 @@ watch(
       </ion-toolbar>
     </ion-header>
 
+    <!-- 2026-10-05: the search, under the header: what is typed, and the hits, newest first. -->
+    <div v-if="searching" class="ft-search" data-test="search-panel">
+      <div class="ft-search__row">
+        <input
+          v-model="query"
+          class="ft-search__input"
+          type="search"
+          data-test="search-input"
+          :placeholder="$t('chat.searchIn')"
+          :aria-label="$t('chat.searchIn')"
+          enterkeyhint="search"
+          autofocus
+        />
+        <button type="button" class="ft-round ft-round--ghost" data-test="close-search" :aria-label="$t('chat.closeSearch')" @click="closeSearch">
+          <ion-icon :icon="closeOutline" aria-hidden="true" />
+        </button>
+      </div>
+      <ul v-if="hits.length" class="ft-search__hits" data-test="search-hits">
+        <li v-for="hit in hits" :key="hit.id">
+          <button type="button" class="ft-search__hit" :data-test="`hit-${hit.id}`" @click="visitHit(hit.id)">
+            <span class="ft-search__who">{{ hit.mine ? $t("chat.you") : chat.name }} · {{ hit.time }}</span>
+            <span class="ft-search__text" dir="auto">{{ hitText(hit) }}</span>
+          </button>
+        </li>
+      </ul>
+      <p v-else-if="searched" class="ft-search__none" data-test="search-none">{{ $t("chat.nothingFound") }}</p>
+    </div>
     <!-- 2026-10-05: the latest pinned message, under the header; a tap goes to it, then to the next. -->
     <button v-if="shownPin" type="button" class="ft-pinned" data-test="pinned-strip" :aria-label="$t('chat.pinned')" @click="visitPin">
       <ion-icon :icon="pinOutline" aria-hidden="true" />
@@ -1055,6 +1138,7 @@ watch(
           <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
           <MessageBubble
             :message="message"
+            :class="{ 'is-lit': lit === message.id }"
             :saved="saved.has(message.id)"
             :folded="folded.has(message.id)"
             games
@@ -1354,6 +1438,76 @@ watch(
 </template>
 
 <style scoped>
+/* The search (2026-10-05): the field and the hits under the header, over the thread. */
+.ft-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px var(--ft-space-4) 8px;
+  border-bottom: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+}
+.ft-search__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ft-search__input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--ft-border);
+  border-radius: 20px;
+  background: var(--ft-surface-2);
+  color: var(--ft-text);
+  font: inherit;
+}
+.ft-search__hits {
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.ft-search__hit {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.ft-search__hit:hover {
+  background: var(--ft-surface-2);
+}
+.ft-search__who {
+  font-size: var(--ft-font-meta);
+  color: var(--ft-muted);
+}
+.ft-search__text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ft-font-meta);
+}
+.ft-search__none {
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--ft-muted);
+  font-size: var(--ft-font-meta);
+}
+/* A message the search went to (2026-10-05), lit for a moment. */
+.ft-msg.is-lit :deep(.ft-bubble) {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: 2px;
+}
 /* The latest pinned message (2026-10-05), a strip under the header. */
 .ft-pinned {
   appearance: none;

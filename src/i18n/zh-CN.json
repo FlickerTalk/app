@@ -82,7 +82,11 @@
     "deleted": "消息已删除",
     "deleteEveryone": "对所有人删除",
     "cancelEdit": "取消编辑",
-    "editing": "编辑中"
+    "editing": "编辑中",
+    "search": "搜索",
+    "searchIn": "在此对话中搜索",
+    "nothingFound": "没有结果",
+    "closeSearch": "关闭搜索"
   },
   "status": {
     "pending": "等待对方设备",

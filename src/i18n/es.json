@@ -82,7 +82,11 @@
     "deleted": "Mensaje eliminado",
     "deleteEveryone": "Borrar para todos",
     "cancelEdit": "Cancelar la edición",
-    "editing": "Editando"
+    "editing": "Editando",
+    "search": "Buscar",
+    "searchIn": "Buscar en esta conversación",
+    "nothingFound": "No hay resultados",
+    "closeSearch": "Cerrar la búsqueda"
   },
   "status": {
     "pending": "Esperando al dispositivo",

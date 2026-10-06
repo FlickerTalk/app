@@ -82,7 +82,11 @@
     "deleted": "Повідомлення видалено",
     "deleteEveryone": "Видалити в усіх",
     "cancelEdit": "Скасувати зміну",
-    "editing": "Зміна"
+    "editing": "Зміна",
+    "search": "Пошук",
+    "searchIn": "Пошук у цій розмові",
+    "nothingFound": "Нічого не знайдено",
+    "closeSearch": "Закрити пошук"
   },
   "status": {
     "pending": "Очікування пристрою",

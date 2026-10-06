@@ -82,7 +82,11 @@
     "deleted": "संदेश हटा दिया गया",
     "deleteEveryone": "सबके लिए हटाएँ",
     "cancelEdit": "संपादन रद्द करें",
-    "editing": "संपादन"
+    "editing": "संपादन",
+    "search": "खोजें",
+    "searchIn": "इस बातचीत में खोजें",
+    "nothingFound": "कुछ नहीं मिला",
+    "closeSearch": "खोज बंद करें"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",

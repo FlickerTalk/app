@@ -82,7 +82,11 @@
     "deleted": "Mesaj șters",
     "deleteEveryone": "Șterge pentru toți",
     "cancelEdit": "Renunță la editare",
-    "editing": "Editare"
+    "editing": "Editare",
+    "search": "Caută",
+    "searchIn": "Caută în această conversație",
+    "nothingFound": "Nimic găsit",
+    "closeSearch": "Închide căutarea"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

@@ -1000,6 +1000,13 @@ export async function subscribe(): Promise<void> {
 }
 
 /** What the user does with one message of theirs (§61). */
+/** The messages of a conversation with these words (2026-10-05), newest first; on this phone only. */
+export async function searchMessages(contact: string, query: string): Promise<ChatMessage[]> {
+  if (!query.trim()) return [];
+  const views = await invoke<MessageView[]>("core_search", { contact, query: query.trim() });
+  return views.map((view) => toMessage(view));
+}
+
 /** Says one of my texts again with other words (2026-10-05); the contact sees the change. */
 export async function editMessage(message: string, text: string): Promise<void> {
   await invoke("core_edit", { message, text: text.trim() });

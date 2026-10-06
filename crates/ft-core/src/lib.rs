@@ -1034,6 +1034,13 @@ impl Core {
         Ok(())
     }
 
+    /// The messages of the conversation with these words (2026-10-05), newest first, at most fifty.
+    /// On this phone only: nothing of the search leaves it.
+    pub async fn search(&self, contact: &str, query: &str) -> Result<Vec<Message>> {
+        self.contact(contact).await?;
+        self.store.search_messages(contact, query, 50).await
+    }
+
     /// Says one of our texts again with other words (2026-10-05): here at once, and told to the
     /// contact like a receipt (directly or through the mailbox). Only our own text, not a file,
     /// not one taken back, and not one the router refused; within a day of sending it.
