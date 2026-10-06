@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { followPhoneLanguage, i18n, isRtl, type Locale, LOCALES, pickLocale, setLocale, t } from "./i18n";
+import { firstDayOfWeek, followPhoneLanguage, i18n, isRtl, type Locale, LOCALES, pickLocale, setLocale, t } from "./i18n";
 import en from "./i18n/en.json";
 
 function leaves(node: unknown, path: string[] = []): [string, unknown][] {
@@ -257,5 +257,34 @@ describe("option sheets", () => {
       .filter(([, attributes]) => !attributes.includes(`:cancel-text="$t('common.cancel')"`))
       .map(([path]) => path);
     expect(untranslated).toEqual([]);
+  });
+});
+
+// QA of 1.4.0 (2026-10-06): the send-later calendar started the week on Sunday in Spanish. The week
+// starts where the phone's region says (0 is Sunday, as Ionic's picker counts), for the app's language.
+describe("first day of the week", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("follows the phone's region for the app's language", () => {
+    expect(firstDayOfWeek("es", ["es-ES"])).toBe(1);
+    expect(firstDayOfWeek("es", ["es-MX"])).toBe(0);
+    expect(firstDayOfWeek("en", ["en-US"])).toBe(0);
+    expect(firstDayOfWeek("en", ["en-GB"])).toBe(1);
+  });
+
+  it("takes the language's usual region when the phone speaks another language", () => {
+    expect(firstDayOfWeek("es", ["en-US"])).toBe(1);
+    expect(firstDayOfWeek("de", [])).toBe(1);
+    expect(firstDayOfWeek("en", [])).toBe(0);
+    expect(firstDayOfWeek("ar", [])).toBe(6);
+  });
+
+  it("knows the week without the browser's week data", () => {
+    vi.spyOn(Intl.Locale.prototype as unknown as { getWeekInfo: () => unknown }, "getWeekInfo").mockReturnValue(undefined);
+    expect(firstDayOfWeek("es", ["es-ES"])).toBe(1);
+    expect(firstDayOfWeek("en", ["en-US"])).toBe(0);
+    expect(firstDayOfWeek("pt", [])).toBe(0);
+    expect(firstDayOfWeek("ar", ["ar-EG"])).toBe(6);
+    expect(firstDayOfWeek("fr", ["fr-FR"])).toBe(1);
   });
 });

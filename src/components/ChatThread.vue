@@ -116,7 +116,7 @@ import {
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
-import { i18n, t } from "../i18n";
+import { firstDayOfWeek, i18n, t } from "../i18n";
 import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
@@ -276,6 +276,8 @@ function openSchedule() {
 }
 
 const soonest = computed(() => localInput(Date.now() + 60_000));
+// The calendar starts its week where the phone's region does (QA of 1.4.0, 2026-10-06).
+const weekStart = computed(() => firstDayOfWeek(i18n.global.locale.value));
 /** The core takes a time up to a year ahead; Ionic's picker would stop at the end of this year. */
 const latest = computed(() => localInput(Date.now() + 365 * 24 * 3_600_000));
 
@@ -1553,6 +1555,7 @@ watch(
             class="ft-schedule__picker"
             presentation="date-time"
             :locale="i18n.global.locale.value"
+            :first-day-of-week="weekStart"
             :model-value="sendAt"
             :min="soonest"
             :max="latest"
