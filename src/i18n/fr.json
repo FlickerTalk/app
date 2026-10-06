@@ -89,6 +89,7 @@
     "closeSearch": "Fermer la recherche",
     "sendLater": "Envoyer plus tard",
     "schedule": "Programmer",
+    "scheduleTime": "Heure",
     "scheduledFor": "Programmé pour {time}",
     "scheduleNote": "Il part de ce téléphone à cette heure, s’il est allumé ; supprimez-le ici avant pour l’annuler."
   },

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { readCode } from "../code";
-import { formatSize } from "../core";
+import { clock as clockOf, formatSize } from "../core";
 import { gameIdFromText, isGame } from "../games";
 import { mapsLink, piecesOf, type Place } from "../links";
 import { installed, offered, pluginName } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonButton, IonIcon } from "@ionic/vue";
 import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, pinOutline, play, refreshOutline, timeOutline } from "ionicons/icons";
-import { t } from "../i18n";
+import { i18n, t } from "../i18n";
 
 interface TransferredFile {
   name: string;
@@ -71,13 +71,17 @@ const status = computed(() =>
   props.message.mine && props.message.status ? STATUS[props.message.status] : undefined,
 );
 const unsent = computed(() => props.message.mine && props.message.status === "unsent");
-/** When a message for later goes (2026-10-06): the time, with the day when it is not today. */
+/**
+ * When a message for later goes (2026-10-06): the time as the bubbles write theirs, with the day,
+ * in the app's language, when it is not today.
+ */
 const whenLater = computed(() => {
   const at = props.message.scheduledFor;
   if (!at) return "";
   const date = new Date(at);
-  const today = new Date().toDateString() === date.toDateString();
-  return new Intl.DateTimeFormat(undefined, today ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
+  if (new Date().toDateString() === date.toDateString()) return clockOf(at);
+  const day = new Intl.DateTimeFormat(i18n.global.locale.value, { day: "numeric", month: "short" }).format(date);
+  return `${day} ${clockOf(at)}`;
 });
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
 // A message written with fences is code, and the app draws it as such (Ioan, 2026-09-22).

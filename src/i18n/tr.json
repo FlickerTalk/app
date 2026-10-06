@@ -89,6 +89,7 @@
     "closeSearch": "Aramayı kapat",
     "sendLater": "Daha sonra gönder",
     "schedule": "Planla",
+    "scheduleTime": "Saat",
     "scheduledFor": "{time} için planlandı",
     "scheduleNote": "O saatte, açıksa bu telefondan gider; iptal etmek için önce buradan silin."
   },

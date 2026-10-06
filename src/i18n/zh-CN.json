@@ -89,6 +89,7 @@
     "closeSearch": "关闭搜索",
     "sendLater": "稍后发送",
     "schedule": "定时",
+    "scheduleTime": "时间",
     "scheduledFor": "定于 {time} 发送",
     "scheduleNote": "届时若手机开机，将从此手机发出；要取消，请提前在此删除。"
   },

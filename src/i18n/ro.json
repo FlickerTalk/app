@@ -89,6 +89,7 @@
     "closeSearch": "Închide căutarea",
     "sendLater": "Trimite mai târziu",
     "schedule": "Programează",
+    "scheduleTime": "Ora",
     "scheduledFor": "Programat pentru {time}",
     "scheduleNote": "Pleacă de pe acest telefon la ora aceea, dacă este pornit; șterge-l aici înainte ca să-l anulezi."
   },

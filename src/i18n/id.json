@@ -89,6 +89,7 @@
     "closeSearch": "Tutup pencarian",
     "sendLater": "Kirim nanti",
     "schedule": "Jadwalkan",
+    "scheduleTime": "Waktu",
     "scheduledFor": "Dijadwalkan untuk {time}",
     "scheduleNote": "Dikirim dari ponsel ini pada waktu itu, jika ponsel menyala; hapus di sini sebelumnya untuk membatalkan."
   },

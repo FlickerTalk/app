@@ -954,6 +954,20 @@ describe("ChatThread", () => {
       expect(wrapper.find("[data-test='schedule']").exists()).toBe(false);
     });
 
+    // Seen on a Spanish iPhone (2026-10-06): the picker said «Time» and used the WebView's
+    // language. It takes the app's language, and its time label comes from the catalogue.
+    it("picks the time in the app's language", async () => {
+      await setLocale("es");
+      try {
+        const wrapper = await opened("buenos días");
+        const picker = wrapper.findComponent(IonDatetime);
+        expect(picker.props("locale")).toBe("es");
+        expect(picker.find("[slot='time-label']").text()).toBe("Hora");
+      } finally {
+        await setLocale("en");
+      }
+    });
+
     it("refuses a time that is too soon, and can be dropped", async () => {
       const wrapper = await opened("soon");
       wrapper.findComponent(IonDatetime).vm.$emit("update:modelValue", local(new Date(Date.now() - 60_000)));

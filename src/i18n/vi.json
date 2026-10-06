@@ -89,6 +89,7 @@
     "closeSearch": "Đóng tìm kiếm",
     "sendLater": "Gửi sau",
     "schedule": "Lên lịch",
+    "scheduleTime": "Giờ",
     "scheduledFor": "Đã lên lịch lúc {time}",
     "scheduleNote": "Sẽ gửi từ điện thoại này vào giờ đó, nếu máy đang bật; xóa ở đây trước đó để hủy."
   },

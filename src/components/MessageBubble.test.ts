@@ -71,6 +71,24 @@ describe("MessageBubble", () => {
     expect(wrapper.find("[aria-label='Waiting for device']").exists()).toBe(false);
   });
 
+  // Seen on a Spanish iPhone (2026-10-06): «Programado para 01:23 PM». The time is written like
+  // the bubbles' own times, and a day in the app's language, not the WebView's.
+  it("says when a message for later goes in the app's language", async () => {
+    await setLocale("es");
+    try {
+      const today = new Date();
+      today.setHours(13, 23, 0, 0);
+      const soon = mount(MessageBubble, { props: { message: { ...base, status: "pending", scheduledFor: today.getTime() } }, shallow: true });
+      expect(soon.find("[data-test='scheduled']").text()).toBe("Programado para 13:23");
+      const later = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 9, 5);
+      const another = mount(MessageBubble, { props: { message: { ...base, status: "pending", scheduledFor: later.getTime() } }, shallow: true });
+      const day = new Intl.DateTimeFormat("es", { day: "numeric", month: "short" }).format(later);
+      expect(another.find("[data-test='scheduled']").text()).toBe(`Programado para ${day} 09:05`);
+    } finally {
+      await setLocale("en");
+    }
+  });
+
   // 2026-10-05: a message taken back shows only its mark; an edited one says so by its time.
   it("shows a message taken back as deleted, and an edited one as edited", () => {
     const gone = mount(MessageBubble, { props: { message: { ...base, text: "", deleted: true } }, shallow: true });

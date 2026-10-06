@@ -89,6 +89,7 @@
     "closeSearch": "検索を閉じる",
     "sendLater": "あとで送信",
     "schedule": "予約",
+    "scheduleTime": "時刻",
     "scheduledFor": "{time} に送信予定",
     "scheduleNote": "その時刻に、この端末の電源が入っていれば送信されます。取り消すには、それまでにここで削除してください。"
   },

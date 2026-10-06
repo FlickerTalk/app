@@ -89,6 +89,7 @@
     "closeSearch": "關閉搜尋",
     "sendLater": "稍後傳送",
     "schedule": "排程",
+    "scheduleTime": "時間",
     "scheduledFor": "預定 {time} 傳送",
     "scheduleNote": "屆時若手機開機，將從此手機送出；要取消，請提前在此刪除。"
   },

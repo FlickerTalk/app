@@ -89,6 +89,7 @@
     "closeSearch": "Suche schließen",
     "sendLater": "Später senden",
     "schedule": "Planen",
+    "scheduleTime": "Uhrzeit",
     "scheduledFor": "Geplant für {time}",
     "scheduleNote": "Geht zu dieser Zeit von diesem Telefon ab, wenn es an ist; vorher hier löschen, um es abzusagen."
   },

@@ -89,6 +89,7 @@
     "closeSearch": "Fechar a pesquisa",
     "sendLater": "Enviar mais tarde",
     "schedule": "Agendar",
+    "scheduleTime": "Hora",
     "scheduledFor": "Agendado para {time}",
     "scheduleNote": "Sai deste telefone a essa hora, se estiver ligado; apague-o aqui antes para cancelar."
   },

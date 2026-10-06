@@ -89,6 +89,7 @@
     "closeSearch": "إغلاق البحث",
     "sendLater": "إرسال لاحقًا",
     "schedule": "جدولة",
+    "scheduleTime": "الوقت",
     "scheduledFor": "مجدول لـ {time}",
     "scheduleNote": "يُرسل من هذا الهاتف في ذلك الوقت إذا كان مشغّلًا؛ احذفه هنا قبل ذلك لإلغائه."
   },

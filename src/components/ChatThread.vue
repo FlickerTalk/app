@@ -1516,15 +1516,19 @@ watch(
     >
       <div class="ion-padding ft-schedule" data-test="schedule">
         <h2 class="ft-schedule__title">{{ $t("chat.sendLater") }}</h2>
+        <!-- In the app's language (2026-10-06): Ionic writes «Time» unless the label is given. -->
         <ion-datetime
           class="ft-schedule__picker"
           presentation="date-time"
+          :locale="i18n.global.locale.value"
           :model-value="sendAt"
           :min="soonest"
           :max="latest"
           data-test="schedule-at"
           @update:model-value="pickTime"
-        />
+        >
+          <span slot="time-label">{{ $t("chat.scheduleTime") }}</span>
+        </ion-datetime>
         <p class="ft-schedule__note"><ion-text color="medium">{{ $t("chat.scheduleNote") }}</ion-text></p>
         <div class="ft-schedule__actions">
           <ion-button fill="outline" shape="round" data-test="schedule-cancel" @click="scheduling = false">{{ $t("common.cancel") }}</ion-button>
