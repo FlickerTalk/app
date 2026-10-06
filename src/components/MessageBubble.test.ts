@@ -59,6 +59,17 @@ describe("MessageBubble", () => {
     });
   });
 
+  // 2026-10-06: a message for later says when it goes, instead of a state it does not have yet.
+  it("says when a message for later goes", () => {
+    const at = new Date();
+    at.setHours(20, 30, 0, 0);
+    const wrapper = mount(MessageBubble, { props: { message: { ...base, status: "pending", scheduledFor: at.getTime() } }, shallow: true });
+    const label = wrapper.find("[data-test='scheduled']").text();
+    expect(label).toContain("Scheduled for");
+    expect(label).toMatch(/8:30|20:30/);
+    expect(wrapper.find("[aria-label='Waiting for device']").exists()).toBe(false);
+  });
+
   // 2026-10-05: a message taken back shows only its mark; an edited one says so by its time.
   it("shows a message taken back as deleted, and an edited one as edited", () => {
     const gone = mount(MessageBubble, { props: { message: { ...base, text: "", deleted: true } }, shallow: true });

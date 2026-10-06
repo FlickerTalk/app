@@ -478,6 +478,14 @@ describe("circles", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hi" });
   });
 
+  // 2026-10-06: a text for later goes to the core with its time, and the quote when there is one.
+  it("schedules a text through the core", async () => {
+    await core.scheduleText("ft_bob", "good morning", 1_900_000_000_000);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_schedule", { contact: "ft_bob", text: "good morning", sendAt: 1_900_000_000_000 });
+    await core.scheduleText("ft_bob", "yes", 1_900_000_000_000, "m1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_schedule", { contact: "ft_bob", text: "yes", sendAt: 1_900_000_000_000, replyTo: "m1" });
+  });
+
   // 2026-10-05: the search asks the core for the words, and nothing for an empty query.
   it("searches a conversation through the core", async () => {
     tauri.invoke.mockImplementation((command: string) =>

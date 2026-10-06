@@ -86,7 +86,11 @@
     "search": "Cari",
     "searchIn": "Cari di percakapan ini",
     "nothingFound": "Tidak ada hasil",
-    "closeSearch": "Tutup pencarian"
+    "closeSearch": "Tutup pencarian",
+    "sendLater": "Kirim nanti",
+    "schedule": "Jadwalkan",
+    "scheduledFor": "Dijadwalkan untuk {time}",
+    "scheduleNote": "Dikirim dari ponsel ini pada waktu itu, jika ponsel menyala; hapus di sini sebelumnya untuk membatalkan."
   },
   "status": {
     "pending": "Menunggu perangkat",

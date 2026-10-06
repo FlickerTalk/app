@@ -46,6 +46,8 @@ export interface ChatMessage {
   edited?: boolean;
   /** Taken back for both sides (2026-10-05): only the mark is left. */
   deleted?: boolean;
+  /** Written to be sent at this time (2026-10-06, ms), still waiting on this phone. */
+  scheduledFor?: number;
 }
 
 export interface Reactions {
@@ -192,6 +194,7 @@ interface MessageView {
   pinned?: boolean;
   edited?: boolean;
   deleted?: boolean;
+  scheduledFor?: number;
 }
 
 interface ConversationView {
@@ -373,6 +376,7 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
   if (view.pinned) message.pinned = true;
   if (view.edited) message.edited = true;
   if (view.deleted) message.deleted = true;
+  if (view.scheduledFor) message.scheduledFor = view.scheduledFor;
   return message;
 }
 
@@ -1000,6 +1004,11 @@ export async function subscribe(): Promise<void> {
 }
 
 /** What the user does with one message of theirs (§61). */
+/** A text written now to go at `sendAt` (2026-10-06, ms), from this phone; `replyTo` quotes a message. */
+export async function scheduleText(contact: string, text: string, sendAt: number, replyTo?: string): Promise<void> {
+  await invoke("core_schedule", replyTo ? { contact, text, sendAt, replyTo } : { contact, text, sendAt });
+}
+
 /** The messages of a conversation with these words (2026-10-05), newest first; on this phone only. */
 export async function searchMessages(contact: string, query: string): Promise<ChatMessage[]> {
   if (!query.trim()) return [];

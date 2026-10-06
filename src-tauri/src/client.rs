@@ -65,6 +65,9 @@ pub struct MessageView {
     /// Taken back for both sides (2026-10-05): only the mark is left.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     deleted: bool,
+    /// Written to be sent at this time (2026-10-06, ms), still waiting on this phone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheduled_for: Option<i64>,
 }
 
 /// What each side put on a message (2026-10-05): one emoji each, or none.
@@ -96,7 +99,13 @@ impl MessageView {
             pinned: false,
             edited: false,
             deleted: false,
+            scheduled_for: None,
         }
+    }
+
+    pub fn for_later(mut self, send_at: Option<i64>) -> Self {
+        self.scheduled_for = send_at;
+        self
     }
 
     pub fn pinned(mut self, pinned: bool) -> Self {
@@ -2016,13 +2025,16 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
     let pinned: HashSet<String> = core.store().pinned(&contact).await.map_err(failed)?.into_iter().collect();
     let edited = core.store().edited(&contact).await.map_err(failed)?;
     let deleted = core.store().deleted(&contact).await.map_err(failed)?;
+    let later = core.store().scheduled(&contact).await.map_err(failed)?;
+    let moment = ft_core::now();
     Ok(messages
         .iter()
         .map(|message| {
             let view = MessageView::new(message, files.get(&message.message_id))
                 .reacted(reactions.get(&message.message_id))
                 .pinned(pinned.contains(&message.message_id))
-                .marked(edited.contains(&message.message_id), deleted.contains(&message.message_id));
+                .marked(edited.contains(&message.message_id), deleted.contains(&message.message_id))
+                .for_later(later.get(&message.message_id).copied().filter(|send_at| *send_at > moment));
             match replies.get(&message.message_id) {
                 Some(quoted_id) => view.answering(QuoteView::of(quoted_id, quoted.get(quoted_id), files.get(quoted_id))),
                 None => view,
@@ -2156,6 +2168,12 @@ fn now_ms() -> i64 {
 #[tauri::command]
 pub async fn core_forget_message(message: String, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.forget_message(&message).await.map_err(failed)
+}
+
+/// A text written now to be sent at `send_at` (2026-10-06, ms), from this phone.
+#[tauri::command]
+pub async fn core_schedule(contact: String, text: String, send_at: i64, reply_to: Option<String>, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.schedule_text(&contact, &text, send_at, reply_to.as_deref()).await.map_err(failed)
 }
 
 /// The messages of the conversation with these words (2026-10-05), newest first; on this phone.
@@ -5222,6 +5240,14 @@ mod tests {
         let view = serde_json::to_value(MessageView::new(&message, None).answering(QuoteView::of("m0", None, None))).unwrap();
         assert_eq!(view["quote"]["kind"], "gone");
         assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("quote").is_none(), "no quote, no field");
+    }
+
+    // 2026-10-06: a message for later carries its time, and nothing once it went.
+    #[test]
+    fn a_message_for_later_carries_its_time() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: true, body: "hi".into(), sent_at: 9, received_at: 1, state: ft_storage::MessageState::Pending };
+        assert_eq!(serde_json::to_value(MessageView::new(&message, None).for_later(Some(9))).unwrap()["scheduledFor"], 9);
+        assert!(serde_json::to_value(MessageView::new(&message, None).for_later(None)).unwrap().get("scheduledFor").is_none());
     }
 
     // 2026-10-05: edited and taken back are marks on the view, absent when false.

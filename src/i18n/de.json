@@ -86,7 +86,11 @@
     "search": "Suchen",
     "searchIn": "In dieser Unterhaltung suchen",
     "nothingFound": "Nichts gefunden",
-    "closeSearch": "Suche schließen"
+    "closeSearch": "Suche schließen",
+    "sendLater": "Später senden",
+    "schedule": "Planen",
+    "scheduledFor": "Geplant für {time}",
+    "scheduleNote": "Geht zu dieser Zeit von diesem Telefon ab, wenn es an ist; vorher hier löschen, um es abzusagen."
   },
   "status": {
     "pending": "Warte auf Gerät",

@@ -86,7 +86,11 @@
     "search": "Search",
     "searchIn": "Search in this conversation",
     "nothingFound": "Nothing found",
-    "closeSearch": "Close search"
+    "closeSearch": "Close search",
+    "sendLater": "Send later",
+    "schedule": "Schedule",
+    "scheduledFor": "Scheduled for {time}",
+    "scheduleNote": "It goes from this phone at that time, if the phone is on; delete it here before to cancel it."
   },
   "status": {
     "pending": "Waiting for device",

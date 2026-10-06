@@ -1417,6 +1417,40 @@ async fn with_receipts_off_the_sender_stays_at_sent_and_stops_retrying() {
     assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
 }
 
+// 2026-10-06: a text for later waits on this phone until its time, through a retry of everything
+// too, and then goes like any other; deleting it before cancels it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_for_later_waits_for_its_time() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let in_a_while = ft_core::now() + 90_000;
+    let message = alice.schedule_text(&id(&bob), "good morning!", in_a_while, None).await.expect("schedules");
+    assert_eq!(alice.store().scheduled(&id(&bob)).await.unwrap().get(&message), Some(&in_a_while));
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Pending);
+
+    alice.retry_now().await.expect("retries");
+    alice.retry_due().await.expect("retries");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "nothing before its time");
+    assert_eq!(net.mailbox_len(&id(&bob)), 0);
+
+    // Its time comes: the queue says so, and the next retry sends it.
+    alice.store().reschedule(&message, 0, ft_core::now() - 1, false).await.expect("the clock moves");
+    alice.retry_due().await.expect("retries");
+    until("bob has it", || async { texts(&bob, &id(&alice)).await.contains(&"good morning!".to_owned()) }).await;
+    until("no longer for later", || async { alice.store().scheduled(&id(&bob)).await.unwrap().is_empty() }).await;
+    assert_eq!(bob.store().message(&message).await.unwrap().unwrap().sent_at, in_a_while, "stamped with its time");
+
+    // Cancelled by deleting it here before its time.
+    let other = alice.schedule_text(&id(&bob), "never mind", ft_core::now() + 120_000, None).await.expect("schedules");
+    alice.forget_message(&other).await.expect("cancels");
+    assert!(alice.store().outbox().await.unwrap().iter().all(|entry| entry.message_id != other));
+
+    assert!(alice.schedule_text(&id(&bob), "too soon", ft_core::now() + 1_000, None).await.is_err());
+    assert!(alice.schedule_text(&id(&bob), "too far", ft_core::now() + 400 * 24 * 3_600_000, None).await.is_err());
+}
+
 // 2026-10-05: the search is this phone's and finds both sides' words in one conversation.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_conversation_is_searched_on_this_phone() {

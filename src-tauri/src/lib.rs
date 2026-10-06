@@ -113,6 +113,7 @@ pub fn run() {
             client::core_pin,
             client::core_edit,
             client::core_search,
+            client::core_schedule,
             client::core_delete_everyone,
             client::core_set_receipts,
             client::core_quiet_hours,
