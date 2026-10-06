@@ -308,7 +308,7 @@ const searched = ref(false);
 const lit = ref("");
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
-const searchbar = ref<{ $el: HTMLElement & { setFocus?: () => Promise<void> } } | null>(null);
+const searchbar = ref<{ $el: HTMLElement & { setFocus?: () => Promise<void>; componentOnReady?: () => Promise<unknown> } } | null>(null);
 
 function openSearch() {
   searching.value = true;
@@ -316,8 +316,24 @@ function openSearch() {
   hits.value = [];
   searched.value = false;
   // As the field's `autofocus` did: the keyboard comes up with the search.
-  void nextTick(() => searchbar.value?.$el.setFocus?.());
+  void nextTick(focusSearch);
 }
+
+// Opened as the page comes in (`?search=1`, 2026-10-06), Ionic's field is not ready, or the page is
+// still hidden until its transition ends: then it is focused once the page is on screen.
+let focusLater = false;
+async function focusSearch() {
+  const field = searchbar.value?.$el;
+  await field?.componentOnReady?.();
+  await field?.setFocus?.();
+  focusLater = searching.value && !field?.contains(document.activeElement);
+}
+watch(
+  () => props.active,
+  (on) => {
+    if (on && focusLater) void focusSearch();
+  },
+);
 
 function typeSearch(value: unknown) {
   query.value = typeof value === "string" ? value : "";

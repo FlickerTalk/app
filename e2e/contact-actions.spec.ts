@@ -15,6 +15,9 @@ test("the contact page's search opens the conversation with its search, once", a
 
   await row.getByTestId("quick-search").click();
   await expect(app.locator("[data-test='search-panel']:visible")).toHaveCount(1);
+  // Ready to type, as the header's button was (seen on the iPhone, 2026-10-06: the field was not
+  // ready yet when the page came in, and nothing had the focus).
+  await expect(app.locator("[data-test='search-panel']:visible ion-searchbar input")).toBeFocused();
   // The address forgets the search, so coming back to the conversation does not open it again.
   await expect(app).toHaveURL(new RegExp(`/chat/${BOB}$`));
 });
