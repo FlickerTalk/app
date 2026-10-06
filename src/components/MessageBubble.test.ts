@@ -38,6 +38,32 @@ describe("MessageBubble", () => {
       expect(wrapper.attributes("data-message")).toBe("m1");
     });
 
+    // Seen on the phones (2026-10-06): a long press on the quote did nothing, the quote kept it.
+    // A long press anywhere on the bubble asks for the actions; a tap on the quote still jumps.
+    it("asks for the actions on a long press on the quote, and jumps only on a tap", async () => {
+      vi.useFakeTimers();
+      try {
+        const quote = { id: "m0", text: "dinner on friday?", mine: false, kind: "text" as const };
+        const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "yes!", quote } }, shallow: true });
+        const shown = wrapper.find("[data-test='quote']");
+        await shown.trigger("pointerdown");
+        vi.advanceTimersByTime(600);
+        expect(wrapper.emitted("actions")).toEqual([["m1"]]);
+        await shown.trigger("pointerup");
+        await shown.trigger("click");
+        expect(wrapper.emitted("jump"), "the press was for the actions").toBeUndefined();
+
+        await shown.trigger("pointerdown");
+        vi.advanceTimersByTime(100);
+        await shown.trigger("pointerup");
+        await shown.trigger("click");
+        expect(wrapper.emitted("jump")).toEqual([["m0"]]);
+        expect(wrapper.emitted("actions")).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("names me when it quotes my own message, and the sender in a circle", () => {
       const mine = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "ok", mine: true, kind: "text" } } }, shallow: true });
       expect(mine.find("[data-test='quote']").text()).toContain("You");

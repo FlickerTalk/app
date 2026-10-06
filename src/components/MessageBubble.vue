@@ -107,9 +107,21 @@ const game = computed(() => {
 // A long press asks for what can be done with this message; a tap does nothing of the sort.
 const LONG_PRESS = 500;
 let pressing: ReturnType<typeof setTimeout> | undefined;
+/** The last press asked for the actions: the click that ends it is not a tap (2026-10-06). */
+let longPressed = false;
 
 function startPress() {
-  pressing = setTimeout(() => emit("actions", props.message.id), LONG_PRESS);
+  longPressed = false;
+  pressing = setTimeout(() => {
+    longPressed = true;
+    emit("actions", props.message.id);
+  }, LONG_PRESS);
+}
+
+/** A tap on the quote goes to the message it answers; a long press on it is the bubble's. */
+function tapQuote(id: string) {
+  if (longPressed) return;
+  emit("jump", id);
 }
 
 function endPress() {
@@ -238,7 +250,8 @@ function open() {
       @pointerleave="endPress"
     >
       <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender" dir="auto">{{ sender }}</span>
-      <!-- What it answers (2026-10-05): a tap goes to that message. -->
+      <!-- What it answers (2026-10-05): a tap goes to that message; a long press on it opens the
+           actions like anywhere else on the bubble (2026-10-06). -->
       <button
         v-if="message.quote"
         type="button"
@@ -246,8 +259,7 @@ function open() {
         :class="{ 'is-theirs': !message.quote.mine, 'is-gone': message.quote.kind === 'gone' }"
         data-test="quote"
         :aria-label="t('chat.reply')"
-        @click.stop="emit('jump', message.quote.id)"
-        @pointerdown.stop
+        @click.stop="tapQuote(message.quote.id)"
       >
         <span class="ft-quote__who">{{ message.quote.kind === 'gone' ? '' : message.quote.mine ? t('chat.you') : (sender ?? t('chat.them')) }}</span>
         <span class="ft-quote__text" dir="auto">
