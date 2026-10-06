@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonIcon, IonList, IonNote, IonToggle } from "@ionic/vue";
+import { IonBackButton, IonIcon, IonList, IonNote, IonToggle } from "@ionic/vue";
 import { addCircleOutline, downloadOutline } from "ionicons/icons";
 import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
@@ -8,7 +8,8 @@ import { installTauri } from "../__tests__/tauri";
 import { setLocale } from "../i18n";
 import { installed } from "../plugins";
 
-vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const route = vi.hoisted(() => ({ path: "/plugins" }));
+vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => ({ push: vi.fn() }) }));
 
 const CODE = {
   id: "com.flickertalk.code",
@@ -90,6 +91,16 @@ describe("PluginsPage", () => {
     installed.value = [{ ...CODE, version: "1.0.1" }, AI] as never;
     await flushPromises();
     expect(wrapper.text()).toContain("1.0.1");
+  });
+
+  // 2026-10-05: the same screen is a tab when Settings puts the plugins on the bar; there it has
+  // nowhere to go back to.
+  it("goes back to Settings when opened from there, and has no back button as a tab", async () => {
+    route.path = "/plugins";
+    expect(mount(PluginsPage, { shallow: true }).findComponent(IonBackButton).exists()).toBe(true);
+    route.path = "/tabs/plugins";
+    expect(mount(PluginsPage, { shallow: true }).findComponent(IonBackButton).exists()).toBe(false);
+    route.path = "/plugins";
   });
 
   it("lists the plugins on this phone with their version", async () => {

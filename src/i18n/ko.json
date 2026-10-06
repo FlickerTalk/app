@@ -7,7 +7,8 @@
     "chats": "채팅",
     "calls": "통화",
     "settings": "설정",
-    "games": "게임"
+    "games": "게임",
+    "plugins": "플러그인"
   },
   "chats": {
     "empty": "아직 채팅이 없습니다",
@@ -63,7 +64,34 @@
     "otherApp": "다른 앱",
     "location": "위치",
     "accuracy": "±{metres}m",
-    "openLocation": "{place}: 지도에서 열기"
+    "openLocation": "{place}: 지도에서 열기",
+    "typing": "입력 중…",
+    "reply": "답장",
+    "cancelReply": "답장 취소",
+    "quoteGone": "메시지가 더 이상 없습니다",
+    "you": "나",
+    "them": "상대방",
+    "react": "반응",
+    "reactWith": "{emoji}(으)로 반응",
+    "unreact": "반응 지우기",
+    "pin": "고정",
+    "unpin": "고정 해제",
+    "pinned": "고정됨",
+    "edit": "수정",
+    "edited": "수정됨",
+    "deleted": "삭제된 메시지입니다",
+    "deleteEveryone": "모두에게서 삭제",
+    "cancelEdit": "수정 취소",
+    "editing": "수정 중",
+    "search": "검색",
+    "searchIn": "이 대화에서 검색",
+    "nothingFound": "결과 없음",
+    "closeSearch": "검색 닫기",
+    "sendLater": "나중에 보내기",
+    "schedule": "예약",
+    "scheduleTime": "시간",
+    "scheduledFor": "{time}에 보내기 예약됨",
+    "scheduleNote": "그 시각에 이 휴대폰이 켜져 있으면 전송됩니다. 취소하려면 그 전에 여기서 삭제하세요."
   },
   "status": {
     "pending": "상대 기기 대기 중",
@@ -141,6 +169,8 @@
     "openSettings": "설정 열기"
   },
   "contact": {
+    "call": "통화",
+    "video": "영상",
     "fingerprint": "보안 지문",
     "verify": "직접 만나서 확인",
     "verifyHint": "함께 있을 때 두 코드를 비교하세요",
@@ -170,7 +200,8 @@
     "never": "안 함",
     "days": "{days}일",
     "hours": "{hours}시간",
-    "minutes": "{minutes}분"
+    "minutes": "{minutes}분",
+    "typing": "입력 중임을 표시"
   },
   "move": {
     "fromOld": "이전 휴대폰에서",
@@ -241,7 +272,9 @@
     "renewLinkHint": "이전 링크를 가진 사람은 더 이상 나에게 연락할 수 없으며, 내 연락처에는 새 링크가 전달됩니다",
     "renewLinkConfirm": "갱신",
     "renewed": "링크가 갱신되었습니다",
-    "feedback": "제안하기"
+    "feedback": "제안하기",
+    "tabBar": "탭 바에 표시",
+    "tabBarNone": "없음"
   },
   "hours": {
     "title": "수신 시간",

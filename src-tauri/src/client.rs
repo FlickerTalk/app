@@ -2,7 +2,7 @@
 //! commands to the UI. No business logic here: every command delegates to the core, and what
 //! crosses to the WebView are plain views (never keys, never the capability, §54).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -25,6 +25,8 @@ use crate::push_core::{may_start_from_push, CallScreen, Host, PushSide};
 pub const ROUTER: &str = "https://api.flickertalk.com";
 /// Sent to the UI whenever contacts or messages change; `contact` says which conversation.
 pub const CHANGED_EVENT: &str = "ft://changed";
+/// Sent to the UI when a contact is writing to this phone (2026-10-05); `contact` says who.
+pub const TYPING_EVENT: &str = "ft://typing";
 /// Sent to the UI when the plugins installed here changed (an update, 2026-10-03): it reads them again.
 pub const PLUGINS_EVENT: &str = "ft://plugins";
 
@@ -48,6 +50,42 @@ pub struct MessageView {
     state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     file: Option<FileView>,
+    /// The message this one answers (2026-10-05), as it is shown over the bubble.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quote: Option<QuoteView>,
+    /// The emoji each side put on it (2026-10-05).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reactions: Option<ReactionsView>,
+    /// Pinned on this phone (2026-10-05).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pinned: bool,
+    /// Said again with other words (2026-10-05).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    edited: bool,
+    /// Taken back for both sides (2026-10-05): only the mark is left.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    deleted: bool,
+    /// Written to be sent at this time (2026-10-06, ms), still waiting on this phone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheduled_for: Option<i64>,
+    /// An edit or a taking back of it still waits for the contact's receipt (2026-10-06).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    update_pending: bool,
+}
+
+/// What each side put on a message (2026-10-05): one emoji each, or none.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct ReactionsView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    theirs: Option<String>,
+}
+
+impl From<&ft_storage::Reactions> for ReactionsView {
+    fn from(reactions: &ft_storage::Reactions) -> Self {
+        Self { mine: reactions.mine.clone(), theirs: reactions.theirs.clone() }
+    }
 }
 
 impl MessageView {
@@ -59,6 +97,65 @@ impl MessageView {
             sent_at: message.sent_at,
             state: state_name(message.state),
             file: file.map(FileView::from),
+            quote: None,
+            reactions: None,
+            pinned: false,
+            edited: false,
+            deleted: false,
+            scheduled_for: None,
+            update_pending: false,
+        }
+    }
+
+    pub fn for_later(mut self, send_at: Option<i64>) -> Self {
+        self.scheduled_for = send_at;
+        self
+    }
+
+    pub fn pinned(mut self, pinned: bool) -> Self {
+        self.pinned = pinned;
+        self
+    }
+
+    pub fn marked(mut self, edited: bool, deleted: bool) -> Self {
+        self.edited = edited;
+        self.deleted = deleted;
+        self
+    }
+
+    pub fn updating(mut self, waiting: bool) -> Self {
+        self.update_pending = waiting;
+        self
+    }
+
+    pub fn answering(mut self, quote: QuoteView) -> Self {
+        self.quote = Some(quote);
+        self
+    }
+
+    pub fn reacted(mut self, reactions: Option<&ft_storage::Reactions>) -> Self {
+        self.reactions = reactions.map(ReactionsView::from);
+        self
+    }
+}
+
+/// The message an answer quotes (2026-10-05): its text, or a file's name; `gone` when it is no
+/// longer on this phone (deleted, burnt, or never here).
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct QuoteView {
+    id: String,
+    text: String,
+    mine: bool,
+    kind: &'static str,
+}
+
+impl QuoteView {
+    pub fn of(id: &str, quoted: Option<&Message>, file: Option<&FileRecord>) -> Self {
+        match (quoted, file) {
+            (Some(message), Some(file)) => Self { id: id.to_owned(), text: file.name.clone(), mine: message.outgoing, kind: "file" },
+            (Some(message), None) => Self { id: id.to_owned(), text: message.body.clone(), mine: message.outgoing, kind: "text" },
+            (None, _) => Self { id: id.to_owned(), text: String::new(), mine: false, kind: "gone" },
         }
     }
 }
@@ -228,18 +325,31 @@ pub struct RulesView {
     accepts_chat: bool,
     accepts_calls: bool,
     receipts: bool,
+    /// Absent from a page older than this field: on, as a new contact's.
+    #[serde(default = "yes")]
+    typing: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl From<ft_storage::ContactRules> for RulesView {
     fn from(rules: ft_storage::ContactRules) -> Self {
-        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts }
+        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts, typing: rules.typing }
     }
 }
 
 impl From<RulesView> for ft_storage::ContactRules {
     fn from(rules: RulesView) -> Self {
-        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts }
+        Self { muted: rules.muted, accepts_chat: rules.accepts_chat, accepts_calls: rules.accepts_calls, receipts: rules.receipts, typing: rules.typing }
     }
+}
+
+/// What `ft://typing` carries: who is writing.
+#[derive(Clone, Serialize)]
+struct TypingView {
+    contact: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -1123,6 +1233,10 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                 other => {
                     let Some(app) = app else { continue };
                     match other {
+                        // They are writing (2026-10-05): the open conversation shows it for a moment.
+                        Event::Typing { contact } => {
+                            let _ = app.emit(TYPING_EVENT, TypingView { contact });
+                        }
                         // A plugin on the other side said something to its twin here (2026-09-27).
                         Event::PluginEvent { plugin, contact, data } => {
                             let _ = app.emit(PLUGIN_EVENT, PluginEventView { plugin, contact, data: BASE64.encode(data) });
@@ -1905,7 +2019,39 @@ pub async fn core_messages(contact: String, limit: i64, client: State<'_, Client
         .map(|file| (file.message_id.clone(), located(&core, file)))
         .collect();
     let messages = core.store().messages(&contact, limit).await.map_err(failed)?;
-    Ok(messages.iter().map(|message| MessageView::new(message, files.get(&message.message_id))).collect())
+    // The answers (2026-10-05): the quoted message is usually in the list; an older one is read on
+    // its own, and one no longer here shows as gone.
+    let replies = core.store().replies(&contact).await.map_err(failed)?;
+    let mut quoted: HashMap<String, Message> = messages.iter().map(|message| (message.message_id.clone(), message.clone())).collect();
+    for quoted_id in replies.values() {
+        if !quoted.contains_key(quoted_id) {
+            if let Some(message) = core.store().message(quoted_id).await.map_err(failed)?.filter(|message| message.contact == contact) {
+                quoted.insert(quoted_id.clone(), message);
+            }
+        }
+    }
+    let reactions = core.store().reactions(&contact).await.map_err(failed)?;
+    let pinned: HashSet<String> = core.store().pinned(&contact).await.map_err(failed)?.into_iter().collect();
+    let edited = core.store().edited(&contact).await.map_err(failed)?;
+    let deleted = core.store().deleted(&contact).await.map_err(failed)?;
+    let later = core.store().scheduled(&contact).await.map_err(failed)?;
+    let changing = core.updates_waiting(&contact).await.map_err(failed)?;
+    let moment = ft_core::now();
+    Ok(messages
+        .iter()
+        .map(|message| {
+            let view = MessageView::new(message, files.get(&message.message_id))
+                .reacted(reactions.get(&message.message_id))
+                .pinned(pinned.contains(&message.message_id))
+                .marked(edited.contains(&message.message_id), deleted.contains(&message.message_id))
+                .for_later(later.get(&message.message_id).copied().filter(|send_at| *send_at > moment))
+                .updating(changing.contains(&message.message_id));
+            match replies.get(&message.message_id) {
+                Some(quoted_id) => view.answering(QuoteView::of(quoted_id, quoted.get(quoted_id), files.get(quoted_id))),
+                None => view,
+            }
+        })
+        .collect())
 }
 
 /// Starts copying a file from the WebView into the app; returns the upload's id.
@@ -2033,6 +2179,49 @@ fn now_ms() -> i64 {
 #[tauri::command]
 pub async fn core_forget_message(message: String, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.forget_message(&message).await.map_err(failed)
+}
+
+/// A text written now to be sent at `send_at` (2026-10-06, ms), from this phone.
+#[tauri::command]
+pub async fn core_schedule(contact: String, text: String, send_at: i64, reply_to: Option<String>, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.schedule_text(&contact, &text, send_at, reply_to.as_deref()).await.map_err(failed)
+}
+
+/// The messages of the conversation with these words (2026-10-05), newest first; on this phone.
+#[tauri::command]
+pub async fn core_search(contact: String, query: String, client: State<'_, Client>) -> Result<Vec<MessageView>, String> {
+    let core = client.core().await?;
+    let found = core.search(&contact, &query).await.map_err(failed)?;
+    let mut views = Vec::with_capacity(found.len());
+    for message in &found {
+        let file = core.store().file(&message.message_id).await.map_err(failed)?.map(|file| located(&core, file));
+        views.push(MessageView::new(message, file.as_ref()));
+    }
+    Ok(views)
+}
+
+/// Says one of our texts again with other words (2026-10-05).
+#[tauri::command]
+pub async fn core_edit(message: String, text: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.edit_message(&message, &text).await.map_err(failed)
+}
+
+/// Takes one of our messages back for both sides (2026-10-05).
+#[tauri::command]
+pub async fn core_delete_everyone(message: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.delete_for_everyone(&message).await.map_err(failed)
+}
+
+/// Pins a message on this phone, or unpins it (2026-10-05).
+#[tauri::command]
+pub async fn core_pin(message: String, pinned: bool, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.pin_message(&message, pinned).await.map_err(failed)
+}
+
+/// One emoji on a message of the conversation (2026-10-05); no emoji takes it back.
+#[tauri::command]
+pub async fn core_react(contact: String, message: String, emoji: Option<String>, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.react(&contact, &message, emoji.as_deref()).await.map_err(failed)
 }
 
 /// Sends a message on to another contact: the same text, or the same file (§61).
@@ -3223,13 +3412,13 @@ pub async fn core_send_picked(contact: String, file: PickedView, client: State<'
 
 /// Stored at once (the UI hears about it); delivered in the background.
 #[tauri::command]
-pub async fn core_send(contact: String, text: String, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_send(contact: String, text: String, reply_to: Option<String>, client: State<'_, Client>) -> Result<(), String> {
     if text.trim().is_empty() {
         return Err("nothing to send".to_owned());
     }
     let core = client.core().await?;
     tauri::async_runtime::spawn(async move {
-        let _ = core.send_text(&contact, &text).await;
+        let _ = core.send_text_replying(&contact, &text, reply_to.as_deref()).await;
     });
     Ok(())
 }
@@ -3273,6 +3462,12 @@ pub async fn core_contact(contact: String, client: State<'_, Client>) -> Result<
 #[tauri::command]
 pub async fn core_set_rules(contact: String, rules: RulesView, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.set_rules(&contact, rules.into()).await.map_err(failed)
+}
+
+/// The user is writing to the contact (2026-10-05): told only over an open direct connection.
+#[tauri::command]
+pub async fn core_typing(contact: String, client: State<'_, Client>) -> Result<bool, String> {
+    client.core().await?.typing(&contact).await.map_err(failed)
 }
 
 /// Whether contacts added from now on are told their messages arrived and were read (app#6).
@@ -5040,8 +5235,79 @@ mod tests {
     // Issues app#4–#6: the contact's page shows what this phone takes from them.
     #[test]
     fn a_contact_view_carries_its_rules() {
-        let rules = ft_storage::ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false };
+        let rules = ft_storage::ContactRules { muted: true, accepts_chat: false, accepts_calls: true, receipts: false, typing: false };
         let view = serde_json::to_value(RulesView::from(rules)).unwrap();
-        assert_eq!(view, serde_json::json!({ "muted": true, "acceptsChat": false, "acceptsCalls": true, "receipts": false }));
+        assert_eq!(view, serde_json::json!({ "muted": true, "acceptsChat": false, "acceptsCalls": true, "receipts": false, "typing": false }));
+    }
+
+    // 2026-10-05: the quote over an answer: the text, a file's name, or gone.
+    #[test]
+    fn a_quote_is_the_text_a_files_name_or_gone() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: false, body: "dinner?".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        let text = serde_json::to_value(QuoteView::of("m1", Some(&message), None)).unwrap();
+        assert_eq!(text, serde_json::json!({ "id": "m1", "text": "dinner?", "mine": false, "kind": "text" }));
+        let gone = serde_json::to_value(QuoteView::of("m0", None, None)).unwrap();
+        assert_eq!(gone, serde_json::json!({ "id": "m0", "text": "", "mine": false, "kind": "gone" }));
+        let view = serde_json::to_value(MessageView::new(&message, None).answering(QuoteView::of("m0", None, None))).unwrap();
+        assert_eq!(view["quote"]["kind"], "gone");
+        assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("quote").is_none(), "no quote, no field");
+    }
+
+    // 2026-10-06: a message for later carries its time, and nothing once it went.
+    #[test]
+    fn a_message_for_later_carries_its_time() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: true, body: "hi".into(), sent_at: 9, received_at: 1, state: ft_storage::MessageState::Pending };
+        assert_eq!(serde_json::to_value(MessageView::new(&message, None).for_later(Some(9))).unwrap()["scheduledFor"], 9);
+        assert!(serde_json::to_value(MessageView::new(&message, None).for_later(None)).unwrap().get("scheduledFor").is_none());
+    }
+
+    // 2026-10-05: edited and taken back are marks on the view, absent when false.
+    #[test]
+    fn a_message_says_whether_it_was_edited_or_taken_back() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: true, body: String::new(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        let view = serde_json::to_value(MessageView::new(&message, None).marked(true, false)).unwrap();
+        assert_eq!((view["edited"].clone(), view.get("deleted").cloned()), (serde_json::json!(true), None));
+        let view = serde_json::to_value(MessageView::new(&message, None).marked(false, true)).unwrap();
+        assert_eq!((view.get("edited").cloned(), view["deleted"].clone()), (None, serde_json::json!(true)));
+    }
+
+    // 2026-10-06: an edit or a taking back still waiting for the contact's receipt is on the view,
+    // so the bubble shows the clock instead of the first message's ticks; absent when there is none.
+    #[test]
+    fn a_message_says_whether_a_change_of_it_still_waits() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: true, body: "hi".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Delivered };
+        let view = serde_json::to_value(MessageView::new(&message, None).updating(true)).unwrap();
+        assert_eq!((view["updatePending"].clone(), view["state"].clone()), (serde_json::json!(true), serde_json::json!("delivered")));
+        assert!(serde_json::to_value(MessageView::new(&message, None).updating(false)).unwrap().get("updatePending").is_none());
+    }
+
+    // 2026-10-05: a pinned message says so; an unpinned one says nothing.
+    #[test]
+    fn a_pinned_message_says_so() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: false, body: "hi".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        assert_eq!(serde_json::to_value(MessageView::new(&message, None).pinned(true)).unwrap()["pinned"], true);
+        assert!(serde_json::to_value(MessageView::new(&message, None)).unwrap().get("pinned").is_none());
+    }
+
+    // 2026-10-05: the emoji each side put on a message, only the sides that did.
+    #[test]
+    fn a_message_carries_the_reactions_of_each_side() {
+        let message = Message { message_id: "m1".into(), contact: "ft_bob".into(), outgoing: false, body: "hi".into(), sent_at: 1, received_at: 1, state: ft_storage::MessageState::Read };
+        let both = ft_storage::Reactions { mine: Some("👍".into()), theirs: Some("❤️".into()) };
+        let view = serde_json::to_value(MessageView::new(&message, None).reacted(Some(&both))).unwrap();
+        assert_eq!(view["reactions"], serde_json::json!({ "mine": "👍", "theirs": "❤️" }));
+        let theirs = ft_storage::Reactions { mine: None, theirs: Some("❤️".into()) };
+        let view = serde_json::to_value(MessageView::new(&message, None).reacted(Some(&theirs))).unwrap();
+        assert_eq!(view["reactions"], serde_json::json!({ "theirs": "❤️" }));
+        assert!(serde_json::to_value(MessageView::new(&message, None).reacted(None)).unwrap().get("reactions").is_none());
+    }
+
+    // 2026-10-05: a page from before the typing switch sends rules without it; it stays on.
+    #[test]
+    fn rules_without_the_typing_switch_keep_it_on() {
+        let view: RulesView = serde_json::from_value(serde_json::json!({ "muted": false, "acceptsChat": true, "acceptsCalls": true, "receipts": true })).unwrap();
+        assert!(ft_storage::ContactRules::from(view).typing);
+        let view: RulesView = serde_json::from_value(serde_json::json!({ "muted": false, "acceptsChat": true, "acceptsCalls": true, "receipts": true, "typing": false })).unwrap();
+        assert!(!ft_storage::ContactRules::from(view).typing);
     }
 }

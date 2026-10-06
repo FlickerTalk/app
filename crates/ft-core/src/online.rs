@@ -358,13 +358,15 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
                 _ = every.tick() => {}
                 _ = stopping.wait_for(|stopped| *stopped) => break,
             }
+            let Some(core) = retrying.upgrade() else { break };
             // Away, nothing is retried: a retry would open a connection the other phone sees as
             // alive, and have the router wake this phone for the answer. The welcome on coming
-            // back retries everything.
+            // back retries everything. A text written for later goes at its time all the same
+            // (2026-10-06): the user chose when, and Android runs the core in the background.
             if away.is_away() {
+                let _ = core.send_scheduled_due().await;
                 continue;
             }
-            let Some(core) = retrying.upgrade() else { break };
             let _ = core.retry_due().await;
             let _ = core.resume_files().await;
             // Issue app#1: histories that expire and read messages that burn.

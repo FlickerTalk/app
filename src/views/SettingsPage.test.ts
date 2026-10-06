@@ -6,6 +6,7 @@ import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
+import { extraTab, storedExtraTab } from "../preferences";
 
 // Android's back button: the handler the app listens with while something is open on top.
 const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
@@ -290,6 +291,29 @@ describe("SettingsPage", () => {
     await wrapper.find("[data-test='erase-cancel']").trigger("click");
     expect(wrapper.find("[data-test='erase-confirm']").exists()).toBe(false);
     expect(calls.map(([command]) => command)).not.toContain("core_erase");
+  });
+
+  // 2026-10-05 (Ioan): the fourth tab is picked here, in a sheet: nothing, the games or the plugins.
+  it("lets the user choose what the tab bar shows besides Chats, Calls and Settings", () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Show in the tab bar");
+    expect(select?.attributes("value")).toBe("none");
+    expect(select?.attributes("interface")).toBe("modal");
+    expect(select?.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual(["Nothing", "Games", "Plugins"]);
+    expect(select?.findAllComponents(IonSelectOption).map((option) => option.attributes("value"))).toEqual(["none", "games", "plugins"]);
+  });
+
+  it("keeps the chosen tab on this phone, and the bar follows at once", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Show in the tab bar");
+    select?.vm.$emit("ionChange", { detail: { value: "games" } });
+    await flushPromises();
+    expect(storedExtraTab()).toBe("games");
+    expect(extraTab.value).toBe("games");
+    expect(select?.attributes("value")).toBe("games");
+    select?.vm.$emit("ionChange", { detail: { value: "none" } });
+    await flushPromises();
+    expect(storedExtraTab()).toBe("none");
   });
 
   // Issue app#3: from here you see what runs inside FlickerTalk.

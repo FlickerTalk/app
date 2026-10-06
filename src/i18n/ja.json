@@ -7,7 +7,8 @@
     "chats": "チャット",
     "calls": "通話",
     "settings": "設定",
-    "games": "ゲーム"
+    "games": "ゲーム",
+    "plugins": "プラグイン"
   },
   "chats": {
     "empty": "まだチャットはありません",
@@ -63,7 +64,34 @@
     "otherApp": "別のアプリ",
     "location": "位置情報",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}：マップで開く"
+    "openLocation": "{place}：マップで開く",
+    "typing": "入力中…",
+    "reply": "返信",
+    "cancelReply": "返信を取り消す",
+    "quoteGone": "メッセージはもうありません",
+    "you": "あなた",
+    "them": "相手",
+    "react": "リアクション",
+    "reactWith": "{emoji} でリアクション",
+    "unreact": "リアクションを取り消す",
+    "pin": "ピン留め",
+    "unpin": "ピン留めを外す",
+    "pinned": "ピン留め済み",
+    "edit": "編集",
+    "edited": "編集済み",
+    "deleted": "メッセージは削除されました",
+    "deleteEveryone": "全員に対して削除",
+    "cancelEdit": "編集を取り消す",
+    "editing": "編集中",
+    "search": "検索",
+    "searchIn": "この会話内を検索",
+    "nothingFound": "見つかりませんでした",
+    "closeSearch": "検索を閉じる",
+    "sendLater": "あとで送信",
+    "schedule": "予約",
+    "scheduleTime": "時刻",
+    "scheduledFor": "{time} に送信予定",
+    "scheduleNote": "その時刻に、この端末の電源が入っていれば送信されます。取り消すには、それまでにここで削除してください。"
   },
   "status": {
     "pending": "相手の端末を待っています",
@@ -141,6 +169,8 @@
     "openSettings": "設定を開く"
   },
   "contact": {
+    "call": "通話",
+    "video": "ビデオ",
     "fingerprint": "セキュリティ指紋",
     "verify": "対面で確認",
     "verifyHint": "会ったときに両方のコードを見比べてください",
@@ -170,7 +200,8 @@
     "never": "しない",
     "days": "{days}日",
     "hours": "{hours}時間",
-    "minutes": "{minutes}分"
+    "minutes": "{minutes}分",
+    "typing": "入力中であることを表示"
   },
   "move": {
     "fromOld": "古いスマホから",
@@ -241,7 +272,9 @@
     "renewLinkHint": "古いリンクを持っている人は、もうあなたに連絡できません。連絡先には新しいリンクが届きます",
     "renewLinkConfirm": "更新",
     "renewed": "リンクを更新しました",
-    "feedback": "提案する"
+    "feedback": "提案する",
+    "tabBar": "タブバーに表示",
+    "tabBarNone": "なし"
   },
   "hours": {
     "title": "時間帯",

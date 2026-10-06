@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
 
 const tauri = vi.hoisted(() => ({
@@ -120,7 +120,7 @@ describe("core bridge", () => {
 
   // Issues app#4–#6: what this phone takes from a contact and tells them, only in the core.
   it("sets a contact's rules and the receipts default through the core", async () => {
-    const rules = { muted: true, acceptsChat: true, acceptsCalls: false, receipts: false };
+    const rules = { muted: true, acceptsChat: true, acceptsCalls: false, receipts: false, typing: true };
     await core.setRules("ft_bob", rules);
     expect(tauri.invoke).toHaveBeenCalledWith("core_set_rules", { contact: "ft_bob", rules });
     await core.setReceipts(false);
@@ -170,6 +170,26 @@ describe("core bridge", () => {
     expect(receiving.file?.url).toBeUndefined();
     expect(received.file).toMatchObject({ state: "done", url: "asset://localhost/files/f2/photo.jpg" });
     expect(sending.file).toMatchObject({ state: "sending", url: "asset://localhost/files/f3/photo.jpg" });
+  });
+
+  // 2026-10-06: an edit or a taking back still waiting for the contact's receipt is on the
+  // message, next to the state the message itself reached; absent, nothing.
+  it("says which messages have a change still waiting", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [
+              { id: "m1", outgoing: true, text: "dinner at 8", sentAt: at(9, 50), state: "delivered", edited: true, updatePending: true },
+              { id: "m2", outgoing: true, text: "see you", sentAt: at(9, 51), state: "delivered" },
+            ]
+          : answers[command],
+      ),
+    );
+    await core.start();
+    await core.loadMessages("ft_bob");
+    const [changing, settled] = core.chat("ft_bob")?.messages ?? [];
+    expect(changing).toMatchObject({ status: "delivered", edited: true, updatePending: true });
+    expect(settled.updatePending).toBeUndefined();
   });
 
   // Without a direct connection a transfer cannot move: it says so instead of pretending.
@@ -468,6 +488,98 @@ describe("circles", () => {
       { id: "e1", mine: true, text: "Friends", time: "10:00", status: "read", kind: "created", sender: "ft_me", senderName: "Me" },
       { id: "m1", mine: false, text: "dinner?", time: "10:02", status: "delivered", kind: "text", sender: "ft_bob", senderName: "Bob" },
     ]);
+  });
+
+  // 2026-10-05: an answer quotes the message it answers; the core is told which one.
+  it("sends an answer with the message it quotes, and a plain text without", async () => {
+    await core.sendText("ft_bob", "yes!", "m1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "yes!", replyTo: "m1" });
+    await core.sendText("ft_bob", "hi");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hi" });
+  });
+
+  // 2026-10-06: a text for later goes to the core with its time, and the quote when there is one.
+  it("schedules a text through the core", async () => {
+    await core.scheduleText("ft_bob", "good morning", 1_900_000_000_000);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_schedule", { contact: "ft_bob", text: "good morning", sendAt: 1_900_000_000_000 });
+    await core.scheduleText("ft_bob", "yes", 1_900_000_000_000, "m1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_schedule", { contact: "ft_bob", text: "yes", sendAt: 1_900_000_000_000, replyTo: "m1" });
+  });
+
+  // 2026-10-05: the search asks the core for the words, and nothing for an empty query.
+  it("searches a conversation through the core", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_search" ? [{ id: "m9", outgoing: false, text: "friday works", sentAt: 1_700_000_000_000, state: "read" }] : answers[command]),
+    );
+    const found = await core.searchMessages("ft_bob", " friday ");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_search", { contact: "ft_bob", query: "friday" });
+    expect(found.map((one) => [one.id, one.text, one.mine])).toEqual([["m9", "friday works", false]]);
+    tauri.invoke.mockClear();
+    expect(await core.searchMessages("ft_bob", "   ")).toEqual([]);
+    expect(tauri.invoke).not.toHaveBeenCalled();
+  });
+
+  // 2026-10-05: other words for my text, and taking a message back for both sides.
+  it("edits a text and takes a message back through the core", async () => {
+    await core.editMessage("m1", "  other words ");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_edit", { message: "m1", text: "other words" });
+    await core.deleteForEveryone("m1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_delete_everyone", { message: "m1" });
+  });
+
+  // 2026-10-05: a pin is this phone's; the core keeps it with the message.
+  it("pins and unpins a message through the core", async () => {
+    await core.pinMessage("m1", true);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pin", { message: "m1", pinned: true });
+    await core.pinMessage("m1", false);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_pin", { message: "m1", pinned: false });
+  });
+
+  // 2026-10-05: one emoji on a message; none takes it back.
+  it("puts an emoji on a message through the core, and takes it back", async () => {
+    await core.react("ft_bob", "m1", "👍");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_react", { contact: "ft_bob", message: "m1", emoji: "👍" });
+    await core.react("ft_bob", "m1", null);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_react", { contact: "ft_bob", message: "m1" });
+  });
+
+  // 2026-10-05: "typing…" is a moment's state, never stored; the contact's message ends it.
+  describe("typing", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("hears a contact typing, and forgets it when their message arrives or after a while", async () => {
+      await core.start();
+      expect(core.isTyping("ft_bob")).toBe(false);
+      tauri.handlers[core.TYPING_EVENT]({ payload: { contact: "ft_bob" } });
+      expect(core.isTyping("ft_bob")).toBe(true);
+      expect(core.store.typing).toEqual({ ft_bob: true });
+      tauri.handlers[core.CHANGED_EVENT]({ payload: { contact: "ft_bob" } });
+      expect(core.isTyping("ft_bob")).toBe(false);
+
+      tauri.handlers[core.TYPING_EVENT]({ payload: { contact: "ft_bob" } });
+      vi.advanceTimersByTime(core.TYPING_FADE - 1);
+      expect(core.isTyping("ft_bob")).toBe(true);
+      // Heard again: the moment starts over.
+      tauri.handlers[core.TYPING_EVENT]({ payload: { contact: "ft_bob" } });
+      vi.advanceTimersByTime(core.TYPING_FADE - 1);
+      expect(core.isTyping("ft_bob")).toBe(true);
+      vi.advanceTimersByTime(2);
+      expect(core.isTyping("ft_bob")).toBe(false);
+    });
+
+    it("tells the core the user is typing at most once every few seconds, and never fails", async () => {
+      await core.sendTyping("ft_bob");
+      await core.sendTyping("ft_bob");
+      expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_typing")).toEqual([["core_typing", { contact: "ft_bob" }]]);
+      vi.advanceTimersByTime(core.TYPING_EVERY);
+      tauri.invoke.mockRejectedValueOnce(new Error("no core"));
+      await expect(core.sendTyping("ft_bob")).resolves.toBeUndefined();
+      expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_typing")).toHaveLength(2);
+      // Another contact has a moment of their own.
+      await core.sendTyping("ft_carol");
+      expect(tauri.invoke).toHaveBeenCalledWith("core_typing", { contact: "ft_carol" });
+    });
   });
 
   it("reloads an open circle when the core says it changed", async () => {

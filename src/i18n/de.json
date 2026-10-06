@@ -7,7 +7,8 @@
     "chats": "Chats",
     "calls": "Anrufe",
     "settings": "Einstellungen",
-    "games": "Spiele"
+    "games": "Spiele",
+    "plugins": "Plugins"
   },
   "chats": {
     "empty": "Noch keine Chats",
@@ -63,7 +64,34 @@
     "otherApp": "Andere App",
     "location": "Standort",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: in Karten öffnen"
+    "openLocation": "{place}: in Karten öffnen",
+    "typing": "schreibt…",
+    "reply": "Antworten",
+    "cancelReply": "Antwort verwerfen",
+    "quoteGone": "Nachricht nicht mehr vorhanden",
+    "you": "Du",
+    "them": "Die andere Person",
+    "react": "Reagieren",
+    "reactWith": "Mit {emoji} reagieren",
+    "unreact": "Reaktion entfernen",
+    "pin": "Anheften",
+    "unpin": "Lösen",
+    "pinned": "Angeheftet",
+    "edit": "Bearbeiten",
+    "edited": "bearbeitet",
+    "deleted": "Nachricht gelöscht",
+    "deleteEveryone": "Für alle löschen",
+    "cancelEdit": "Bearbeitung abbrechen",
+    "editing": "Bearbeiten",
+    "search": "Suchen",
+    "searchIn": "In dieser Unterhaltung suchen",
+    "nothingFound": "Nichts gefunden",
+    "closeSearch": "Suche schließen",
+    "sendLater": "Später senden",
+    "schedule": "Planen",
+    "scheduleTime": "Uhrzeit",
+    "scheduledFor": "Geplant für {time}",
+    "scheduleNote": "Geht zu dieser Zeit von diesem Telefon ab, wenn es an ist; vorher hier löschen, um es abzusagen."
   },
   "status": {
     "pending": "Warte auf Gerät",
@@ -141,6 +169,8 @@
     "openSettings": "Einstellungen öffnen"
   },
   "contact": {
+    "call": "Anrufen",
+    "video": "Video",
     "fingerprint": "Sicherheits-Fingerabdruck",
     "verify": "Persönlich verifizieren",
     "verifyHint": "Vergleicht beide Codes, wenn ihr zusammen seid",
@@ -170,7 +200,8 @@
     "never": "Nie",
     "days": "{days} T.",
     "hours": "{hours} Std.",
-    "minutes": "{minutes} Min."
+    "minutes": "{minutes} Min.",
+    "typing": "Zeigen, wenn ich schreibe"
   },
   "move": {
     "fromOld": "Von deinem alten Telefon",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Wer deinen alten Link hat, erreicht dich nicht mehr; deine Kontakte bekommen den neuen",
     "renewLinkConfirm": "Erneuern",
     "renewed": "Link erneuert",
-    "feedback": "Etwas vorschlagen"
+    "feedback": "Etwas vorschlagen",
+    "tabBar": "In der Tableiste anzeigen",
+    "tabBarNone": "Nichts"
   },
   "hours": {
     "title": "Zeiten",

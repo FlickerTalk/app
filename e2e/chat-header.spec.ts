@@ -2,7 +2,7 @@
 // apps buttons (the games are a tab of the apps since Ioan's decision of 2026-10-02), a long name is
 // cut with an ellipsis and never drawn under a button, in any language and either direction. The
 // buttons keep their full tap size. Room for the name and status: about 98 px at 360 px and 150 px
-// at 412 px (with four buttons it was 50 and 80).
+// at 412 px (with four buttons it was 50 and 80; three again since the search moved to the contact page, 2026-10-06).
 import type { Page } from "@playwright/test";
 import { expect, test } from "./helpers";
 
@@ -23,7 +23,7 @@ async function checkHeader(app: Page, name: string) {
   await app.goto(`/chat/${BOB}`);
   const bar = app.locator(".ft-thread__bar");
   const buttons = bar.locator("ion-buttons[slot='end'] ion-button");
-  // Voice, video and the apps (tools and games): three.
+  // Voice, video and the apps (tools and games): three; the search is on the contact page (2026-10-06).
   await expect(buttons).toHaveCount(3);
   await expect(bar.locator(".ft-peer__name")).toHaveText(LONG);
   await app.waitForTimeout(300);

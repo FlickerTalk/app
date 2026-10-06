@@ -7,7 +7,8 @@
     "chats": "Chats",
     "calls": "Calls",
     "settings": "Settings",
-    "games": "Games"
+    "games": "Games",
+    "plugins": "Plugins"
   },
   "chats": {
     "empty": "No chats yet",
@@ -63,7 +64,34 @@
     "otherApp": "Another app",
     "location": "Location",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: open in maps"
+    "openLocation": "{place}: open in maps",
+    "typing": "typing…",
+    "reply": "Reply",
+    "cancelReply": "Cancel reply",
+    "quoteGone": "Message no longer here",
+    "you": "You",
+    "them": "Them",
+    "react": "React",
+    "reactWith": "React with {emoji}",
+    "unreact": "Remove reaction",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinned": "Pinned",
+    "edit": "Edit",
+    "edited": "edited",
+    "deleted": "Message deleted",
+    "deleteEveryone": "Delete for everyone",
+    "cancelEdit": "Cancel edit",
+    "editing": "Editing",
+    "search": "Search",
+    "searchIn": "Search in this conversation",
+    "nothingFound": "Nothing found",
+    "closeSearch": "Close search",
+    "sendLater": "Send later",
+    "schedule": "Schedule",
+    "scheduleTime": "Time",
+    "scheduledFor": "Scheduled for {time}",
+    "scheduleNote": "It goes from this phone at that time, if the phone is on; delete it here before to cancel it."
   },
   "status": {
     "pending": "Waiting for device",
@@ -141,6 +169,8 @@
     "openSettings": "Open Settings"
   },
   "contact": {
+    "call": "Call",
+    "video": "Video",
     "fingerprint": "Security fingerprint",
     "verify": "Verify in person",
     "verifyHint": "Compare both codes when you are together",
@@ -170,7 +200,8 @@
     "never": "Never",
     "days": "{days} days",
     "hours": "{hours} h",
-    "minutes": "{minutes} min"
+    "minutes": "{minutes} min",
+    "typing": "Show when I’m typing"
   },
   "move": {
     "fromOld": "From your old phone",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
     "renewed": "Link renewed",
-    "feedback": "Suggest something"
+    "feedback": "Suggest something",
+    "tabBar": "Show in the tab bar",
+    "tabBarNone": "Nothing"
   },
   "hours": {
     "title": "Hours",

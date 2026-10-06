@@ -7,7 +7,8 @@
     "chats": "Sohbetler",
     "calls": "Aramalar",
     "settings": "Ayarlar",
-    "games": "Oyunlar"
+    "games": "Oyunlar",
+    "plugins": "Eklentiler"
   },
   "chats": {
     "empty": "Henüz sohbet yok",
@@ -63,7 +64,34 @@
     "otherApp": "Başka bir uygulama",
     "location": "Konum",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: haritalarda aç"
+    "openLocation": "{place}: haritalarda aç",
+    "typing": "yazıyor…",
+    "reply": "Yanıtla",
+    "cancelReply": "Yanıtı iptal et",
+    "quoteGone": "Mesaj artık burada değil",
+    "you": "Sen",
+    "them": "Karşı taraf",
+    "react": "Tepki ver",
+    "reactWith": "{emoji} ile tepki ver",
+    "unreact": "Tepkiyi kaldır",
+    "pin": "Sabitle",
+    "unpin": "Sabitlemeyi kaldır",
+    "pinned": "Sabitlendi",
+    "edit": "Düzenle",
+    "edited": "düzenlendi",
+    "deleted": "Mesaj silindi",
+    "deleteEveryone": "Herkesten sil",
+    "cancelEdit": "Düzenlemeyi iptal et",
+    "editing": "Düzenleniyor",
+    "search": "Ara",
+    "searchIn": "Bu konuşmada ara",
+    "nothingFound": "Hiçbir şey bulunamadı",
+    "closeSearch": "Aramayı kapat",
+    "sendLater": "Daha sonra gönder",
+    "schedule": "Planla",
+    "scheduleTime": "Saat",
+    "scheduledFor": "{time} için planlandı",
+    "scheduleNote": "O saatte, açıksa bu telefondan gider; iptal etmek için önce buradan silin."
   },
   "status": {
     "pending": "Cihaz bekleniyor",
@@ -141,6 +169,8 @@
     "openSettings": "Ayarlar'ı aç"
   },
   "contact": {
+    "call": "Sesli",
+    "video": "Görüntülü",
     "fingerprint": "Güvenlik parmak izi",
     "verify": "Yüz yüze doğrula",
     "verifyHint": "Birlikteyken iki kodu karşılaştırın",
@@ -170,7 +200,8 @@
     "never": "Asla",
     "days": "{days} gün",
     "hours": "{hours} sa",
-    "minutes": "{minutes} dk"
+    "minutes": "{minutes} dk",
+    "typing": "Yazarken göster"
   },
   "move": {
     "fromOld": "Eski telefonunuzdan",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Eski bağlantınız kimdeyse artık size ulaşamaz; kişileriniz yenisini alır",
     "renewLinkConfirm": "Yenile",
     "renewed": "Bağlantı yenilendi",
-    "feedback": "Bir şey önerin"
+    "feedback": "Bir şey önerin",
+    "tabBar": "Sekme çubuğunda göster",
+    "tabBarNone": "Hiçbiri"
   },
   "hours": {
     "title": "Saatler",

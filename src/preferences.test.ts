@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { isOnboarded, setCallRouting, setOnboarded, storedCallRouting, syncCallRouting } from "./preferences";
+import { extraTab, isOnboarded, setCallRouting, setExtraTab, setOnboarded, storedCallRouting, storedExtraTab, syncCallRouting } from "./preferences";
 import { installTauri } from "./__tests__/tauri";
 
 describe("preferences", () => {
@@ -37,5 +37,29 @@ describe("preferences", () => {
   it("ignores an unknown stored value", () => {
     localStorage.setItem("ft-call-routing", "whatever");
     expect(storedCallRouting()).toBe("auto");
+  });
+
+  // 2026-10-05: the fourth tab is a choice; out of the box the bar has Chats, Calls and Settings.
+  describe("the extra tab", () => {
+    beforeEach(() => setExtraTab("none"));
+
+    it("is none by default", () => {
+      localStorage.clear();
+      expect(storedExtraTab()).toBe("none");
+    });
+
+    it("remembers the games or the plugins, and says so at once", () => {
+      setExtraTab("games");
+      expect(storedExtraTab()).toBe("games");
+      expect(extraTab.value).toBe("games");
+      setExtraTab("plugins");
+      expect(storedExtraTab()).toBe("plugins");
+      expect(extraTab.value).toBe("plugins");
+    });
+
+    it("ignores an unknown stored value", () => {
+      localStorage.setItem("ft-extra-tab", "whatever");
+      expect(storedExtraTab()).toBe("none");
+    });
   });
 });

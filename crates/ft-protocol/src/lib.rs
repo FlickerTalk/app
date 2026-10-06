@@ -74,7 +74,13 @@ pub struct Packet {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Body {
-    Message { text: String },
+    /// A text; `reply_to` (2026-10-05) names the message it answers, when it answers one. An
+    /// older app does not know the field and shows the text on its own.
+    Message {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_to: Option<MessageId>,
+    },
     /// Receipts (§38): the receiver stored these messages.
     Delivered { ids: Vec<MessageId> },
     Read { ids: Vec<MessageId> },
@@ -199,6 +205,15 @@ pub enum Body {
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },
+    /// A reaction to a message (2026-10-05): one emoji per person and message; an empty `emoji`
+    /// takes it back. An older app decodes it as `Unknown` and ignores it.
+    Reaction { to: MessageId, emoji: String },
+    /// The sender's own text `of`, said again with other words (2026-10-05). An older app keeps
+    /// the first words.
+    Edit { of: MessageId, text: String },
+    /// The sender takes back their own message `of`, for both sides (2026-10-05): the receiver
+    /// keeps only that it was there. An older app keeps it.
+    Delete { of: MessageId },
     /// A packet type from a newer version (or one this version cannot read): ignored (§23).
     /// Only ever decoded, never sent.
     #[serde(skip)]
@@ -384,9 +399,23 @@ mod tests {
         assert_eq!(Packet::decode(&bytes).expect("decodes"), packet);
     }
 
+    // 2026-10-05: a text from an app before replies has no `reply_to`; one with it keeps the id.
+    #[test]
+    fn a_text_without_reply_to_is_a_plain_message() {
+        let plain = Packet::new(Body::Message { text: "hi".to_owned(), reply_to: None });
+        let bytes = plain.encode();
+        assert!(!String::from_utf8_lossy(&bytes).contains("reply_to"), "nothing on the wire for a plain text");
+        assert_eq!(Packet::decode(&bytes).unwrap().body, Body::Message { text: "hi".to_owned(), reply_to: None });
+    }
+
     #[test]
     fn every_packet_type_survives_the_wire() {
-        round_trip(Body::Message { text: "hello".to_owned() });
+        round_trip(Body::Message { text: "hello".to_owned(), reply_to: None });
+        round_trip(Body::Message { text: "yes".to_owned(), reply_to: Some(MessageId::new()) });
+        round_trip(Body::Reaction { to: MessageId::new(), emoji: "👍".to_owned() });
+        round_trip(Body::Reaction { to: MessageId::new(), emoji: String::new() });
+        round_trip(Body::Edit { of: MessageId::new(), text: "other words".to_owned() });
+        round_trip(Body::Delete { of: MessageId::new() });
         round_trip(Body::Delivered { ids: vec![MessageId::new(), MessageId::new()] });
         round_trip(Body::Received { ids: vec![MessageId::new()] });
         round_trip(Body::Read { ids: vec![MessageId::new()] });
@@ -450,7 +479,7 @@ mod tests {
     // §27: a retry resends the same message, so the receiver can drop the duplicate.
     #[test]
     fn a_retried_packet_keeps_its_id_and_time() {
-        let original = Packet::new(Body::Message { text: "hi".to_owned() });
+        let original = Packet::new(Body::Message { text: "hi".to_owned(), reply_to: None });
         let retry = Packet::resend(original.id, original.sent_at, original.body.clone());
         assert_eq!(retry, original);
     }
@@ -564,13 +593,13 @@ mod tests {
     #[test]
     fn packets_are_padded_to_the_bucket() {
         for text in ["ok", "a somewhat longer answer, say", &"x".repeat(1000)] {
-            let packet = Packet::new(Body::Message { text: text.to_owned() });
+            let packet = Packet::new(Body::Message { text: text.to_owned(), reply_to: None });
             let bytes = packet.encode();
             assert_eq!(bytes.len() % PAD_BUCKET, 0, "{} bytes for {} chars", bytes.len(), text.len());
             assert_eq!(Packet::decode(&bytes).expect("decodes"), packet, "the pad is dropped on the way in");
         }
-        let short = Packet::new(Body::Message { text: "ok".to_owned() }).encode().len();
-        let longer = Packet::new(Body::Message { text: "a somewhat longer answer, say".to_owned() }).encode().len();
+        let short = Packet::new(Body::Message { text: "ok".to_owned(), reply_to: None }).encode().len();
+        let longer = Packet::new(Body::Message { text: "a somewhat longer answer, say".to_owned(), reply_to: None }).encode().len();
         assert_eq!(short, longer, "two short texts weigh the same");
     }
 

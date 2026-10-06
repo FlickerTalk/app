@@ -7,7 +7,8 @@
     "chats": "Chat",
     "calls": "Panggilan",
     "settings": "Pengaturan",
-    "games": "Game"
+    "games": "Game",
+    "plugins": "Plugin"
   },
   "chats": {
     "empty": "Belum ada chat",
@@ -63,7 +64,34 @@
     "otherApp": "Aplikasi lain",
     "location": "Lokasi",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: buka di peta"
+    "openLocation": "{place}: buka di peta",
+    "typing": "sedang mengetik…",
+    "reply": "Balas",
+    "cancelReply": "Batalkan balasan",
+    "quoteGone": "Pesan sudah tidak ada",
+    "you": "Anda",
+    "them": "Lawan bicara",
+    "react": "Bereaksi",
+    "reactWith": "Bereaksi dengan {emoji}",
+    "unreact": "Hapus reaksi",
+    "pin": "Sematkan",
+    "unpin": "Lepas sematan",
+    "pinned": "Disematkan",
+    "edit": "Edit",
+    "edited": "diedit",
+    "deleted": "Pesan dihapus",
+    "deleteEveryone": "Hapus untuk semua",
+    "cancelEdit": "Batalkan edit",
+    "editing": "Mengedit",
+    "search": "Cari",
+    "searchIn": "Cari di percakapan ini",
+    "nothingFound": "Tidak ada hasil",
+    "closeSearch": "Tutup pencarian",
+    "sendLater": "Kirim nanti",
+    "schedule": "Jadwalkan",
+    "scheduleTime": "Waktu",
+    "scheduledFor": "Dijadwalkan untuk {time}",
+    "scheduleNote": "Dikirim dari ponsel ini pada waktu itu, jika ponsel menyala; hapus di sini sebelumnya untuk membatalkan."
   },
   "status": {
     "pending": "Menunggu perangkat",
@@ -141,6 +169,8 @@
     "openSettings": "Buka Pengaturan"
   },
   "contact": {
+    "call": "Panggil",
+    "video": "Video",
     "fingerprint": "Sidik jari keamanan",
     "verify": "Verifikasi saat bertemu",
     "verifyHint": "Bandingkan kedua kode saat kalian bersama",
@@ -170,7 +200,8 @@
     "never": "Tidak pernah",
     "days": "{days} hari",
     "hours": "{hours} jam",
-    "minutes": "{minutes} mnt"
+    "minutes": "{minutes} mnt",
+    "typing": "Tampilkan saat saya mengetik"
   },
   "move": {
     "fromOld": "Dari ponsel lama Anda",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Siapa pun yang punya tautan lama Anda tidak bisa lagi menghubungi Anda; kontak Anda mendapatkan yang baru",
     "renewLinkConfirm": "Perbarui",
     "renewed": "Tautan diperbarui",
-    "feedback": "Usulkan sesuatu"
+    "feedback": "Usulkan sesuatu",
+    "tabBar": "Tampilkan di bilah tab",
+    "tabBarNone": "Tidak ada"
   },
   "hours": {
     "title": "Jam aktif",

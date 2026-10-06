@@ -7,11 +7,16 @@ describe("routes", () => {
     expect(routes.find((route) => route.path === "/")?.redirect).toBe("/tabs/chats");
   });
 
-  it("exposes chats, calls, games and settings as tabs", () => {
+  it("exposes chats, calls, games, plugins and settings as tabs", () => {
     const tabs = routes.find((route) => route.path === "/tabs/");
     expect(tabs?.children?.map((child) => child.path)).toEqual(
-      expect.arrayContaining(["chats", "calls", "games", "settings"]),
+      expect.arrayContaining(["chats", "calls", "games", "plugins", "settings"]),
     );
+  });
+
+  // The plugins keep their own screen too: Settings opens it, and so does a plugin's reminder.
+  it("keeps the plugins screen outside the tabs as well", () => {
+    expect(routes.some((route) => route.path === "/plugins")).toBe(true);
   });
 
   it("has a screen for the welcome, adding contacts, a contact and a call", () => {

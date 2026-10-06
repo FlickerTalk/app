@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   IonAlert,
   IonBackButton,
+  IonButton,
   IonButtons,
   IonContent,
   IonHeader,
@@ -19,14 +20,17 @@ import {
 import {
   banOutline,
   callOutline,
+  chatbubbleEllipsesOutline,
   chatbubbleOutline,
   checkmarkDoneOutline,
   flagOutline,
   hourglassOutline,
   notificationsOffOutline,
   pencilOutline,
+  searchOutline,
   timerOutline,
   trashOutline,
+  videocamOutline,
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
@@ -37,12 +41,14 @@ import {
   renameContact,
   reportContact,
   removeContact,
+  requestPending,
   setHistory,
   setRules,
   type ContactDetails,
   type ContactRules,
 } from "../core";
 import { t } from "../i18n";
+import { askSearch } from "../pending-search";
 
 const route = useRoute();
 const router = useRouter();
@@ -55,6 +61,35 @@ const details = ref<ContactDetails | null>(null);
 const fingerprint = computed(() => details.value?.fingerprint ?? "");
 const blocked = computed(() => details.value?.blocked ?? false);
 
+// Ioan, 2026-10-06: as in Messenger and WhatsApp, the quick actions live here, under the name, and
+// the chat header keeps few icons. The calls go as the header's do, and only where it offers them:
+// not to a stranger whose request is unanswered (A5). The search opens in the conversation.
+const canCall = computed(() => !requestPending(id));
+const QUICK = computed(() => [
+  ...(canCall.value
+    ? [
+        { test: "call", icon: callOutline, label: "contact.call", aria: "chat.voiceCall", to: `/call/${id}` },
+        { test: "video", icon: videocamOutline, label: "contact.video", aria: "chat.videoCall", to: `/call/${id}?video=1` },
+      ]
+    : []),
+  { test: "search", icon: searchOutline, label: "chat.search", aria: "chat.searchIn", to: `/chat/${id}?search=1` },
+]);
+
+/**
+ * As in WhatsApp: reached from the conversation (the page under this one is it), the search goes
+ * back to it and the conversation searches, so the next back goes to the list. From anywhere else
+ * it opens the conversation with `?search=1`.
+ */
+function quick(action: { test: string; to: string }) {
+  const under = router.options.history.state?.back;
+  if (action.test === "search" && typeof under === "string" && under.split("?")[0] === `/chat/${id}`) {
+    askSearch(id);
+    router.back();
+    return;
+  }
+  void router.push(action.to);
+}
+
 const name = ref("");
 // Issue app#1: how long this phone keeps the conversation, and how long a read message stays.
 // Seconds; 0 is forever and never. All of it is a choice of this phone.
@@ -64,12 +99,14 @@ const keepFor = ref(0);
 const burnAfterRead = ref(0);
 
 // Issues app#4–#6: what this phone takes from them and tells them. Nothing of it travels.
-const rules = ref<ContactRules>({ muted: false, acceptsChat: true, acceptsCalls: true, receipts: true });
+const rules = ref<ContactRules>({ muted: false, acceptsChat: true, acceptsCalls: true, receipts: true, typing: true });
 const RULES = [
   { key: "muted", label: "contact.mute", icon: notificationsOffOutline, test: "mute" },
   { key: "acceptsChat", label: "contact.acceptsChat", icon: chatbubbleOutline, test: "chat" },
   { key: "acceptsCalls", label: "contact.acceptsCalls", icon: callOutline, test: "calls" },
   { key: "receipts", label: "contact.receipts", icon: checkmarkDoneOutline, test: "receipts" },
+  // 2026-10-05: whether they see "typing…"; it goes only over the direct connection.
+  { key: "typing", label: "contact.typing", icon: chatbubbleEllipsesOutline, test: "typing" },
 ] as const;
 
 async function changeRule(key: keyof ContactRules, on: boolean) {
@@ -169,6 +206,23 @@ const deleteButtons = computed(() => [
         <span class="ft-contact__status" :class="{ 'is-direct': contact.connected }">
           {{ contact.connected ? $t("chat.direct") : $t("chat.notConnected") }}
         </span>
+
+        <div class="ft-quick" role="group" data-test="quick-actions">
+          <ion-button
+            v-for="action in QUICK"
+            :key="action.test"
+            fill="clear"
+            class="ft-quick__action"
+            :data-test="`quick-${action.test}`"
+            :aria-label="$t(action.aria)"
+            @click="quick(action)"
+          >
+            <span class="ft-quick__inner">
+              <span class="ft-quick__icon"><ion-icon :icon="action.icon" aria-hidden="true" /></span>
+              <span class="ft-quick__label">{{ $t(action.label) }}</span>
+            </span>
+          </ion-button>
+        </div>
 
         <section class="ft-contact__card">
           <span class="ft-contact__label">{{ $t("contact.fingerprint") }}</span>
@@ -323,6 +377,45 @@ const deleteButtons = computed(() => [
 }
 .ft-contact__status.is-direct {
   color: var(--ft-accent);
+}
+
+/* The quick actions (2026-10-06): round icons with a short word under each, as in WhatsApp. */
+.ft-quick {
+  display: flex;
+  justify-content: center;
+  gap: var(--ft-space-4);
+  margin-block-start: var(--ft-space-3);
+}
+.ft-quick__action {
+  --padding-start: 6px;
+  --padding-end: 6px;
+  --padding-top: 6px;
+  --padding-bottom: 6px;
+  min-width: 72px;
+  height: auto;
+  margin: 0;
+  text-transform: none;
+}
+.ft-quick__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.ft-quick__icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(var(--ion-color-primary-rgb), 0.14);
+  color: var(--ion-color-primary);
+  font-size: 22px;
+}
+.ft-quick__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ion-text-color);
 }
 
 .ft-contact__card {

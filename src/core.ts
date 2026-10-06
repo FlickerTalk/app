@@ -36,6 +36,33 @@ export interface ChatMessage {
   status?: Status;
   kind?: "file";
   file?: ChatFile;
+  /** The message this one answers (2026-10-05), shown over the bubble. */
+  quote?: Quote;
+  /** The emoji each side put on it (2026-10-05). */
+  reactions?: Reactions;
+  /** Pinned on this phone (2026-10-05). */
+  pinned?: boolean;
+  /** Said again with other words (2026-10-05). */
+  edited?: boolean;
+  /** Taken back for both sides (2026-10-05): only the mark is left. */
+  deleted?: boolean;
+  /** Written to be sent at this time (2026-10-06, ms), still waiting on this phone. */
+  scheduledFor?: number;
+  /** An edit or a taking back of it still waits for the contact's receipt (2026-10-06). */
+  updatePending?: boolean;
+}
+
+export interface Reactions {
+  mine?: string;
+  theirs?: string;
+}
+
+/** What an answer quotes: a text, a file's name, or a message no longer here. */
+export interface Quote {
+  id: string;
+  text: string;
+  mine: boolean;
+  kind: "text" | "file" | "gone";
 }
 
 export interface Chat {
@@ -123,6 +150,8 @@ export interface ContactRules {
   acceptsCalls: boolean;
   /** They see their messages as delivered and read. */
   receipts: boolean;
+  /** They see when I am writing to them (2026-10-05); only over the direct connection. */
+  typing: boolean;
 }
 
 /** One day of the weekly hours (app#7): all day, never, or a stretch "HH:MM"–"HH:MM". */
@@ -162,6 +191,13 @@ interface MessageView {
   sentAt: number;
   state: Status;
   file?: FileView;
+  quote?: Quote;
+  reactions?: Reactions;
+  pinned?: boolean;
+  edited?: boolean;
+  deleted?: boolean;
+  scheduledFor?: number;
+  updatePending?: boolean;
 }
 
 interface ConversationView {
@@ -220,6 +256,12 @@ interface SessionView {
 }
 
 export const CHANGED_EVENT = "ft://changed";
+/** A contact is writing to this phone (2026-10-05); the payload says who. */
+export const TYPING_EVENT = "ft://typing";
+/** How long "typing…" stays after the last word heard, when no message follows. */
+export const TYPING_FADE = 6000;
+/** At most one "typing" to a contact every this often while the user writes. */
+export const TYPING_EVERY = 3000;
 const MESSAGE_LIMIT = 200;
 /** Bytes per call when copying a picked file into the app. */
 const UPLOAD_SLICE = 512 * 1024;
@@ -234,7 +276,42 @@ export const store = reactive({
   sessions: [] as Session[],
   /** The circles of the main list (2026-09-27). */
   circles: [] as Circle[],
+  /** Contacts writing to this phone right now (2026-10-05), by id. */
+  typing: {} as Record<string, boolean>,
 });
+
+const typingFades = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** The contact is writing: shown until a message of theirs arrives, or for a moment. */
+export function heardTyping(contact: string): void {
+  store.typing[contact] = true;
+  clearTimeout(typingFades.get(contact));
+  typingFades.set(contact, setTimeout(() => quietTyping(contact), TYPING_FADE));
+}
+
+function quietTyping(contact: string): void {
+  clearTimeout(typingFades.get(contact));
+  typingFades.delete(contact);
+  delete store.typing[contact];
+}
+
+export function isTyping(contact: string): boolean {
+  return store.typing[contact] === true;
+}
+
+const typingSent = new Map<string, number>();
+
+/**
+ * Tells the contact the user is writing to them (2026-10-05), at most once every `TYPING_EVERY`.
+ * The core sends it only over a direct connection already open; the contact's own switch on their
+ * page can turn it off. Never throws: a missed "typing" is nothing.
+ */
+export async function sendTyping(contact: string): Promise<void> {
+  const now = Date.now();
+  if (now - (typingSent.get(contact) ?? 0) < TYPING_EVERY) return;
+  typingSent.set(contact, now);
+  await invoke("core_typing", { contact }).catch(() => undefined);
+}
 
 /** Conversations whose messages are shown, so a change reloads them. */
 const loaded = new Set<string>();
@@ -297,6 +374,13 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
     message.kind = "file";
     message.file = toFile(view.file, view.outgoing, connected);
   }
+  if (view.quote) message.quote = view.quote;
+  if (view.reactions) message.reactions = view.reactions;
+  if (view.pinned) message.pinned = true;
+  if (view.edited) message.edited = true;
+  if (view.deleted) message.deleted = true;
+  if (view.scheduledFor) message.scheduledFor = view.scheduledFor;
+  if (view.updatePending) message.updatePending = true;
   return message;
 }
 
@@ -319,6 +403,14 @@ function toChat(view: ConversationView): Chat {
 
 export function chat(id: string): Chat | undefined {
   return allChats().find((candidate) => candidate.id === id);
+}
+
+/**
+ * A5 (2026-09-28): a stranger who wrote first and is not answered yet, here or in a session.
+ * Until then, no composer and no call.
+ */
+export function requestPending(id: string): boolean {
+  return store.requests.some((one) => one.id === id) || store.sessions.some((session) => session.requests.some((one) => one.id === id));
 }
 
 function toCircleMessage(view: CircleMessageView): CircleMessage {
@@ -483,7 +575,10 @@ export async function start(): Promise<void> {
   const me = await invoke<Omit<Me, "hue">>("core_me");
   store.me = { ...me, hue: hueOf(me.id) };
   await refreshChats();
+  await listen<{ contact: string }>(TYPING_EVENT, ({ payload }) => heardTyping(payload.contact));
   await listen<{ contact: string | null; circle?: string | null; all?: boolean }>(CHANGED_EVENT, ({ payload }) => {
+    // Their message arrived: they are no longer "typing" (2026-10-05).
+    if (payload.contact) quietTyping(payload.contact);
     // The list first: an open conversation's files depend on the connection it reports.
     void refreshChats().then(() => {
       // Events were lost to a burst (2026-10-01): whatever is shown may be out of date.
@@ -524,8 +619,9 @@ export async function loadMessages(contact: string): Promise<void> {
   }
 }
 
-export async function sendText(contact: string, text: string): Promise<void> {
-  await invoke("core_send", { contact, text });
+/** Sends a text; `replyTo` (2026-10-05) is the id of the message it answers, quoted over it. */
+export async function sendText(contact: string, text: string, replyTo?: string): Promise<void> {
+  await invoke("core_send", replyTo ? { contact, text, replyTo } : { contact, text });
 }
 
 // ---- Circles (2026-09-27) ----
@@ -920,6 +1016,38 @@ export async function subscribe(): Promise<void> {
 }
 
 /** What the user does with one message of theirs (§61). */
+/** A text written now to go at `sendAt` (2026-10-06, ms), from this phone; `replyTo` quotes a message. */
+export async function scheduleText(contact: string, text: string, sendAt: number, replyTo?: string): Promise<void> {
+  await invoke("core_schedule", replyTo ? { contact, text, sendAt, replyTo } : { contact, text, sendAt });
+}
+
+/** The messages of a conversation with these words (2026-10-05), newest first; on this phone only. */
+export async function searchMessages(contact: string, query: string): Promise<ChatMessage[]> {
+  if (!query.trim()) return [];
+  const views = await invoke<MessageView[]>("core_search", { contact, query: query.trim() });
+  return views.map((view) => toMessage(view));
+}
+
+/** Says one of my texts again with other words (2026-10-05); the contact sees the change. */
+export async function editMessage(message: string, text: string): Promise<void> {
+  await invoke("core_edit", { message, text: text.trim() });
+}
+
+/** Takes one of my messages back for both sides (2026-10-05). */
+export async function deleteForEveryone(message: string): Promise<void> {
+  await invoke("core_delete_everyone", { message });
+}
+
+/** Pins a message on this phone, or unpins it (2026-10-05); nothing of it travels. */
+export async function pinMessage(message: string, pinned: boolean): Promise<void> {
+  await invoke("core_pin", { message, pinned });
+}
+
+/** One emoji on a message of the conversation (2026-10-05); `null` takes it back. */
+export async function react(contact: string, message: string, emoji: string | null): Promise<void> {
+  await invoke("core_react", emoji ? { contact, message, emoji } : { contact, message });
+}
+
 export async function forgetMessage(message: string): Promise<void> {
   await invoke("core_forget_message", { message });
 }

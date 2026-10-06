@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/plugin-opener", () => opener);
 
 import { IonButton, IonIcon } from "@ionic/vue";
 import MessageBubble from "./MessageBubble.vue";
+import source from "./MessageBubble.vue?raw";
 import { installed, offered } from "../plugins";
 import type { OfferedPlugin, PluginView } from "../core";
 import { setLocale } from "../i18n";
@@ -22,6 +23,152 @@ describe("MessageBubble", () => {
   ])("labels the %s state for screen readers", (status, label) => {
     const wrapper = mount(MessageBubble, { props: { message: { ...base, status } }, shallow: true });
     expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
+  });
+
+  // 2026-10-05: an answer shows what it answers over the text; a tap goes there.
+  describe("an answer", () => {
+    it("quotes the message it answers and goes to it on a tap", async () => {
+      const quote = { id: "m0", text: "dinner on friday?", mine: false, kind: "text" as const };
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "yes!", quote } }, shallow: true });
+      const shown = wrapper.find("[data-test='quote']");
+      expect(shown.text()).toContain("dinner on friday?");
+      expect(shown.text()).toContain("Them");
+      await shown.trigger("click");
+      expect(wrapper.emitted("jump")).toEqual([["m0"]]);
+      expect(wrapper.attributes("data-message")).toBe("m1");
+    });
+
+    // Seen on the phones (2026-10-06): a long press on the quote did nothing, the quote kept it.
+    // A long press anywhere on the bubble asks for the actions; a tap on the quote still jumps.
+    it("asks for the actions on a long press on the quote, and jumps only on a tap", async () => {
+      vi.useFakeTimers();
+      try {
+        const quote = { id: "m0", text: "dinner on friday?", mine: false, kind: "text" as const };
+        const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "yes!", quote } }, shallow: true });
+        const shown = wrapper.find("[data-test='quote']");
+        await shown.trigger("pointerdown");
+        vi.advanceTimersByTime(600);
+        expect(wrapper.emitted("actions")).toEqual([["m1"]]);
+        await shown.trigger("pointerup");
+        await shown.trigger("click");
+        expect(wrapper.emitted("jump"), "the press was for the actions").toBeUndefined();
+
+        await shown.trigger("pointerdown");
+        vi.advanceTimersByTime(100);
+        await shown.trigger("pointerup");
+        await shown.trigger("click");
+        expect(wrapper.emitted("jump")).toEqual([["m0"]]);
+        expect(wrapper.emitted("actions")).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("names me when it quotes my own message, and the sender in a circle", () => {
+      const mine = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "ok", mine: true, kind: "text" } } }, shallow: true });
+      expect(mine.find("[data-test='quote']").text()).toContain("You");
+      const circle = mount(MessageBubble, {
+        props: { message: { ...base, mine: false, quote: { id: "m0", text: "ok", mine: false, kind: "text" } }, sender: "Bob" },
+        shallow: true,
+      });
+      expect(circle.find("[data-test='quote']").text()).toContain("Bob");
+    });
+
+    // Seen on the phones (2026-10-06): the quote said «Them» while the reply bar said the contact's
+    // name. In a conversation, a quote of theirs names the contact; without a name, the generic word.
+    it("names the contact when it quotes their message in a conversation", () => {
+      const quote = { id: "m0", text: "ok", mine: false, kind: "text" as const };
+      const named = mount(MessageBubble, { props: { message: { ...base, quote }, contactName: "Marcos" }, shallow: true });
+      expect(named.find("[data-test='quote']").text()).toContain("Marcos");
+      expect(named.find("[data-test='quote']").text()).not.toContain("Them");
+      const unnamed = mount(MessageBubble, { props: { message: { ...base, quote } }, shallow: true });
+      expect(unnamed.find("[data-test='quote']").text()).toContain("Them");
+      const mine = mount(MessageBubble, { props: { message: { ...base, quote: { ...quote, mine: true } }, contactName: "Marcos" }, shallow: true });
+      expect(mine.find("[data-test='quote']").text()).toContain("You");
+    });
+
+    it("says so when the quoted message is no longer here, and names a quoted file", () => {
+      const gone = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "", mine: false, kind: "gone" } } }, shallow: true });
+      expect(gone.find("[data-test='quote']").text()).toBe("Message no longer here");
+      const file = mount(MessageBubble, { props: { message: { ...base, quote: { id: "m0", text: "holiday.jpg", mine: false, kind: "file" } } }, shallow: true });
+      expect(file.find("[data-test='quote']").text()).toContain("holiday.jpg");
+    });
+
+    it("has no quote on a plain message", () => {
+      expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='quote']").exists()).toBe(false);
+    });
+  });
+
+  // 2026-10-06: a message for later says when it goes, instead of a state it does not have yet.
+  it("says when a message for later goes", () => {
+    const at = new Date();
+    at.setHours(20, 30, 0, 0);
+    const wrapper = mount(MessageBubble, { props: { message: { ...base, status: "pending", scheduledFor: at.getTime() } }, shallow: true });
+    const label = wrapper.find("[data-test='scheduled']").text();
+    expect(label).toContain("Scheduled for");
+    expect(label).toMatch(/8:30|20:30/);
+    expect(wrapper.find("[aria-label='Waiting for device']").exists()).toBe(false);
+  });
+
+  // Seen on a Spanish iPhone (2026-10-06): «Programado para 01:23 PM». The time is written like
+  // the bubbles' own times, and a day in the app's language, not the WebView's.
+  it("says when a message for later goes in the app's language", async () => {
+    await setLocale("es");
+    try {
+      const today = new Date();
+      today.setHours(13, 23, 0, 0);
+      const soon = mount(MessageBubble, { props: { message: { ...base, status: "pending", scheduledFor: today.getTime() } }, shallow: true });
+      expect(soon.find("[data-test='scheduled']").text()).toBe("Programado para 13:23");
+      const later = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 9, 5);
+      const another = mount(MessageBubble, { props: { message: { ...base, status: "pending", scheduledFor: later.getTime() } }, shallow: true });
+      const day = new Intl.DateTimeFormat("es", { day: "numeric", month: "short" }).format(later);
+      expect(another.find("[data-test='scheduled']").text()).toBe(`Programado para ${day} 09:05`);
+    } finally {
+      await setLocale("en");
+    }
+  });
+
+  // 2026-10-05: a message taken back shows only its mark; an edited one says so by its time.
+  it("shows a message taken back as deleted, and an edited one as edited", () => {
+    const gone = mount(MessageBubble, { props: { message: { ...base, text: "", deleted: true } }, shallow: true });
+    expect(gone.find("[data-test='deleted']").text()).toBe("Message deleted");
+    expect(gone.find(".ft-bubble__text:not(.ft-bubble__gone)").exists()).toBe(false);
+    const edited = mount(MessageBubble, { props: { message: { ...base, edited: true } }, shallow: true });
+    expect(edited.find("[data-test='edited']").text()).toBe("edited");
+    expect(edited.text()).toContain("Hi");
+    expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='edited']").exists()).toBe(false);
+  });
+
+  // Seen on the phones (2026-10-06): an edited bubble and the mark of one taken back kept the
+  // first message's ✓✓ while the change still waited here. While it waits, the clock; once the
+  // contact's receipt comes, the ticks again.
+  it("shows the clock while a change of the message waits, and the ticks once it arrived", async () => {
+    const wrapper = mount(MessageBubble, { props: { message: { ...base, status: "read", edited: true, updatePending: true } }, shallow: true });
+    expect(wrapper.find("[aria-label='Waiting for device']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Read']").exists()).toBe(false);
+    const gone = mount(MessageBubble, { props: { message: { ...base, text: "", status: "delivered", deleted: true, updatePending: true } }, shallow: true });
+    expect(gone.find("[aria-label='Waiting for device']").exists()).toBe(true);
+    expect(gone.find("[aria-label='Delivered']").exists()).toBe(false);
+    await wrapper.setProps({ message: { ...base, status: "read", edited: true } });
+    expect(wrapper.find("[aria-label='Read']").exists()).toBe(true);
+    expect(wrapper.find("[aria-label='Waiting for device']").exists()).toBe(false);
+  });
+
+  // 2026-10-05: a pinned message carries a pin by its time.
+  it("marks a pinned message", () => {
+    expect(mount(MessageBubble, { props: { message: { ...base, pinned: true } }, shallow: true }).find("[data-test='pinned']").exists()).toBe(true);
+    expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='pinned']").exists()).toBe(false);
+  });
+
+  // 2026-10-05: the emoji each side put on a message show under it; none, nothing.
+  it("shows the emoji each side put on the message", () => {
+    const both = mount(MessageBubble, { props: { message: { ...base, reactions: { mine: "👍", theirs: "❤️" } } }, shallow: true });
+    expect(both.find("[data-test='reaction-mine']").text()).toBe("👍");
+    expect(both.find("[data-test='reaction-theirs']").text()).toBe("❤️");
+    const theirs = mount(MessageBubble, { props: { message: { ...base, reactions: { theirs: "❤️" } } }, shallow: true });
+    expect(theirs.find("[data-test='reaction-mine']").exists()).toBe(false);
+    expect(theirs.find("[data-test='reaction-theirs']").text()).toBe("❤️");
+    expect(mount(MessageBubble, { props: { message: base }, shallow: true }).find("[data-test='reactions']").exists()).toBe(false);
   });
 
   // §84: a message the router refused says so, and can be sent again from where it is.
@@ -516,5 +663,54 @@ describe("MessageBubble", () => {
       const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false }, sender: "Ana (work)" }, shallow: true });
       expect(wrapper.find("[data-test='sender']").attributes("dir")).toBe("auto");
     });
+  });
+  // 2026-10-06, the review of the chat features: the quote, the reactions and the marks take their
+  // colours from Ionic's palette and their sides from the writing direction (Arabic, right to left).
+  it("styles the chat features with Ionic's colours and logical sides", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+      .filter(({ selector }) => /\.ft-(quote|reactions|bubble__pin|bubble__later|bubble__edited|bubble__gone)/.test(selector));
+    expect(rules.length).toBeGreaterThan(5);
+    for (const { selector, body } of rules) {
+      expect(body, selector).not.toMatch(/var\(--ft-(accent|muted|text|surface|border|bg)/);
+      expect(body, selector).not.toMatch(/color-mix|rgba\(\s*\d/);
+      expect(body, selector).not.toMatch(/(padding|margin)(-left|-right)?:\s*\S+\s+\S+\s+\S+\s+\S+;|(padding|margin)-(left|right)|\b(left|right):/);
+    }
+  });
+  // Seen on the phones (2026-10-06): the reactions sat beside the bubble's top corner, in a box as
+  // tall as the bubble (36×104 px with a quote). They go under the bubble, in the message's own
+  // column, at its outer corner, and never stretch.
+  it.each([
+    [true, "flex-end"],
+    [false, "flex-start"],
+  ])("puts the reactions under the bubble, in its column (mine: %s)", (mine, corner) => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: { ...base, mine, quote: { id: "m0", text: "ok", mine: false, kind: "text" as const }, reactions: { theirs: "❤️" } } },
+      shallow: true,
+    });
+    const reactions = wrapper.find("[data-test='reactions']").element;
+    const bubble = wrapper.find("[data-test='bubble']").element;
+    expect(reactions.previousElementSibling, "right after the bubble").toBe(bubble);
+    expect(reactions.parentElement?.classList.contains("ft-msg__column"), "inside the message's column").toBe(true);
+    expect(reactions.parentElement, "not a flex item beside the bubble").not.toBe(wrapper.element);
+
+    const styles = source.slice(source.indexOf("<style")).replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
+    const body = (selector: string) => rules.filter((rule) => rule.selector === selector).map((rule) => rule.body).join(";");
+    expect(body(".ft-msg__column")).toMatch(/flex-direction:\s*column/);
+    expect(body(mine ? ".is-mine .ft-msg__column" : ".ft-msg__column")).toMatch(new RegExp(`align-items:\\s*${corner}`));
+    expect(body(".ft-reactions")).not.toMatch(/align-self:\s*stretch|height:\s*100%/);
+  });
+  // Ioan, 2026-10-06: the emoji on a message stand alone, no chip around them.
+  it("shows the emoji of a reaction alone, without a background or a border", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+      .filter(({ selector }) => /\.ft-reactions/.test(selector));
+    expect(rules.length).toBeGreaterThan(0);
+    for (const { selector, body } of rules) {
+      expect(body, selector).not.toMatch(/background|border(?!-radius)/);
+    }
   });
 });

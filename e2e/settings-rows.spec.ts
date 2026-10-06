@@ -158,8 +158,8 @@ for (const mode of MODES) {
     test("keeps every toggle title and note, and every select label and value, on one line", async ({ app }) => {
       await openSettings(app, mode);
       const texts = await app.locator(".ft-settings ion-item").filter({ has: app.locator("ion-toggle, ion-select") }).evaluateAll(textsIn);
-      // Two toggles with a title and a note each, two selects with a label and a value each.
-      expect(texts.length).toBe(8);
+      // Two toggles with a title and a note each, three selects with a label and a value each.
+      expect(texts.length).toBe(10);
       expect(texts.filter((one) => one.lines !== 1)).toEqual([]);
     });
   });

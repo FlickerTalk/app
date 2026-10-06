@@ -7,7 +7,8 @@
     "chats": "Trò chuyện",
     "calls": "Cuộc gọi",
     "settings": "Cài đặt",
-    "games": "Trò chơi"
+    "games": "Trò chơi",
+    "plugins": "Plugin"
   },
   "chats": {
     "empty": "Chưa có cuộc trò chuyện nào",
@@ -63,7 +64,34 @@
     "otherApp": "Ứng dụng khác",
     "location": "Vị trí",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: mở trong bản đồ"
+    "openLocation": "{place}: mở trong bản đồ",
+    "typing": "đang nhập…",
+    "reply": "Trả lời",
+    "cancelReply": "Hủy trả lời",
+    "quoteGone": "Tin nhắn không còn nữa",
+    "you": "Bạn",
+    "them": "Người kia",
+    "react": "Bày tỏ cảm xúc",
+    "reactWith": "Bày tỏ cảm xúc {emoji}",
+    "unreact": "Bỏ cảm xúc",
+    "pin": "Ghim",
+    "unpin": "Bỏ ghim",
+    "pinned": "Đã ghim",
+    "edit": "Sửa",
+    "edited": "đã sửa",
+    "deleted": "Tin nhắn đã bị xóa",
+    "deleteEveryone": "Xóa với mọi người",
+    "cancelEdit": "Hủy sửa",
+    "editing": "Đang sửa",
+    "search": "Tìm kiếm",
+    "searchIn": "Tìm trong cuộc trò chuyện này",
+    "nothingFound": "Không tìm thấy gì",
+    "closeSearch": "Đóng tìm kiếm",
+    "sendLater": "Gửi sau",
+    "schedule": "Lên lịch",
+    "scheduleTime": "Giờ",
+    "scheduledFor": "Đã lên lịch lúc {time}",
+    "scheduleNote": "Sẽ gửi từ điện thoại này vào giờ đó, nếu máy đang bật; xóa ở đây trước đó để hủy."
   },
   "status": {
     "pending": "Đang chờ thiết bị",
@@ -141,6 +169,8 @@
     "openSettings": "Mở Cài đặt"
   },
   "contact": {
+    "call": "Gọi",
+    "video": "Video",
     "fingerprint": "Dấu vân tay bảo mật",
     "verify": "Xác minh trực tiếp",
     "verifyHint": "So sánh hai mã khi hai bạn ở cạnh nhau",
@@ -170,7 +200,8 @@
     "never": "Không bao giờ",
     "days": "{days} ngày",
     "hours": "{hours} giờ",
-    "minutes": "{minutes} phút"
+    "minutes": "{minutes} phút",
+    "typing": "Hiển thị khi tôi đang nhập"
   },
   "move": {
     "fromOld": "Từ điện thoại cũ của bạn",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Ai có liên kết cũ của bạn sẽ không liên lạc được với bạn nữa; liên hệ của bạn sẽ nhận liên kết mới",
     "renewLinkConfirm": "Làm mới",
     "renewed": "Đã làm mới liên kết",
-    "feedback": "Góp ý"
+    "feedback": "Góp ý",
+    "tabBar": "Hiển thị trên thanh tab",
+    "tabBarNone": "Không có"
   },
   "hours": {
     "title": "Giờ nhận",

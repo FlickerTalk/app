@@ -491,6 +491,21 @@ async fn nothing_is_retried_in_the_background() {
     until("bob sees it delivered", || async { state(&bob, &sent).await == MessageState::Delivered }).await;
 }
 
+// 2026-10-06: a text written for later goes at its time with the app out of the foreground, as
+// the app promises (Android runs the core in the background): it is the user's own choice of when.
+// Only its first go: the rest of the outbox still waits for the app to come back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_for_later_goes_at_its_time_in_the_background() {
+    let (fake, alice, bob) = two_phones().await;
+    let message = alice.core().schedule_text(&bob.id(), "happy birthday!", ft_core::now() + 90_000, None).await.expect("schedules");
+    alice.online.set_foreground(false).await;
+    until("the router sees alice gone", || async { !fake.is_connected(&alice.id()) }).await;
+
+    // Its time comes while she is away.
+    alice.core().store().reschedule(&message, 0, ft_core::now() - 1, false).await.expect("the clock moves");
+    until("bob has it", || async { texts(&bob, &alice.id()).await == ["happy birthday!"] }).await;
+}
+
 // Leaving a session (2026-10-01). The router (0.6.0) stops what would come for a session the phone
 // declared silent, but it cannot close a direct connection already open: the phone closes those
 // with the session's contacts itself, at once.

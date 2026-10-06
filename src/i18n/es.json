@@ -7,7 +7,8 @@
     "chats": "Chats",
     "calls": "Llamadas",
     "settings": "Ajustes",
-    "games": "Juegos"
+    "games": "Juegos",
+    "plugins": "Plugins"
   },
   "chats": {
     "empty": "Aún no hay chats",
@@ -63,7 +64,34 @@
     "otherApp": "Otra app",
     "location": "Ubicación",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: abrir en mapas"
+    "openLocation": "{place}: abrir en mapas",
+    "typing": "escribiendo…",
+    "reply": "Responder",
+    "cancelReply": "Cancelar la respuesta",
+    "quoteGone": "Mensaje ya no disponible",
+    "you": "Tú",
+    "them": "La otra persona",
+    "react": "Reaccionar",
+    "reactWith": "Reaccionar con {emoji}",
+    "unreact": "Quitar la reacción",
+    "pin": "Fijar",
+    "unpin": "Dejar de fijar",
+    "pinned": "Fijado",
+    "edit": "Editar",
+    "edited": "editado",
+    "deleted": "Mensaje eliminado",
+    "deleteEveryone": "Borrar para todos",
+    "cancelEdit": "Cancelar la edición",
+    "editing": "Editando",
+    "search": "Buscar",
+    "searchIn": "Buscar en esta conversación",
+    "nothingFound": "No hay resultados",
+    "closeSearch": "Cerrar la búsqueda",
+    "sendLater": "Enviar más tarde",
+    "schedule": "Programar",
+    "scheduleTime": "Hora",
+    "scheduledFor": "Programado para {time}",
+    "scheduleNote": "Sale de este teléfono a esa hora, si está encendido; bórralo aquí antes para cancelarlo."
   },
   "status": {
     "pending": "Esperando al dispositivo",
@@ -141,6 +169,8 @@
     "openSettings": "Abrir Ajustes"
   },
   "contact": {
+    "call": "Llamar",
+    "video": "Vídeo",
     "fingerprint": "Huella de seguridad",
     "verify": "Verificar en persona",
     "verifyHint": "Comparen ambos códigos cuando estén juntos",
@@ -170,7 +200,8 @@
     "never": "Nunca",
     "days": "{days} d",
     "hours": "{hours} h",
-    "minutes": "{minutes} min"
+    "minutes": "{minutes} min",
+    "typing": "Mostrar cuando escribo"
   },
   "move": {
     "fromOld": "Desde tu teléfono anterior",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Quien tenga tu enlace antiguo ya no podrá llegar a ti; tus contactos reciben el nuevo",
     "renewLinkConfirm": "Renovar",
     "renewed": "Enlace renovado",
-    "feedback": "Sugerir algo"
+    "feedback": "Sugerir algo",
+    "tabBar": "Mostrar en la barra de pestañas",
+    "tabBarNone": "Nada"
   },
   "hours": {
     "title": "Horario",

@@ -65,9 +65,36 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   un fichero.
 - **Estados de cada mensaje:** esperando al otro teléfono, enviado, entregado, leído. Nunca se marca
   como entregado algo que no lo está.
-- **Pulsación larga en un mensaje:** plegar, reenviar a otro contacto, compartir con otra app o
-  borrar de este teléfono.
+- **Pulsación larga en un mensaje:** responder (desde el 2026-10-05), plegar, reenviar a otro
+  contacto, compartir con otra app o borrar de este teléfono.
+- **Enviar más tarde** (desde el 2026-10-06): con texto escrito, el reloj junto a Enviar pide una
+  hora (entre un minuto y un año) y el mensaje espera en la cola de este teléfono hasta entonces,
+  marcado «Programado para…». Sale de este teléfono a esa hora si está encendido: en Android el
+  núcleo corre en segundo plano; en iPhone sale cuando el teléfono despierta la app. Borrarlo aquí
+  antes lo cancela.
+- **Buscar en la conversación** (desde el 2026-10-05): la lupa de la cabecera abre un campo bajo
+  ella; los mensajes con esas palabras (de los dos, sin distinguir mayúsculas) se listan del más
+  reciente al más antiguo y tocar uno lleva a él. Todo en el teléfono: nada de la búsqueda sale.
+- **Editar y borrar para todos** (desde el 2026-10-05): en la pulsación larga de un mensaje mío,
+  «Editar» pone el texto en el compositor y Enviar lo cambia en los dos teléfonos (marcado como
+  «editado»; solo textos, hasta un día después). «Borrar» ofrece además «Borrar para todos»: en
+  los dos teléfonos quedan solo las palabras «Mensaje eliminado», y el fichero, si lo había, se
+  borra. Una app anterior conserva lo primero que se dijo.
+- **Fijar mensajes** (desde el 2026-10-05): desde la pulsación larga; solo en este teléfono, nada
+  viaja. El último fijado se ve en una franja bajo la cabecera; tocarla lleva al mensaje y pasa al
+  siguiente fijado.
+- **Reacciones** (desde el 2026-10-05): en la pulsación larga, una fila de seis emojis; uno por
+  persona y mensaje, el mismo otra vez lo quita. Se ven bajo la burbuja y viajan como un acuse,
+  en directo o por el buzón; una app anterior los ignora.
+- **Responder citando** (desde el 2026-10-05): la cita queda sobre el compositor hasta enviar o
+  descartarla, y viaja con el mensaje como el identificador del citado. El otro lado la ve sobre la
+  burbuja (el texto, el nombre de un fichero, o «mensaje ya no disponible» si lo borró) y tocarla
+  lleva al mensaje citado. Una app anterior enseña el texto sin la cita.
 - **Herramientas (plugins):** el botón de apps del chat abre las instaladas (ver «Plugins»).
+- **«Escribiendo…»** (desde el 2026-10-05): mientras el otro escribe, la cabecera lo dice en lugar
+  del estado de conexión, y se apaga al llegar su mensaje o a los pocos segundos. Viaja solo por la
+  conexión directa ya abierta: nunca por el buzón ni por el servidor, y sin conexión no se envía
+  nada. Cada ficha de contacto tiene su interruptor «Show when I'm typing».
 - **Llamada de voz y de vídeo** desde la cabecera.
 
 ## Llamadas
@@ -103,6 +130,7 @@ no se entera y el servidor no lo ve.
 - **Calls:** apagado, sus llamadas no entran; él recibe «busy» y aquí no queda rastro.
 - **Delivered and read receipts:** apagado, él nunca ve «entregado» ni «leído» (sus mensajes se
   quedan en «enviado»), aunque sí deja de reintentar.
+- **Show when I'm typing** (desde el 2026-10-05): apagado, él nunca ve «escribiendo…».
 - **Block:** corta la conexión y descarta todo lo suyo. Se deshace en Ajustes → Blocked.
 - **Report:** abre un correo a FlickerTalk con el motivo y, si quieres, sus últimos mensajes como
   prueba; además lo bloquea.
@@ -234,6 +262,9 @@ nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
 - **Delivered and read receipts:** valor por defecto para los contactos nuevos.
 - **Hours**, **Calls**, **Blocked**, **Session** (arriba).
 - **Color** (Mono, Ember, Aurora) y **Appearance** (sistema, oscuro, claro).
+- **Show in the tab bar** (desde el 2026-10-05): qué va en la barra entre Calls y Settings, elegido
+  en una hoja modal: nada (por defecto), **Games** o **Plugins**. La barra y el raíl de pantalla
+  ancha cambian al momento; `/tabs/games` y `/tabs/plugins` siguen existiendo aunque no se muestren.
 - **Plugins**, **Move to a new phone**, **Backup** (la nube del usuario), **Erase this phone**
   (quita el dispositivo del servidor y borra todo el teléfono, con confirmación).
 - **Plan** y **Version**.

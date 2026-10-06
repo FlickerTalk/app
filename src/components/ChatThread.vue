@@ -5,6 +5,7 @@ import {
   IonButton,
   IonButtons,
   IonContent,
+  IonDatetime,
   IonFabButton,
   IonFabList,
   IonFooter,
@@ -14,8 +15,10 @@ import {
   IonLabel,
   IonList,
   IonModal,
+  IonSearchbar,
   IonSegment,
   IonSegmentButton,
+  IonText,
   IonTextarea,
   IonTitle,
   IonToolbar,
@@ -46,6 +49,11 @@ import {
   openOutline,
   trashOutline,
   videocamOutline,
+  arrowUndoOutline,
+  pin,
+  pinOutline,
+  pencilOutline,
+  timeOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
@@ -76,21 +84,30 @@ import {
   forwardMessage,
   grantPlugin,
   installPlugin,
+  isTyping,
   loadMessages,
   markRead,
   openFile,
   pickFiles,
+  pinMessage,
   pluginRef,
+  react,
   readMessageFile,
   resend,
   takePhoto,
   saveFile,
+  scheduleText,
+  requestPending,
+  searchMessages,
   sendFile,
   sendPicked,
   sendText,
+  sendTyping,
   sessionOf,
   shareMessage,
   declineContact,
+  deleteForEveryone,
+  editMessage,
   store,
   type ChatMessage,
   type PickedFile,
@@ -104,14 +121,16 @@ import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
 /** `play` (plan 10.4): a game to open here at once, from the games tab (`/chat/<id>?play=<id>`). */
+/** `search` (2026-10-06): the search of the conversation, asked for by the contact page (`?search=1`). */
 /**
  * `active`: whether the page holding the conversation is the one on screen (2026-10-02). Ionic
  * keeps a page mounted under the next one; what it left open must not take Android's back button
  * there, and takes it again when the page is back (seen on the Samsung).
  */
-const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; split?: boolean; active?: boolean }>(), {
+const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; search?: boolean; split?: boolean; active?: boolean }>(), {
   showBack: false,
   play: undefined,
+  search: false,
   split: false,
   active: true,
 });
@@ -138,11 +157,7 @@ const days = computed(() =>
  * and the no stand apart and blocking asks once, never from the list, where a small screen made
  * the no easy to hit by mistake. Until then, no composer and no call.
  */
-const isRequest = computed(
-  () =>
-    store.requests.some((one) => one.id === props.chatId) ||
-    store.sessions.some((session) => session.requests.some((one) => one.id === props.chatId)),
-);
+const isRequest = computed(() => requestPending(props.chatId));
 const asksToBlock = ref(false);
 
 async function acceptRequest() {
@@ -178,10 +193,249 @@ function readOnReturn() {
 async function send() {
   const text = draft.value.trim();
   if (!text) return;
+  // 2026-10-05: other words for a text already sent, instead of a new message.
+  if (editing.value) {
+    const id = editing.value.id;
+    draft.value = "";
+    emoji.value = false;
+    editing.value = null;
+    await editMessage(id, text).catch(() => {});
+    return;
+  }
+  const answering = replying.value?.id;
   draft.value = "";
   emoji.value = false;
-  await sendText(props.chatId, text);
+  replying.value = null;
+  await sendText(props.chatId, text, answering);
 }
+
+// 2026-10-05: one of my texts, said again with other words: it goes to the composer, and Send
+// changes it instead of sending anew. Only my own texts, not a file, not one taken back.
+const editing = ref<ChatMessage | null>(null);
+watch(() => props.chatId, () => (editing.value = null));
+const canEdit = computed(() => {
+  const message = actingMessage.value;
+  return message?.mine === true && message.kind !== "file" && !message.deleted && message.status !== "unsent";
+});
+
+function edit() {
+  const message = actingMessage.value;
+  closeActions();
+  if (!message) return;
+  replying.value = null;
+  editing.value = message;
+  draft.value = message.text;
+}
+
+function cancelEdit() {
+  editing.value = null;
+  draft.value = "";
+}
+
+/** Taking back one of my messages for both sides (2026-10-05); it asks once, in the sheet. */
+async function eraseEverywhere() {
+  const id = acting.value;
+  closeActions();
+  folded.delete(id);
+  await deleteForEveryone(id).catch(() => {});
+}
+
+// 2026-10-05: answering a message quotes it over the text. The quote shows in the composer until
+// it is sent or dropped; it goes with the conversation it was picked in.
+const replying = ref<ChatMessage | null>(null);
+watch(() => props.chatId, () => (replying.value = null));
+
+function reply() {
+  const id = acting.value;
+  closeActions();
+  replying.value = messages.value.find((message) => message.id === id) ?? null;
+}
+
+// 2026-10-06: a text for later. The clock by Send opens a panel with the time, an hour from now
+// unless changed; Schedule puts it in this phone's outbox until then.
+const scheduling = ref(false);
+const sendAt = ref("");
+/**
+ * Ionic's date picker lays itself out when built; inside a sheet not yet on screen (iOS, first
+ * open) its day grid stayed invisible. It is built once the sheet has presented, as Ionic advises,
+ * in a room of its height kept from the start, so the sheet rises once at its full height.
+ */
+const schedulePresented = ref(false);
+
+/** Ionic's date and time picker takes the phone's local time without seconds or zone. */
+function localInput(ms: number): string {
+  const date = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function openSchedule() {
+  if (!draft.value.trim() || editing.value) return;
+  sendAt.value = localInput(Date.now() + 3_600_000);
+  scheduling.value = true;
+}
+
+const soonest = computed(() => localInput(Date.now() + 60_000));
+/** The core takes a time up to a year ahead; Ionic's picker would stop at the end of this year. */
+const latest = computed(() => localInput(Date.now() + 365 * 24 * 3_600_000));
+
+function pickTime(value: unknown) {
+  sendAt.value = typeof value === "string" ? value : "";
+}
+/** Only with the picker on screen: before it, the time would be one the person has not seen. */
+const canSchedule = computed(
+  () => schedulePresented.value && Boolean(sendAt.value) && new Date(sendAt.value).getTime() >= Date.now() + 60_000,
+);
+
+async function schedule() {
+  const text = draft.value.trim();
+  const when = new Date(sendAt.value).getTime();
+  if (!text || !canSchedule.value) return;
+  const answering = replying.value?.id;
+  draft.value = "";
+  emoji.value = false;
+  replying.value = null;
+  scheduling.value = false;
+  await scheduleText(props.chatId, text, when, answering).catch(() => {});
+}
+
+// 2026-10-05: a search in this conversation, on this phone. The hits list under the header; a tap
+// goes to the message and lights it for a moment.
+const searching = ref(false);
+const query = ref("");
+const hits = ref<ChatMessage[]>([]);
+const searched = ref(false);
+const lit = ref("");
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+const searchbar = ref<{ $el: HTMLElement & { setFocus?: () => Promise<void>; componentOnReady?: () => Promise<unknown> } } | null>(null);
+
+function openSearch() {
+  searching.value = true;
+  query.value = "";
+  hits.value = [];
+  searched.value = false;
+  // As the field's `autofocus` did: the keyboard comes up with the search.
+  void nextTick(focusSearch);
+}
+
+// Opened as the page comes in (`?search=1`, 2026-10-06), Ionic's field is not ready, or the page is
+// still hidden until its transition ends: then it is focused once the page is on screen.
+let focusLater = false;
+async function focusSearch() {
+  const field = searchbar.value?.$el;
+  await field?.componentOnReady?.();
+  await field?.setFocus?.();
+  focusLater = searching.value && !field?.contains(document.activeElement);
+}
+watch(
+  () => props.active,
+  (on) => {
+    if (on && focusLater) void focusSearch();
+  },
+);
+
+function typeSearch(value: unknown) {
+  query.value = typeof value === "string" ? value : "";
+}
+
+function closeSearch() {
+  searching.value = false;
+  query.value = "";
+  hits.value = [];
+  searched.value = false;
+}
+
+watch(query, (now) => {
+  clearTimeout(searchTimer);
+  if (!now.trim()) {
+    hits.value = [];
+    searched.value = false;
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    const asked = now;
+    const found = await searchMessages(props.chatId, asked).catch(() => []);
+    if (query.value === asked) {
+      hits.value = found;
+      searched.value = true;
+    }
+  }, 250);
+});
+watch(() => props.chatId, closeSearch);
+// Ioan, 2026-10-06: the search opens from the contact page (`?search=1`), as in Messenger and
+// WhatsApp; the header keeps three buttons.
+watch(
+  () => props.search,
+  (asked) => {
+    if (asked) openSearch();
+  },
+  { immediate: true },
+);
+
+/** What a hit shows: a text, or a file's name. */
+const hitText = (message: ChatMessage) => (message.kind === "file" ? message.file?.name ?? "" : message.text);
+
+function visitHit(id: string) {
+  jumpTo(id);
+  lit.value = id;
+  setTimeout(() => (lit.value === id && (lit.value = "")), 1600);
+}
+
+// 2026-10-05: pinned messages, this phone's choice. The strip under the header shows the latest
+// pinned; a tap goes to it and moves on to the next one.
+const pinned = computed(() => messages.value.filter((message) => message.pinned).reverse());
+const pinnedAt = ref(0);
+const shownPin = computed(() => pinned.value[pinnedAt.value % Math.max(pinned.value.length, 1)]);
+watch(pinned, (now) => (pinnedAt.value = now.length ? pinnedAt.value % now.length : 0));
+
+async function togglePin() {
+  const id = acting.value;
+  const was = actingMessage.value?.pinned === true;
+  closeActions();
+  await pinMessage(id, !was).catch(() => {});
+}
+
+function visitPin() {
+  const target = shownPin.value;
+  if (!target) return;
+  jumpTo(target.id);
+  pinnedAt.value = (pinnedAt.value + 1) % pinned.value.length;
+}
+
+/** The text of a pinned message in the strip: a text, or a file's name. */
+const pinText = (message: ChatMessage) => (message.kind === "file" ? message.file?.name ?? "" : message.text);
+
+// 2026-10-05: one emoji on a message, from the sheet; the same one again takes it back.
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const actingMessage = computed(() => messages.value.find((message) => message.id === acting.value));
+
+async function reactWith(emoji: string) {
+  const id = acting.value;
+  const same = actingMessage.value?.reactions?.mine === emoji;
+  closeActions();
+  await react(props.chatId, id, same ? null : emoji).catch(() => {});
+}
+
+/** The quote in the composer: a text, or a file's name. */
+const replyingText = computed(() => (replying.value?.kind === "file" ? replying.value.file?.name ?? "" : replying.value?.text ?? ""));
+
+/** A tap on a quote goes to the message it answers, if it is on the screen. */
+function jumpTo(id: string) {
+  const target = document.querySelector(`[data-message="${CSS.escape(id)}"]`);
+  target?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+// 2026-10-05: while the user writes, the contact hears "typing…", only over the direct connection
+// already open (the core sends nothing otherwise). Not for a stranger still in the requests.
+watch(draft, (now, before) => {
+  if (now.trim() && now !== before && !isRequest.value) void sendTyping(props.chatId);
+});
+
+/** The line under the name: "typing…" while they write, else how the two phones are connected. */
+const peerStatus = computed(() =>
+  isTyping(props.chatId) ? t("chat.typing") : chat.value?.connected ? t("chat.direct") : t("chat.notConnected"),
+);
 
 // §84, issue app#4: the emoji are the app's own, next to the composer.
 const emoji = ref(false);
@@ -384,7 +638,7 @@ function pluginClosed() {
 }
 // The page holding the conversation closes what is open here as it goes back (2026-10-02), so the
 // goodbye goes out during Ionic's transition, before the page is taken down.
-defineExpose({ leave: closePlugin });
+defineExpose({ leave: closePlugin, openSearch });
 
 // While the plugin says goodbye, Back stays taken: one press closed it, and another neither closes
 // it again nor falls through to leave the chat. `back.ts` lets go of what a press closed, so the
@@ -760,20 +1014,15 @@ watch(
           class="ft-peer"
           :class="{ 'has-back': showBack }"
           data-test="peer"
-          :aria-label="
-            $t('chat.contactDetails', {
-              name: chat.name,
-              status: chat.connected ? $t('chat.direct') : $t('chat.notConnected'),
-            })
-          "
+          :aria-label="$t('chat.contactDetails', { name: chat.name, status: peerStatus })"
           @click="router.push(`/contact/${chat.id}`)"
         >
           <Avatar :name="chat.name" :hue="chat.hue" :size="38" :connected="chat.connected" />
           <span class="ft-peer__text">
             <!-- `auto`: a name keeps its own direction, so a Latin name in Arabic is cut at its end. -->
             <span class="ft-peer__name" dir="auto">{{ chat.name }}</span>
-            <span class="ft-peer__status" :class="{ 'is-direct': chat.connected }">
-              {{ chat.connected ? $t("chat.direct") : $t("chat.notConnected") }}
+            <span class="ft-peer__status" :class="{ 'is-direct': chat.connected, 'is-typing': isTyping(chat.id) }" data-test="peer-status">
+              {{ peerStatus }}
             </span>
           </span>
         </button>
@@ -792,6 +1041,40 @@ watch(
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
+
+    <!-- 2026-10-05: the search, under the header: what is typed, and the hits, newest first. -->
+    <div v-if="searching" class="ft-search" data-test="search-panel">
+      <div class="ft-search__row">
+        <ion-searchbar
+          ref="searchbar"
+          class="ft-search__input"
+          :model-value="query"
+          data-test="search-input"
+          :placeholder="$t('chat.searchIn')"
+          :aria-label="$t('chat.searchIn')"
+          enterkeyhint="search"
+          @update:model-value="typeSearch"
+        />
+        <ion-button fill="clear" color="medium" data-test="close-search" :aria-label="$t('chat.closeSearch')" @click="closeSearch">
+          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+        </ion-button>
+      </div>
+      <ul v-if="hits.length" class="ft-search__hits" data-test="search-hits">
+        <li v-for="hit in hits" :key="hit.id">
+          <button type="button" class="ft-search__hit" :data-test="`hit-${hit.id}`" @click="visitHit(hit.id)">
+            <span class="ft-search__who">{{ hit.mine ? $t("chat.you") : chat.name }} · {{ hit.time }}</span>
+            <span class="ft-search__text" dir="auto">{{ hitText(hit) }}</span>
+          </button>
+        </li>
+      </ul>
+      <p v-else-if="searched" class="ft-search__none" data-test="search-none">{{ $t("chat.nothingFound") }}</p>
+    </div>
+    <!-- 2026-10-05: the latest pinned message, under the header; a tap goes to it, then to the next. -->
+    <button v-if="shownPin" type="button" class="ft-pinned" data-test="pinned-strip" :aria-label="$t('chat.pinned')" @click="visitPin">
+      <ion-icon :icon="pinOutline" aria-hidden="true" />
+      <span class="ft-pinned__text" dir="auto">{{ pinText(shownPin) }}</span>
+      <span v-if="pinned.length > 1" class="ft-pinned__count">{{ (pinnedAt % pinned.length) + 1 }}/{{ pinned.length }}</span>
+    </button>
 
     <!-- The game room (Ioan, 2026-10-02): the game where the messages are, with a bar of its own:
          a way out, its name and the invitation. The thread stays mounted under it. -->
@@ -935,8 +1218,10 @@ watch(
           <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
           <MessageBubble
             :message="message"
+            :class="{ 'is-lit': lit === message.id }"
             :saved="saved.has(message.id)"
             :folded="folded.has(message.id)"
+            :contact-name="chat?.name"
             games
             @open="tapFile"
             @save="save"
@@ -944,6 +1229,7 @@ watch(
             @actions="act"
             @resend="resendMessage"
             @play="playGame"
+            @jump="jumpTo"
           />
         </template>
 
@@ -986,6 +1272,40 @@ watch(
         </button>
       </div>
       <div v-else class="ft-actions__bar">
+        <!-- 2026-10-05: one emoji on it, lit when it is already there; again takes it back. -->
+        <span v-if="!isRequest" class="ft-actions__emoji" role="group" :aria-label="$t('chat.react')">
+          <button
+            v-for="emoji in QUICK_REACTIONS"
+            :key="emoji"
+            type="button"
+            class="ft-actions__react"
+            :class="{ 'is-active': actingMessage?.reactions?.mine === emoji }"
+            :data-test="`react-${emoji}`"
+            :aria-label="actingMessage?.reactions?.mine === emoji ? $t('chat.unreact') : $t('chat.reactWith', { emoji })"
+            :aria-pressed="actingMessage?.reactions?.mine === emoji"
+            @click="reactWith(emoji)"
+          >
+            {{ emoji }}
+          </button>
+        </span>
+        <!-- 2026-10-05: my own text, said again with other words. -->
+        <ion-button v-if="canEdit" fill="clear" color="medium" data-test="edit" :aria-label="$t('chat.edit')" @click="edit">
+          <ion-icon slot="icon-only" :icon="pencilOutline" aria-hidden="true" />
+        </ion-button>
+        <!-- 2026-10-05: pin it on this phone, or unpin it. -->
+        <ion-button
+          fill="clear"
+          :color="actingMessage?.pinned ? 'primary' : 'medium'"
+          data-test="pin"
+          :aria-label="$t(actingMessage?.pinned ? 'chat.unpin' : 'chat.pin')"
+          @click="togglePin"
+        >
+          <ion-icon slot="icon-only" :icon="actingMessage?.pinned ? pin : pinOutline" aria-hidden="true" />
+        </ion-button>
+        <!-- 2026-10-05: answer it, quoting it; not a stranger's message still in the requests. -->
+        <ion-button v-if="!isRequest" fill="clear" color="medium" data-test="reply" :aria-label="$t('chat.reply')" @click="reply">
+          <ion-icon slot="icon-only" :icon="arrowUndoOutline" aria-hidden="true" />
+        </ion-button>
         <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
           <ion-icon :icon="folded.has(acting) ? expandOutline : contractOutline" aria-hidden="true" />
         </button>
@@ -1015,9 +1335,22 @@ watch(
         >
           <ion-icon :icon="trashOutline" aria-hidden="true" />
         </button>
-        <button v-else type="button" class="ft-actions__sure" data-test="delete-sure" @click="erase">
-          {{ $t("chat.deleteSure") }}
-        </button>
+        <template v-else>
+          <button type="button" class="ft-actions__sure" data-test="delete-sure" @click="erase">
+            {{ $t("chat.deleteSure") }}
+          </button>
+          <!-- 2026-10-05: my own message, taken back on the other phone too; not one written for
+               later, which never went out (2026-10-06): deleting it here cancels it. -->
+          <button
+            v-if="actingMessage?.mine && !actingMessage.deleted && !actingMessage.scheduledFor"
+            type="button"
+            class="ft-actions__sure"
+            data-test="delete-everyone"
+            @click="eraseEverywhere"
+          >
+            {{ $t("chat.deleteEveryone") }}
+          </button>
+        </template>
       </div>
     </div>
 
@@ -1094,6 +1427,26 @@ watch(
         </button>
       </div>
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
+      <!-- 2026-10-05: the text being said again with other words, until Send or dropped. -->
+      <div v-if="editing" class="ft-replying ft-replying--edit" data-test="editing">
+        <span class="ft-replying__text">
+          <span class="ft-replying__who">{{ $t("chat.editing") }}</span>
+          <span class="ft-replying__quote" dir="auto">{{ editing.text }}</span>
+        </span>
+        <ion-button fill="clear" color="medium" data-test="cancel-edit" :aria-label="$t('chat.cancelEdit')" @click="cancelEdit">
+          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+        </ion-button>
+      </div>
+      <!-- 2026-10-05: the message being answered, until it is sent or dropped. -->
+      <div v-if="replying" class="ft-replying" data-test="replying">
+        <span class="ft-replying__text">
+          <span class="ft-replying__who">{{ replying.mine ? $t("chat.you") : chat?.name }}</span>
+          <span class="ft-replying__quote" dir="auto">{{ replyingText }}</span>
+        </span>
+        <ion-button fill="clear" color="medium" data-test="cancel-reply" :aria-label="$t('chat.cancelReply')" @click="replying = null">
+          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+        </ion-button>
+      </div>
       <div class="ft-composer">
         <div class="ft-composer__row">
           <div v-if="!playing" class="ft-attach">
@@ -1159,20 +1512,235 @@ watch(
           >
             <ion-icon :icon="arrowUp" aria-hidden="true" />
           </button>
-          <button v-else-if="draft.trim()" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" @click="send">
+          <!-- 2026-10-06: the same words, later; not for other words of a text already sent. -->
+          <button
+            v-if="!recording.active && draft.trim() && !editing"
+            type="button"
+            class="ft-round ft-round--ghost"
+            data-test="send-later"
+            :aria-label="$t('chat.sendLater')"
+            @click="openSchedule"
+          >
+            <ion-icon :icon="timeOutline" aria-hidden="true" />
+          </button>
+          <button v-if="!recording.active && draft.trim()" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" @click="send">
             <ion-icon :icon="arrowUp" aria-hidden="true" />
           </button>
-          <button v-else type="button" class="ft-round ft-round--send" :aria-label="$t('chat.record')" @click="record">
+          <button v-else-if="!recording.active" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.record')" @click="record">
             <ion-icon :icon="micOutline" aria-hidden="true" />
           </button>
         </div>
       </div>
       <emoji-picker v-if="emoji" @pick="addEmoji" />
     </ion-footer>
+
+    <!-- 2026-10-06: when the text goes, in Ionic's sheet with its date and time picker. -->
+    <ion-modal
+      :is-open="scheduling"
+      class="ft-schedule-sheet"
+      :breakpoints="[0, 1]"
+      :initial-breakpoint="1"
+      :aria-label="$t('chat.sendLater')"
+      @did-present="schedulePresented = true"
+      @did-dismiss="scheduling = false; schedulePresented = false"
+    >
+      <div class="ion-padding ft-schedule" data-test="schedule">
+        <h2 class="ft-schedule__title">{{ $t("chat.sendLater") }}</h2>
+        <!-- In the app's language (2026-10-06): Ionic writes «Time» unless the label is given. -->
+        <div class="ft-schedule__room" data-test="schedule-room">
+          <ion-datetime
+            v-if="schedulePresented"
+            class="ft-schedule__picker"
+            presentation="date-time"
+            :locale="i18n.global.locale.value"
+            :model-value="sendAt"
+            :min="soonest"
+            :max="latest"
+            data-test="schedule-at"
+            @update:model-value="pickTime"
+          >
+            <span slot="time-label">{{ $t("chat.scheduleTime") }}</span>
+          </ion-datetime>
+        </div>
+        <p class="ft-schedule__note"><ion-text color="medium">{{ $t("chat.scheduleNote") }}</ion-text></p>
+        <div class="ft-schedule__actions">
+          <ion-button fill="outline" shape="round" data-test="schedule-cancel" @click="scheduling = false">{{ $t("common.cancel") }}</ion-button>
+          <ion-button shape="round" data-test="schedule-go" :disabled="!canSchedule" @click="schedule">{{ $t("chat.schedule") }}</ion-button>
+        </div>
+      </div>
+    </ion-modal>
   </div>
 </template>
 
 <style scoped>
+/* When a text goes (2026-10-06): a sheet as tall as what it holds. */
+.ft-schedule-sheet {
+  --height: auto;
+}
+.ft-schedule {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ft-space-2);
+  /* The picker's height: Ionic's iOS calendar is 350 px for every month (iPhone 13 mini, 2026-10-06). */
+  --ft-schedule-picker-height: 350px;
+  /* Above Android's navigation bar when the app runs edge to edge. */
+  padding-block-end: calc(var(--ion-padding, 16px) + var(--ion-safe-area-bottom, 0px));
+}
+/* Kept before the picker is built (2026-10-06): otherwise the sheet rose short and then snapped. */
+.ft-schedule__room {
+  min-height: var(--ft-schedule-picker-height);
+}
+.ft-schedule__title {
+  margin: 0;
+  font-size: 17px;
+}
+.ft-schedule__note {
+  margin: 0;
+  font-size: var(--ft-font-meta);
+  text-align: center;
+}
+.ft-schedule__actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--ft-space-2);
+}
+/* The app's buttons say things as written, not in Material's capitals. */
+.ft-schedule__actions ion-button {
+  text-transform: none;
+}
+/* The search (2026-10-05): the field and the hits under the header, over the thread. */
+.ft-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-block: 6px 8px;
+  padding-inline: var(--ft-space-4);
+  border-bottom: 1px solid var(--ion-border-color);
+  background: var(--ion-color-light);
+}
+.ft-search__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ft-search__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+.ft-search__hits {
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.ft-search__hit {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding-block: 8px;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ion-text-color);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.ft-search__hit:hover {
+  background: var(--ion-color-light-shade);
+}
+.ft-search__who {
+  font-size: var(--ft-font-meta);
+  color: var(--ion-color-medium);
+}
+.ft-search__text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ft-font-meta);
+}
+.ft-search__none {
+  margin: 0;
+  padding-block: 4px;
+  padding-inline: 10px;
+  color: var(--ion-color-medium);
+  font-size: var(--ft-font-meta);
+}
+/* A message the search went to (2026-10-05), lit for a moment. */
+.ft-msg.is-lit :deep(.ft-bubble) {
+  outline: 2px solid var(--ion-color-primary);
+  outline-offset: 2px;
+}
+/* The latest pinned message (2026-10-05), a strip under the header. */
+.ft-pinned {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding-block: 6px;
+  padding-inline: var(--ft-space-4);
+  border: 0;
+  border-bottom: 1px solid var(--ion-border-color);
+  background: var(--ion-color-light);
+  color: var(--ion-text-color);
+  font: inherit;
+  font-size: var(--ft-font-meta);
+  text-align: start;
+  cursor: pointer;
+}
+.ft-pinned ion-icon {
+  flex: none;
+  color: var(--ion-color-primary);
+}
+.ft-pinned__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ft-pinned__count {
+  flex: none;
+  color: var(--ion-color-medium);
+}
+/* The message being answered (2026-10-05), over the composer. */
+.ft-replying {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block: 0 6px;
+  margin-inline: var(--ft-space-4);
+  padding-block: 2px;
+  padding-inline: 12px 0;
+  border-inline-start: 3px solid var(--ion-color-primary);
+  border-radius: 10px;
+  background: var(--ion-color-light-shade);
+}
+.ft-replying__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ft-replying__who {
+  font-size: var(--ft-font-meta);
+  font-weight: 600;
+  color: var(--ion-color-primary);
+}
+.ft-replying__quote {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ft-font-meta);
+  color: var(--ion-color-medium);
+}
 .ft-actions {
   position: fixed;
   inset: 0;
@@ -1200,6 +1768,27 @@ watch(
   padding: 0 8px;
   color: var(--ft-muted);
   font-size: 13px;
+}
+/* The emoji row of the sheet (2026-10-05): a full line over the buttons. */
+.ft-actions__emoji {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: space-around;
+  gap: 2px;
+}
+.ft-actions__react {
+  appearance: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ft-actions__react.is-active {
+  background: rgba(var(--ion-color-primary-rgb), 0.22);
 }
 .ft-actions__to {
   appearance: none;
@@ -1289,6 +1878,11 @@ watch(
 }
 .ft-peer__status.is-direct {
   color: var(--ft-accent);
+}
+/* "typing…" (2026-10-05): the same accent, in italics, so a glance tells it from the connection. */
+.ft-peer__status.is-typing {
+  color: var(--ion-color-primary);
+  font-style: italic;
 }
 
 /* The game room: under the header, over the composer, scrolling as the tool window does. */

@@ -7,7 +7,8 @@
     "chats": "Chaturi",
     "calls": "Apeluri",
     "settings": "Setări",
-    "games": "Jocuri"
+    "games": "Jocuri",
+    "plugins": "Pluginuri"
   },
   "chats": {
     "empty": "Niciun chat încă",
@@ -63,7 +64,34 @@
     "otherApp": "Altă aplicație",
     "location": "Locație",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: deschide în hărți"
+    "openLocation": "{place}: deschide în hărți",
+    "typing": "scrie…",
+    "reply": "Răspunde",
+    "cancelReply": "Renunță la răspuns",
+    "quoteGone": "Mesaj indisponibil",
+    "you": "Tu",
+    "them": "Cealaltă persoană",
+    "react": "Reacționează",
+    "reactWith": "Reacționează cu {emoji}",
+    "unreact": "Elimină reacția",
+    "pin": "Fixează",
+    "unpin": "Anulează fixarea",
+    "pinned": "Fixat",
+    "edit": "Editează",
+    "edited": "editat",
+    "deleted": "Mesaj șters",
+    "deleteEveryone": "Șterge pentru toți",
+    "cancelEdit": "Renunță la editare",
+    "editing": "Editare",
+    "search": "Caută",
+    "searchIn": "Caută în această conversație",
+    "nothingFound": "Nimic găsit",
+    "closeSearch": "Închide căutarea",
+    "sendLater": "Trimite mai târziu",
+    "schedule": "Programează",
+    "scheduleTime": "Ora",
+    "scheduledFor": "Programat pentru {time}",
+    "scheduleNote": "Pleacă de pe acest telefon la ora aceea, dacă este pornit; șterge-l aici înainte ca să-l anulezi."
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
@@ -141,6 +169,8 @@
     "openSettings": "Deschide Setările"
   },
   "contact": {
+    "call": "Sună",
+    "video": "Video",
     "fingerprint": "Amprentă de securitate",
     "verify": "Verifică în persoană",
     "verifyHint": "Comparați ambele coduri când sunteți împreună",
@@ -170,7 +200,8 @@
     "never": "Niciodată",
     "days": "Zile: {days}",
     "hours": "{hours} h",
-    "minutes": "{minutes} min"
+    "minutes": "{minutes} min",
+    "typing": "Arată când scriu"
   },
   "move": {
     "fromOld": "De pe telefonul vechi",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Cine are linkul tău vechi nu te mai poate contacta; contactele tale îl primesc pe cel nou",
     "renewLinkConfirm": "Reînnoiește",
     "renewed": "Link reînnoit",
-    "feedback": "Propune ceva"
+    "feedback": "Propune ceva",
+    "tabBar": "Afișează în bara de file",
+    "tabBarNone": "Nimic"
   },
   "hours": {
     "title": "Program",

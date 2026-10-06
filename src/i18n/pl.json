@@ -7,7 +7,8 @@
     "chats": "Czaty",
     "calls": "Połączenia",
     "settings": "Ustawienia",
-    "games": "Gry"
+    "games": "Gry",
+    "plugins": "Wtyczki"
   },
   "chats": {
     "empty": "Brak czatów",
@@ -63,7 +64,34 @@
     "otherApp": "Inna aplikacja",
     "location": "Lokalizacja",
     "accuracy": "±{metres} m",
-    "openLocation": "{place}: otwórz w mapach"
+    "openLocation": "{place}: otwórz w mapach",
+    "typing": "pisze…",
+    "reply": "Odpowiedz",
+    "cancelReply": "Anuluj odpowiedź",
+    "quoteGone": "Wiadomość już niedostępna",
+    "you": "Ty",
+    "them": "Druga osoba",
+    "react": "Reakcja",
+    "reactWith": "Zareaguj {emoji}",
+    "unreact": "Usuń reakcję",
+    "pin": "Przypnij",
+    "unpin": "Odepnij",
+    "pinned": "Przypięte",
+    "edit": "Edytuj",
+    "edited": "edytowano",
+    "deleted": "Wiadomość usunięta",
+    "deleteEveryone": "Usuń dla wszystkich",
+    "cancelEdit": "Anuluj edycję",
+    "editing": "Edycja",
+    "search": "Szukaj",
+    "searchIn": "Szukaj w tej rozmowie",
+    "nothingFound": "Nic nie znaleziono",
+    "closeSearch": "Zamknij wyszukiwanie",
+    "sendLater": "Wyślij później",
+    "schedule": "Zaplanuj",
+    "scheduleTime": "Godzina",
+    "scheduledFor": "Zaplanowano na {time}",
+    "scheduleNote": "Wyjdzie z tego telefonu o tej porze, jeśli będzie włączony; aby anulować, usuń ją tutaj wcześniej."
   },
   "status": {
     "pending": "Czeka na urządzenie",
@@ -141,6 +169,8 @@
     "openSettings": "Otwórz Ustawienia"
   },
   "contact": {
+    "call": "Zadzwoń",
+    "video": "Wideo",
     "fingerprint": "Kod bezpieczeństwa",
     "verify": "Zweryfikuj osobiście",
     "verifyHint": "Porównajcie oba kody, gdy będziecie razem",
@@ -170,7 +200,8 @@
     "never": "Nigdy",
     "days": "Dni: {days}",
     "hours": "{hours} h",
-    "minutes": "{minutes} min"
+    "minutes": "{minutes} min",
+    "typing": "Pokazuj, kiedy piszę"
   },
   "move": {
     "fromOld": "Z Twojego starego telefonu",
@@ -241,7 +272,9 @@
     "renewLinkHint": "Kto ma Twój stary link, nie może się już z Tobą skontaktować; Twoje kontakty dostaną nowy",
     "renewLinkConfirm": "Odnów",
     "renewed": "Odnowiono link",
-    "feedback": "Zaproponuj coś"
+    "feedback": "Zaproponuj coś",
+    "tabBar": "Pokazuj na pasku kart",
+    "tabBarNone": "Nic"
   },
   "hours": {
     "title": "Godziny",

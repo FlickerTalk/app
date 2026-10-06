@@ -28,6 +28,8 @@ for (const appearance of ["dark", "light"]) {
   test.describe(`in ${appearance}`, () => {
     test.beforeEach(async ({ app }) => {
       await app.addInitScript((chosen) => localStorage.setItem("ft-appearance", chosen), appearance);
+      // 2026-10-05: the games tab is Settings' choice; this phone made it.
+      await app.addInitScript(() => localStorage.setItem("ft-extra-tab", "games"));
       await servePluginFrames(app);
     });
 
@@ -159,6 +161,7 @@ test.describe("on an iPhone", () => {
   // 2026-10-03: nothing is downloaded on iOS (App Store 4.7, §52), but the app carries the games,
   // so an iPhone has the games tab and the games segment of the chat's apps like any phone.
   test("there are games", async ({ app }) => {
+    await app.addInitScript(() => localStorage.setItem("ft-extra-tab", "games"));
     await app.goto(`/chat/${BOB}`);
     await expect(app.getByTestId("peer")).toBeVisible();
     await app.getByTestId("apps").click();

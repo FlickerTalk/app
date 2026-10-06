@@ -7,7 +7,8 @@
     "chats": "聊天",
     "calls": "通話",
     "settings": "設定",
-    "games": "遊戲"
+    "games": "遊戲",
+    "plugins": "外掛程式"
   },
   "chats": {
     "empty": "還沒有聊天",
@@ -63,7 +64,34 @@
     "otherApp": "其他應用程式",
     "location": "位置",
     "accuracy": "±{metres} 公尺",
-    "openLocation": "{place}：在地圖中開啟"
+    "openLocation": "{place}：在地圖中開啟",
+    "typing": "正在輸入…",
+    "reply": "回覆",
+    "cancelReply": "取消回覆",
+    "quoteGone": "訊息已不存在",
+    "you": "你",
+    "them": "對方",
+    "react": "回應",
+    "reactWith": "用 {emoji} 回應",
+    "unreact": "移除回應",
+    "pin": "釘選",
+    "unpin": "取消釘選",
+    "pinned": "已釘選",
+    "edit": "編輯",
+    "edited": "已編輯",
+    "deleted": "訊息已刪除",
+    "deleteEveryone": "對所有人刪除",
+    "cancelEdit": "取消編輯",
+    "editing": "編輯中",
+    "search": "搜尋",
+    "searchIn": "在此對話中搜尋",
+    "nothingFound": "沒有結果",
+    "closeSearch": "關閉搜尋",
+    "sendLater": "稍後傳送",
+    "schedule": "排程",
+    "scheduleTime": "時間",
+    "scheduledFor": "預定 {time} 傳送",
+    "scheduleNote": "屆時若手機開機，將從此手機送出；要取消，請提前在此刪除。"
   },
   "status": {
     "pending": "等待對方裝置",
@@ -141,6 +169,8 @@
     "openSettings": "開啟設定"
   },
   "contact": {
+    "call": "通話",
+    "video": "視訊",
     "fingerprint": "安全指紋",
     "verify": "當面驗證",
     "verifyHint": "見面時比對雙方的碼",
@@ -170,7 +200,8 @@
     "never": "永不",
     "days": "{days} 天",
     "hours": "{hours} 小時",
-    "minutes": "{minutes} 分鐘"
+    "minutes": "{minutes} 分鐘",
+    "typing": "顯示我正在輸入"
   },
   "move": {
     "fromOld": "從舊手機移轉",
@@ -241,7 +272,9 @@
     "renewLinkHint": "持有你舊連結的人將無法再聯絡你；你的聯絡人會收到新連結",
     "renewLinkConfirm": "更新",
     "renewed": "已更新連結",
-    "feedback": "提出建議"
+    "feedback": "提出建議",
+    "tabBar": "顯示在標籤列",
+    "tabBarNone": "無"
   },
   "hours": {
     "title": "時段",

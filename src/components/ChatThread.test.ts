@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
-import { IonSegment, IonSegmentButton, IonTextarea } from "@ionic/vue";
+import { IonButton, IonDatetime, IonSearchbar, IonSegment, IonSegmentButton, IonTextarea } from "@ionic/vue";
+import source from "./ChatThread.vue?raw";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
-import { chat, store } from "../core";
+import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
 import { offered, refreshPlugins } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
@@ -53,7 +54,7 @@ vi.mock("../recorder", async () => {
 const IonModalStub = defineComponent({
   name: "IonModal",
   props: { isOpen: Boolean, breakpoints: { type: Array, default: undefined }, initialBreakpoint: { type: Number, default: undefined } },
-  emits: ["didDismiss"],
+  emits: ["didDismiss", "didPresent"],
   setup(props, { slots }) {
     return () => (props.isOpen ? h("div", { "data-test": "apps-sheet" }, slots.default?.()) : null);
   },
@@ -283,6 +284,50 @@ describe("ChatThread", () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     expect(wrapper.find("[aria-label='Voice call']").exists()).toBe(true);
     expect(wrapper.find("[aria-label='Video call']").exists()).toBe(true);
+  });
+
+  // 2026-10-05: while they write, the header says so instead of the connection, and lets it fade.
+  describe("typing", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("says the contact is typing until their message comes, or for a moment", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      expect(wrapper.find("[data-test='peer-status']").text()).toBe("Direct");
+      heardTyping("c1");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find("[data-test='peer-status']").text()).toBe("typing…");
+      expect(wrapper.find("[data-test='peer-status']").classes()).toContain("is-typing");
+      expect(wrapper.find("[data-test='peer']").attributes("aria-label")).toBe("Contact details: Maria López, typing…");
+      vi.advanceTimersByTime(TYPING_FADE + 1);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find("[data-test='peer-status']").text()).toBe("Direct");
+    });
+
+    it("tells the core the user is writing, once in a while and not for every key", async () => {
+      // Earlier tests wrote in this conversation: the moment since the last "typing" is over.
+      vi.advanceTimersByTime(TYPING_EVERY);
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      const typed = () => calls.filter(([command]) => command === "core_typing");
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "h");
+      await flushPromises();
+      expect(typed()).toEqual([["core_typing", { contact: "c1" }]]);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "he");
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hel");
+      await flushPromises();
+      expect(typed()).toHaveLength(1);
+      vi.advanceTimersByTime(TYPING_EVERY + 1);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hell");
+      await flushPromises();
+      expect(typed()).toHaveLength(2);
+    });
+
+    it("says nothing while the composer is emptied", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "   ");
+      await flushPromises();
+      expect(calls.filter(([command]) => command === "core_typing")).toEqual([]);
+    });
   });
 
   it("tells whether the contact is directly connected", () => {
@@ -874,6 +919,452 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-06: a text for later: the clock by Send opens the time in Ionic's sheet, with Ionic's
+  // date and time picker, and Schedule queues it.
+  describe("sending later", () => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const local = (at: Date) => `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+    const button = (wrapper: ReturnType<typeof mount>, test: string) =>
+      wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === test)!;
+    const opened = async (text: string) => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      expect(wrapper.find("[data-test='send-later']").exists()).toBe(false);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", text);
+      await flushPromises();
+      await wrapper.find("[data-test='send-later']").trigger("click");
+      return wrapper;
+    };
+
+    const scheduleSheet = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.findAllComponents(IonModalStub).find((one) => one.props("isOpen") && one.find("[data-test='schedule']").exists())!;
+    /** Opened and on screen, as Ionic says once its sheet has presented. */
+    const presented = async (text: string) => {
+      const wrapper = await opened(text);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      return wrapper;
+    };
+
+    // Seen on an iPhone 13 mini (2026-10-06): on the first open the day grid stayed invisible, since
+    // the picker laid itself out inside a sheet not yet on screen. It is built once the sheet is up.
+    it("builds the date picker only once the sheet has presented", async () => {
+      const wrapper = await opened("later");
+      expect(wrapper.find("[data-test='schedule']").exists()).toBe(true);
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(false);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(true);
+      scheduleSheet(wrapper).vm.$emit("didDismiss");
+      await flushPromises();
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(false);
+    });
+
+    // Seen on an iPhone 13 mini (2026-10-06): the sheet rose 197 px tall, without the picker, and
+    // snapped to 555 px once it was built. The picker's room is kept from the start.
+    it("keeps the picker's room in the sheet before the picker is built", async () => {
+      const wrapper = await opened("later");
+      const room = wrapper.find("[data-test='schedule'] [data-test='schedule-room']");
+      expect(room.exists()).toBe(true);
+      expect(room.classes()).toContain("ft-schedule__room");
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(false);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      expect(wrapper.find("[data-test='schedule-room'] [data-test='schedule-at']").exists()).toBe(true);
+      const styles = source.slice(source.indexOf("<style"));
+      const rule = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(([, selector]) => selector.replace(/\/\*[\s\S]*?\*\//g, "").trim() === ".ft-schedule__room");
+      expect(rule?.[2]).toMatch(/min-height:\s*var\(--ft-schedule-picker-height/);
+    });
+
+    it("lets Schedule be tapped only once the picker is there", async () => {
+      const wrapper = await opened("later");
+      expect(button(wrapper, "schedule-go").props("disabled")).toBe(true);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      expect(button(wrapper, "schedule-go").props("disabled")).toBe(false);
+    });
+
+    it("offers the clock only with words to send, and schedules them at the chosen time", async () => {
+      const wrapper = await presented("good morning");
+      const sheet = scheduleSheet(wrapper);
+      expect(sheet.attributes("aria-label")).toBe("Send later");
+      expect(sheet.props("breakpoints")).toContain(sheet.props("initialBreakpoint"));
+      const picker = wrapper.findComponent(IonDatetime);
+      expect(picker.attributes("data-test")).toBe("schedule-at");
+      const at = new Date(Date.now() + 2 * 3_600_000);
+      at.setSeconds(0, 0);
+      picker.vm.$emit("update:modelValue", local(at));
+      await flushPromises();
+      await button(wrapper, "schedule-go").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_schedule", { contact: "c1", text: "good morning", sendAt: at.getTime() }]);
+      expect(calls.filter(([command]) => command === "core_send")).toEqual([]);
+      expect(wrapper.find("[data-test='schedule']").exists()).toBe(false);
+    });
+
+    // Seen on a Spanish iPhone (2026-10-06): the picker said «Time» and used the WebView's
+    // language. It takes the app's language, and its time label comes from the catalogue.
+    it("picks the time in the app's language", async () => {
+      await setLocale("es");
+      try {
+        const wrapper = await presented("buenos días");
+        const picker = wrapper.findComponent(IonDatetime);
+        expect(picker.props("locale")).toBe("es");
+        expect(picker.find("[slot='time-label']").text()).toBe("Hora");
+      } finally {
+        await setLocale("en");
+      }
+    });
+
+    it("refuses a time that is too soon, and can be dropped", async () => {
+      const wrapper = await presented("soon");
+      wrapper.findComponent(IonDatetime).vm.$emit("update:modelValue", local(new Date(Date.now() - 60_000)));
+      await flushPromises();
+      expect(button(wrapper, "schedule-go").props("disabled")).toBe(true);
+      await button(wrapper, "schedule-cancel").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='schedule']").exists()).toBe(false);
+      expect(calls.filter(([command]) => command === "core_schedule")).toEqual([]);
+    });
+  });
+
+  // 2026-10-05: a search in the conversation, on this phone: the hits list under the header and a
+  // tap goes to the message. Since 2026-10-06 it opens from the contact page (`?search=1`), as in
+  // Messenger and WhatsApp, not from a button of the header.
+  describe("searching the conversation", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const typed = async (wrapper: ReturnType<typeof mount>, text: string) => {
+      wrapper.findComponent(IonSearchbar).vm.$emit("update:modelValue", text);
+      // The query's watcher starts its wait on the next tick, as it did after the old field's input.
+      await wrapper.vm.$nextTick();
+      vi.advanceTimersByTime(300);
+      await flushPromises();
+    };
+
+    it("has no search button in the header", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='search']").exists()).toBe(false);
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(false);
+    });
+
+    it("opens when asked, lists what it finds and goes to a hit", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", search: true }, shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
+
+      await typed(wrapper, "TABLE");
+      expect(calls).toContainEqual(["core_search", { contact: "c1", query: "TABLE" }]);
+      const hits = wrapper.find("[data-test='search-hits']");
+      expect(hits.text()).toContain("Perfect, I'll book the table");
+      expect(hits.text()).toContain("Maria López");
+
+      const target = document.createElement("div");
+      target.dataset.message = "m3";
+      target.scrollIntoView = vi.fn();
+      document.body.append(target);
+      await wrapper.find("[data-test='hit-m3']").trigger("click");
+      expect(target.scrollIntoView).toHaveBeenCalled();
+      target.remove();
+      expect(wrapper.findAllComponents(MessageBubble).find((one) => one.props("message").id === "m3")?.classes()).toContain("is-lit");
+    });
+
+    it("opens when asked by a conversation already on screen", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      await wrapper.setProps({ search: true });
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
+    });
+
+    // Back from the contact page's search (2026-10-06), the page asks its conversation directly.
+    it("opens when its page asks", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      (wrapper.vm as unknown as { openSearch: () => void }).openSearch();
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(true);
+    });
+
+    it("says when nothing is found, and closes", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", search: true }, shallow: true });
+      await flushPromises();
+      await typed(wrapper, "zebra");
+      expect(wrapper.find("[data-test='search-none']").exists()).toBe(true);
+      await typed(wrapper, "");
+      expect(wrapper.find("[data-test='search-none']").exists()).toBe(false);
+      await wrapper.find("[data-test='close-search']").trigger("click");
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(false);
+    });
+  });
+
+  // 2026-10-05: my own text can be said again with other words, and any message of mine taken
+  // back for both sides; the sheet offers both only where they apply.
+  describe("editing and taking back", () => {
+    const pressOn = async (wrapper: ReturnType<typeof mount>, index: number) => {
+      await wrapper.findAll("[data-test='bubble']")[index].trigger("pointerdown");
+      await new Promise((wake) => setTimeout(wake, 550));
+      await flushPromises();
+    };
+
+    it("puts my text in the composer and sends the new words as an edit", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1); // m2: mine, a text
+      expect(wrapper.find("[data-test='edit']").exists()).toBe(true);
+      await wrapper.find("[data-test='edit']").trigger("click");
+      const bar = wrapper.find("[data-test='editing']");
+      expect(bar.text()).toContain("Yes! Leaving work at 5:30");
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "Yes! Leaving work at 6");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_edit", { message: "m2", text: "Yes! Leaving work at 6" }]);
+      expect(calls.filter(([command]) => command === "core_send")).toEqual([]);
+      expect(wrapper.find("[data-test='editing']").exists()).toBe(false);
+    });
+
+    it("can drop the edit, and offers none on their message or on my file", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1);
+      await wrapper.find("[data-test='edit']").trigger("click");
+      await wrapper.find("[data-test='cancel-edit']").trigger("click");
+      expect(wrapper.find("[data-test='editing']").exists()).toBe(false);
+      await pressOn(wrapper, 0); // m1: theirs
+      expect(wrapper.find("[data-test='edit']").exists()).toBe(false);
+      await wrapper.find("[data-test='actions']").trigger("click");
+      await pressOn(wrapper, 3); // m4: my file
+      expect(wrapper.find("[data-test='edit']").exists()).toBe(false);
+    });
+
+    it("takes my message back for both sides after asking, and never theirs", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1);
+      await wrapper.find("[data-test='delete']").trigger("click");
+      expect(wrapper.find("[data-test='delete-everyone']").exists()).toBe(true);
+      await wrapper.find("[data-test='delete-everyone']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_delete_everyone", { message: "m2" }]);
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+
+      await pressOn(wrapper, 0);
+      await wrapper.find("[data-test='delete']").trigger("click");
+      expect(wrapper.find("[data-test='delete-sure']").exists()).toBe(true);
+      expect(wrapper.find("[data-test='delete-everyone']").exists()).toBe(false);
+    });
+
+    // 2026-10-06: a text for later that never went out has nobody to take it back from: the sheet
+    // offers only to delete it here, which cancels it and leaves no mark.
+    it("offers only deleting it here for a text written for later", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      const mine = chat("c1")!.messages[1];
+      mine.status = "pending";
+      mine.scheduledFor = Date.now() + 3_600_000;
+      await flushPromises();
+      await pressOn(wrapper, 1);
+      await wrapper.find("[data-test='delete']").trigger("click");
+      expect(wrapper.find("[data-test='delete-everyone']").exists()).toBe(false);
+      await wrapper.find("[data-test='delete-sure']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_forget_message", { message: mine.id }]);
+    });
+  });
+
+  // 2026-10-05: pinned messages: the sheet pins and unpins; a strip under the header shows the
+  // latest pinned, and a tap goes to it and moves on to the next.
+  describe("pinned messages", () => {
+    it("pins a message from the sheet, and unpins a pinned one", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressed(wrapper);
+      const first = chat("c1")!.messages[0];
+      expect(wrapper.find("[data-test='pin']").attributes("aria-label")).toBe("Pin");
+      await wrapper.find("[data-test='pin']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_pin", { message: first.id, pinned: true }]);
+
+      first.pinned = true;
+      await flushPromises();
+      await pressed(wrapper);
+      expect(wrapper.find("[data-test='pin']").attributes("aria-label")).toBe("Unpin");
+      await wrapper.find("[data-test='pin']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_pin", { message: first.id, pinned: false }]);
+    });
+
+    it("shows the latest pinned message in a strip and walks through them on a tap", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='pinned-strip']").exists()).toBe(false);
+      const [first, second] = chat("c1")!.messages;
+      first.pinned = true;
+      second.pinned = true;
+      await flushPromises();
+      const strip = wrapper.find("[data-test='pinned-strip']");
+      expect(strip.text()).toContain(second.text);
+      expect(strip.text()).toContain("1/2");
+
+      const target = document.createElement("div");
+      target.dataset.message = second.id;
+      target.scrollIntoView = vi.fn();
+      document.body.append(target);
+      await strip.trigger("click");
+      expect(target.scrollIntoView).toHaveBeenCalled();
+      target.remove();
+      expect(wrapper.find("[data-test='pinned-strip']").text()).toContain(first.text);
+      expect(wrapper.find("[data-test='pinned-strip']").text()).toContain("2/2");
+    });
+  });
+
+  // 2026-10-05: an emoji on a message, from the sheet; the same one again takes it back.
+  describe("reacting to a message", () => {
+    it("offers a row of emoji and puts the chosen one on the message", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressed(wrapper);
+      const id = fixture.chats[0].messages[0].id;
+      expect(wrapper.findAll(".ft-actions__react")).toHaveLength(6);
+      await wrapper.find("[data-test='react-👍']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_react", { contact: "c1", message: id, emoji: "👍" }]);
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+    });
+
+    it("takes the emoji back when it is already there", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      const first = chat("c1")!.messages[0];
+      first.reactions = { mine: "👍" };
+      await flushPromises();
+      await pressed(wrapper);
+      const lit = wrapper.find("[data-test='react-👍']");
+      expect(lit.classes()).toContain("is-active");
+      expect(lit.attributes("aria-label")).toBe("Remove reaction");
+      await lit.trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_react", { contact: "c1", message: first.id }]);
+    });
+  });
+
+  // 2026-10-06, the review of the chat features: Ionic's own controls, with an accessible name,
+  // colours from Ionic's palette and logical sides, so that Arabic (right to left) works.
+  describe("Ionic controls of the chat features", () => {
+    const clear = (wrapper: ReturnType<typeof mount>, test: string) => {
+      const button = wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === test);
+      expect(button, test).toBeDefined();
+      expect(button!.props("fill"), test).toBe("clear");
+      expect(button!.attributes("aria-label"), test).toBeTruthy();
+      return button!;
+    };
+    const pressOn = async (wrapper: ReturnType<typeof mount>, index: number) => {
+      await wrapper.findAll("[data-test='bubble']")[index].trigger("pointerdown");
+      await new Promise((wake) => setTimeout(wake, 550));
+      await flushPromises();
+    };
+
+    it("edits, pins and answers with Ionic's clear icon buttons, and drops them the same way", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1); // m2: mine, a text
+      clear(wrapper, "pin");
+      clear(wrapper, "reply");
+      await clear(wrapper, "edit").trigger("click");
+      await clear(wrapper, "cancel-edit").trigger("click");
+      expect(wrapper.find("[data-test='editing']").exists()).toBe(false);
+      await pressOn(wrapper, 1);
+      await clear(wrapper, "reply").trigger("click");
+      await clear(wrapper, "cancel-reply").trigger("click");
+      expect(wrapper.find("[data-test='replying']").exists()).toBe(false);
+    });
+
+    it("searches with Ionic's searchbar and closes with a clear icon button", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", search: true }, shallow: false, global: { stubs } });
+      await flushPromises();
+      const bar = wrapper.findComponent(IonSearchbar);
+      expect(bar.attributes("data-test")).toBe("search-input");
+      expect(bar.attributes("aria-label")).toBe("Search in this conversation");
+      expect(wrapper.find("[data-test='search-panel'] input").exists()).toBe(false);
+      await clear(wrapper, "close-search").trigger("click");
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(false);
+    });
+
+    it("styles them with Ionic's colours and logical sides", () => {
+      const styles = source.slice(source.indexOf("<style"));
+      const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+        .filter(({ selector }) => /\.ft-(schedule|search|pinned|replying|actions__emoji|actions__react)|is-typing|is-lit/.test(selector));
+      expect(rules.length).toBeGreaterThan(5);
+      for (const { selector, body } of rules) {
+        expect(body, selector).not.toMatch(/var\(--ft-(accent|muted|text|surface|border|bg)/);
+        expect(body, selector).not.toMatch(/color-mix|rgba\(\s*\d/);
+        expect(body, selector).not.toMatch(/(padding|margin)(-left|-right)?:\s*\S+\s+\S+\s+\S+\s+\S+;|(padding|margin)-(left|right)|\b(left|right):/);
+      }
+    });
+  });
+
+  // 2026-10-05: answering quotes the message; the quote waits in the composer until sent or dropped.
+  describe("answering a message", () => {
+    const open = async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressed(wrapper);
+      const first = fixture.chats[0].messages[0];
+      return { wrapper, first };
+    };
+
+    it("offers to answer, shows the quote in the composer and sends the text with it", async () => {
+      const { wrapper, first } = await open();
+      await wrapper.find("[data-test='reply']").trigger("click");
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+      const bar = wrapper.find("[data-test='replying']");
+      expect(bar.exists()).toBe(true);
+      expect(bar.text()).toContain(first.text ?? "");
+      expect(bar.text()).toContain(first.mine ? "You" : "Maria López");
+
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "yes!");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "yes!", replyTo: first.id }]);
+      expect(wrapper.find("[data-test='replying']").exists()).toBe(false);
+    });
+
+    it("can drop the answer, and then sends a plain text", async () => {
+      const { wrapper } = await open();
+      await wrapper.find("[data-test='reply']").trigger("click");
+      await wrapper.find("[data-test='cancel-reply']").trigger("click");
+      expect(wrapper.find("[data-test='replying']").exists()).toBe(false);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hi");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hi" }]);
+    });
+
+    // The quote in a bubble names the contact as the reply bar does (2026-10-06).
+    it("gives each bubble the contact's name for its quote", async () => {
+      const { wrapper } = await open();
+      const bubbles = wrapper.findAllComponents(MessageBubble);
+      expect(bubbles.length).toBeGreaterThan(0);
+      for (const bubble of bubbles) expect(bubble.props("contactName")).toBe("Maria López");
+    });
+
+    it("goes to the quoted message when its quote is tapped", async () => {
+      const { wrapper } = await open();
+      const target = document.createElement("div");
+      target.dataset.message = "m-far";
+      target.scrollIntoView = vi.fn();
+      document.body.append(target);
+      wrapper.findAllComponents(MessageBubble)[0].vm.$emit("jump", "m-far");
+      expect(target.scrollIntoView).toHaveBeenCalled();
+      target.remove();
+    });
+  });
+
   // Seen in Arabic (2026-10-02): a contact's name reads in its own direction, not in the app's.
   it("offers to forward to contacts whose names read in their own direction", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
@@ -978,7 +1469,9 @@ describe("ChatThread", () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       expect(wrapper.find("[data-test='games']").exists()).toBe(false);
+      // Voice, video and the apps; the search lives on the contact page (Ioan, 2026-10-06).
       expect(endButtons(wrapper)).toHaveLength(3);
+      expect(wrapper.find("[data-test='search']").exists()).toBe(false);
       expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
       await wrapper.find("[data-test='apps']").trigger("click");
       // A sheet: it rises from the bottom and has heights to be dragged between; and a name.

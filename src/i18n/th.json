@@ -7,7 +7,8 @@
     "chats": "แชท",
     "calls": "การโทร",
     "settings": "ตั้งค่า",
-    "games": "เกม"
+    "games": "เกม",
+    "plugins": "ปลั๊กอิน"
   },
   "chats": {
     "empty": "ยังไม่มีแชท",
@@ -63,7 +64,34 @@
     "otherApp": "แอปอื่น",
     "location": "ตำแหน่ง",
     "accuracy": "±{metres} ม.",
-    "openLocation": "{place}: เปิดในแผนที่"
+    "openLocation": "{place}: เปิดในแผนที่",
+    "typing": "กำลังพิมพ์…",
+    "reply": "ตอบกลับ",
+    "cancelReply": "ยกเลิกการตอบกลับ",
+    "quoteGone": "ข้อความไม่อยู่แล้ว",
+    "you": "คุณ",
+    "them": "อีกฝ่าย",
+    "react": "ตอบสนอง",
+    "reactWith": "ตอบสนองด้วย {emoji}",
+    "unreact": "ลบการตอบสนอง",
+    "pin": "ปักหมุด",
+    "unpin": "เลิกปักหมุด",
+    "pinned": "ปักหมุดแล้ว",
+    "edit": "แก้ไข",
+    "edited": "แก้ไขแล้ว",
+    "deleted": "ข้อความถูกลบ",
+    "deleteEveryone": "ลบสำหรับทุกคน",
+    "cancelEdit": "ยกเลิกการแก้ไข",
+    "editing": "กำลังแก้ไข",
+    "search": "ค้นหา",
+    "searchIn": "ค้นหาในการสนทนานี้",
+    "nothingFound": "ไม่พบอะไร",
+    "closeSearch": "ปิดการค้นหา",
+    "sendLater": "ส่งภายหลัง",
+    "schedule": "ตั้งเวลา",
+    "scheduleTime": "เวลา",
+    "scheduledFor": "ตั้งเวลาส่ง {time}",
+    "scheduleNote": "จะส่งจากโทรศัพท์เครื่องนี้ตามเวลานั้นหากเปิดอยู่ ลบที่นี่ก่อนเพื่อยกเลิก"
   },
   "status": {
     "pending": "รออุปกรณ์",
@@ -141,6 +169,8 @@
     "openSettings": "เปิดการตั้งค่า"
   },
   "contact": {
+    "call": "โทร",
+    "video": "วิดีโอ",
     "fingerprint": "ลายนิ้วมือความปลอดภัย",
     "verify": "ยืนยันแบบตัวต่อตัว",
     "verifyHint": "เทียบโค้ดทั้งสองเมื่ออยู่ด้วยกัน",
@@ -170,7 +200,8 @@
     "never": "ไม่เลย",
     "days": "{days} วัน",
     "hours": "{hours} ชม.",
-    "minutes": "{minutes} นาที"
+    "minutes": "{minutes} นาที",
+    "typing": "แสดงเมื่อฉันกำลังพิมพ์"
   },
   "move": {
     "fromOld": "จากโทรศัพท์เครื่องเก่า",
@@ -241,7 +272,9 @@
     "renewLinkHint": "ผู้ที่มีลิงก์เก่าของคุณจะติดต่อคุณไม่ได้อีก ผู้ติดต่อของคุณจะได้รับลิงก์ใหม่",
     "renewLinkConfirm": "สร้างใหม่",
     "renewed": "สร้างลิงก์ใหม่แล้ว",
-    "feedback": "เสนอแนะ"
+    "feedback": "เสนอแนะ",
+    "tabBar": "แสดงในแถบแท็บ",
+    "tabBarNone": "ไม่มี"
   },
   "hours": {
     "title": "ช่วงเวลา",

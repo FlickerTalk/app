@@ -7,7 +7,8 @@
     "chats": "聊天",
     "calls": "通话",
     "settings": "设置",
-    "games": "游戏"
+    "games": "游戏",
+    "plugins": "插件"
   },
   "chats": {
     "empty": "还没有聊天",
@@ -63,7 +64,34 @@
     "otherApp": "其他应用",
     "location": "位置",
     "accuracy": "±{metres} 米",
-    "openLocation": "{place}：在地图中打开"
+    "openLocation": "{place}：在地图中打开",
+    "typing": "正在输入…",
+    "reply": "回复",
+    "cancelReply": "取消回复",
+    "quoteGone": "消息已不存在",
+    "you": "你",
+    "them": "对方",
+    "react": "回应",
+    "reactWith": "用 {emoji} 回应",
+    "unreact": "移除回应",
+    "pin": "置顶",
+    "unpin": "取消置顶",
+    "pinned": "已置顶",
+    "edit": "编辑",
+    "edited": "已编辑",
+    "deleted": "消息已删除",
+    "deleteEveryone": "对所有人删除",
+    "cancelEdit": "取消编辑",
+    "editing": "编辑中",
+    "search": "搜索",
+    "searchIn": "在此对话中搜索",
+    "nothingFound": "没有结果",
+    "closeSearch": "关闭搜索",
+    "sendLater": "稍后发送",
+    "schedule": "定时",
+    "scheduleTime": "时间",
+    "scheduledFor": "定于 {time} 发送",
+    "scheduleNote": "届时若手机开机，将从此手机发出；要取消，请提前在此删除。"
   },
   "status": {
     "pending": "等待对方设备",
@@ -141,6 +169,8 @@
     "openSettings": "打开设置"
   },
   "contact": {
+    "call": "通话",
+    "video": "视频",
     "fingerprint": "安全指纹",
     "verify": "当面验证",
     "verifyHint": "见面时比对双方的码",
@@ -170,7 +200,8 @@
     "never": "从不",
     "days": "{days} 天",
     "hours": "{hours} 小时",
-    "minutes": "{minutes} 分钟"
+    "minutes": "{minutes} 分钟",
+    "typing": "显示我正在输入"
   },
   "move": {
     "fromOld": "从旧手机迁移",
@@ -241,7 +272,9 @@
     "renewLinkHint": "持有你旧链接的人将无法再联系你；你的联系人会收到新链接",
     "renewLinkConfirm": "更新",
     "renewed": "链接已更新",
-    "feedback": "提个建议"
+    "feedback": "提个建议",
+    "tabBar": "显示在标签栏",
+    "tabBarNone": "无"
   },
   "hours": {
     "title": "时段",

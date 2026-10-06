@@ -42,6 +42,15 @@ export function seed(): void {
   calls.length = 0;
   installTauri((command, args) => {
     calls.push([command, args]);
+    // 2026-10-05: the search, as the core would answer it: the words, any case, newest first.
+    if (command === "core_search") {
+      const chat = fixture.chats.find((candidate) => candidate.id === args?.contact);
+      const needle = String(args?.query ?? "").toLowerCase();
+      return (chat?.messages ?? [])
+        .filter((message) => (message.text ?? "").toLowerCase().includes(needle))
+        .reverse()
+        .map((message) => ({ id: message.id, outgoing: message.mine, text: message.text ?? "", sentAt: at(message.time), state: message.status ?? "delivered" }));
+    }
     if (command === "core_messages") {
       const chat = fixture.chats.find((candidate) => candidate.id === args?.contact);
       return (chat?.messages ?? []).map((message) => ({
@@ -67,7 +76,7 @@ export function seed(): void {
     if (command === "core_upload_start") return "up1";
     if (command === "core_take_photo") return [{ path: "/data/uploads/photo.jpg", name: "photo-20260923-201530.jpg", mime: "image/jpeg", size: 1234 }];
     if (command === "core_contact") {
-      return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false, keepFor: 0, burnAfterRead: 0, rules: { muted: false, acceptsChat: true, acceptsCalls: true, receipts: true } };
+      return { id: args?.contact, name: "Maria López", fingerprint: "a1b2 c3d4 e5f6 0718 293a 4b5c 6d7e 8f90 a1b2 c3d4 e5f6 0718", mailbox: true, blocked: false, keepFor: 0, burnAfterRead: 0, rules: { muted: false, acceptsChat: true, acceptsCalls: true, receipts: true, typing: true } };
     }
     // One plugin, allowed to read what the user hands it (issue app#3).
     if (command === "core_plugins") {

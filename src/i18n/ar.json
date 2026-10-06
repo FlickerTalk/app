@@ -7,7 +7,8 @@
     "chats": "الدردشات",
     "calls": "المكالمات",
     "settings": "الإعدادات",
-    "games": "الألعاب"
+    "games": "الألعاب",
+    "plugins": "الإضافات"
   },
   "chats": {
     "empty": "لا توجد دردشات بعد",
@@ -63,7 +64,34 @@
     "otherApp": "تطبيق آخر",
     "location": "الموقع",
     "accuracy": "±{metres} م",
-    "openLocation": "{place}: فتح في الخرائط"
+    "openLocation": "{place}: فتح في الخرائط",
+    "typing": "يكتب…",
+    "reply": "رد",
+    "cancelReply": "إلغاء الرد",
+    "quoteGone": "الرسالة لم تعد موجودة",
+    "you": "أنت",
+    "them": "الطرف الآخر",
+    "react": "تفاعل",
+    "reactWith": "تفاعل بـ {emoji}",
+    "unreact": "إزالة التفاعل",
+    "pin": "تثبيت",
+    "unpin": "إلغاء التثبيت",
+    "pinned": "مثبّت",
+    "edit": "تعديل",
+    "edited": "معدّل",
+    "deleted": "تم حذف الرسالة",
+    "deleteEveryone": "حذف لدى الجميع",
+    "cancelEdit": "إلغاء التعديل",
+    "editing": "تعديل",
+    "search": "بحث",
+    "searchIn": "البحث في هذه المحادثة",
+    "nothingFound": "لا توجد نتائج",
+    "closeSearch": "إغلاق البحث",
+    "sendLater": "إرسال لاحقًا",
+    "schedule": "جدولة",
+    "scheduleTime": "الوقت",
+    "scheduledFor": "مجدول لـ {time}",
+    "scheduleNote": "يُرسل من هذا الهاتف في ذلك الوقت إذا كان مشغّلًا؛ احذفه هنا قبل ذلك لإلغائه."
   },
   "status": {
     "pending": "بانتظار الجهاز",
@@ -141,6 +169,8 @@
     "openSettings": "فتح الإعدادات"
   },
   "contact": {
+    "call": "اتصال",
+    "video": "فيديو",
     "fingerprint": "بصمة الأمان",
     "verify": "التحقق وجهًا لوجه",
     "verifyHint": "قارن الرمزين عندما تكونان معًا",
@@ -170,7 +200,8 @@
     "never": "أبدًا",
     "days": "الأيام: {days}",
     "hours": "{hours} س",
-    "minutes": "{minutes} د"
+    "minutes": "{minutes} د",
+    "typing": "إظهار عندما أكتب"
   },
   "move": {
     "fromOld": "من هاتفك القديم",
@@ -241,7 +272,9 @@
     "renewLinkHint": "من لديه رابطك القديم لم يعد بإمكانه الوصول إليك؛ وتحصل جهات اتصالك على الرابط الجديد",
     "renewLinkConfirm": "تجديد",
     "renewed": "تم تجديد الرابط",
-    "feedback": "اقترح شيئًا"
+    "feedback": "اقترح شيئًا",
+    "tabBar": "إظهار في شريط التبويبات",
+    "tabBarNone": "لا شيء"
   },
   "hours": {
     "title": "الساعات",

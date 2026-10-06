@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { readCode } from "../code";
-import { formatSize } from "../core";
+import { clock as clockOf, formatSize } from "../core";
 import { gameIdFromText, isGame } from "../games";
 import { mapsLink, piecesOf, type Place } from "../links";
 import { installed, offered, pluginName } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonButton, IonIcon } from "@ionic/vue";
-import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, play, refreshOutline, timeOutline } from "ionicons/icons";
-import { t } from "../i18n";
+import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, pinOutline, play, refreshOutline, timeOutline } from "ionicons/icons";
+import { i18n, t } from "../i18n";
 
 interface TransferredFile {
   name: string;
@@ -27,14 +27,29 @@ export interface Message {
   status?: string;
   kind?: string;
   file?: TransferredFile;
+  /** The message it answers (2026-10-05): a text, a file's name, or one no longer here. */
+  quote?: { id: string; text: string; mine: boolean; kind: "text" | "file" | "gone" };
+  /** The emoji each side put on it (2026-10-05). */
+  reactions?: { mine?: string; theirs?: string };
+  /** Pinned on this phone (2026-10-05). */
+  pinned?: boolean;
+  /** Said again with other words (2026-10-05). */
+  edited?: boolean;
+  /** Taken back for both sides (2026-10-05): only the mark is left. */
+  deleted?: boolean;
+  /** Written to be sent at this time (2026-10-06, ms), still waiting on this phone. */
+  scheduledFor?: number;
+  /** An edit or a taking back of it still waits for the contact's receipt (2026-10-06). */
+  updatePending?: boolean;
 }
 
 /**
  * `sender`: in a circle, who said it; shown over a bubble that is not ours (2026-09-27).
+ * `contactName`: in a conversation, the contact's name, said over a quote of theirs (2026-10-06).
  * `games`: where games are played (a conversation, on a phone that has games), an invitation to
  * one gets a way to play it (plan 10.6).
  */
-const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; games?: boolean }>();
+const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; contactName?: string; games?: boolean }>();
 const emit = defineEmits<{
   open: [id: string];
   save: [id: string];
@@ -42,6 +57,8 @@ const emit = defineEmits<{
   actions: [id: string];
   resend: [id: string];
   play: [id: string];
+  /** A tap on the quote: go to the message it answers. */
+  jump: [id: string];
 }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
@@ -53,10 +70,28 @@ const STATUS: Record<string, { icon: string; label: string }> = {
   unsent: { icon: alertCircleOutline, label: t("status.unsent") },
 };
 
+/**
+ * The state shown by the time: the message's own, or the clock while an edit or a taking back of
+ * it still waits for the contact (2026-10-06, §84): the ticks of the first words are not shown for
+ * the new ones before the other phone has them.
+ */
+const shownStatus = computed(() => (props.message.updatePending ? "pending" : props.message.status));
 const status = computed(() =>
-  props.message.mine && props.message.status ? STATUS[props.message.status] : undefined,
+  props.message.mine && shownStatus.value ? STATUS[shownStatus.value] : undefined,
 );
 const unsent = computed(() => props.message.mine && props.message.status === "unsent");
+/**
+ * When a message for later goes (2026-10-06): the time as the bubbles write theirs, with the day,
+ * in the app's language, when it is not today.
+ */
+const whenLater = computed(() => {
+  const at = props.message.scheduledFor;
+  if (!at) return "";
+  const date = new Date(at);
+  if (new Date().toDateString() === date.toDateString()) return clockOf(at);
+  const day = new Intl.DateTimeFormat(i18n.global.locale.value, { day: "numeric", month: "short" }).format(date);
+  return `${day} ${clockOf(at)}`;
+});
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
 // A message written with fences is code, and the app draws it as such (Ioan, 2026-09-22).
 const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
@@ -81,9 +116,21 @@ const game = computed(() => {
 // A long press asks for what can be done with this message; a tap does nothing of the sort.
 const LONG_PRESS = 500;
 let pressing: ReturnType<typeof setTimeout> | undefined;
+/** The last press asked for the actions: the click that ends it is not a tap (2026-10-06). */
+let longPressed = false;
 
 function startPress() {
-  pressing = setTimeout(() => emit("actions", props.message.id), LONG_PRESS);
+  longPressed = false;
+  pressing = setTimeout(() => {
+    longPressed = true;
+    emit("actions", props.message.id);
+  }, LONG_PRESS);
+}
+
+/** A tap on the quote goes to the message it answers; a long press on it is the bubble's. */
+function tapQuote(id: string) {
+  if (longPressed) return;
+  emit("jump", id);
 }
 
 function endPress() {
@@ -187,6 +234,7 @@ function open() {
   <div
     class="ft-msg"
     :class="[message.mine ? 'is-mine' : 'is-theirs', { 'is-pending': message.status === 'pending', 'is-unsent': unsent }]"
+    :data-message="message.id"
   >
     <!-- Beside the bubble, so it is there for a text, a file or a voice message alike. -->
     <button
@@ -199,6 +247,8 @@ function open() {
     >
       <ion-icon :icon="refreshOutline" aria-hidden="true" />
     </button>
+    <!-- The bubble and what hangs under it (2026-10-06): one column at the line's outer side. -->
+    <div class="ft-msg__column" :class="{ 'is-media': file && (isImage || isVideo) }">
     <div
       class="ft-bubble"
       :class="{ 'is-file': file, 'is-media': file && (isImage || isVideo), 'is-voice': file && isVoice, 'is-folded': folded }"
@@ -209,8 +259,27 @@ function open() {
       @pointerleave="endPress"
     >
       <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender" dir="auto">{{ sender }}</span>
+      <!-- What it answers (2026-10-05): a tap goes to that message; a long press on it opens the
+           actions like anywhere else on the bubble (2026-10-06). -->
+      <button
+        v-if="message.quote"
+        type="button"
+        class="ft-quote"
+        :class="{ 'is-theirs': !message.quote.mine, 'is-gone': message.quote.kind === 'gone' }"
+        data-test="quote"
+        :aria-label="t('chat.reply')"
+        @click.stop="tapQuote(message.quote.id)"
+      >
+        <span class="ft-quote__who">{{ message.quote.kind === 'gone' ? '' : message.quote.mine ? t('chat.you') : (contactName ?? sender ?? t('chat.them')) }}</span>
+        <span class="ft-quote__text" dir="auto">
+          <ion-icon v-if="message.quote.kind === 'file'" :icon="documentOutline" aria-hidden="true" />
+          {{ message.quote.kind === 'gone' ? t('chat.quoteGone') : message.quote.text }}
+        </span>
+      </button>
+      <!-- Taken back for both sides (2026-10-05): only the mark that it was there. -->
+      <p v-if="message.deleted" class="ft-bubble__text ft-bubble__gone" data-test="deleted">{{ t("chat.deleted") }}</p>
       <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
-      <span v-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
+      <span v-else-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
         <!-- A video that arrived plays here, from the app's own files (§62). -->
         <video v-else-if="file.url && isVideo" class="ft-video" :src="file.url" controls playsinline preload="metadata" @click.stop />
@@ -397,15 +466,25 @@ function open() {
       </ion-button>
 
       <span class="ft-bubble__meta">
-        <span>{{ message.time }}</span>
+        <ion-icon v-if="message.pinned" :icon="pinOutline" class="ft-bubble__pin" role="img" :aria-label="t('chat.pinned')" data-test="pinned" />
+        <span v-if="message.edited && !message.deleted" class="ft-bubble__edited" data-test="edited">{{ t("chat.edited") }}</span>
+        <!-- For later (2026-10-06): when it goes, instead of the state it does not have yet. -->
+        <span v-if="message.scheduledFor" class="ft-bubble__later" data-test="scheduled">{{ t("chat.scheduledFor", { time: whenLater }) }}</span>
+        <span v-else>{{ message.time }}</span>
         <ion-icon
-          v-if="status"
+          v-if="status && !message.scheduledFor"
           :icon="status.icon"
-          :class="`is-${message.status}`"
+          :class="`is-${shownStatus}`"
           role="img"
           :aria-label="status.label"
         />
       </span>
+    </div>
+    <!-- The emoji on it (2026-10-05), under the bubble's outer corner: theirs first, then mine. -->
+    <span v-if="message.reactions?.mine || message.reactions?.theirs" class="ft-reactions" data-test="reactions">
+      <span v-if="message.reactions?.theirs" class="ft-reactions__one is-theirs" data-test="reaction-theirs">{{ message.reactions.theirs }}</span>
+      <span v-if="message.reactions?.mine" class="ft-reactions__one is-mine" data-test="reaction-mine">{{ message.reactions.mine }}</span>
+    </span>
     </div>
     <!-- Outside the bubble, so the fold does not hide the sign that it is folded. -->
     <span v-if="folded" class="ft-fold" data-test="folded" :aria-label="t('chat.folded')">⌄</span>
@@ -414,6 +493,84 @@ function open() {
 
 <style scoped>
 /* In a circle, who said it, over the text; the colour of a name, not of a message. */
+.ft-bubble__pin {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.ft-bubble__later {
+  font-style: italic;
+}
+.ft-bubble__edited {
+  font-style: italic;
+  opacity: 0.85;
+}
+.ft-bubble__gone {
+  font-style: italic;
+  opacity: 0.75;
+}
+/* The bubble and what hangs under it (2026-10-06): a column as wide as the bubble may be, at the
+   line's outer side; what is in it keeps its own width, so the reactions sit under the bubble's
+   outer corner (the start for theirs, the end for mine) instead of beside it, stretched. */
+.ft-msg__column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: min(78%, 520px);
+}
+.ft-msg__column.is-media {
+  max-width: min(86%, 520px);
+}
+.is-mine .ft-msg__column {
+  align-items: flex-end;
+}
+/* The emoji on a message (2026-10-05): under the bubble, at its outer corner. Ioan (2026-10-06):
+   the emoji alone, no chip, no background and no border around it. */
+.ft-reactions {
+  display: flex;
+  gap: 6px;
+  margin-block-start: -4px;
+  padding-inline: 8px;
+  font-size: 16px;
+  line-height: 1;
+}
+.ft-reactions__one {
+  padding-block: 2px;
+}
+/* The quote over an answer (2026-10-05): a bar in the other side's colour, the text in one line. */
+.ft-quote {
+  appearance: none;
+  display: block;
+  width: 100%;
+  margin-block: 0 6px;
+  padding-block: 4px;
+  padding-inline: 10px 8px;
+  border: 0;
+  border-inline-start: 3px solid currentColor;
+  border-radius: 8px;
+  background: rgba(var(--ion-color-medium-rgb), 0.18);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.ft-quote__who {
+  display: block;
+  font-size: var(--ft-font-meta);
+  font-weight: 600;
+  opacity: 0.85;
+}
+.ft-quote__text {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ft-font-meta);
+  opacity: 0.9;
+}
+.ft-quote.is-gone .ft-quote__text {
+  font-style: italic;
+}
 .ft-bubble__sender {
   display: block;
   margin-bottom: 2px;
@@ -447,7 +604,7 @@ function open() {
 }
 
 .ft-bubble {
-  max-width: min(78%, 520px);
+  max-width: 100%;
   padding: 9px 12px 6px;
   border-radius: var(--ft-radius-bubble);
   font-size: var(--ft-font-body);
@@ -606,7 +763,6 @@ function open() {
   padding: 0;
   background: none;
   box-shadow: none;
-  max-width: min(86%, 520px);
 }
 .ft-media {
   position: relative;

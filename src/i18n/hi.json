@@ -7,7 +7,8 @@
     "chats": "चैट",
     "calls": "कॉल",
     "settings": "सेटिंग्स",
-    "games": "गेम"
+    "games": "गेम",
+    "plugins": "प्लगइन"
   },
   "chats": {
     "empty": "अभी कोई चैट नहीं",
@@ -63,7 +64,34 @@
     "otherApp": "दूसरा ऐप",
     "location": "स्थान",
     "accuracy": "±{metres} मी",
-    "openLocation": "{place}: मैप्स में खोलें"
+    "openLocation": "{place}: मैप्स में खोलें",
+    "typing": "लिख रहे हैं…",
+    "reply": "जवाब दें",
+    "cancelReply": "जवाब रद्द करें",
+    "quoteGone": "संदेश अब उपलब्ध नहीं",
+    "you": "आप",
+    "them": "दूसरा व्यक्ति",
+    "react": "प्रतिक्रिया",
+    "reactWith": "{emoji} से प्रतिक्रिया दें",
+    "unreact": "प्रतिक्रिया हटाएँ",
+    "pin": "पिन करें",
+    "unpin": "पिन हटाएँ",
+    "pinned": "पिन किया गया",
+    "edit": "संपादित करें",
+    "edited": "संपादित",
+    "deleted": "संदेश हटा दिया गया",
+    "deleteEveryone": "सबके लिए हटाएँ",
+    "cancelEdit": "संपादन रद्द करें",
+    "editing": "संपादन",
+    "search": "खोजें",
+    "searchIn": "इस बातचीत में खोजें",
+    "nothingFound": "कुछ नहीं मिला",
+    "closeSearch": "खोज बंद करें",
+    "sendLater": "बाद में भेजें",
+    "schedule": "शेड्यूल करें",
+    "scheduleTime": "समय",
+    "scheduledFor": "{time} के लिए शेड्यूल किया गया",
+    "scheduleNote": "उस समय इस फ़ोन से जाएगा, अगर फ़ोन चालू है; रद्द करने के लिए पहले इसे यहाँ हटाएँ।"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",
@@ -141,6 +169,8 @@
     "openSettings": "सेटिंग्स खोलें"
   },
   "contact": {
+    "call": "कॉल",
+    "video": "वीडियो",
     "fingerprint": "सुरक्षा फ़िंगरप्रिंट",
     "verify": "आमने-सामने वेरिफ़ाई करें",
     "verifyHint": "साथ होने पर दोनों कोड मिलाएँ",
@@ -170,7 +200,8 @@
     "never": "कभी नहीं",
     "days": "{days} दिन",
     "hours": "{hours} घं.",
-    "minutes": "{minutes} मि."
+    "minutes": "{minutes} मि.",
+    "typing": "जब मैं लिख रहा हूँ तो दिखाएँ"
   },
   "move": {
     "fromOld": "अपने पुराने फ़ोन से",
@@ -241,7 +272,9 @@
     "renewLinkHint": "जिसके पास आपका पुराना लिंक है, वह अब आप तक नहीं पहुँच सकता; आपके संपर्कों को नया लिंक मिल जाता है",
     "renewLinkConfirm": "बदलें",
     "renewed": "लिंक बदल दिया गया",
-    "feedback": "कुछ सुझाएँ"
+    "feedback": "कुछ सुझाएँ",
+    "tabBar": "टैब बार में दिखाएँ",
+    "tabBarNone": "कुछ नहीं"
   },
   "hours": {
     "title": "समय",
