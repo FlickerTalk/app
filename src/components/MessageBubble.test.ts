@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/plugin-opener", () => opener);
 
 import { IonButton, IonIcon } from "@ionic/vue";
 import MessageBubble from "./MessageBubble.vue";
+import source from "./MessageBubble.vue?raw";
 import { installed, offered } from "../plugins";
 import type { OfferedPlugin, PluginView } from "../core";
 import { setLocale } from "../i18n";
@@ -590,5 +591,19 @@ describe("MessageBubble", () => {
       const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false }, sender: "Ana (work)" }, shallow: true });
       expect(wrapper.find("[data-test='sender']").attributes("dir")).toBe("auto");
     });
+  });
+  // 2026-10-06, the review of the chat features: the quote, the reactions and the marks take their
+  // colours from Ionic's palette and their sides from the writing direction (Arabic, right to left).
+  it("styles the chat features with Ionic's colours and logical sides", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+      .filter(({ selector }) => /\.ft-(quote|reactions|bubble__pin|bubble__later|bubble__edited|bubble__gone)/.test(selector));
+    expect(rules.length).toBeGreaterThan(5);
+    for (const { selector, body } of rules) {
+      expect(body, selector).not.toMatch(/var\(--ft-(accent|muted|text|surface|border|bg)/);
+      expect(body, selector).not.toMatch(/color-mix|rgba\(\s*\d/);
+      expect(body, selector).not.toMatch(/(padding|margin)(-left|-right)?:\s*\S+\s+\S+\s+\S+\s+\S+;|(padding|margin)-(left|right)|\b(left|right):/);
+    }
   });
 });

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
-import { IonSegment, IonSegmentButton, IonTextarea } from "@ionic/vue";
+import { IonButton, IonDatetime, IonSearchbar, IonSegment, IonSegmentButton, IonTextarea } from "@ionic/vue";
+import source from "./ChatThread.vue?raw";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
@@ -918,23 +919,35 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
-  // 2026-10-06: a text for later: the clock by Send opens the time, and Schedule queues it.
+  // 2026-10-06: a text for later: the clock by Send opens the time in Ionic's sheet, with Ionic's
+  // date and time picker, and Schedule queues it.
   describe("sending later", () => {
-    it("offers the clock only with words to send, and schedules them at the chosen time", async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const local = (at: Date) => `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+    const button = (wrapper: ReturnType<typeof mount>, test: string) =>
+      wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === test)!;
+    const opened = async (text: string) => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
       await flushPromises();
       expect(wrapper.find("[data-test='send-later']").exists()).toBe(false);
-      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "good morning");
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", text);
       await flushPromises();
       await wrapper.find("[data-test='send-later']").trigger("click");
-      const panel = wrapper.find("[data-test='schedule']");
-      expect(panel.exists()).toBe(true);
+      return wrapper;
+    };
+
+    it("offers the clock only with words to send, and schedules them at the chosen time", async () => {
+      const wrapper = await opened("good morning");
+      const sheet = wrapper.findAllComponents(IonModalStub).find((one) => one.props("isOpen") && one.find("[data-test='schedule']").exists())!;
+      expect(sheet.attributes("aria-label")).toBe("Send later");
+      expect(sheet.props("breakpoints")).toContain(sheet.props("initialBreakpoint"));
+      const picker = wrapper.findComponent(IonDatetime);
+      expect(picker.attributes("data-test")).toBe("schedule-at");
       const at = new Date(Date.now() + 2 * 3_600_000);
       at.setSeconds(0, 0);
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const local = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
-      await wrapper.find("[data-test='schedule-at']").setValue(local);
-      await wrapper.find("[data-test='schedule-go']").trigger("click");
+      picker.vm.$emit("update:modelValue", local(at));
+      await flushPromises();
+      await button(wrapper, "schedule-go").trigger("click");
       await flushPromises();
       expect(calls).toContainEqual(["core_schedule", { contact: "c1", text: "good morning", sendAt: at.getTime() }]);
       expect(calls.filter(([command]) => command === "core_send")).toEqual([]);
@@ -942,16 +955,12 @@ describe("ChatThread", () => {
     });
 
     it("refuses a time that is too soon, and can be dropped", async () => {
-      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      const wrapper = await opened("soon");
+      wrapper.findComponent(IonDatetime).vm.$emit("update:modelValue", local(new Date(Date.now() - 60_000)));
       await flushPromises();
-      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "soon");
+      expect(button(wrapper, "schedule-go").props("disabled")).toBe(true);
+      await button(wrapper, "schedule-cancel").trigger("click");
       await flushPromises();
-      await wrapper.find("[data-test='send-later']").trigger("click");
-      const at = new Date(Date.now() - 60_000);
-      const pad = (n: number) => String(n).padStart(2, "0");
-      await wrapper.find("[data-test='schedule-at']").setValue(`${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`);
-      expect(wrapper.find("[data-test='schedule-go']").attributes("disabled")).toBeDefined();
-      await wrapper.find("[data-test='schedule-cancel']").trigger("click");
       expect(wrapper.find("[data-test='schedule']").exists()).toBe(false);
       expect(calls.filter(([command]) => command === "core_schedule")).toEqual([]);
     });
@@ -964,7 +973,9 @@ describe("ChatThread", () => {
     afterEach(() => vi.useRealTimers());
 
     const typed = async (wrapper: ReturnType<typeof mount>, text: string) => {
-      await wrapper.find("[data-test='search-input']").setValue(text);
+      wrapper.findComponent(IonSearchbar).vm.$emit("update:modelValue", text);
+      // The query's watcher starts its wait on the next tick, as it did after the old field's input.
+      await wrapper.vm.$nextTick();
       vi.advanceTimersByTime(300);
       await flushPromises();
     };
@@ -1136,6 +1147,63 @@ describe("ChatThread", () => {
       await lit.trigger("click");
       await flushPromises();
       expect(calls).toContainEqual(["core_react", { contact: "c1", message: first.id }]);
+    });
+  });
+
+  // 2026-10-06, the review of the chat features: Ionic's own controls, with an accessible name,
+  // colours from Ionic's palette and logical sides, so that Arabic (right to left) works.
+  describe("Ionic controls of the chat features", () => {
+    const clear = (wrapper: ReturnType<typeof mount>, test: string) => {
+      const button = wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === test);
+      expect(button, test).toBeDefined();
+      expect(button!.props("fill"), test).toBe("clear");
+      expect(button!.attributes("aria-label"), test).toBeTruthy();
+      return button!;
+    };
+    const pressOn = async (wrapper: ReturnType<typeof mount>, index: number) => {
+      await wrapper.findAll("[data-test='bubble']")[index].trigger("pointerdown");
+      await new Promise((wake) => setTimeout(wake, 550));
+      await flushPromises();
+    };
+
+    it("edits, pins and answers with Ionic's clear icon buttons, and drops them the same way", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressOn(wrapper, 1); // m2: mine, a text
+      clear(wrapper, "pin");
+      clear(wrapper, "reply");
+      await clear(wrapper, "edit").trigger("click");
+      await clear(wrapper, "cancel-edit").trigger("click");
+      expect(wrapper.find("[data-test='editing']").exists()).toBe(false);
+      await pressOn(wrapper, 1);
+      await clear(wrapper, "reply").trigger("click");
+      await clear(wrapper, "cancel-reply").trigger("click");
+      expect(wrapper.find("[data-test='replying']").exists()).toBe(false);
+    });
+
+    it("searches with Ionic's searchbar and closes with a clear icon button", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await wrapper.find("[data-test='search']").trigger("click");
+      const bar = wrapper.findComponent(IonSearchbar);
+      expect(bar.attributes("data-test")).toBe("search-input");
+      expect(bar.attributes("aria-label")).toBe("Search in this conversation");
+      expect(wrapper.find("[data-test='search-panel'] input").exists()).toBe(false);
+      await clear(wrapper, "close-search").trigger("click");
+      expect(wrapper.find("[data-test='search-panel']").exists()).toBe(false);
+    });
+
+    it("styles them with Ionic's colours and logical sides", () => {
+      const styles = source.slice(source.indexOf("<style"));
+      const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+        .filter(({ selector }) => /\.ft-(schedule|search|pinned|replying|actions__emoji|actions__react)|is-typing|is-lit/.test(selector));
+      expect(rules.length).toBeGreaterThan(5);
+      for (const { selector, body } of rules) {
+        expect(body, selector).not.toMatch(/var\(--ft-(accent|muted|text|surface|border|bg)/);
+        expect(body, selector).not.toMatch(/color-mix|rgba\(\s*\d/);
+        expect(body, selector).not.toMatch(/(padding|margin)(-left|-right)?:\s*\S+\s+\S+\s+\S+\s+\S+;|(padding|margin)-(left|right)|\b(left|right):/);
+      }
     });
   });
 

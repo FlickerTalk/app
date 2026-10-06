@@ -5,6 +5,7 @@ import {
   IonButton,
   IonButtons,
   IonContent,
+  IonDatetime,
   IonFabButton,
   IonFabList,
   IonFooter,
@@ -14,8 +15,10 @@ import {
   IonLabel,
   IonList,
   IonModal,
+  IonSearchbar,
   IonSegment,
   IonSegmentButton,
+  IonText,
   IonTextarea,
   IonTitle,
   IonToolbar,
@@ -255,7 +258,7 @@ function reply() {
 const scheduling = ref(false);
 const sendAt = ref("");
 
-/** `datetime-local` wants the phone's local time without seconds or zone. */
+/** Ionic's date and time picker takes the phone's local time without seconds or zone. */
 function localInput(ms: number): string {
   const date = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -269,6 +272,12 @@ function openSchedule() {
 }
 
 const soonest = computed(() => localInput(Date.now() + 60_000));
+/** The core takes a time up to a year ahead; Ionic's picker would stop at the end of this year. */
+const latest = computed(() => localInput(Date.now() + 365 * 24 * 3_600_000));
+
+function pickTime(value: unknown) {
+  sendAt.value = typeof value === "string" ? value : "";
+}
 const canSchedule = computed(() => Boolean(sendAt.value) && new Date(sendAt.value).getTime() >= Date.now() + 60_000);
 
 async function schedule() {
@@ -292,11 +301,19 @@ const searched = ref(false);
 const lit = ref("");
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
+const searchbar = ref<{ $el: HTMLElement & { setFocus?: () => Promise<void> } } | null>(null);
+
 function openSearch() {
   searching.value = true;
   query.value = "";
   hits.value = [];
   searched.value = false;
+  // As the field's `autofocus` did: the keyboard comes up with the search.
+  void nextTick(() => searchbar.value?.$el.setFocus?.());
+}
+
+function typeSearch(value: unknown) {
+  query.value = typeof value === "string" ? value : "";
 }
 
 function closeSearch() {
@@ -1000,19 +1017,19 @@ watch(
     <!-- 2026-10-05: the search, under the header: what is typed, and the hits, newest first. -->
     <div v-if="searching" class="ft-search" data-test="search-panel">
       <div class="ft-search__row">
-        <input
-          v-model="query"
+        <ion-searchbar
+          ref="searchbar"
           class="ft-search__input"
-          type="search"
+          :model-value="query"
           data-test="search-input"
           :placeholder="$t('chat.searchIn')"
           :aria-label="$t('chat.searchIn')"
           enterkeyhint="search"
-          autofocus
+          @update:model-value="typeSearch"
         />
-        <button type="button" class="ft-round ft-round--ghost" data-test="close-search" :aria-label="$t('chat.closeSearch')" @click="closeSearch">
-          <ion-icon :icon="closeOutline" aria-hidden="true" />
-        </button>
+        <ion-button fill="clear" color="medium" data-test="close-search" :aria-label="$t('chat.closeSearch')" @click="closeSearch">
+          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+        </ion-button>
       </div>
       <ul v-if="hits.length" class="ft-search__hits" data-test="search-hits">
         <li v-for="hit in hits" :key="hit.id">
@@ -1243,17 +1260,23 @@ watch(
           </button>
         </span>
         <!-- 2026-10-05: my own text, said again with other words. -->
-        <button v-if="canEdit" type="button" class="ft-round ft-round--ghost" data-test="edit" :aria-label="$t('chat.edit')" @click="edit">
-          <ion-icon :icon="pencilOutline" aria-hidden="true" />
-        </button>
+        <ion-button v-if="canEdit" fill="clear" color="medium" data-test="edit" :aria-label="$t('chat.edit')" @click="edit">
+          <ion-icon slot="icon-only" :icon="pencilOutline" aria-hidden="true" />
+        </ion-button>
         <!-- 2026-10-05: pin it on this phone, or unpin it. -->
-        <button type="button" class="ft-round ft-round--ghost" :class="{ 'is-active': actingMessage?.pinned }" data-test="pin" :aria-label="$t(actingMessage?.pinned ? 'chat.unpin' : 'chat.pin')" @click="togglePin">
-          <ion-icon :icon="actingMessage?.pinned ? pin : pinOutline" aria-hidden="true" />
-        </button>
+        <ion-button
+          fill="clear"
+          :color="actingMessage?.pinned ? 'primary' : 'medium'"
+          data-test="pin"
+          :aria-label="$t(actingMessage?.pinned ? 'chat.unpin' : 'chat.pin')"
+          @click="togglePin"
+        >
+          <ion-icon slot="icon-only" :icon="actingMessage?.pinned ? pin : pinOutline" aria-hidden="true" />
+        </ion-button>
         <!-- 2026-10-05: answer it, quoting it; not a stranger's message still in the requests. -->
-        <button v-if="!isRequest" type="button" class="ft-round ft-round--ghost" data-test="reply" :aria-label="$t('chat.reply')" @click="reply">
-          <ion-icon :icon="arrowUndoOutline" aria-hidden="true" />
-        </button>
+        <ion-button v-if="!isRequest" fill="clear" color="medium" data-test="reply" :aria-label="$t('chat.reply')" @click="reply">
+          <ion-icon slot="icon-only" :icon="arrowUndoOutline" aria-hidden="true" />
+        </ion-button>
         <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
           <ion-icon :icon="folded.has(acting) ? expandOutline : contractOutline" aria-hidden="true" />
         </button>
@@ -1374,27 +1397,15 @@ watch(
         </button>
       </div>
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
-      <!-- 2026-10-06: when the text goes. -->
-      <div v-if="scheduling" class="ft-schedule" data-test="schedule">
-        <label class="ft-schedule__when">
-          <span>{{ $t("chat.sendLater") }}</span>
-          <input v-model="sendAt" type="datetime-local" class="ft-schedule__input" data-test="schedule-at" :min="soonest" />
-        </label>
-        <p class="ft-schedule__note">{{ $t("chat.scheduleNote") }}</p>
-        <div class="ft-schedule__actions">
-          <button type="button" class="ft-erase__cancel" data-test="schedule-cancel" @click="scheduling = false">{{ $t("common.cancel") }}</button>
-          <button type="button" class="ft-erase__go" data-test="schedule-go" :disabled="!canSchedule" @click="schedule">{{ $t("chat.schedule") }}</button>
-        </div>
-      </div>
       <!-- 2026-10-05: the text being said again with other words, until Send or dropped. -->
       <div v-if="editing" class="ft-replying ft-replying--edit" data-test="editing">
         <span class="ft-replying__text">
           <span class="ft-replying__who">{{ $t("chat.editing") }}</span>
           <span class="ft-replying__quote" dir="auto">{{ editing.text }}</span>
         </span>
-        <button type="button" class="ft-round ft-round--ghost" data-test="cancel-edit" :aria-label="$t('chat.cancelEdit')" @click="cancelEdit">
-          <ion-icon :icon="closeOutline" aria-hidden="true" />
-        </button>
+        <ion-button fill="clear" color="medium" data-test="cancel-edit" :aria-label="$t('chat.cancelEdit')" @click="cancelEdit">
+          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+        </ion-button>
       </div>
       <!-- 2026-10-05: the message being answered, until it is sent or dropped. -->
       <div v-if="replying" class="ft-replying" data-test="replying">
@@ -1402,9 +1413,9 @@ watch(
           <span class="ft-replying__who">{{ replying.mine ? $t("chat.you") : chat?.name }}</span>
           <span class="ft-replying__quote" dir="auto">{{ replyingText }}</span>
         </span>
-        <button type="button" class="ft-round ft-round--ghost" data-test="cancel-reply" :aria-label="$t('chat.cancelReply')" @click="replying = null">
-          <ion-icon :icon="closeOutline" aria-hidden="true" />
-        </button>
+        <ion-button fill="clear" color="medium" data-test="cancel-reply" :aria-label="$t('chat.cancelReply')" @click="replying = null">
+          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+        </ion-button>
       </div>
       <div class="ft-composer">
         <div class="ft-composer__row">
@@ -1492,76 +1503,78 @@ watch(
       </div>
       <emoji-picker v-if="emoji" @pick="addEmoji" />
     </ion-footer>
+
+    <!-- 2026-10-06: when the text goes, in Ionic's sheet with its date and time picker. -->
+    <ion-modal
+      :is-open="scheduling"
+      class="ft-schedule-sheet"
+      :breakpoints="[0, 1]"
+      :initial-breakpoint="1"
+      :aria-label="$t('chat.sendLater')"
+      @did-dismiss="scheduling = false"
+    >
+      <div class="ion-padding ft-schedule" data-test="schedule">
+        <h2 class="ft-schedule__title">{{ $t("chat.sendLater") }}</h2>
+        <ion-datetime
+          class="ft-schedule__picker"
+          presentation="date-time"
+          :model-value="sendAt"
+          :min="soonest"
+          :max="latest"
+          data-test="schedule-at"
+          @update:model-value="pickTime"
+        />
+        <p class="ft-schedule__note"><ion-text color="medium">{{ $t("chat.scheduleNote") }}</ion-text></p>
+        <div class="ft-schedule__actions">
+          <ion-button fill="outline" shape="round" data-test="schedule-cancel" @click="scheduling = false">{{ $t("common.cancel") }}</ion-button>
+          <ion-button shape="round" data-test="schedule-go" :disabled="!canSchedule" @click="schedule">{{ $t("chat.schedule") }}</ion-button>
+        </div>
+      </div>
+    </ion-modal>
   </div>
 </template>
 
 <style scoped>
-/* When a text goes (2026-10-06), over the composer. */
+/* When a text goes (2026-10-06): a sheet as tall as what it holds. */
+.ft-schedule-sheet {
+  --height: auto;
+}
 .ft-schedule {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 0 var(--ft-space-4) 6px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--ft-surface-2);
-}
-.ft-schedule__when {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: var(--ft-font-meta);
-  font-weight: 600;
+  gap: var(--ft-space-2);
+  /* Above Android's navigation bar when the app runs edge to edge. */
+  padding-block-end: calc(var(--ion-padding, 16px) + var(--ion-safe-area-bottom, 0px));
 }
-.ft-schedule__input {
-  min-height: 40px;
-  padding: 0 10px;
-  border: 1px solid var(--ft-border);
-  border-radius: 10px;
-  background: var(--ft-surface);
-  color: var(--ft-text);
-  font: inherit;
+.ft-schedule__title {
+  margin: 0;
+  font-size: 17px;
 }
 .ft-schedule__note {
   margin: 0;
-  color: var(--ft-muted);
   font-size: var(--ft-font-meta);
+  text-align: center;
 }
 .ft-schedule__actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--ft-space-2);
 }
-.ft-erase__cancel,
-.ft-erase__go {
-  appearance: none;
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--ft-border);
-  border-radius: 18px;
-  background: transparent;
-  color: var(--ft-text);
-  font: inherit;
-  cursor: pointer;
-}
-.ft-erase__go {
-  border-color: var(--ft-accent);
-  color: var(--ft-accent);
-  font-weight: 600;
-}
-.ft-erase__go:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* The app's buttons say things as written, not in Material's capitals. */
+.ft-schedule__actions ion-button {
+  text-transform: none;
 }
 /* The search (2026-10-05): the field and the hits under the header, over the thread. */
 .ft-search {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px var(--ft-space-4) 8px;
-  border-bottom: 1px solid var(--ft-border);
-  background: var(--ft-surface);
+  padding-block: 6px 8px;
+  padding-inline: var(--ft-space-4);
+  border-bottom: 1px solid var(--ion-border-color);
+  background: var(--ion-color-light);
 }
 .ft-search__row {
   display: flex;
@@ -1571,13 +1584,7 @@ watch(
 .ft-search__input {
   flex: 1;
   min-width: 0;
-  height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--ft-border);
-  border-radius: 20px;
-  background: var(--ft-surface-2);
-  color: var(--ft-text);
-  font: inherit;
+  padding: 0;
 }
 .ft-search__hits {
   max-height: 40vh;
@@ -1591,21 +1598,22 @@ watch(
   display: flex;
   flex-direction: column;
   width: 100%;
-  padding: 8px 10px;
+  padding-block: 8px;
+  padding-inline: 10px;
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: var(--ft-text);
+  color: var(--ion-text-color);
   font: inherit;
   text-align: start;
   cursor: pointer;
 }
 .ft-search__hit:hover {
-  background: var(--ft-surface-2);
+  background: var(--ion-color-light-shade);
 }
 .ft-search__who {
   font-size: var(--ft-font-meta);
-  color: var(--ft-muted);
+  color: var(--ion-color-medium);
 }
 .ft-search__text {
   overflow: hidden;
@@ -1615,13 +1623,14 @@ watch(
 }
 .ft-search__none {
   margin: 0;
-  padding: 4px 10px;
-  color: var(--ft-muted);
+  padding-block: 4px;
+  padding-inline: 10px;
+  color: var(--ion-color-medium);
   font-size: var(--ft-font-meta);
 }
 /* A message the search went to (2026-10-05), lit for a moment. */
 .ft-msg.is-lit :deep(.ft-bubble) {
-  outline: 2px solid var(--ft-accent);
+  outline: 2px solid var(--ion-color-primary);
   outline-offset: 2px;
 }
 /* The latest pinned message (2026-10-05), a strip under the header. */
@@ -1631,11 +1640,12 @@ watch(
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px var(--ft-space-4);
+  padding-block: 6px;
+  padding-inline: var(--ft-space-4);
   border: 0;
-  border-bottom: 1px solid var(--ft-border);
-  background: var(--ft-surface);
-  color: var(--ft-text);
+  border-bottom: 1px solid var(--ion-border-color);
+  background: var(--ion-color-light);
+  color: var(--ion-text-color);
   font: inherit;
   font-size: var(--ft-font-meta);
   text-align: start;
@@ -1643,7 +1653,7 @@ watch(
 }
 .ft-pinned ion-icon {
   flex: none;
-  color: var(--ft-accent);
+  color: var(--ion-color-primary);
 }
 .ft-pinned__text {
   flex: 1;
@@ -1654,18 +1664,20 @@ watch(
 }
 .ft-pinned__count {
   flex: none;
-  color: var(--ft-muted);
+  color: var(--ion-color-medium);
 }
 /* The message being answered (2026-10-05), over the composer. */
 .ft-replying {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 var(--ft-space-4) 6px;
-  padding: 6px 6px 6px 12px;
-  border-inline-start: 3px solid var(--ft-accent);
+  margin-block: 0 6px;
+  margin-inline: var(--ft-space-4);
+  padding-block: 2px;
+  padding-inline: 12px 0;
+  border-inline-start: 3px solid var(--ion-color-primary);
   border-radius: 10px;
-  background: var(--ft-surface-2);
+  background: var(--ion-color-light-shade);
 }
 .ft-replying__text {
   flex: 1;
@@ -1676,14 +1688,14 @@ watch(
 .ft-replying__who {
   font-size: var(--ft-font-meta);
   font-weight: 600;
-  color: var(--ft-accent);
+  color: var(--ion-color-primary);
 }
 .ft-replying__quote {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: var(--ft-font-meta);
-  color: var(--ft-muted);
+  color: var(--ion-color-medium);
 }
 .ft-actions {
   position: fixed;
@@ -1732,7 +1744,7 @@ watch(
   cursor: pointer;
 }
 .ft-actions__react.is-active {
-  background: color-mix(in srgb, var(--ft-accent) 22%, transparent);
+  background: rgba(var(--ion-color-primary-rgb), 0.22);
 }
 .ft-actions__to {
   appearance: none;
@@ -1825,7 +1837,7 @@ watch(
 }
 /* "typing…" (2026-10-05): the same accent, in italics, so a glance tells it from the connection. */
 .ft-peer__status.is-typing {
-  color: var(--ft-accent);
+  color: var(--ion-color-primary);
   font-style: italic;
 }
 

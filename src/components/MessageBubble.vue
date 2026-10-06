@@ -484,19 +484,20 @@ function open() {
 .ft-reactions {
   display: flex;
   gap: 4px;
-  margin-top: -6px;
-  padding: 0 6px;
+  margin-block-start: -6px;
+  padding-inline: 6px;
   font-size: 14px;
   line-height: 1;
 }
 .ft-reactions__one {
-  padding: 3px 6px;
+  padding-block: 3px;
+  padding-inline: 6px;
   border-radius: 999px;
-  background: var(--ft-surface-2);
-  border: 1px solid var(--ft-border);
+  background: var(--ion-color-light-shade);
+  border: 1px solid var(--ion-border-color);
 }
 .ft-reactions__one.is-mine {
-  border-color: var(--ft-accent);
+  border-color: var(--ion-color-primary);
 }
 .is-mine .ft-reactions {
   justify-content: flex-end;
@@ -506,12 +507,13 @@ function open() {
   appearance: none;
   display: block;
   width: 100%;
-  margin: 0 0 6px;
-  padding: 4px 8px 4px 10px;
+  margin-block: 0 6px;
+  padding-block: 4px;
+  padding-inline: 10px 8px;
   border: 0;
   border-inline-start: 3px solid currentColor;
   border-radius: 8px;
-  background: rgba(127, 127, 127, 0.18);
+  background: rgba(var(--ion-color-medium-rgb), 0.18);
   color: inherit;
   font: inherit;
   text-align: start;
