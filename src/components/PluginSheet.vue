@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { toastController } from "@ionic/vue";
 import {
@@ -96,7 +96,9 @@ const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; don
 
 const frame = ref<HTMLIFrameElement | null>(null);
 const height = ref(320);
-const working = ref(false);
+// Requests still unanswered after WORKING_DELAY; the indicator shows while there is one.
+const late = ref(0);
+const working = computed(() => late.value > 0);
 
 function tell(message: Record<string, unknown>) {
   frame.value?.contentWindow?.postMessage(message, "*");
@@ -355,12 +357,24 @@ function onLive(event: PluginEvent) {
 }
 let unlisten: (() => void) | undefined;
 
+/**
+ * 2026-10-06: most requests (records, live moves) are answered in tens of milliseconds, and showing
+ * the indicator for each one made the plugin flicker. Only a request still pending after
+ * WORKING_DELAY (picking a file, a big save) shows it.
+ */
+const WORKING_DELAY = 400;
+
 async function busy(work: () => Promise<void>) {
-  working.value = true;
+  let slow = false;
+  const timer = setTimeout(() => {
+    slow = true;
+    late.value++;
+  }, WORKING_DELAY);
   try {
     await work();
   } finally {
-    working.value = false;
+    clearTimeout(timer);
+    if (slow) late.value--;
   }
 }
 
@@ -418,8 +432,9 @@ watch(
 
 <template>
   <section class="ft-plugin">
-    <!-- The name and the way out are the window's job; here only what the tool is doing. -->
-    <p v-if="working" class="ft-plugin__working" role="status">…</p>
+    <!-- The name and the way out are the window's job; here only what the tool is doing. It floats
+         over the frame's top edge: the plugin never moves when it shows or goes (2026-10-06). -->
+    <span v-if="working" class="ft-plugin__working" role="status">…</span>
     <iframe
       ref="frame"
       class="ft-plugin__frame"
@@ -434,11 +449,19 @@ watch(
 
 <style scoped>
 .ft-plugin {
+  position: relative;
   padding: 0 var(--ft-space-4) var(--ft-space-4);
 }
 .ft-plugin__working {
-  margin: 0 0 var(--ft-space-2);
-  color: var(--ft-accent);
+  position: absolute;
+  z-index: 1;
+  inset-block-start: var(--ft-space-2);
+  inset-inline-end: var(--ft-space-4);
+  padding: 0 var(--ft-space-3);
+  border-radius: 999px;
+  background: var(--ion-color-light);
+  color: var(--ion-color-primary);
+  pointer-events: none;
 }
 .ft-plugin__frame {
   display: block;

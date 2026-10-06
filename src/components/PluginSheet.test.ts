@@ -16,6 +16,7 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
 }));
 
 import PluginSheet from "./PluginSheet.vue";
+import source from "./PluginSheet.vue?raw";
 import { setLocale } from "../i18n";
 import { CLOSING_WAIT } from "../plugins";
 
@@ -814,6 +815,79 @@ describe("PluginSheet", () => {
         await vi.advanceTimersByTimeAsync(CLOSING_WAIT);
         expect(closingsIn(post)).toBe(1);
         expect(wrapper.emitted("closed")).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+  // 2026-10-06 (measured on real phones): the working indicator sat above the frame, in the flow,
+  // and every Plugin API request pushed the plugin down ~30 px and back. Ioan's rule: a waiting
+  // indicator floats over the content or reserves its space from the first frame; nothing moves the
+  // content after the first paint. It also shows only for a request still pending after 400 ms.
+  describe("the working indicator", () => {
+    const working = (wrapper: ReturnType<typeof mount>) => wrapper.find(".ft-plugin__working");
+
+    /** A core whose next answer waits until the test lets it go. */
+    function slowCore() {
+      let release: (value: unknown) => void = () => undefined;
+      tauri.invoke.mockImplementation((command: string) =>
+        command === "core_plugin_record_get" ? new Promise((resolve) => (release = resolve)) : Promise.resolve(true),
+      );
+      return { release: (value: unknown) => release(value) };
+    }
+
+    async function ready() {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      const frame = framed(wrapper);
+      frame.says({ type: "ft.ready" });
+      await flushPromises();
+      return { wrapper, ...frame };
+    }
+
+    it("floats over the frame and takes no room in the flow", () => {
+      const styles = source.slice(source.indexOf("<style"));
+      expect(styles).toMatch(/\.ft-plugin\s*{[^}]*position:\s*relative/);
+      expect(styles).toMatch(/\.ft-plugin__working\s*{[^}]*position:\s*absolute/);
+      expect(styles).toMatch(/\.ft-plugin__working\s*{[^}]*pointer-events:\s*none/);
+      expect(styles).not.toMatch(/\.ft-plugin__working\s*{[^}]*margin/);
+    });
+
+    it("never shows for a request answered within 400 ms", async () => {
+      vi.useFakeTimers();
+      try {
+        const core = slowCore();
+        const { wrapper, post, says } = await ready();
+        says({ type: "ft.recordGet", id: "q1", key: "move/1" });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(working(wrapper).exists()).toBe(false);
+        await vi.advanceTimersByTimeAsync(399);
+        expect(working(wrapper).exists()).toBe(false);
+        core.release(null);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: null }, "*");
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(working(wrapper).exists()).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows for a request still pending after 400 ms, and goes with the answer", async () => {
+      vi.useFakeTimers();
+      try {
+        const core = slowCore();
+        const { wrapper, says } = await ready();
+        const frameStyle = wrapper.find("iframe").attributes("style");
+        says({ type: "ft.recordGet", id: "q1", key: "move/1" });
+        await vi.advanceTimersByTimeAsync(400);
+        expect(working(wrapper).exists()).toBe(true);
+        expect(working(wrapper).attributes("role")).toBe("status");
+        // The frame keeps its place and its size whether the indicator shows or not.
+        expect(wrapper.find("iframe").attributes("style")).toBe(frameStyle);
+        core.release(null);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(working(wrapper).exists()).toBe(false);
       } finally {
         vi.useRealTimers();
       }
