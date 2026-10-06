@@ -1241,6 +1241,18 @@ impl Core {
         Ok(())
     }
 
+    /// Sends the texts written for later whose time has come (2026-10-06), and nothing else: what
+    /// the app does out of the foreground, where the rest of the outbox waits for it to come back.
+    pub async fn send_scheduled_due(&self) -> Result<()> {
+        let later = self.store.scheduled_all().await?;
+        for entry in self.store.due(now()).await? {
+            if later.contains_key(&entry.message_id) {
+                self.attempt(&entry).await;
+            }
+        }
+        Ok(())
+    }
+
     /// A direct connection with the contact opened (2026-09-29): what was already tried and still
     /// waits for its receipt goes over it now, even if it is in the mailbox too; the recipient
     /// shows it once. What is being sent for the first time is left to its own send.
