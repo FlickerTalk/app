@@ -129,6 +129,18 @@ describe("plugins in the app", () => {
     expect(said({ type: "ft.made" })).toBeNull();
   });
 
+  // 2026-10-06: a plugin may ask for a photo taken right now with the phone's camera app. Like
+  // `ft.pickFile` it is a question with an answer, so it carries the question's id.
+  it("understands a plugin asking for a photo from the camera", () => {
+    const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+    const said = (data: unknown) =>
+      fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
+
+    expect(said({ type: "ft.takePhoto", id: "q1" })).toEqual({ type: "ft.takePhoto", id: "q1" });
+    expect(said({ type: "ft.takePhoto" })).toBeNull();
+    expect(said({ type: "ft.takePhoto", id: 7 })).toBeNull();
+  });
+
   // The rest of what the core exposes (issue app#4): the phone, the network and a memory of its
   // own. Every one of them is a question with an answer, so each carries the question's id.
   it("understands the questions a plugin asks the core", () => {

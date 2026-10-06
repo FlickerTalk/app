@@ -727,6 +727,15 @@ export async function pickForPlugin(accept = ""): Promise<{ name: string; mime: 
   return invoke("core_pick_for_plugin", { accept });
 }
 
+/**
+ * A photo the user takes now with the camera app for a plugin that asked for one (2026-10-06):
+ * its name, kind and bytes, like `pickForPlugin`, or `null` if the user backed out. It fails with
+ * no camera (a simulator) or none allowed. The core deletes its copy; no path reaches the WebView.
+ */
+export async function takePhotoForPlugin(): Promise<{ name: string; mime: string; data: string } | null> {
+  return invoke("core_take_photo_for_plugin");
+}
+
 /** What became of a file a plugin made (A2): sent by itself, or left for the user to send. */
 export interface Made {
   sent: boolean;

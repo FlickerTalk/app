@@ -146,6 +146,8 @@ export type FrameMessage =
   | { type: "ft.closed" }
   | { type: "ft.height"; height: number }
   | { type: "ft.pickFile"; id: string; accept?: string }
+  /** 2026-10-06: a photo taken now with the phone's camera app, answered like `ft.pickFile`. */
+  | { type: "ft.takePhoto"; id: string }
   | { type: "ft.made"; name: string; mime: string; data: string }
   | { type: "ft.text"; text: string }
   | { type: "ft.save"; id: string; name: string; mime: string; data: string }
@@ -245,6 +247,7 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
     case "ft.recordUsage":
     case "ft.remindList":
     case "ft.location":
+    case "ft.takePhoto":
       return text(id) ? { type: said.type, id } : null;
     case "ft.remindSet":
       return text(id) && text(said.reminder) && typeof said.at === "number" && Number.isFinite(said.at)

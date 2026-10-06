@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { toastController } from "@ionic/vue";
 import {
   pickForPlugin,
+  takePhotoForPlugin,
   pluginMayUseDrive,
   pluginFetch,
   pluginForget,
@@ -125,6 +126,17 @@ async function onMessage(event: MessageEvent) {
         tell({ type: "ft.file", id: said.id, name: "", mime: "", data: "" });
       }
     });
+  } else if (said.type === "ft.takePhoto") {
+    // Like a pick, no manifest permission: the user takes the photo or backs out, so the user
+    // decides what the plugin gets (2026-10-06). No camera, or none allowed, gives nothing.
+    await busy(async () => {
+      try {
+        const photo = await takePhotoForPlugin();
+        tell({ type: "ft.file", id: said.id, name: photo?.name ?? "", mime: photo?.mime ?? "", data: photo?.data ?? "" });
+      } catch {
+        tell({ type: "ft.file", id: said.id, name: "", mime: "", data: "" });
+      }
+    });
   } else if (said.type === "ft.made") {
     // Nothing leaves without the permission: the core checks it again on its side (A2).
     if (props.sending === "nothing") return void mayNotWrite();
@@ -176,6 +188,7 @@ let letGo: (() => void) | undefined;
 let gone = false;
 const SILENT_WHILE_CLOSING = new Set<FrameMessage["type"]>([
   "ft.pickFile",
+  "ft.takePhoto",
   "ft.made",
   "ft.text",
   "ft.openChat",

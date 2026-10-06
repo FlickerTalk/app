@@ -61,6 +61,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("arrow-up-outline", include_bytes!("../resources/icons/arrow-up-outline.svg")),
     ("brush-outline", include_bytes!("../resources/icons/brush-outline.svg")),
     ("calculator-outline", include_bytes!("../resources/icons/calculator-outline.svg")),
+    ("camera-outline", include_bytes!("../resources/icons/camera-outline.svg")),
     ("chatbubble-outline", include_bytes!("../resources/icons/chatbubble-outline.svg")),
     ("checkmark-outline", include_bytes!("../resources/icons/checkmark-outline.svg")),
     ("close-outline", include_bytes!("../resources/icons/close-outline.svg")),
@@ -278,6 +279,8 @@ mod tests {
         assert!(script.contains(r#"ask("ft.drive", { op: "list""#));
         // 2026-10-02: the phone's position, once; anything but a place comes back as null.
         assert!(script.contains(r#"location: () => ask("ft.location", {})"#), "a plugin cannot ask where the phone is");
+        // 2026-10-06: a photo taken now with the phone's camera app, answered like a picked file.
+        assert!(script.contains(r#"takePhoto: () => ask("ft.takePhoto", {})"#), "a plugin cannot ask for a photo from the camera");
         // 2026-10-02: told the window is closing, the frame runs the plugin's goodbye and answers.
         assert!(script.contains("onClose"), "a plugin cannot say goodbye when the app closes it");
         assert!(script.contains(r#"said.type === "ft.closing""#) && script.contains(r#"type: "ft.closed""#));
@@ -309,7 +312,7 @@ mod tests {
         assert!(icon("../../secret").is_none(), "an icon is a name, never a path");
         assert!(icon("not-an-icon").is_none());
         // Everything the tools ask for is really there.
-        for wanted in ["eye-outline", "folder-open-outline", "send-outline", "trash-outline", "image-outline", "alarm-outline", "calculator-outline", "cloud-outline", "search-outline", "location-outline"] {
+        for wanted in ["eye-outline", "folder-open-outline", "send-outline", "trash-outline", "image-outline", "alarm-outline", "calculator-outline", "cloud-outline", "search-outline", "location-outline", "camera-outline"] {
             assert!(icon(wanted).is_some(), "{wanted} is missing");
         }
     }

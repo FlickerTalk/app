@@ -24,6 +24,9 @@ globalThis.ft = {
   pickFile(accept) {
     return ask("ft.pickFile", { accept: accept ?? "" });
   },
+  /** Asks the app to open the phone's camera app (2026-10-06). Resolves with the photo as
+   *  {name, mime, data}, like `pickFile`, or null: backed out, no camera or none allowed. */
+  takePhoto: () => ask("ft.takePhoto", {}),
   /** Hands a file to the chat; the app sends it. `data` is base64. */
   send(name, mime, data) {
     post({ type: "ft.made", name: String(name), mime: String(mime), data: String(data) });
