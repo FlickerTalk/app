@@ -86,7 +86,11 @@
     "search": "검색",
     "searchIn": "이 대화에서 검색",
     "nothingFound": "결과 없음",
-    "closeSearch": "검색 닫기"
+    "closeSearch": "검색 닫기",
+    "sendLater": "나중에 보내기",
+    "schedule": "예약",
+    "scheduledFor": "{time}에 보내기 예약됨",
+    "scheduleNote": "그 시각에 이 휴대폰이 켜져 있으면 전송됩니다. 취소하려면 그 전에 여기서 삭제하세요."
   },
   "status": {
     "pending": "상대 기기 대기 중",

@@ -37,6 +37,8 @@ export interface Message {
   edited?: boolean;
   /** Taken back for both sides (2026-10-05): only the mark is left. */
   deleted?: boolean;
+  /** Written to be sent at this time (2026-10-06, ms), still waiting on this phone. */
+  scheduledFor?: number;
 }
 
 /**
@@ -69,6 +71,14 @@ const status = computed(() =>
   props.message.mine && props.message.status ? STATUS[props.message.status] : undefined,
 );
 const unsent = computed(() => props.message.mine && props.message.status === "unsent");
+/** When a message for later goes (2026-10-06): the time, with the day when it is not today. */
+const whenLater = computed(() => {
+  const at = props.message.scheduledFor;
+  if (!at) return "";
+  const date = new Date(at);
+  const today = new Date().toDateString() === date.toDateString();
+  return new Intl.DateTimeFormat(undefined, today ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
+});
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
 // A message written with fences is code, and the app draws it as such (Ioan, 2026-09-22).
 const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
@@ -431,9 +441,11 @@ function open() {
       <span class="ft-bubble__meta">
         <ion-icon v-if="message.pinned" :icon="pinOutline" class="ft-bubble__pin" role="img" :aria-label="t('chat.pinned')" data-test="pinned" />
         <span v-if="message.edited && !message.deleted" class="ft-bubble__edited" data-test="edited">{{ t("chat.edited") }}</span>
-        <span>{{ message.time }}</span>
+        <!-- For later (2026-10-06): when it goes, instead of the state it does not have yet. -->
+        <span v-if="message.scheduledFor" class="ft-bubble__later" data-test="scheduled">{{ t("chat.scheduledFor", { time: whenLater }) }}</span>
+        <span v-else>{{ message.time }}</span>
         <ion-icon
-          v-if="status"
+          v-if="status && !message.scheduledFor"
           :icon="status.icon"
           :class="`is-${message.status}`"
           role="img"
@@ -456,6 +468,9 @@ function open() {
 .ft-bubble__pin {
   font-size: 12px;
   opacity: 0.85;
+}
+.ft-bubble__later {
+  font-style: italic;
 }
 .ft-bubble__edited {
   font-style: italic;

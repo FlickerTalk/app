@@ -86,7 +86,11 @@
     "search": "Buscar",
     "searchIn": "Buscar en esta conversación",
     "nothingFound": "No hay resultados",
-    "closeSearch": "Cerrar la búsqueda"
+    "closeSearch": "Cerrar la búsqueda",
+    "sendLater": "Enviar más tarde",
+    "schedule": "Programar",
+    "scheduledFor": "Programado para {time}",
+    "scheduleNote": "Sale de este teléfono a esa hora, si está encendido; bórralo aquí antes para cancelarlo."
   },
   "status": {
     "pending": "Esperando al dispositivo",

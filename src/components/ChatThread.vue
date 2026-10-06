@@ -51,6 +51,7 @@ import {
   pinOutline,
   pencilOutline,
   searchOutline,
+  timeOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
@@ -93,6 +94,7 @@ import {
   resend,
   takePhoto,
   saveFile,
+  scheduleText,
   searchMessages,
   sendFile,
   sendPicked,
@@ -246,6 +248,39 @@ function reply() {
   const id = acting.value;
   closeActions();
   replying.value = messages.value.find((message) => message.id === id) ?? null;
+}
+
+// 2026-10-06: a text for later. The clock by Send opens a panel with the time, an hour from now
+// unless changed; Schedule puts it in this phone's outbox until then.
+const scheduling = ref(false);
+const sendAt = ref("");
+
+/** `datetime-local` wants the phone's local time without seconds or zone. */
+function localInput(ms: number): string {
+  const date = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function openSchedule() {
+  if (!draft.value.trim() || editing.value) return;
+  sendAt.value = localInput(Date.now() + 3_600_000);
+  scheduling.value = true;
+}
+
+const soonest = computed(() => localInput(Date.now() + 60_000));
+const canSchedule = computed(() => Boolean(sendAt.value) && new Date(sendAt.value).getTime() >= Date.now() + 60_000);
+
+async function schedule() {
+  const text = draft.value.trim();
+  const when = new Date(sendAt.value).getTime();
+  if (!text || !canSchedule.value) return;
+  const answering = replying.value?.id;
+  draft.value = "";
+  emoji.value = false;
+  replying.value = null;
+  scheduling.value = false;
+  await scheduleText(props.chatId, text, when, answering).catch(() => {});
 }
 
 // 2026-10-05: a search in this conversation, on this phone. The hits list under the header; a tap
@@ -1339,6 +1374,18 @@ watch(
         </button>
       </div>
       <!-- Not an ion-toolbar: that one clips whatever unfolds above it, and the «+» unfolds. -->
+      <!-- 2026-10-06: when the text goes. -->
+      <div v-if="scheduling" class="ft-schedule" data-test="schedule">
+        <label class="ft-schedule__when">
+          <span>{{ $t("chat.sendLater") }}</span>
+          <input v-model="sendAt" type="datetime-local" class="ft-schedule__input" data-test="schedule-at" :min="soonest" />
+        </label>
+        <p class="ft-schedule__note">{{ $t("chat.scheduleNote") }}</p>
+        <div class="ft-schedule__actions">
+          <button type="button" class="ft-erase__cancel" data-test="schedule-cancel" @click="scheduling = false">{{ $t("common.cancel") }}</button>
+          <button type="button" class="ft-erase__go" data-test="schedule-go" :disabled="!canSchedule" @click="schedule">{{ $t("chat.schedule") }}</button>
+        </div>
+      </div>
       <!-- 2026-10-05: the text being said again with other words, until Send or dropped. -->
       <div v-if="editing" class="ft-replying ft-replying--edit" data-test="editing">
         <span class="ft-replying__text">
@@ -1424,10 +1471,21 @@ watch(
           >
             <ion-icon :icon="arrowUp" aria-hidden="true" />
           </button>
-          <button v-else-if="draft.trim()" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" @click="send">
+          <!-- 2026-10-06: the same words, later; not for other words of a text already sent. -->
+          <button
+            v-if="!recording.active && draft.trim() && !editing"
+            type="button"
+            class="ft-round ft-round--ghost"
+            data-test="send-later"
+            :aria-label="$t('chat.sendLater')"
+            @click="openSchedule"
+          >
+            <ion-icon :icon="timeOutline" aria-hidden="true" />
+          </button>
+          <button v-if="!recording.active && draft.trim()" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" @click="send">
             <ion-icon :icon="arrowUp" aria-hidden="true" />
           </button>
-          <button v-else type="button" class="ft-round ft-round--send" :aria-label="$t('chat.record')" @click="record">
+          <button v-else-if="!recording.active" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.record')" @click="record">
             <ion-icon :icon="micOutline" aria-hidden="true" />
           </button>
         </div>
@@ -1438,6 +1496,64 @@ watch(
 </template>
 
 <style scoped>
+/* When a text goes (2026-10-06), over the composer. */
+.ft-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 var(--ft-space-4) 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ft-surface-2);
+}
+.ft-schedule__when {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--ft-font-meta);
+  font-weight: 600;
+}
+.ft-schedule__input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--ft-border);
+  border-radius: 10px;
+  background: var(--ft-surface);
+  color: var(--ft-text);
+  font: inherit;
+}
+.ft-schedule__note {
+  margin: 0;
+  color: var(--ft-muted);
+  font-size: var(--ft-font-meta);
+}
+.ft-schedule__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ft-erase__cancel,
+.ft-erase__go {
+  appearance: none;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--ft-border);
+  border-radius: 18px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  cursor: pointer;
+}
+.ft-erase__go {
+  border-color: var(--ft-accent);
+  color: var(--ft-accent);
+  font-weight: 600;
+}
+.ft-erase__go:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 /* The search (2026-10-05): the field and the hits under the header, over the thread. */
 .ft-search {
   display: flex;

@@ -1034,6 +1034,47 @@ impl Core {
         Ok(())
     }
 
+    /// Writes a text now to be sent at `send_at` (2026-10-06, milliseconds): it waits in this
+    /// phone's outbox until then and goes like any other text, from this phone, if it is awake
+    /// (Android runs the core in the background; an iPhone sends it when it wakes the app).
+    /// Between a minute and a year from now. Deleting the message here before its time cancels it.
+    pub async fn schedule_text(&self, contact: &str, text: &str, send_at: i64, reply_to: Option<&str>) -> Result<String> {
+        let text = text.trim();
+        ensure!(!text.is_empty(), "nothing to send");
+        let soonest = now() + 60_000;
+        ensure!(send_at >= soonest, "that time is too soon");
+        ensure!(send_at <= now() + 366 * 24 * 60 * 60 * 1000, "that time is too far away");
+        self.chosen(contact).await?;
+        let reply_to = match reply_to {
+            Some(quoted) => {
+                let quoted_message = self.store.message(quoted).await?.context("the message answered is not here")?;
+                ensure!(quoted_message.contact == contact, "the message answered is from another conversation");
+                Some(quoted.to_owned())
+            }
+            None => None,
+        };
+        let started = !self.store.messages(contact, 1).await?.is_empty();
+        self.allowed(if started { Doing::Reply } else { Doing::Start }).await?;
+        let message_id = MessageId::new().to_string();
+        self.store
+            .insert_message(&Message {
+                message_id: message_id.clone(),
+                contact: contact.to_owned(),
+                outgoing: true,
+                body: text.to_owned(),
+                sent_at: send_at,
+                received_at: now(),
+                state: MessageState::Pending,
+            })
+            .await?;
+        if let Some(quoted) = reply_to {
+            self.store.set_reply(&message_id, &quoted).await?;
+        }
+        self.store.enqueue_at(&message_id, contact, now(), send_at).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
+        Ok(message_id)
+    }
+
     /// The messages of the conversation with these words (2026-10-05), newest first, at most fifty.
     /// On this phone only: nothing of the search leaves it.
     pub async fn search(&self, contact: &str, query: &str) -> Result<Vec<Message>> {
@@ -1213,9 +1254,15 @@ impl Core {
         Ok(())
     }
 
-    /// Retries every pending message now (the contact came online, say).
+    /// Retries every pending message now (the contact came online, say). A message written for
+    /// later (2026-10-06) keeps waiting for its time.
     pub async fn retry_now(&self) -> Result<()> {
+        let later = self.store.scheduled_all().await?;
+        let moment = now();
         for entry in self.store.outbox().await? {
+            if later.get(&entry.message_id).is_some_and(|send_at| *send_at > moment) {
+                continue;
+            }
             self.attempt(&entry).await;
         }
         self.deliver_circle_queue().await;
@@ -1480,7 +1527,11 @@ impl Core {
     /// sent, for the user to send again (§84), while one already shown as sent stays so. Anything
     /// else is tried again later, like a contact that cannot be reached.
     pub(crate) async fn attempt(&self, entry: &OutboxEntry) {
-        let Err(error) = self.deliver(entry).await else { return };
+        let Err(error) = self.deliver(entry).await else {
+            // Its time came and it went (2026-10-06): no longer "for later".
+            let _ = self.store.unschedule(&entry.message_id).await;
+            return;
+        };
         if error.downcast_ref::<MailboxRejected>().is_some() {
             if let Ok(true) = self.store.mark_not_sent(&entry.message_id).await {
                 let _ = self.events.send(Event::MessagesChanged { contact: entry.contact.clone() });
@@ -1711,7 +1762,8 @@ async fn renew_sessions(store: &Store, identity: &Identity, key: &[u8; 32]) -> R
     store.forget_setting(SESSIONS_BEHIND).await
 }
 
-fn now() -> i64 {
+/// This phone's clock, in milliseconds since the Unix epoch.
+pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 

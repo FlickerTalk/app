@@ -86,7 +86,11 @@
     "search": "Szukaj",
     "searchIn": "Szukaj w tej rozmowie",
     "nothingFound": "Nic nie znaleziono",
-    "closeSearch": "Zamknij wyszukiwanie"
+    "closeSearch": "Zamknij wyszukiwanie",
+    "sendLater": "Wyślij później",
+    "schedule": "Zaplanuj",
+    "scheduledFor": "Zaplanowano na {time}",
+    "scheduleNote": "Wyjdzie z tego telefonu o tej porze, jeśli będzie włączony; aby anulować, usuń ją tutaj wcześniej."
   },
   "status": {
     "pending": "Czeka na urządzenie",

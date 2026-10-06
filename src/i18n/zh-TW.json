@@ -86,7 +86,11 @@
     "search": "搜尋",
     "searchIn": "在此對話中搜尋",
     "nothingFound": "沒有結果",
-    "closeSearch": "關閉搜尋"
+    "closeSearch": "關閉搜尋",
+    "sendLater": "稍後傳送",
+    "schedule": "排程",
+    "scheduledFor": "預定 {time} 傳送",
+    "scheduleNote": "屆時若手機開機，將從此手機送出；要取消，請提前在此刪除。"
   },
   "status": {
     "pending": "等待對方裝置",

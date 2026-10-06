@@ -967,6 +967,44 @@ impl Store {
         Ok(())
     }
 
+    /// Queues a message for later (2026-10-06): its first attempt waits until `send_at`.
+    pub async fn enqueue_at(&self, message_id: &str, contact: &str, now: i64, send_at: i64) -> Result<()> {
+        sqlx::query("INSERT INTO pending_outbox (message_id, contact, created_at, next_attempt) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
+            .bind(message_id)
+            .bind(contact)
+            .bind(now)
+            .bind(send_at)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("INSERT INTO scheduled (message_id, send_at) VALUES (?, ?) ON CONFLICT (message_id) DO UPDATE SET send_at = excluded.send_at")
+            .bind(message_id)
+            .bind(send_at)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The message's time has come, or it was sent: no longer scheduled.
+    pub async fn unschedule(&self, message_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM scheduled WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// The messages of the conversation written to be sent later: message id → when (ms).
+    pub async fn scheduled(&self, contact: &str) -> Result<HashMap<String, i64>> {
+        let rows = sqlx::query("SELECT s.message_id, s.send_at FROM scheduled s JOIN messages m ON m.message_id = s.message_id WHERE m.contact = ?")
+            .bind(contact)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|row| (row.get("message_id"), row.get("send_at"))).collect())
+    }
+
+    /// Every message written to be sent later, whatever the conversation: id → when (ms).
+    pub async fn scheduled_all(&self) -> Result<HashMap<String, i64>> {
+        let rows = sqlx::query("SELECT message_id, send_at FROM scheduled").fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|row| (row.get("message_id"), row.get("send_at"))).collect())
+    }
+
     /// Entries whose next attempt is due at `now`.
     pub async fn due(&self, now: i64) -> Result<Vec<OutboxEntry>> {
         let rows = sqlx::query("SELECT * FROM pending_outbox WHERE next_attempt <= ? ORDER BY created_at").bind(now).fetch_all(&self.pool).await?;
@@ -2179,6 +2217,26 @@ mod tests {
         store.forget_message("m2").await.expect("forgets");
         assert_eq!(store.reply_to("m2").await.unwrap(), None);
         assert!(store.replies("ft_bob").await.unwrap().is_empty());
+    }
+
+    // 2026-10-06: a message for later waits in the outbox until its time, and is known as scheduled
+    // until then.
+    #[tokio::test]
+    async fn a_message_for_later_waits_in_the_outbox_until_its_time() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
+        store.enqueue_at("m1", "ft_bob", 1_000, 5_000).await.expect("queues for later");
+        assert!(store.due(4_999).await.unwrap().is_empty(), "not yet");
+        assert_eq!(store.due(5_000).await.unwrap().len(), 1, "its time has come");
+        assert_eq!(store.scheduled("ft_bob").await.unwrap(), HashMap::from([("m1".to_owned(), 5_000)]));
+        assert_eq!(store.scheduled_all().await.unwrap().len(), 1);
+        store.unschedule("m1").await.expect("sent");
+        assert!(store.scheduled("ft_bob").await.unwrap().is_empty());
+        store.enqueue_at("m1", "ft_bob", 1_000, 9_000).await.expect("queues again");
+        store.forget_message("m1").await.expect("forgets");
+        assert!(store.scheduled_all().await.unwrap().is_empty(), "gone with the message");
+        assert!(store.outbox().await.unwrap().is_empty(), "and out of the queue");
     }
 
     // 2026-10-05: the search looks at the words of one conversation, whatever the case, and treats

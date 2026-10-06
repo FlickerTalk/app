@@ -67,6 +67,11 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   como entregado algo que no lo está.
 - **Pulsación larga en un mensaje:** responder (desde el 2026-10-05), plegar, reenviar a otro
   contacto, compartir con otra app o borrar de este teléfono.
+- **Enviar más tarde** (desde el 2026-10-06): con texto escrito, el reloj junto a Enviar pide una
+  hora (entre un minuto y un año) y el mensaje espera en la cola de este teléfono hasta entonces,
+  marcado «Programado para…». Sale de este teléfono a esa hora si está encendido: en Android el
+  núcleo corre en segundo plano; en iPhone sale cuando el teléfono despierta la app. Borrarlo aquí
+  antes lo cancela.
 - **Buscar en la conversación** (desde el 2026-10-05): la lupa de la cabecera abre un campo bajo
   ella; los mensajes con esas palabras (de los dos, sin distinguir mayúsculas) se listan del más
   reciente al más antiguo y tocar uno lleva a él. Todo en el teléfono: nada de la búsqueda sale.

@@ -86,7 +86,11 @@
     "search": "Ara",
     "searchIn": "Bu konuşmada ara",
     "nothingFound": "Hiçbir şey bulunamadı",
-    "closeSearch": "Aramayı kapat"
+    "closeSearch": "Aramayı kapat",
+    "sendLater": "Daha sonra gönder",
+    "schedule": "Planla",
+    "scheduledFor": "{time} için planlandı",
+    "scheduleNote": "O saatte, açıksa bu telefondan gider; iptal etmek için önce buradan silin."
   },
   "status": {
     "pending": "Cihaz bekleniyor",

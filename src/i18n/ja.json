@@ -86,7 +86,11 @@
     "search": "検索",
     "searchIn": "この会話内を検索",
     "nothingFound": "見つかりませんでした",
-    "closeSearch": "検索を閉じる"
+    "closeSearch": "検索を閉じる",
+    "sendLater": "あとで送信",
+    "schedule": "予約",
+    "scheduledFor": "{time} に送信予定",
+    "scheduleNote": "その時刻に、この端末の電源が入っていれば送信されます。取り消すには、それまでにここで削除してください。"
   },
   "status": {
     "pending": "相手の端末を待っています",

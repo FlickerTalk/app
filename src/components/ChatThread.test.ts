@@ -918,6 +918,45 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // 2026-10-06: a text for later: the clock by Send opens the time, and Schedule queues it.
+  describe("sending later", () => {
+    it("offers the clock only with words to send, and schedules them at the chosen time", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='send-later']").exists()).toBe(false);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "good morning");
+      await flushPromises();
+      await wrapper.find("[data-test='send-later']").trigger("click");
+      const panel = wrapper.find("[data-test='schedule']");
+      expect(panel.exists()).toBe(true);
+      const at = new Date(Date.now() + 2 * 3_600_000);
+      at.setSeconds(0, 0);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const local = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+      await wrapper.find("[data-test='schedule-at']").setValue(local);
+      await wrapper.find("[data-test='schedule-go']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_schedule", { contact: "c1", text: "good morning", sendAt: at.getTime() }]);
+      expect(calls.filter(([command]) => command === "core_send")).toEqual([]);
+      expect(wrapper.find("[data-test='schedule']").exists()).toBe(false);
+    });
+
+    it("refuses a time that is too soon, and can be dropped", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      await flushPromises();
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "soon");
+      await flushPromises();
+      await wrapper.find("[data-test='send-later']").trigger("click");
+      const at = new Date(Date.now() - 60_000);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      await wrapper.find("[data-test='schedule-at']").setValue(`${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`);
+      expect(wrapper.find("[data-test='schedule-go']").attributes("disabled")).toBeDefined();
+      await wrapper.find("[data-test='schedule-cancel']").trigger("click");
+      expect(wrapper.find("[data-test='schedule']").exists()).toBe(false);
+      expect(calls.filter(([command]) => command === "core_schedule")).toEqual([]);
+    });
+  });
+
   // 2026-10-05: a search in the conversation, on this phone: the hits list under the header and a
   // tap goes to the message.
   describe("searching the conversation", () => {

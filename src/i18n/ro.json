@@ -86,7 +86,11 @@
     "search": "Caută",
     "searchIn": "Caută în această conversație",
     "nothingFound": "Nimic găsit",
-    "closeSearch": "Închide căutarea"
+    "closeSearch": "Închide căutarea",
+    "sendLater": "Trimite mai târziu",
+    "schedule": "Programează",
+    "scheduledFor": "Programat pentru {time}",
+    "scheduleNote": "Pleacă de pe acest telefon la ora aceea, dacă este pornit; șterge-l aici înainte ca să-l anulezi."
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

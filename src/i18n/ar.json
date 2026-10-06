@@ -86,7 +86,11 @@
     "search": "بحث",
     "searchIn": "البحث في هذه المحادثة",
     "nothingFound": "لا توجد نتائج",
-    "closeSearch": "إغلاق البحث"
+    "closeSearch": "إغلاق البحث",
+    "sendLater": "إرسال لاحقًا",
+    "schedule": "جدولة",
+    "scheduledFor": "مجدول لـ {time}",
+    "scheduleNote": "يُرسل من هذا الهاتف في ذلك الوقت إذا كان مشغّلًا؛ احذفه هنا قبل ذلك لإلغائه."
   },
   "status": {
     "pending": "بانتظار الجهاز",
