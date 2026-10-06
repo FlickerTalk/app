@@ -281,6 +281,11 @@ mod tests {
         assert!(script.contains(r#"location: () => ask("ft.location", {})"#), "a plugin cannot ask where the phone is");
         // 2026-10-06: a photo taken now with the phone's camera app, answered like a picked file.
         assert!(script.contains(r#"takePhoto: () => ask("ft.takePhoto", {})"#), "a plugin cannot ask for a photo from the camera");
+        // 2026-10-06: a notice the app shows as its single toast at the top; fire and forget, like say.
+        assert!(
+            script.contains(r#"post({ type: "ft.notify", text: String(text ?? ""), sticky: options?.sticky === true })"#),
+            "a plugin cannot hand the app a notice"
+        );
         // 2026-10-02: told the window is closing, the frame runs the plugin's goodbye and answers.
         assert!(script.contains("onClose"), "a plugin cannot say goodbye when the app closes it");
         assert!(script.contains(r#"said.type === "ft.closing""#) && script.contains(r#"type: "ft.closed""#));

@@ -17,6 +17,7 @@ import {
   byPluginName,
   followPluginChanges,
   fromFrame,
+  NOTICE_LIMIT,
   frameUrl,
   games,
   installed,
@@ -139,6 +140,29 @@ describe("plugins in the app", () => {
     expect(said({ type: "ft.takePhoto", id: "q1" })).toEqual({ type: "ft.takePhoto", id: "q1" });
     expect(said({ type: "ft.takePhoto" })).toBeNull();
     expect(said({ type: "ft.takePhoto", id: 7 })).toBeNull();
+  });
+
+  // 2026-10-06: a plugin or a game hands the app a short notice and the app shows it as a toast.
+  // Fire and forget, so no id. The text is cleaned here: no control characters and a sensible
+  // length, so a plugin cannot fill the screen; an empty text is how a sticky notice is cleared.
+  it("understands a plugin's notice", () => {
+    const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+    const said = (data: unknown) =>
+      fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
+
+    expect(said({ type: "ft.notify", text: "Your turn" })).toEqual({ type: "ft.notify", text: "Your turn", sticky: false });
+    expect(said({ type: "ft.notify", text: "Waiting…", sticky: true })).toEqual({ type: "ft.notify", text: "Waiting…", sticky: true });
+    expect(said({ type: "ft.notify", text: "Hi", sticky: "yes" })).toEqual({ type: "ft.notify", text: "Hi", sticky: false });
+    expect(said({ type: "ft.notify", text: "" })).toEqual({ type: "ft.notify", text: "", sticky: false });
+    expect(said({ type: "ft.notify", text: "  Your\nturn\u0007 \u009b" })).toEqual({ type: "ft.notify", text: "Your turn", sticky: false });
+    expect(said({ type: "ft.notify", text: "\u0000\u001b" })).toEqual({ type: "ft.notify", text: "", sticky: false });
+
+    const long = said({ type: "ft.notify", text: "😀".repeat(500) });
+    expect(long && "text" in long && Array.from(long.text)).toHaveLength(NOTICE_LIMIT);
+    expect(long && "text" in long && long.text.endsWith("…")).toBe(true);
+
+    expect(said({ type: "ft.notify" })).toBeNull();
+    expect(said({ type: "ft.notify", text: 7 })).toBeNull();
   });
 
   // The rest of what the core exposes (issue app#4): the phone, the network and a memory of its

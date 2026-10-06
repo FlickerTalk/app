@@ -51,7 +51,7 @@ import {
   type Sending,
 } from "../core";
 import { i18n } from "../i18n";
-import { CLOSING_WAIT, frameUrl, fromFrame, pluginName, type FrameMessage, type HandedFile } from "../plugins";
+import { CLOSING_WAIT, NOTICE_DURATION, frameUrl, fromFrame, pluginName, type FrameMessage, type HandedFile } from "../plugins";
 import { pluginTheme } from "../theme";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
@@ -96,6 +96,8 @@ const props = withDefaults(
 const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: []; openChat: [contact: string]; closed: [] }>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
+// Where a notice floats from: the top of what the plugin shows, under the window's bar.
+const notices = ref<HTMLElement | null>(null);
 const height = ref(320);
 // Requests still unanswered after WORKING_DELAY; the indicator shows while there is one.
 const late = ref(0);
@@ -154,6 +156,10 @@ async function onMessage(event: MessageEvent) {
   } else if (said.type === "ft.text") {
     if (props.sending !== "nothing") emit("text", said.text);
     else void mayNotWrite();
+  } else if (said.type === "ft.notify") {
+    // No permission: the text never leaves the phone and never reaches the chat; only the user
+    // sees it, for a moment, in the app's own toast (2026-10-06).
+    void notify(said.text, said.sticky ? undefined : NOTICE_DURATION);
   } else if (said.type === "ft.close") {
     // Asked again by a goodbye that ends with `ft.close()`: it is already closing.
     if (!closing) emit("done");
@@ -171,8 +177,32 @@ async function onMessage(event: MessageEvent) {
  */
 async function mayNotWrite() {
   if (!props.contact) return;
-  const toast = await toastController.create({ message: i18n.global.t("plugins.mayNotWrite"), duration: 4000, position: "bottom" });
-  await toast.present();
+  await notify(i18n.global.t("plugins.mayNotWrite"), 4000);
+}
+
+/**
+ * The plugin's notices (Ioan, 2026-10-06): the app owns the toast and a plugin or a game only
+ * hands it the text. There is only ever one, at the top, floating over the content: each notice
+ * takes the place of the one before, and an empty text just takes it away. Without a duration it
+ * stays until the next notice. One after another, so two quick notices never show together.
+ */
+let notice: HTMLIonToastElement | undefined;
+let noticing = Promise.resolve();
+
+function notify(message: string, duration?: number): Promise<void> {
+  noticing = noticing.then(async () => {
+    const before = notice;
+    notice = undefined;
+    await before?.dismiss().catch(() => undefined);
+    if (!message || closing) return;
+    // Anchored to the top of the plugin, the toast sits under the window's bar and never covers its
+    // way out. A hidden anchor (the game folded away) has no place: then Ionic's own top, below the
+    // status bar.
+    const anchor = notices.value?.offsetParent ? notices.value : undefined;
+    notice = await toastController.create({ message, duration, position: "top", positionAnchor: anchor });
+    await notice.present();
+  }).catch(() => undefined);
+  return noticing;
 }
 
 /**
@@ -198,6 +228,7 @@ const SILENT_WHILE_CLOSING = new Set<FrameMessage["type"]>([
   "ft.print",
   "ft.save",
   "ft.location",
+  "ft.notify",
 ]);
 
 function close(): Promise<void> {
@@ -209,6 +240,8 @@ function close(): Promise<void> {
       if (!gone) emit("closed");
       resolve();
     };
+    // Out of sight, its notice goes with it: a sticky one must not outlive the plugin.
+    void notify("");
     // A plugin that never came up has heard nothing, started nothing and has nothing to say.
     if (!ready) return letGo();
     timer = setTimeout(letGo, CLOSING_WAIT);
@@ -430,6 +463,7 @@ onBeforeUnmount(() => {
   gone = true;
   if (ready && !closing) tell({ type: "ft.closing" });
   letGo?.();
+  void notify("");
   looks.disconnect();
   window.removeEventListener("message", onMessage);
   // A bridge without listeners (tests, desktop) has nothing to unhook: that is not a failure.
@@ -448,6 +482,8 @@ watch(
     <!-- The name and the way out are the window's job; here only what the tool is doing. It floats
          over the frame's top edge: the plugin never moves when it shows or goes (2026-10-06). -->
     <span v-if="working" class="ft-plugin__working" role="status">…</span>
+    <!-- Where the plugin's notices float from (2026-10-06): no room in the flow, held at the top. -->
+    <span ref="notices" class="ft-plugin__notices" aria-hidden="true" />
     <iframe
       ref="frame"
       class="ft-plugin__frame"
@@ -475,6 +511,12 @@ watch(
   background: var(--ion-color-light);
   color: var(--ion-color-primary);
   pointer-events: none;
+}
+.ft-plugin__notices {
+  position: sticky;
+  inset-block-start: 0;
+  display: block;
+  height: 0;
 }
 .ft-plugin__frame {
   display: block;

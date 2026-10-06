@@ -150,6 +150,8 @@ export type FrameMessage =
   | { type: "ft.takePhoto"; id: string }
   | { type: "ft.made"; name: string; mime: string; data: string }
   | { type: "ft.text"; text: string }
+  /** 2026-10-06: a notice the app shows as its single toast; an empty text clears the current one. */
+  | { type: "ft.notify"; text: string; sticky: boolean }
   | { type: "ft.save"; id: string; name: string; mime: string; data: string }
   | { type: "ft.print"; id: string; name: string; mime: string; data: string }
   | { type: "ft.fetch"; id: string; url: string; method: string; headers: [string, string][]; body: string | null }
@@ -177,6 +179,23 @@ export type FrameMessage =
  * window goes at once, and the frame goes when the plugin answers `ft.closed` or after this, in ms.
  */
 export const CLOSING_WAIT = 400;
+
+/** The longest notice a plugin can show, in characters, the ellipsis included (2026-10-06). */
+export const NOTICE_LIMIT = 200;
+
+/** How long a notice that is not sticky stays on screen, in ms (2026-10-06). */
+export const NOTICE_DURATION = 3000;
+
+/**
+ * A plugin's notice as the app shows it: control characters (line breaks included) become spaces,
+ * the ends are trimmed and a long text is cut, with an ellipsis, so no plugin fills the screen.
+ */
+function noticeText(said: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = said.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim();
+  const characters = Array.from(clean);
+  return characters.length > NOTICE_LIMIT ? `${characters.slice(0, NOTICE_LIMIT - 1).join("").trimEnd()}…` : clean;
+}
 
 /** What a plugin may ask of the drive. Anything else is ignored. */
 export const DRIVE_OPS = [
@@ -213,6 +232,8 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       return isFile ? { type: "ft.made", name: file.name as string, mime: file.mime as string, data: file.data as string } : null;
     case "ft.text":
       return text(said.text) ? { type: "ft.text", text: said.text } : null;
+    case "ft.notify":
+      return text(said.text) ? { type: "ft.notify", text: noticeText(said.text), sticky: said.sticky === true } : null;
     case "ft.save":
     case "ft.print":
       return text(id) && isFile
