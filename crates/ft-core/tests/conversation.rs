@@ -1501,6 +1501,42 @@ async fn a_text_is_edited_or_taken_back_on_both_phones() {
     assert_eq!(bob.store().message(&reply).await.unwrap().unwrap().body, "ok");
 }
 
+// A message taken back for everyone before it went out is cancelled: neither it, blank, nor a
+// "taken back" for a message the other phone never had ever reaches it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_taken_back_before_it_went_out_never_goes() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    let later = alice.schedule_text(&id(&bob), "surprise!", ft_core::now() + 90_000, None).await.expect("schedules");
+    // A pending one too: Bob cannot be reached and there is no mailbox.
+    alice.set_mailbox(false).await.expect("mailbox off");
+    net.set_direct(false);
+    let pending = alice.send_text(&id(&bob), "are you there?").await.expect("sends");
+    assert_eq!(state_of(&alice, &id(&bob), &pending).await, MessageState::Pending);
+    let before = net.sent_to(&id(&bob));
+
+    alice.delete_for_everyone(&later).await.expect("takes back");
+    alice.delete_for_everyone(&pending).await.expect("takes back");
+    assert!(alice.store().outbox().await.unwrap().is_empty(), "both are cancelled");
+
+    // Their times come and Bob is there again: nothing goes.
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    alice.retry_due().await.expect("retries");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "nothing arrived, blank or not");
+    assert_eq!(net.sent_to(&id(&bob)), before, "not even a taken back");
+    assert_eq!(net.mailbox_len(&id(&bob)), 0);
+
+    // Even if one is still queued (taken back while a retry was on its way), it goes nowhere.
+    alice.store().enqueue(&pending, &id(&bob), ft_core::now()).await.expect("queued again");
+    alice.retry_due().await.expect("retries");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "nothing blank arrived");
+    assert!(alice.store().outbox().await.unwrap().is_empty(), "and it left the queue");
+}
+
 // 2026-10-05: a pin stays on this phone: the UI hears of it, the other phone never does.
 #[tokio::test(flavor = "multi_thread")]
 async fn pinning_a_message_is_this_phones_alone() {

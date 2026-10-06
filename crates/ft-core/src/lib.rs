@@ -1104,7 +1104,8 @@ impl Core {
 
     /// Takes one of our messages back for both sides (2026-10-05): its words and its file go
     /// here, the mark that it was there stays, and the contact is told like a receipt. A phone
-    /// that already has it shows the mark too; an older app keeps the message.
+    /// that already has it shows the mark too; an older app keeps the message. One that never
+    /// went out (pending, or written for later) is cancelled, and the contact is told nothing.
     pub async fn delete_for_everyone(&self, message_id: &str) -> Result<()> {
         let message = self.store.message(message_id).await?.context("that message is not here")?;
         ensure!(message.outgoing, "only our own messages can be taken back from the other side");
@@ -1113,6 +1114,9 @@ impl Core {
         self.store.mark_deleted(message_id).await?;
         self.forget_bytes(file.into_iter().collect()).await;
         let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
+        if matches!(message.state, MessageState::Pending | MessageState::NotSent) {
+            return Ok(());
+        }
         let packet = Packet::new(Body::Delete { of: MessageId::parse(message_id)? });
         let _ = self.transmit(&contact, &packet).await;
         Ok(())
@@ -1548,6 +1552,10 @@ impl Core {
         let Some(message) = self.store.message(&entry.message_id).await? else {
             return self.store.dequeue(&entry.message_id).await;
         };
+        // Taken back before it went out: there is nothing left to send.
+        if self.store.is_deleted(&entry.message_id).await? {
+            return self.store.dequeue(&entry.message_id).await;
+        }
         let contact = self.contact(&entry.contact).await?;
         if !contact.introduced {
             self.introduce(&contact).await?;

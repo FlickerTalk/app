@@ -684,12 +684,15 @@ impl Store {
     }
 
     /// The message was taken back for both sides (2026-10-05): its words go, its file record goes,
-    /// and only the mark that it was there stays.
+    /// and only the mark that it was there stays. One still waiting to be sent, now or later, is
+    /// cancelled: it leaves the outbox, so nothing blank goes in its place.
     pub async fn mark_deleted(&self, message_id: &str) -> Result<bool> {
         let changed = sqlx::query("UPDATE messages SET body = '' WHERE message_id = ?").bind(message_id).execute(&self.pool).await?.rows_affected();
         if changed == 1 {
             sqlx::query("DELETE FROM files WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
             sqlx::query("DELETE FROM reactions WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
+            sqlx::query("DELETE FROM pending_outbox WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
+            sqlx::query("DELETE FROM scheduled WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
             sqlx::query("INSERT INTO message_deletions (message_id, deleted_at) VALUES (?, ?) ON CONFLICT (message_id) DO NOTHING")
                 .bind(message_id)
                 .bind(now())
@@ -2279,6 +2282,23 @@ mod tests {
         assert!(store.reactions("ft_bob").await.unwrap().is_empty(), "its reactions went with it");
         store.forget_message("m1").await.expect("forgets");
         assert!(store.edited("ft_bob").await.unwrap().is_empty(), "the mark goes with the message");
+    }
+
+    // A message taken back before it went out (pending or for later) is cancelled: it leaves the
+    // outbox and is no longer scheduled, so nothing blank is ever sent in its place.
+    #[tokio::test]
+    async fn a_message_taken_back_before_it_went_out_leaves_the_outbox() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
+        store.insert_message(&message("m2", "ft_bob", true, 2)).await.expect("inserts");
+        store.enqueue("m1", "ft_bob", 1_000).await.expect("queues");
+        store.enqueue_at("m2", "ft_bob", 1_000, 9_000).await.expect("queues for later");
+
+        assert!(store.mark_deleted("m1").await.expect("takes back"));
+        assert!(store.mark_deleted("m2").await.expect("takes back"));
+        assert!(store.outbox().await.unwrap().is_empty(), "neither waits to be sent");
+        assert!(store.scheduled_all().await.unwrap().is_empty(), "nor is for later");
     }
 
     // 2026-10-05: a pin is this phone's, the latest first, and goes with the message.
