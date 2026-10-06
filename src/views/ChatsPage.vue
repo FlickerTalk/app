@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import {
   IonButton,
   IonButtons,
@@ -34,6 +34,7 @@ import CircleThread from "../components/CircleThread.vue";
 import { t } from "../i18n";
 import { previewOf } from "../links";
 import { closeSession, removeSession, store, type Chat, type Circle, type Session } from "../core";
+import { showInPane, takeSearch } from "../pending-search";
 
 const router = useRouter();
 
@@ -49,11 +50,19 @@ onBeforeUnmount(() => wideQuery.removeEventListener("change", onWidthChange));
 // button; back on Chats it takes it again (2026-10-02).
 const onScreen = ref(true);
 onIonViewWillLeave(() => (onScreen.value = false));
-onIonViewDidEnter(() => (onScreen.value = true));
+onIonViewDidEnter(() => {
+  onScreen.value = true;
+  // Back from the contact page's search on a tablet (2026-10-06): the pane searches now it is seen.
+  if (wide.value && selectedId.value && !selectedCircle.value && takeSearch(selectedId.value)) paneThread.value?.openSearch();
+});
 
 const selectedId = ref(store.chats[0]?.id ?? "");
 // Circles (2026-09-27) sit in the same list; on a wide screen one opens next to it like a chat.
 const selectedCircle = ref("");
+const paneThread = ref<InstanceType<typeof ChatThread> | null>(null);
+// The contact page asks which conversation is beside the list, to search there (2026-10-06).
+watchEffect(() => showInPane(wide.value && !selectedCircle.value ? selectedId.value : ""));
+onBeforeUnmount(() => showInPane(""));
 
 function open(id: string) {
   if (wide.value) {
@@ -443,7 +452,7 @@ const STATUS_ICON: Record<string, string> = {
         <CircleThread :circle-id="selectedCircle" :active="onScreen" />
       </section>
       <section v-else-if="wide && selectedId" class="ft-chats__detail">
-        <ChatThread :chat-id="selectedId" split :active="onScreen" />
+        <ChatThread ref="paneThread" :chat-id="selectedId" split :active="onScreen" />
       </section>
     </div>
   </ion-page>

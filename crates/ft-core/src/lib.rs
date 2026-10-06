@@ -1115,7 +1115,8 @@ impl Core {
     /// here, the mark that it was there stays, and the contact is told through the update queue. A phone
     /// that already has it shows the mark too; an older app keeps the message. One still waiting
     /// here is cancelled; the contact is told anyway (2026-10-06), because a try may be on its way
-    /// or may already have reached them, and a phone that never had it drops the taking back. Only
+    /// or may already have reached them, and a phone that never had it drops the taking back; its
+    /// mark is no longer pending, and waits only while the taking back does. Only
     /// one written for later whose time has not come never went anywhere: it goes from this phone
     /// altogether, with no mark (2026-10-06), and nothing is told.
     pub async fn delete_for_everyone(&self, message_id: &str) -> Result<()> {
@@ -1127,6 +1128,11 @@ impl Core {
         }
         let file = self.store.file(message_id).await?;
         self.store.mark_deleted(message_id).await?;
+        // A pending one's words will never go out (2026-10-06): its mark stops waiting for them
+        // and follows the taking back instead, which `updates_waiting` shows until its receipt.
+        if message.state == MessageState::Pending {
+            self.store.advance(&[message_id.to_owned()], MessageState::Sent).await?;
+        }
         self.forget_bytes(file.into_iter().collect()).await;
         let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
         let packet = Packet::new(Body::Delete { of: MessageId::parse(message_id)? });

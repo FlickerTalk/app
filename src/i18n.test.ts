@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { followPhoneLanguage, i18n, isRtl, type Locale, LOCALES, pickLocale, setLocale, t } from "./i18n";
+import { firstDayOfWeek, followPhoneLanguage, i18n, isRtl, type Locale, LOCALES, pickLocale, setLocale, t } from "./i18n";
 import en from "./i18n/en.json";
 
 function leaves(node: unknown, path: string[] = []): [string, unknown][] {
@@ -257,5 +257,69 @@ describe("option sheets", () => {
       .filter(([, attributes]) => !attributes.includes(`:cancel-text="$t('common.cancel')"`))
       .map(([path]) => path);
     expect(untranslated).toEqual([]);
+  });
+});
+
+// QA of 1.4.0 (2026-10-06): the send-later calendar started the week on Sunday in Spanish. The week
+// starts where the phone's region says (0 is Sunday, as Ionic's picker counts), for the app's language.
+describe("first day of the week", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("follows the phone's region for the app's language", () => {
+    expect(firstDayOfWeek("es", ["es-ES"])).toBe(1);
+    expect(firstDayOfWeek("es", ["es-MX"])).toBe(0);
+    expect(firstDayOfWeek("en", ["en-US"])).toBe(0);
+    expect(firstDayOfWeek("en", ["en-GB"])).toBe(1);
+  });
+
+  it("takes the language's usual region when the phone speaks another language", () => {
+    expect(firstDayOfWeek("es", ["en-US"])).toBe(1);
+    expect(firstDayOfWeek("de", [])).toBe(1);
+    expect(firstDayOfWeek("en", [])).toBe(0);
+    expect(firstDayOfWeek("ar", [])).toBe(6);
+  });
+
+  // The WebViews differ (2026-10-06): newer ones have `getWeekInfo()`, older ones a `weekInfo`
+  // getter, the oldest neither. Each shape is stubbed on the prototype and put back afterwards, so
+  // the test does not depend on what the runtime running it has.
+  const proto = Intl.Locale.prototype as unknown as Record<string, unknown>;
+  const KEYS = ["getWeekInfo", "weekInfo"] as const;
+  function weekData(shape: Partial<Record<(typeof KEYS)[number], PropertyDescriptor>>): () => void {
+    const saved = KEYS.map((key) => [key, Object.getOwnPropertyDescriptor(proto, key)] as const);
+    for (const key of KEYS) Object.defineProperty(proto, key, shape[key] ?? { value: undefined, configurable: true });
+    return () => {
+      for (const [key, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(proto, key, descriptor);
+        else Reflect.deleteProperty(proto, key);
+      }
+    };
+  }
+
+  it("knows the week without the browser's week data", () => {
+    const restore = weekData({});
+    try {
+      expect(firstDayOfWeek("es", ["es-ES"])).toBe(1);
+      expect(firstDayOfWeek("en", ["en-US"])).toBe(0);
+      expect(firstDayOfWeek("pt", [])).toBe(0);
+      expect(firstDayOfWeek("ar", ["ar-EG"])).toBe(6);
+      expect(firstDayOfWeek("fr", ["fr-FR"])).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("takes the browser's week data in either shape", () => {
+    let restore = weekData({ getWeekInfo: { value: () => ({ firstDay: 6 }), configurable: true } });
+    try {
+      expect(firstDayOfWeek("es", ["es-ES"])).toBe(6);
+    } finally {
+      restore();
+    }
+    restore = weekData({ weekInfo: { get: () => ({ firstDay: 7 }), configurable: true } });
+    try {
+      expect(firstDayOfWeek("es", ["es-ES"])).toBe(0);
+    } finally {
+      restore();
+    }
   });
 });

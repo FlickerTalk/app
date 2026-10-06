@@ -1743,6 +1743,29 @@ async fn a_message_taken_back_before_it_went_out_never_goes() {
     assert!(alice.store().outbox().await.unwrap().is_empty(), "and it left the queue");
 }
 
+// Seen on the phones testing 1.4.0 (2026-10-06): a text taken back for everyone while it was
+// still pending kept the clock on this phone forever, after the contact came back and got the
+// taking back. Its words will never go out, so the mark follows its taking back instead: waiting
+// while the taking back waits, no longer pending once the contact has heard of it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pending_text_taken_back_stops_waiting_once_the_contact_hears_of_it() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    alice.set_mailbox(false).await.expect("mailbox off");
+    net.set_direct(false);
+    let pending = alice.send_text(&id(&bob), "are you there?").await.expect("sends");
+    alice.delete_for_everyone(&pending).await.expect("takes back");
+    assert_eq!(alice.updates_waiting(&id(&bob)).await.unwrap(), HashSet::from([pending.clone()]), "waits while the taking back waits");
+
+    net.set_direct(true);
+    alice.retry_now().await.expect("retries");
+    until("bob's receipt empties the queue", || async { alice.store().update_outbox().await.unwrap().is_empty() }).await;
+    assert!(alice.updates_waiting(&id(&bob)).await.unwrap().is_empty());
+    assert_ne!(state_of(&alice, &id(&bob), &pending).await, MessageState::Pending, "the mark no longer shows a clock");
+    assert!(texts(&bob, &id(&alice)).await.is_empty(), "and bob still never had the words");
+}
+
 // Seen on a Lenovo (2026-10-06): a text with no direct connection, taken back 4 s later, still
 // reached the other phone. Its delivery was on its way, waiting for the connection, and went on to
 // the mailbox. A delivery looks again right before each sending, directly or to the mailbox.

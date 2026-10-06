@@ -4,7 +4,7 @@ import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
 import ContactPage from "./ContactPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { store } from "../core";
-import { takeSearch } from "../pending-search";
+import { showInPane, takeSearch } from "../pending-search";
 
 // vue-router's history state: `back` is the address of the page under this one.
 const routing = vi.hoisted(() => ({ id: "c1", push: vi.fn(), back: vi.fn(), state: {} as Record<string, unknown> }));
@@ -20,6 +20,7 @@ describe("ContactPage", () => {
     routing.push.mockClear();
     routing.back.mockClear();
     routing.state = { back: "/tabs/chats" };
+    showInPane("");
   });
 
   // Ioan, 2026-10-06: as Messenger and WhatsApp do it, the chat header keeps few icons and the
@@ -64,6 +65,25 @@ describe("ContactPage", () => {
       expect(routing.back).toHaveBeenCalledTimes(1);
       expect(routing.push).not.toHaveBeenCalled();
       expect(takeSearch("c1")).toBe(true);
+    });
+
+    // QA of 1.4.0 (2026-10-06): on a tablet the conversation is in the chats tab's pane. The search
+    // goes back there too, instead of opening the conversation full screen over the split view.
+    it("goes back to the tablet's split view showing the conversation to search there", async () => {
+      showInPane("c1");
+      const wrapper = mount(ContactPage, { shallow: true });
+      await action(wrapper, "search").trigger("click");
+      expect(routing.back).toHaveBeenCalledTimes(1);
+      expect(routing.push).not.toHaveBeenCalled();
+      expect(takeSearch("c1")).toBe(true);
+    });
+
+    it("opens the conversation when the split view shows another one", async () => {
+      showInPane("c2");
+      const wrapper = mount(ContactPage, { shallow: true });
+      await action(wrapper, "search").trigger("click");
+      expect(routing.push).toHaveBeenCalledWith("/chat/c1?search=1");
+      expect(routing.back).not.toHaveBeenCalled();
     });
 
     // A stranger who wrote first cannot be called yet, as in the chat header (A5).

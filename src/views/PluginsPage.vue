@@ -23,7 +23,6 @@ import {
   installPlugin,
   removePlugin,
   type OfferedPlugin,
-  type PluginView,
 } from "../core";
 import { useRoute, useRouter } from "vue-router";
 import { isGame } from "../games";
@@ -73,9 +72,22 @@ async function install(id: string) {
   await refresh();
 }
 
-async function toggle(plugin: PluginView, key: string, on: boolean) {
-  await grantPlugin(plugin.id, withPermission(plugin, key, on));
-  await refresh();
+// QA of 1.4.0 (2026-10-06): two switches turned quickly lost the first, because the second grant was
+// built from the plugin as it was before either. The changes go one at a time, each from what the
+// core says now, and the switch ends showing what the core has, even if it refused the change.
+let changes: Promise<void> = Promise.resolve();
+function toggle(id: string, key: string, event: CustomEvent<{ checked: boolean }>): Promise<void> {
+  const on = event.detail.checked;
+  const field = event.target as { checked?: boolean } | null;
+  changes = changes.then(async () => {
+    const current = (await refreshPlugins()).find((one) => one.id === id);
+    if (current) await grantPlugin(id, withPermission(current, key, on)).catch(() => undefined);
+    await refresh();
+    const now = installed.value.find((one) => one.id === id);
+    const real = now && permissionsOf(now).find((permission) => permission.key === key)?.on;
+    if (field && real !== undefined) field.checked = real;
+  });
+  return changes;
 }
 
 async function remove(id: string) {
@@ -147,7 +159,7 @@ async function remove(id: string) {
             slot="end"
             :checked="permission.on"
             :aria-label="permission.label"
-            @ion-change="toggle(plugin, permission.key, $event.detail.checked)"
+            @ion-change="toggle(plugin.id, permission.key, $event)"
           />
         </ion-item>
         <ion-item v-if="!permissionsOf(plugin).length" lines="none">

@@ -5,6 +5,8 @@ import ChatThread from "../components/ChatThread.vue";
 import { fixture, seed } from "../__tests__/seed";
 import { calls } from "../__tests__/seed";
 import { store, type Circle } from "../core";
+import { defineComponent, h } from "vue";
+import { askSearch, inPane, takeSearch } from "../pending-search";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -85,6 +87,48 @@ describe("ChatsPage", () => {
     screen(true);
     const wrapper = mount(ChatsPage, { shallow: true });
     expect(wrapper.findComponent(ChatThread).exists()).toBe(true);
+  });
+
+  // QA of 1.4.0 (2026-10-06): on a tablet the contact page's search comes back to the split view;
+  // the conversation in the pane opens its search once the tab is on screen again.
+  describe("back from the contact page's search on a wide screen", () => {
+    const openSearch = vi.fn();
+    const Thread = defineComponent({
+      name: "ChatThread",
+      props: ["chatId", "split", "active"],
+      setup(_, { expose }) {
+        expose({ leave: vi.fn(), openSearch });
+        return () => h("div");
+      },
+    });
+    const entered = (wrapper: { vm: unknown }) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewDidEnter ?? []).forEach((hook) => hook());
+
+    it("says which conversation is in the pane, and none on a phone or once it is gone", () => {
+      screen(true);
+      const wrapper = mount(ChatsPage, { shallow: true, global: { stubs: { ChatThread: Thread } } });
+      const shown = store.chats[0].id;
+      expect(inPane(shown)).toBe(true);
+      wrapper.unmount();
+      expect(inPane(shown)).toBe(false);
+      screen(false);
+      mount(ChatsPage, { shallow: true }).unmount();
+      expect(inPane(shown)).toBe(false);
+    });
+
+    it("opens the search in the pane when the tab is on screen again", () => {
+      openSearch.mockClear();
+      screen(true);
+      const wrapper = mount(ChatsPage, { shallow: true, global: { stubs: { ChatThread: Thread } } });
+      const shown = store.chats[0].id;
+      askSearch(shown);
+      entered(wrapper);
+      expect(openSearch).toHaveBeenCalledTimes(1);
+      expect(takeSearch(shown)).toBe(false);
+      entered(wrapper);
+      expect(openSearch).toHaveBeenCalledTimes(1);
+      wrapper.unmount();
+    });
   });
 
   // A new phone has no contacts yet: the list says how to start.

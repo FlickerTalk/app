@@ -1011,8 +1011,20 @@ describe("ChatThread", () => {
         const picker = wrapper.findComponent(IonDatetime);
         expect(picker.props("locale")).toBe("es");
         expect(picker.find("[slot='time-label']").text()).toBe("Hora");
+        // QA of 1.4.0 (2026-10-06): a Spanish week starts on Monday, not on Sunday.
+        expect(picker.props("firstDayOfWeek")).toBe(1);
       } finally {
         await setLocale("en");
+      }
+    });
+
+    it("starts the week where the phone's region does", async () => {
+      const phone = vi.spyOn(navigator, "languages", "get").mockReturnValue(["en-US"]);
+      try {
+        const wrapper = await presented("good morning");
+        expect(wrapper.findComponent(IonDatetime).props("firstDayOfWeek")).toBe(0);
+      } finally {
+        phone.mockRestore();
       }
     });
 
