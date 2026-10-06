@@ -135,6 +135,65 @@ describe("PluginsPage", () => {
     ]);
   });
 
+  // QA of 1.4.0 (2026-10-06): two switches of one plugin turned on quickly lost the first; the
+  // second grant was built from the plugin as it was before either. Each change starts from what
+  // the core says now, and the switches end showing what the core has.
+  describe("switches turned quickly, one after another", () => {
+    const TWO = {
+      id: "com.flickertalk.two",
+      name: "Two",
+      version: "1.0.0",
+      asks: { network: ["api.example.com"], messages: true, send: "nothing" },
+      granted: { network: [] as string[], messages: false, send: "nothing" },
+      installedAt: 1,
+    };
+    let granted = { ...TWO.granted };
+    let refuses = false;
+    const flip = (toggle: ReturnType<typeof togglesOf>[number], checked: boolean, target?: { checked: boolean }) => {
+      const event = new CustomEvent("ionChange", { detail: { checked } });
+      if (target) Object.defineProperty(event, "target", { value: target });
+      toggle.vm.$emit("ionChange", event);
+    };
+
+    beforeEach(() => {
+      granted = { ...TWO.granted, network: [] };
+      refuses = false;
+      installTauri(async (command, args) => {
+        calls.push([command, args]);
+        if (command === "core_plugins") return [{ ...TWO, granted }];
+        if (command === "core_plugin_grant") {
+          await new Promise((done) => setTimeout(done, 5));
+          if (refuses) throw new Error("refused");
+          granted = (args as { granted: typeof granted }).granted;
+          return undefined;
+        }
+        return command === "core_catalogue" ? [] : undefined;
+      });
+    });
+
+    it("keeps both", async () => {
+      const wrapper = mount(PluginsPage, { shallow: true });
+      await flushPromises();
+      const [first, second] = togglesOf(wrapper, TWO.id);
+      flip(first, true);
+      flip(second, true);
+      await vi.waitFor(() => expect(calls.filter(([command]) => command === "core_plugin_grant")).toHaveLength(2));
+      await vi.waitFor(() => expect(granted).toEqual({ network: ["api.example.com"], messages: true, send: "nothing" }));
+      await flushPromises();
+      expect(togglesOf(wrapper, TWO.id).map((toggle) => toggle.props("checked"))).toEqual([true, true]);
+    });
+
+    it("puts a switch back when the core does not take the change", async () => {
+      const wrapper = mount(PluginsPage, { shallow: true });
+      await flushPromises();
+      refuses = true;
+      const field = { checked: true };
+      flip(togglesOf(wrapper, TWO.id)[0], true, field);
+      await vi.waitFor(() => expect(field.checked).toBe(false));
+      expect(granted.messages).toBe(false);
+    });
+  });
+
   it("removes a plugin after asking", async () => {
     const wrapper = mount(PluginsPage, { shallow: true });
     await flushPromises();
