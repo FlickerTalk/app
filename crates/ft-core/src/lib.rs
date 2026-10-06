@@ -1493,11 +1493,16 @@ impl Core {
                     self.announce_messages(contact);
                 }
             }
-            // Their own text, said again with other words (2026-10-05): only theirs, only a text.
+            // Their own text, said again with other words (2026-10-05): only theirs, only a text,
+            // and within the same day as the sender's app allows. Measured with the sender's
+            // clock on both ends (the message's stamp and the edit's), so an edit that waited
+            // for this phone to be reachable still counts from when it was made.
             Body::Edit { of, text } if contact.rules.accepts_chat && contact.accepted => {
                 let of = of.to_string();
                 let text = text.trim();
-                let theirs = self.store.message(&of).await?.is_some_and(|message| message.contact == id && !message.outgoing);
+                let theirs = self.store.message(&of).await?.is_some_and(|message| {
+                    message.contact == id && !message.outgoing && packet.sent_at as i64 - message.sent_at <= EDIT_WINDOW_MS
+                });
                 if theirs && !text.is_empty() && self.store.file(&of).await?.is_none() && !self.store.is_deleted(&of).await? {
                     self.store.edit_text(&of, text).await?;
                     self.announce_messages(contact);

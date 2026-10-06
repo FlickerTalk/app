@@ -1501,6 +1501,48 @@ async fn a_text_is_edited_or_taken_back_on_both_phones() {
     assert_eq!(bob.store().message(&reply).await.unwrap().unwrap().body, "ok");
 }
 
+// What the other phone accepts is checked there too, not only by the sender's app: an edit comes
+// within a day of its message, and only from the message's author. A forged edit or taking back,
+// over the wire, from someone who did not write it, changes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_receiver_checks_who_edits_or_takes_back_and_when() {
+    use ft_protocol::{Body, MessageId, Packet};
+    const HOUR: u64 = 3_600_000;
+    let net = Net::new();
+    let (alice, bob, carol) = (device(&net, "Alice").await, device(&net, "Bob").await, device(&net, "Carol").await);
+    pair(&alice, &bob).await;
+    pair(&carol, &bob).await;
+    let at = ft_core::now() as u64;
+    let old = Packet::resend(MessageId::new(), at - 25 * HOUR, Body::Message { text: "old words".into(), reply_to: None });
+    let recent = Packet::resend(MessageId::new(), at - 23 * HOUR, Body::Message { text: "recent words".into(), reply_to: None });
+    alice.send_raw_to(&id(&bob), &old).await.expect("sends");
+    alice.send_raw_to(&id(&bob), &recent).await.expect("sends");
+    let alices = alice.send_text(&id(&bob), "alice's words").await.expect("sends");
+    until("bob has everything", || async { texts(&bob, &id(&alice)).await.len() == 3 }).await;
+
+    // Past the day the edit is refused; within it, taken.
+    alice.send_raw_to(&id(&bob), &Packet::new(Body::Edit { of: old.id, text: "too late".into() })).await.expect("sends");
+    alice.send_raw_to(&id(&bob), &Packet::new(Body::Edit { of: recent.id, text: "still in time".into() })).await.expect("sends");
+    until("bob takes the edit in time", || async { bob.store().message(&recent.id.to_string()).await.unwrap().unwrap().body == "still in time" }).await;
+    assert_eq!(bob.store().message(&old.id.to_string()).await.unwrap().unwrap().body, "old words", "too late to change it");
+
+    // Bob forges an edit and a taking back of Alice's text at her phone; Carol, of Alice's at Bob's.
+    let alices_id = MessageId::parse(&alices).unwrap();
+    bob.send_raw_to(&id(&alice), &Packet::new(Body::Edit { of: alices_id, text: "forged".into() })).await.expect("sends");
+    bob.send_raw_to(&id(&alice), &Packet::new(Body::Delete { of: alices_id })).await.expect("sends");
+    carol.send_raw_to(&id(&bob), &Packet::new(Body::Edit { of: recent.id, text: "forged".into() })).await.expect("sends");
+    carol.send_raw_to(&id(&bob), &Packet::new(Body::Delete { of: recent.id })).await.expect("sends");
+    // A text after them on each link: once it is there, the forgeries were handled.
+    bob.send_text(&id(&alice), "after").await.expect("sends");
+    carol.send_text(&id(&bob), "after").await.expect("sends");
+    until("alice handled bob's", || async { texts(&alice, &id(&bob)).await.contains(&"after".to_owned()) }).await;
+    until("bob handled carol's", || async { texts(&bob, &id(&carol)).await == ["after"] }).await;
+    assert_eq!(alice.store().message(&alices).await.unwrap().unwrap().body, "alice's words", "bob cannot change her words");
+    assert!(!alice.store().is_deleted(&alices).await.unwrap(), "nor take them back");
+    assert_eq!(bob.store().message(&recent.id.to_string()).await.unwrap().unwrap().body, "still in time", "carol cannot touch alice's words");
+    assert!(!bob.store().is_deleted(&recent.id.to_string()).await.unwrap());
+}
+
 // A message taken back for everyone before it went out is cancelled: neither it, blank, nor a
 // "taken back" for a message the other phone never had ever reaches it.
 #[tokio::test(flavor = "multi_thread")]
