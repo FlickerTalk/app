@@ -1116,19 +1116,19 @@ impl Core {
     /// that already has it shows the mark too; an older app keeps the message. One still waiting
     /// here is cancelled; the contact is told anyway (2026-10-06), because a try may be on its way
     /// or may already have reached them, and a phone that never had it drops the taking back. Only
-    /// one written for later whose time has not come never went anywhere, and nothing is told.
+    /// one written for later whose time has not come never went anywhere: it goes from this phone
+    /// altogether, with no mark (2026-10-06), and nothing is told.
     pub async fn delete_for_everyone(&self, message_id: &str) -> Result<()> {
         let message = self.store.message(message_id).await?.context("that message is not here")?;
         ensure!(message.outgoing, "only our own messages can be taken back from the other side");
         let contact = self.contact(&message.contact).await?;
-        let not_yet = self.store.scheduled_all().await?.get(message_id).is_some_and(|send_at| *send_at > now());
+        if self.store.scheduled_all().await?.get(message_id).is_some_and(|send_at| *send_at > now()) {
+            return self.forget_message(message_id).await;
+        }
         let file = self.store.file(message_id).await?;
         self.store.mark_deleted(message_id).await?;
         self.forget_bytes(file.into_iter().collect()).await;
         let _ = self.events.send(Event::MessagesChanged { contact: contact.device_id.clone() });
-        if not_yet {
-            return Ok(());
-        }
         let packet = Packet::new(Body::Delete { of: MessageId::parse(message_id)? });
         self.tell(&contact, &packet).await
     }

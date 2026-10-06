@@ -1072,6 +1072,23 @@ describe("ChatThread", () => {
       expect(wrapper.find("[data-test='delete-sure']").exists()).toBe(true);
       expect(wrapper.find("[data-test='delete-everyone']").exists()).toBe(false);
     });
+
+    // 2026-10-06: a text for later that never went out has nobody to take it back from: the sheet
+    // offers only to delete it here, which cancels it and leaves no mark.
+    it("offers only deleting it here for a text written for later", async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      const mine = chat("c1")!.messages[1];
+      mine.status = "pending";
+      mine.scheduledFor = Date.now() + 3_600_000;
+      await flushPromises();
+      await pressOn(wrapper, 1);
+      await wrapper.find("[data-test='delete']").trigger("click");
+      expect(wrapper.find("[data-test='delete-everyone']").exists()).toBe(false);
+      await wrapper.find("[data-test='delete-sure']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_forget_message", { message: mine.id }]);
+    });
   });
 
   // 2026-10-05: pinned messages: the sheet pins and unpins; a strip under the header shows the

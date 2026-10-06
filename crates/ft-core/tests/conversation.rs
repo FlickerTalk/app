@@ -1675,6 +1675,8 @@ async fn a_message_taken_back_before_it_went_out_never_goes() {
     assert_eq!(state_of(&alice, &id(&bob), &pending).await, MessageState::Pending);
 
     alice.delete_for_everyone(&later).await.expect("takes back");
+    assert!(alice.store().message(&later).await.unwrap().is_none(), "one that never went out leaves no mark");
+    assert!(!alice.store().scheduled_all().await.unwrap().contains_key(&later), "nor waits for its time");
     assert!(alice.store().update_outbox().await.unwrap().is_empty(), "and nothing is told about it");
     alice.delete_for_everyone(&pending).await.expect("takes back");
     assert!(alice.store().outbox().await.unwrap().is_empty(), "both are cancelled");

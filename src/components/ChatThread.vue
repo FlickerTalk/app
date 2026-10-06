@@ -1310,9 +1310,10 @@ watch(
           <button type="button" class="ft-actions__sure" data-test="delete-sure" @click="erase">
             {{ $t("chat.deleteSure") }}
           </button>
-          <!-- 2026-10-05: my own message, taken back on the other phone too. -->
+          <!-- 2026-10-05: my own message, taken back on the other phone too; not one written for
+               later, which never went out (2026-10-06): deleting it here cancels it. -->
           <button
-            v-if="actingMessage?.mine && !actingMessage.deleted"
+            v-if="actingMessage?.mine && !actingMessage.deleted && !actingMessage.scheduledFor"
             type="button"
             class="ft-actions__sure"
             data-test="delete-everyone"
