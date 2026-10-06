@@ -54,7 +54,7 @@ vi.mock("../recorder", async () => {
 const IonModalStub = defineComponent({
   name: "IonModal",
   props: { isOpen: Boolean, breakpoints: { type: Array, default: undefined }, initialBreakpoint: { type: Number, default: undefined } },
-  emits: ["didDismiss"],
+  emits: ["didDismiss", "didPresent"],
   setup(props, { slots }) {
     return () => (props.isOpen ? h("div", { "data-test": "apps-sheet" }, slots.default?.()) : null);
   },
@@ -936,9 +936,33 @@ describe("ChatThread", () => {
       return wrapper;
     };
 
+    const scheduleSheet = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.findAllComponents(IonModalStub).find((one) => one.props("isOpen") && one.find("[data-test='schedule']").exists())!;
+    /** Opened and on screen, as Ionic says once its sheet has presented. */
+    const presented = async (text: string) => {
+      const wrapper = await opened(text);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      return wrapper;
+    };
+
+    // Seen on an iPhone 13 mini (2026-10-06): on the first open the day grid stayed invisible, since
+    // the picker laid itself out inside a sheet not yet on screen. It is built once the sheet is up.
+    it("builds the date picker only once the sheet has presented", async () => {
+      const wrapper = await opened("later");
+      expect(wrapper.find("[data-test='schedule']").exists()).toBe(true);
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(false);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(true);
+      scheduleSheet(wrapper).vm.$emit("didDismiss");
+      await flushPromises();
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(false);
+    });
+
     it("offers the clock only with words to send, and schedules them at the chosen time", async () => {
-      const wrapper = await opened("good morning");
-      const sheet = wrapper.findAllComponents(IonModalStub).find((one) => one.props("isOpen") && one.find("[data-test='schedule']").exists())!;
+      const wrapper = await presented("good morning");
+      const sheet = scheduleSheet(wrapper);
       expect(sheet.attributes("aria-label")).toBe("Send later");
       expect(sheet.props("breakpoints")).toContain(sheet.props("initialBreakpoint"));
       const picker = wrapper.findComponent(IonDatetime);
@@ -959,7 +983,7 @@ describe("ChatThread", () => {
     it("picks the time in the app's language", async () => {
       await setLocale("es");
       try {
-        const wrapper = await opened("buenos días");
+        const wrapper = await presented("buenos días");
         const picker = wrapper.findComponent(IonDatetime);
         expect(picker.props("locale")).toBe("es");
         expect(picker.find("[slot='time-label']").text()).toBe("Hora");
@@ -969,7 +993,7 @@ describe("ChatThread", () => {
     });
 
     it("refuses a time that is too soon, and can be dropped", async () => {
-      const wrapper = await opened("soon");
+      const wrapper = await presented("soon");
       wrapper.findComponent(IonDatetime).vm.$emit("update:modelValue", local(new Date(Date.now() - 60_000)));
       await flushPromises();
       expect(button(wrapper, "schedule-go").props("disabled")).toBe(true);

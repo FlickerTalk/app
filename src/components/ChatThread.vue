@@ -257,6 +257,11 @@ function reply() {
 // unless changed; Schedule puts it in this phone's outbox until then.
 const scheduling = ref(false);
 const sendAt = ref("");
+/**
+ * Ionic's date picker lays itself out when built; inside a sheet not yet on screen (iOS, first
+ * open) its day grid stayed invisible. It is built once the sheet has presented, as Ionic advises.
+ */
+const schedulePresented = ref(false);
 
 /** Ionic's date and time picker takes the phone's local time without seconds or zone. */
 function localInput(ms: number): string {
@@ -1512,12 +1517,14 @@ watch(
       :breakpoints="[0, 1]"
       :initial-breakpoint="1"
       :aria-label="$t('chat.sendLater')"
-      @did-dismiss="scheduling = false"
+      @did-present="schedulePresented = true"
+      @did-dismiss="scheduling = false; schedulePresented = false"
     >
       <div class="ion-padding ft-schedule" data-test="schedule">
         <h2 class="ft-schedule__title">{{ $t("chat.sendLater") }}</h2>
         <!-- In the app's language (2026-10-06): Ionic writes «Time» unless the label is given. -->
         <ion-datetime
+          v-if="schedulePresented"
           class="ft-schedule__picker"
           presentation="date-time"
           :locale="i18n.global.locale.value"
