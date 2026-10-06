@@ -259,7 +259,8 @@ const scheduling = ref(false);
 const sendAt = ref("");
 /**
  * Ionic's date picker lays itself out when built; inside a sheet not yet on screen (iOS, first
- * open) its day grid stayed invisible. It is built once the sheet has presented, as Ionic advises.
+ * open) its day grid stayed invisible. It is built once the sheet has presented, as Ionic advises,
+ * in a room of its height kept from the start, so the sheet rises once at its full height.
  */
 const schedulePresented = ref(false);
 
@@ -283,7 +284,10 @@ const latest = computed(() => localInput(Date.now() + 365 * 24 * 3_600_000));
 function pickTime(value: unknown) {
   sendAt.value = typeof value === "string" ? value : "";
 }
-const canSchedule = computed(() => Boolean(sendAt.value) && new Date(sendAt.value).getTime() >= Date.now() + 60_000);
+/** Only with the picker on screen: before it, the time would be one the person has not seen. */
+const canSchedule = computed(
+  () => schedulePresented.value && Boolean(sendAt.value) && new Date(sendAt.value).getTime() >= Date.now() + 60_000,
+);
 
 async function schedule() {
   const text = draft.value.trim();
@@ -1524,19 +1528,21 @@ watch(
       <div class="ion-padding ft-schedule" data-test="schedule">
         <h2 class="ft-schedule__title">{{ $t("chat.sendLater") }}</h2>
         <!-- In the app's language (2026-10-06): Ionic writes «Time» unless the label is given. -->
-        <ion-datetime
-          v-if="schedulePresented"
-          class="ft-schedule__picker"
-          presentation="date-time"
-          :locale="i18n.global.locale.value"
-          :model-value="sendAt"
-          :min="soonest"
-          :max="latest"
-          data-test="schedule-at"
-          @update:model-value="pickTime"
-        >
-          <span slot="time-label">{{ $t("chat.scheduleTime") }}</span>
-        </ion-datetime>
+        <div class="ft-schedule__room" data-test="schedule-room">
+          <ion-datetime
+            v-if="schedulePresented"
+            class="ft-schedule__picker"
+            presentation="date-time"
+            :locale="i18n.global.locale.value"
+            :model-value="sendAt"
+            :min="soonest"
+            :max="latest"
+            data-test="schedule-at"
+            @update:model-value="pickTime"
+          >
+            <span slot="time-label">{{ $t("chat.scheduleTime") }}</span>
+          </ion-datetime>
+        </div>
         <p class="ft-schedule__note"><ion-text color="medium">{{ $t("chat.scheduleNote") }}</ion-text></p>
         <div class="ft-schedule__actions">
           <ion-button fill="outline" shape="round" data-test="schedule-cancel" @click="scheduling = false">{{ $t("common.cancel") }}</ion-button>
@@ -1557,8 +1563,14 @@ watch(
   flex-direction: column;
   align-items: center;
   gap: var(--ft-space-2);
+  /* The picker's height: Ionic's iOS calendar is 350 px for every month (iPhone 13 mini, 2026-10-06). */
+  --ft-schedule-picker-height: 350px;
   /* Above Android's navigation bar when the app runs edge to edge. */
   padding-block-end: calc(var(--ion-padding, 16px) + var(--ion-safe-area-bottom, 0px));
+}
+/* Kept before the picker is built (2026-10-06): otherwise the sheet rose short and then snapped. */
+.ft-schedule__room {
+  min-height: var(--ft-schedule-picker-height);
 }
 .ft-schedule__title {
   margin: 0;

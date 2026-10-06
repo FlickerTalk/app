@@ -960,6 +960,30 @@ describe("ChatThread", () => {
       expect(wrapper.findComponent(IonDatetime).exists()).toBe(false);
     });
 
+    // Seen on an iPhone 13 mini (2026-10-06): the sheet rose 197 px tall, without the picker, and
+    // snapped to 555 px once it was built. The picker's room is kept from the start.
+    it("keeps the picker's room in the sheet before the picker is built", async () => {
+      const wrapper = await opened("later");
+      const room = wrapper.find("[data-test='schedule'] [data-test='schedule-room']");
+      expect(room.exists()).toBe(true);
+      expect(room.classes()).toContain("ft-schedule__room");
+      expect(wrapper.findComponent(IonDatetime).exists()).toBe(false);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      expect(wrapper.find("[data-test='schedule-room'] [data-test='schedule-at']").exists()).toBe(true);
+      const styles = source.slice(source.indexOf("<style"));
+      const rule = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(([, selector]) => selector.replace(/\/\*[\s\S]*?\*\//g, "").trim() === ".ft-schedule__room");
+      expect(rule?.[2]).toMatch(/min-height:\s*var\(--ft-schedule-picker-height/);
+    });
+
+    it("lets Schedule be tapped only once the picker is there", async () => {
+      const wrapper = await opened("later");
+      expect(button(wrapper, "schedule-go").props("disabled")).toBe(true);
+      scheduleSheet(wrapper).vm.$emit("didPresent");
+      await flushPromises();
+      expect(button(wrapper, "schedule-go").props("disabled")).toBe(false);
+    });
+
     it("offers the clock only with words to send, and schedules them at the chosen time", async () => {
       const wrapper = await presented("good morning");
       const sheet = scheduleSheet(wrapper);
