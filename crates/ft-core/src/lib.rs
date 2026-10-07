@@ -506,6 +506,11 @@ impl Core {
     /// Until when (ms) the app is free: a year from the first time it opened on this phone,
     /// counted only here (§41, strategy A).
     pub async fn free_until(&self) -> Result<i64> {
+        #[cfg(debug_assertions)]
+        if free_year_over_for_debugging() {
+            // Not 0: the app reads 0 as "no date yet" and would still say the year is free.
+            return Ok(now() - 1);
+        }
         let installed = self.store.setting(INSTALLED_AT).await?.and_then(|at| at.parse::<i64>().ok()).unwrap_or_else(now);
         Ok(installed + FREE_PERIOD.as_millis() as i64)
     }
@@ -1949,6 +1954,14 @@ async fn renew_sessions(store: &Store, identity: &Identity, key: &[u8; 32]) -> R
 }
 
 /// This phone's clock, in milliseconds since the Unix epoch.
+/// Development builds only: `FT_DEBUG_FREE_YEAR_OVER=1` makes the free year count as over, so the
+/// Subscribe and Restore buttons can be reached on a real phone for a sandbox purchase. Nothing is
+/// written to the database, and a real subscription still counts. Release builds do not have it.
+#[cfg(debug_assertions)]
+fn free_year_over_for_debugging() -> bool {
+    std::env::var("FT_DEBUG_FREE_YEAR_OVER").as_deref() == Ok("1")
+}
+
 pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
