@@ -11,10 +11,11 @@ pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 60 * 60);
 /// What the price depends on. Never a date of birth, and it never leaves the phone (§30, §43).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AgeClass {
-    /// Under 21 (Ioan, 2026-09-22): always free.
+    /// A minor, as the phone's system says it (Ioan, 2026-10-07): always free.
     Minor,
     Adult,
-    /// Not asked yet, or not answered. Priced as an adult, never assumed to be a minor.
+    /// The system could not say (no age API, an older system, the user declined to share). Pays
+    /// after the free year like an adult; never assumed to be a minor.
     #[default]
     Unknown,
 }
@@ -25,6 +26,17 @@ impl AgeClass {
             AgeClass::Minor => "minor",
             AgeClass::Adult => "adult",
             AgeClass::Unknown => "unknown",
+        }
+    }
+
+    /// What the phone keeps once the system answered `heard` (2026-10-07): an unknown age takes
+    /// any answer and a minor may grow up, but an adult is never taken back and a system that
+    /// cannot answer any more forgets nothing.
+    pub fn then_heard(self, heard: AgeClass) -> AgeClass {
+        match (self, heard) {
+            (AgeClass::Unknown, heard) => heard,
+            (AgeClass::Minor, AgeClass::Adult) => AgeClass::Adult,
+            (kept, _) => kept,
         }
     }
 
@@ -53,7 +65,7 @@ pub struct Plan {
 pub enum Access {
     /// Inside the free year.
     Trial { until: i64 },
-    /// Under 21: free, for as long as that is true (§40).
+    /// A minor: free, for as long as the system says so (§40).
     Young,
     /// Paid up (§45).
     Subscribed { until: i64 },
@@ -127,9 +139,9 @@ mod tests {
         }
     }
 
-    // §40: under 21, always free. Not "free for a while": free.
+    // §40: minors, always free. Not "free for a while": free.
     #[test]
-    fn under_twenty_one_is_always_free() {
+    fn a_minor_is_always_free() {
         let access = Access::of(NOW, plan(NOW - DAY, AgeClass::Minor, 0));
         assert_eq!(access, Access::Young);
         assert!(!access.asks_to_pay());
@@ -158,7 +170,7 @@ mod tests {
         assert!(!access.may(Doing::SendFile));
     }
 
-    // Not having asked is not being a minor: it is priced as an adult until the user says so.
+    // Not knowing is not being a minor: it is priced as an adult unless the system says otherwise.
     #[test]
     fn an_age_nobody_asked_about_is_not_a_free_pass() {
         assert_eq!(Access::of(NOW, plan(NOW - DAY, AgeClass::Unknown, 0)), Access::Limited);
@@ -171,6 +183,24 @@ mod tests {
             assert_eq!(AgeClass::of(age.as_str()), age);
         }
         assert_eq!(AgeClass::of("1999-04-01"), AgeClass::Unknown);
+    }
+
+    // Ioan, 2026-10-07: minor or adult is what the phone's system says (Declared Age Range on
+    // iOS, Play Age Signals on Android), never what the user declares. A later answer may only
+    // fill in what was unknown or say that a minor has grown up; it never takes back an adult,
+    // and a system that cannot answer any more forgets nothing.
+    #[test]
+    fn the_platform_may_only_fill_in_the_age_or_say_a_minor_grew_up() {
+        use AgeClass::*;
+        assert_eq!(Unknown.then_heard(Minor), Minor);
+        assert_eq!(Unknown.then_heard(Adult), Adult);
+        assert_eq!(Unknown.then_heard(Unknown), Unknown);
+        assert_eq!(Minor.then_heard(Adult), Adult, "a minor grows up");
+        assert_eq!(Minor.then_heard(Unknown), Minor, "a system that cannot answer forgets nothing");
+        assert_eq!(Minor.then_heard(Minor), Minor);
+        assert_eq!(Adult.then_heard(Minor), Adult, "an adult never becomes a minor again");
+        assert_eq!(Adult.then_heard(Unknown), Adult);
+        assert_eq!(Adult.then_heard(Adult), Adult);
     }
 
     #[test]

@@ -33,7 +33,7 @@ async fn the_debug_switch_ends_the_free_year_without_touching_the_database() {
     let core = Core::open(Store::open_in_memory().await.expect("store"), [7; 32], Arc::new(Offline))
         .await
         .expect("opens");
-    core.set_age_class(AgeClass::Adult).await.expect("sets");
+    core.heard_age(AgeClass::Adult).await.expect("sets");
     let installed_at = core.store().setting("installed_at").await.expect("reads");
 
     std::env::remove_var(SWITCH);

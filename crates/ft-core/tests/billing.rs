@@ -67,7 +67,7 @@ async fn after_the_year_an_adult_answers_but_starts_nothing() {
     let core = core().await;
     let contact = a_contact(&core).await;
     the_year_is_over(&core).await;
-    core.set_age_class(AgeClass::Adult).await.expect("sets");
+    core.heard_age(AgeClass::Adult).await.expect("sets");
     assert_eq!(core.access().await.expect("reads"), Access::Limited);
 
     // Writing to someone we have never written to is starting.
@@ -83,11 +83,11 @@ async fn after_the_year_an_adult_answers_but_starts_nothing() {
 }
 
 #[tokio::test]
-async fn under_twenty_one_never_pays() {
+async fn a_minor_never_pays() {
     let core = core().await;
     let contact = a_contact(&core).await;
     the_year_is_over(&core).await;
-    core.set_age_class(AgeClass::Minor).await.expect("sets");
+    core.heard_age(AgeClass::Minor).await.expect("sets");
 
     assert_eq!(core.access().await.expect("reads"), Access::Young);
     core.send_text(&contact, "hello").await.expect("writes to someone new");
@@ -98,7 +98,7 @@ async fn paying_opens_it_again() {
     let core = core().await;
     let contact = a_contact(&core).await;
     the_year_is_over(&core).await;
-    core.set_age_class(AgeClass::Adult).await.expect("sets");
+    core.heard_age(AgeClass::Adult).await.expect("sets");
     assert!(core.send_text(&contact, "hello").await.is_err());
 
     let a_year_from_now = now() + (365 * 24 * 60 * 60 * 1000);
@@ -128,6 +128,37 @@ async fn a_new_word_from_the_store_tells_the_ui_the_plan_changed() {
     core.set_entitlement(0).await.expect("the Store said so");
     assert_eq!(events.try_recv(), Ok(ft_core::Event::PlanChanged));
     assert_eq!(core.access().await.expect("reads"), Access::Limited);
+}
+
+// Ioan, 2026-10-07: minor or adult is what the phone's system says, asked at the first launch and
+// again later. A later answer may only fill in an unknown age or say a minor grew up; the core
+// keeps what it ends up with and tells the UI only when that changed.
+#[tokio::test]
+async fn the_age_comes_from_the_system_and_only_moves_forward() {
+    let core = core().await;
+    the_year_is_over(&core).await;
+    let mut events = core.events();
+
+    assert_eq!(core.heard_age(AgeClass::Unknown).await.expect("keeps"), AgeClass::Unknown);
+    assert!(events.try_recv().is_err(), "nothing changed, nothing to say");
+
+    assert_eq!(core.heard_age(AgeClass::Minor).await.expect("keeps"), AgeClass::Minor);
+    assert_eq!(events.try_recv(), Ok(ft_core::Event::PlanChanged));
+    assert_eq!(core.access().await.expect("reads"), Access::Young);
+
+    // The system cannot answer any more (no account, no Play): the minor stays a minor.
+    assert_eq!(core.heard_age(AgeClass::Unknown).await.expect("keeps"), AgeClass::Minor);
+    assert!(events.try_recv().is_err());
+
+    // The minor grew up: from now on the year is paid like any adult's.
+    assert_eq!(core.heard_age(AgeClass::Adult).await.expect("keeps"), AgeClass::Adult);
+    assert_eq!(events.try_recv(), Ok(ft_core::Event::PlanChanged));
+    assert_eq!(core.access().await.expect("reads"), Access::Limited);
+
+    // An adult never becomes a minor again.
+    assert_eq!(core.heard_age(AgeClass::Minor).await.expect("keeps"), AgeClass::Adult);
+    assert_eq!(core.age_class().await.expect("reads"), AgeClass::Adult);
+    assert!(events.try_recv().is_err());
 }
 
 /// A message that came in from that contact, as the phone keeps it.

@@ -515,7 +515,7 @@ impl Core {
         Ok(installed + FREE_PERIOD.as_millis() as i64)
     }
 
-    /// Where this phone stands: the free year, the age the user declared and what the Store says
+    /// Where this phone stands: the free year, the age the system said and what the Store says
     /// about the subscription. None of it leaves the phone (§45–§47).
     pub async fn plan(&self) -> Result<Plan> {
         Ok(Plan {
@@ -533,9 +533,18 @@ impl Core {
         Ok(AgeClass::of(self.store.setting(AGE_CLASS).await?.as_deref().unwrap_or_default()))
     }
 
-    /// What the user answered about their age. Under 21 is always free (§40).
-    pub async fn set_age_class(&self, age: AgeClass) -> Result<()> {
-        self.store.set_setting(AGE_CLASS, age.as_str()).await
+    /// What the phone's system said about the user's age (Declared Age Range, Play Age Signals;
+    /// Ioan, 2026-10-07), never what the user declares. Keeps only what moves forward
+    /// (`AgeClass::then_heard`), tells the UI when the plan changed, and answers what it kept.
+    /// A minor is always free (§40).
+    pub async fn heard_age(&self, heard: AgeClass) -> Result<AgeClass> {
+        let kept = self.age_class().await?;
+        let now = kept.then_heard(heard);
+        if now != kept {
+            self.store.set_setting(AGE_CLASS, now.as_str()).await?;
+            let _ = self.events.send(Event::PlanChanged);
+        }
+        Ok(now)
     }
 
     /// What the Store said about the subscription, checked by the platform bridge (§45).
