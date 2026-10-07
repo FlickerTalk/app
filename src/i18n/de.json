@@ -359,6 +359,9 @@
     "payYearly": "Jahresabo",
     "iAmYoung": "Ich bin unter 21",
     "iAmOlder": "Ich bin 21 oder älter",
+    "restore": "Käufe wiederherstellen",
+    "restored": "Abo wiederhergestellt",
+    "nothingToRestore": "Es gibt keinen Kauf zum Wiederherstellen",
     "trouble": {
       "not_on_sale": "Das Abo ist noch nicht im Verkauf.",
       "store_unavailable": "Der Store antwortet nicht. Versuch es später noch einmal.",

@@ -445,6 +445,20 @@ impl<R: Runtime> Platform<R> {
         }
     }
 
+    /// Asks the Store to look again for what this Apple ID or Google account bought (2026-10-07):
+    /// StoreKit's `AppStore.sync()` (it may ask to sign in), Play's purchases once more. Answers
+    /// until when the phone is paid up (ms), or 0.
+    pub fn restore_subscription(&self) -> Result<i64> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Subscription>("restoreSubscription", ())?.until)
+        }
+        #[cfg(not(mobile))]
+        {
+            Err(Error::Unsupported)
+        }
+    }
+
     /// What the Store already knows about this phone's subscription, without asking to buy.
     pub fn subscription(&self) -> Result<i64> {
         #[cfg(mobile)]

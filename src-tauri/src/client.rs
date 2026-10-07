@@ -2167,6 +2167,37 @@ pub async fn core_subscribe(app: AppHandle, client: State<'_, Client>) -> Result
     client.core().await?.set_entitlement(until).await.map_err(failed)
 }
 
+/// The Store as the Plan's commands use it: StoreKit 2 in Swift, Play Billing in Kotlin. Each
+/// answers until when this phone is paid up (ms; 0 when nothing is), or a key the screen
+/// translates (`plan.trouble.*`).
+pub(crate) trait Shop {
+    fn restore(&self) -> Result<i64, String>;
+}
+
+impl<R: tauri::Runtime> Shop for tauri_plugin_ft_platform::Platform<R> {
+    fn restore(&self) -> Result<i64, String> {
+        self.restore_subscription().map_err(failed)
+    }
+}
+
+/// What the Store found when asked to restore (2026-10-07): until when to keep, and the word the
+/// screen says, `restored` while that date is ahead and `nothing` otherwise.
+fn restore_from(shop: &impl Shop, now: i64) -> Result<(i64, &'static str), String> {
+    let until = shop.restore()?;
+    Ok((until, if until > now { "restored" } else { "nothing" }))
+}
+
+/// Asks the Store for what this phone's Apple ID or Google account already bought (a new phone, a
+/// reinstall), and keeps what it answers (§45). Says `restored` or `nothing`.
+#[tauri::command]
+pub async fn core_restore_subscription(app: AppHandle, client: State<'_, Client>) -> Result<&'static str, String> {
+    let (until, word) = tauri::async_runtime::spawn_blocking(move || restore_from(app.platform(), now_ms()))
+        .await
+        .map_err(failed)??;
+    client.core().await?.set_entitlement(until).await.map_err(failed)?;
+    Ok(word)
+}
+
 /// The clock of this phone, in ms.
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -3905,6 +3936,38 @@ mod tests {
     use tauri_plugin_ft_platform::{VideoLayout, VideoRect};
 
     use super::*;
+
+    /// A Store that answers what it is told to (StoreKit 2 and Play Billing, as Rust hears them).
+    struct FakeShop {
+        restored: Result<i64, String>,
+    }
+
+    impl FakeShop {
+        fn restoring(restored: Result<i64, String>) -> Self {
+            Self { restored }
+        }
+    }
+
+    impl Shop for FakeShop {
+        fn restore(&self) -> Result<i64, String> {
+            self.restored.clone()
+        }
+    }
+
+    const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+    // 2026-10-07: restoring a purchase answers the screen with one of two words, the ones
+    // `restoreSubscription` in core.ts knows, and hands the core what the Store found.
+    #[test]
+    fn restoring_says_whether_the_store_found_a_subscription() {
+        let now = 1_800_000_000_000;
+        assert_eq!(restore_from(&FakeShop::restoring(Ok(now + 300 * DAY_MS)), now), Ok((now + 300 * DAY_MS, "restored")));
+        assert_eq!(restore_from(&FakeShop::restoring(Ok(0)), now), Ok((0, "nothing")));
+        // One that ran out is nothing to restore, though the Store still knows of it.
+        assert_eq!(restore_from(&FakeShop::restoring(Ok(now - DAY_MS)), now), Ok((now - DAY_MS, "nothing")));
+        // A Store that does not answer says so as it does when paying (`plan.trouble.*`).
+        assert_eq!(restore_from(&FakeShop::restoring(Err("store_unavailable".into())), now), Err("store_unavailable".to_owned()));
+    }
 
     // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in
     // core.ts knows, and says "sent" only for the router's 204.

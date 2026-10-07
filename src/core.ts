@@ -1024,6 +1024,17 @@ export async function subscribe(): Promise<void> {
   await invoke("core_subscribe");
 }
 
+/** What asking the Store to restore a purchase found (2026-10-07). */
+export type RestoreOutcome = "restored" | "nothing";
+
+/**
+ * Asks the Store for what this Apple ID or Google account already bought (a new phone, a
+ * reinstall). A Store that does not answer throws its key, as `subscribe` does (`payTrouble`).
+ */
+export async function restoreSubscription(): Promise<RestoreOutcome> {
+  return (await invoke<string>("core_restore_subscription")) === "restored" ? "restored" : "nothing";
+}
+
 /** What the user does with one message of theirs (§61). */
 /** A text written now to go at `sendAt` (2026-10-06, ms), from this phone; `replyTo` quotes a message. */
 export async function scheduleText(contact: string, text: string, sendAt: number, replyTo?: string): Promise<void> {

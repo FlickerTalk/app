@@ -71,6 +71,13 @@ func yearlyPrice(_ products: [StoreProduct]) -> String? {
     return price
 }
 
+/// What a failed restore says to the screen (a `plan.trouble.*` key; 2026-10-07): backing out of
+/// the Apple ID's sign-in is `cancelled`, which the screen keeps quiet about.
+func restoreTrouble(_ error: Error) -> String {
+    if case StoreKitError.userCancelled = error { return "cancelled" }
+    return "store_unavailable"
+}
+
 /// One reminder as the core wrote it (2026-09-27).
 struct ReminderEntry: Decodable, Equatable {
     let plugin: String
@@ -1394,6 +1401,19 @@ class PlatformPlugin: Plugin {
     @objc public func subscription(_ invoke: Invoke) throws {
         Task {
             invoke.resolve(["until": activeUntil(await entitlements(), now: Date())])
+        }
+    }
+
+    /// Restore purchases (2026-10-07): App Store syncs this Apple ID's transactions (it may ask
+    /// for the password), and the phone keeps what they pay for now.
+    @objc public func restoreSubscription(_ invoke: Invoke) throws {
+        Task {
+            do {
+                try await AppStore.sync()
+                invoke.resolve(["until": activeUntil(await entitlements(), now: Date())])
+            } catch {
+                invoke.reject(restoreTrouble(error))
+            }
         }
     }
 

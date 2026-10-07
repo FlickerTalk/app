@@ -359,6 +359,9 @@
     "payYearly": "年度訂閱",
     "iAmYoung": "我未滿 21 歲",
     "iAmOlder": "我已滿 21 歲",
+    "restore": "恢復購買",
+    "restored": "訂閱已恢復",
+    "nothingToRestore": "沒有可恢復的購買",
     "trouble": {
       "not_on_sale": "訂閱尚未開賣。",
       "store_unavailable": "商店沒有回應，請稍後再試。",

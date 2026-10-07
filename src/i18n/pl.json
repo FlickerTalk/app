@@ -359,6 +359,9 @@
     "payYearly": "Subskrypcja roczna",
     "iAmYoung": "Mam mniej niż 21 lat",
     "iAmOlder": "Mam 21 lat lub więcej",
+    "restore": "Przywróć zakupy",
+    "restored": "Subskrypcja przywrócona",
+    "nothingToRestore": "Nie ma zakupu do przywrócenia",
     "trouble": {
       "not_on_sale": "Subskrypcja nie jest jeszcze w sprzedaży.",
       "store_unavailable": "Sklep nie odpowiada. Spróbuj później.",

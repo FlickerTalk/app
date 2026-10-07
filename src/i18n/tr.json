@@ -359,6 +359,9 @@
     "payYearly": "Yıllık abonelik",
     "iAmYoung": "21 yaşından küçüğüm",
     "iAmOlder": "21 yaşında veya daha büyüğüm",
+    "restore": "Satın alımları geri yükle",
+    "restored": "Abonelik geri yüklendi",
+    "nothingToRestore": "Geri yüklenecek bir satın alım yok",
     "trouble": {
       "not_on_sale": "Abonelik henüz satışta değil.",
       "store_unavailable": "Mağaza yanıt vermiyor. Daha sonra tekrar dene.",

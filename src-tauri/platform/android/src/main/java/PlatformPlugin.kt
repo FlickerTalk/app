@@ -2144,6 +2144,13 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * Restore purchases (2026-10-07): Play keeps the purchases of the Google account, so restoring
+     * is asking for them once more, acknowledging any that was not, and keeping what they pay for.
+     */
+    @Command
+    fun restoreSubscription(invoke: Invoke) = subscription(invoke)
+
     @Command
     fun saveToDownloads(invoke: Invoke) {
         if (!canSaveToDownloads(Build.VERSION.SDK_INT)) {

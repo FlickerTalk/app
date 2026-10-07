@@ -359,6 +359,9 @@
     "payYearly": "연간 구독",
     "iAmYoung": "21세 미만입니다",
     "iAmOlder": "21세 이상입니다",
+    "restore": "구매 복원",
+    "restored": "구독이 복원되었습니다",
+    "nothingToRestore": "복원할 구매가 없습니다",
     "trouble": {
       "not_on_sale": "구독은 아직 판매하지 않습니다.",
       "store_unavailable": "스토어가 응답하지 않습니다. 나중에 다시 시도하세요.",

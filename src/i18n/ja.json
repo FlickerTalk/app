@@ -359,6 +359,9 @@
     "payYearly": "年間サブスクリプション",
     "iAmYoung": "21歳未満です",
     "iAmOlder": "21歳以上です",
+    "restore": "購入を復元",
+    "restored": "サブスクリプションを復元しました",
+    "nothingToRestore": "復元できる購入はありません",
     "trouble": {
       "not_on_sale": "サブスクリプションはまだ販売していません。",
       "store_unavailable": "ストアが応答しません。しばらくしてからお試しください。",

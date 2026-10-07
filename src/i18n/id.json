@@ -359,6 +359,9 @@
     "payYearly": "Langganan tahunan",
     "iAmYoung": "Usia saya di bawah 21 tahun",
     "iAmOlder": "Usia saya 21 tahun atau lebih",
+    "restore": "Pulihkan pembelian",
+    "restored": "Langganan dipulihkan",
+    "nothingToRestore": "Tidak ada pembelian untuk dipulihkan",
     "trouble": {
       "not_on_sale": "Langganan belum dijual.",
       "store_unavailable": "Toko tidak menjawab. Coba lagi nanti.",

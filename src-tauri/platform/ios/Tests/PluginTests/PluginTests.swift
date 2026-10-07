@@ -2,6 +2,7 @@ import AVFAudio
 import CallKit
 import UIKit
 import QuickLook
+import StoreKit
 import XCTest
 @testable import tauri_plugin_ft_platform
 
@@ -80,6 +81,14 @@ final class PlatformPluginTests: XCTestCase {
     func testTheYearlyPriceIsAsTheStoreFormatsIt() {
         XCTAssertEqual(yearlyPrice([StoreProduct(id: yearly, displayPrice: "0,99 €")]), "0,99 €")
         XCTAssertEqual(yearlyPrice([StoreProduct(id: "com.someone.else.pro", displayPrice: "9,99 €"), StoreProduct(id: yearly, displayPrice: "$0.99")]), "$0.99")
+    }
+
+    // 2026-10-07: restoring a purchase may ask for the Apple ID's password. Backing out of it is
+    // no trouble (the screen says nothing); anything else is a Store that did not answer.
+    func testBackingOutOfTheAppleIdSignInWhileRestoringIsNoTrouble() {
+        XCTAssertEqual(restoreTrouble(StoreKitError.userCancelled), "cancelled")
+        XCTAssertEqual(restoreTrouble(StoreKitError.networkError(URLError(.notConnectedToInternet))), "store_unavailable")
+        XCTAssertEqual(restoreTrouble(URLError(.timedOut)), "store_unavailable")
     }
 
     // When the Store cannot say (no product, another product, an empty price) there is no price,

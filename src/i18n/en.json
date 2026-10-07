@@ -359,6 +359,9 @@
     "payYearly": "Yearly subscription",
     "iAmYoung": "I am under 21",
     "iAmOlder": "I am 21 or older",
+    "restore": "Restore purchases",
+    "restored": "Subscription restored",
+    "nothingToRestore": "There is no purchase to restore",
     "trouble": {
       "not_on_sale": "The subscription is not on sale yet.",
       "store_unavailable": "The Store is not answering. Try again later.",

@@ -359,6 +359,9 @@
     "payYearly": "Abbonamento annuale",
     "iAmYoung": "Ho meno di 21 anni",
     "iAmOlder": "Ho 21 anni o più",
+    "restore": "Ripristina acquisti",
+    "restored": "Abbonamento ripristinato",
+    "nothingToRestore": "Non c'è nessun acquisto da ripristinare",
     "trouble": {
       "not_on_sale": "L'abbonamento non è ancora in vendita.",
       "store_unavailable": "Lo store non risponde. Riprova più tardi.",

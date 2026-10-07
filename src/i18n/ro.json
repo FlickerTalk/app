@@ -359,6 +359,9 @@
     "payYearly": "Abonament anual",
     "iAmYoung": "Am sub 21 de ani",
     "iAmOlder": "Am 21 de ani sau mai mult",
+    "restore": "Restabilește achizițiile",
+    "restored": "Abonament restabilit",
+    "nothingToRestore": "Nu există nicio achiziție de restabilit",
     "trouble": {
       "not_on_sale": "Abonamentul nu este încă la vânzare.",
       "store_unavailable": "Magazinul nu răspunde. Încearcă mai târziu.",
