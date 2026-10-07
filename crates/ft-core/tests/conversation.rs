@@ -1501,8 +1501,10 @@ async fn a_conversation_is_searched_on_this_phone() {
     pair(&alice, &bob).await;
     alice.send_text(&id(&bob), "Dinner on Friday?").await.expect("sends");
     until("bob has it", || async { !texts(&bob, &id(&alice)).await.is_empty() }).await;
-    bob.send_text(&id(&alice), "friday works").await.expect("sends");
+    let answer = bob.send_text(&id(&alice), "friday works").await.expect("sends");
     until("alice has it", || async { texts(&alice, &id(&bob)).await.len() == 2 }).await;
+    // Alice stores the answer before her receipt leaves: count only once Bob has it.
+    until("bob sees it delivered", || async { state_of(&bob, &id(&alice), &answer).await == MessageState::Delivered }).await;
     let before = net.sent_to(&id(&bob));
 
     let found = alice.search(&id(&bob), "friday").await.expect("searches");

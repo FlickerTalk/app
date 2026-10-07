@@ -6,9 +6,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqlitePool, SqlitePoolOptions, SqliteRow};
+use sqlx::ConnectOptions;
 use sqlx::Row;
 
 /// Outgoing: pending → sent → delivered → read. Incoming messages start as delivered.
@@ -333,18 +336,35 @@ pub struct CircleConversation {
 #[derive(Clone)]
 pub struct Store {
     pool: SqlitePool,
+    /// An in-memory database lives while one connection to it is open. The pool may close its
+    /// connection and open another (it does when a query future is dropped mid-flight), so this
+    /// one, never used, keeps the database alive in between.
+    _keep_alive: Option<Arc<Mutex<SqliteConnection>>>,
 }
+
+/// Names each in-memory database, so two stores never share one.
+static IN_MEMORY_DATABASES: AtomicUsize = AtomicUsize::new(0);
 
 impl Store {
     pub async fn open(path: &Path) -> Result<Self> {
         let options = SqliteConnectOptions::new().filename(path).create_if_missing(true).foreign_keys(true);
-        Self::with(SqlitePoolOptions::new().max_connections(4).connect_with(options).await?).await
+        Self::with(SqlitePoolOptions::new().max_connections(4).connect_with(options).await?, None).await
     }
 
-    /// For tests: one connection, so every query sees the same in-memory database.
+    /// For tests: one connection, so every query sees the same in-memory database. The database
+    /// is named and shared, so a connection the pool opens again still sees it.
     pub async fn open_in_memory() -> Result<Self> {
-        let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
-        Self::with(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?).await
+        let name = format!("file:ft-memory-{}-{}", std::process::id(), IN_MEMORY_DATABASES.fetch_add(1, Ordering::Relaxed));
+        let options = SqliteConnectOptions::new().filename(name).in_memory(true).shared_cache(true).foreign_keys(true);
+        let keep_alive = options.connect().await?;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .min_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .connect_with(options)
+            .await?;
+        Self::with(pool, Some(Arc::new(Mutex::new(keep_alive)))).await
     }
 
     /// Closes the database; the file can be moved or deleted afterwards.
@@ -352,9 +372,9 @@ impl Store {
         self.pool.close().await;
     }
 
-    async fn with(pool: SqlitePool) -> Result<Self> {
+    async fn with(pool: SqlitePool, keep_alive: Option<Arc<Mutex<SqliteConnection>>>) -> Result<Self> {
         sqlx::migrate!("./migrations").run(&pool).await.context("cannot migrate the local database")?;
-        Ok(Self { pool })
+        Ok(Self { pool, _keep_alive: keep_alive })
     }
 
     pub async fn identity(&self) -> Result<Option<StoredIdentity>> {
@@ -1905,6 +1925,24 @@ mod tests {
         Store::open_in_memory().await.expect("opens")
     }
 
+    // CI, 2026-10-07: the pool closes a connection whose query future was dropped mid-flight (its
+    // ping fails on release) and opens a new one. With a private in-memory database that new
+    // connection was empty: "no such table: calls".
+    #[tokio::test]
+    async fn an_in_memory_store_survives_its_connection_being_replaced() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.pool.acquire().await.expect("acquires").close().await.expect("closes");
+        assert!(store.contact("ft_bob").await.expect("still has its tables").is_some(), "still has its data");
+    }
+
+    #[tokio::test]
+    async fn two_in_memory_stores_are_two_databases() {
+        let (first, second) = (store().await, store().await);
+        first.add_contact(&contact("ft_bob")).await.expect("adds");
+        assert!(second.contact("ft_bob").await.expect("lists").is_none());
+    }
+
     fn contact(id: &str) -> NewContact {
         NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true, session: None, receipts: true, accepted: true }
     }
@@ -2631,7 +2669,7 @@ mod tests {
             .await
             .expect("in the mailbox");
 
-        let store = Store::with(pool).await.expect("migrates the rest");
+        let store = Store::with(pool, None).await.expect("migrates the rest");
         let entry = &store.outbox().await.expect("lists")[0];
         assert_eq!((entry.attempts, entry.in_mailbox, entry.mailed_at), (3, true, None));
     }
