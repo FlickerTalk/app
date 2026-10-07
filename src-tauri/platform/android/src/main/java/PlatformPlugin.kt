@@ -2148,6 +2148,15 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
 
     /**
+     * Minor or adult, as Play says it (2026-10-07, Play Age Signals): `{age: "minor" | "adult" |
+     * "unknown"}`. Play may show its own sharing prompt; nothing here is kept or logged.
+     */
+    @Command
+    fun ageClass(invoke: Invoke) {
+        askPlayForAge(activity) { age -> invoke.resolve(JSObject().apply { put("age", age) }) }
+    }
+
+    /**
      * What a year costs, as Play formats it for this phone (2026-09-29). Answers `{}` when the
      * Store cannot say (no product, no yearly plan): the screen then names no amount at all.
      */

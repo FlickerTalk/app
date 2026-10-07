@@ -36,6 +36,8 @@ dependencies {
     // The yearly subscription (§40-42, §47). Play Console only lets a subscription product be
     // created once it finds this library in an uploaded bundle.
     implementation("com.android.billingclient:billing:9.1.0")
+    // Minor or adult, as Play says it (2026-10-07, Play Age Signals).
+    implementation("com.google.android.play:age-signals:0.0.4")
     implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")

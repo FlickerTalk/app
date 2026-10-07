@@ -408,6 +408,27 @@ impl SubscriptionPrice {
     }
 }
 
+/// What the phone's system said about the user's age (2026-10-07): `ageClass` in Swift (Declared
+/// Age Range) and Kotlin (Play Age Signals) answers `minor`, `adult` or nothing.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct AgeAnswer {
+    #[serde(default)]
+    age: Option<String>,
+}
+
+#[cfg_attr(not(mobile), allow(dead_code))]
+impl AgeAnswer {
+    /// `minor`, `adult` or `unknown`: anything else is not an answer.
+    fn word(self) -> &'static str {
+        match self.age.as_deref() {
+            Some("minor") => "minor",
+            Some("adult") => "adult",
+            _ => "unknown",
+        }
+    }
+}
+
 /// Arguments of the native `setSystemBars` command (Android): whether the app is dark right now.
 #[derive(Serialize)]
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -516,6 +537,21 @@ impl<R: Runtime> Platform<R> {
         #[cfg(not(mobile))]
         {
             Ok(None)
+        }
+    }
+
+    /// Asks the phone's system whether the user is a minor or an adult (2026-10-07): Declared Age
+    /// Range on iOS 26+, Play Age Signals on Android. It may show the system's own sheet. Answers
+    /// `minor`, `adult` or `unknown` (no API, an older system, the user declined); never a date.
+    /// A desktop has no such API: `unknown`.
+    pub fn age_class(&self) -> Result<String> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<AgeAnswer>("ageClass", ())?.word().to_owned())
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok("unknown".to_owned())
         }
     }
 
@@ -1004,6 +1040,26 @@ mod tests {
         assert_eq!(read(r#"{"until":0}"#), Some(0));
         assert_eq!(read(r#"{"price":"0,99 €"}"#), None);
         assert_eq!(read("not json"), None);
+    }
+
+    // 2026-10-07: minor or adult is what the phone's system says (`ageClass` in Swift and
+    // Kotlin); anything else, or nothing, is "unknown", never a guess.
+    #[test]
+    fn the_age_comes_back_as_one_of_three_words() {
+        let read = |json: serde_json::Value| serde_json::from_value::<AgeAnswer>(json).unwrap().word();
+        assert_eq!(read(serde_json::json!({ "age": "minor" })), "minor");
+        assert_eq!(read(serde_json::json!({ "age": "adult" })), "adult");
+        assert_eq!(read(serde_json::json!({ "age": "unknown" })), "unknown");
+        assert_eq!(read(serde_json::json!({})), "unknown");
+        assert_eq!(read(serde_json::json!({ "age": "2008-04-01" })), "unknown");
+    }
+
+    // A desktop has no age API: unknown, and no error either.
+    #[cfg(not(mobile))]
+    #[test]
+    fn a_desktop_does_not_know_the_age() {
+        let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
+        assert_eq!(platform.age_class().ok().as_deref(), Some("unknown"));
     }
 
     // A desktop has no store: no price, and no error either.
