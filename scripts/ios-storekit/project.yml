@@ -1,0 +1,30 @@
+# A UI-test runner that drives FlickerTalk against a local StoreKit configuration in the iOS
+# simulator, with no App Store Connect, sandbox account or network involved. See run.sh.
+name: FTStoreKit
+options:
+  bundleIdPrefix: dev.local.ftstorekit
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  Driver:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Driver
+      - path: ../../src-tauri/platform/ios/StoreKit/FlickerTalk.storekit
+        buildPhase: resources
+    dependencies:
+      - sdk: StoreKit.framework
+      - framework: $(PLATFORM_DIR)/Developer/SDKs/iPhoneSimulator.sdk/Developer/Library/Frameworks/StoreKitTest.framework
+        embed: false
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      CODE_SIGNING_ALLOWED: NO
+      FRAMEWORK_SEARCH_PATHS: $(inherited) $(PLATFORM_DIR)/Developer/SDKs/iPhoneSimulator.sdk/Developer/Library/Frameworks
+schemes:
+  Driver:
+    build:
+      targets:
+        Driver: all
+    test:
+      targets: [Driver]

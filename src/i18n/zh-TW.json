@@ -352,6 +352,7 @@
     "trial": "免費 · 剩餘 {days} 天",
     "young": "免費 · 未滿 21 歲",
     "subscribed": "已付費 · 至 {until}",
+    "renewing": "已付費 · 自動續訂",
     "limited": "免費一年已結束",
     "hint": "FlickerTalk 每年 {price}，未滿 21 歲免費。自安裝起的第一年所有人都免費。未付費仍可接收和回覆；開始新對話、撥打電話和傳送檔案需要訂閱。",
     "hintYearly": "FlickerTalk 採用年度訂閱，未滿 21 歲免費。自安裝起的第一年所有人都免費。未付費仍可接收和回覆；開始新對話、撥打電話和傳送檔案需要訂閱。",
@@ -359,6 +360,9 @@
     "payYearly": "年度訂閱",
     "iAmYoung": "我未滿 21 歲",
     "iAmOlder": "我已滿 21 歲",
+    "restore": "恢復購買",
+    "restored": "訂閱已恢復",
+    "nothingToRestore": "沒有可恢復的購買",
     "trouble": {
       "not_on_sale": "訂閱尚未開賣。",
       "store_unavailable": "商店沒有回應，請稍後再試。",

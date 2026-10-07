@@ -172,6 +172,9 @@ pub enum Event {
     /// closed hidden session; §108, §109). Not for the UI: it never shows. The phone's own call
     /// screen, which a push may have set ringing before the core knew who called, stops at once.
     CallRefused,
+    /// What the Store says about the subscription changed (2026-10-07): a purchase, a restore, a
+    /// renewal, an expiry or a refund, also with the app open. The UI reads the plan again.
+    PlanChanged,
 }
 
 pub(crate) enum Route {
@@ -532,7 +535,13 @@ impl Core {
 
     /// What the Store said about the subscription, checked by the platform bridge (§45).
     pub async fn set_entitlement(&self, until: i64) -> Result<()> {
-        self.store.set_setting(PAID_UNTIL, &until.max(0).to_string()).await
+        let until = until.max(0).to_string();
+        if self.store.setting(PAID_UNTIL).await?.as_deref() == Some(until.as_str()) {
+            return Ok(());
+        }
+        self.store.set_setting(PAID_UNTIL, &until).await?;
+        let _ = self.events.send(Event::PlanChanged);
+        Ok(())
     }
 
     /// Refuses what the plan does not allow. Receiving is never refused: a message that arrives is

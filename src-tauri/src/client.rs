@@ -29,6 +29,9 @@ pub const CHANGED_EVENT: &str = "ft://changed";
 pub const TYPING_EVENT: &str = "ft://typing";
 /// Sent to the UI when the plugins installed here changed (an update, 2026-10-03): it reads them again.
 pub const PLUGINS_EVENT: &str = "ft://plugins";
+/// Sent to the UI when what the Store says about the subscription changed (2026-10-07), also with
+/// the app open: the Plan screen and Settings read the plan again.
+pub const PLAN_EVENT: &str = "ft://plan";
 
 pub fn state_name(state: MessageState) -> &'static str {
     match state {
@@ -1031,6 +1034,18 @@ impl Client {
         if let Ok(until) = app.platform().subscription() {
             let _ = online.core.set_entitlement(until).await;
         }
+        // And while the app runs (2026-10-07): a renewal, an expiry, an approved Ask to Buy, a
+        // refund. One at a time, in the order the Store said them; the core tells the UI.
+        let (said, mut store_said) = tokio::sync::mpsc::unbounded_channel::<i64>();
+        app.platform().listen_entitlements(move |until| {
+            let _ = said.send(until);
+        });
+        let core_for_store = online.core.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(until) = store_said.recv().await {
+                let _ = core_for_store.set_entitlement(until).await;
+            }
+        });
         refresh_served_plugins(app, &online.core, dir).await;
         // And what the user downloaded, from the catalogue, in the background (2026-10-03).
         look_for_updates(app, online.core.clone(), dir);
@@ -1244,6 +1259,9 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                         Event::RemindersChanged => sync_reminders(&app, &core_for_events).await,
                         Event::VaultChanged => {
                             let _ = app.emit(VAULT_EVENT, ());
+                        }
+                        Event::PlanChanged => {
+                            let _ = app.emit(PLAN_EVENT, ());
                         }
                         Event::VaultProgress { done, total } => {
                             let _ = app.emit(VAULT_PROGRESS_EVENT, VaultProgressView { done, total });
@@ -2096,19 +2114,30 @@ pub struct PlanView {
     /// When the free year ends, or when the subscription runs out (ms); 0 when neither applies.
     until: i64,
     age: String,
+    /// A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the
+    /// last check of Play holds, not an expiry (Play never tells the phone one), so the screen says
+    /// "renews automatically" instead of a date. On iOS `until` is StoreKit's own expiry.
+    #[serde(default)]
+    renews: bool,
+}
+
+/// The plan as the screen reads it; `play`: the Store is Google Play (Android).
+fn plan_view(access: ft_billing::Access, age: ft_billing::AgeClass, play: bool) -> PlanView {
+    let renews = play && matches!(access, ft_billing::Access::Subscribed { .. });
+    let (state, until) = match access {
+        ft_billing::Access::Trial { until } => ("trial", until),
+        ft_billing::Access::Young => ("young", 0),
+        ft_billing::Access::Subscribed { until } => ("subscribed", until),
+        ft_billing::Access::Limited => ("limited", 0),
+    };
+    PlanView { state: state.to_owned(), until, age: age.as_str().to_owned(), renews }
 }
 
 #[tauri::command]
 pub async fn core_plan(client: State<'_, Client>) -> Result<PlanView, String> {
     let core = client.core().await?;
     let plan = core.plan().await.map_err(failed)?;
-    let (state, until) = match ft_billing::Access::of(now_ms(), plan) {
-        ft_billing::Access::Trial { until } => ("trial", until),
-        ft_billing::Access::Young => ("young", 0),
-        ft_billing::Access::Subscribed { until } => ("subscribed", until),
-        ft_billing::Access::Limited => ("limited", 0),
-    };
-    Ok(PlanView { state: state.to_owned(), until, age: plan.age.as_str().to_owned() })
+    Ok(plan_view(ft_billing::Access::of(now_ms(), plan), plan.age, cfg!(target_os = "android")))
 }
 
 /// What a year costs, as the Store formats it for this phone (2026-09-29); `price` is `null` when
@@ -2160,11 +2189,58 @@ pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), 
 /// a card, an address or a name: that is the Store's business.
 #[tauri::command]
 pub async fn core_subscribe(app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
-    let until = tauri::async_runtime::spawn_blocking(move || app.platform().subscribe())
+    let until = tauri::async_runtime::spawn_blocking(move || buy_from(app.platform(), now_ms()))
         .await
-        .map_err(failed)?
-        .map_err(failed)?;
+        .map_err(failed)??;
     client.core().await?.set_entitlement(until).await.map_err(failed)
+}
+
+/// The Store as the Plan's commands use it: StoreKit 2 in Swift, Play Billing in Kotlin. Each
+/// answers until when this phone is paid up (ms; 0 when nothing is), or a key the screen
+/// translates (`plan.trouble.*`).
+pub(crate) trait Shop {
+    fn subscribe(&self) -> Result<i64, String>;
+    fn restore(&self) -> Result<i64, String>;
+}
+
+impl<R: tauri::Runtime> Shop for tauri_plugin_ft_platform::Platform<R> {
+    fn subscribe(&self) -> Result<i64, String> {
+        tauri_plugin_ft_platform::Platform::subscribe(self).map_err(failed)
+    }
+
+    fn restore(&self) -> Result<i64, String> {
+        self.restore_subscription().map_err(failed)
+    }
+}
+
+/// What a purchase pays for (2026-10-07): until when to keep, or `payment_failed` when the Store
+/// answered with a transaction that pays for nothing (one it refunded or revoked, buying again
+/// after a refund). The screen is never left silent and the plan stays as it was.
+fn buy_from(shop: &impl Shop, now: i64) -> Result<i64, String> {
+    let until = shop.subscribe()?;
+    if until > now {
+        Ok(until)
+    } else {
+        Err("payment_failed".to_owned())
+    }
+}
+
+/// What the Store found when asked to restore (2026-10-07): until when to keep, and the word the
+/// screen says, `restored` while that date is ahead and `nothing` otherwise.
+fn restore_from(shop: &impl Shop, now: i64) -> Result<(i64, &'static str), String> {
+    let until = shop.restore()?;
+    Ok((until, if until > now { "restored" } else { "nothing" }))
+}
+
+/// Asks the Store for what this phone's Apple ID or Google account already bought (a new phone, a
+/// reinstall), and keeps what it answers (§45). Says `restored` or `nothing`.
+#[tauri::command]
+pub async fn core_restore_subscription(app: AppHandle, client: State<'_, Client>) -> Result<&'static str, String> {
+    let (until, word) = tauri::async_runtime::spawn_blocking(move || restore_from(app.platform(), now_ms()))
+        .await
+        .map_err(failed)??;
+    client.core().await?.set_entitlement(until).await.map_err(failed)?;
+    Ok(word)
 }
 
 /// The clock of this phone, in ms.
@@ -3905,6 +3981,80 @@ mod tests {
     use tauri_plugin_ft_platform::{VideoLayout, VideoRect};
 
     use super::*;
+
+    /// A Store that answers what it is told to (StoreKit 2 and Play Billing, as Rust hears them).
+    struct FakeShop {
+        bought: Result<i64, String>,
+        restored: Result<i64, String>,
+    }
+
+    impl FakeShop {
+        fn restoring(restored: Result<i64, String>) -> Self {
+            Self { bought: Err("not asked".into()), restored }
+        }
+
+        fn selling(bought: Result<i64, String>) -> Self {
+            Self { bought, restored: Err("not asked".into()) }
+        }
+    }
+
+    impl Shop for FakeShop {
+        fn subscribe(&self) -> Result<i64, String> {
+            self.bought.clone()
+        }
+
+        fn restore(&self) -> Result<i64, String> {
+            self.restored.clone()
+        }
+    }
+
+    const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+    // 2026-10-07: restoring a purchase answers the screen with one of two words, the ones
+    // `restoreSubscription` in core.ts knows, and hands the core what the Store found.
+    #[test]
+    fn restoring_says_whether_the_store_found_a_subscription() {
+        let now = 1_800_000_000_000;
+        assert_eq!(restore_from(&FakeShop::restoring(Ok(now + 300 * DAY_MS)), now), Ok((now + 300 * DAY_MS, "restored")));
+        assert_eq!(restore_from(&FakeShop::restoring(Ok(0)), now), Ok((0, "nothing")));
+        // One that ran out is nothing to restore, though the Store still knows of it.
+        assert_eq!(restore_from(&FakeShop::restoring(Ok(now - DAY_MS)), now), Ok((now - DAY_MS, "nothing")));
+        // A Store that does not answer says so as it does when paying (`plan.trouble.*`).
+        assert_eq!(restore_from(&FakeShop::restoring(Err("store_unavailable".into())), now), Err("store_unavailable".to_owned()));
+    }
+
+    // 2026-10-07: buying again after a refund. The Store may answer the purchase with the
+    // transaction it already refunded or revoked, which pays for nothing (Swift and Kotlin then say
+    // until 0, or a date gone by). The screen must not stay silent: it says the payment failed, and
+    // the plan stays as it was.
+    #[test]
+    fn a_purchase_answered_with_a_refunded_transaction_is_a_failed_payment() {
+        let now = 1_800_000_000_000;
+        assert_eq!(buy_from(&FakeShop::selling(Ok(0)), now), Err("payment_failed".to_owned()));
+        assert_eq!(buy_from(&FakeShop::selling(Ok(now - DAY_MS)), now), Err("payment_failed".to_owned()));
+        // A purchase that pays: until when, to keep.
+        assert_eq!(buy_from(&FakeShop::selling(Ok(now + 365 * DAY_MS)), now), Ok(now + 365 * DAY_MS));
+        // What the Store said goes to the screen as it is (backing out, Ask to Buy, no Store).
+        assert_eq!(buy_from(&FakeShop::selling(Err("cancelled".into())), now), Err("cancelled".to_owned()));
+        assert_eq!(buy_from(&FakeShop::selling(Err("pending_approval".into())), now), Err("pending_approval".to_owned()));
+    }
+
+    // 2026-10-07: on Android the date kept is only how long the last check of Play holds (Play
+    // never says the expiry, and its purchase time stays the original on every renewal), so the
+    // screen says "renews automatically" instead of a date that means nothing. On iOS it is
+    // StoreKit's own expiry, and it is shown.
+    #[test]
+    fn a_play_subscription_is_shown_as_renewing_and_an_apple_one_with_its_expiry() {
+        let until = 1_830_000_000_000;
+        let play = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, true);
+        assert_eq!(serde_json::to_value(&play).unwrap(), serde_json::json!({ "state": "subscribed", "until": until, "age": "adult", "renews": true }));
+        let apple = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, false);
+        assert_eq!(serde_json::to_value(&apple).unwrap()["renews"], serde_json::json!(false));
+        // Nothing else renews: the free year, under 21, the year over.
+        for access in [ft_billing::Access::Trial { until }, ft_billing::Access::Young, ft_billing::Access::Limited] {
+            assert_eq!(serde_json::to_value(plan_view(access, ft_billing::AgeClass::Unknown, true)).unwrap()["renews"], serde_json::json!(false));
+        }
+    }
 
     // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in
     // core.ts knows, and says "sent" only for the router's 204.

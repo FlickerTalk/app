@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { IonBackButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from "@ionic/vue";
-import { daysLeft, payTrouble, plan as planOf, setAge, subscribe, subscriptionPrice, type PlanView } from "../core";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar, toastController } from "@ionic/vue";
+import { daysLeft, followPlan, payTrouble, plan as planOf, restoreSubscription, setAge, subscribe, subscriptionPrice, type PlanView } from "../core";
 import { t } from "../i18n";
 
 // Plan §40–§47: the first year is free from the install, then a yearly subscription at the
@@ -12,10 +12,24 @@ const trouble = ref("");
 /** What a year costs, as the Store formats it; null while unknown or when it cannot say. */
 const price = ref<string | null>(null);
 
+// The Store may change its mind with the screen open (2026-10-07): an approved Ask to Buy, the
+// year running out, a renewal. The core says so and the screen reads the plan again.
+let stopFollowing: (() => void) | null = null;
+let gone = false;
+
 onMounted(() => {
   void refresh();
   // The Store may take a while or not answer at all: the screen does not wait for it.
   void subscriptionPrice().then((said) => (price.value = said));
+  // What the Store said before (waiting for approval, say) is no longer true then.
+  void followPlan(() => {
+    trouble.value = "";
+    void refresh();
+  }).then((stop) => (gone ? stop() : (stopFollowing = stop)));
+});
+onBeforeUnmount(() => {
+  gone = true;
+  stopFollowing?.();
 });
 
 /** With the Store's price, or with no amount at all: the app never writes one of its own. */
@@ -37,7 +51,7 @@ const where = computed(() => {
     case "young":
       return t("plan.young");
     case "subscribed":
-      return t("plan.subscribed", { until: until.value });
+      return plan.value.renews ? t("plan.renewing") : t("plan.subscribed", { until: until.value });
     case "limited":
       return t("plan.limited");
     default:
@@ -57,6 +71,24 @@ async function pay() {
   trouble.value = "";
   try {
     await subscribe();
+  } catch (error) {
+    const say = payTrouble(error);
+    trouble.value = say ? t(say) : "";
+  }
+  await refresh();
+}
+
+/** A year bought on another phone, or before a reinstall, comes back from the Store (2026-10-07). */
+async function restore() {
+  trouble.value = "";
+  try {
+    const found = await restoreSubscription();
+    const notice = await toastController.create({
+      message: t(found === "restored" ? "plan.restored" : "plan.nothingToRestore"),
+      duration: 2500,
+      position: "bottom",
+    });
+    await notice.present();
   } catch (error) {
     const say = payTrouble(error);
     trouble.value = say ? t(say) : "";
@@ -86,6 +118,10 @@ async function pay() {
           {{ $t("plan.iAmYoung") }}
         </button>
       </div>
+
+      <ion-button v-if="asksToPay" fill="clear" class="ft-plan__restore" data-test="restore" @click="restore">
+        {{ $t("plan.restore") }}
+      </ion-button>
 
       <!-- Said once, kept as a word, and undone here if it was a mistake (§43). -->
       <button
@@ -145,6 +181,9 @@ async function pay() {
 }
 .ft-plan__acts .ft-plan__young {
   margin: 0;
+}
+.ft-plan__restore {
+  margin: var(--ft-space-3) var(--ft-space-2) 0;
 }
 .ft-plan__trouble {
   margin: var(--ft-space-4);

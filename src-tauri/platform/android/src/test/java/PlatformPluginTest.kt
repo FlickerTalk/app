@@ -370,6 +370,9 @@ class PlatformPluginTest {
         assertEquals(setOf(2), slotsKept("2,0,8,x,,-1"))
     }
 
+    // The phone's clock at a check of the Store.
+    private val NOW = 1_850_000_000_000L
+
     // What the Store handed back about one purchase, as the plugin reads it.
     private fun purchase(
         product: String = YEARLY,
@@ -378,40 +381,50 @@ class PlatformPluginTest {
         acknowledged: Boolean = true,
     ) = StorePurchase(product, state, boughtAt, acknowledged)
 
-    // The Store says when the money was taken, never until when. Asking Play's server for the
-    // expiry would mean our backend learning who pays (§45-46), so the phone counts a year from
-    // the purchase; every renewal moves that date on.
+    // The Store never says until when, and asking Play's server would mean our backend learning
+    // who pays (§45-46). 2026-10-07, found on a real Samsung with a test subscription that renews
+    // every 30 minutes: the purchase time stays the ORIGINAL one on every renewal, so a year from
+    // it left a renewing subscriber limited after the first year. While Play lists the
+    // subscription as paid, the phone keeps a year from the check instead, refreshed at every
+    // check (start-up, back on the screen): an offline cache. One Play no longer lists (cancelled
+    // and run out) drops to 0 at the next check.
     @Test
-    fun aPurchaseIsGoodForAYear() {
-        val bought = 1790208000000L
-        assertEquals(bought + 365L * 24 * 60 * 60 * 1000, untilFromPurchase(bought))
+    fun aListedSubscriptionIsKeptForAYearFromTheCheckHoweverOldItsPurchase() {
+        val now = 1_850_000_000_000L
+        val year = 365L * 24 * 60 * 60 * 1000
+        val boughtTwoYearsAgo = now - 2 * year
+        assertEquals(now + year, activeUntil(listOf(purchase(boughtAt = boughtTwoYearsAgo)), now))
+        // The next check moves the cache on.
+        assertEquals(now + 60_000 + year, activeUntil(listOf(purchase(boughtAt = boughtTwoYearsAgo)), now + 60_000))
     }
 
     // Play takes payments that land days later (cash, transfer). Pending is not paid for, and the
     // app never pretends it is (§84).
     @Test
     fun aPendingPurchaseBuysNothingYet() {
-        assertEquals(0L, activeUntil(listOf(purchase(state = Purchase.PurchaseState.PENDING))))
+        assertEquals(0L, activeUntil(listOf(purchase(state = Purchase.PurchaseState.PENDING)), NOW))
     }
 
     @Test
     fun nothingBoughtIsNoSubscription() {
-        assertEquals(0L, activeUntil(emptyList()))
+        assertEquals(0L, activeUntil(emptyList(), NOW))
     }
 
     // Whatever else the Play account carries, only our own product pays for FlickerTalk.
     @Test
     fun onlyTheYearlyProductCounts() {
-        assertEquals(0L, activeUntil(listOf(purchase(product = "com.someone.else.pro"))))
+        assertEquals(0L, activeUntil(listOf(purchase(product = "com.someone.else.pro")), NOW))
     }
 
-    // A renewal comes back as a later purchase time: the phone follows the furthest one.
+    // 2026-10-07: a purchase Play answers with, that pays for nothing yet, is never a silent
+    // success. Waiting for a payment (cash, a parent) says so; anything else is up to the core,
+    // which calls it a failed payment.
     @Test
-    fun theFurthestPurchaseIsTheOneThatCounts() {
-        val first = 1790208000000L
-        val renewed = first + 365L * 24 * 60 * 60 * 1000
-        val until = activeUntil(listOf(purchase(boughtAt = renewed), purchase(boughtAt = first)))
-        assertEquals(untilFromPurchase(renewed), until)
+    fun aPurchaseThatOnlyWaitsSaysItIsPending() {
+        assertEquals("pending_approval", purchaseTrouble(listOf(purchase(state = Purchase.PurchaseState.PENDING))))
+        assertNull(purchaseTrouble(listOf(purchase())))
+        assertNull(purchaseTrouble(emptyList()))
+        assertNull(purchaseTrouble(listOf(purchase(state = Purchase.PurchaseState.PENDING), purchase())))
     }
 
     // Google gives the money back if a purchase is not acknowledged within three days, so it is
@@ -424,6 +437,28 @@ class PlatformPluginTest {
             false,
             needsAcknowledgement(purchase(state = Purchase.PurchaseState.PENDING, acknowledged = false)),
         )
+    }
+
+    // 2026-10-07: what Play says with the app open (back on the screen, a purchase that was pending)
+    // waits for the core if it is not listening yet. Only the latest counts: an older word from the
+    // Store is no longer true.
+    @Test
+    fun aLiveEntitlementWaitsForTheCoreAndOnlyTheLatestCounts() {
+        val queue = EntitlementQueue()
+        queue.offer(1_800_000_000_000L)
+        queue.offer(0L)
+        val heard = mutableListOf<Long>()
+        queue.register { heard.add(it) }
+        assertEquals(listOf(0L), heard)
+        queue.offer(1_830_000_000_000L)
+        assertEquals(listOf(0L, 1_830_000_000_000L), heard)
+        // A new core (the phone was erased) hears from now on, and nothing is told twice.
+        val later = mutableListOf<Long>()
+        queue.register { later.add(it) }
+        assertEquals(emptyList<Long>(), later)
+        queue.offer(5L)
+        assertEquals(listOf(0L, 1_830_000_000_000L), heard)
+        assertEquals(listOf(5L), later)
     }
 
     // One offer of the subscription as Play describes it: its base plan, its own id (none for the

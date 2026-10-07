@@ -352,6 +352,7 @@
     "trial": "Gratuit · jours restants : {days}",
     "young": "Gratuit · moins de 21 ans",
     "subscribed": "Payé · jusqu’au {until}",
+    "renewing": "Payant · renouvellement automatique",
     "limited": "L’année gratuite est terminée",
     "hint": "FlickerTalk coûte {price} par an, et c’est gratuit si vous avez moins de 21 ans. La première année après l’installation est gratuite pour tous. Sans payer, vous pouvez toujours recevoir et répondre ; démarrer une nouvelle conversation, appeler et envoyer des fichiers demandent l’abonnement.",
     "hintYearly": "FlickerTalk est un abonnement annuel, et c’est gratuit si vous avez moins de 21 ans. La première année après l’installation est gratuite pour tous. Sans payer, vous pouvez toujours recevoir et répondre ; démarrer une nouvelle conversation, appeler et envoyer des fichiers demandent l’abonnement.",
@@ -359,6 +360,9 @@
     "payYearly": "Abonnement annuel",
     "iAmYoung": "J’ai moins de 21 ans",
     "iAmOlder": "J’ai 21 ans ou plus",
+    "restore": "Restaurer les achats",
+    "restored": "Abonnement restauré",
+    "nothingToRestore": "Aucun achat à restaurer",
     "trouble": {
       "not_on_sale": "L'abonnement n'est pas encore en vente.",
       "store_unavailable": "La boutique ne répond pas. Réessaie plus tard.",

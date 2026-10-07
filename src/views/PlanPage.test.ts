@@ -7,6 +7,22 @@ import en from "../i18n/en.json";
 
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
+// What the core tells the screen (`ft://…`); a test says it with `events.handlers.get(name)?.()`.
+const events = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), unlisten: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, handler: () => void) => {
+    events.handlers.set(name, handler);
+    return events.unlisten;
+  },
+}));
+
+// Ionic's toasts are overlays of the real app; here, what the screen asks of them.
+const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+vi.mock("@ionic/vue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@ionic/vue")>()),
+  toastController: { create: toast.create },
+}));
+
 const DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -32,7 +48,11 @@ function texts(node: unknown): string[] {
 }
 
 describe("PlanPage", () => {
-  beforeEach(seed);
+  beforeEach(() => {
+    seed();
+    toast.create.mockReset().mockImplementation(async () => ({ present: toast.present }));
+    toast.present.mockReset();
+  });
 
   it("says how long the free year has left", async () => {
     planning({ state: "trial", until: Date.now() + 40 * DAY, age: "unknown" });
@@ -134,6 +154,18 @@ describe("PlanPage", () => {
     expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
   });
 
+  // 2026-10-07: Google Play never tells the phone until when, so on Android the date kept is only
+  // how long the last check of Play holds. The screen says it renews, with no date that means
+  // nothing; StoreKit's real expiry (iOS) is still shown.
+  it("says a Play subscription renews automatically instead of showing a date", async () => {
+    const until = Date.parse("2027-10-07T10:00:00Z");
+    planning({ state: "subscribed", until, age: "adult", renews: true });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.renewing);
+    expect(wrapper.text()).not.toContain(new Date(until).toLocaleDateString());
+  });
+
   // The Store answers with a key, never with a sentence: what the user reads is translated like
   // everything else, and a key we never wrote never reaches the screen.
   it("says in the user's own words when the Store will not sell", async () => {
@@ -178,5 +210,116 @@ describe("PlanPage", () => {
     await wrapper.find("[data-test='pay']").trigger("click");
     await flushPromises();
     expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+  });
+
+  // 2026-10-07: a subscriber on a new phone, or after reinstalling, gets the year they paid for
+  // back from the Store without paying again (App Review asks for it, guideline 3.1.1).
+  describe("restoring a purchase", () => {
+    /** The plan, and what the Store says when asked to restore. */
+    function restoring(answer: () => unknown, state = "limited") {
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        if (command === "core_restore_subscription") return answer();
+        if (command === "core_subscription_price") return { price: "0,99 €" };
+        return command === "core_plan" ? { state, until: 0, age: "adult" } : undefined;
+      });
+    }
+
+    it("is offered once the free year is over", async () => {
+      restoring(() => "nothing");
+      const wrapper = mount(PlanPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='restore']").exists()).toBe(true);
+    });
+
+    it("is not offered to a subscriber nor to someone under 21", async () => {
+      for (const state of ["subscribed", "young"]) {
+        restoring(() => "nothing", state);
+        const wrapper = mount(PlanPage, { shallow: true });
+        await flushPromises();
+        expect(wrapper.find("[data-test='restore']").exists(), state).toBe(false);
+      }
+    });
+
+    it("asks the Store and says the subscription is back", async () => {
+      restoring(() => "restored");
+      const wrapper = mount(PlanPage, { shallow: true });
+      await flushPromises();
+      calls.length = 0;
+      await wrapper.find("[data-test='restore']").trigger("click");
+      await flushPromises();
+      expect(calls.map(([command]) => command)).toContain("core_restore_subscription");
+      expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.restored }));
+      expect(toast.present).toHaveBeenCalled();
+      // And the screen reads the plan again: it says until when, now.
+      expect(calls.map(([command]) => command)).toContain("core_plan");
+    });
+
+    it("says when the Store has nothing to restore", async () => {
+      restoring(() => "nothing");
+      const wrapper = mount(PlanPage, { shallow: true });
+      await flushPromises();
+      await wrapper.find("[data-test='restore']").trigger("click");
+      await flushPromises();
+      expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.nothingToRestore }));
+      expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+    });
+
+    it("says a Store that does not answer as it does when paying", async () => {
+      restoring(() => {
+        throw "store_unavailable";
+      });
+      const wrapper = mount(PlanPage, { shallow: true });
+      await flushPromises();
+      await wrapper.find("[data-test='restore']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.store_unavailable);
+      expect(toast.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // Seen in the StoreKit simulator run (2026-10-07): after a parent approved, the screen said
+  // "Paid" and still "waiting to be approved". What the Store said before is no longer true.
+  it("forgets what the Store said before once the plan changes", async () => {
+    let state = "limited";
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscribe") throw "pending_approval";
+      return command === "core_plan" ? { state, until: state === "subscribed" ? Date.now() + 300 * DAY : 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[data-test='pay']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.pending_approval);
+
+    state = "subscribed";
+    events.handlers.get("ft://plan")?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+  });
+
+  // 2026-10-07: the Store changes its mind with the screen open (a parent approves an Ask to Buy,
+  // the year runs out, a renewal): the core says so and the screen reads the plan again.
+  it("follows the plan when the Store changes its mind with the screen open", async () => {
+    let state = "limited";
+    const until = Date.now() + 300 * DAY;
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscription_price") return { price: "0,99 €" };
+      return command === "core_plan" ? { state, until: state === "subscribed" ? until : 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.limited);
+
+    state = "subscribed";
+    events.handlers.get("ft://plan")?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='where']").text()).toContain(new Date(until).toLocaleDateString());
+    expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+
+    wrapper.unmount();
+    expect(events.unlisten).toHaveBeenCalled();
   });
 });

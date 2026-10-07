@@ -71,6 +71,106 @@ func yearlyPrice(_ products: [StoreProduct]) -> String? {
     return price
 }
 
+/// What a failed restore says to the screen (a `plan.trouble.*` key; 2026-10-07): backing out of
+/// the Apple ID's sign-in is `cancelled`, which the screen keeps quiet about.
+func restoreTrouble(_ error: Error) -> String {
+    if case StoreKitError.userCancelled = error { return "cancelled" }
+    return "store_unavailable"
+}
+
+/// What the Store says about the subscription while the app runs (2026-10-07), on its way to the
+/// core: until when the phone is paid up (ms).
+/// Before the core listens, only the latest word waits: an older one is no longer true.
+final class EntitlementQueue {
+    private var sink: ((Int64) -> Void)?
+    private var latest: Int64?
+
+    /// The core listens: what waited goes out now; a previous listener hears no more.
+    func register(_ sink: @escaping (Int64) -> Void) {
+        self.sink = sink
+        if let latest {
+            self.latest = nil
+            sink(latest)
+        }
+    }
+
+    func offer(_ until: Int64) {
+        if let sink {
+            sink(until)
+        } else {
+            latest = until
+        }
+    }
+}
+
+/// What the Store already knows about this phone, without asking anyone to buy anything.
+func currentEntitlements() async -> [StoreEntitlement] {
+    var found: [StoreEntitlement] = []
+    for await result in Transaction.currentEntitlements {
+        guard case .verified(let transaction) = result else { continue }
+        found.append(
+            StoreEntitlement(
+                product: transaction.productID,
+                expires: transaction.expirationDate,
+                revoked: transaction.revocationDate
+            )
+        )
+    }
+    return found
+}
+
+/// The Store changing its mind while the app runs (2026-10-07): a renewal, an expiry, a parent
+/// approving an Ask to Buy, a refund, a purchase made on another device. Listened to from the
+/// plugin's start, as Apple asks, so no transaction is left unfinished; each one tells the core
+/// until when the phone is paid up now, through the channel Rust made (`listen_entitlements`).
+final class StoreUpdates {
+    static let shared = StoreUpdates()
+    private let queue = DispatchQueue(label: "com.flickertalk.store.updates")
+    private let entitlements = EntitlementQueue()
+    private var started = false
+    private var observer: NSObjectProtocol?
+
+    func register(_ channel: Channel) {
+        queue.async { self.entitlements.register { channel.send(["until": $0] as JsonObject) } }
+    }
+
+    func start() {
+        queue.sync {
+            guard !started else { return }
+            started = true
+        }
+        Task.detached {
+            for await result in Transaction.updates {
+                // Only what Apple signed counts; finished or not, the entitlements are read again.
+                if case .verified(let transaction) = result { await transaction.finish() }
+                await StoreUpdates.shared.readNow()
+            }
+        }
+        // An expiry is no transaction: it shows in the subscription's status (iOS 17), and in any
+        // case when the app comes back to the screen.
+        if #available(iOS 17.0, *) {
+            Task.detached {
+                for await _ in Product.SubscriptionInfo.Status.updates {
+                    await StoreUpdates.shared.readNow()
+                }
+            }
+        }
+        DispatchQueue.main.async {
+            self.observer = NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { _ in
+                Task { await StoreUpdates.shared.readNow() }
+            }
+        }
+    }
+
+    func readNow() async {
+        let until = activeUntil(await currentEntitlements(), now: Date())
+        queue.async { self.entitlements.offer(until) }
+    }
+}
+
+
 /// One reminder as the core wrote it (2026-09-27).
 struct ReminderEntry: Decodable, Equatable {
     let plugin: String
@@ -1029,6 +1129,7 @@ class PlatformPlugin: Plugin {
         super.init()
         UNUserNotificationCenter.current().delegate = ReminderTaps.shared
         _ = callsAtLaunch
+        StoreUpdates.shared.start()
         let install = {
             AppVisibility.install()
             CallIntentActivities.install()
@@ -1374,26 +1475,34 @@ class PlatformPlugin: Plugin {
 
     // What these commands reject with are keys, not sentences: the app turns them into the
     // user's own language (`plan.trouble.*`), so nothing raw ever reaches the screen.
-    /// What the Store already knows about this phone, without asking anyone to buy anything.
     private func entitlements() async -> [StoreEntitlement] {
-        var found: [StoreEntitlement] = []
-        for await result in Transaction.currentEntitlements {
-            guard case .verified(let transaction) = result else { continue }
-            found.append(
-                StoreEntitlement(
-                    product: transaction.productID,
-                    expires: transaction.expirationDate,
-                    revoked: transaction.revocationDate
-                )
-            )
-        }
-        return found
+        await currentEntitlements()
+    }
+
+    /// The core listens to the Store's changes (`listen_entitlements`): what waited goes out now.
+    @objc public func registerEntitlementEvents(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(CallEventsArgs.self)
+        StoreUpdates.shared.register(args.channel)
+        invoke.resolve()
     }
 
     /// What the Store knows already (§45): the app asks every time it opens, and nothing else.
     @objc public func subscription(_ invoke: Invoke) throws {
         Task {
             invoke.resolve(["until": activeUntil(await entitlements(), now: Date())])
+        }
+    }
+
+    /// Restore purchases (2026-10-07): App Store syncs this Apple ID's transactions (it may ask
+    /// for the password), and the phone keeps what they pay for now.
+    @objc public func restoreSubscription(_ invoke: Invoke) throws {
+        Task {
+            do {
+                try await AppStore.sync()
+                invoke.resolve(["until": activeUntil(await entitlements(), now: Date())])
+            } catch {
+                invoke.reject(restoreTrouble(error))
+            }
         }
     }
 

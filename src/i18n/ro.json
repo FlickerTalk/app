@@ -352,6 +352,7 @@
     "trial": "Gratuit · zile rămase: {days}",
     "young": "Gratuit · sub 21 de ani",
     "subscribed": "Plătit · până la {until}",
+    "renewing": "Plătit · se reînnoiește automat",
     "limited": "Anul gratuit s-a încheiat",
     "hint": "FlickerTalk costă {price} pe an și este gratuit dacă ai sub 21 de ani. Primul an de la instalare este gratuit pentru toți. Fără plată poți în continuare să primești și să răspunzi; pentru a începe o conversație nouă, a suna și a trimite fișiere e nevoie de abonament.",
     "hintYearly": "FlickerTalk este un abonament anual și este gratuit dacă ai sub 21 de ani. Primul an de la instalare este gratuit pentru toți. Fără plată poți în continuare să primești și să răspunzi; pentru a începe o conversație nouă, a suna și a trimite fișiere e nevoie de abonament.",
@@ -359,6 +360,9 @@
     "payYearly": "Abonament anual",
     "iAmYoung": "Am sub 21 de ani",
     "iAmOlder": "Am 21 de ani sau mai mult",
+    "restore": "Restabilește achizițiile",
+    "restored": "Abonament restabilit",
+    "nothingToRestore": "Nu există nicio achiziție de restabilit",
     "trouble": {
       "not_on_sale": "Abonamentul nu este încă la vânzare.",
       "store_unavailable": "Magazinul nu răspunde. Încearcă mai târziu.",

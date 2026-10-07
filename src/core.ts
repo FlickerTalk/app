@@ -955,6 +955,11 @@ export interface PlanView {
   /** When the free year ends, or when the subscription runs out (ms); 0 when neither applies. */
   until: number;
   age: "minor" | "adult" | "unknown";
+  /**
+   * A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the last
+   * check of Play holds, not an expiry, so no date is shown. StoreKit's (iOS) is a real expiry.
+   */
+  renews?: boolean;
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -969,6 +974,18 @@ export function daysLeft(until: number, now = Date.now()): number {
 
 export async function plan(): Promise<PlanView> {
   return invoke<PlanView>("core_plan");
+}
+
+/** What the Store says about the subscription changed (2026-10-07), also with the app open. */
+export const PLAN_EVENT = "ft://plan";
+
+/**
+ * Calls `changed` whenever the core says the plan changed (a purchase, a restore, a renewal, an
+ * expiry, an approved Ask to Buy, a refund). Resolves with what stops listening; outside the app
+ * (no core to hear) it never calls and stopping does nothing.
+ */
+export async function followPlan(changed: () => void): Promise<() => void> {
+  return listen(PLAN_EVENT, () => changed()).catch(() => () => undefined);
 }
 
 /** What the user says about their age; never a date of birth (§30, §43). */
@@ -1022,6 +1039,17 @@ export async function sendFeedback(text: string): Promise<FeedbackOutcome> {
 
 export async function subscribe(): Promise<void> {
   await invoke("core_subscribe");
+}
+
+/** What asking the Store to restore a purchase found (2026-10-07). */
+export type RestoreOutcome = "restored" | "nothing";
+
+/**
+ * Asks the Store for what this Apple ID or Google account already bought (a new phone, a
+ * reinstall). A Store that does not answer throws its key, as `subscribe` does (`payTrouble`).
+ */
+export async function restoreSubscription(): Promise<RestoreOutcome> {
+  return (await invoke<string>("core_restore_subscription")) === "restored" ? "restored" : "nothing";
 }
 
 /** What the user does with one message of theirs (§61). */
