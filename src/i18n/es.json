@@ -352,6 +352,7 @@
     "trial": "Gratis · días restantes: {days}",
     "young": "Gratis · menores de 21",
     "subscribed": "De pago · hasta {until}",
+    "renewing": "De pago · renovación automática",
     "limited": "El año gratis ha terminado",
     "hint": "FlickerTalk cuesta {price} al año, y es gratis si tienes menos de 21. El primer año desde la instalación es gratis para todos. Sin pagar sigues recibiendo y respondiendo; para empezar una conversación nueva, llamar y enviar archivos hace falta la suscripción.",
     "hintYearly": "FlickerTalk es una suscripción anual, y es gratis si tienes menos de 21. El primer año desde la instalación es gratis para todos. Sin pagar sigues recibiendo y respondiendo; para empezar una conversación nueva, llamar y enviar archivos hace falta la suscripción.",

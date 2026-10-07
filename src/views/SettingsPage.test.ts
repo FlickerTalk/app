@@ -86,6 +86,17 @@ describe("SettingsPage", () => {
     expect(wrapper.text()).not.toContain("Free year over");
   });
 
+  // 2026-10-07: on Android the date is only how long the last check of Play holds: no date.
+  it("says a Play subscription renews automatically", async () => {
+    const until = Date.now() + 300 * 24 * 3600 * 1000;
+    store.me.freeUntil = Date.now() - 1000;
+    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until, age: "adult", renews: true } : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · renews automatically");
+    expect(wrapper.find("[data-test='plan']").text()).not.toContain(new Date(until).toLocaleDateString());
+  });
+
   it("says it is free under 21 once the free year is over", async () => {
     store.me.freeUntil = Date.now() - 1000;
     installTauri((command) => (command === "core_plan" ? { state: "young", until: 0, age: "minor" } : undefined));

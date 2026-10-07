@@ -1266,22 +1266,28 @@ data class StorePurchase(
     val acknowledged: Boolean,
 )
 
-/**
- * A year of FlickerTalk from the moment the Store took the money. The purchase only carries when
- * it was bought: asking Play's server for the expiry would mean our backend learning who pays
- * (§45-46), so the phone works it out and each renewal moves the date on.
- */
-fun untilFromPurchase(boughtAt: Long): Long = boughtAt + 365L * 24 * 60 * 60 * 1000
+/** How long a check of Play keeps the phone paid up without asking again: a year. */
+const val PLAY_CACHE_MS = 365L * 24 * 60 * 60 * 1000
 
-/** Until when this phone is paid up, out of everything the Store returned; 0 when nothing is. */
-fun activeUntil(purchases: List<StorePurchase>): Long =
-    purchases
-        .filter { it.product == YEARLY && it.state == Purchase.PurchaseState.PURCHASED }
-        .maxOfOrNull { untilFromPurchase(it.boughtAt) } ?: 0L
+/**
+ * Until when this phone is paid up, out of everything the Store returned at `now`; 0 when nothing
+ * is. Play never tells the client the expiry, and its purchase time stays the original one on
+ * every renewal (2026-10-07, a real Samsung with a test subscription renewing every 30 minutes),
+ * so no date is counted from it: while Play lists the yearly subscription as paid (it lists only
+ * live ones), the phone keeps a year from this check, refreshed at every check (start-up, back on
+ * the screen). An offline cache, not an expiry: one Play no longer lists drops to 0 at the next
+ * check, and a phone offline for a year keeps access until the cache ends.
+ */
+fun activeUntil(purchases: List<StorePurchase>, now: Long): Long =
+    if (purchases.any { it.product == YEARLY && it.state == Purchase.PurchaseState.PURCHASED }) {
+        now + PLAY_CACHE_MS
+    } else {
+        0L
+    }
 
 /** What a purchase that pays for nothing yet says (2026-10-07); null when it pays. */
 fun purchaseTrouble(purchases: List<StorePurchase>): String? =
-    if (activeUntil(purchases) == 0L &&
+    if (activeUntil(purchases, 0L) == 0L &&
         purchases.any { it.product == YEARLY && it.state == Purchase.PurchaseState.PENDING }
     ) {
         "pending_approval"
@@ -2109,7 +2115,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                 if (trouble != null) {
                     invoke.reject(trouble)
                 } else {
-                    invoke.resolve(JSObject().apply { put("until", activeUntil(storePurchases(bought))) })
+                    invoke.resolve(JSObject().apply { put("until", activeUntil(storePurchases(bought), System.currentTimeMillis())) })
                 }
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> invoke.reject("cancelled")
@@ -2213,7 +2219,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                     return@queryPurchasesAsync
                 }
                 acknowledge(client, purchases)
-                answer(activeUntil(storePurchases(purchases)))
+                answer(activeUntil(storePurchases(purchases), System.currentTimeMillis()))
             }
         }
     }

@@ -47,7 +47,7 @@ const where = computed(() => {
     case "young":
       return t("plan.young");
     case "subscribed":
-      return t("plan.subscribed", { until: until.value });
+      return plan.value.renews ? t("plan.renewing") : t("plan.subscribed", { until: until.value });
     case "limited":
       return t("plan.limited");
     default:

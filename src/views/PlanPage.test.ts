@@ -154,6 +154,18 @@ describe("PlanPage", () => {
     expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
   });
 
+  // 2026-10-07: Google Play never tells the phone until when, so on Android the date kept is only
+  // how long the last check of Play holds. The screen says it renews, with no date that means
+  // nothing; StoreKit's real expiry (iOS) is still shown.
+  it("says a Play subscription renews automatically instead of showing a date", async () => {
+    const until = Date.parse("2027-10-07T10:00:00Z");
+    planning({ state: "subscribed", until, age: "adult", renews: true });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.renewing);
+    expect(wrapper.text()).not.toContain(new Date(until).toLocaleDateString());
+  });
+
   // The Store answers with a key, never with a sentence: what the user reads is translated like
   // everything else, and a key we never wrote never reaches the screen.
   it("says in the user's own words when the Store will not sell", async () => {

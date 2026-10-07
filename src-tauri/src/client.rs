@@ -2114,19 +2114,30 @@ pub struct PlanView {
     /// When the free year ends, or when the subscription runs out (ms); 0 when neither applies.
     until: i64,
     age: String,
+    /// A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the
+    /// last check of Play holds, not an expiry (Play never tells the phone one), so the screen says
+    /// "renews automatically" instead of a date. On iOS `until` is StoreKit's own expiry.
+    #[serde(default)]
+    renews: bool,
+}
+
+/// The plan as the screen reads it; `play`: the Store is Google Play (Android).
+fn plan_view(access: ft_billing::Access, age: ft_billing::AgeClass, play: bool) -> PlanView {
+    let renews = play && matches!(access, ft_billing::Access::Subscribed { .. });
+    let (state, until) = match access {
+        ft_billing::Access::Trial { until } => ("trial", until),
+        ft_billing::Access::Young => ("young", 0),
+        ft_billing::Access::Subscribed { until } => ("subscribed", until),
+        ft_billing::Access::Limited => ("limited", 0),
+    };
+    PlanView { state: state.to_owned(), until, age: age.as_str().to_owned(), renews }
 }
 
 #[tauri::command]
 pub async fn core_plan(client: State<'_, Client>) -> Result<PlanView, String> {
     let core = client.core().await?;
     let plan = core.plan().await.map_err(failed)?;
-    let (state, until) = match ft_billing::Access::of(now_ms(), plan) {
-        ft_billing::Access::Trial { until } => ("trial", until),
-        ft_billing::Access::Young => ("young", 0),
-        ft_billing::Access::Subscribed { until } => ("subscribed", until),
-        ft_billing::Access::Limited => ("limited", 0),
-    };
-    Ok(PlanView { state: state.to_owned(), until, age: plan.age.as_str().to_owned() })
+    Ok(plan_view(ft_billing::Access::of(now_ms(), plan), plan.age, cfg!(target_os = "android")))
 }
 
 /// What a year costs, as the Store formats it for this phone (2026-09-29); `price` is `null` when
@@ -4026,6 +4037,23 @@ mod tests {
         // What the Store said goes to the screen as it is (backing out, Ask to Buy, no Store).
         assert_eq!(buy_from(&FakeShop::selling(Err("cancelled".into())), now), Err("cancelled".to_owned()));
         assert_eq!(buy_from(&FakeShop::selling(Err("pending_approval".into())), now), Err("pending_approval".to_owned()));
+    }
+
+    // 2026-10-07: on Android the date kept is only how long the last check of Play holds (Play
+    // never says the expiry, and its purchase time stays the original on every renewal), so the
+    // screen says "renews automatically" instead of a date that means nothing. On iOS it is
+    // StoreKit's own expiry, and it is shown.
+    #[test]
+    fn a_play_subscription_is_shown_as_renewing_and_an_apple_one_with_its_expiry() {
+        let until = 1_830_000_000_000;
+        let play = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, true);
+        assert_eq!(serde_json::to_value(&play).unwrap(), serde_json::json!({ "state": "subscribed", "until": until, "age": "adult", "renews": true }));
+        let apple = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, false);
+        assert_eq!(serde_json::to_value(&apple).unwrap()["renews"], serde_json::json!(false));
+        // Nothing else renews: the free year, under 21, the year over.
+        for access in [ft_billing::Access::Trial { until }, ft_billing::Access::Young, ft_billing::Access::Limited] {
+            assert_eq!(serde_json::to_value(plan_view(access, ft_billing::AgeClass::Unknown, true)).unwrap()["renews"], serde_json::json!(false));
+        }
     }
 
     // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in

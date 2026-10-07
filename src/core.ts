@@ -955,6 +955,11 @@ export interface PlanView {
   /** When the free year ends, or when the subscription runs out (ms); 0 when neither applies. */
   until: number;
   age: "minor" | "adult" | "unknown";
+  /**
+   * A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the last
+   * check of Play holds, not an expiry, so no date is shown. StoreKit's (iOS) is a real expiry.
+   */
+  renews?: boolean;
 }
 
 const DAY = 24 * 60 * 60 * 1000;

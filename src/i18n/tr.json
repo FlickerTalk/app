@@ -352,6 +352,7 @@
     "trial": "Ücretsiz · {days} gün kaldı",
     "young": "Ücretsiz · 21 yaş altı",
     "subscribed": "Ücretli · {until} tarihine kadar",
+    "renewing": "Ücretli · otomatik yenilenir",
     "limited": "Ücretsiz yıl sona erdi",
     "hint": "FlickerTalk'un yıllık ücreti {price}; 21 yaşın altındaysanız ücretsizdir. Kurulumdan itibaren ilk yıl herkes için ücretsizdir. Ödeme yapmasanız da mesaj almaya ve yanıtlamaya devam edersiniz; yeni bir sohbet başlatmak, arama yapmak ve dosya göndermek için abonelik gerekir.",
     "hintYearly": "FlickerTalk yıllık bir aboneliktir ve 21 yaşın altındaysanız ücretsizdir. Kurulumdan itibaren ilk yıl herkes için ücretsizdir. Ödeme yapmasanız da mesaj almaya ve yanıtlamaya devam edersiniz; yeni bir sohbet başlatmak, arama yapmak ve dosya göndermek için abonelik gerekir.",

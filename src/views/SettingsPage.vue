@@ -69,6 +69,7 @@ const router = useRouter();
 const planView = ref<PlanView | null>(null);
 const plan = computed(() => {
   if (planView.value?.state === "subscribed") {
+    if (planView.value.renews) return t("plan.renewing");
     return t("plan.subscribed", { until: new Date(planView.value.until).toLocaleDateString() });
   }
   if (planView.value?.state === "young") return t("plan.young");
