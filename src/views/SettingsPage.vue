@@ -18,6 +18,7 @@ import {
   IonToggle,
   IonToolbar,
   onIonViewDidEnter,
+  onIonViewWillEnter,
   onIonViewWillLeave,
 } from "@ionic/vue";
 import {
@@ -49,7 +50,7 @@ import {
 import Avatar from "../components/Avatar.vue";
 import FeedbackModal from "../components/FeedbackModal.vue";
 import { closeOnBackWhile } from "../back";
-import { AUTO_DOWNLOAD_CHOICES, autoDownloadChoice, daysLeft, erasePhone, formatSize, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store } from "../core";
+import { AUTO_DOWNLOAD_CHOICES, autoDownloadChoice, daysLeft, erasePhone, formatSize, plan as planOf, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store, type PlanView } from "../core";
 import { extraTab, setCallRouting, setExtraTab, storedCallRouting, type CallRouting, type ExtraTab } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -63,8 +64,14 @@ import {
 
 const router = useRouter();
 
-// §41: free for a year from the install, counted on this phone.
+// §41: free for a year from the install, counted on this phone. After it, the row says what the
+// Plan screen says: paid until a date, or free under 21; only without either is the year over.
+const planView = ref<PlanView | null>(null);
 const plan = computed(() => {
+  if (planView.value?.state === "subscribed") {
+    return t("plan.subscribed", { until: new Date(planView.value.until).toLocaleDateString() });
+  }
+  if (planView.value?.state === "young") return t("plan.young");
   if (!store.me.freeUntil) return t("settings.planFree");
   const days = daysLeft(store.me.freeUntil);
   return days > 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");
@@ -92,6 +99,12 @@ onMounted(async () => {
   version.value = await getVersion().catch(() => "");
   hoursOn.value = (await quietHours().catch(() => null)) !== null;
 });
+// Settings stays alive behind the tabs, so the plan is read again each time it comes back.
+async function refreshPlan() {
+  planView.value = await planOf().catch(() => null);
+}
+onMounted(refreshPlan);
+onIonViewWillEnter(refreshPlan);
 
 async function onReceiptsChange(event: CustomEvent<{ checked: boolean }>) {
   await setReceipts(event.detail.checked);

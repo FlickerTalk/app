@@ -66,6 +66,42 @@ describe("SettingsPage", () => {
     expect(mount(SettingsPage, { shallow: true }).text()).toContain("Free year over");
   });
 
+  // Found in the StoreKit test of 2026-10-07: the row only knew the free year, so a subscriber
+  // and someone under 21 both read "Free year over". It says what the Plan screen says.
+  it("says a subscriber has paid, until when", async () => {
+    const until = Date.now() + 300 * 24 * 3600 * 1000;
+    store.me.freeUntil = Date.now() - 1000;
+    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until, age: "adult" } : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='plan']").text()).toContain(`Paid · until ${new Date(until).toLocaleDateString()}`);
+    expect(wrapper.text()).not.toContain("Free year over");
+  });
+
+  it("says it is free under 21 once the free year is over", async () => {
+    store.me.freeUntil = Date.now() - 1000;
+    installTauri((command) => (command === "core_plan" ? { state: "young", until: 0, age: "minor" } : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='plan']").text()).toContain("Free · under 21");
+    expect(wrapper.text()).not.toContain("Free year over");
+  });
+
+  // Settings stays alive behind the tabs: back from a purchase, the row says it without a restart.
+  it("reads the plan again every time the page is entered", async () => {
+    store.me.freeUntil = Date.now() - 1000;
+    let state = "limited";
+    const until = Date.now() + 300 * 24 * 3600 * 1000;
+    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : until, age: "adult" } : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='plan']").text()).toContain("Free year over");
+    state = "subscribed";
+    ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
+    await flushPromises();
+    expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · until");
+  });
+
   it("shows the app's real version", async () => {
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();
