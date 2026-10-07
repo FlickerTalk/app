@@ -29,7 +29,7 @@ import {
 import { useRoute, useRouter } from "vue-router";
 import { isGame } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
-import { byPluginName, isLocked, pluginName, pluginSummary, refreshOffered, refreshPlugins, refreshToolsLock, tools, toolsLocked } from "../plugins";
+import { byPluginName, isLocked, pluginName, pluginSummary, refreshOffered, refreshPlugins, refreshPremiumLock, tools, premiumLocked } from "../plugins";
 
 const router = useRouter();
 // As a tab (Settings' choice, 2026-10-05) there is nowhere to go back to; from Settings there is.
@@ -51,7 +51,7 @@ onMounted(refresh);
 // Each is named in the phone's language (2026-10-02): the catalogue is kept for every screen, so an
 // installed tool whose package has no translation takes the catalogue's.
 async function refresh() {
-  await Promise.all([refreshPlugins(), refreshToolsLock()]);
+  await Promise.all([refreshPlugins(), refreshPremiumLock()]);
   offered.value = byPluginName((await refreshOffered().catch(() => [])).filter((one) => !one.installed && !isGame(one)));
 }
 
@@ -75,7 +75,7 @@ function open(plugin: { id: string; kind?: "tool" | "game" }) {
 
 /** Nothing arrives installed: the user picks the tool, and it starts with no permission (§53). */
 async function install(id: string) {
-  if (toolsLocked.value) return subscribe();
+  if (premiumLocked.value) return subscribe();
   installing.value = id;
   installFailed.value = false;
   try {
@@ -128,7 +128,7 @@ async function remove(id: string) {
 
     <ion-content class="ft-plugins">
       <p class="ft-plugins__hint">{{ $t("plugins.hint") }}</p>
-      <div v-if="toolsLocked" class="ft-plugins__locked" data-test="locked">
+      <div v-if="premiumLocked" class="ft-plugins__locked" data-test="locked">
         <p class="ft-plugins__hint">{{ $t("plugins.lockedHint") }}</p>
         <ion-button data-test="subscribe" @click="subscribe">
           <ion-icon slot="start" :icon="lockClosedOutline" aria-hidden="true" />
@@ -211,13 +211,13 @@ async function remove(id: string) {
               type="button"
               class="ft-plugins__install"
               :data-test="`install-${one.id}`"
-              :aria-label="toolsLocked ? $t('plugins.locked') : $t('plugins.install')"
+              :aria-label="premiumLocked ? $t('plugins.locked') : $t('plugins.install')"
               :disabled="installing === one.id"
               :aria-busy="installing === one.id ? 'true' : undefined"
               @click="install(one.id)"
             >
               <ion-spinner v-if="installing === one.id" name="crescent" aria-hidden="true" />
-              <ion-icon v-else-if="toolsLocked" :icon="lockClosedOutline" aria-hidden="true" />
+              <ion-icon v-else-if="premiumLocked" :icon="lockClosedOutline" aria-hidden="true" />
               <ion-icon v-else :icon="one.carried ? addCircleOutline : downloadOutline" aria-hidden="true" />
             </button>
           </ion-item>

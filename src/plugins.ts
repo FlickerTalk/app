@@ -45,27 +45,28 @@ export async function followPluginChanges(): Promise<() => void> {
 }
 
 /**
- * Whether the tools are locked now (Ioan, 2026-10-08): the free year is over and there is no
- * subscription. Chat, calls, files and games never are. The core refuses a locked tool by itself;
- * this only lets the screens show the lock and offer the subscription instead.
+ * Whether the premium part is locked now (Ioan, 2026-10-08): the tools and the extra sessions with
+ * a PIN, once the 15 free days are over without a subscription. Chat, calls, files and games never
+ * are. The core refuses them by itself; this only lets the screens show the lock and offer the
+ * subscription instead.
  */
-export const toolsLocked = shallowRef(false);
+export const premiumLocked = shallowRef(false);
 
 /** Asks the core where the plan stands. A core that cannot answer locks nothing. */
-export async function refreshToolsLock(): Promise<boolean> {
-  toolsLocked.value = (await plan().catch(() => null))?.state === "limited";
-  return toolsLocked.value;
+export async function refreshPremiumLock(): Promise<boolean> {
+  premiumLocked.value = (await plan().catch(() => null))?.state === "limited";
+  return premiumLocked.value;
 }
 
 /** Reads the lock again whenever the core says the plan changed. Returns how to stop listening. */
-export async function followToolsLock(): Promise<() => void> {
-  void refreshToolsLock();
-  return listen(PLAN_EVENT, () => void refreshToolsLock());
+export async function followPremiumLock(): Promise<() => void> {
+  void refreshPremiumLock();
+  return listen(PLAN_EVENT, () => void refreshPremiumLock());
 }
 
 /** Whether this plugin is locked now: a tool while the tools are; a game, never. */
 export function isLocked(plugin: { kind?: "tool" | "game" }): boolean {
-  return toolsLocked.value && !isGame(plugin);
+  return premiumLocked.value && !isGame(plugin);
 }
 
 /**

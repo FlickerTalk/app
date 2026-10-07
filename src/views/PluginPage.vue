@@ -17,7 +17,7 @@ import { useRoute, useRouter } from "vue-router";
 import { closeOnBackWhile } from "../back";
 import PluginSheet from "../components/PluginSheet.vue";
 import { lockClosedOutline } from "ionicons/icons";
-import { installed, isLocked, pluginName, refreshPlugins, refreshToolsLock } from "../plugins";
+import { installed, isLocked, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
 
 // A plugin on its own (2026-09-27): from Settings, or from a reminder it set. There is no chat
 // behind it, so it cannot write in one nor talk to another side; it can open the conversation a
@@ -34,7 +34,7 @@ const plugin = computed(() => installed.value.find((one) => one.id === id));
 const ready = ref(false);
 
 onMounted(async () => {
-  await Promise.all([plugin.value ? undefined : refreshPlugins(), refreshToolsLock()]);
+  await Promise.all([plugin.value ? undefined : refreshPlugins(), refreshPremiumLock()]);
   ready.value = true;
 });
 // Ioan, 2026-10-08: a tool opened on its own while the tools are locked (the free year over, no

@@ -6,7 +6,7 @@ import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { setLocale } from "../i18n";
-import { installed, toolsLocked } from "../plugins";
+import { installed, premiumLocked } from "../plugins";
 
 const route = vi.hoisted(() => ({ path: "/plugins" }));
 const nav = vi.hoisted(() => ({ push: vi.fn() }));
@@ -388,7 +388,7 @@ describe("PluginsPage", () => {
         return undefined;
       });
     }
-    afterEach(() => (toolsLocked.value = false));
+    afterEach(() => (premiumLocked.value = false));
 
     it("locks the installed tools and opens the Plan screen instead", async () => {
       limited();

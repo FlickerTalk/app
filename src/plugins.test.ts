@@ -22,7 +22,7 @@ import {
   games,
   installed,
   isLocked,
-  followToolsLock,
+  followPremiumLock,
   offered,
   offeredGames,
   offeredOnce,
@@ -32,9 +32,9 @@ import {
   pluginSummary,
   refreshOffered,
   refreshPlugins,
-  refreshToolsLock,
+  refreshPremiumLock,
   tools,
-  toolsLocked,
+  premiumLocked,
   viewerOf,
 } from "./plugins";
 import type { OfferedPlugin, PluginView } from "./core";
@@ -460,8 +460,8 @@ describe("plugins in the app", () => {
     it("locks the tools, never the games, only once the plan is limited", async () => {
       for (const [state, locked] of [["trial", false], ["subscribed", false], ["limited", true]] as const) {
         tauri.invoke.mockReset().mockResolvedValue({ state, until: 0 });
-        expect(await refreshToolsLock(), state).toBe(locked);
-        expect(toolsLocked.value, state).toBe(locked);
+        expect(await refreshPremiumLock(), state).toBe(locked);
+        expect(premiumLocked.value, state).toBe(locked);
         expect(isLocked(CODE), state).toBe(locked);
         expect(isLocked(GAME), state).toBe(false);
       }
@@ -471,17 +471,17 @@ describe("plugins in the app", () => {
     // A core that cannot answer locks nothing: the core refuses a closed tool by itself anyway.
     it("locks nothing when the plan cannot be read", async () => {
       tauri.invoke.mockReset().mockRejectedValueOnce(new Error("no core"));
-      expect(await refreshToolsLock()).toBe(false);
+      expect(await refreshPremiumLock()).toBe(false);
       expect(isLocked(CODE)).toBe(false);
     });
 
     it("reads the plan again whenever the core says it changed", async () => {
       tauri.invoke.mockReset().mockResolvedValue({ state: "trial", until: 0 });
-      await followToolsLock();
+      await followPremiumLock();
       tauri.invoke.mockResolvedValue({ state: "limited", until: 0 });
       events.handlers.get("ft://plan")?.();
-      await vi.waitFor(() => expect(toolsLocked.value).toBe(true));
-      toolsLocked.value = false;
+      await vi.waitFor(() => expect(premiumLocked.value).toBe(true));
+      premiumLocked.value = false;
     });
   });
 });

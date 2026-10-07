@@ -13,11 +13,11 @@ vi.mock("vue-router", async (importOriginal) => ({
 vi.mock("../plugins", async (importOriginal) => {
   const plugins = await importOriginal<typeof import("../plugins")>();
   plugins.installed.value = [{ id: "com.flickertalk.notes", name: "Notes", locales: { es: { name: "Notas" } } } as never];
-  return { ...plugins, refreshPlugins: vi.fn(), refreshToolsLock: vi.fn() };
+  return { ...plugins, refreshPlugins: vi.fn(), refreshPremiumLock: vi.fn() };
 });
 
 import PluginPage from "./PluginPage.vue";
-import { installed, toolsLocked } from "../plugins";
+import { installed, premiumLocked } from "../plugins";
 import PluginSheet from "../components/PluginSheet.vue";
 
 describe("PluginPage", () => {
@@ -121,7 +121,7 @@ describe("PluginPage", () => {
   // Ioan, 2026-10-08: a tool opened on its own (from Settings, a reminder) while the tools are
   // locked shows the lock and the way to the subscription, never its frame. A game still opens.
   it("shows a locked tool's lock and leads to the Plan screen", async () => {
-    toolsLocked.value = true;
+    premiumLocked.value = true;
     try {
       route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: {} });
       const wrapper = mount(PluginPage, { shallow: true });
@@ -137,7 +137,7 @@ describe("PluginPage", () => {
       await flushPromises();
       expect(game.findComponent(PluginSheet).exists()).toBe(true);
     } finally {
-      toolsLocked.value = false;
+      premiumLocked.value = false;
     }
   });
 });

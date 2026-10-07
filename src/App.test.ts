@@ -5,7 +5,7 @@ import App from "./App.vue";
 import CallBar from "./components/CallBar.vue";
 import { installTauri } from "./__tests__/tauri";
 import { clearOnboarded, setOnboarded } from "./preferences";
-import { toolsLocked } from "./plugins";
+import { premiumLocked } from "./plugins";
 
 const push = vi.fn();
 vi.mock("vue-router", async (importOriginal) => ({ ...(await importOriginal<typeof import("vue-router")>()), useRouter: () => ({ push }) }));
@@ -52,12 +52,12 @@ describe("App", () => {
     installTauri((command) => (command === "core_plan" ? { state, until: 0 } : undefined));
     mount(App, { shallow: true });
     await flushPromises();
-    expect(toolsLocked.value).toBe(false);
+    expect(premiumLocked.value).toBe(false);
     state = "limited";
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
-    expect(toolsLocked.value).toBe(true);
-    toolsLocked.value = false;
+    expect(premiumLocked.value).toBe(true);
+    premiumLocked.value = false;
   });
 
   // iOS cuts the socket of a suspended app (2026-09-28): back on the screen, or opened from a

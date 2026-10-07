@@ -7,7 +7,7 @@ import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
-import { offered, refreshPlugins, toolsLocked } from "../plugins";
+import { offered, refreshPlugins, premiumLocked } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
 import { setLocale } from "../i18n";
@@ -743,7 +743,7 @@ describe("ChatThread", () => {
   // of a locked viewer; "open with" leads to the Plan screen too.
   describe("with the tools locked", () => {
     const limited = (plugins: unknown[], answers: Record<string, unknown> = {}) => withPlugins(plugins, { core_plan: { state: "limited", until: 0 }, ...answers });
-    afterEach(() => (toolsLocked.value = false));
+    afterEach(() => (premiumLocked.value = false));
 
     it("shows a lock on each tool of the apps sheet and goes to the Plan screen", async () => {
       push.mockClear();
@@ -1640,7 +1640,7 @@ describe("ChatThread", () => {
       await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
       await flushPromises();
       expect(wrapper.findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ id: CHESS.id });
-      toolsLocked.value = false;
+      premiumLocked.value = false;
     });
 
     // Plan decision 11: the first time, one sheet; refused, the game does not open.

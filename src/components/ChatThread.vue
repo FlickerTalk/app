@@ -72,7 +72,7 @@ import {
   byPluginName,
   pluginName,
   refreshPlugins,
-  refreshToolsLock,
+  refreshPremiumLock,
   tools,
   viewerOf,
   type HandedFile,
@@ -752,7 +752,7 @@ closeOnBackWhile(() => props.active && Boolean(asking.value), () => (asking.valu
 
 /** The apps sheet, on the tools if there are any, otherwise on the games; nothing is remembered. */
 function openApps() {
-  void refreshToolsLock();
+  void refreshPremiumLock();
   appsTab.value = tools.value.length ? "tools" : "games";
   showApps.value = true;
 }
@@ -949,7 +949,7 @@ async function resendMessage(id: string) {
 onMounted(async () => {
   // A tool installed from another window shows up here as soon as the chat comes back.
   document.addEventListener("visibilitychange", onVisible);
-  await Promise.all([refreshPlugins(), refreshToolsLock()]);
+  await Promise.all([refreshPlugins(), refreshPremiumLock()]);
   pluginsLoaded.value = true;
   if (props.play) playGame(props.play);
 });
@@ -976,7 +976,7 @@ watch(
 function onVisible() {
   if (document.visibilityState !== "visible") return;
   void refreshPlugins();
-  void refreshToolsLock();
+  void refreshPremiumLock();
   readOnReturn();
 }
 watch(() => props.active, readOnReturn);
