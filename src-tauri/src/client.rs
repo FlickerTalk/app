@@ -1046,6 +1046,12 @@ impl Client {
                 let _ = core_for_store.set_entitlement(until).await;
             }
         });
+        // And when the plan changes by itself with nothing said (2026-10-08): the free days end,
+        // the paid date passes (the Store is asked first), the grace ends. The screens hear it.
+        tauri::async_runtime::spawn(ft_core::Core::watch_plan(
+            Arc::downgrade(&online.core),
+            Arc::new(ShopWord(Arc::new(AppShop(app.clone())))),
+        ));
         refresh_served_plugins(app, &online.core, dir).await;
         // And what the user downloaded, from the catalogue, in the background (2026-10-03).
         look_for_updates(app, online.core.clone(), dir);
@@ -2216,6 +2222,8 @@ pub async fn core_subscribe(app: AppHandle, client: State<'_, Client>) -> Result
 pub(crate) trait Shop {
     fn subscribe(&self) -> Result<i64, String>;
     fn restore(&self) -> Result<i64, String>;
+    /// What the Store says now, without buying anything.
+    fn current(&self) -> Result<i64, String>;
 }
 
 impl<R: tauri::Runtime> Shop for tauri_plugin_ft_platform::Platform<R> {
@@ -2225,6 +2233,38 @@ impl<R: tauri::Runtime> Shop for tauri_plugin_ft_platform::Platform<R> {
 
     fn restore(&self) -> Result<i64, String> {
         self.restore_subscription().map_err(failed)
+    }
+
+    fn current(&self) -> Result<i64, String> {
+        self.subscription().map_err(failed)
+    }
+}
+
+/// The Store of this app, for work that outlives a command (the plan's watch).
+struct AppShop(AppHandle);
+
+impl Shop for AppShop {
+    fn subscribe(&self) -> Result<i64, String> {
+        Shop::subscribe(self.0.platform())
+    }
+
+    fn restore(&self) -> Result<i64, String> {
+        Shop::restore(self.0.platform())
+    }
+
+    fn current(&self) -> Result<i64, String> {
+        Shop::current(self.0.platform())
+    }
+}
+
+/// The Store as the core's plan watch asks it (2026-10-08): the bridges block, so off the runtime.
+struct ShopWord<S>(Arc<S>);
+
+#[async_trait::async_trait]
+impl<S: Shop + Send + Sync + 'static> ft_core::Entitlements for ShopWord<S> {
+    async fn until(&self) -> anyhow::Result<i64> {
+        let shop = self.0.clone();
+        tauri::async_runtime::spawn_blocking(move || shop.current()).await?.map_err(anyhow::Error::msg)
     }
 }
 
@@ -3165,6 +3205,8 @@ fn push_provider() -> &'static str {
 #[tauri::command]
 pub async fn core_resume(client: State<'_, Client>) -> Result<(), String> {
     let online = client.online().await?;
+    // The plan may have changed while the app was away; the Store may answer now (2026-10-08).
+    online.core.look_at_plan_again();
     if !online.set_foreground(true).await {
         online.router.reconnect_unless_fresh(CALL_SOCKET_FRESH);
     }
@@ -4006,15 +4048,20 @@ mod tests {
     struct FakeShop {
         bought: Result<i64, String>,
         restored: Result<i64, String>,
+        current: Result<i64, String>,
     }
 
     impl FakeShop {
         fn restoring(restored: Result<i64, String>) -> Self {
-            Self { bought: Err("not asked".into()), restored }
+            Self { bought: Err("not asked".into()), restored, current: Err("not asked".into()) }
         }
 
         fn selling(bought: Result<i64, String>) -> Self {
-            Self { bought, restored: Err("not asked".into()) }
+            Self { bought, restored: Err("not asked".into()), current: Err("not asked".into()) }
+        }
+
+        fn saying(current: Result<i64, String>) -> Self {
+            Self { bought: Err("not asked".into()), restored: Err("not asked".into()), current }
         }
     }
 
@@ -4026,6 +4073,20 @@ mod tests {
         fn restore(&self) -> Result<i64, String> {
             self.restored.clone()
         }
+
+        fn current(&self) -> Result<i64, String> {
+            self.current.clone()
+        }
+    }
+
+    // 2026-10-08: when a paid date passes, the core's watch asks the Store what it says now
+    // (StoreKit's current entitlements, Play's purchases); an error is an error, never a "nothing".
+    #[tokio::test]
+    async fn the_plans_watch_hears_what_the_store_says_now() {
+        use ft_core::Entitlements;
+        assert_eq!(ShopWord(Arc::new(FakeShop::saying(Ok(42)))).until().await.unwrap(), 42);
+        assert_eq!(ShopWord(Arc::new(FakeShop::saying(Ok(0)))).until().await.unwrap(), 0);
+        assert!(ShopWord(Arc::new(FakeShop::saying(Err("store_unavailable".into())))).until().await.is_err());
     }
 
     const DAY_MS: i64 = 24 * 60 * 60 * 1000;
