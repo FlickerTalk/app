@@ -64,12 +64,25 @@ const INSTALLED_AT: &str = "installed_at";
 // no age rule any more (Ioan, 2026-10-08). A phone that kept one keeps the row, unused.
 /// Until when the Store says the subscription runs (ms); 0 when there is none (§45).
 const PAID_UNTIL: &str = "paid_until";
-/// The first year is free (§40–41).
-/// What the core answers when the plan closes a tool (Ioan, 2026-10-08): a key, never a sentence;
-/// the screen says it in the user's language and offers the subscription.
+/// What the core answers when the plan closes something premium (Ioan, 2026-10-08): a key, never a
+/// sentence; the screen says it in the user's language and offers the subscription.
 pub const NEEDS_SUBSCRIPTION: &str = "needs_subscription";
 
-pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 3600);
+/// The premium part is free for 15 days from the install (§40–41; a year until 2026-10-08).
+pub use ft_billing::FREE_PERIOD;
+
+/// How often the Store is asked again while a paid date that passed waits in its grace.
+const STORE_RETRY: Duration = Duration::from_secs(60 * 60);
+/// The longest the plan's watch sleeps in one go; it wakes earlier when the plan changes by itself.
+const PLAN_LOOK_AT_MOST: Duration = Duration::from_secs(12 * 60 * 60);
+
+/// Who tells the core what the Store says now (StoreKit's current entitlements, Play's purchases):
+/// until when this phone is paid up (ms), 0 when nothing is, an error when the Store cannot be
+/// asked. The platform bridge provides it.
+#[async_trait]
+pub trait Entitlements: Send + Sync {
+    async fn until(&self) -> Result<i64>;
+}
 
 /// Whether this attempt may leave a copy in the mailbox: the first time, and then once a day.
 fn mail_copy_due(in_mailbox: bool, mailed_at: Option<i64>, now: i64) -> bool {
@@ -255,6 +268,11 @@ pub struct Core {
     open_sessions: std::sync::Mutex<HashMap<String, u8>>,
     /// One write of the kept list at a time, each with the list as it is then.
     keeping_sessions: Mutex<()>,
+    /// The access the screens were last told of (2026-10-08): a change found by looking again is
+    /// told once.
+    seen_access: std::sync::Mutex<Option<Access>>,
+    /// Wakes the plan's watch (`look_at_plan_again`): the app came back to the screen.
+    plan_poke: Arc<tokio::sync::Notify>,
     /// Bumped whenever the router must be told something new: the hashes or the silent slots.
     registration: tokio::sync::watch::Sender<u64>,
     /// How many pongs each contact has sent us (2026-10-01): a call's offer sent over a direct
@@ -370,6 +388,8 @@ impl Core {
             moving: std::sync::Mutex::default(),
             open_sessions: std::sync::Mutex::new(open_sessions),
             keeping_sessions: Mutex::new(()),
+            seen_access: std::sync::Mutex::new(None),
+            plan_poke: Arc::new(tokio::sync::Notify::new()),
             registration: tokio::sync::watch::Sender::new(0),
             pongs: tokio::sync::watch::Sender::new(HashMap::new()),
             registration_retry: Arc::default(),
@@ -504,19 +524,19 @@ impl Core {
         self.store.set_setting(NAME, name.trim()).await
     }
 
-    /// Until when (ms) the app is free: a year from the first time it opened on this phone,
-    /// counted only here (§41, strategy A).
+    /// Until when (ms) the premium part is free: 15 days from the first time the app opened on
+    /// this phone, counted only here (§41, strategy A).
     pub async fn free_until(&self) -> Result<i64> {
         #[cfg(debug_assertions)]
-        if free_year_over_for_debugging() {
-            // Not 0: the app reads 0 as "no date yet" and would still say the year is free.
+        if trial_over_for_debugging() {
+            // Not 0: the app reads 0 as "no date yet" and would still say the days are free.
             return Ok(now() - 1);
         }
         let installed = self.store.setting(INSTALLED_AT).await?.and_then(|at| at.parse::<i64>().ok()).unwrap_or_else(now);
         Ok(installed + FREE_PERIOD.as_millis() as i64)
     }
 
-    /// Where this phone stands: the free year and what the Store says about the subscription.
+    /// Where this phone stands: the free days and what the Store says about the subscription.
     /// None of it leaves the phone (§45–§47).
     pub async fn plan(&self) -> Result<Plan> {
         Ok(Plan {
@@ -529,15 +549,71 @@ impl Core {
         Ok(Access::of(now(), self.plan().await?))
     }
 
-    /// What the Store said about the subscription, checked by the platform bridge (§45).
+    /// What the Store said about the subscription, checked by the platform bridge (§45). A date
+    /// already past is the Store saying nothing is paid: no grace for it.
     pub async fn set_entitlement(&self, until: i64) -> Result<()> {
-        let until = until.max(0).to_string();
+        let until = if until > now() { until } else { 0 }.to_string();
         if self.store.setting(PAID_UNTIL).await?.as_deref() == Some(until.as_str()) {
             return Ok(());
         }
         self.store.set_setting(PAID_UNTIL, &until).await?;
+        let access = self.access().await?;
+        *self.seen_access.lock().expect("plan poisoned") = Some(access);
         let _ = self.events.send(Event::PlanChanged);
         Ok(())
+    }
+
+    /// Looks at the plan again (2026-10-08): when the paid date has passed, the Store is asked
+    /// first, and only its answer ends the subscription (a Store that cannot be asked leaves the
+    /// grace). The screens hear `PlanChanged` when the access is not what they were last told.
+    pub async fn recheck_plan(&self, store: &dyn Entitlements) -> Result<()> {
+        if self.plan().await?.paid_date_passed(now()) {
+            if let Ok(until) = store.until().await {
+                self.set_entitlement(until).await?;
+            }
+        }
+        let access = self.access().await?;
+        let before = self.seen_access.lock().expect("plan poisoned").replace(access);
+        if before.is_some_and(|before| before != access) {
+            let _ = self.events.send(Event::PlanChanged);
+        }
+        Ok(())
+    }
+
+    /// The app is back on the screen: the plan's watch looks again at once (a phone asleep for
+    /// hours never ran its timer, and the Store may answer now).
+    pub fn look_at_plan_again(&self) {
+        self.plan_poke.notify_one();
+    }
+
+    /// Follows the plan while the core lives (2026-10-08): it looks again exactly when the access
+    /// changes by itself (the free days end, the paid date passes, the grace ends), every hour
+    /// while a passed date waits for the Store, and whenever `look_at_plan_again` asks.
+    pub async fn watch_plan(core: std::sync::Weak<Core>, store: Arc<dyn Entitlements>) {
+        loop {
+            let Some(here) = core.upgrade() else { return };
+            let _ = here.recheck_plan(&*store).await;
+            let wait = here.next_plan_look().await.unwrap_or(PLAN_LOOK_AT_MOST);
+            let poke = here.plan_poke.clone();
+            drop(here);
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = poke.notified() => {}
+            }
+        }
+    }
+
+    async fn next_plan_look(&self) -> Result<Duration> {
+        let (plan, at) = (self.plan().await?, now());
+        let mut wait = PLAN_LOOK_AT_MOST;
+        if let Some(change) = plan.next_change(at) {
+            // A millisecond past it, so that the clock reads it as passed.
+            wait = wait.min(Duration::from_millis((change - at + 1).max(1) as u64));
+        }
+        if plan.paid_date_passed(at) {
+            wait = wait.min(STORE_RETRY);
+        }
+        Ok(wait)
     }
 
 
@@ -639,8 +715,13 @@ impl Core {
     /// returns its id: every PIN is valid and nothing tells the two apart (A3). An empty one goes
     /// when it is closed. `None` only when the seven slots are all taken: the screen shows an
     /// empty session all the same.
+    ///
+    /// Opening one is premium (Ioan, 2026-10-08): after the free days, without the subscription,
+    /// every PIN is refused alike, so the refusal says nothing about which exist. One already open
+    /// stays open until the user leaves it; the main list always works.
     pub async fn open_session(&self, pin: &str) -> Result<Option<String>> {
         let hash = self.pin_hash(pin)?;
+        ensure!(self.access().await?.may(ft_billing::Doing::UseSession), NEEDS_SUBSCRIPTION);
         if let Some(id) = self.open_session_with(&hash).await? {
             self.keep_open_sessions().await?;
             return Ok(Some(id));
@@ -1933,15 +2014,16 @@ async fn renew_sessions(store: &Store, identity: &Identity, key: &[u8; 32]) -> R
     store.forget_setting(SESSIONS_BEHIND).await
 }
 
-/// This phone's clock, in milliseconds since the Unix epoch.
-/// Development builds only: `FT_DEBUG_FREE_YEAR_OVER=1` makes the free year count as over, so the
-/// Subscribe and Restore buttons can be reached on a real phone for a sandbox purchase. Nothing is
-/// written to the database, and a real subscription still counts. Release builds do not have it.
+/// Development builds only: `FT_DEBUG_TRIAL_OVER=1` makes the free days count as over, so the
+/// locks and the Subscribe and Restore buttons can be reached on a real phone for a sandbox
+/// purchase. Nothing is written to the database, and a real subscription still counts. Release
+/// builds do not have it. (`FT_DEBUG_FREE_YEAR_OVER` until 2026-10-08, when the year became 15 days.)
 #[cfg(debug_assertions)]
-fn free_year_over_for_debugging() -> bool {
-    std::env::var("FT_DEBUG_FREE_YEAR_OVER").as_deref() == Ok("1")
+fn trial_over_for_debugging() -> bool {
+    std::env::var("FT_DEBUG_TRIAL_OVER").as_deref() == Ok("1")
 }
 
+/// This phone's clock, in milliseconds since the Unix epoch.
 pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }

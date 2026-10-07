@@ -2,8 +2,9 @@
 //! phone: the server never learns who pays.
 //!
 //! Ioan, 2026-10-08: chat, voice notes, files, calls, new conversations, circles and games are free
-//! forever. Without the subscription, after the first year, only the tools (plugins of kind
-//! `tool`, the ones the app carries included) are closed: they neither open nor install.
+//! forever. Without the subscription, after the 15 free days, only the premium part is closed: the
+//! tools (plugins of kind `tool`, the ones the app carries included) neither open nor install, and
+//! no hidden session opens with a PIN. The main list always works.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_billing::Access;
-use ft_core::{Core, Event, Peer, Transport, NEEDS_SUBSCRIPTION};
+use ft_core::{Core, Entitlements, Event, Peer, Transport, NEEDS_SUBSCRIPTION};
 use ft_plugins::{sign_package, CatalogueEntry, Permissions};
 use ft_storage::Store;
 use tokio::sync::mpsc;
@@ -113,10 +114,24 @@ async fn pair(alice: &Core, bob: &Core) {
     .await;
 }
 
-/// Moves the phone's own clock: the free year started a year and a day ago.
-async fn the_year_is_over(core: &Core) {
-    let long_ago = now() - (366 * 24 * 60 * 60 * 1000);
-    core.store().set_setting("installed_at", &long_ago.to_string()).await.expect("sets");
+const DAY: i64 = 24 * 60 * 60 * 1000;
+
+/// Moves the phone's own clock: the free days started 16 days ago.
+async fn the_free_days_are_over(core: &Core) {
+    the_free_days_end_in(core, -DAY).await;
+}
+
+/// The free days end `ms` from now (in the past when negative).
+async fn the_free_days_end_in(core: &Core, ms: i64) {
+    let installed = now() - 15 * DAY + ms;
+    core.store().set_setting("installed_at", &installed.to_string()).await.expect("sets");
+}
+
+/// A card link of a new phone nobody has met.
+async fn someone() -> String {
+    let net = net();
+    let other = device(&net, "Someone").await;
+    other.my_card().await.expect("card").to_link()
 }
 
 const TOOL: &str = "com.example.code";
@@ -178,7 +193,7 @@ fn a_file() -> PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_first_year_is_free_tools_included() {
+async fn the_free_days_include_the_tools_and_the_sessions() {
     let net = net();
     let core = device(&net, "Alice").await;
     assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }));
@@ -188,6 +203,33 @@ async fn the_first_year_is_free_tools_included() {
     let (shop, entries) = listed(&[(TOOL, "tool", &tool)]);
     core.add_plugin(&entries[0], &shop, &catalogue.public_key()).await.expect("installs a tool");
     core.open_plugin(TOOL).await.expect("opens it");
+    assert!(core.open_session("123456").await.expect("opens a session").is_some());
+}
+
+// Ioan, 2026-10-08: extra sessions with a PIN are premium. After the free days, without the
+// subscription, no PIN opens one, new or not, and the PIN says nothing about which; the main list
+// goes on. With the subscription they open again.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_the_free_days_a_pin_opens_no_session() {
+    let net = net();
+    let core = device(&net, "Alice").await;
+    let session = core.open_session("123456").await.expect("opens").expect("a session");
+    core.add_contact_in(&someone().await, None, Some(&session)).await.expect("someone in it");
+
+    // One already open when the free days end keeps working until the user closes it (§108).
+    the_free_days_are_over(&core).await;
+    assert_eq!(core.open_sessions(), std::slice::from_ref(&session));
+    core.add_contact_in(&someone().await, None, Some(&session)).await.expect("still works");
+    core.close_session(&session).await.expect("closes");
+
+    for pin in ["123456", "654321"] {
+        let refused = core.open_session(pin).await.expect_err("a session needs the subscription");
+        assert_eq!(refused.to_string(), NEEDS_SUBSCRIPTION);
+    }
+    assert!(core.open_sessions().is_empty());
+
+    core.set_entitlement(now() + 365 * DAY).await.expect("the Store said so");
+    assert!(core.open_session("123456").await.expect("opens").is_some());
 }
 
 // Ioan, 2026-10-08: without the subscription, everything a chat app does goes on, new things
@@ -197,7 +239,7 @@ async fn after_the_year_chat_calls_files_and_circles_stay_free() {
     let net = net();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
     pair(&alice, &bob).await;
-    the_year_is_over(&alice).await;
+    the_free_days_are_over(&alice).await;
     assert_eq!(alice.access().await.expect("reads"), Access::Limited);
 
     // Nothing has been said in this conversation: this starts it.
@@ -219,7 +261,7 @@ async fn after_the_year_games_stay_free() {
     let net = net();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
     pair(&alice, &bob).await;
-    the_year_is_over(&alice).await;
+    the_free_days_are_over(&alice).await;
 
     let catalogue = Ed25519SecretKey::new();
     let game = package(GAME, "game", &catalogue);
@@ -257,7 +299,7 @@ async fn after_the_year_tools_need_the_subscription() {
     let (shop, entries) = listed(&[(TOOL, "tool", &tool), ("com.example.pdf", "tool", &other)]);
     core.add_plugin(&entries[0], &shop, &catalogue.public_key()).await.expect("installs in the free year");
 
-    the_year_is_over(&core).await;
+    the_free_days_are_over(&core).await;
     let refused = core.open_plugin(TOOL).await.expect_err("a tool does not open");
     assert_eq!(refused.to_string(), NEEDS_SUBSCRIPTION);
     let refused = core.add_plugin(&entries[1], &shop, &catalogue.public_key()).await.expect_err("nor installs");
@@ -279,7 +321,7 @@ async fn paying_opens_the_tools_again() {
     let catalogue = Ed25519SecretKey::new();
     let tool = package(TOOL, "tool", &catalogue);
     let (shop, entries) = listed(&[(TOOL, "tool", &tool)]);
-    the_year_is_over(&core).await;
+    the_free_days_are_over(&core).await;
     assert!(core.add_plugin(&entries[0], &shop, &catalogue.public_key()).await.is_err());
 
     let a_year_from_now = now() + (365 * 24 * 60 * 60 * 1000);
@@ -296,7 +338,7 @@ async fn paying_opens_the_tools_again() {
 async fn a_new_word_from_the_store_tells_the_ui_the_plan_changed() {
     let net = net();
     let core = device(&net, "Alice").await;
-    the_year_is_over(&core).await;
+    the_free_days_are_over(&core).await;
     let mut events = core.events();
 
     let a_year_from_now = now() + (365 * 24 * 60 * 60 * 1000);
@@ -310,5 +352,109 @@ async fn a_new_word_from_the_store_tells_the_ui_the_plan_changed() {
     // It ran out (or was refunded): the Store says nothing is paid, and the UI hears it.
     core.set_entitlement(0).await.expect("the Store said so");
     assert_eq!(events.try_recv(), Ok(Event::PlanChanged));
+    assert_eq!(core.access().await.expect("reads"), Access::Limited);
+}
+
+/// The Store as the bridge asks it (StoreKit's current entitlements, Play's purchases): what it
+/// answers now, changed by the test.
+struct FakeStore(Mutex<Result<i64, String>>);
+
+impl FakeStore {
+    fn answering(answer: Result<i64, String>) -> Arc<Self> {
+        Arc::new(Self(Mutex::new(answer)))
+    }
+
+    fn now_says(&self, answer: Result<i64, String>) {
+        *self.0.lock().unwrap() = answer;
+    }
+}
+
+#[async_trait]
+impl Entitlements for FakeStore {
+    async fn until(&self) -> anyhow::Result<i64> {
+        self.0.lock().unwrap().clone().map_err(anyhow::Error::msg)
+    }
+}
+
+/// Waits for the core to say the plan changed.
+async fn plan_changed(events: &mut tokio::sync::broadcast::Receiver<Event>) -> bool {
+    for _ in 0..150 {
+        while let Ok(event) = events.try_recv() {
+            if event == Event::PlanChanged {
+                return true;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    false
+}
+
+// Seen on an iPhone (2026-10-08): the plan changed by itself with the app open and nothing told
+// the screens. The core looks again exactly when the free days end, and says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_free_days_ending_with_the_app_open_is_told() {
+    let net = net();
+    let core = device(&net, "Alice").await;
+    the_free_days_end_in(&core, 300).await;
+    let mut events = core.events();
+    tokio::spawn(Core::watch_plan(Arc::downgrade(&core), FakeStore::answering(Ok(0))));
+
+    assert!(plan_changed(&mut events).await, "the screens hear of it");
+    assert_eq!(core.access().await.expect("reads"), Access::Limited);
+}
+
+// Seen on an iPhone (2026-10-08): the Store renewed at the end of the period but said nothing to
+// the open app, and the core went limited. Now, when the paid date passes, the Store is asked first.
+#[tokio::test(flavor = "multi_thread")]
+async fn when_the_paid_date_passes_the_store_is_asked_and_a_renewal_counts() {
+    let net = net();
+    let core = device(&net, "Alice").await;
+    the_free_days_are_over(&core).await;
+    core.set_entitlement(now() + 300).await.expect("the Store said so");
+    let renewed = now() + 365 * DAY;
+    let mut events = core.events();
+    tokio::spawn(Core::watch_plan(Arc::downgrade(&core), FakeStore::answering(Ok(renewed))));
+
+    assert!(plan_changed(&mut events).await, "the new date is told");
+    assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: renewed });
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn when_the_paid_date_passes_and_the_store_has_nothing_the_phone_is_limited() {
+    let net = net();
+    let core = device(&net, "Alice").await;
+    the_free_days_are_over(&core).await;
+    core.set_entitlement(now() + 300).await.expect("the Store said so");
+    let mut events = core.events();
+    tokio::spawn(Core::watch_plan(Arc::downgrade(&core), FakeStore::answering(Ok(0))));
+
+    assert!(plan_changed(&mut events).await);
+    assert_eq!(core.access().await.expect("reads"), Access::Limited);
+    // A date the Store gives that is already past is "nothing": no grace for it.
+    core.set_entitlement(now() + 365 * DAY).await.expect("sets");
+    core.set_entitlement(now() - 1).await.expect("sets");
+    assert_eq!(core.access().await.expect("reads"), Access::Limited);
+}
+
+// A Store that cannot be reached is not a "nothing": the paid date keeps counting for the grace,
+// and the app asks again when it comes back to the screen.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_store_that_does_not_answer_leaves_the_grace_and_is_asked_again_on_return() {
+    let net = net();
+    let core = device(&net, "Alice").await;
+    the_free_days_are_over(&core).await;
+    let paid = now() + 300;
+    core.set_entitlement(paid).await.expect("the Store said so");
+    let store = FakeStore::answering(Err("store_unavailable".to_owned()));
+    let mut events = core.events();
+    tokio::spawn(Core::watch_plan(Arc::downgrade(&core), store.clone()));
+
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: paid }, "the grace");
+    assert!(!plan_changed(&mut events).await, "nothing changed");
+
+    store.now_says(Ok(0));
+    core.look_at_plan_again();
+    assert!(plan_changed(&mut events).await);
     assert_eq!(core.access().await.expect("reads"), Access::Limited);
 }
