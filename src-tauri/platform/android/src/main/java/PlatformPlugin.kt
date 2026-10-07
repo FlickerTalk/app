@@ -1279,6 +1279,16 @@ fun activeUntil(purchases: List<StorePurchase>): Long =
         .filter { it.product == YEARLY && it.state == Purchase.PurchaseState.PURCHASED }
         .maxOfOrNull { untilFromPurchase(it.boughtAt) } ?: 0L
 
+/** What a purchase that pays for nothing yet says (2026-10-07); null when it pays. */
+fun purchaseTrouble(purchases: List<StorePurchase>): String? =
+    if (activeUntil(purchases) == 0L &&
+        purchases.any { it.product == YEARLY && it.state == Purchase.PurchaseState.PENDING }
+    ) {
+        "pending_approval"
+    } else {
+        null
+    }
+
 /** Google gives the money back if a paid purchase is not acknowledged within three days. */
 fun needsAcknowledgement(purchase: StorePurchase): Boolean =
     purchase.state == Purchase.PurchaseState.PURCHASED && !purchase.acknowledged
@@ -2093,7 +2103,14 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             BillingClient.BillingResponseCode.OK -> {
                 val bought = purchases.orEmpty()
                 billing?.let { acknowledge(it, bought) }
-                invoke.resolve(JSObject().apply { put("until", activeUntil(storePurchases(bought))) })
+                // Waiting for the money is said as such; a purchase that pays for nothing else
+                // answers 0, which the core calls a failed payment (2026-10-07).
+                val trouble = purchaseTrouble(storePurchases(bought))
+                if (trouble != null) {
+                    invoke.reject(trouble)
+                } else {
+                    invoke.resolve(JSObject().apply { put("until", activeUntil(storePurchases(bought))) })
+                }
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> invoke.reject("cancelled")
             else -> invoke.reject("payment_failed")

@@ -2178,10 +2178,9 @@ pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), 
 /// a card, an address or a name: that is the Store's business.
 #[tauri::command]
 pub async fn core_subscribe(app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
-    let until = tauri::async_runtime::spawn_blocking(move || app.platform().subscribe())
+    let until = tauri::async_runtime::spawn_blocking(move || buy_from(app.platform(), now_ms()))
         .await
-        .map_err(failed)?
-        .map_err(failed)?;
+        .map_err(failed)??;
     client.core().await?.set_entitlement(until).await.map_err(failed)
 }
 
@@ -2189,12 +2188,29 @@ pub async fn core_subscribe(app: AppHandle, client: State<'_, Client>) -> Result
 /// answers until when this phone is paid up (ms; 0 when nothing is), or a key the screen
 /// translates (`plan.trouble.*`).
 pub(crate) trait Shop {
+    fn subscribe(&self) -> Result<i64, String>;
     fn restore(&self) -> Result<i64, String>;
 }
 
 impl<R: tauri::Runtime> Shop for tauri_plugin_ft_platform::Platform<R> {
+    fn subscribe(&self) -> Result<i64, String> {
+        tauri_plugin_ft_platform::Platform::subscribe(self).map_err(failed)
+    }
+
     fn restore(&self) -> Result<i64, String> {
         self.restore_subscription().map_err(failed)
+    }
+}
+
+/// What a purchase pays for (2026-10-07): until when to keep, or `payment_failed` when the Store
+/// answered with a transaction that pays for nothing (one it refunded or revoked, buying again
+/// after a refund). The screen is never left silent and the plan stays as it was.
+fn buy_from(shop: &impl Shop, now: i64) -> Result<i64, String> {
+    let until = shop.subscribe()?;
+    if until > now {
+        Ok(until)
+    } else {
+        Err("payment_failed".to_owned())
     }
 }
 
@@ -3957,16 +3973,25 @@ mod tests {
 
     /// A Store that answers what it is told to (StoreKit 2 and Play Billing, as Rust hears them).
     struct FakeShop {
+        bought: Result<i64, String>,
         restored: Result<i64, String>,
     }
 
     impl FakeShop {
         fn restoring(restored: Result<i64, String>) -> Self {
-            Self { restored }
+            Self { bought: Err("not asked".into()), restored }
+        }
+
+        fn selling(bought: Result<i64, String>) -> Self {
+            Self { bought, restored: Err("not asked".into()) }
         }
     }
 
     impl Shop for FakeShop {
+        fn subscribe(&self) -> Result<i64, String> {
+            self.bought.clone()
+        }
+
         fn restore(&self) -> Result<i64, String> {
             self.restored.clone()
         }
@@ -3985,6 +4010,22 @@ mod tests {
         assert_eq!(restore_from(&FakeShop::restoring(Ok(now - DAY_MS)), now), Ok((now - DAY_MS, "nothing")));
         // A Store that does not answer says so as it does when paying (`plan.trouble.*`).
         assert_eq!(restore_from(&FakeShop::restoring(Err("store_unavailable".into())), now), Err("store_unavailable".to_owned()));
+    }
+
+    // 2026-10-07: buying again after a refund. The Store may answer the purchase with the
+    // transaction it already refunded or revoked, which pays for nothing (Swift and Kotlin then say
+    // until 0, or a date gone by). The screen must not stay silent: it says the payment failed, and
+    // the plan stays as it was.
+    #[test]
+    fn a_purchase_answered_with_a_refunded_transaction_is_a_failed_payment() {
+        let now = 1_800_000_000_000;
+        assert_eq!(buy_from(&FakeShop::selling(Ok(0)), now), Err("payment_failed".to_owned()));
+        assert_eq!(buy_from(&FakeShop::selling(Ok(now - DAY_MS)), now), Err("payment_failed".to_owned()));
+        // A purchase that pays: until when, to keep.
+        assert_eq!(buy_from(&FakeShop::selling(Ok(now + 365 * DAY_MS)), now), Ok(now + 365 * DAY_MS));
+        // What the Store said goes to the screen as it is (backing out, Ask to Buy, no Store).
+        assert_eq!(buy_from(&FakeShop::selling(Err("cancelled".into())), now), Err("cancelled".to_owned()));
+        assert_eq!(buy_from(&FakeShop::selling(Err("pending_approval".into())), now), Err("pending_approval".to_owned()));
     }
 
     // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in

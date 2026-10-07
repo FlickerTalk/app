@@ -414,6 +414,17 @@ class PlatformPluginTest {
         assertEquals(untilFromPurchase(renewed), until)
     }
 
+    // 2026-10-07: a purchase Play answers with, that pays for nothing yet, is never a silent
+    // success. Waiting for a payment (cash, a parent) says so; anything else is up to the core,
+    // which calls it a failed payment.
+    @Test
+    fun aPurchaseThatOnlyWaitsSaysItIsPending() {
+        assertEquals("pending_approval", purchaseTrouble(listOf(purchase(state = Purchase.PurchaseState.PENDING))))
+        assertNull(purchaseTrouble(listOf(purchase())))
+        assertNull(purchaseTrouble(emptyList()))
+        assertNull(purchaseTrouble(listOf(purchase(state = Purchase.PurchaseState.PENDING), purchase())))
+    }
+
     // Google gives the money back if a purchase is not acknowledged within three days, so it is
     // acknowledged once and only once, and never while it is still pending.
     @Test
