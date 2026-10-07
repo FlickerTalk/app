@@ -2179,10 +2179,23 @@ fn feedback_word(outcome: ft_core::Feedback) -> &'static str {
     }
 }
 
-/// What the user said about their age. Under 21 is always free (§40); it never leaves the phone.
+/// Asks the phone's system whether the user is a minor or an adult (Ioan, 2026-10-07): Declared
+/// Age Range on iOS 26+, Play Age Signals on Android. It may show the system's own sheet. The core
+/// keeps only what moves forward (an unknown age filled in, a minor grown up) and the screen gets
+/// the word it ended up with. Minors are always free (§40); it never leaves the phone.
 #[tauri::command]
-pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.set_age_class(ft_billing::AgeClass::of(&age)).await.map_err(failed)
+pub async fn core_check_age(app: AppHandle, client: State<'_, Client>) -> Result<String, String> {
+    let answer = tauri::async_runtime::spawn_blocking(move || app.platform().age_class().map_err(failed))
+        .await
+        .map_err(failed)
+        .and_then(|answer| answer);
+    let kept = client.core().await?.heard_age(age_heard(answer)).await.map_err(failed)?;
+    Ok(kept.as_str().to_owned())
+}
+
+/// What the bridge said, as a class; a bridge that failed said nothing.
+fn age_heard(answer: Result<String, String>) -> ft_billing::AgeClass {
+    answer.map(|word| ft_billing::AgeClass::of(&word)).unwrap_or_default()
 }
 
 /// Asks the Store for the subscription and keeps what it answers (§45, §47). The app never sees
@@ -4050,10 +4063,20 @@ mod tests {
         assert_eq!(serde_json::to_value(&play).unwrap(), serde_json::json!({ "state": "subscribed", "until": until, "age": "adult", "renews": true }));
         let apple = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, false);
         assert_eq!(serde_json::to_value(&apple).unwrap()["renews"], serde_json::json!(false));
-        // Nothing else renews: the free year, under 21, the year over.
+        // Nothing else renews: the free year, a minor's, the year over.
         for access in [ft_billing::Access::Trial { until }, ft_billing::Access::Young, ft_billing::Access::Limited] {
             assert_eq!(serde_json::to_value(plan_view(access, ft_billing::AgeClass::Unknown, true)).unwrap()["renews"], serde_json::json!(false));
         }
+    }
+
+    // 2026-10-07: minor or adult is what the phone's system says; a bridge that fails (no Play,
+    // an old system, an error) is no answer at all, never a guess.
+    #[test]
+    fn what_the_system_said_about_the_age_is_read_as_a_class() {
+        assert_eq!(age_heard(Ok("minor".to_owned())), ft_billing::AgeClass::Minor);
+        assert_eq!(age_heard(Ok("adult".to_owned())), ft_billing::AgeClass::Adult);
+        assert_eq!(age_heard(Ok("unknown".to_owned())), ft_billing::AgeClass::Unknown);
+        assert_eq!(age_heard(Err("Play is not there".to_owned())), ft_billing::AgeClass::Unknown);
     }
 
     // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in
