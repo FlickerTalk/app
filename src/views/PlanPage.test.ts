@@ -278,6 +278,27 @@ describe("PlanPage", () => {
     });
   });
 
+  // Seen in the StoreKit simulator run (2026-10-07): after a parent approved, the screen said
+  // "Paid" and still "waiting to be approved". What the Store said before is no longer true.
+  it("forgets what the Store said before once the plan changes", async () => {
+    let state = "limited";
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscribe") throw "pending_approval";
+      return command === "core_plan" ? { state, until: state === "subscribed" ? Date.now() + 300 * DAY : 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    await wrapper.find("[data-test='pay']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.pending_approval);
+
+    state = "subscribed";
+    events.handlers.get("ft://plan")?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+  });
+
   // 2026-10-07: the Store changes its mind with the screen open (a parent approves an Ask to Buy,
   // the year runs out, a renewal): the core says so and the screen reads the plan again.
   it("follows the plan when the Store changes its mind with the screen open", async () => {

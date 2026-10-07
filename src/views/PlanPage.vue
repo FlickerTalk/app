@@ -21,7 +21,11 @@ onMounted(() => {
   void refresh();
   // The Store may take a while or not answer at all: the screen does not wait for it.
   void subscriptionPrice().then((said) => (price.value = said));
-  void followPlan(() => void refresh()).then((stop) => (gone ? stop() : (stopFollowing = stop)));
+  // What the Store said before (waiting for approval, say) is no longer true then.
+  void followPlan(() => {
+    trouble.value = "";
+    void refresh();
+  }).then((stop) => (gone ? stop() : (stopFollowing = stop)));
 });
 onBeforeUnmount(() => {
   gone = true;
