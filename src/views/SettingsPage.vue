@@ -65,7 +65,7 @@ import {
 const router = useRouter();
 
 // §41: free for a year from the install, counted on this phone. After it, the row says what the
-// Plan screen says: paid until a date, or free under 21; only without either is the year over.
+// Plan screen says: paid until a date, or free for a minor; only without either is the year over.
 const planView = ref<PlanView | null>(null);
 const plan = computed(() => {
   if (planView.value?.state === "subscribed") {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar, toastController } from "@ionic/vue";
-import { daysLeft, followPlan, payTrouble, plan as planOf, restoreSubscription, setAge, subscribe, subscriptionPrice, type PlanView } from "../core";
+import { checkAge, daysLeft, followPlan, payTrouble, plan as planOf, restoreSubscription, subscribe, subscriptionPrice, type PlanView } from "../core";
 import { t } from "../i18n";
 
 // Plan §40–§47: the first year is free from the install, then a yearly subscription at the
-// Store's price (0,99 € in Spain since 2026-09-29); under 21 it is always free. Everything is
-// decided on this phone, and no date of birth is ever kept (§30, §43).
+// Store's price (0,99 € in Spain since 2026-09-29); minors are always free, and minor or adult is
+// what the phone's system says (2026-10-07). Everything is decided on this phone, and no date of
+// birth is ever kept (§30, §43).
 const plan = ref<PlanView | null>(null);
 const trouble = ref("");
 /** What a year costs, as the Store formats it; null while unknown or when it cannot say. */
@@ -18,7 +19,7 @@ let stopFollowing: (() => void) | null = null;
 let gone = false;
 
 onMounted(() => {
-  void refresh();
+  void load();
   // The Store may take a while or not answer at all: the screen does not wait for it.
   void subscriptionPrice().then((said) => (price.value = said));
   // What the Store said before (waiting for approval, say) is no longer true then.
@@ -38,6 +39,22 @@ const hint = computed(() => (price.value ? t("plan.hint", { price: price.value }
 
 async function refresh() {
   plan.value = await planOf().catch(() => null);
+}
+
+/**
+ * Once the free year is over and the phone is not known to be an adult's, the system is asked
+ * again before any price is shown (2026-10-07): an unknown age may be filled in, a minor may have
+ * grown up. The plan is shown only after that.
+ */
+async function load() {
+  const first = await planOf().catch(() => null);
+  const asks = first && first.age !== "adult" && (first.state === "limited" || first.state === "young");
+  if (!asks) {
+    plan.value = first;
+    return;
+  }
+  await checkAge();
+  await refresh();
 }
 
 const days = computed(() => daysLeft(plan.value?.until ?? 0));
@@ -61,11 +78,6 @@ const where = computed(() => {
 
 /** The subscription is only asked of an adult whose free year is over (§42). */
 const asksToPay = computed(() => plan.value?.state === "limited");
-
-async function iAm(age: "minor" | "adult") {
-  await setAge(age);
-  await refresh();
-}
 
 async function pay() {
   trouble.value = "";
@@ -114,25 +126,11 @@ async function restore() {
 
       <div v-if="asksToPay" class="ft-plan__acts">
         <button type="button" class="ft-plan__pay" data-test="pay" @click="pay">{{ payText }}</button>
-        <button type="button" class="ft-plan__young" data-test="young" @click="iAm('minor')">
-          {{ $t("plan.iAmYoung") }}
-        </button>
       </div>
 
       <ion-button v-if="asksToPay" fill="clear" class="ft-plan__restore" data-test="restore" @click="restore">
         {{ $t("plan.restore") }}
       </ion-button>
-
-      <!-- Said once, kept as a word, and undone here if it was a mistake (§43). -->
-      <button
-        v-if="plan?.age === 'minor'"
-        type="button"
-        class="ft-plan__young"
-        data-test="older"
-        @click="iAm('adult')"
-      >
-        {{ $t("plan.iAmOlder") }}
-      </button>
 
       <p v-if="trouble" class="ft-plan__trouble" role="alert" data-test="trouble">{{ trouble }}</p>
     </ion-content>
@@ -167,20 +165,6 @@ async function restore() {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
-}
-.ft-plan__young {
-  appearance: none;
-  border: 1px solid var(--ft-border);
-  border-radius: 14px;
-  padding: 12px 18px;
-  margin: var(--ft-space-3) var(--ft-space-4) 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.ft-plan__acts .ft-plan__young {
-  margin: 0;
 }
 .ft-plan__restore {
   margin: var(--ft-space-3) var(--ft-space-2) 0;

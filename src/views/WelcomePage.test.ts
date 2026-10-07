@@ -46,6 +46,17 @@ describe("WelcomePage", () => {
     expect(calls.map(([command]) => command)).toContain("core_enable_push");
   });
 
+  // 2026-10-07: at the first launch, before any price is shown, the system says whether the
+  // user is a minor or an adult (its own sheet); the notifications are asked after it.
+  it("asks the system for the age before the notifications", async () => {
+    const wrapper = mount(WelcomePage, { shallow: true });
+    await wrapper.find("[data-test='start']").trigger("click");
+    await flushPromises();
+    const commands = calls.map(([command]) => command);
+    expect(commands).toContain("core_check_age");
+    expect(commands.indexOf("core_check_age")).toBeLessThan(commands.indexOf("core_enable_push"));
+  });
+
   // §60: a new phone can take the identity of the old one instead of starting from scratch.
   it("offers bringing everything from an old phone", async () => {
     await mount(WelcomePage, { shallow: true }).find("[data-test='move-from-old']").trigger("click");

@@ -988,9 +988,19 @@ export async function followPlan(changed: () => void): Promise<() => void> {
   return listen(PLAN_EVENT, () => changed()).catch(() => () => undefined);
 }
 
-/** What the user says about their age; never a date of birth (§30, §43). */
-export async function setAge(age: "minor" | "adult"): Promise<void> {
-  await invoke("core_set_age", { age });
+/**
+ * Asks the phone's system whether the user is a minor or an adult (Ioan, 2026-10-07): Declared
+ * Age Range on iOS 26+, Play Age Signals on Android; it may show the system's own sheet. Resolves
+ * with what the core kept (an answer only fills in an unknown age or says a minor grew up), and
+ * with "unknown" when nobody could say. Never a date of birth (§30, §43); it never throws.
+ */
+export async function checkAge(): Promise<PlanView["age"]> {
+  try {
+    const kept = await invoke<string>("core_check_age");
+    return kept === "minor" || kept === "adult" ? kept : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 /** Asks the Store for the subscription. No payment data ever reaches us (§47). */

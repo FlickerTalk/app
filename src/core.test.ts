@@ -776,6 +776,26 @@ describe("the Store's price", () => {
   });
 });
 
+// 2026-10-07: minor or adult is what the phone's system says, never what the user declares.
+describe("the age", () => {
+  it("is asked of the system and comes back as the word the core kept", async () => {
+    tauri.invoke.mockResolvedValueOnce("minor");
+    expect(await core.checkAge()).toBe("minor");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_check_age");
+  });
+
+  it("is unknown when the system cannot say or the core does not answer", async () => {
+    tauri.invoke.mockResolvedValueOnce("2008-04-01");
+    expect(await core.checkAge()).toBe("unknown");
+    tauri.invoke.mockRejectedValueOnce("no core");
+    expect(await core.checkAge()).toBe("unknown");
+  });
+
+  it("can no longer be declared by the user", () => {
+    expect("setAge" in core).toBe(false);
+  });
+});
+
 // A suggestion from Settings (2026-10-02): what the core says, and "failed" when it cannot say.
 describe("a suggestion", () => {
   beforeEach(() => tauri.invoke.mockReset());

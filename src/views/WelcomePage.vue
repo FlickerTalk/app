@@ -3,7 +3,7 @@ import { ref } from "vue";
 import { IonContent, IonIcon, IonPage } from "@ionic/vue";
 import { arrowForward } from "ionicons/icons";
 import { useRouter } from "vue-router";
-import { enablePush, setName, store } from "../core";
+import { checkAge, enablePush, setName, store } from "../core";
 import { setOnboarded } from "../preferences";
 
 const router = useRouter();
@@ -16,8 +16,10 @@ async function start() {
     await setName(name.value);
   }
   setOnboarded();
-  // M4: from now on the phone can be woken when the app is closed (asks for notifications).
-  void enablePush();
+  // 2026-10-07: minor or adult, as the phone's system says it (its own sheet), before any price
+  // is shown. Then M4: from now on the phone can be woken when the app is closed (asks for
+  // notifications), one system question after the other.
+  void checkAge().then(() => enablePush());
   router.replace("/tabs/chats");
 }
 </script>

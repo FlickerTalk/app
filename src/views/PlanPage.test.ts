@@ -70,17 +70,62 @@ describe("PlanPage", () => {
     expect(wrapper.find("[data-test='where']").text()).toBe("Free · 365 days left");
   });
 
-  // §40: under 21 it is free, and that is a thing the user says, never a date we keep.
-  it("asks the age and keeps only the answer", async () => {
-    planning({ state: "limited", until: 0, age: "unknown" });
+  // Ioan, 2026-10-07: minor or adult is what the phone's system says. Nothing on the screen lets
+  // the user declare an age, and the screen never says a date.
+  it("lets nobody declare an age", async () => {
+    for (const age of ["unknown", "minor", "adult"]) {
+      planning({ state: age === "minor" ? "young" : "limited", until: 0, age });
+      const wrapper = mount(PlanPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='young']").exists(), age).toBe(false);
+      expect(wrapper.find("[data-test='older']").exists(), age).toBe(false);
+      expect(wrapper.html()).not.toContain("birth");
+    }
+    expect(calls.map(([command]) => command)).not.toContain("core_set_age");
+  });
+
+  // Before the price is shown, a phone that is not known to be an adult's asks the system again:
+  // an unknown age may be filled in and a minor may have grown up. Then the plan is read again.
+  it("asks the system again before showing the price unless it is an adult's", async () => {
+    let age = "unknown";
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_check_age") return (age = "minor");
+      if (command === "core_subscription_price") return { price: "0,99 €" };
+      return command === "core_plan" ? { state: age === "minor" ? "young" : "limited", until: 0, age } : undefined;
+    });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
+    expect(calls.map(([command]) => command)).toContain("core_check_age");
+    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.young);
+    expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+  });
 
-    await wrapper.find("[data-test='young']").trigger("click");
+  it("does not ask an adult's phone again", async () => {
+    planning({ state: "limited", until: 0, age: "adult" });
+    mount(PlanPage, { shallow: true });
     await flushPromises();
-    expect(calls).toContainEqual(["core_set_age", { age: "minor" }]);
-    expect(calls.some(([command]) => command === "core_plan")).toBe(true);
-    expect(wrapper.html()).not.toContain("birth");
+    expect(calls.map(([command]) => command)).not.toContain("core_check_age");
+  });
+
+  // During the free year the age changes nothing: the system is not asked again then.
+  it("does not ask the system again during the free year", async () => {
+    planning({ state: "trial", until: Date.now() + 40 * DAY, age: "unknown" });
+    mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(calls.map(([command]) => command)).not.toContain("core_check_age");
+  });
+
+  // Ioan, 2026-10-07: the rule reads "minors are always free", with no age written in any
+  // language: what makes a minor is what the phone's system says.
+  it("says minors are free without writing an age in any language", () => {
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      for (const key of ["young", "hint", "hintYearly"]) {
+        expect(String(catalogue.plan[key]), `${path} plan.${key}`).not.toMatch(/18|21|১৮|২১|१८|२१|๑๘|๒๑/);
+      }
+      expect(catalogue.plan, path).not.toHaveProperty("iAmYoung");
+      expect(catalogue.plan, path).not.toHaveProperty("iAmOlder");
+    }
   });
 
   // 2026-09-29: the price is the Store's, as the Store writes it for this phone (0,99 € in
@@ -139,7 +184,7 @@ describe("PlanPage", () => {
     }
   });
 
-  it("asks for nothing from someone under 21", async () => {
+  it("asks for nothing from a minor", async () => {
     planning({ state: "young", until: 0, age: "minor" });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
@@ -232,7 +277,7 @@ describe("PlanPage", () => {
       expect(wrapper.find("[data-test='restore']").exists()).toBe(true);
     });
 
-    it("is not offered to a subscriber nor to someone under 21", async () => {
+    it("is not offered to a subscriber nor to a minor", async () => {
       for (const state of ["subscribed", "young"]) {
         restoring(() => "nothing", state);
         const wrapper = mount(PlanPage, { shallow: true });

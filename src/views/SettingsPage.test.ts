@@ -75,7 +75,7 @@ describe("SettingsPage", () => {
   });
 
   // Found in the StoreKit test of 2026-10-07: the row only knew the free year, so a subscriber
-  // and someone under 21 both read "Free year over". It says what the Plan screen says.
+  // and a minor both read "Free year over". It says what the Plan screen says.
   it("says a subscriber has paid, until when", async () => {
     const until = Date.now() + 300 * 24 * 3600 * 1000;
     store.me.freeUntil = Date.now() - 1000;
@@ -97,12 +97,14 @@ describe("SettingsPage", () => {
     expect(wrapper.find("[data-test='plan']").text()).not.toContain(new Date(until).toLocaleDateString());
   });
 
-  it("says it is free under 21 once the free year is over", async () => {
+  // 2026-10-07: minors are always free, and the row writes no age (the system says who is one).
+  it("says it is free for a minor once the free year is over", async () => {
     store.me.freeUntil = Date.now() - 1000;
     installTauri((command) => (command === "core_plan" ? { state: "young", until: 0, age: "minor" } : undefined));
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain("Free · under 21");
+    expect(wrapper.find("[data-test='plan']").text()).toContain("Free · minors never pay");
+    expect(wrapper.find("[data-test='plan']").text()).not.toMatch(/18|21/);
     expect(wrapper.text()).not.toContain("Free year over");
   });
 
