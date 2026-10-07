@@ -53,7 +53,8 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// only the app's version (a release of fixes). 1.3.2 (2026-10-03): none either (fixes).
 /// 1.3.3 (2026-10-04): none either (same build as 1.3.2 with all Android ABIs).
 /// 1.4.0 (2026-10-06): none either (chat features and more seeds; the Plugin API is unchanged).
-pub const CORE_VERSION: &str = "1.4.0";
+/// 1.4.1 (2026-10-07): `takePhoto`, a photo from the camera, and `notify`, a toast over the app.
+pub const CORE_VERSION: &str = "1.4.1";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 /// What the key of a plugin's chat ids is derived for, from the storage key (2026-10-02).
