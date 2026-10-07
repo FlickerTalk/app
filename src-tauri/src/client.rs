@@ -1260,7 +1260,12 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                         Event::VaultChanged => {
                             let _ = app.emit(VAULT_EVENT, ());
                         }
+                        // The tools open or close with the plan (2026-10-08): what the WebView
+                        // serves follows it.
                         Event::PlanChanged => {
+                            if let Ok(dir) = app.state::<Client>().dir() {
+                                refresh_served_plugins(&app, &core_for_events, dir).await;
+                            }
                             let _ = app.emit(PLAN_EVENT, ());
                         }
                         Event::VaultProgress { done, total } => {
@@ -1620,11 +1625,29 @@ async fn sync_reminders(app: &AppHandle, core: &Arc<Core>) {
     }
 }
 
-/// What the WebView may serve of each plugin right now: kept in step with what is installed and
-/// what the user granted (§53, §55).
+/// What the WebView may serve of each plugin right now: kept in step with what is installed, what
+/// the user granted (§53, §55) and what the plan lets open (a tool after the free year without
+/// the subscription does not, Ioan 2026-10-08).
 pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, dir: &Path) {
-    let mut served = std::collections::HashMap::new();
+    let mut plugins = Vec::new();
     for plugin in core.plugins().await.unwrap_or_default() {
+        let open = core.may_use(plugin.manifest.kind).await.unwrap_or(false);
+        plugins.push((plugin, open));
+    }
+    app.state::<crate::plugins::Plugins>().set(served_of(plugins, dir));
+}
+
+/// The plugins the WebView serves, each from its folder with the policy its grant allows; one
+/// the plan keeps closed (`false`) is not served at all.
+fn served_of(
+    plugins: Vec<(ft_core::plugins::InstalledPlugin, bool)>,
+    dir: &Path,
+) -> std::collections::HashMap<String, crate::plugins::Served> {
+    let mut served = std::collections::HashMap::new();
+    for (plugin, open) in plugins {
+        if !open {
+            continue;
+        }
         let Some(component) = plugin.manifest.components.first().cloned() else { continue };
         served.insert(
             plugin.manifest.id.clone(),
@@ -1636,7 +1659,7 @@ pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, 
             },
         );
     }
-    app.state::<crate::plugins::Plugins>().set(served);
+    served
 }
 
 /// After a move (§60): the new phone forgets its temporary identity on the router and starts
@@ -2113,7 +2136,6 @@ pub struct PlanView {
     state: String,
     /// When the free year ends, or when the subscription runs out (ms); 0 when neither applies.
     until: i64,
-    age: String,
     /// A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the
     /// last check of Play holds, not an expiry (Play never tells the phone one), so the screen says
     /// "renews automatically" instead of a date. On iOS `until` is StoreKit's own expiry.
@@ -2122,22 +2144,21 @@ pub struct PlanView {
 }
 
 /// The plan as the screen reads it; `play`: the Store is Google Play (Android).
-fn plan_view(access: ft_billing::Access, age: ft_billing::AgeClass, play: bool) -> PlanView {
+fn plan_view(access: ft_billing::Access, play: bool) -> PlanView {
     let renews = play && matches!(access, ft_billing::Access::Subscribed { .. });
     let (state, until) = match access {
         ft_billing::Access::Trial { until } => ("trial", until),
-        ft_billing::Access::Young => ("young", 0),
         ft_billing::Access::Subscribed { until } => ("subscribed", until),
         ft_billing::Access::Limited => ("limited", 0),
     };
-    PlanView { state: state.to_owned(), until, age: age.as_str().to_owned(), renews }
+    PlanView { state: state.to_owned(), until, renews }
 }
 
 #[tauri::command]
 pub async fn core_plan(client: State<'_, Client>) -> Result<PlanView, String> {
     let core = client.core().await?;
     let plan = core.plan().await.map_err(failed)?;
-    Ok(plan_view(ft_billing::Access::of(now_ms(), plan), plan.age, cfg!(target_os = "android")))
+    Ok(plan_view(ft_billing::Access::of(now_ms(), plan), cfg!(target_os = "android")))
 }
 
 /// What a year costs, as the Store formats it for this phone (2026-09-29); `price` is `null` when
@@ -2177,12 +2198,6 @@ fn feedback_word(outcome: ft_core::Feedback) -> &'static str {
         ft_core::Feedback::TooMany => "tooMany",
         ft_core::Feedback::Failed => "failed",
     }
-}
-
-/// What the user said about their age. Under 21 is always free (§40); it never leaves the phone.
-#[tauri::command]
-pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.set_age_class(ft_billing::AgeClass::of(&age)).await.map_err(failed)
 }
 
 /// Asks the Store for the subscription and keeps what it answers (§45, §47). The app never sees
@@ -2707,10 +2722,15 @@ impl OpenPlugins {
     }
 }
 
-/// A frame of a plugin opened (`open`) or has closed for good, as the screen says.
+/// A frame of a plugin opened (`open`) or has closed for good, as the screen says. A tool the plan
+/// keeps closed is refused with `needs_subscription` (2026-10-08) and not counted as open.
 #[tauri::command]
-pub fn core_plugin_open(plugin: String, open: bool, frames: State<'_, OpenPlugins>) {
+pub async fn core_plugin_open(plugin: String, open: bool, frames: State<'_, OpenPlugins>, client: State<'_, Client>) -> Result<(), String> {
+    if open {
+        client.core().await?.open_plugin(&plugin).await.map_err(failed)?;
+    }
     frames.set(&plugin, open);
+    Ok(())
 }
 
 /// How often the app looks for updates on its own, after it starts: the screens that read the
@@ -4046,14 +4066,45 @@ mod tests {
     #[test]
     fn a_play_subscription_is_shown_as_renewing_and_an_apple_one_with_its_expiry() {
         let until = 1_830_000_000_000;
-        let play = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, true);
-        assert_eq!(serde_json::to_value(&play).unwrap(), serde_json::json!({ "state": "subscribed", "until": until, "age": "adult", "renews": true }));
-        let apple = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, false);
+        let play = plan_view(ft_billing::Access::Subscribed { until }, true);
+        assert_eq!(serde_json::to_value(&play).unwrap(), serde_json::json!({ "state": "subscribed", "until": until, "renews": true }));
+        let apple = plan_view(ft_billing::Access::Subscribed { until }, false);
         assert_eq!(serde_json::to_value(&apple).unwrap()["renews"], serde_json::json!(false));
-        // Nothing else renews: the free year, under 21, the year over.
-        for access in [ft_billing::Access::Trial { until }, ft_billing::Access::Young, ft_billing::Access::Limited] {
-            assert_eq!(serde_json::to_value(plan_view(access, ft_billing::AgeClass::Unknown, true)).unwrap()["renews"], serde_json::json!(false));
+        // Nothing else renews: the free year, the year over.
+        for access in [ft_billing::Access::Trial { until }, ft_billing::Access::Limited] {
+            assert_eq!(serde_json::to_value(plan_view(access, true)).unwrap()["renews"], serde_json::json!(false));
         }
+    }
+
+    // Ioan, 2026-10-08: the screen hears three states, and no age (there is no age rule any more).
+    #[test]
+    fn the_plan_has_three_states_and_no_age() {
+        let states: Vec<serde_json::Value> = [ft_billing::Access::Trial { until: 1 }, ft_billing::Access::Subscribed { until: 1 }, ft_billing::Access::Limited]
+            .into_iter()
+            .map(|access| serde_json::to_value(plan_view(access, false)).unwrap())
+            .collect();
+        assert_eq!(states.iter().map(|view| view["state"].as_str().unwrap()).collect::<Vec<_>>(), ["trial", "subscribed", "limited"]);
+        assert!(states.iter().all(|view| view.get("age").is_none()));
+    }
+
+    // Ioan, 2026-10-08: a tool the plan has closed is not served to the WebView at all, whatever
+    // screen tries to show it; a game always is.
+    #[test]
+    fn a_closed_tool_is_not_served_and_a_game_is() {
+        let plugin = |id: &str, kind: &str| ft_core::plugins::InstalledPlugin {
+            manifest: serde_json::from_str(&format!(
+                r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"kind":"{kind}"}}"#
+            ))
+            .unwrap(),
+            granted: ft_plugins::Permissions::default(),
+            installed_at: 0,
+        };
+        let dir = Path::new("/tmp/ft");
+        let served = served_of(vec![(plugin("com.example.code", "tool"), false), (plugin("game.example.chess", "game"), true)], dir);
+        assert_eq!(served.keys().collect::<Vec<_>>(), ["game.example.chess"]);
+        assert_eq!(served["game.example.chess"].dir, dir.join("plugins").join("game.example.chess"));
+        let served = served_of(vec![(plugin("com.example.code", "tool"), true)], dir);
+        assert!(served.contains_key("com.example.code"), "open in the free year or with the subscription");
     }
 
     // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in
