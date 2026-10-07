@@ -35,7 +35,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use async_trait::async_trait;
-use ft_billing::{Access, AgeClass, Doing, Plan};
+use ft_billing::{Access, Plan};
 use ft_contacts::{ContactCard, RouteCapability};
 use ft_crypto::{accept_first_contact, Channel};
 use ft_identity::{DeviceId, EnvelopeKey, Identity};
@@ -60,13 +60,14 @@ const NAME: &str = "name";
 const MAILBOX: &str = "mailbox";
 /// When the app was first opened on this phone (ms): the free year counts from it (§41).
 const INSTALLED_AT: &str = "installed_at";
-/// What the user said about their age, as a word; never a date of birth (§30, §43).
-const AGE_CLASS: &str = "age_class";
+// `age_class` (a settings key, 2026-09-22 to 2026-10-08) is no longer read nor written: there is
+// no age rule any more (Ioan, 2026-10-08). A phone that kept one keeps the row, unused.
 /// Until when the Store says the subscription runs (ms); 0 when there is none (§45).
 const PAID_UNTIL: &str = "paid_until";
 /// The first year is free (§40–41).
-/// What the app says when it stops someone: short, and the same everywhere.
-const ASK_FOR_THE_EURO: &str = "a subscription is needed to start something new";
+/// What the core answers when the plan closes a tool (Ioan, 2026-10-08): a key, never a sentence;
+/// the screen says it in the user's language and offers the subscription.
+pub const NEEDS_SUBSCRIPTION: &str = "needs_subscription";
 
 pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 3600);
 
@@ -515,27 +516,17 @@ impl Core {
         Ok(installed + FREE_PERIOD.as_millis() as i64)
     }
 
-    /// Where this phone stands: the free year, the age the user declared and what the Store says
-    /// about the subscription. None of it leaves the phone (§45–§47).
+    /// Where this phone stands: the free year and what the Store says about the subscription.
+    /// None of it leaves the phone (§45–§47).
     pub async fn plan(&self) -> Result<Plan> {
         Ok(Plan {
             free_until: self.free_until().await?,
-            age: self.age_class().await?,
             paid_until: self.store.setting(PAID_UNTIL).await?.and_then(|at| at.parse().ok()).unwrap_or(0),
         })
     }
 
     pub async fn access(&self) -> Result<Access> {
         Ok(Access::of(now(), self.plan().await?))
-    }
-
-    pub async fn age_class(&self) -> Result<AgeClass> {
-        Ok(AgeClass::of(self.store.setting(AGE_CLASS).await?.as_deref().unwrap_or_default()))
-    }
-
-    /// What the user answered about their age. Under 21 is always free (§40).
-    pub async fn set_age_class(&self, age: AgeClass) -> Result<()> {
-        self.store.set_setting(AGE_CLASS, age.as_str()).await
     }
 
     /// What the Store said about the subscription, checked by the platform bridge (§45).
@@ -549,12 +540,6 @@ impl Core {
         Ok(())
     }
 
-    /// Refuses what the plan does not allow. Receiving is never refused: a message that arrives is
-    /// delivered whatever the plan says (§1).
-    async fn allowed(&self, doing: Doing) -> Result<()> {
-        ensure!(self.access().await?.may(doing), "the free year is over: {}", ASK_FOR_THE_EURO);
-        Ok(())
-    }
 
     /// Whether this phone uses the mailbox (§19); on by default.
     pub async fn mailbox(&self) -> Result<bool> {
@@ -1077,8 +1062,6 @@ impl Core {
             }
             None => None,
         };
-        let started = !self.store.messages(contact, 1).await?.is_empty();
-        self.allowed(if started { Doing::Reply } else { Doing::Start }).await?;
         let message_id = MessageId::new().to_string();
         self.store
             .insert_message(&Message {
@@ -1225,9 +1208,6 @@ impl Core {
             }
             None => None,
         };
-        // Answering is always allowed; writing to someone for the first time is starting (§42).
-        let started = !self.store.messages(contact, 1).await?.is_empty();
-        self.allowed(if started { Doing::Reply } else { Doing::Start }).await?;
         let packet = Packet::new(Body::Message { text: text.to_owned(), reply_to });
         let message_id = packet.id.to_string();
         self.store
