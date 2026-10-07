@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar, toastController } from "@ionic/vue";
+import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar, onIonViewWillEnter, toastController } from "@ionic/vue";
 import { daysLeft, followPlan, payTrouble, plan as planOf, restoreSubscription, subscribe, subscriptionPrice, type PlanView } from "../core";
 import { t } from "../i18n";
 
-// Plan §40–§47 (Ioan, 2026-10-08): chat, calls, files and games are free forever. The tools are
-// free the first year from the install, then a yearly subscription at the Store's price (0,99 € in
-// Spain since 2026-09-29). There is no age rule. Everything is decided on this phone.
+// Plan §40–§47 (Ioan, 2026-10-08): chat, calls, files and games are free forever. The premium part
+// (the tools and the extra sessions with a PIN) is free for 15 days from the install, then a yearly
+// subscription at the Store's price (0,99 € in Spain since 2026-09-29). There is no age rule.
+// Everything is decided on this phone.
 const plan = ref<PlanView | null>(null);
 const trouble = ref("");
 /** What a year costs, as the Store formats it; null while unknown or when it cannot say. */
@@ -17,18 +18,42 @@ const price = ref<string | null>(null);
 let stopFollowing: (() => void) | null = null;
 let gone = false;
 
+/**
+ * Asks the Store what a year costs (2026-10-08: on entering, when the plan changes and back on the
+ * screen, since the Store's account or country may have changed). The Store may take a while or
+ * not answer at all: the screen does not wait for it, and keeps the last price it said.
+ */
+function askPrice() {
+  void subscriptionPrice().then((said) => {
+    if (said) price.value = said;
+  });
+}
+
+function onVisible() {
+  if (document.visibilityState !== "visible") return;
+  void refresh();
+  askPrice();
+}
+
 onMounted(() => {
   void refresh();
-  // The Store may take a while or not answer at all: the screen does not wait for it.
-  void subscriptionPrice().then((said) => (price.value = said));
+  askPrice();
+  document.addEventListener("visibilitychange", onVisible);
   // What the Store said before (waiting for approval, say) is no longer true then.
   void followPlan(() => {
     trouble.value = "";
     void refresh();
+    askPrice();
   }).then((stop) => (gone ? stop() : (stopFollowing = stop)));
+});
+// Ionic keeps the page alive in its stack: back on it, the plan and the price are read again.
+onIonViewWillEnter(() => {
+  void refresh();
+  askPrice();
 });
 onBeforeUnmount(() => {
   gone = true;
+  document.removeEventListener("visibilitychange", onVisible);
   stopFollowing?.();
 });
 
@@ -57,7 +82,7 @@ const where = computed(() => {
   }
 });
 
-/** The subscription is only asked once the free year is over (§42). */
+/** The subscription is only asked once the free days are over (§42). */
 const asksToPay = computed(() => plan.value?.state === "limited");
 
 async function pay() {

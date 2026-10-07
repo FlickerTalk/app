@@ -247,9 +247,9 @@
     "movePhone": "Passa a un nuovo telefono",
     "backup": "Backup",
     "plan": "Piano",
-    "planFree": "Strumenti gratis · primo anno",
-    "planFreeDays": "Strumenti gratis · {days} giorni rimasti",
-    "planOver": "Gli strumenti richiedono l'abbonamento",
+    "planFree": "Premium gratis · 15 giorni",
+    "planFreeDays": "Premium gratis · {days} giorni rimasti",
+    "planOver": "Premium bloccato",
     "privacy": "Privacy",
     "version": "Versione",
     "erase": "Cancella questo telefono",
@@ -303,7 +303,9 @@
     "close": "Esci da questa sessione",
     "empty": "Ancora nessun contatto qui. Aggiungine uno con il pulsante QR: appartiene solo a questa sessione.",
     "remove": "Elimina questa sessione",
-    "removeSure": "Elimina"
+    "removeSure": "Elimina",
+    "locked": "Le sessioni extra con PIN richiedono l'abbonamento. Chat, chiamate, file e giochi restano gratis.",
+    "subscribeToUse": "Abbonati per usare sessioni extra"
   },
   "colors": {
     "ember": "Brace",
@@ -335,7 +337,7 @@
     "opens": "Apre: {kinds}",
     "open": "Apri",
     "locked": "Abbonati per usare gli strumenti",
-    "lockedHint": "L'anno gratuito è finito: gli strumenti richiedono l'abbonamento. Chat, chiamate, file e giochi restano gratis.",
+    "lockedHint": "I giorni gratuiti sono finiti: gli strumenti richiedono l'abbonamento. Chat, chiamate, file e giochi restano gratis.",
     "subscribe": "Abbonati"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Simboli"
   },
   "plan": {
-    "trial": "Strumenti gratis · {days} giorni rimasti",
+    "trial": "Premium gratis · {days} giorni rimasti",
     "subscribed": "Pagato · fino al {until}",
     "renewing": "A pagamento · rinnovo automatico",
-    "limited": "L'anno gratuito degli strumenti è finito",
-    "hint": "Chat, chiamate, file e giochi sono gratis per sempre. Gli strumenti sono gratis il primo anno, poi {price} all'anno.",
-    "hintYearly": "Chat, chiamate, file e giochi sono gratis per sempre. Gli strumenti sono gratis il primo anno, poi con un abbonamento annuale.",
+    "limited": "I giorni gratuiti sono finiti",
+    "hint": "Chat, chiamate, file e giochi sono gratis, per sempre. Strumenti e sessioni extra con PIN: gratis per 15 giorni, poi {price} all'anno.",
+    "hintYearly": "Chat, chiamate, file e giochi sono gratis, per sempre. Strumenti e sessioni extra con PIN: gratis per 15 giorni, poi con un abbonamento annuale.",
     "pay": "{price} all'anno",
     "payYearly": "Abbonamento annuale",
     "restore": "Ripristina acquisti",
@@ -369,7 +371,7 @@
       "pending_approval": "L'acquisto è in attesa di approvazione.",
       "failed": "Lo store non è riuscito a incassare il pagamento."
     },
-    "premium": "L'abbonamento sblocca tutti gli strumenti: quelli inclusi in FlickerTalk e quelli che aggiungi."
+    "premium": "Premium sono gli strumenti (quelli inclusi in FlickerTalk e quelli che aggiungi) e ogni sessione con PIN oltre a quella principale."
   },
   "requests": {
     "title": "Richieste",

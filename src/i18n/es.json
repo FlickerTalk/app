@@ -247,9 +247,9 @@
     "movePhone": "Transferir a un teléfono nuevo",
     "backup": "Copia de seguridad",
     "plan": "Plan",
-    "planFree": "Herramientas gratis · primer año",
-    "planFreeDays": "Herramientas gratis · quedan {days} días",
-    "planOver": "Las herramientas necesitan la suscripción",
+    "planFree": "Premium gratis · 15 días",
+    "planFreeDays": "Premium gratis · quedan {days} días",
+    "planOver": "Premium bloqueado",
     "privacy": "Privacidad",
     "version": "Versión",
     "erase": "Borrar este teléfono",
@@ -303,7 +303,9 @@
     "close": "Salir de esta sesión",
     "empty": "Aún no hay contactos aquí. Añade uno con el botón QR: solo pertenece a esta sesión.",
     "remove": "Borrar esta sesión",
-    "removeSure": "Borrar"
+    "removeSure": "Borrar",
+    "locked": "Las sesiones extra con PIN necesitan la suscripción. El chat, las llamadas, los archivos y los juegos siguen gratis.",
+    "subscribeToUse": "Suscríbete para usar sesiones extra"
   },
   "colors": {
     "ember": "Brasa",
@@ -335,7 +337,7 @@
     "opens": "Abre: {kinds}",
     "open": "Abrir",
     "locked": "Suscríbete para usar las herramientas",
-    "lockedHint": "El año gratis ha terminado: las herramientas necesitan la suscripción. El chat, las llamadas, los archivos y los juegos siguen gratis.",
+    "lockedHint": "Los días gratis han terminado: las herramientas necesitan la suscripción. El chat, las llamadas, los archivos y los juegos siguen gratis.",
     "subscribe": "Suscribirse"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Símbolos"
   },
   "plan": {
-    "trial": "Herramientas gratis · quedan {days} días",
+    "trial": "Premium gratis · quedan {days} días",
     "subscribed": "De pago · hasta {until}",
     "renewing": "De pago · renovación automática",
-    "limited": "El año gratis de las herramientas ha terminado",
-    "hint": "El chat, las llamadas, los archivos y los juegos son gratis para siempre. Las herramientas son gratis el primer año y después cuestan {price} al año.",
-    "hintYearly": "El chat, las llamadas, los archivos y los juegos son gratis para siempre. Las herramientas son gratis el primer año y después van con una suscripción anual.",
+    "limited": "Los días gratis han terminado",
+    "hint": "El chat, las llamadas, los archivos y los juegos son gratis, para siempre. Herramientas y sesiones extra con PIN: gratis 15 días, después {price} al año.",
+    "hintYearly": "El chat, las llamadas, los archivos y los juegos son gratis, para siempre. Herramientas y sesiones extra con PIN: gratis 15 días, después con una suscripción anual.",
     "pay": "{price} al año",
     "payYearly": "Suscripción anual",
     "restore": "Restaurar compras",
@@ -369,7 +371,7 @@
       "pending_approval": "La compra está esperando aprobación.",
       "failed": "La tienda no pudo cobrar el pago."
     },
-    "premium": "La suscripción abre todas las herramientas: las que trae FlickerTalk y las que añadas."
+    "premium": "Premium son las herramientas (las que trae FlickerTalk y las que añadas) y cada sesión con PIN además de la principal."
   },
   "requests": {
     "title": "Solicitudes",

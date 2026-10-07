@@ -247,9 +247,9 @@
     "movePhone": "Mută pe un telefon nou",
     "backup": "Backup",
     "plan": "Plan",
-    "planFree": "Instrumente gratuite · primul an",
-    "planFreeDays": "Instrumente gratuite · mai sunt {days} zile",
-    "planOver": "Instrumentele necesită abonamentul",
+    "planFree": "Premium gratuit · 15 zile",
+    "planFreeDays": "Premium gratuit · mai sunt {days} zile",
+    "planOver": "Premium blocat",
     "privacy": "Confidențialitate",
     "version": "Versiune",
     "erase": "Șterge acest telefon",
@@ -303,7 +303,9 @@
     "close": "Ieși din această sesiune",
     "empty": "Încă nu sunt contacte aici. Adaugă unul cu butonul QR: aparține doar acestei sesiuni.",
     "remove": "Șterge această sesiune",
-    "removeSure": "Șterge"
+    "removeSure": "Șterge",
+    "locked": "Sesiunile suplimentare cu PIN necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
+    "subscribeToUse": "Abonează-te pentru sesiuni suplimentare"
   },
   "colors": {
     "ember": "Jar",
@@ -335,7 +337,7 @@
     "opens": "Deschide: {kinds}",
     "open": "Deschide",
     "locked": "Abonează-te pentru a folosi instrumentele",
-    "lockedHint": "Anul gratuit s-a încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
+    "lockedHint": "Zilele gratuite s-au încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
     "subscribe": "Abonează-te"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Simboluri"
   },
   "plan": {
-    "trial": "Instrumente gratuite · mai sunt {days} zile",
+    "trial": "Premium gratuit · mai sunt {days} zile",
     "subscribed": "Plătit · până la {until}",
     "renewing": "Plătit · se reînnoiește automat",
-    "limited": "Anul gratuit al instrumentelor s-a încheiat",
-    "hint": "Chatul, apelurile, fișierele și jocurile sunt gratuite pentru totdeauna. Instrumentele sunt gratuite în primul an, apoi {price} pe an.",
-    "hintYearly": "Chatul, apelurile, fișierele și jocurile sunt gratuite pentru totdeauna. Instrumentele sunt gratuite în primul an, apoi cu un abonament anual.",
+    "limited": "Zilele gratuite s-au încheiat",
+    "hint": "Chatul, apelurile, fișierele și jocurile sunt gratuite, pentru totdeauna. Instrumente și sesiuni suplimentare cu PIN: gratuite 15 zile, apoi {price} pe an.",
+    "hintYearly": "Chatul, apelurile, fișierele și jocurile sunt gratuite, pentru totdeauna. Instrumente și sesiuni suplimentare cu PIN: gratuite 15 zile, apoi cu un abonament anual.",
     "pay": "{price} pe an",
     "payYearly": "Abonament anual",
     "restore": "Restabilește achizițiile",
@@ -369,7 +371,7 @@
       "pending_approval": "Achiziția așteaptă aprobarea.",
       "failed": "Magazinul nu a putut încasa plata."
     },
-    "premium": "Abonamentul deblochează toate instrumentele: cele incluse în FlickerTalk și cele pe care le adaugi."
+    "premium": "Premium înseamnă instrumentele (cele incluse în FlickerTalk și cele pe care le adaugi) și fiecare sesiune cu PIN în afară de cea principală."
   },
   "requests": {
     "title": "Cereri",

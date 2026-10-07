@@ -247,9 +247,9 @@
     "movePhone": "Transferir para um celular novo",
     "backup": "Backup",
     "plan": "Plano",
-    "planFree": "Ferramentas grátis · primeiro ano",
-    "planFreeDays": "Ferramentas grátis · faltam {days} dias",
-    "planOver": "As ferramentas precisam da assinatura",
+    "planFree": "Premium grátis · 15 dias",
+    "planFreeDays": "Premium grátis · faltam {days} dias",
+    "planOver": "Premium bloqueado",
     "privacy": "Privacidade",
     "version": "Versão",
     "erase": "Apagar este celular",
@@ -303,7 +303,9 @@
     "close": "Sair desta sessão",
     "empty": "Ainda não há contatos aqui. Adicione um com o botão QR: ele pertence só a esta sessão.",
     "remove": "Apagar esta sessão",
-    "removeSure": "Apagar"
+    "removeSure": "Apagar",
+    "locked": "Sessões extras com PIN precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "subscribeToUse": "Assine para usar sessões extras"
   },
   "colors": {
     "ember": "Brasa",
@@ -335,7 +337,7 @@
     "opens": "Abre: {kinds}",
     "open": "Abrir",
     "locked": "Assine para usar as ferramentas",
-    "lockedHint": "O ano grátis terminou: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "lockedHint": "Os dias grátis terminaram: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
     "subscribe": "Assinar"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Símbolos"
   },
   "plan": {
-    "trial": "Ferramentas grátis · faltam {days} dias",
+    "trial": "Premium grátis · faltam {days} dias",
     "subscribed": "Pago · até {until}",
     "renewing": "Pago · renovação automática",
-    "limited": "O ano grátis das ferramentas terminou",
-    "hint": "Chat, chamadas, arquivos e jogos são grátis para sempre. As ferramentas são grátis no primeiro ano e depois custam {price} por ano.",
-    "hintYearly": "Chat, chamadas, arquivos e jogos são grátis para sempre. As ferramentas são grátis no primeiro ano e depois exigem uma assinatura anual.",
+    "limited": "Os dias grátis terminaram",
+    "hint": "Chat, chamadas, arquivos e jogos são grátis, para sempre. Ferramentas e sessões extras com PIN: grátis por 15 dias, depois {price} por ano.",
+    "hintYearly": "Chat, chamadas, arquivos e jogos são grátis, para sempre. Ferramentas e sessões extras com PIN: grátis por 15 dias, depois com uma assinatura anual.",
     "pay": "{price} por ano",
     "payYearly": "Assinatura anual",
     "restore": "Restaurar compras",
@@ -369,7 +371,7 @@
       "pending_approval": "A compra está à espera de aprovação.",
       "failed": "A loja não conseguiu cobrar o pagamento."
     },
-    "premium": "A assinatura libera todas as ferramentas: as que o FlickerTalk traz e as que você adicionar."
+    "premium": "Premium são as ferramentas (as que o FlickerTalk traz e as que você adicionar) e cada sessão com PIN além da principal."
   },
   "requests": {
     "title": "Pedidos",

@@ -63,20 +63,20 @@ describe("SettingsPage", () => {
     expect(text).not.toContain("Export identity");
   });
 
-  // §41: the free year, counted on this phone. Settings and the Plan screen count it the same
-  // way (`daysLeft`): a phone installed a moment ago reads 365 days on both, not 364 here. Since
-  // 2026-10-08 only the tools have a free year: the row says so.
-  it("shows how long the tools stay free", () => {
-    store.me.freeUntil = Date.now() + 365 * 24 * 3600 * 1000 - 5;
+  // §41: the free days, counted on this phone. Settings and the Plan screen count them the same
+  // way (`daysLeft`): a phone installed a moment ago reads 15 days on both, not 14 here. Since
+  // 2026-10-08 only the premium part has free days (15): the row says so.
+  it("shows how long the premium part stays free", () => {
+    store.me.freeUntil = Date.now() + 15 * 24 * 3600 * 1000 - 5;
     const text = mount(SettingsPage, { shallow: true }).text();
-    expect(text).toContain(en.settings.planFreeDays.replace("{days}", "365"));
-    expect(en.settings.planFreeDays).toMatch(/tools/i);
+    expect(text).toContain(en.settings.planFreeDays.replace("{days}", "15"));
+    expect(en.settings.planFreeDays).toMatch(/premium/i);
   });
 
-  it("says the tools are locked once the free year is over", () => {
+  it("says the premium part is locked once the free days are over", () => {
     store.me.freeUntil = Date.now() - 1000;
     expect(mount(SettingsPage, { shallow: true }).text()).toContain(en.settings.planOver);
-    expect(en.settings.planOver).toMatch(/tools/i);
+    expect(en.settings.planOver).toMatch(/premium/i);
   });
 
   // Found in the StoreKit test of 2026-10-07: the row only knew the free year, so a subscriber
@@ -410,6 +410,21 @@ describe("SettingsPage", () => {
   it("goes to the PIN pad from a row", async () => {
     await mount(SettingsPage, { shallow: true }).find("[data-test='session']").trigger("click");
     expect(push).toHaveBeenCalledWith("/session");
+  });
+
+  // Ioan, 2026-10-08 (§108): extra sessions with a PIN are premium. After the free days, without the
+  // subscription, the lock sits in front of the PIN pad, never after the sixth digit: the pad must
+  // never tell whether a session exists. The row shows the lock and leads to the Plan screen.
+  it("puts the lock in front of the PIN pad once the free days are over", async () => {
+    push.mockClear();
+    installTauri((command) => (command === "core_plan" ? { state: "limited", until: 0 } : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    const row = wrapper.find("[data-test='session']");
+    expect(row.find("[data-test='session-locked']").exists()).toBe(true);
+    await row.trigger("click");
+    expect(push).toHaveBeenCalledWith("/plan");
+    expect(push).not.toHaveBeenCalledWith("/session");
   });
 
   // Issue app#6: the default for contacts added later; each contact can differ.

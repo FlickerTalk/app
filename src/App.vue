@@ -28,7 +28,7 @@ function onVisible() {
   void resumeRouter();
   if (isOnboarded()) void enablePush();
   void openTappedReminder();
-  // The plan may have changed while the app was away (the free year ended): the tools' lock too.
+  // The plan may have changed while the app was away (the free days ended): the tools' lock too.
   void refreshPremiumLock();
 }
 // An update the core made in the background reaches every list of plugins (2026-10-03).

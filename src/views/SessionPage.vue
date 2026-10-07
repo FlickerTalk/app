@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { IonBackButton, IonButtons, IonContent, IonHeader, IonIcon, IonPage, IonToolbar } from "@ionic/vue";
-import { backspaceOutline } from "ionicons/icons";
+import { onMounted, ref } from "vue";
+import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonPage, IonToolbar } from "@ionic/vue";
+import { backspaceOutline, lockClosedOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
-import { openSession } from "../core";
+import { needsSubscription, openSession } from "../core";
+import { premiumLocked, refreshPremiumLock } from "../plugins";
 
 // Hidden sessions: six digits on a pad of its own, no keyboard, no name, no title. The sixth
 // digit opens the session that has this PIN or a new empty one, and nothing says which.
@@ -13,6 +14,11 @@ const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "delete"] as
 const router = useRouter();
 const pin = ref("");
 const busy = ref(false);
+
+// Ioan, 2026-10-08 (§108): extra sessions are premium. After the free days, without the
+// subscription, the lock stands in front of the pad: no PIN is typed, so nothing can tell whether a
+// session exists. The core refuses every PIN alike all the same.
+onMounted(() => void refreshPremiumLock());
 
 async function press(key: string) {
   if (busy.value) return;
@@ -30,6 +36,11 @@ async function go() {
   try {
     await openSession(pin.value);
     router.push("/tabs/chats");
+  } catch (error) {
+    // The free days ended with the pad open: the same for any PIN.
+    if (!needsSubscription(error)) throw error;
+    premiumLocked.value = true;
+    void router.push("/plan");
   } finally {
     pin.value = "";
     busy.value = false;
@@ -48,7 +59,12 @@ async function go() {
     </ion-header>
 
     <ion-content>
-      <div class="ft-pin">
+      <div v-if="premiumLocked" class="ft-pin ft-pin--locked" data-test="locked">
+        <ion-icon :icon="lockClosedOutline" class="ft-pin__lock" aria-hidden="true" />
+        <p>{{ $t("session.locked") }}</p>
+        <ion-button data-test="subscribe" @click="router.push('/plan')">{{ $t("plugins.subscribe") }}</ion-button>
+      </div>
+      <div v-else class="ft-pin">
         <div class="ft-pin__dots" role="status" :aria-label="$t('session.pin')">
           <span
             v-for="slot in PIN_LENGTH"
@@ -90,6 +106,14 @@ async function go() {
   gap: 36px;
   min-height: 100%;
   padding: var(--ft-space-5);
+}
+.ft-pin--locked {
+  gap: var(--ft-space-4);
+  text-align: center;
+  color: var(--ft-muted);
+}
+.ft-pin__lock {
+  font-size: 40px;
 }
 .ft-pin__dots {
   display: flex;

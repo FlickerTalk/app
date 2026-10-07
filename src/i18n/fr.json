@@ -247,9 +247,9 @@
     "movePhone": "Transférer vers un nouveau téléphone",
     "backup": "Sauvegarde",
     "plan": "Offre",
-    "planFree": "Outils gratuits · première année",
-    "planFreeDays": "Outils gratuits · {days} jours restants",
-    "planOver": "Les outils nécessitent l'abonnement",
+    "planFree": "Premium gratuit · 15 jours",
+    "planFreeDays": "Premium gratuit · {days} jours restants",
+    "planOver": "Premium verrouillé",
     "privacy": "Confidentialité",
     "version": "Version",
     "erase": "Effacer ce téléphone",
@@ -303,7 +303,9 @@
     "close": "Quitter cette session",
     "empty": "Aucun contact ici pour l’instant. Ajoutez-en un avec le bouton QR : il n’appartient qu’à cette session.",
     "remove": "Supprimer cette session",
-    "removeSure": "Supprimer"
+    "removeSure": "Supprimer",
+    "locked": "Les sessions supplémentaires avec PIN nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
+    "subscribeToUse": "Abonnez-vous pour utiliser des sessions supplémentaires"
   },
   "colors": {
     "ember": "Braise",
@@ -335,7 +337,7 @@
     "opens": "Ouvre : {kinds}",
     "open": "Ouvrir",
     "locked": "Abonnez-vous pour utiliser les outils",
-    "lockedHint": "L'année gratuite est terminée : les outils nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
+    "lockedHint": "Les jours gratuits sont terminés : les outils nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
     "subscribe": "S'abonner"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Symboles"
   },
   "plan": {
-    "trial": "Outils gratuits · {days} jours restants",
+    "trial": "Premium gratuit · {days} jours restants",
     "subscribed": "Payé · jusqu’au {until}",
     "renewing": "Payant · renouvellement automatique",
-    "limited": "L'année gratuite des outils est terminée",
-    "hint": "Le chat, les appels, les fichiers et les jeux sont gratuits pour toujours. Les outils sont gratuits la première année, puis {price} par an.",
-    "hintYearly": "Le chat, les appels, les fichiers et les jeux sont gratuits pour toujours. Les outils sont gratuits la première année, puis avec un abonnement annuel.",
+    "limited": "Les jours gratuits sont terminés",
+    "hint": "Le chat, les appels, les fichiers et les jeux sont gratuits, pour toujours. Outils et sessions supplémentaires avec PIN : gratuits 15 jours, puis {price} par an.",
+    "hintYearly": "Le chat, les appels, les fichiers et les jeux sont gratuits, pour toujours. Outils et sessions supplémentaires avec PIN : gratuits 15 jours, puis avec un abonnement annuel.",
     "pay": "{price} par an",
     "payYearly": "Abonnement annuel",
     "restore": "Restaurer les achats",
@@ -369,7 +371,7 @@
       "pending_approval": "L'achat attend une approbation.",
       "failed": "La boutique n'a pas pu encaisser le paiement."
     },
-    "premium": "L'abonnement débloque tous les outils : ceux que FlickerTalk inclut et ceux que vous ajoutez."
+    "premium": "Premium, ce sont les outils (ceux inclus dans FlickerTalk et ceux que vous ajoutez) et chaque session avec PIN en plus de la principale."
   },
   "requests": {
     "title": "Demandes",

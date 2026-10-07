@@ -37,7 +37,7 @@ onMounted(async () => {
   await Promise.all([plugin.value ? undefined : refreshPlugins(), refreshPremiumLock()]);
   ready.value = true;
 });
-// Ioan, 2026-10-08: a tool opened on its own while the tools are locked (the free year over, no
+// Ioan, 2026-10-08: a tool opened on its own while the tools are locked (the free days over, no
 // subscription) shows the lock and the way to the subscription, never its frame. Games never are.
 const locked = computed(() => Boolean(plugin.value && isLocked(plugin.value)));
 

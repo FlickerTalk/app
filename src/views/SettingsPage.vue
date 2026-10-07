@@ -64,10 +64,12 @@ import {
 
 const router = useRouter();
 
-// §41: the tools are free for a year from the install, counted on this phone (Ioan, 2026-10-08:
-// everything else is free forever). After it, the row says what the Plan screen says: paid until a
-// date, or the tools need the subscription.
+// §41: the premium part is free for 15 days from the install, counted on this phone (Ioan,
+// 2026-10-08: everything else is free forever). After it, the row says what the Plan screen says:
+// paid until a date, or that the premium part is locked.
 const planView = ref<PlanView | null>(null);
+/** Whether the premium part, the extra sessions among it, is locked now (2026-10-08). */
+const sessionsLocked = computed(() => planView.value?.state === "limited");
 const plan = computed(() => {
   if (planView.value?.state === "subscribed") {
     if (planView.value.renews) return t("plan.renewing");
@@ -340,10 +342,20 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.blocked") }}</ion-label>
           </ion-item>
-          <!-- Hidden sessions: a PIN pad, nothing else. The same six digits create or enter one. -->
-          <ion-item button detail lines="none" data-test="session" @click="router.push('/session')">
+          <!-- Hidden sessions: a PIN pad, nothing else. The same six digits create or enter one.
+               Premium (2026-10-08, §108): after the free days without the subscription, the row
+               leads to the Plan screen, in front of the pad and never after a PIN. -->
+          <ion-item
+            button
+            detail
+            lines="none"
+            data-test="session"
+            :aria-label="sessionsLocked ? $t('session.subscribeToUse') : undefined"
+            @click="router.push(sessionsLocked ? '/plan' : '/session')"
+          >
             <span slot="start" class="ft-tile"><ion-icon :icon="lockClosedOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.session") }}</ion-label>
+            <ion-note v-if="sessionsLocked" slot="end" color="primary" data-test="session-locked">{{ $t("plugins.subscribe") }}</ion-note>
           </ion-item>
         </ion-list>
 
@@ -452,7 +464,7 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
         </ion-list>
 
         <ion-list inset class="ft-group">
-          <!-- §40: what it costs, what is left of the free year and where the subscription is paid. -->
+          <!-- §40: what it costs, what is left of the free days and where the subscription is paid. -->
           <ion-item button detail lines="none" data-test="plan" @click="router.push('/plan')">
             <span slot="start" class="ft-tile"><ion-icon :icon="sparklesOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.plan") }}</ion-label>

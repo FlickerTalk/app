@@ -720,7 +720,7 @@ closeOnBackWhile(() => props.active && showApps.value, () => (showApps.value = f
 closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, () => closePlugin());
 
 /**
- * Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked: a tap on
+ * Ioan, 2026-10-08: after the 15 free days, without the subscription, the tools are locked: a tap on
  * one goes to the Plan screen, where the subscription is. Games never are.
  */
 function toPlan() {

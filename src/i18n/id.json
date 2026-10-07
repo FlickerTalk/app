@@ -247,9 +247,9 @@
     "movePhone": "Pindah ke ponsel baru",
     "backup": "Cadangan",
     "plan": "Paket",
-    "planFree": "Alat gratis · tahun pertama",
-    "planFreeDays": "Alat gratis · sisa {days} hari",
-    "planOver": "Alat memerlukan langganan",
+    "planFree": "Premium gratis · 15 hari",
+    "planFreeDays": "Premium gratis · sisa {days} hari",
+    "planOver": "Premium terkunci",
     "privacy": "Privasi",
     "version": "Versi",
     "erase": "Hapus ponsel ini",
@@ -303,7 +303,9 @@
     "close": "Keluar dari sesi ini",
     "empty": "Belum ada kontak di sini. Tambahkan dengan tombol QR: kontak itu hanya milik sesi ini.",
     "remove": "Hapus sesi ini",
-    "removeSure": "Hapus"
+    "removeSure": "Hapus",
+    "locked": "Sesi tambahan dengan PIN memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
+    "subscribeToUse": "Berlangganan untuk sesi tambahan"
   },
   "colors": {
     "ember": "Ember",
@@ -335,7 +337,7 @@
     "opens": "Membuka: {kinds}",
     "open": "Buka",
     "locked": "Berlangganan untuk memakai alat",
-    "lockedHint": "Tahun gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
+    "lockedHint": "Hari gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
     "subscribe": "Berlangganan"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Simbol"
   },
   "plan": {
-    "trial": "Alat gratis · sisa {days} hari",
+    "trial": "Premium gratis · sisa {days} hari",
     "subscribed": "Berbayar · sampai {until}",
     "renewing": "Berbayar · diperpanjang otomatis",
-    "limited": "Tahun gratis alat sudah berakhir",
-    "hint": "Chat, panggilan, file, dan game gratis selamanya. Alat gratis di tahun pertama, lalu {price} per tahun.",
-    "hintYearly": "Chat, panggilan, file, dan game gratis selamanya. Alat gratis di tahun pertama, lalu dengan langganan tahunan.",
+    "limited": "Hari gratis sudah berakhir",
+    "hint": "Chat, panggilan, file, dan game gratis, selamanya. Alat dan sesi tambahan dengan PIN: gratis 15 hari, lalu {price} per tahun.",
+    "hintYearly": "Chat, panggilan, file, dan game gratis, selamanya. Alat dan sesi tambahan dengan PIN: gratis 15 hari, lalu dengan langganan tahunan.",
     "pay": "{price} per tahun",
     "payYearly": "Langganan tahunan",
     "restore": "Pulihkan pembelian",
@@ -369,7 +371,7 @@
       "pending_approval": "Pembelian menunggu persetujuan.",
       "failed": "Toko tidak dapat menerima pembayaran."
     },
-    "premium": "Langganan membuka semua alat: yang dibawa FlickerTalk dan yang kamu tambahkan."
+    "premium": "Premium adalah alat (yang dibawa FlickerTalk dan yang kamu tambahkan) dan setiap sesi dengan PIN selain sesi utama."
   },
   "requests": {
     "title": "Permintaan",

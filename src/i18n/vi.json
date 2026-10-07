@@ -247,9 +247,9 @@
     "movePhone": "Chuyển sang điện thoại mới",
     "backup": "Sao lưu",
     "plan": "Gói",
-    "planFree": "Công cụ miễn phí · năm đầu",
-    "planFreeDays": "Công cụ miễn phí · còn {days} ngày",
-    "planOver": "Công cụ cần gói đăng ký",
+    "planFree": "Premium miễn phí · 15 ngày",
+    "planFreeDays": "Premium miễn phí · còn {days} ngày",
+    "planOver": "Premium đã khóa",
     "privacy": "Quyền riêng tư",
     "version": "Phiên bản",
     "erase": "Xóa sạch điện thoại này",
@@ -303,7 +303,9 @@
     "close": "Rời phiên này",
     "empty": "Chưa có liên hệ nào ở đây. Thêm bằng nút QR: liên hệ đó chỉ thuộc phiên này.",
     "remove": "Xóa phiên này",
-    "removeSure": "Xóa"
+    "removeSure": "Xóa",
+    "locked": "Phiên bổ sung có PIN cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "subscribeToUse": "Đăng ký để dùng phiên bổ sung"
   },
   "colors": {
     "ember": "Ember",
@@ -335,7 +337,7 @@
     "opens": "Mở: {kinds}",
     "open": "Mở",
     "locked": "Đăng ký để dùng công cụ",
-    "lockedHint": "Năm miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "lockedHint": "Những ngày miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
     "subscribe": "Đăng ký"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Biểu tượng"
   },
   "plan": {
-    "trial": "Công cụ miễn phí · còn {days} ngày",
+    "trial": "Premium miễn phí · còn {days} ngày",
     "subscribed": "Đã trả phí · đến {until}",
     "renewing": "Trả phí · tự động gia hạn",
-    "limited": "Năm miễn phí của công cụ đã hết",
-    "hint": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí mãi mãi. Công cụ miễn phí năm đầu, sau đó {price} mỗi năm.",
-    "hintYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí mãi mãi. Công cụ miễn phí năm đầu, sau đó dùng gói đăng ký năm.",
+    "limited": "Những ngày miễn phí đã hết",
+    "hint": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí, mãi mãi. Công cụ và phiên bổ sung có PIN: miễn phí 15 ngày, sau đó {price} mỗi năm.",
+    "hintYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí, mãi mãi. Công cụ và phiên bổ sung có PIN: miễn phí 15 ngày, sau đó dùng gói đăng ký năm.",
     "pay": "{price} mỗi năm",
     "payYearly": "Gói đăng ký năm",
     "restore": "Khôi phục giao dịch mua",
@@ -369,7 +371,7 @@
       "pending_approval": "Giao dịch đang chờ phê duyệt.",
       "failed": "Cửa hàng không thể nhận thanh toán."
     },
-    "premium": "Gói đăng ký mở khóa mọi công cụ: có sẵn trong FlickerTalk và do bạn thêm."
+    "premium": "Premium gồm các công cụ (có sẵn trong FlickerTalk và do bạn thêm) và mọi phiên có PIN ngoài phiên chính."
   },
   "requests": {
     "title": "Yêu cầu",

@@ -247,9 +247,9 @@
     "movePhone": "Przenieś na nowy telefon",
     "backup": "Kopia zapasowa",
     "plan": "Plan",
-    "planFree": "Narzędzia za darmo · pierwszy rok",
-    "planFreeDays": "Narzędzia za darmo · zostało {days} dni",
-    "planOver": "Narzędzia wymagają subskrypcji",
+    "planFree": "Premium za darmo · 15 dni",
+    "planFreeDays": "Premium za darmo · zostało {days} dni",
+    "planOver": "Premium zablokowane",
     "privacy": "Prywatność",
     "version": "Wersja",
     "erase": "Wyczyść ten telefon",
@@ -303,7 +303,9 @@
     "close": "Opuść tę sesję",
     "empty": "Brak kontaktów. Dodaj kontakt przyciskiem QR: będzie należał tylko do tej sesji.",
     "remove": "Usuń tę sesję",
-    "removeSure": "Usuń"
+    "removeSure": "Usuń",
+    "locked": "Dodatkowe sesje z PIN-em wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
+    "subscribeToUse": "Subskrybuj, aby używać dodatkowych sesji"
   },
   "colors": {
     "ember": "Żar",
@@ -335,7 +337,7 @@
     "opens": "Otwiera: {kinds}",
     "open": "Otwórz",
     "locked": "Subskrybuj, aby używać narzędzi",
-    "lockedHint": "Darmowy rok się skończył: narzędzia wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
+    "lockedHint": "Darmowe dni się skończyły: narzędzia wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
     "subscribe": "Subskrybuj"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Symbole"
   },
   "plan": {
-    "trial": "Narzędzia za darmo · zostało {days} dni",
+    "trial": "Premium za darmo · zostało {days} dni",
     "subscribed": "Opłacone · do {until}",
     "renewing": "Płatny · odnawia się automatycznie",
-    "limited": "Darmowy rok narzędzi się skończył",
-    "hint": "Czat, połączenia, pliki i gry są darmowe na zawsze. Narzędzia są darmowe przez pierwszy rok, potem {price} rocznie.",
-    "hintYearly": "Czat, połączenia, pliki i gry są darmowe na zawsze. Narzędzia są darmowe przez pierwszy rok, potem w ramach subskrypcji rocznej.",
+    "limited": "Darmowe dni się skończyły",
+    "hint": "Czat, połączenia, pliki i gry są darmowe, na zawsze. Narzędzia i dodatkowe sesje z PIN-em: za darmo przez 15 dni, potem {price} rocznie.",
+    "hintYearly": "Czat, połączenia, pliki i gry są darmowe, na zawsze. Narzędzia i dodatkowe sesje z PIN-em: za darmo przez 15 dni, potem w ramach subskrypcji rocznej.",
     "pay": "{price} rocznie",
     "payYearly": "Subskrypcja roczna",
     "restore": "Przywróć zakupy",
@@ -369,7 +371,7 @@
       "pending_approval": "Zakup czeka na zatwierdzenie.",
       "failed": "Sklep nie mógł pobrać płatności."
     },
-    "premium": "Subskrypcja odblokowuje wszystkie narzędzia: te, które ma FlickerTalk, i te, które dodasz."
+    "premium": "Premium to narzędzia (te, które ma FlickerTalk, i te, które dodasz) oraz każda sesja z PIN-em poza główną."
   },
   "requests": {
     "title": "Prośby",

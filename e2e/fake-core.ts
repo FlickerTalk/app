@@ -457,7 +457,7 @@ export function installFakeCore() {
       case "core_quiet_hours":
         return null;
       case "core_plan":
-        // `window.__ftFakeLimited`: the free year is over and nothing is paid (2026-10-08).
+        // `window.__ftFakeLimited`: the free days are over and nothing is paid (2026-10-08).
         return (window as unknown as Record<string, unknown>).__ftFakeLimited ? { state: "limited", until: 0 } : { state: "trial", until: Date.now() + 1e10 };
       // Like the core (A3): every PIN opens its session or a new empty one, up to seven; an
       // empty one goes when it is closed. Only the first session of PIN 777777 holds a contact.

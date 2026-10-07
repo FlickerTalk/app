@@ -247,9 +247,9 @@
     "movePhone": "Move to a new phone",
     "backup": "Backup",
     "plan": "Plan",
-    "planFree": "Tools free · first year",
-    "planFreeDays": "Tools free · {days} days left",
-    "planOver": "Tools need the subscription",
+    "planFree": "Premium free · 15 days",
+    "planFreeDays": "Premium free · {days} days left",
+    "planOver": "Premium locked",
     "privacy": "Privacy",
     "version": "Version",
     "erase": "Erase this phone",
@@ -303,7 +303,9 @@
     "close": "Leave this session",
     "empty": "No contacts here yet. Add one with the QR button: it belongs to this session only.",
     "remove": "Delete this session",
-    "removeSure": "Delete"
+    "removeSure": "Delete",
+    "locked": "Extra sessions with PIN need the subscription. Chat, calls, files and games stay free.",
+    "subscribeToUse": "Subscribe to use extra sessions"
   },
   "colors": {
     "ember": "Ember",
@@ -335,7 +337,7 @@
     "opens": "Opens: {kinds}",
     "open": "Open",
     "locked": "Subscribe to use the tools",
-    "lockedHint": "The free year is over: tools need the subscription. Chat, calls, files and games stay free.",
+    "lockedHint": "The free days are over: tools need the subscription. Chat, calls, files and games stay free.",
     "subscribe": "Subscribe"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Symbols"
   },
   "plan": {
-    "trial": "Tools free · {days} days left",
+    "trial": "Premium free · {days} days left",
     "subscribed": "Paid · until {until}",
     "renewing": "Paid · renews automatically",
-    "limited": "The free year of tools is over",
-    "hint": "Chat, calls, files and games are free forever. Tools are free the first year, then {price} a year.",
-    "hintYearly": "Chat, calls, files and games are free forever. Tools are free the first year, then a yearly subscription.",
+    "limited": "The free days are over",
+    "hint": "Chat, calls, files and games are free, forever. Tools and extra sessions with PIN: free for 15 days, then {price} a year.",
+    "hintYearly": "Chat, calls, files and games are free, forever. Tools and extra sessions with PIN: free for 15 days, then a yearly subscription.",
     "pay": "{price} a year",
     "payYearly": "Yearly subscription",
     "restore": "Restore purchases",
@@ -369,7 +371,7 @@
       "pending_approval": "The purchase is waiting to be approved.",
       "failed": "The Store could not take the payment."
     },
-    "premium": "The subscription unlocks every tool: the ones FlickerTalk carries and the ones you add."
+    "premium": "Premium is the tools (the ones FlickerTalk carries and the ones you add) and every session with PIN beyond the main one."
   },
   "requests": {
     "title": "Requests",

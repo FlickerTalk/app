@@ -136,7 +136,7 @@ export interface Me {
   mailbox: boolean;
   /** Whether contacts added from now on are told their messages arrived and were read (app#6). */
   receipts: boolean;
-  /** Until when (ms) the app is free: a year from the install, counted on this phone (§41). */
+  /** Until when (ms) the premium part is free: 15 days from the install, counted on this phone (§41). */
   freeUntil: number;
   /** Files up to this many bytes are downloaded as they arrive; bigger ones wait (A4). */
   autoDownload: number;
@@ -953,7 +953,7 @@ export async function installPlugin(plugin: string): Promise<void> {
 export interface PlanView {
   /** Ioan, 2026-10-08: `limited` locks the tools, and only them; nothing else is ever limited. */
   state: "trial" | "subscribed" | "limited";
-  /** When the free year ends, or when the subscription runs out (ms); 0 when neither applies. */
+  /** When the free days end, or when the subscription runs out (ms); 0 when neither applies. */
   until: number;
   /**
    * A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the last

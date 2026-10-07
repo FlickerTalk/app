@@ -1,5 +1,6 @@
-// Ioan, 2026-10-08: after the free year, without the subscription, only the tools are locked. Each
-// shows a lock and leads to the Plan screen; games, chat, calls and files never ask.
+// Ioan, 2026-10-08: after the 15 free days, without the subscription, only the premium part is
+// locked: the tools and the extra sessions with a PIN. Each shows a lock and leads to the Plan
+// screen; games, chat, calls and files never ask.
 import { callsTo, expect, test } from "./helpers";
 
 const BOB = "ft_bob123456789";
@@ -18,7 +19,7 @@ test("a tool in the chat's apps sheet shows a lock and leads to the Plan screen"
   await expect(tool.getByTestId("locked")).toBeVisible();
   await tool.click();
   await expect(app).toHaveURL(/\/plan$/);
-  await expect(app.getByTestId("hint")).toContainText("Chat, calls, files and games are free forever");
+  await expect(app.getByTestId("hint")).toContainText("Chat, calls, files and games are free, forever");
   await expect(app.getByTestId("pay")).toBeVisible();
   await expect(app.getByTestId("restore")).toBeVisible();
   await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
@@ -48,4 +49,16 @@ test("a conversation still goes on: writing is never locked", async ({ app }) =>
   await app.locator("ion-textarea textarea").fill("still free");
   await app.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(async () => (await callsTo(app)).some(([command]) => command === "core_send")).toBe(true);
+});
+
+// §108: the lock stands in front of the PIN pad, never after a PIN.
+test("an extra session with a PIN is locked in front of the pad", async ({ app }) => {
+  await app.goto("/tabs/settings");
+  await expect(app.getByTestId("session-locked")).toBeVisible();
+  await app.getByTestId("session").click();
+  await expect(app).toHaveURL(/\/plan$/);
+  await app.goto("/session");
+  await expect(app.getByTestId("locked")).toBeVisible();
+  await expect(app.getByTestId("key-1")).toHaveCount(0);
+  expect((await callsTo(app)).some(([command]) => command === "core_session_open")).toBe(false);
 });

@@ -61,7 +61,7 @@ function weight(one: OfferedPlugin): string {
 }
 
 /**
- * Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked. A tap on
+ * Ioan, 2026-10-08: after the 15 free days, without the subscription, the tools are locked. A tap on
  * a locked one goes to the Plan screen, where the subscription is.
  */
 function subscribe() {

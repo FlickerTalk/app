@@ -62,12 +62,12 @@ describe("PlanPage", () => {
     expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
   });
 
-  // The same free year reads the same on Settings (`daysLeft`): installed a moment ago, 365 days.
+  // The same free days read the same on Settings (`daysLeft`): installed a moment ago, 15 days.
   it("counts the free year as Settings does", async () => {
-    planning({ state: "trial", until: Date.now() + 365 * DAY - 5 });
+    planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
-    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.trial.replace("{days}", "365"));
+    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.trial.replace("{days}", "15"));
   });
 
   // Ioan, 2026-10-08: there is no age rule any more. Nothing on the screen asks it or speaks of it.
@@ -111,6 +111,52 @@ describe("PlanPage", () => {
     await wrapper.find("[data-test='pay']").trigger("click");
     await flushPromises();
     expect(calls.map(([command]) => command)).toContain("core_subscribe");
+  });
+
+  // Seen on an iPhone (2026-10-08): after the App Store account changed, the screen kept the old
+  // storefront's price until a relaunch. The price is asked again whenever the screen is entered,
+  // the plan changes or the app comes back; a Store that cannot answer leaves the last one known.
+  it("asks the Store for the price again on entering, on a plan change and back on the screen", async () => {
+    let price: string | null = "$0.99";
+    installTauri((command) => {
+      if (command === "core_subscription_price") return { price };
+      return command === "core_plan" ? { state: "limited", until: 0 } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe("$0.99 a year");
+
+    price = "0,99 €";
+    ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe("0,99 € a year");
+
+    price = "£0.99";
+    events.handlers.get("ft://plan")?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe("£0.99 a year");
+
+    price = "US$0.99";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe("US$0.99 a year");
+
+    // The Store cannot answer now: the last price known stays, and nothing wrong is said.
+    price = null;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(wrapper.find("[data-test='pay']").text()).toBe("US$0.99 a year");
+    expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+  });
+
+  // Ioan, 2026-10-08: the words he chose, with the Store's price.
+  it("says what is free forever and what is premium, with the Store's price", async () => {
+    planning({ state: "limited", until: 0 }, "0,99 €");
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='hint']").text()).toBe(
+      "Chat, calls, files and games are free, forever. Tools and extra sessions with PIN: free for 15 days, then 0,99 € a year.",
+    );
   });
 
   it("shows another store's price as it comes", async () => {

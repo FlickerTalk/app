@@ -247,9 +247,9 @@
     "movePhone": "Auf neues Telefon übertragen",
     "backup": "Backup",
     "plan": "Tarif",
-    "planFree": "Werkzeuge kostenlos · erstes Jahr",
-    "planFreeDays": "Werkzeuge kostenlos · noch {days} Tage",
-    "planOver": "Werkzeuge brauchen das Abo",
+    "planFree": "Premium kostenlos · 15 Tage",
+    "planFreeDays": "Premium kostenlos · noch {days} Tage",
+    "planOver": "Premium gesperrt",
     "privacy": "Datenschutz",
     "version": "Version",
     "erase": "Dieses Telefon löschen",
@@ -303,7 +303,9 @@
     "close": "Diese Sitzung verlassen",
     "empty": "Noch keine Kontakte hier. Füge einen mit der QR-Taste hinzu: Er gehört nur zu dieser Sitzung.",
     "remove": "Diese Sitzung löschen",
-    "removeSure": "Löschen"
+    "removeSure": "Löschen",
+    "locked": "Zusätzliche Sitzungen mit PIN brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
+    "subscribeToUse": "Abonnieren, um zusätzliche Sitzungen zu nutzen"
   },
   "colors": {
     "ember": "Glut",
@@ -335,7 +337,7 @@
     "opens": "Öffnet: {kinds}",
     "open": "Öffnen",
     "locked": "Abonnieren, um die Werkzeuge zu nutzen",
-    "lockedHint": "Das kostenlose Jahr ist vorbei: Werkzeuge brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
+    "lockedHint": "Die kostenlosen Tage sind vorbei: Werkzeuge brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
     "subscribe": "Abonnieren"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Symbole"
   },
   "plan": {
-    "trial": "Werkzeuge kostenlos · noch {days} Tage",
+    "trial": "Premium kostenlos · noch {days} Tage",
     "subscribed": "Bezahlt · bis {until}",
     "renewing": "Bezahlt · verlängert sich automatisch",
-    "limited": "Das kostenlose Jahr der Werkzeuge ist vorbei",
-    "hint": "Chat, Anrufe, Dateien und Spiele sind für immer kostenlos. Werkzeuge sind im ersten Jahr kostenlos, danach {price} pro Jahr.",
-    "hintYearly": "Chat, Anrufe, Dateien und Spiele sind für immer kostenlos. Werkzeuge sind im ersten Jahr kostenlos, danach mit einem Jahresabo.",
+    "limited": "Die kostenlosen Tage sind vorbei",
+    "hint": "Chat, Anrufe, Dateien und Spiele sind kostenlos, für immer. Werkzeuge und zusätzliche Sitzungen mit PIN: 15 Tage kostenlos, danach {price} pro Jahr.",
+    "hintYearly": "Chat, Anrufe, Dateien und Spiele sind kostenlos, für immer. Werkzeuge und zusätzliche Sitzungen mit PIN: 15 Tage kostenlos, danach mit einem Jahresabo.",
     "pay": "{price} pro Jahr",
     "payYearly": "Jahresabo",
     "restore": "Käufe wiederherstellen",
@@ -369,7 +371,7 @@
       "pending_approval": "Der Kauf wartet auf Freigabe.",
       "failed": "Der Store konnte die Zahlung nicht einziehen."
     },
-    "premium": "Das Abo schaltet alle Werkzeuge frei: die, die FlickerTalk mitbringt, und die, die du hinzufügst."
+    "premium": "Premium sind die Werkzeuge (die von FlickerTalk und die, die du hinzufügst) und jede Sitzung mit PIN neben der Hauptsitzung."
   },
   "requests": {
     "title": "Anfragen",

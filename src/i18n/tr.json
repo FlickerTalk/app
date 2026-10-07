@@ -247,9 +247,9 @@
     "movePhone": "Yeni telefona taşı",
     "backup": "Yedekleme",
     "plan": "Plan",
-    "planFree": "Araçlar ücretsiz · ilk yıl",
-    "planFreeDays": "Araçlar ücretsiz · {days} gün kaldı",
-    "planOver": "Araçlar için abonelik gerekiyor",
+    "planFree": "Premium ücretsiz · 15 gün",
+    "planFreeDays": "Premium ücretsiz · {days} gün kaldı",
+    "planOver": "Premium kilitli",
     "privacy": "Gizlilik",
     "version": "Sürüm",
     "erase": "Bu telefonu sil",
@@ -303,7 +303,9 @@
     "close": "Bu oturumdan çık",
     "empty": "Burada henüz kişi yok. QR düğmesiyle ekleyin: yalnızca bu oturuma ait olur.",
     "remove": "Bu oturumu sil",
-    "removeSure": "Sil"
+    "removeSure": "Sil",
+    "locked": "PIN'li ek oturumlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
+    "subscribeToUse": "Ek oturumlar için abone ol"
   },
   "colors": {
     "ember": "Köz",
@@ -335,7 +337,7 @@
     "opens": "Açar: {kinds}",
     "open": "Aç",
     "locked": "Araçları kullanmak için abone ol",
-    "lockedHint": "Ücretsiz yıl sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
+    "lockedHint": "Ücretsiz günler sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
     "subscribe": "Abone ol"
   },
   "emoji": {
@@ -352,12 +354,12 @@
     "symbols": "Semboller"
   },
   "plan": {
-    "trial": "Araçlar ücretsiz · {days} gün kaldı",
+    "trial": "Premium ücretsiz · {days} gün kaldı",
     "subscribed": "Ücretli · {until} tarihine kadar",
     "renewing": "Ücretli · otomatik yenilenir",
-    "limited": "Araçların ücretsiz yılı sona erdi",
-    "hint": "Sohbet, aramalar, dosyalar ve oyunlar sonsuza kadar ücretsiz. Araçlar ilk yıl ücretsiz, sonra yıllık {price}.",
-    "hintYearly": "Sohbet, aramalar, dosyalar ve oyunlar sonsuza kadar ücretsiz. Araçlar ilk yıl ücretsiz, sonra yıllık abonelikle.",
+    "limited": "Ücretsiz günler sona erdi",
+    "hint": "Sohbet, aramalar, dosyalar ve oyunlar sonsuza kadar ücretsiz. Araçlar ve PIN'li ek oturumlar: 15 gün ücretsiz, sonra yıllık {price}.",
+    "hintYearly": "Sohbet, aramalar, dosyalar ve oyunlar sonsuza kadar ücretsiz. Araçlar ve PIN'li ek oturumlar: 15 gün ücretsiz, sonra yıllık abonelikle.",
     "pay": "Yılda {price}",
     "payYearly": "Yıllık abonelik",
     "restore": "Satın alımları geri yükle",
@@ -369,7 +371,7 @@
       "pending_approval": "Satın alma onay bekliyor.",
       "failed": "Mağaza ödemeyi alamadı."
     },
-    "premium": "Abonelik tüm araçların kilidini açar: FlickerTalk'ta gelenler ve senin eklediklerin."
+    "premium": "Premium; araçlar (FlickerTalk'ta gelenler ve senin eklediklerin) ve ana oturum dışındaki her PIN'li oturumdur."
   },
   "requests": {
     "title": "İstekler",
