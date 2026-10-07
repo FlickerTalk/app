@@ -276,7 +276,12 @@ exactos). La pantalla del plan enseña el precio **tal como lo da la tienda** (P
 StoreKit, con su moneda y su formato); si la tienda no puede decirlo (sin red, en escritorio, sin
 producto) dice «Suscripción anual» sin ninguna cantidad, y el botón de pagar funciona igual. La
 app no escribe ni guarda ningún importe. El **primer año es gratis** desde la instalación, contado en el propio teléfono, sin
-tarjeta. **Menores de 21, siempre gratis**: la edad se declara en el teléfono y nunca sale de él.
+tarjeta. **Los menores, siempre gratis**: si es menor o adulto lo dice el sistema del teléfono
+(Declared Age Range en iOS 26+, Play Age Signals en Android), nunca el usuario, y no sale del
+teléfono. Sin respuesta del sistema (sistema antiguo, sin cuenta, no quiso compartirla) se trata
+como adulto: gratis el primer año y después de pago. Se pregunta al empezar y, acabado el año
+gratis, otra vez al abrir el plan; solo puede pasar de desconocido a menor o adulto, y de menor a
+adulto.
 Sin pagar se sigue **recibiendo y respondiendo** siempre; lo que no se puede es empezar una
 conversación nueva, llamar ni enviar ficheros. Ajustes y la pantalla del plan cuentan los días que
 quedan igual (un día empezado cuenta: recién instalada, 365).
