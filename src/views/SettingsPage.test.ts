@@ -17,6 +17,14 @@ vi.mock("@tauri-apps/api/app", () => ({
     return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
   },
 }));
+// What the core tells the screen (`ft://…`); a test says it with `events.handlers.get(name)?.()`.
+const events = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), unlisten: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, handler: () => void) => {
+    events.handlers.set(name, handler);
+    return events.unlisten;
+  },
+}));
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
 
@@ -98,6 +106,21 @@ describe("SettingsPage", () => {
     expect(wrapper.find("[data-test='plan']").text()).toContain("Free year over");
     state = "subscribed";
     ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
+    await flushPromises();
+    expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · until");
+  });
+
+  // 2026-10-07: the Store changes its mind with the app open (a renewal, an expiry, an approved Ask
+  // to Buy): the row follows without leaving the page.
+  it("follows the plan when the Store changes its mind with the app open", async () => {
+    store.me.freeUntil = Date.now() - 1000;
+    let state = "limited";
+    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 1e10, age: "adult" } : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='plan']").text()).toContain("Free year over");
+    state = "subscribed";
+    events.handlers.get("ft://plan")?.();
     await flushPromises();
     expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · until");
   });

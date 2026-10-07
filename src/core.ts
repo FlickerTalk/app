@@ -971,6 +971,18 @@ export async function plan(): Promise<PlanView> {
   return invoke<PlanView>("core_plan");
 }
 
+/** What the Store says about the subscription changed (2026-10-07), also with the app open. */
+export const PLAN_EVENT = "ft://plan";
+
+/**
+ * Calls `changed` whenever the core says the plan changed (a purchase, a restore, a renewal, an
+ * expiry, an approved Ask to Buy, a refund). Resolves with what stops listening; outside the app
+ * (no core to hear) it never calls and stopping does nothing.
+ */
+export async function followPlan(changed: () => void): Promise<() => void> {
+  return listen(PLAN_EVENT, () => changed()).catch(() => () => undefined);
+}
+
 /** What the user says about their age; never a date of birth (§30, §43). */
 export async function setAge(age: "minor" | "adult"): Promise<void> {
   await invoke("core_set_age", { age });

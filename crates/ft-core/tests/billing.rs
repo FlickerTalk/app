@@ -107,6 +107,29 @@ async fn paying_opens_it_again() {
     core.send_text(&contact, "hello").await.expect("writes to someone new");
 }
 
+// 2026-10-07: the Store changes its mind while the app is open (a renewal, an expiry, a parent
+// approving an Ask to Buy, a refund): the core keeps it and tells the UI, which reads the plan
+// again. The same answer again (every time the app comes back) says nothing.
+#[tokio::test]
+async fn a_new_word_from_the_store_tells_the_ui_the_plan_changed() {
+    let core = core().await;
+    the_year_is_over(&core).await;
+    let mut events = core.events();
+
+    let a_year_from_now = now() + (365 * 24 * 60 * 60 * 1000);
+    core.set_entitlement(a_year_from_now).await.expect("the Store said so");
+    assert_eq!(events.try_recv(), Ok(ft_core::Event::PlanChanged));
+    assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: a_year_from_now });
+
+    core.set_entitlement(a_year_from_now).await.expect("the same again");
+    assert!(events.try_recv().is_err(), "nothing changed, nothing to say");
+
+    // It ran out (or was refunded): the Store says nothing is paid, and the UI hears it.
+    core.set_entitlement(0).await.expect("the Store said so");
+    assert_eq!(events.try_recv(), Ok(ft_core::Event::PlanChanged));
+    assert_eq!(core.access().await.expect("reads"), Access::Limited);
+}
+
 /// A message that came in from that contact, as the phone keeps it.
 async fn arrived(core: &Core, from: &str, text: &str) {
     let message = Message {

@@ -7,6 +7,15 @@ import en from "../i18n/en.json";
 
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
+// What the core tells the screen (`ft://…`); a test says it with `events.handlers.get(name)?.()`.
+const events = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), unlisten: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, handler: () => void) => {
+    events.handlers.set(name, handler);
+    return events.unlisten;
+  },
+}));
+
 // Ionic's toasts are overlays of the real app; here, what the screen asks of them.
 const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
 vi.mock("@ionic/vue", async (importOriginal) => ({
@@ -255,5 +264,29 @@ describe("PlanPage", () => {
       expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.store_unavailable);
       expect(toast.create).not.toHaveBeenCalled();
     });
+  });
+
+  // 2026-10-07: the Store changes its mind with the screen open (a parent approves an Ask to Buy,
+  // the year runs out, a renewal): the core says so and the screen reads the plan again.
+  it("follows the plan when the Store changes its mind with the screen open", async () => {
+    let state = "limited";
+    const until = Date.now() + 300 * DAY;
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_subscription_price") return { price: "0,99 €" };
+      return command === "core_plan" ? { state, until: state === "subscribed" ? until : 0, age: "adult" } : undefined;
+    });
+    const wrapper = mount(PlanPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.limited);
+
+    state = "subscribed";
+    events.handlers.get("ft://plan")?.();
+    await flushPromises();
+    expect(wrapper.find("[data-test='where']").text()).toContain(new Date(until).toLocaleDateString());
+    expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+
+    wrapper.unmount();
+    expect(events.unlisten).toHaveBeenCalled();
   });
 });

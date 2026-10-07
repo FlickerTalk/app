@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { useRouter } from "vue-router";
 import {
@@ -50,7 +50,7 @@ import {
 import Avatar from "../components/Avatar.vue";
 import FeedbackModal from "../components/FeedbackModal.vue";
 import { closeOnBackWhile } from "../back";
-import { AUTO_DOWNLOAD_CHOICES, autoDownloadChoice, daysLeft, erasePhone, formatSize, plan as planOf, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store, type PlanView } from "../core";
+import { AUTO_DOWNLOAD_CHOICES, autoDownloadChoice, daysLeft, erasePhone, followPlan, formatSize, plan as planOf, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store, type PlanView } from "../core";
 import { extraTab, setCallRouting, setExtraTab, storedCallRouting, type CallRouting, type ExtraTab } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -105,6 +105,14 @@ async function refreshPlan() {
 }
 onMounted(refreshPlan);
 onIonViewWillEnter(refreshPlan);
+// And when the Store changes its mind with the app open (2026-10-07): a renewal, an expiry.
+let stopFollowingPlan: (() => void) | null = null;
+let gone = false;
+onMounted(() => void followPlan(() => void refreshPlan()).then((stop) => (gone ? stop() : (stopFollowingPlan = stop))));
+onBeforeUnmount(() => {
+  gone = true;
+  stopFollowingPlan?.();
+});
 
 async function onReceiptsChange(event: CustomEvent<{ checked: boolean }>) {
   await setReceipts(event.detail.checked);

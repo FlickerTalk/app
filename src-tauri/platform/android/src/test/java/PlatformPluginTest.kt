@@ -426,6 +426,28 @@ class PlatformPluginTest {
         )
     }
 
+    // 2026-10-07: what Play says with the app open (back on the screen, a purchase that was pending)
+    // waits for the core if it is not listening yet. Only the latest counts: an older word from the
+    // Store is no longer true.
+    @Test
+    fun aLiveEntitlementWaitsForTheCoreAndOnlyTheLatestCounts() {
+        val queue = EntitlementQueue()
+        queue.offer(1_800_000_000_000L)
+        queue.offer(0L)
+        val heard = mutableListOf<Long>()
+        queue.register { heard.add(it) }
+        assertEquals(listOf(0L), heard)
+        queue.offer(1_830_000_000_000L)
+        assertEquals(listOf(0L, 1_830_000_000_000L), heard)
+        // A new core (the phone was erased) hears from now on, and nothing is told twice.
+        val later = mutableListOf<Long>()
+        queue.register { later.add(it) }
+        assertEquals(emptyList<Long>(), later)
+        queue.offer(5L)
+        assertEquals(listOf(0L, 1_830_000_000_000L), heard)
+        assertEquals(listOf(5L), later)
+    }
+
     // One offer of the subscription as Play describes it: its base plan, its own id (none for the
     // base plan itself), its token and the price of each phase, as Play formats it.
     private fun offer(

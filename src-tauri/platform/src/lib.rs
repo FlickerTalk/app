@@ -379,6 +379,19 @@ struct Subscription {
     until: i64,
 }
 
+/// One entitlement the native side pushes (2026-10-07): until when the phone is paid up (ms).
+#[cfg_attr(not(mobile), allow(dead_code))]
+fn entitlement_until(body: tauri::ipc::InvokeResponseBody) -> Option<i64> {
+    Some(body.deserialize::<Subscription>().ok()?.until)
+}
+
+/// Arguments of the native `registerEntitlementEvents` command: the channel, like the calls'.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct EntitlementEvents<'a> {
+    channel: &'a tauri::ipc::Channel<serde_json::Value>,
+}
+
 /// What the Store says a year costs, formatted by the Store; absent when it cannot say.
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
@@ -469,6 +482,28 @@ impl<R: Runtime> Platform<R> {
         {
             Ok(0)
         }
+    }
+
+    /// Hears the Store change its mind while the app runs (2026-10-07): StoreKit's
+    /// `Transaction.updates` and subscription status on iOS, Play's purchases on every return to
+    /// the screen and its purchase listener on Android. `handler` gets until when the phone is paid
+    /// up (ms, 0 when nothing is); what came before this is called arrives now (the latest only). A
+    /// second call replaces the handler. It runs on a native thread: it must not block for long.
+    /// On desktop it does nothing.
+    pub fn listen_entitlements(&self, handler: impl Fn(i64) + Send + Sync + 'static) {
+        #[cfg(mobile)]
+        {
+            let channel = tauri::ipc::Channel::new(move |body| {
+                if let Some(until) = entitlement_until(body) {
+                    handler(until);
+                }
+                Ok(())
+            });
+            // Only fails if the plugin is not loaded, and then there is no Store to hear.
+            let _ = self.run("registerEntitlementEvents", EntitlementEvents { channel: &channel });
+        }
+        #[cfg(not(mobile))]
+        let _ = handler;
     }
 
     /// What a year of the subscription costs, as the Store formats it for this phone (currency
@@ -958,6 +993,17 @@ mod tests {
             let answer: SubscriptionPrice = serde_json::from_value(silent).unwrap();
             assert_eq!(answer.shown(), None);
         }
+    }
+
+    // 2026-10-07: what Swift and Kotlin send through the entitlement channel when the Store
+    // changes its mind with the app open (a renewal, an expiry, an approved Ask to Buy, a refund).
+    #[test]
+    fn a_live_entitlement_is_read_as_the_native_side_sends_it() {
+        let read = |json: &str| entitlement_until(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"until":1800000000000}"#), Some(1_800_000_000_000));
+        assert_eq!(read(r#"{"until":0}"#), Some(0));
+        assert_eq!(read(r#"{"price":"0,99 €"}"#), None);
+        assert_eq!(read("not json"), None);
     }
 
     // A desktop has no store: no price, and no error either.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar, toastController } from "@ionic/vue";
-import { daysLeft, payTrouble, plan as planOf, restoreSubscription, setAge, subscribe, subscriptionPrice, type PlanView } from "../core";
+import { daysLeft, followPlan, payTrouble, plan as planOf, restoreSubscription, setAge, subscribe, subscriptionPrice, type PlanView } from "../core";
 import { t } from "../i18n";
 
 // Plan §40–§47: the first year is free from the install, then a yearly subscription at the
@@ -12,10 +12,20 @@ const trouble = ref("");
 /** What a year costs, as the Store formats it; null while unknown or when it cannot say. */
 const price = ref<string | null>(null);
 
+// The Store may change its mind with the screen open (2026-10-07): an approved Ask to Buy, the
+// year running out, a renewal. The core says so and the screen reads the plan again.
+let stopFollowing: (() => void) | null = null;
+let gone = false;
+
 onMounted(() => {
   void refresh();
   // The Store may take a while or not answer at all: the screen does not wait for it.
   void subscriptionPrice().then((said) => (price.value = said));
+  void followPlan(() => void refresh()).then((stop) => (gone ? stop() : (stopFollowing = stop)));
+});
+onBeforeUnmount(() => {
+  gone = true;
+  stopFollowing?.();
 });
 
 /** With the Store's price, or with no amount at all: the app never writes one of its own. */

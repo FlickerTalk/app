@@ -1283,6 +1283,44 @@ fun activeUntil(purchases: List<StorePurchase>): Long =
 fun needsAcknowledgement(purchase: StorePurchase): Boolean =
     purchase.state == Purchase.PurchaseState.PURCHASED && !purchase.acknowledged
 
+/**
+ * What Play says about the subscription while the app runs (2026-10-07), on its way to the core:
+ * until when the phone is paid up (ms). Before the core listens only the latest word waits: an
+ * older one is no longer true.
+ */
+class EntitlementQueue {
+    private var sink: ((Long) -> Unit)? = null
+    private var latest: Long? = null
+
+    /** The core listens: what waited goes out now; a previous listener hears no more. */
+    @Synchronized
+    fun register(sink: (Long) -> Unit) {
+        this.sink = sink
+        latest?.let {
+            latest = null
+            sink(it)
+        }
+    }
+
+    @Synchronized
+    fun offer(until: Long) {
+        val sink = sink
+        if (sink != null) sink(until) else latest = until
+    }
+}
+
+/** The channel Rust made (`listen_entitlements`) and the word that waits for it. */
+object EntitlementEvents {
+    private val queue = EntitlementQueue()
+    private val sender = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    fun register(channel: Channel) = sender.execute {
+        queue.register { channel.sendObject(mapOf("until" to it)) }
+    }
+
+    fun offer(until: Long) = sender.execute { queue.offer(until) }
+}
+
 @InvokeArg
 class ShareTextArgs {
     lateinit var text: String
@@ -1350,6 +1388,9 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         InCall.appVisible = true
         CallEvents.offer(CallEvent.Visible(true))
         if (InCall.active) InCall.service?.promote()
+        // What Play says now (2026-10-07): a renewal, an expiry, a refund, a purchase that was
+        // pending, all while the app was away.
+        tellEntitlement()
     }
 
     /**
@@ -1986,7 +2027,10 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /** The call waiting for the Store window to close, since the answer arrives by listener. */
     private var buying: Invoke? = null
 
-    private fun withBilling(invoke: Invoke, work: (BillingClient) -> Unit) {
+    private fun withBilling(invoke: Invoke, work: (BillingClient) -> Unit) =
+        withBilling({ invoke.reject("store_unavailable") }, work)
+
+    private fun withBilling(unavailable: () -> Unit, work: (BillingClient) -> Unit) {
         val client = billing ?: BillingClient.newBuilder(activity)
             .enableAutoServiceReconnection()
             .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
@@ -2002,7 +2046,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                     work(client)
                 } else {
-                    invoke.reject("store_unavailable")
+                    unavailable()
                 }
             }
 
@@ -2030,9 +2074,20 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** How the Store answers a purchase: the window is gone and `subscribe` can be let go. */
+    /**
+     * How the Store answers a purchase: the window is gone and `subscribe` can be let go. With no
+     * purchase waiting (a pending one that was paid, one made in the Play Store), it is still
+     * acknowledged, and the core hears what the phone has now (2026-10-07).
+     */
     private fun purchasesUpdated(result: BillingResult, purchases: List<Purchase>?) {
-        val invoke = buying ?: return
+        val invoke = buying
+        if (invoke == null) {
+            if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                billing?.let { acknowledge(it, purchases.orEmpty()) }
+                tellEntitlement()
+            }
+            return
+        }
         buying = null
         when (result.responseCode) {
             BillingClient.BillingResponseCode.OK -> {
@@ -2126,21 +2181,51 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** What the Store already knows about this phone, without asking anyone to buy anything. */
-    @Command
-    fun subscription(invoke: Invoke) {
-        withBilling(invoke) { client ->
+    /**
+     * Asks Play for this account's subscriptions, acknowledges any that was not, and answers until
+     * when the phone is paid up; null when Play does not answer.
+     */
+    private fun queryEntitlement(answer: (Long?) -> Unit) {
+        withBilling({ answer(null) }) { client ->
             val subs = QueryPurchasesParams.newBuilder()
                 .setProductType(BillingClient.ProductType.SUBS)
                 .build()
             client.queryPurchasesAsync(subs) { result, purchases ->
                 if (result.responseCode != BillingClient.BillingResponseCode.OK) {
-                    invoke.reject("store_unavailable")
+                    answer(null)
                     return@queryPurchasesAsync
                 }
                 acknowledge(client, purchases)
-                invoke.resolve(JSObject().apply { put("until", activeUntil(storePurchases(purchases))) })
+                answer(activeUntil(storePurchases(purchases)))
             }
+        }
+    }
+
+    /** What the Store already knows about this phone, without asking anyone to buy anything. */
+    @Command
+    fun subscription(invoke: Invoke) {
+        queryEntitlement { until ->
+            if (until == null) {
+                invoke.reject("store_unavailable")
+            } else {
+                invoke.resolve(JSObject().apply { put("until", until) })
+            }
+        }
+    }
+
+    /** The core hears what Play says now; nothing when Play does not answer (2026-10-07). */
+    private fun tellEntitlement() {
+        queryEntitlement { until -> until?.let { EntitlementEvents.offer(it) } }
+    }
+
+    /** The core listens to the Store's changes (`listen_entitlements`): what waited goes out now. */
+    @Command
+    fun registerEntitlementEvents(invoke: Invoke) {
+        try {
+            EntitlementEvents.register(invoke.parseArgs(CallEventsArgs::class.java).channel)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "no channel")
         }
     }
 

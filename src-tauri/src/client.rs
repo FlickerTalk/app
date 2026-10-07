@@ -29,6 +29,9 @@ pub const CHANGED_EVENT: &str = "ft://changed";
 pub const TYPING_EVENT: &str = "ft://typing";
 /// Sent to the UI when the plugins installed here changed (an update, 2026-10-03): it reads them again.
 pub const PLUGINS_EVENT: &str = "ft://plugins";
+/// Sent to the UI when what the Store says about the subscription changed (2026-10-07), also with
+/// the app open: the Plan screen and Settings read the plan again.
+pub const PLAN_EVENT: &str = "ft://plan";
 
 pub fn state_name(state: MessageState) -> &'static str {
     match state {
@@ -1031,6 +1034,18 @@ impl Client {
         if let Ok(until) = app.platform().subscription() {
             let _ = online.core.set_entitlement(until).await;
         }
+        // And while the app runs (2026-10-07): a renewal, an expiry, an approved Ask to Buy, a
+        // refund. One at a time, in the order the Store said them; the core tells the UI.
+        let (said, mut store_said) = tokio::sync::mpsc::unbounded_channel::<i64>();
+        app.platform().listen_entitlements(move |until| {
+            let _ = said.send(until);
+        });
+        let core_for_store = online.core.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(until) = store_said.recv().await {
+                let _ = core_for_store.set_entitlement(until).await;
+            }
+        });
         refresh_served_plugins(app, &online.core, dir).await;
         // And what the user downloaded, from the catalogue, in the background (2026-10-03).
         look_for_updates(app, online.core.clone(), dir);
@@ -1244,6 +1259,9 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                         Event::RemindersChanged => sync_reminders(&app, &core_for_events).await,
                         Event::VaultChanged => {
                             let _ = app.emit(VAULT_EVENT, ());
+                        }
+                        Event::PlanChanged => {
+                            let _ = app.emit(PLAN_EVENT, ());
                         }
                         Event::VaultProgress { done, total } => {
                             let _ = app.emit(VAULT_PROGRESS_EVENT, VaultProgressView { done, total });

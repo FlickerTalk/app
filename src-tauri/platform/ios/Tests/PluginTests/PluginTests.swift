@@ -91,6 +91,27 @@ final class PlatformPluginTests: XCTestCase {
         XCTAssertEqual(restoreTrouble(URLError(.timedOut)), "store_unavailable")
     }
 
+    // 2026-10-07: what the Store says with the app open (Transaction.updates, an expiry, coming
+    // back to the screen) waits for the core if it is not listening yet. Only the latest counts:
+    // an older word from the Store is no longer true.
+    func testALiveEntitlementWaitsForTheCoreAndOnlyTheLatestCounts() {
+        let queue = EntitlementQueue()
+        queue.offer(1_800_000_000_000)
+        queue.offer(0)
+        var heard: [Int64] = []
+        queue.register { heard.append($0) }
+        XCTAssertEqual(heard, [0])
+        queue.offer(1_830_000_000_000)
+        XCTAssertEqual(heard, [0, 1_830_000_000_000])
+        // A new core (the phone was erased) hears from now on, and nothing is told twice.
+        var later: [Int64] = []
+        queue.register { later.append($0) }
+        XCTAssertEqual(later, [])
+        queue.offer(5)
+        XCTAssertEqual(heard, [0, 1_830_000_000_000])
+        XCTAssertEqual(later, [5])
+    }
+
     // When the Store cannot say (no product, another product, an empty price) there is no price,
     // and the screen says "yearly subscription" without any amount.
     func testWithoutTheYearlyProductThereIsNoPrice() {
