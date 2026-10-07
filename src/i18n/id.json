@@ -247,9 +247,9 @@
     "movePhone": "Pindah ke ponsel baru",
     "backup": "Cadangan",
     "plan": "Paket",
-    "planFree": "Gratis · tahun pertama",
-    "planFreeDays": "Gratis · sisa {days} hari",
-    "planOver": "Tahun gratis berakhir",
+    "planFree": "Alat gratis · tahun pertama",
+    "planFreeDays": "Alat gratis · sisa {days} hari",
+    "planOver": "Alat memerlukan langganan",
     "privacy": "Privasi",
     "version": "Versi",
     "erase": "Hapus ponsel ini",
@@ -333,7 +333,10 @@
     "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
     "location": "Lokasi Anda, hanya saat Anda memintanya",
     "opens": "Membuka: {kinds}",
-    "open": "Buka"
+    "open": "Buka",
+    "locked": "Berlangganan untuk memakai alat",
+    "lockedHint": "Tahun gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
+    "subscribe": "Berlangganan"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Simbol"
   },
   "plan": {
-    "trial": "Gratis · sisa {days} hari",
-    "young": "Gratis · di bawah 21 tahun",
+    "trial": "Alat gratis · sisa {days} hari",
     "subscribed": "Berbayar · sampai {until}",
     "renewing": "Berbayar · diperpanjang otomatis",
-    "limited": "Tahun gratis sudah berakhir",
-    "hint": "FlickerTalk seharga {price} per tahun, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan langganan.",
-    "hintYearly": "FlickerTalk adalah langganan tahunan, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan langganan.",
+    "limited": "Tahun gratis alat sudah berakhir",
+    "hint": "Chat, panggilan, file, dan game gratis selamanya. Alat gratis di tahun pertama, lalu {price} per tahun.",
+    "hintYearly": "Chat, panggilan, file, dan game gratis selamanya. Alat gratis di tahun pertama, lalu dengan langganan tahunan.",
     "pay": "{price} per tahun",
     "payYearly": "Langganan tahunan",
-    "iAmYoung": "Usia saya di bawah 21 tahun",
-    "iAmOlder": "Usia saya 21 tahun atau lebih",
     "restore": "Pulihkan pembelian",
     "restored": "Langganan dipulihkan",
     "nothingToRestore": "Tidak ada pembelian untuk dipulihkan",
@@ -368,7 +368,8 @@
       "store_unavailable": "Toko tidak menjawab. Coba lagi nanti.",
       "pending_approval": "Pembelian menunggu persetujuan.",
       "failed": "Toko tidak dapat menerima pembayaran."
-    }
+    },
+    "premium": "Langganan membuka semua alat: yang dibawa FlickerTalk dan yang kamu tambahkan."
   },
   "requests": {
     "title": "Permintaan",

@@ -247,9 +247,9 @@
     "movePhone": "Yeni telefona taşı",
     "backup": "Yedekleme",
     "plan": "Plan",
-    "planFree": "Ücretsiz · ilk yıl",
-    "planFreeDays": "Ücretsiz · {days} gün kaldı",
-    "planOver": "Ücretsiz yıl bitti",
+    "planFree": "Araçlar ücretsiz · ilk yıl",
+    "planFreeDays": "Araçlar ücretsiz · {days} gün kaldı",
+    "planOver": "Araçlar için abonelik gerekiyor",
     "privacy": "Gizlilik",
     "version": "Sürüm",
     "erase": "Bu telefonu sil",
@@ -333,7 +333,10 @@
     "storageLarge": "Bu telefonda çok veri saklamak (256 MB'a kadar)",
     "location": "Konumunuz, yalnızca siz istediğinizde",
     "opens": "Açar: {kinds}",
-    "open": "Aç"
+    "open": "Aç",
+    "locked": "Araçları kullanmak için abone ol",
+    "lockedHint": "Ücretsiz yıl sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
+    "subscribe": "Abone ol"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Semboller"
   },
   "plan": {
-    "trial": "Ücretsiz · {days} gün kaldı",
-    "young": "Ücretsiz · 21 yaş altı",
+    "trial": "Araçlar ücretsiz · {days} gün kaldı",
     "subscribed": "Ücretli · {until} tarihine kadar",
     "renewing": "Ücretli · otomatik yenilenir",
-    "limited": "Ücretsiz yıl sona erdi",
-    "hint": "FlickerTalk'un yıllık ücreti {price}; 21 yaşın altındaysanız ücretsizdir. Kurulumdan itibaren ilk yıl herkes için ücretsizdir. Ödeme yapmasanız da mesaj almaya ve yanıtlamaya devam edersiniz; yeni bir sohbet başlatmak, arama yapmak ve dosya göndermek için abonelik gerekir.",
-    "hintYearly": "FlickerTalk yıllık bir aboneliktir ve 21 yaşın altındaysanız ücretsizdir. Kurulumdan itibaren ilk yıl herkes için ücretsizdir. Ödeme yapmasanız da mesaj almaya ve yanıtlamaya devam edersiniz; yeni bir sohbet başlatmak, arama yapmak ve dosya göndermek için abonelik gerekir.",
+    "limited": "Araçların ücretsiz yılı sona erdi",
+    "hint": "Sohbet, aramalar, dosyalar ve oyunlar sonsuza kadar ücretsiz. Araçlar ilk yıl ücretsiz, sonra yıllık {price}.",
+    "hintYearly": "Sohbet, aramalar, dosyalar ve oyunlar sonsuza kadar ücretsiz. Araçlar ilk yıl ücretsiz, sonra yıllık abonelikle.",
     "pay": "Yılda {price}",
     "payYearly": "Yıllık abonelik",
-    "iAmYoung": "21 yaşından küçüğüm",
-    "iAmOlder": "21 yaşında veya daha büyüğüm",
     "restore": "Satın alımları geri yükle",
     "restored": "Abonelik geri yüklendi",
     "nothingToRestore": "Geri yüklenecek bir satın alım yok",
@@ -368,7 +368,8 @@
       "store_unavailable": "Mağaza yanıt vermiyor. Daha sonra tekrar dene.",
       "pending_approval": "Satın alma onay bekliyor.",
       "failed": "Mağaza ödemeyi alamadı."
-    }
+    },
+    "premium": "Abonelik tüm araçların kilidini açar: FlickerTalk'ta gelenler ve senin eklediklerin."
   },
   "requests": {
     "title": "İstekler",

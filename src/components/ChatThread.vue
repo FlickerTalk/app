@@ -45,6 +45,7 @@ import {
   arrowRedoOutline,
   extensionPuzzleOutline,
   gameControllerOutline,
+  lockClosedOutline,
   mailOutline,
   openOutline,
   trashOutline,
@@ -64,12 +65,14 @@ import PluginSheet from "./PluginSheet.vue";
 import {
   games as installedGames,
   installed,
+  isLocked,
   offered,
   offeredOnce,
   openersOf,
   byPluginName,
   pluginName,
   refreshPlugins,
+  refreshToolsLock,
   tools,
   viewerOf,
   type HandedFile,
@@ -716,10 +719,19 @@ closeOnBackWhile(() => props.active && Boolean(acting.value), () => closeActions
 closeOnBackWhile(() => props.active && showApps.value, () => (showApps.value = false));
 closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, () => closePlugin());
 
+/**
+ * Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked: a tap on
+ * one goes to the Plan screen, where the subscription is. Games never are.
+ */
+function toPlan() {
+  void router.push("/plan");
+}
+
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   if (!chosen) return;
   showApps.value = false;
+  if (isLocked(chosen)) return toPlan();
   openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) });
 }
 
@@ -740,6 +752,7 @@ closeOnBackWhile(() => props.active && Boolean(asking.value), () => (asking.valu
 
 /** The apps sheet, on the tools if there are any, otherwise on the games; nothing is remembered. */
 function openApps() {
+  void refreshToolsLock();
   appsTab.value = tools.value.length ? "tools" : "games";
   showApps.value = true;
 }
@@ -839,12 +852,17 @@ async function openWith(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   closeActions();
   if (!message || !chosen) return;
+  if (isLocked(chosen)) return toPlan();
   await openIn(chosen, message);
 }
 
-/** Whether a tap on this file shows it inside the app: the plugin that `views` its kind. */
+/**
+ * Whether a tap on this file shows it inside the app: the plugin that `views` its kind. A locked
+ * viewer (a tool, 2026-10-08) does not: the file goes to another app, as with no viewer.
+ */
 function viewerFor(message: ChatMessage | undefined): PluginView | undefined {
-  return message?.kind === "file" ? viewerOf(installed.value, message.file?.mime || "application/octet-stream") : undefined;
+  const viewer = message?.kind === "file" ? viewerOf(installed.value, message.file?.mime || "application/octet-stream") : undefined;
+  return viewer && !isLocked(viewer) ? viewer : undefined;
 }
 const viewable = computed(() => Boolean(viewerFor(messages.value.find((one) => one.id === acting.value))));
 
@@ -931,7 +949,7 @@ async function resendMessage(id: string) {
 onMounted(async () => {
   // A tool installed from another window shows up here as soon as the chat comes back.
   document.addEventListener("visibilitychange", onVisible);
-  await refreshPlugins();
+  await Promise.all([refreshPlugins(), refreshToolsLock()]);
   pluginsLoaded.value = true;
   if (props.play) playGame(props.play);
 });
@@ -958,6 +976,7 @@ watch(
 function onVisible() {
   if (document.visibilityState !== "visible") return;
   void refreshPlugins();
+  void refreshToolsLock();
   readOnReturn();
 }
 watch(() => props.active, readOnReturn);
@@ -1171,6 +1190,7 @@ watch(
           <ion-item v-for="one in tools" :key="one.id" button :detail="false" :data-test="`app-${one.id}`" @click="useApp(one.id)">
             <ion-icon slot="start" :icon="appsOutline" aria-hidden="true" />
             <ion-label class="ion-text-nowrap">{{ pluginName(one) }}</ion-label>
+            <ion-icon v-if="isLocked(one)" slot="end" :icon="lockClosedOutline" data-test="locked" :aria-label="$t('plugins.locked')" />
           </ion-item>
           <ion-item v-if="!tools.length" lines="none">
             <ion-label color="medium">{{ $t("plugins.none") }}</ion-label>
@@ -1266,6 +1286,7 @@ watch(
           :data-test="`open-with-${one.id}`"
           @click="openWith(one.id)"
         >
+          <ion-icon v-if="isLocked(one)" :icon="lockClosedOutline" :aria-label="$t('plugins.locked')" />
           {{ pluginName(one) }}
         </button>
         <!-- With a viewer, a tap no longer leaves the app: the other apps are still one press away. -->

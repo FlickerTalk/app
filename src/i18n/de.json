@@ -247,9 +247,9 @@
     "movePhone": "Auf neues Telefon übertragen",
     "backup": "Backup",
     "plan": "Tarif",
-    "planFree": "Kostenlos · erstes Jahr",
-    "planFreeDays": "Kostenlos · Resttage: {days}",
-    "planOver": "Gratisjahr vorbei",
+    "planFree": "Werkzeuge kostenlos · erstes Jahr",
+    "planFreeDays": "Werkzeuge kostenlos · noch {days} Tage",
+    "planOver": "Werkzeuge brauchen das Abo",
     "privacy": "Datenschutz",
     "version": "Version",
     "erase": "Dieses Telefon löschen",
@@ -333,7 +333,10 @@
     "storageLarge": "Viele Daten auf diesem Telefon behalten (bis 256 MB)",
     "location": "Dein Standort, nur wenn du ihn anforderst",
     "opens": "Öffnet: {kinds}",
-    "open": "Öffnen"
+    "open": "Öffnen",
+    "locked": "Abonnieren, um die Werkzeuge zu nutzen",
+    "lockedHint": "Das kostenlose Jahr ist vorbei: Werkzeuge brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
+    "subscribe": "Abonnieren"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Symbole"
   },
   "plan": {
-    "trial": "Kostenlos · Resttage: {days}",
-    "young": "Kostenlos · unter 21",
+    "trial": "Werkzeuge kostenlos · noch {days} Tage",
     "subscribed": "Bezahlt · bis {until}",
     "renewing": "Bezahlt · verlängert sich automatisch",
-    "limited": "Das Gratisjahr ist vorbei",
-    "hint": "FlickerTalk kostet {price} pro Jahr und ist kostenlos, wenn du unter 21 bist. Das erste Jahr ab der Installation ist für alle kostenlos. Ohne Bezahlung kannst du weiter empfangen und antworten; neue Unterhaltungen beginnen, anrufen und Dateien senden geht nur mit dem Abo.",
-    "hintYearly": "FlickerTalk ist ein Jahresabo und kostenlos, wenn du unter 21 bist. Das erste Jahr ab der Installation ist für alle kostenlos. Ohne Bezahlung kannst du weiter empfangen und antworten; neue Unterhaltungen beginnen, anrufen und Dateien senden geht nur mit dem Abo.",
+    "limited": "Das kostenlose Jahr der Werkzeuge ist vorbei",
+    "hint": "Chat, Anrufe, Dateien und Spiele sind für immer kostenlos. Werkzeuge sind im ersten Jahr kostenlos, danach {price} pro Jahr.",
+    "hintYearly": "Chat, Anrufe, Dateien und Spiele sind für immer kostenlos. Werkzeuge sind im ersten Jahr kostenlos, danach mit einem Jahresabo.",
     "pay": "{price} pro Jahr",
     "payYearly": "Jahresabo",
-    "iAmYoung": "Ich bin unter 21",
-    "iAmOlder": "Ich bin 21 oder älter",
     "restore": "Käufe wiederherstellen",
     "restored": "Abo wiederhergestellt",
     "nothingToRestore": "Es gibt keinen Kauf zum Wiederherstellen",
@@ -368,7 +368,8 @@
       "store_unavailable": "Der Store antwortet nicht. Versuch es später noch einmal.",
       "pending_approval": "Der Kauf wartet auf Freigabe.",
       "failed": "Der Store konnte die Zahlung nicht einziehen."
-    }
+    },
+    "premium": "Das Abo schaltet alle Werkzeuge frei: die, die FlickerTalk mitbringt, und die, die du hinzufügst."
   },
   "requests": {
     "title": "Anfragen",

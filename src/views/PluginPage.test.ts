@@ -3,19 +3,21 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, h, reactive } from "vue";
 import { setLocale } from "../i18n";
 
+const nav = vi.hoisted(() => ({ push: vi.fn(), back: vi.fn() }));
 const route = vi.hoisted(() => ({ value: null as unknown as { params: Record<string, string>; query: Record<string, string> } }));
 vi.mock("vue-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("vue-router")>()),
   useRoute: () => route.value,
-  useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
+  useRouter: () => nav,
 }));
 vi.mock("../plugins", async (importOriginal) => {
   const plugins = await importOriginal<typeof import("../plugins")>();
   plugins.installed.value = [{ id: "com.flickertalk.notes", name: "Notes", locales: { es: { name: "Notas" } } } as never];
-  return { ...plugins, refreshPlugins: vi.fn() };
+  return { ...plugins, refreshPlugins: vi.fn(), refreshToolsLock: vi.fn() };
 });
 
 import PluginPage from "./PluginPage.vue";
+import { installed, toolsLocked } from "../plugins";
 import PluginSheet from "../components/PluginSheet.vue";
 
 describe("PluginPage", () => {
@@ -114,5 +116,28 @@ describe("PluginPage", () => {
       await flushPromises();
       expect(mounted).toBe(2);
     });
+  });
+
+  // Ioan, 2026-10-08: a tool opened on its own (from Settings, a reminder) while the tools are
+  // locked shows the lock and the way to the subscription, never its frame. A game still opens.
+  it("shows a locked tool's lock and leads to the Plan screen", async () => {
+    toolsLocked.value = true;
+    try {
+      route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: {} });
+      const wrapper = mount(PluginPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+      expect(wrapper.find("[data-test='locked']").exists()).toBe(true);
+      await wrapper.find("[data-test='subscribe']").trigger("click");
+      expect(nav.push).toHaveBeenCalledWith("/plan");
+
+      installed.value = [...installed.value, { id: "com.flickertalk.chess", name: "Chess", kind: "game" } as never];
+      route.value = reactive({ params: { id: "com.flickertalk.chess" }, query: {} });
+      const game = mount(PluginPage, { shallow: true });
+      await flushPromises();
+      expect(game.findComponent(PluginSheet).exists()).toBe(true);
+    } finally {
+      toolsLocked.value = false;
+    }
   });
 });

@@ -64,15 +64,15 @@ import {
 
 const router = useRouter();
 
-// §41: free for a year from the install, counted on this phone. After it, the row says what the
-// Plan screen says: paid until a date, or free under 21; only without either is the year over.
+// §41: the tools are free for a year from the install, counted on this phone (Ioan, 2026-10-08:
+// everything else is free forever). After it, the row says what the Plan screen says: paid until a
+// date, or the tools need the subscription.
 const planView = ref<PlanView | null>(null);
 const plan = computed(() => {
   if (planView.value?.state === "subscribed") {
     if (planView.value.renews) return t("plan.renewing");
     return t("plan.subscribed", { until: new Date(planView.value.until).toLocaleDateString() });
   }
-  if (planView.value?.state === "young") return t("plan.young");
   if (!store.me.freeUntil) return t("settings.planFree");
   const days = daysLeft(store.me.freeUntil);
   return days > 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");

@@ -7,7 +7,7 @@ import MessageBubble from "./MessageBubble.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
-import { offered, refreshPlugins } from "../plugins";
+import { offered, refreshPlugins, toolsLocked } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
 import { setLocale } from "../i18n";
@@ -736,6 +736,38 @@ describe("ChatThread", () => {
     await tapped(wrapper, "m4");
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
     expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+  });
+
+  // Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked. In the
+  // apps sheet each shows a lock and leads to the Plan screen; a file goes to another app instead
+  // of a locked viewer; "open with" leads to the Plan screen too.
+  describe("with the tools locked", () => {
+    const limited = (plugins: unknown[], answers: Record<string, unknown> = {}) => withPlugins(plugins, { core_plan: { state: "limited", until: 0 }, ...answers });
+    afterEach(() => (toolsLocked.value = false));
+
+    it("shows a lock on each tool of the apps sheet and goes to the Plan screen", async () => {
+      push.mockClear();
+      limited([VIEWER]);
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await wrapper.find("[data-test='apps']").trigger("click");
+      await flushPromises();
+      const row = wrapper.find(`[data-test='app-${VIEWER.id}']`);
+      expect(row.find("[data-test='locked']").exists()).toBe(true);
+      await row.trigger("click");
+      await flushPromises();
+      expect(push).toHaveBeenCalledWith("/plan");
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+    });
+
+    it("sends a tapped file to another app rather than to a locked viewer", async () => {
+      limited([VIEWER], { core_read_message_file: { name: "menu.pdf", mime: "application/pdf", data: "JVBERi0=" } });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await tapped(wrapper, "m4");
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+      expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
+    });
   });
 
   // app#78 (Samsung, 2026-10-03): with a blocked contact, a message waited forever and nothing said
@@ -1593,6 +1625,22 @@ describe("ChatThread", () => {
       expect(sheet.props("live")).toBe(true);
       expect(sheet.props("sending")).toBe("propose");
       expect(sheet.props("contact")).toBe("c1");
+    });
+
+    // Ioan, 2026-10-08: games are free forever; locked tools never lock a game.
+    it("plays a game when the tools are locked", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const answer = internals.invoke;
+      internals.invoke = (command, args) => (command === "core_plan" ? Promise.resolve({ state: "limited", until: 0 }) : answer(command, args));
+      const wrapper = await thread();
+      await openGames(wrapper);
+      await flushPromises();
+      expect(wrapper.find(`[data-test='game-${CHESS.id}'] [data-test='locked']`).exists()).toBe(false);
+      await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+      await flushPromises();
+      expect(wrapper.findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ id: CHESS.id });
+      toolsLocked.value = false;
     });
 
     // Plan decision 11: the first time, one sheet; refused, the game does not open.

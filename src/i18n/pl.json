@@ -247,9 +247,9 @@
     "movePhone": "Przenieś na nowy telefon",
     "backup": "Kopia zapasowa",
     "plan": "Plan",
-    "planFree": "Za darmo · pierwszy rok",
-    "planFreeDays": "Za darmo · pozostało dni: {days}",
-    "planOver": "Darmowy rok minął",
+    "planFree": "Narzędzia za darmo · pierwszy rok",
+    "planFreeDays": "Narzędzia za darmo · zostało {days} dni",
+    "planOver": "Narzędzia wymagają subskrypcji",
     "privacy": "Prywatność",
     "version": "Wersja",
     "erase": "Wyczyść ten telefon",
@@ -333,7 +333,10 @@
     "storageLarge": "Przechowywać dużo danych na tym telefonie (do 256 MB)",
     "location": "Twoja lokalizacja, tylko gdy o nią poprosisz",
     "opens": "Otwiera: {kinds}",
-    "open": "Otwórz"
+    "open": "Otwórz",
+    "locked": "Subskrybuj, aby używać narzędzi",
+    "lockedHint": "Darmowy rok się skończył: narzędzia wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
+    "subscribe": "Subskrybuj"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Symbole"
   },
   "plan": {
-    "trial": "Za darmo · pozostało dni: {days}",
-    "young": "Za darmo · poniżej 21 lat",
+    "trial": "Narzędzia za darmo · zostało {days} dni",
     "subscribed": "Opłacone · do {until}",
     "renewing": "Płatny · odnawia się automatycznie",
-    "limited": "Darmowy rok się skończył",
-    "hint": "FlickerTalk kosztuje {price} rocznie i jest za darmo, jeśli masz mniej niż 21 lat. Pierwszy rok od instalacji jest darmowy dla wszystkich. Bez opłaty nadal odbierasz wiadomości i odpowiadasz; rozpoczęcie nowej rozmowy, dzwonienie i wysyłanie plików wymagają subskrypcji.",
-    "hintYearly": "FlickerTalk to subskrypcja roczna, za darmo, jeśli masz mniej niż 21 lat. Pierwszy rok od instalacji jest darmowy dla wszystkich. Bez opłaty nadal odbierasz wiadomości i odpowiadasz; rozpoczęcie nowej rozmowy, dzwonienie i wysyłanie plików wymagają subskrypcji.",
+    "limited": "Darmowy rok narzędzi się skończył",
+    "hint": "Czat, połączenia, pliki i gry są darmowe na zawsze. Narzędzia są darmowe przez pierwszy rok, potem {price} rocznie.",
+    "hintYearly": "Czat, połączenia, pliki i gry są darmowe na zawsze. Narzędzia są darmowe przez pierwszy rok, potem w ramach subskrypcji rocznej.",
     "pay": "{price} rocznie",
     "payYearly": "Subskrypcja roczna",
-    "iAmYoung": "Mam mniej niż 21 lat",
-    "iAmOlder": "Mam 21 lat lub więcej",
     "restore": "Przywróć zakupy",
     "restored": "Subskrypcja przywrócona",
     "nothingToRestore": "Nie ma zakupu do przywrócenia",
@@ -368,7 +368,8 @@
       "store_unavailable": "Sklep nie odpowiada. Spróbuj później.",
       "pending_approval": "Zakup czeka na zatwierdzenie.",
       "failed": "Sklep nie mógł pobrać płatności."
-    }
+    },
+    "premium": "Subskrypcja odblokowuje wszystkie narzędzia: te, które ma FlickerTalk, i te, które dodasz."
   },
   "requests": {
     "title": "Prośby",

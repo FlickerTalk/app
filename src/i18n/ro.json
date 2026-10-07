@@ -247,9 +247,9 @@
     "movePhone": "Mută pe un telefon nou",
     "backup": "Backup",
     "plan": "Plan",
-    "planFree": "Gratuit · primul an",
-    "planFreeDays": "Gratuit · zile rămase: {days}",
-    "planOver": "Anul gratuit s-a încheiat",
+    "planFree": "Instrumente gratuite · primul an",
+    "planFreeDays": "Instrumente gratuite · mai sunt {days} zile",
+    "planOver": "Instrumentele necesită abonamentul",
     "privacy": "Confidențialitate",
     "version": "Versiune",
     "erase": "Șterge acest telefon",
@@ -333,7 +333,10 @@
     "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
     "location": "Locația ta, doar când o ceri",
     "opens": "Deschide: {kinds}",
-    "open": "Deschide"
+    "open": "Deschide",
+    "locked": "Abonează-te pentru a folosi instrumentele",
+    "lockedHint": "Anul gratuit s-a încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
+    "subscribe": "Abonează-te"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Simboluri"
   },
   "plan": {
-    "trial": "Gratuit · zile rămase: {days}",
-    "young": "Gratuit · sub 21 de ani",
+    "trial": "Instrumente gratuite · mai sunt {days} zile",
     "subscribed": "Plătit · până la {until}",
     "renewing": "Plătit · se reînnoiește automat",
-    "limited": "Anul gratuit s-a încheiat",
-    "hint": "FlickerTalk costă {price} pe an și este gratuit dacă ai sub 21 de ani. Primul an de la instalare este gratuit pentru toți. Fără plată poți în continuare să primești și să răspunzi; pentru a începe o conversație nouă, a suna și a trimite fișiere e nevoie de abonament.",
-    "hintYearly": "FlickerTalk este un abonament anual și este gratuit dacă ai sub 21 de ani. Primul an de la instalare este gratuit pentru toți. Fără plată poți în continuare să primești și să răspunzi; pentru a începe o conversație nouă, a suna și a trimite fișiere e nevoie de abonament.",
+    "limited": "Anul gratuit al instrumentelor s-a încheiat",
+    "hint": "Chatul, apelurile, fișierele și jocurile sunt gratuite pentru totdeauna. Instrumentele sunt gratuite în primul an, apoi {price} pe an.",
+    "hintYearly": "Chatul, apelurile, fișierele și jocurile sunt gratuite pentru totdeauna. Instrumentele sunt gratuite în primul an, apoi cu un abonament anual.",
     "pay": "{price} pe an",
     "payYearly": "Abonament anual",
-    "iAmYoung": "Am sub 21 de ani",
-    "iAmOlder": "Am 21 de ani sau mai mult",
     "restore": "Restabilește achizițiile",
     "restored": "Abonament restabilit",
     "nothingToRestore": "Nu există nicio achiziție de restabilit",
@@ -368,7 +368,8 @@
       "store_unavailable": "Magazinul nu răspunde. Încearcă mai târziu.",
       "pending_approval": "Achiziția așteaptă aprobarea.",
       "failed": "Magazinul nu a putut încasa plata."
-    }
+    },
+    "premium": "Abonamentul deblochează toate instrumentele: cele incluse în FlickerTalk și cele pe care le adaugi."
   },
   "requests": {
     "title": "Cereri",

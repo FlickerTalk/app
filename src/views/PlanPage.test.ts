@@ -55,7 +55,7 @@ describe("PlanPage", () => {
   });
 
   it("says how long the free year has left", async () => {
-    planning({ state: "trial", until: Date.now() + 40 * DAY, age: "unknown" });
+    planning({ state: "trial", until: Date.now() + 40 * DAY });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
     expect(wrapper.text()).toContain("40");
@@ -64,29 +64,46 @@ describe("PlanPage", () => {
 
   // The same free year reads the same on Settings (`daysLeft`): installed a moment ago, 365 days.
   it("counts the free year as Settings does", async () => {
-    planning({ state: "trial", until: Date.now() + 365 * DAY - 5, age: "unknown" });
+    planning({ state: "trial", until: Date.now() + 365 * DAY - 5 });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
-    expect(wrapper.find("[data-test='where']").text()).toBe("Free · 365 days left");
+    expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.trial.replace("{days}", "365"));
   });
 
-  // §40: under 21 it is free, and that is a thing the user says, never a date we keep.
-  it("asks the age and keeps only the answer", async () => {
-    planning({ state: "limited", until: 0, age: "unknown" });
+  // Ioan, 2026-10-08: there is no age rule any more. Nothing on the screen asks it or speaks of it.
+  it("never asks the age", async () => {
+    planning({ state: "limited", until: 0 });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
+    expect(wrapper.find("[data-test='young']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='older']").exists()).toBe(false);
+    expect(wrapper.text()).not.toMatch(/21|under|minor|birth/i);
+    expect(calls.map(([command]) => command)).not.toContain("core_set_age");
+  });
 
-    await wrapper.find("[data-test='young']").trigger("click");
-    await flushPromises();
-    expect(calls).toContainEqual(["core_set_age", { age: "minor" }]);
-    expect(calls.some(([command]) => command === "core_plan")).toBe(true);
-    expect(wrapper.html()).not.toContain("birth");
+  // What is free forever and what the subscription is for, said in every state.
+  it("says what is free forever and that the subscription is for the tools", async () => {
+    for (const state of ["trial", "limited", "subscribed"]) {
+      planning({ state, until: Date.now() + 40 * DAY }, "0,99 €");
+      const wrapper = mount(PlanPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='hint']").text(), state).toBe(en.plan.hint.replace("{price}", "0,99 €"));
+      expect(wrapper.find("[data-test='premium']").text(), state).toBe(en.plan.premium);
+    }
+  });
+
+  // No language keeps the age rule: no text of it, and no key left for one.
+  it("has no age rule in any language", () => {
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      for (const key of ["young", "iAmYoung", "iAmOlder"]) expect(catalogue.plan, path).not.toHaveProperty(key);
+      expect(texts(catalogue.plan).join(" "), path).not.toMatch(/\b21\b/);
+    }
   });
 
   // 2026-09-29: the price is the Store's, as the Store writes it for this phone (0,99 € in
   // Spain, something else elsewhere); the app never writes an amount of its own.
   it("offers the year at the Store's own price when the free year is over", async () => {
-    planning({ state: "limited", until: 0, age: "adult" }, "0,99 €");
+    planning({ state: "limited", until: 0 }, "0,99 €");
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[data-test='pay']").text()).toBe("0,99 € a year");
@@ -97,7 +114,7 @@ describe("PlanPage", () => {
   });
 
   it("shows another store's price as it comes", async () => {
-    planning({ state: "limited", until: 0, age: "adult" }, "US$0.99");
+    planning({ state: "limited", until: 0 }, "US$0.99");
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[data-test='pay']").text()).toBe("US$0.99 a year");
@@ -106,7 +123,7 @@ describe("PlanPage", () => {
   // Offline, on a desktop, or with the product missing, the Store cannot say: the screen names
   // no amount at all, and paying still goes to the Store, which shows its own price.
   it("names no amount when the Store cannot say the price, and still pays", async () => {
-    planning({ state: "limited", until: 0, age: "adult" }, null);
+    planning({ state: "limited", until: 0 }, null);
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[data-test='pay']").text()).toBe(en.plan.payYearly);
@@ -121,7 +138,7 @@ describe("PlanPage", () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_subscription_price") throw "store_unavailable";
-      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+      return command === "core_plan" ? { state: "limited", until: 0 } : undefined;
     });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
@@ -139,15 +156,16 @@ describe("PlanPage", () => {
     }
   });
 
-  it("asks for nothing from someone under 21", async () => {
-    planning({ state: "young", until: 0, age: "minor" });
+  it("asks for nothing in the free year", async () => {
+    planning({ state: "trial", until: Date.now() + 40 * DAY });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
   });
 
   it("says until when a subscription runs", async () => {
-    planning({ state: "subscribed", until: Date.parse("2027-09-23T10:00:00Z"), age: "adult" });
+    planning({ state: "subscribed", until: Date.parse("2027-09-23T10:00:00Z") });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
     expect(wrapper.text()).toContain("2027");
@@ -159,7 +177,7 @@ describe("PlanPage", () => {
   // nothing; StoreKit's real expiry (iOS) is still shown.
   it("says a Play subscription renews automatically instead of showing a date", async () => {
     const until = Date.parse("2027-10-07T10:00:00Z");
-    planning({ state: "subscribed", until, age: "adult", renews: true });
+    planning({ state: "subscribed", until, renews: true });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[data-test='where']").text()).toBe(en.plan.renewing);
@@ -172,7 +190,7 @@ describe("PlanPage", () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_subscribe") throw "not_on_sale";
-      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+      return command === "core_plan" ? { state: "limited", until: 0 } : undefined;
     });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
@@ -186,7 +204,7 @@ describe("PlanPage", () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_subscribe") throw "BillingClient exploded at 0x7f";
-      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+      return command === "core_plan" ? { state: "limited", until: 0 } : undefined;
     });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
@@ -202,7 +220,7 @@ describe("PlanPage", () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_subscribe") throw "cancelled";
-      return command === "core_plan" ? { state: "limited", until: 0, age: "adult" } : undefined;
+      return command === "core_plan" ? { state: "limited", until: 0 } : undefined;
     });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
@@ -221,7 +239,7 @@ describe("PlanPage", () => {
         calls.push([command, args]);
         if (command === "core_restore_subscription") return answer();
         if (command === "core_subscription_price") return { price: "0,99 €" };
-        return command === "core_plan" ? { state, until: 0, age: "adult" } : undefined;
+        return command === "core_plan" ? { state, until: 0 } : undefined;
       });
     }
 
@@ -232,8 +250,8 @@ describe("PlanPage", () => {
       expect(wrapper.find("[data-test='restore']").exists()).toBe(true);
     });
 
-    it("is not offered to a subscriber nor to someone under 21", async () => {
-      for (const state of ["subscribed", "young"]) {
+    it("is not offered to a subscriber nor in the free year", async () => {
+      for (const state of ["subscribed", "trial"]) {
         restoring(() => "nothing", state);
         const wrapper = mount(PlanPage, { shallow: true });
         await flushPromises();
@@ -285,7 +303,7 @@ describe("PlanPage", () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_subscribe") throw "pending_approval";
-      return command === "core_plan" ? { state, until: state === "subscribed" ? Date.now() + 300 * DAY : 0, age: "adult" } : undefined;
+      return command === "core_plan" ? { state, until: state === "subscribed" ? Date.now() + 300 * DAY : 0 } : undefined;
     });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();
@@ -307,7 +325,7 @@ describe("PlanPage", () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_subscription_price") return { price: "0,99 €" };
-      return command === "core_plan" ? { state, until: state === "subscribed" ? until : 0, age: "adult" } : undefined;
+      return command === "core_plan" ? { state, until: state === "subscribed" ? until : 0 } : undefined;
     });
     const wrapper = mount(PlanPage, { shallow: true });
     await flushPromises();

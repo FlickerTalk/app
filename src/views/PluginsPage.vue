@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import {
   IonBackButton,
+  IonButton,
   IonButtons,
   IonContent,
   IonHeader,
@@ -16,18 +17,19 @@ import {
   IonToggle,
   IonToolbar,
 } from "@ionic/vue";
-import { addCircleOutline, downloadOutline, extensionPuzzleOutline, openOutline, trashOutline } from "ionicons/icons";
+import { addCircleOutline, downloadOutline, extensionPuzzleOutline, lockClosedOutline, openOutline, trashOutline } from "ionicons/icons";
 import {
   formatSize,
   grantPlugin,
   installPlugin,
+  needsSubscription,
   removePlugin,
   type OfferedPlugin,
 } from "../core";
 import { useRoute, useRouter } from "vue-router";
 import { isGame } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
-import { byPluginName, pluginName, pluginSummary, refreshOffered, refreshPlugins, tools } from "../plugins";
+import { byPluginName, isLocked, pluginName, pluginSummary, refreshOffered, refreshPlugins, refreshToolsLock, tools, toolsLocked } from "../plugins";
 
 const router = useRouter();
 // As a tab (Settings' choice, 2026-10-05) there is nowhere to go back to; from Settings there is.
@@ -49,7 +51,7 @@ onMounted(refresh);
 // Each is named in the phone's language (2026-10-02): the catalogue is kept for every screen, so an
 // installed tool whose package has no translation takes the catalogue's.
 async function refresh() {
-  await refreshPlugins();
+  await Promise.all([refreshPlugins(), refreshToolsLock()]);
   offered.value = byPluginName((await refreshOffered().catch(() => [])).filter((one) => !one.installed && !isGame(one)));
 }
 
@@ -58,14 +60,30 @@ function weight(one: OfferedPlugin): string {
   return one.carried ? "" : formatSize(one.size);
 }
 
+/**
+ * Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked. A tap on
+ * a locked one goes to the Plan screen, where the subscription is.
+ */
+function subscribe() {
+  void router.push("/plan");
+}
+
+function open(plugin: { id: string; kind?: "tool" | "game" }) {
+  if (isLocked(plugin)) subscribe();
+  else void router.push(`/plugin/${plugin.id}`);
+}
+
 /** Nothing arrives installed: the user picks the tool, and it starts with no permission (§53). */
 async function install(id: string) {
+  if (toolsLocked.value) return subscribe();
   installing.value = id;
   installFailed.value = false;
   try {
     await installPlugin(id);
-  } catch {
-    installFailed.value = true;
+  } catch (error) {
+    // The plan closed while the page was open (the year ended): the core refused it.
+    if (needsSubscription(error)) subscribe();
+    else installFailed.value = true;
   } finally {
     installing.value = "";
   }
@@ -110,6 +128,13 @@ async function remove(id: string) {
 
     <ion-content class="ft-plugins">
       <p class="ft-plugins__hint">{{ $t("plugins.hint") }}</p>
+      <div v-if="toolsLocked" class="ft-plugins__locked" data-test="locked">
+        <p class="ft-plugins__hint">{{ $t("plugins.lockedHint") }}</p>
+        <ion-button data-test="subscribe" @click="subscribe">
+          <ion-icon slot="start" :icon="lockClosedOutline" aria-hidden="true" />
+          {{ $t("plugins.subscribe") }}
+        </ion-button>
+      </div>
 
       <ion-list v-for="plugin in installed" :key="plugin.id" inset class="ft-group">
         <ion-item lines="none">
@@ -124,10 +149,10 @@ async function remove(id: string) {
             type="button"
             class="ft-plugins__remove ft-plugins__open"
             :data-test="`open-${plugin.id}`"
-            :aria-label="$t('plugins.open')"
-            @click="router.push(`/plugin/${plugin.id}`)"
+            :aria-label="isLocked(plugin) ? $t('plugins.locked') : $t('plugins.open')"
+            @click="open(plugin)"
           >
-            <ion-icon :icon="openOutline" aria-hidden="true" />
+            <ion-icon :icon="isLocked(plugin) ? lockClosedOutline : openOutline" aria-hidden="true" />
           </button>
           <button
             v-if="asksToRemove !== plugin.id"
@@ -186,12 +211,13 @@ async function remove(id: string) {
               type="button"
               class="ft-plugins__install"
               :data-test="`install-${one.id}`"
-              :aria-label="$t('plugins.install')"
+              :aria-label="toolsLocked ? $t('plugins.locked') : $t('plugins.install')"
               :disabled="installing === one.id"
               :aria-busy="installing === one.id ? 'true' : undefined"
               @click="install(one.id)"
             >
               <ion-spinner v-if="installing === one.id" name="crescent" aria-hidden="true" />
+              <ion-icon v-else-if="toolsLocked" :icon="lockClosedOutline" aria-hidden="true" />
               <ion-icon v-else :icon="one.carried ? addCircleOutline : downloadOutline" aria-hidden="true" />
             </button>
           </ion-item>
@@ -205,6 +231,12 @@ async function remove(id: string) {
 /* The last switch can be scrolled above Android's navigation bar (edge to edge). */
 .ft-plugins {
   --padding-bottom: var(--ion-safe-area-bottom, 0px);
+}
+.ft-plugins__locked {
+  margin: 0 var(--ft-space-4) var(--ft-space-4);
+}
+.ft-plugins__locked .ft-plugins__hint {
+  margin: 0 0 var(--ft-space-2);
 }
 .ft-plugins__hint {
   margin: var(--ft-space-4);

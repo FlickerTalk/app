@@ -247,9 +247,9 @@
     "movePhone": "Chuyển sang điện thoại mới",
     "backup": "Sao lưu",
     "plan": "Gói",
-    "planFree": "Miễn phí · năm đầu",
-    "planFreeDays": "Miễn phí · còn {days} ngày",
-    "planOver": "Hết năm miễn phí",
+    "planFree": "Công cụ miễn phí · năm đầu",
+    "planFreeDays": "Công cụ miễn phí · còn {days} ngày",
+    "planOver": "Công cụ cần gói đăng ký",
     "privacy": "Quyền riêng tư",
     "version": "Phiên bản",
     "erase": "Xóa sạch điện thoại này",
@@ -333,7 +333,10 @@
     "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
     "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",
     "opens": "Mở: {kinds}",
-    "open": "Mở"
+    "open": "Mở",
+    "locked": "Đăng ký để dùng công cụ",
+    "lockedHint": "Năm miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "subscribe": "Đăng ký"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Biểu tượng"
   },
   "plan": {
-    "trial": "Miễn phí · còn {days} ngày",
-    "young": "Miễn phí · dưới 21 tuổi",
+    "trial": "Công cụ miễn phí · còn {days} ngày",
     "subscribed": "Đã trả phí · đến {until}",
     "renewing": "Trả phí · tự động gia hạn",
-    "limited": "Năm miễn phí đã kết thúc",
-    "hint": "FlickerTalk có giá {price} mỗi năm, và miễn phí nếu bạn dưới 21 tuổi. Năm đầu tiên kể từ khi cài đặt miễn phí cho mọi người. Không trả phí, bạn vẫn nhận và trả lời được; bắt đầu cuộc trò chuyện mới, gọi điện và gửi tệp thì cần gói đăng ký.",
-    "hintYearly": "FlickerTalk là gói đăng ký theo năm, và miễn phí nếu bạn dưới 21 tuổi. Năm đầu tiên kể từ khi cài đặt miễn phí cho mọi người. Không trả phí, bạn vẫn nhận và trả lời được; bắt đầu cuộc trò chuyện mới, gọi điện và gửi tệp thì cần gói đăng ký.",
+    "limited": "Năm miễn phí của công cụ đã hết",
+    "hint": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí mãi mãi. Công cụ miễn phí năm đầu, sau đó {price} mỗi năm.",
+    "hintYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí mãi mãi. Công cụ miễn phí năm đầu, sau đó dùng gói đăng ký năm.",
     "pay": "{price} mỗi năm",
     "payYearly": "Gói đăng ký năm",
-    "iAmYoung": "Tôi dưới 21 tuổi",
-    "iAmOlder": "Tôi từ 21 tuổi trở lên",
     "restore": "Khôi phục giao dịch mua",
     "restored": "Đã khôi phục gói đăng ký",
     "nothingToRestore": "Không có giao dịch mua nào để khôi phục",
@@ -368,7 +368,8 @@
       "store_unavailable": "Cửa hàng không phản hồi. Hãy thử lại sau.",
       "pending_approval": "Giao dịch đang chờ phê duyệt.",
       "failed": "Cửa hàng không thể nhận thanh toán."
-    }
+    },
+    "premium": "Gói đăng ký mở khóa mọi công cụ: có sẵn trong FlickerTalk và do bạn thêm."
   },
   "requests": {
     "title": "Yêu cầu",

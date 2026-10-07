@@ -247,9 +247,9 @@
     "movePhone": "移轉到新手機",
     "backup": "備份",
     "plan": "方案",
-    "planFree": "免費 · 第一年",
-    "planFreeDays": "免費 · 剩餘 {days} 天",
-    "planOver": "免費一年已結束",
+    "planFree": "工具免費 · 第一年",
+    "planFreeDays": "工具免費 · 還剩 {days} 天",
+    "planOver": "工具需要訂閱",
     "privacy": "隱私",
     "version": "版本",
     "erase": "清除這支手機",
@@ -333,7 +333,10 @@
     "storageLarge": "在這支手機上保存大量資料（最多 256 MB）",
     "location": "你的位置，僅在你要求時",
     "opens": "可開啟：{kinds}",
-    "open": "開啟"
+    "open": "開啟",
+    "locked": "訂閱以使用工具",
+    "lockedHint": "免費一年已結束：工具需要訂閱。聊天、通話、檔案和遊戲依然免費。",
+    "subscribe": "訂閱"
   },
   "emoji": {
     "open": "表情符號",
@@ -349,17 +352,14 @@
     "symbols": "符號"
   },
   "plan": {
-    "trial": "免費 · 剩餘 {days} 天",
-    "young": "免費 · 未滿 21 歲",
+    "trial": "工具免費 · 還剩 {days} 天",
     "subscribed": "已付費 · 至 {until}",
     "renewing": "已付費 · 自動續訂",
-    "limited": "免費一年已結束",
-    "hint": "FlickerTalk 每年 {price}，未滿 21 歲免費。自安裝起的第一年所有人都免費。未付費仍可接收和回覆；開始新對話、撥打電話和傳送檔案需要訂閱。",
-    "hintYearly": "FlickerTalk 採用年度訂閱，未滿 21 歲免費。自安裝起的第一年所有人都免費。未付費仍可接收和回覆；開始新對話、撥打電話和傳送檔案需要訂閱。",
+    "limited": "工具的免費一年已結束",
+    "hint": "聊天、通話、檔案和遊戲永久免費。工具第一年免費，之後每年 {price}。",
+    "hintYearly": "聊天、通話、檔案和遊戲永久免費。工具第一年免費，之後需按年訂閱。",
     "pay": "每年 {price}",
     "payYearly": "年度訂閱",
-    "iAmYoung": "我未滿 21 歲",
-    "iAmOlder": "我已滿 21 歲",
     "restore": "恢復購買",
     "restored": "訂閱已恢復",
     "nothingToRestore": "沒有可恢復的購買",
@@ -368,7 +368,8 @@
       "store_unavailable": "商店沒有回應，請稍後再試。",
       "pending_approval": "購買正在等待核准。",
       "failed": "商店無法完成付款。"
-    }
+    },
+    "premium": "訂閱可解鎖所有工具：FlickerTalk 內建的和你新增的。"
   },
   "requests": {
     "title": "請求",

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonPage, IonTitle, IonToolbar, toastController } from "@ionic/vue";
-import { daysLeft, followPlan, payTrouble, plan as planOf, restoreSubscription, setAge, subscribe, subscriptionPrice, type PlanView } from "../core";
+import { daysLeft, followPlan, payTrouble, plan as planOf, restoreSubscription, subscribe, subscriptionPrice, type PlanView } from "../core";
 import { t } from "../i18n";
 
-// Plan §40–§47: the first year is free from the install, then a yearly subscription at the
-// Store's price (0,99 € in Spain since 2026-09-29); under 21 it is always free. Everything is
-// decided on this phone, and no date of birth is ever kept (§30, §43).
+// Plan §40–§47 (Ioan, 2026-10-08): chat, calls, files and games are free forever. The tools are
+// free the first year from the install, then a yearly subscription at the Store's price (0,99 € in
+// Spain since 2026-09-29). There is no age rule. Everything is decided on this phone.
 const plan = ref<PlanView | null>(null);
 const trouble = ref("");
 /** What a year costs, as the Store formats it; null while unknown or when it cannot say. */
@@ -48,8 +48,6 @@ const where = computed(() => {
   switch (plan.value?.state) {
     case "trial":
       return t("plan.trial", { days: days.value });
-    case "young":
-      return t("plan.young");
     case "subscribed":
       return plan.value.renews ? t("plan.renewing") : t("plan.subscribed", { until: until.value });
     case "limited":
@@ -59,13 +57,8 @@ const where = computed(() => {
   }
 });
 
-/** The subscription is only asked of an adult whose free year is over (§42). */
+/** The subscription is only asked once the free year is over (§42). */
 const asksToPay = computed(() => plan.value?.state === "limited");
-
-async function iAm(age: "minor" | "adult") {
-  await setAge(age);
-  await refresh();
-}
 
 async function pay() {
   trouble.value = "";
@@ -111,28 +104,15 @@ async function restore() {
     <ion-content>
       <p class="ft-plan__where" data-test="where">{{ where }}</p>
       <p class="ft-plan__hint" data-test="hint">{{ hint }}</p>
+      <p class="ft-plan__hint" data-test="premium">{{ $t("plan.premium") }}</p>
 
       <div v-if="asksToPay" class="ft-plan__acts">
         <button type="button" class="ft-plan__pay" data-test="pay" @click="pay">{{ payText }}</button>
-        <button type="button" class="ft-plan__young" data-test="young" @click="iAm('minor')">
-          {{ $t("plan.iAmYoung") }}
-        </button>
       </div>
 
       <ion-button v-if="asksToPay" fill="clear" class="ft-plan__restore" data-test="restore" @click="restore">
         {{ $t("plan.restore") }}
       </ion-button>
-
-      <!-- Said once, kept as a word, and undone here if it was a mistake (§43). -->
-      <button
-        v-if="plan?.age === 'minor'"
-        type="button"
-        class="ft-plan__young"
-        data-test="older"
-        @click="iAm('adult')"
-      >
-        {{ $t("plan.iAmOlder") }}
-      </button>
 
       <p v-if="trouble" class="ft-plan__trouble" role="alert" data-test="trouble">{{ trouble }}</p>
     </ion-content>
@@ -167,20 +147,6 @@ async function restore() {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
-}
-.ft-plan__young {
-  appearance: none;
-  border: 1px solid var(--ft-border);
-  border-radius: 14px;
-  padding: 12px 18px;
-  margin: var(--ft-space-3) var(--ft-space-4) 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.ft-plan__acts .ft-plan__young {
-  margin: 0;
 }
 .ft-plan__restore {
   margin: var(--ft-space-3) var(--ft-space-2) 0;

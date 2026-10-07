@@ -247,9 +247,9 @@
     "movePhone": "Transferir para um celular novo",
     "backup": "Backup",
     "plan": "Plano",
-    "planFree": "Grátis · primeiro ano",
-    "planFreeDays": "Grátis · dias restantes: {days}",
-    "planOver": "Ano grátis encerrado",
+    "planFree": "Ferramentas grátis · primeiro ano",
+    "planFreeDays": "Ferramentas grátis · faltam {days} dias",
+    "planOver": "As ferramentas precisam da assinatura",
     "privacy": "Privacidade",
     "version": "Versão",
     "erase": "Apagar este celular",
@@ -333,7 +333,10 @@
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
     "location": "A sua localização, só quando você pedir",
     "opens": "Abre: {kinds}",
-    "open": "Abrir"
+    "open": "Abrir",
+    "locked": "Assine para usar as ferramentas",
+    "lockedHint": "O ano grátis terminou: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "subscribe": "Assinar"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Símbolos"
   },
   "plan": {
-    "trial": "Grátis · dias restantes: {days}",
-    "young": "Grátis · menor de 21",
+    "trial": "Ferramentas grátis · faltam {days} dias",
     "subscribed": "Pago · até {until}",
     "renewing": "Pago · renovação automática",
-    "limited": "O ano grátis acabou",
-    "hint": "O FlickerTalk custa {price} por ano, e é grátis para quem tem menos de 21. O primeiro ano a partir da instalação é grátis para todos. Sem pagar, você continua recebendo e respondendo; iniciar uma nova conversa, ligar e enviar arquivos exigem a assinatura.",
-    "hintYearly": "O FlickerTalk é uma assinatura anual, e é grátis para quem tem menos de 21. O primeiro ano a partir da instalação é grátis para todos. Sem pagar, você continua recebendo e respondendo; iniciar uma nova conversa, ligar e enviar arquivos exigem a assinatura.",
+    "limited": "O ano grátis das ferramentas terminou",
+    "hint": "Chat, chamadas, arquivos e jogos são grátis para sempre. As ferramentas são grátis no primeiro ano e depois custam {price} por ano.",
+    "hintYearly": "Chat, chamadas, arquivos e jogos são grátis para sempre. As ferramentas são grátis no primeiro ano e depois exigem uma assinatura anual.",
     "pay": "{price} por ano",
     "payYearly": "Assinatura anual",
-    "iAmYoung": "Tenho menos de 21",
-    "iAmOlder": "Tenho 21 ou mais",
     "restore": "Restaurar compras",
     "restored": "Subscrição restaurada",
     "nothingToRestore": "Não há nenhuma compra para restaurar",
@@ -368,7 +368,8 @@
       "store_unavailable": "A loja não responde. Tenta mais tarde.",
       "pending_approval": "A compra está à espera de aprovação.",
       "failed": "A loja não conseguiu cobrar o pagamento."
-    }
+    },
+    "premium": "A assinatura libera todas as ferramentas: as que o FlickerTalk traz e as que você adicionar."
   },
   "requests": {
     "title": "Pedidos",

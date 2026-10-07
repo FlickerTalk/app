@@ -6,6 +6,7 @@ import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
+import en from "../i18n/en.json";
 import { extraTab, storedExtraTab } from "../preferences";
 
 // Android's back button: the handler the app listens with while something is open on top.
@@ -63,47 +64,51 @@ describe("SettingsPage", () => {
   });
 
   // §41: the free year, counted on this phone. Settings and the Plan screen count it the same
-  // way (`daysLeft`): a phone installed a moment ago reads 365 days on both, not 364 here.
-  it("shows how long the app stays free", () => {
+  // way (`daysLeft`): a phone installed a moment ago reads 365 days on both, not 364 here. Since
+  // 2026-10-08 only the tools have a free year: the row says so.
+  it("shows how long the tools stay free", () => {
     store.me.freeUntil = Date.now() + 365 * 24 * 3600 * 1000 - 5;
-    expect(mount(SettingsPage, { shallow: true }).text()).toContain("Free · 365 days left");
+    const text = mount(SettingsPage, { shallow: true }).text();
+    expect(text).toContain(en.settings.planFreeDays.replace("{days}", "365"));
+    expect(en.settings.planFreeDays).toMatch(/tools/i);
   });
 
-  it("says the free year is over once it is", () => {
+  it("says the tools are locked once the free year is over", () => {
     store.me.freeUntil = Date.now() - 1000;
-    expect(mount(SettingsPage, { shallow: true }).text()).toContain("Free year over");
+    expect(mount(SettingsPage, { shallow: true }).text()).toContain(en.settings.planOver);
+    expect(en.settings.planOver).toMatch(/tools/i);
   });
 
   // Found in the StoreKit test of 2026-10-07: the row only knew the free year, so a subscriber
-  // and someone under 21 both read "Free year over". It says what the Plan screen says.
+  // read "Free year over". It says what the Plan screen says.
   it("says a subscriber has paid, until when", async () => {
     const until = Date.now() + 300 * 24 * 3600 * 1000;
     store.me.freeUntil = Date.now() - 1000;
-    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until, age: "adult" } : undefined));
+    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until } : undefined));
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[data-test='plan']").text()).toContain(`Paid · until ${new Date(until).toLocaleDateString()}`);
-    expect(wrapper.text()).not.toContain("Free year over");
+    expect(wrapper.text()).not.toContain(en.settings.planOver);
   });
 
   // 2026-10-07: on Android the date is only how long the last check of Play holds: no date.
   it("says a Play subscription renews automatically", async () => {
     const until = Date.now() + 300 * 24 * 3600 * 1000;
     store.me.freeUntil = Date.now() - 1000;
-    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until, age: "adult", renews: true } : undefined));
+    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until, renews: true } : undefined));
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · renews automatically");
     expect(wrapper.find("[data-test='plan']").text()).not.toContain(new Date(until).toLocaleDateString());
   });
 
-  it("says it is free under 21 once the free year is over", async () => {
+  // Ioan, 2026-10-08: no age rule; the row never speaks of one.
+  it("never speaks of an age", async () => {
     store.me.freeUntil = Date.now() - 1000;
-    installTauri((command) => (command === "core_plan" ? { state: "young", until: 0, age: "minor" } : undefined));
+    installTauri((command) => (command === "core_plan" ? { state: "limited", until: 0 } : undefined));
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain("Free · under 21");
-    expect(wrapper.text()).not.toContain("Free year over");
+    expect(wrapper.find("[data-test='plan']").text()).not.toMatch(/21|under/i);
   });
 
   // Settings stays alive behind the tabs: back from a purchase, the row says it without a restart.
@@ -111,10 +116,10 @@ describe("SettingsPage", () => {
     store.me.freeUntil = Date.now() - 1000;
     let state = "limited";
     const until = Date.now() + 300 * 24 * 3600 * 1000;
-    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : until, age: "adult" } : undefined));
+    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : until } : undefined));
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain("Free year over");
+    expect(wrapper.find("[data-test='plan']").text()).toContain(en.settings.planOver);
     state = "subscribed";
     ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
     await flushPromises();
@@ -126,10 +131,10 @@ describe("SettingsPage", () => {
   it("follows the plan when the Store changes its mind with the app open", async () => {
     store.me.freeUntil = Date.now() - 1000;
     let state = "limited";
-    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 1e10, age: "adult" } : undefined));
+    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 1e10 } : undefined));
     const wrapper = mount(SettingsPage, { shallow: true });
     await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain("Free year over");
+    expect(wrapper.find("[data-test='plan']").text()).toContain(en.settings.planOver);
     state = "subscribed";
     events.handlers.get("ft://plan")?.();
     await flushPromises();

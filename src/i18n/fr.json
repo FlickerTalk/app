@@ -247,9 +247,9 @@
     "movePhone": "Transférer vers un nouveau téléphone",
     "backup": "Sauvegarde",
     "plan": "Offre",
-    "planFree": "Gratuit · première année",
-    "planFreeDays": "Gratuit · jours restants : {days}",
-    "planOver": "Année gratuite terminée",
+    "planFree": "Outils gratuits · première année",
+    "planFreeDays": "Outils gratuits · {days} jours restants",
+    "planOver": "Les outils nécessitent l'abonnement",
     "privacy": "Confidentialité",
     "version": "Version",
     "erase": "Effacer ce téléphone",
@@ -333,7 +333,10 @@
     "storageLarge": "Garder beaucoup de données sur ce téléphone (jusqu'à 256 Mo)",
     "location": "Votre position, seulement quand vous la demandez",
     "opens": "Ouvre : {kinds}",
-    "open": "Ouvrir"
+    "open": "Ouvrir",
+    "locked": "Abonnez-vous pour utiliser les outils",
+    "lockedHint": "L'année gratuite est terminée : les outils nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
+    "subscribe": "S'abonner"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +352,14 @@
     "symbols": "Symboles"
   },
   "plan": {
-    "trial": "Gratuit · jours restants : {days}",
-    "young": "Gratuit · moins de 21 ans",
+    "trial": "Outils gratuits · {days} jours restants",
     "subscribed": "Payé · jusqu’au {until}",
     "renewing": "Payant · renouvellement automatique",
-    "limited": "L’année gratuite est terminée",
-    "hint": "FlickerTalk coûte {price} par an, et c’est gratuit si vous avez moins de 21 ans. La première année après l’installation est gratuite pour tous. Sans payer, vous pouvez toujours recevoir et répondre ; démarrer une nouvelle conversation, appeler et envoyer des fichiers demandent l’abonnement.",
-    "hintYearly": "FlickerTalk est un abonnement annuel, et c’est gratuit si vous avez moins de 21 ans. La première année après l’installation est gratuite pour tous. Sans payer, vous pouvez toujours recevoir et répondre ; démarrer une nouvelle conversation, appeler et envoyer des fichiers demandent l’abonnement.",
+    "limited": "L'année gratuite des outils est terminée",
+    "hint": "Le chat, les appels, les fichiers et les jeux sont gratuits pour toujours. Les outils sont gratuits la première année, puis {price} par an.",
+    "hintYearly": "Le chat, les appels, les fichiers et les jeux sont gratuits pour toujours. Les outils sont gratuits la première année, puis avec un abonnement annuel.",
     "pay": "{price} par an",
     "payYearly": "Abonnement annuel",
-    "iAmYoung": "J’ai moins de 21 ans",
-    "iAmOlder": "J’ai 21 ans ou plus",
     "restore": "Restaurer les achats",
     "restored": "Abonnement restauré",
     "nothingToRestore": "Aucun achat à restaurer",
@@ -368,7 +368,8 @@
       "store_unavailable": "La boutique ne répond pas. Réessaie plus tard.",
       "pending_approval": "L'achat attend une approbation.",
       "failed": "La boutique n'a pas pu encaisser le paiement."
-    }
+    },
+    "premium": "L'abonnement débloque tous les outils : ceux que FlickerTalk inclut et ceux que vous ajoutez."
   },
   "requests": {
     "title": "Demandes",
