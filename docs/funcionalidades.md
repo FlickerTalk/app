@@ -271,15 +271,25 @@ nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
 
 ## Plan y precio
 
-Una suscripción anual: **0,99 €** en España desde el 2026-09-29 (Google no deja poner 1,00 €
-exactos). La pantalla del plan enseña el precio **tal como lo da la tienda** (Play Billing o
-StoreKit, con su moneda y su formato); si la tienda no puede decirlo (sin red, en escritorio, sin
-producto) dice «Suscripción anual» sin ninguna cantidad, y el botón de pagar funciona igual. La
-app no escribe ni guarda ningún importe. El **primer año es gratis** desde la instalación, contado en el propio teléfono, sin
-tarjeta. **Menores de 21, siempre gratis**: la edad se declara en el teléfono y nunca sale de él.
-Sin pagar se sigue **recibiendo y respondiendo** siempre; lo que no se puede es empezar una
-conversación nueva, llamar ni enviar ficheros. Ajustes y la pantalla del plan cuentan los días que
-quedan igual (un día empezado cuenta: recién instalada, 365).
+**Decisión de Ioan (2026-10-08).** El chat, las notas de voz, los ficheros, las llamadas de voz y
+vídeo, los contactos y conversaciones nuevos, los círculos y los **juegos** son **gratis para
+siempre**. Lo de pago son las **herramientas** (plugins de tipo `tool`, también las que la app trae
+de serie): gratis el **primer año** desde la instalación, contado en el propio teléfono y sin
+tarjeta, y después con la suscripción anual `yearly`, **0,99 €** en España desde el 2026-09-29
+(Google no deja poner 1,00 € exactos). No hay regla de edad.
+
+Sin suscripción, acabado el año, cada herramienta enseña un candado (en Ajustes → Plugins, en la
+hoja de apps del chat, en «abrir con» y en su propia página) y tocarla lleva a la pantalla del plan;
+un fichero cuyo visor es una herramienta bloqueada se abre con otra app. El núcleo no abre ni instala
+una herramienta bloqueada (`needs_subscription`) y el WebView no la sirve. Una herramienta ya
+instalada se sigue actualizando. Nada más se limita nunca.
+
+La pantalla del plan dice qué es gratis y qué abre la suscripción, con el precio **tal como lo da la
+tienda** (Play Billing o StoreKit, con su moneda y su formato); si la tienda no puede decirlo (sin
+red, en escritorio, sin producto) dice «Suscripción anual» sin ninguna cantidad, y el botón de pagar
+funciona igual. La app no escribe ni guarda ningún importe. Suscribirse y Restaurar compras aparecen
+cuando el año ha acabado. Ajustes y la pantalla del plan cuentan los días que quedan igual (un día
+empezado cuenta: recién instalada, 365).
 
 ## Cambiar de teléfono
 
