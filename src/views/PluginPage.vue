@@ -16,8 +16,10 @@ import {
 import { useRoute, useRouter } from "vue-router";
 import { closeOnBackWhile, goBack } from "../back";
 import PluginSheet from "../components/PluginSheet.vue";
+import PermissionAsk from "../components/PermissionAsk.vue";
 import { lockClosedOutline } from "ionicons/icons";
-import { installed, isLocked, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
+import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
+import type { PermissionNeed } from "../permissions";
 import { PREMIUM_PAGE } from "../core";
 
 // A plugin on its own (2026-09-27): from Settings, or from a reminder it set. There is no chat
@@ -55,8 +57,19 @@ onIonViewWillEnter(() => {
 });
 onIonViewWillLeave(() => {
   here.value = false;
+  answerNeed(false);
   void sheet.value?.close();
 });
+
+// Ioan, 2026-10-08: the plugin asked for something it lacks the permission for; the user is asked
+// here, for that one permission, and the sheet grants it on a yes. Leaving the page is a no.
+const needing = ref<PermissionNeed | null>(null);
+function answerNeed(allowed: boolean) {
+  const need = needing.value;
+  needing.value = null;
+  need?.answer(allowed);
+}
+closeOnBackWhile(() => here.value && Boolean(needing.value), () => answerNeed(false));
 function closed() {
   if (here.value) reopen();
   else saidGoodbye = true;
@@ -106,9 +119,19 @@ closeOnBackWhile(() => here.value, leave);
         @open-chat="(contact) => router.push(`/chat/${contact}`)"
         @done="router.back()"
         @closed="closed"
+        @needs="(need) => (needing = need)"
       />
       <p v-else-if="ready" class="ft-plugin-page__missing">{{ $t("plugins.none") }}</p>
     </ion-content>
+    <PermissionAsk
+      :open="Boolean(needing)"
+      :name="plugin ? pluginName(plugin) : ''"
+      :permission="needing ?? undefined"
+      :icon="plugin && pluginIcon(plugin)"
+      :image="plugin && pluginImage(plugin)"
+      @allow="answerNeed(true)"
+      @cancel="answerNeed(false)"
+    />
   </ion-page>
 </template>
 

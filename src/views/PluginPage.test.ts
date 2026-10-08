@@ -19,6 +19,7 @@ vi.mock("../plugins", async (importOriginal) => {
 import PluginPage from "./PluginPage.vue";
 import { installed, premiumLocked } from "../plugins";
 import PluginSheet from "../components/PluginSheet.vue";
+import PermissionAsk from "../components/PermissionAsk.vue";
 
 describe("PluginPage", () => {
   // Found on a real phone (2026-09-27): a reminder tapped while its plugin is on screen only
@@ -139,5 +140,60 @@ describe("PluginPage", () => {
     } finally {
       premiumLocked.value = false;
     }
+  });
+
+  // Ioan, 2026-10-08: a tool on its own page that lacks a permission asks for it on the spot, in
+  // the same sheet as in a chat; the answer goes back to the plugin's sheet, which grants it.
+  describe("asking for a permission on the spot", () => {
+    const need = () => ({ key: "location", label: "Your location, only when you ask", icon: "pin", on: false, answer: vi.fn() });
+    const Sheet = defineComponent({
+      name: "PluginSheet",
+      props: ["plugin", "contact", "reminder", "session"],
+      emits: ["done", "closed", "openChat", "needs"],
+      setup(_, { expose }) {
+        expose({ close: async () => {} });
+        return () => h("div");
+      },
+    });
+    async function page() {
+      route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: {} });
+      const wrapper = mount(PluginPage, { shallow: true, global: { stubs: { PluginSheet: Sheet } } });
+      await flushPromises();
+      return wrapper;
+    }
+
+    it("shows the tool and the permission, and hands a yes back", async () => {
+      const wrapper = await page();
+      const ask = () => wrapper.findComponent(PermissionAsk);
+      expect(ask().props("open")).toBe(false);
+      const asked = need();
+      wrapper.findComponent(Sheet).vm.$emit("needs", asked);
+      await flushPromises();
+      expect(ask().props("open")).toBe(true);
+      expect(ask().props("name")).toBe("Notes");
+      expect(ask().props("permission")).toMatchObject({ label: "Your location, only when you ask" });
+      ask().vm.$emit("allow");
+      await flushPromises();
+      expect(asked.answer).toHaveBeenCalledWith(true);
+      expect(ask().props("open")).toBe(false);
+    });
+
+    it("hands a no back on Cancel, and when the page is left", async () => {
+      const wrapper = await page();
+      const ask = () => wrapper.findComponent(PermissionAsk);
+      const first = need();
+      wrapper.findComponent(Sheet).vm.$emit("needs", first);
+      await flushPromises();
+      ask().vm.$emit("cancel");
+      expect(first.answer).toHaveBeenCalledWith(false);
+
+      const second = need();
+      wrapper.findComponent(Sheet).vm.$emit("needs", second);
+      await flushPromises();
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
+      await flushPromises();
+      expect(second.answer).toHaveBeenCalledWith(false);
+      expect(ask().props("open")).toBe(false);
+    });
   });
 });
