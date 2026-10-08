@@ -20,7 +20,7 @@ import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import GamePermissions from "../components/GamePermissions.vue";
 import { closeOnBackWhile, goBack } from "../back";
-import { PREMIUM_PAGE, chat, grantPlugin, loadMessages, pickFiles, sendPicked } from "../core";
+import { PREMIUM_PAGE, chat, grantPlugin, loadMessages, needsSubscription, pickFiles, sendPicked } from "../core";
 import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
 import { PRESENT_BOARD, PRESENT_DOCUMENT, PRESENT_FILE_LIMIT, SEND_WAIT, canPresentWith, needsPresentGrant, presentGrant, sentFile, waitFor } from "../present";
 import {
@@ -80,6 +80,18 @@ const presentKey = computed(() => (presenting.value ? `${presenting.value.by}|${
  *  state comes only from the core's events: `presentInCall` itself changes nothing here. */
 const canOffer = computed(() => current.value && call.native && call.canPresent && call.phase === "active" && !call.presenting);
 const choosing = ref(false);
+/** A presentation on its way (a PDF can take a while to reach the chat): Present waits for it. */
+const starting = ref(false);
+/** Runs one start at a time; a second tap while one is on its way does nothing. */
+async function once(work: () => Promise<unknown>) {
+  if (starting.value) return;
+  starting.value = true;
+  try {
+    await work();
+  } finally {
+    starting.value = false;
+  }
+}
 
 interface Asking {
   them: boolean;
@@ -114,23 +126,26 @@ async function grantLive(tool: string): Promise<boolean> {
 }
 
 /** Present, from the sheet: the tool must be here, unlocked and allowed to talk to its twin. */
-async function present(tool: string) {
+function present(tool: string) {
   choosing.value = false;
-  await Promise.all([refreshPlugins(), refreshPremiumLock()]);
-  const plugin = installed.value.find((one) => one.id === tool);
-  if (!canPresentWith(plugin)) return say("calls.presentMissing");
-  if (isLocked(plugin)) return void router.push(PREMIUM_PAGE);
-  if (!needsPresentGrant(plugin)) return begin(tool);
-  asking.value = {
-    them: false,
-    name: pluginName(plugin),
-    body: t("plugins.live"),
-    icon: pluginIcon(plugin),
-    image: pluginImage(plugin),
-    allow: async () => {
-      if (await grantLive(tool)) await begin(tool);
-    },
-  };
+  return once(async () => {
+    await Promise.all([refreshPlugins(), refreshPremiumLock()]);
+    const plugin = installed.value.find((one) => one.id === tool);
+    if (!canPresentWith(plugin)) return say("calls.presentMissing");
+    if (isLocked(plugin)) return void router.push(PREMIUM_PAGE);
+    if (!needsPresentGrant(plugin)) return begin(tool);
+    asking.value = {
+      them: false,
+      name: pluginName(plugin),
+      body: t("plugins.live"),
+      icon: pluginIcon(plugin),
+      image: pluginImage(plugin),
+      allow: () =>
+        once(async () => {
+          if (await grantLive(tool)) await begin(tool);
+        }),
+    };
+  });
 }
 
 /** The board presents at once; a PDF first goes to the chat as a file, then that message is shown. */
@@ -147,8 +162,18 @@ async function begin(tool: string) {
     if (!message) throw new Error("the PDF did not show up in the chat");
     await presentInCall(call.id, PRESENT_DOCUMENT, message);
   } catch (error) {
+    // The plan can change after the check above: the core's refusal has the last word.
+    if (needsSubscription(error)) return void router.push(PREMIUM_PAGE);
     // The core said their app is too old (plan A); anything else is a plain failure (§84).
     await say(cannotPresent(error) ? "calls.cannotPresentOld" : "calls.presentFailed");
+  }
+}
+
+async function stop() {
+  try {
+    await stopPresenting(call.id);
+  } catch {
+    await say("calls.presentFailed");
   }
 }
 
@@ -366,8 +391,9 @@ watch(
           fill="clear"
           shape="round"
           data-test="present"
+          :disabled="starting"
           :aria-label="$t('calls.present')"
-          @click="choosing = true"
+          @click="choosing = !starting"
         >
           <ion-icon slot="icon-only" :icon="easelOutline" aria-hidden="true" />
         </ion-button>
@@ -378,7 +404,7 @@ watch(
           shape="round"
           data-test="stop-presenting"
           :aria-label="$t('calls.stopPresenting')"
-          @click="stopPresenting(call.id)"
+          @click="stop"
         >
           <ion-icon slot="icon-only" :icon="stopCircleOutline" aria-hidden="true" />
         </ion-button>
