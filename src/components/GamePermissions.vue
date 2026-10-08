@@ -12,18 +12,19 @@ import { formatSize } from "../core";
 // a tap outside, the back button) is a no.
 // The game's own icon (its tile's, `pluginIcon`), or the controller (device review of app#121).
 // Or its own image (`pluginImage`, 2026-10-08), drawn instead of any icon.
-const props = defineProps<{ open: boolean; name: string; size?: number; icon?: string; image?: string }>();
+// 2026-10-08: presenting in a call asks with the same sheet, with its own text and button.
+const props = defineProps<{ open: boolean; name: string; size?: number; icon?: string; image?: string; body?: string; allowLabel?: string }>();
 const emit = defineEmits<{ allow: []; cancel: [] }>();
 
 // What was asked stays on the sheet while it slides away.
-const shown = ref({ name: props.name, size: props.size, icon: props.icon, image: props.image });
+const shown = ref({ name: props.name, size: props.size, icon: props.icon, image: props.image, body: props.body, allowLabel: props.allowLabel });
 /** Whether the user already answered; Ionic's dismissal that follows says nothing more. */
 let answered = false;
 watch(
-  () => [props.open, props.name, props.size, props.icon, props.image] as const,
+  () => [props.open, props.name, props.size, props.icon, props.image, props.body, props.allowLabel] as const,
   ([open]) => {
     if (!open) return;
-    shown.value = { name: props.name, size: props.size, icon: props.icon, image: props.image };
+    shown.value = { name: props.name, size: props.size, icon: props.icon, image: props.image, body: props.body, allowLabel: props.allowLabel };
     answered = false;
   },
 );
@@ -56,14 +57,14 @@ function dismissed() {
       <img v-if="shown.image" :src="shown.image" alt="" draggable="false" class="ft-game-ask__image" />
       <ion-icon v-else :icon="shown.icon || gameControllerOutline" color="primary" class="ft-game-ask__icon" aria-hidden="true" />
       <h2>{{ shown.name }}</h2>
-      <p>{{ $t("games.permissionsBody") }}</p>
+      <p>{{ shown.body ?? $t("games.permissionsBody") }}</p>
       <p v-if="shown.size !== undefined" class="ft-muted">{{ formatSize(shown.size) }}</p>
       <div class="ft-game-ask__actions">
         <ion-button fill="outline" shape="round" data-test="game-cancel" @click="answer(false)">
           {{ $t("common.cancel") }}
         </ion-button>
         <ion-button shape="round" data-test="game-allow" @click="answer(true)">
-          {{ shown.size !== undefined ? $t("games.installAndPlay") : $t("games.permissionsAllow") }}
+          {{ shown.size !== undefined ? $t("games.installAndPlay") : (shown.allowLabel ?? $t("games.permissionsAllow")) }}
         </ion-button>
       </div>
     </div>

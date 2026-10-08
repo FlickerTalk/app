@@ -137,7 +137,19 @@
     "minimize": "Quay lại trò chuyện",
     "answer": "Trả lời",
     "decline": "Từ chối",
-    "empty": "Chưa có cuộc gọi nào"
+    "empty": "Chưa có cuộc gọi nào",
+    "present": "Trình bày",
+    "presentBoard": "Bảng trắng",
+    "presentDocument": "Tài liệu (PDF)",
+    "stopPresenting": "Dừng trình bày",
+    "presenting": "{name} đang trình bày",
+    "acceptToSee": "Chấp nhận tệp để xem bài trình bày",
+    "presentTooBig": "PDF này quá lớn để trình bày (tối đa 32 MB)",
+    "presentMissing": "Điện thoại này không có công cụ cho bài trình bày này. Hãy thêm trong Ứng dụng.",
+    "presentAsk": "{name} muốn trình bày bằng {plugin}",
+    "presentAllow": "Cho phép",
+    "presentFailed": "Không thể bắt đầu bài trình bày",
+    "cannotPresentOld": "Ứng dụng của người kia chưa thể hiển thị bài trình bày"
   },
   "welcome": {
     "fromOld": "Tôi có FlickerTalk trên điện thoại khác",

@@ -137,7 +137,19 @@
     "minimize": "Wróć do czatu",
     "answer": "Odbierz",
     "decline": "Odrzuć",
-    "empty": "Brak połączeń"
+    "empty": "Brak połączeń",
+    "present": "Prezentuj",
+    "presentBoard": "Tablica",
+    "presentDocument": "Dokument (PDF)",
+    "stopPresenting": "Zakończ prezentację",
+    "presenting": "{name} prezentuje",
+    "acceptToSee": "Zaakceptuj plik, aby zobaczyć prezentację",
+    "presentTooBig": "Ten PDF jest za duży, by go zaprezentować (maksymalnie 32 MB)",
+    "presentMissing": "Ten telefon nie ma narzędzia do tej prezentacji. Dodaj je w Aplikacjach.",
+    "presentAsk": "{name} chce prezentować za pomocą: {plugin}",
+    "presentAllow": "Zezwól",
+    "presentFailed": "Nie udało się rozpocząć prezentacji",
+    "cannotPresentOld": "Aplikacja drugiej osoby nie pokazuje jeszcze prezentacji"
   },
   "welcome": {
     "fromOld": "Mam FlickerTalk na innym telefonie",
