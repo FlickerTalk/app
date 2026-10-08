@@ -1,5 +1,6 @@
 mod client;
 mod core_events;
+mod opened_links;
 mod plugins;
 mod push_core;
 mod video_surfaces;
@@ -26,6 +27,7 @@ pub fn run() {
             .setup(|app, _| {
                 app.state::<client::Client>().setup(app)?;
                 client::start_in_background(app);
+                opened_links::listen(app);
                 Ok(())
             })
             .build(),
@@ -157,6 +159,8 @@ pub fn run() {
             client::core_remind_cancel,
             client::core_remind_list,
             client::core_pending_reminder,
+            opened_links::core_opened_link,
+            opened_links::core_read_link,
             client::core_plugin_live_send,
             client::core_plugin_chat,
             client::core_plugins_opening,

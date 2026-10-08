@@ -40,6 +40,19 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- Links that open the app (2026-10-08): a contact's card and a new phone's invite,
+                 only these two pages, verified for this app by flickertalk.com's assetlinks.json.
+                 No scheme of our own: any app could claim it. MainActivity hands the link to the
+                 bridge (OpenedLinks.kt); nothing happens until the user taps on the page. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="flickertalk.com" />
+                <data android:path="/add" />
+                <data android:path="/move" />
+            </intent-filter>
         </activity>
 
         <provider
