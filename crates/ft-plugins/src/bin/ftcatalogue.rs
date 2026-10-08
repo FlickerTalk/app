@@ -20,7 +20,7 @@ use vodozemac::Ed25519SecretKey;
 const BASE: &str = "https://flickertalk.com/plugins";
 
 /// What the index says about a package that was just built.
-fn entry_of(manifest: &Manifest, package: &[u8], base: &str) -> CatalogueEntry {
+fn entry_of(manifest: &Manifest, image: String, package: &[u8], base: &str) -> CatalogueEntry {
     CatalogueEntry {
         url: format!("{}/{}/{}.ftplugin", base.trim_end_matches('/'), manifest.id, manifest.version),
         id: manifest.id.clone(),
@@ -33,7 +33,7 @@ fn entry_of(manifest: &Manifest, package: &[u8], base: &str) -> CatalogueEntry {
         kind: manifest.kind,
         locales: manifest.locales.clone(),
         icon: manifest.icon.clone(),
-        image: String::new(),
+        image,
     }
 }
 
@@ -58,7 +58,7 @@ fn build(dir: &Path, out: &Path, key: &Ed25519SecretKey, base: &str) -> Result<V
         if plugin.manifest.kind == Kind::Game && !version_at_least(&plugin.manifest.min_core_version, GAMES_SINCE) {
             bail!("{}: a game needs minCoreVersion {GAMES_SINCE} or newer", folder.display());
         }
-        let entry = entry_of(&plugin.manifest, &package, base);
+        let entry = entry_of(&plugin.manifest, plugin.image(), &package, base);
         let home = out.join(&plugin.manifest.id);
         std::fs::create_dir_all(&home)?;
         std::fs::write(home.join(format!("{}.ftplugin", plugin.manifest.version)), &package)?;
@@ -281,6 +281,36 @@ mod tests {
             let raw: serde_json::Value = serde_json::from_str(&index).unwrap();
             let pdf = raw["plugins"].as_array().unwrap().iter().find(|entry| entry["id"] == "com.flickertalk.pdf").unwrap();
             assert!(pdf.get("icon").is_none(), "no icon, nothing written: {pdf}");
+        }
+    }
+
+    // 2026-10-08 ("Imagen por plugin"): a folder's icon.svg is packed and signed with the rest, and
+    // the index carries its text so the app draws the tile before the download. A plugin without
+    // one is listed as before.
+    #[test]
+    fn a_plugins_icon_svg_is_packed_and_its_text_is_in_the_index() {
+        const IMAGE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a74f0"/></svg>"##;
+        let home = std::env::temp_dir().join(format!("ftcat-{}", blake3::hash(b"images").to_hex()));
+        let _ = std::fs::remove_dir_all(&home);
+        a_plugin(&home.join("src/sketch"), "com.flickertalk.sketch");
+        std::fs::write(home.join("src/sketch/icon.svg"), IMAGE).unwrap();
+        a_plugin(&home.join("src/pdf"), "com.flickertalk.pdf");
+        let packed: Vec<String> = files_of(&home.join("src/sketch")).unwrap().into_iter().map(|(name, _)| name).collect();
+        assert!(packed.contains(&"icon.svg".to_owned()), "{packed:?}");
+        assert!(!files_of(&home.join("src/pdf")).unwrap().iter().any(|(name, _)| name == "icon.svg"));
+
+        let key = Ed25519SecretKey::new();
+        build(&home.join("src"), &home.join("site"), &key, BASE).unwrap();
+        let package = std::fs::read(home.join("site/com.flickertalk.sketch/1.2.0.ftplugin")).unwrap();
+        assert_eq!(open(&package, &key.public_key()).unwrap().image(), IMAGE, "signed inside the package");
+        for name in [INDEX, LEGACY_INDEX] {
+            let index = std::fs::read_to_string(home.join("site").join(name)).unwrap();
+            let signature = std::fs::read_to_string(home.join("site").join(format!("{name}.sig"))).unwrap();
+            let listed = catalogue_entries(&index, &signature, &key.public_key()).expect("signed");
+            assert_eq!(listed.iter().find(|entry| entry.id == "com.flickertalk.sketch").unwrap().image, IMAGE, "{name}");
+            let raw: serde_json::Value = serde_json::from_str(&index).unwrap();
+            let pdf = raw["plugins"].as_array().unwrap().iter().find(|entry| entry["id"] == "com.flickertalk.pdf").unwrap();
+            assert!(pdf.get("image").is_none(), "no image, nothing written: {pdf}");
         }
     }
 

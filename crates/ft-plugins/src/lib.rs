@@ -1393,11 +1393,15 @@ pub mod packing {
     use base64::Engine;
     use vodozemac::Ed25519SecretKey;
 
-    /// What a package carries: the manifest and everything under `dist/`, and nothing else. The
-    /// repository of a plugin holds its tests, its licence and its own tools; none of that runs on
-    /// the phone, so none of it is packed or signed.
+    /// What a package carries: the manifest, its tile's `icon.svg` if it has one (2026-10-08) and
+    /// everything under `dist/`, and nothing else. The repository of a plugin holds its tests, its
+    /// licence and its own tools; none of that runs on the phone, so none of it is packed or signed.
     pub fn files_of(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
         let mut files = vec![("module.json".to_owned(), std::fs::read(dir.join("module.json"))?)];
+        let image = dir.join(crate::icon::IMAGE);
+        if image.is_file() {
+            files.push((crate::icon::IMAGE.to_owned(), std::fs::read(image)?));
+        }
         let mut pending = vec![dir.join("dist")];
         while let Some(folder) = pending.pop() {
             for entry in std::fs::read_dir(&folder)? {
