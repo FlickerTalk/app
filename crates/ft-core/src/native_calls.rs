@@ -58,6 +58,27 @@ pub struct CurrentCall {
     pub connected_at: Option<i64>,
     /// The call's video, when it runs here (native video, 2026-09-29).
     pub video_state: Option<VideoState>,
+    /// What is presented in the call (2026-10-08), by either side.
+    pub presenting: Option<Presenting>,
+    /// Whether a presentation can start: the call is on and both apps speak media version 2.
+    pub can_present: bool,
+}
+
+/// Who presents in a call (2026-10-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentedBy {
+    Me,
+    Them,
+}
+
+/// What is presented in a call (2026-10-08, `docs/plan-presentar-en-llamada.md`): the plugin
+/// shown on both screens and the chat file it shows, if any. The core opens nothing and reads
+/// nothing of it: the plugin's own content travels over `ft.live`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Presenting {
+    pub plugin: String,
+    pub file: Option<MessageId>,
+    pub by: PresentedBy,
 }
 
 /// The media of a native call: its connection, its voice and its video.
@@ -88,6 +109,11 @@ pub(crate) struct NativeCall {
     remote: Mutex<RemoteCamera>,
     /// When the media connected (ms); 0 until then.
     connected_at: AtomicI64,
+    /// The call media version we say in our offer or answer (`media_version`, at most the core's
+    /// `call_media_ceiling`).
+    our_media: u16,
+    /// What is presented in the call now, by either side (2026-10-08).
+    presenting: Mutex<Option<Presenting>>,
 }
 
 impl NativeCall {
@@ -105,9 +131,19 @@ impl NativeCall {
         !self.peer_known.load(Ordering::SeqCst) || camera_allowed(self.peer_media(), self.video_call)
     }
 
-    /// The media version we say: 1 when this phone runs the call's video.
+    /// The media version we say: `CALL_MEDIA_VERSION` when this phone runs the call's video.
     fn media(&self) -> u16 {
-        media_version(self.video.is_some())
+        self.our_media
+    }
+
+    fn presenting(&self) -> Option<Presenting> {
+        self.presenting.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Whether a presentation can start (2026-10-08): the call is on and both sides said media
+    /// version 2 or later.
+    fn can_present(&self) -> bool {
+        self.connected_at().is_some() && self.peer_known.load(Ordering::SeqCst) && presents(self.media()) && presents(self.peer_media())
     }
 
     /// The call's video as the UI sees it: before it is ready, our camera as the user wants it
@@ -634,6 +670,8 @@ impl Core {
             muted: native.as_ref().is_some_and(|native| native.voice.is_muted()),
             connected_at,
             video_state: native.as_ref().and_then(|native| native.view()),
+            presenting: native.as_ref().and_then(|native| native.presenting()),
+            can_present: native.as_ref().is_some_and(|native| native.can_present()),
             call,
             contact: record.contact,
             video: record.video,
@@ -706,6 +744,7 @@ impl Core {
         self.mark_call_stage(CallStage::ConnectionBuilt);
         let voice = Voice::for_session(&session, platform);
         let video = self.video_platform().map(|platform| Video::for_session(&session, platform));
+        let our_media = media_version(video.is_some()).min(self.call_media_ceiling.load(Ordering::SeqCst));
         let native = Arc::new(NativeCall {
             call: call.to_owned(),
             contact: record.contact,
@@ -722,6 +761,8 @@ impl Core {
             said: Mutex::new((false, false)),
             remote: Mutex::new(RemoteCamera::default()),
             connected_at: AtomicI64::new(0),
+            our_media,
+            presenting: Mutex::new(None),
         });
         Ok(native)
     }
@@ -988,6 +1029,13 @@ impl Core {
         *self.call_video.write().unwrap_or_else(PoisonError::into_inner) = platform;
     }
 
+    /// Says at most this call media version in our offers and answers from the next call on: a
+    /// phone that speaks as an older app does, for the tests (`tests/native_present.rs`).
+    #[doc(hidden)]
+    pub fn set_call_media_version(&self, version: u16) {
+        self.call_media_ceiling.store(version, Ordering::SeqCst);
+    }
+
     /// What the app runs right before a call's video devices go: the bridge takes the native
     /// views away (on iOS the layers belong to the devices). It may block.
     pub fn set_video_detach(&self, detach: Option<VideoDetach>) {
@@ -1108,6 +1156,11 @@ fn speaks_camera_state(peer_media: u16) -> bool {
     peer_media >= ft_protocol::CALL_MEDIA_CAMERA
 }
 
+/// Whether a side at this call media version shows presentations (`CallPresent`): from 2 on.
+fn presents(media: u16) -> bool {
+    media >= ft_protocol::CALL_MEDIA_PRESENT
+}
+
 /// Whether our camera may turn on: an older app's voice call has no video line at all.
 fn camera_allowed(peer_media: u16, video_call: bool) -> bool {
     video_call || speaks_camera_state(peer_media)
@@ -1186,6 +1239,15 @@ mod tests {
         assert!(!speaks_camera_state(0));
         assert!(speaks_camera_state(1));
         assert!(speaks_camera_state(2), "a newer app still reads it");
+    }
+
+    // 2026-10-08: presentations go only between two sides at media version 2 or later.
+    #[test]
+    fn presentations_go_only_to_a_side_at_media_version_two() {
+        assert!(!presents(0), "an older app's WebView");
+        assert!(!presents(1), "apps 1.2 to 1.5");
+        assert!(presents(2));
+        assert!(presents(3), "a newer app still shows them");
     }
 
     // The older app's fallback (docs/video-nativo.md, the table of §1).
