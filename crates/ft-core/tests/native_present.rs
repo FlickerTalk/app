@@ -407,6 +407,15 @@ async fn both_presenting_at_once_end_up_showing_the_same() {
     until("both show the same presentation", || agree(&alice, &bob)).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     assert!(agree(&alice, &bob).await, "and it stays so");
+    // A real clash keeps the presentation of the side whose device id sorts first; otherwise the
+    // one that was not refused presents.
+    let winner = match (by_alice.is_ok(), by_bob.is_ok()) {
+        (true, true) if alice.id() < bob.id() => &alice,
+        (true, true) => &bob,
+        (true, false) => &alice,
+        _ => &bob,
+    };
+    assert_eq!(presenting(winner).await.map(|shown| shown.by), Some(PresentedBy::Me), "the winner keeps its own");
     alice.core.end_call(&call, false).await.unwrap();
 }
 
@@ -419,15 +428,22 @@ fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_millis() as i64
 }
 
-/// Installs these tools as the catalogue signs them, while the free days last.
+/// Installs these tools as the catalogue signs them, while the free days last; each asks for the
+/// live channel, as a tool that can follow a presentation does.
 async fn install_tools(phone: &Phone, ids: &[&str]) {
+    let tools: Vec<(&str, bool)> = ids.iter().map(|id| (*id, true)).collect();
+    install_tools_asking(phone, &tools).await;
+}
+
+/// Installs these tools, each asking for the live channel or not, while the free days last.
+async fn install_tools_asking(phone: &Phone, tools: &[(&str, bool)]) {
     let dir = std::env::temp_dir().join(format!("ft-present-plugins-{}", MessageId::new()));
     std::fs::create_dir_all(&dir).expect("a folder for plugins");
     phone.core.set_plugins_dir(dir);
     let catalogue = Ed25519SecretKey::new();
-    for id in ids {
+    for (id, live) in tools {
         let manifest = format!(
-            r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"kind":"tool","permissions":{{"live":true}}}}"#
+            r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"kind":"tool","permissions":{{"live":{live}}}}}"#
         );
         let package = sign_package(&[("module.json".to_owned(), manifest.into_bytes()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
         phone.core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs while free");
@@ -467,8 +483,8 @@ async fn a_student_with_locked_tools_may_follow_a_presentation() {
 
     let mut bob_events = bob.core.events();
     alice.core.present_in_call(&call, TOOL, None).await.expect("alice, in her free days, presents");
-    next_presenting(&mut bob_events, &call).await;
     assert!(plan_changed(&mut bob_events).await, "the WebView serves the tool again");
+    next_presenting(&mut bob_events, &call).await;
     bob.core.open_plugin(TOOL).await.expect("bob follows it");
     assert!(bob.core.may_use_plugin(TOOL, Kind::Tool).await.unwrap());
     let refused = bob.core.open_plugin(OTHER_TOOL).await.expect_err("only the one presented");
@@ -508,12 +524,138 @@ async fn following_does_not_unlock_the_tool_outside_the_call() {
     let call = connected_call(&alice, &bob).await;
     let mut bob_events = bob.core.events();
     alice.core.present_in_call(&call, TOOL, None).await.expect("alice presents");
-    next_presenting(&mut bob_events, &call).await;
     assert!(plan_changed(&mut bob_events).await, "the WebView serves the tool");
+    next_presenting(&mut bob_events, &call).await;
     bob.core.open_plugin(TOOL).await.expect("bob follows it");
 
     bob.core.end_call(&call, false).await.expect("bob hangs up");
     assert!(plan_changed(&mut bob_events).await, "the WebView stops serving it");
     assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("closed again").to_string(), NEEDS_SUBSCRIPTION);
     assert!(!bob.core.may_use_plugin(TOOL, Kind::Tool).await.unwrap());
+}
+
+// Only a tool that asks for the live channel can follow anything (2026-10-08): a presentation
+// naming one that does not ask for it unlocks nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_presentation_of_a_tool_that_cannot_follow_unlocks_nothing() {
+    let (alice, bob) = two_phones().await;
+    install_tools_asking(&bob, &[(TOOL, true), (DEAF_TOOL, false)]).await;
+    lock_tools(&bob).await;
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    alice.core.present_in_call(&call, DEAF_TOOL, None).await.expect("alice presents a tool without the live channel");
+    assert_eq!(next_presenting(&mut bob_events, &call).await.0, Some(DEAF_TOOL.to_owned()));
+    assert_eq!(bob.core.open_plugin(DEAF_TOOL).await.expect_err("still closed").to_string(), NEEDS_SUBSCRIPTION);
+    assert!(!bob.core.may_use_plugin(DEAF_TOOL, Kind::Tool).await.unwrap());
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+const DEAF_TOOL: &str = "com.example.clock";
+
+/// Which comes first on this phone: what may open changing, or what is presented in `call`.
+#[derive(Debug, PartialEq, Eq)]
+enum First {
+    Plan,
+    Presenting,
+}
+
+async fn first_of(events: &mut broadcast::Receiver<Event>, call: &str) -> First {
+    let waiting = async {
+        loop {
+            match events.recv().await {
+                Ok(Event::PlanChanged) => return First::Plan,
+                Ok(Event::Call { call: id, update: CallUpdate::Presenting { .. }, .. }) if id == call => return First::Presenting,
+                _ => {}
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(15), waiting).await.expect("one of them comes")
+}
+
+// The WebView serves the followed tool on `PlanChanged` and mounts its sheet on `presenting`: a
+// locked student's frame must be served before the sheet loads it, and the sheet must go before
+// the frame stops being served.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_followed_tool_is_served_before_it_shows_and_after_it_goes() {
+    let (alice, bob) = two_phones().await;
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    alice.core.present_in_call(&call, BOARD, None).await.expect("alice presents");
+    assert_eq!(first_of(&mut bob_events, &call).await, First::Plan, "served first");
+    assert_eq!(next_presenting(&mut bob_events, &call).await.0, Some(BOARD.to_owned()), "then shown");
+
+    alice.core.present_in_call(&call, VIEWER, None).await.expect("she switches");
+    assert_eq!(first_of(&mut bob_events, &call).await, First::Plan, "the new one served first");
+    assert_eq!(next_presenting(&mut bob_events, &call).await.0, Some(VIEWER.to_owned()));
+
+    alice.core.stop_presenting(&call).await.expect("she stops");
+    assert_eq!(first_of(&mut bob_events, &call).await, First::Presenting, "the sheet goes first");
+    assert!(plan_changed(&mut bob_events).await, "then the frame stops being served");
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A modified peer may name any message as the file shown: a file of another chat, or a text,
+// is not something to follow, and the word is dropped. A file not here yet (its offer travels
+// through the outbox and may come after) is taken.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_presentation_of_a_file_of_another_chat_is_ignored() {
+    let (alice, bob, carol) = three_phones().await;
+    pair(&carol, &bob).await;
+    let elsewhere = bob.core.send_file(&carol.id(), &a_file("carol.pdf"), "carol.pdf", "application/pdf").await.expect("carol's file");
+    let elsewhere = MessageId::parse(&elsewhere).unwrap();
+    let text = alice.core.send_text(&bob.id(), "the slides follow").await.expect("a text");
+    let text = MessageId::parse(&text).unwrap();
+    until("bob has alice's text", || async { bob.core.store().message(&text.to_string()).await.unwrap().is_some() }).await;
+    assert!(!bob.core.file_belongs_to(&elsewhere, &alice.id()).await.unwrap(), "not a file of alice's chat");
+    assert!(bob.core.file_belongs_to(&elsewhere, &carol.id()).await.unwrap(), "a file of carol's");
+    assert!(!bob.core.file_belongs_to(&text, &alice.id()).await.unwrap(), "a text is not a file");
+
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    for (seq, wrong) in [(1, elsewhere), (2, text)] {
+        assert!(alice.core.say_call_present(&bob.id(), &call, seq, Some(VIEWER.to_owned()), Some(wrong)).await.unwrap(), "said");
+    }
+    let not_yet = MessageId::new();
+    assert!(alice.core.say_call_present(&bob.id(), &call, 3, Some(VIEWER.to_owned()), Some(not_yet)).await.unwrap(), "said");
+    assert_eq!(next_presenting(&mut bob_events, &call).await, (Some(VIEWER.to_owned()), Some(not_yet), Some(PresentedBy::Them)), "only the last is taken");
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A word before the call is answered is not part of it: the caller's core keeps nothing of it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_presentation_before_the_answer_changes_nothing() {
+    let (alice, bob) = two_phones().await;
+    let mut alice_events = alice.core.events();
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    ringing_call(&bob).await;
+    assert!(bob.core.say_call_present(&alice.id(), &call, 1, Some(BOARD.to_owned()), None).await.unwrap(), "said while ringing");
+    bob.core.answer_native_call(&call, CallRouting::Auto).await.expect("bob answers");
+    next_update(&mut alice_events, &call, |update| *update == CallUpdate::Connected).await;
+    assert_eq!(presenting(&alice).await, None, "nothing from before the answer");
+    assert!(bob.core.say_call_present(&alice.id(), &call, 2, Some(VIEWER.to_owned()), None).await.unwrap(), "said in the call");
+    assert_eq!(next_presenting(&mut alice_events, &call).await, (Some(VIEWER.to_owned()), None, Some(PresentedBy::Them)), "the first she shows");
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// A word handed to a data link that then dies is lost with it: once the link is back, the
+// presenter says its state again, so a lost stop does not leave the other side showing it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_lost_with_the_link_arrives_once_it_is_back() {
+    let (alice, bob) = two_phones().await;
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    alice.core.present_in_call(&call, BOARD, None).await.expect("alice presents");
+    next_presenting(&mut bob_events, &call).await;
+
+    // Bob's side of the data link stops without a word: alice's still looks open.
+    bob.network.vanish(&alice.id()).await;
+    assert!(alice.network.is_connected(&bob.id()).await, "alice's side still looks open");
+    alice.core.stop_presenting(&call).await.expect("she stops");
+    assert!(quiet(&mut bob_events, &call, Duration::from_secs(2)).await, "the stop is lost with the link");
+    assert_eq!(presenting(&bob).await.map(|shown| shown.by), Some(PresentedBy::Them), "bob still shows it");
+
+    bob.core.send_text(&alice.id(), "still there?").await.expect("the link comes back");
+    assert_eq!(next_presenting(&mut bob_events, &call).await, (None, None, None), "the stop arrives");
+    assert_eq!(presenting(&bob).await, None);
+    alice.core.end_call(&call, false).await.unwrap();
 }
