@@ -451,6 +451,39 @@ async fn the_icon_of_a_plugin_comes_through_the_catalogue_and_the_install() {
     assert_eq!(core.plugins().await.unwrap()[0].manifest.icon, "code-outline");
 }
 
+// 2026-10-08 ("Imagen por plugin"): a package's icon.svg reaches the app both ways: as text in
+// what the catalogue offers, and read from the installed plugin's folder once it is added.
+#[tokio::test]
+async fn the_image_of_a_plugin_comes_through_the_catalogue_and_the_install() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let image = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a74f0"/></svg>"##;
+    let manifest = r#"{"id":"com.example.code","name":"Code","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-code"]}"#;
+    let package = sign_package(
+        &[
+            ("module.json".to_owned(), manifest.as_bytes().to_vec()),
+            ("icon.svg".to_owned(), image.as_bytes().to_vec()),
+            ("dist/index.js".to_owned(), b"".to_vec()),
+        ],
+        &catalogue,
+    );
+    let (shop, mut entries) = listing(&[(manifest, &package)]);
+    entries[0].image = image.to_owned();
+    let index = serde_json::to_string(&serde_json::json!({ "plugins": entries })).unwrap();
+    let mut files = shop.files;
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+    let shop = Shop { files };
+
+    let offered = core.catalogue(&shop, &catalogue.public_key()).await.expect("reads the catalogue");
+    assert_eq!(offered[0].image, image);
+    core.add_plugin(&offered[0], &shop, &catalogue.public_key()).await.expect("installs");
+    assert_eq!(core.plugins().await.unwrap()[0].image, image);
+}
+
 // ---- Hidden sessions (2026-10-01, §108): what a plugin keeps inside one stays inside it ----
 
 /// A core with a plugin that keeps records, and a hidden session open.
