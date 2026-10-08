@@ -147,7 +147,7 @@ impl NativeCall {
     /// The `seq` of our next `CallPresent`. Taken while `presenting` is held, so the newest `seq`
     /// always carries the newest state of ours.
     fn next_present_seq(&self) -> u32 {
-        self.present_seq.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+        next_seq(&self.present_seq)
     }
 
     /// Whether a presentation can start (2026-10-08): the call is on and both sides said media
@@ -1039,18 +1039,16 @@ impl Core {
             return Ok(());
         }
         let mine_wins = mine_wins_clash(self.device_id().as_str(), &native.contact);
-        let changed = {
+        let (changed, withdrawal) = {
             let mut presenting = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
-            match after_their_present(presenting.as_ref(), plugin, file, mine_wins) {
-                Some(next) => {
-                    *presenting = next;
-                    true
-                }
-                None => false,
-            }
+            take_their_present(&mut presenting, &native.present_seq, plugin, file, mine_wins)
         };
         if changed {
             self.announce_presenting(&native);
+        }
+        if let Some(seq) = withdrawal {
+            // Ours lost a clash: withdraw it, so a late copy of it never shows on their side.
+            self.send_presenting(&native, seq, None, None);
         }
         Ok(())
     }
@@ -1308,6 +1306,21 @@ fn after_their_present(now: Option<&Presenting>, plugin: Option<String>, file: O
     }
 }
 
+/// Applies a `CallPresent` from the other side to what is presented here (`now`, held locked):
+/// whether it changed and, when theirs replaced ours (ours lost a clash), the `seq` of the `None`
+/// that withdraws ours, taken from `our_seq` together with the change.
+fn take_their_present(now: &mut Option<Presenting>, our_seq: &AtomicU32, plugin: Option<String>, file: Option<MessageId>, mine_wins: bool) -> (bool, Option<u32>) {
+    let Some(next) = after_their_present(now.as_ref(), plugin, file, mine_wins) else { return (false, None) };
+    let ours = now.as_ref().is_some_and(|now| now.by == PresentedBy::Me);
+    *now = next;
+    (true, ours.then(|| next_seq(our_seq)))
+}
+
+/// The next `seq` of a counter of words we send.
+fn next_seq(counter: &AtomicU32) -> u32 {
+    counter.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+}
+
 /// Both pressed Present at once and each heard the other's while showing its own: the side whose
 /// device id sorts first keeps its presentation and the other takes it, so both show the same.
 fn mine_wins_clash(me: &str, them: &str) -> bool {
@@ -1485,5 +1498,31 @@ mod tests {
     fn in_a_clash_the_device_id_that_sorts_first_keeps_its_presentation() {
         assert!(mine_wins_clash("ft_a", "ft_b"));
         assert!(!mine_wins_clash("ft_b", "ft_a"));
+    }
+
+    // The side that loses a clash withdraws its own presentation with a newer `seq`, so a late
+    // copy of it can never show on the other side once that side stops.
+    #[test]
+    fn losing_a_clash_withdraws_ours_with_a_newer_seq() {
+        let board = || Some("com.flickertalk.board".to_owned());
+        let mine = Presenting { plugin: "com.flickertalk.pdfviewer".to_owned(), file: None, by: PresentedBy::Me };
+        let theirs = Presenting { plugin: "com.flickertalk.board".to_owned(), file: None, by: PresentedBy::Them };
+        let ours_sent = AtomicU32::new(1);
+
+        let mut now = Some(mine.clone());
+        assert_eq!(take_their_present(&mut now, &ours_sent, board(), None, false), (true, Some(2)), "ours lost: withdrawn with seq 2");
+        assert_eq!(now, Some(theirs.clone()));
+
+        let mut now = Some(mine.clone());
+        assert_eq!(take_their_present(&mut now, &ours_sent, board(), None, true), (false, None), "ours won: nothing to withdraw");
+        assert_eq!(now, Some(mine.clone()));
+
+        let mut now = Some(mine.clone());
+        assert_eq!(take_their_present(&mut now, &ours_sent, None, None, false), (false, None), "their stop leaves ours");
+
+        let mut now = None;
+        assert_eq!(take_their_present(&mut now, &ours_sent, board(), None, false), (true, None), "nothing of ours to withdraw");
+        assert_eq!(take_their_present(&mut now, &ours_sent, None, None, false), (true, None), "their stop");
+        assert_eq!(ours_sent.load(Ordering::SeqCst), 2, "only the withdrawal took a seq");
     }
 }
