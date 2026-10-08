@@ -11,7 +11,7 @@ import { installTauri } from "../__tests__/tauri";
 import { IonModalStub } from "../__tests__/ionic";
 import { store } from "../core";
 import { setLocale } from "../i18n";
-import { installed as installedList, premiumLocked } from "../plugins";
+import { installed as installedList, pluginImage, premiumLocked } from "../plugins";
 
 const nav = vi.hoisted(() => ({ push: vi.fn(), route: { query: {} as Record<string, string> } }));
 vi.mock("vue-router", async () => {
@@ -251,6 +251,19 @@ describe("AppsPage", () => {
       expect(picker.html()).toContain("Maria López");
       await wrapper.find("[data-test='play-with-c2']").trigger("click");
       expect(nav.push).toHaveBeenCalledWith(`/chat/c2?play=${CHESS.id}`);
+    });
+
+    // 2026-10-08 ("Imagen por plugin"): the tiles and the game's question draw a plugin's own image.
+    it("draws a plugin's own image on its tile and on the game's question", async () => {
+      const image = '<svg viewBox="0 0 64 64"><rect width="64" height="64"/></svg>';
+      answering({ installed: [{ ...IMAGE, image }, CODE, { ...CHESS, image }], offered: [...OFFERED, offer("com.flickertalk.board", "Board", { image })] });
+      const wrapper = await page();
+      expect(tile(wrapper, `app-${IMAGE.id}`)!.props("image")).toBe(pluginImage({ image }));
+      expect(tile(wrapper, `app-${CODE.id}`)!.props("image")).toBeUndefined();
+      expect(tile(wrapper, "install-com.flickertalk.board")!.props("image")).toBe(pluginImage({ image }));
+      await showGames(wrapper);
+      await tile(wrapper, `app-${CHESS.id}`)!.trigger("click");
+      expect(wrapper.findComponent(GamePermissions).props("image")).toBe(pluginImage({ image }));
     });
 
     it("asks with the icon the game names", async () => {

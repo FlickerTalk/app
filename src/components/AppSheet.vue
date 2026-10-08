@@ -5,7 +5,7 @@ import { addOutline, downloadOutline, lockClosedOutline, openOutline, play, tras
 import { formatSize, type OfferedPlugin, type PluginView } from "../core";
 import { isGame } from "../games";
 import { permissionsOf } from "../permissions";
-import { isLocked, offered, pluginIcon, pluginName, pluginSummary, premiumLocked } from "../plugins";
+import { isLocked, offered, pluginIcon, pluginImage, pluginName, pluginSummary, premiumLocked } from "../plugins";
 
 // 2026-10-08 (plan of the apps grid, screen 3): what an app is, from a hold on its tile. Installed:
 // its permissions, one switch each (§53), Open or Play, and Remove, asked once. Not installed yet:
@@ -83,7 +83,10 @@ function dismissed() {
          scrolls it instead of moving the sheet. -->
     <div v-if="shown" class="ft-app-sheet__body ion-content-scroll-host" data-test="app-sheet">
       <div class="ft-app-sheet__head">
-        <span class="ft-app-sheet__icon"><ion-icon :icon="pluginIcon(shown)" aria-hidden="true" /></span>
+        <span class="ft-app-sheet__icon" :class="{ 'ft-app-sheet__icon--image': pluginImage(shown) }">
+          <img v-if="pluginImage(shown)" :src="pluginImage(shown)" alt="" draggable="false" />
+          <ion-icon v-else :icon="pluginIcon(shown)" aria-hidden="true" />
+        </span>
         <h2 dir="auto">{{ pluginName(shown) }}</h2>
         <ion-note data-test="sheet-meta">{{ meta }}</ion-note>
       </div>
@@ -184,6 +187,17 @@ function dismissed() {
 }
 .ft-app-sheet__icon ion-icon {
   font-size: 34px;
+}
+/* The plugin's own image (2026-10-08) fills the box, cut to its corners, with nothing behind. */
+.ft-app-sheet__icon--image {
+  background: transparent;
+}
+.ft-app-sheet__icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
 }
 .ft-app-sheet__summary {
   margin: 12px 4px 4px;

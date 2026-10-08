@@ -9,7 +9,7 @@ import { shieldOutline } from "ionicons/icons";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
-import { offered, refreshPlugins, premiumLocked } from "../plugins";
+import { offered, pluginImage, refreshPlugins, premiumLocked } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
 import { setLocale } from "../i18n";
@@ -1653,6 +1653,19 @@ describe("ChatThread", () => {
     });
 
     // Plan decision 11: the first time, one sheet; refused, the game does not open.
+    // 2026-10-08 ("Imagen por plugin"): the chat's tiles and the game's question draw its image.
+    it("draws a game's own image on its tile and on its question", async () => {
+      const image = '<svg viewBox="0 0 64 64"><rect width="64" height="64"/></svg>';
+      bridge({ installed: [{ ...UNGRANTED, image }] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      const chess = wrapper.findAllComponents(AppTile).find((one) => one.attributes("data-test") === `game-${CHESS.id}`)!;
+      expect(chess.props("image")).toBe(pluginImage({ image }));
+      await chess.trigger("click");
+      await flushPromises();
+      expect(wrapper.findComponent({ name: "GamePermissions" }).props("image")).toBe(pluginImage({ image }));
+    });
+
     // Device review of app#121: the permissions sheet shows the game's own icon.
     it("asks with the icon the game names", async () => {
       bridge({ installed: [{ ...UNGRANTED, icon: "shield-outline" }] });

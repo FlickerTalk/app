@@ -45,6 +45,7 @@ import {
   isLocked,
   offered,
   pluginIcon,
+  pluginImage,
   pluginName,
   refreshOffered,
   refreshPlugins,
@@ -277,6 +278,7 @@ function playWith(contact: string) {
           :key="one.id"
           :name="pluginName(one)"
           :icon="pluginIcon(one)"
+          :image="pluginImage(one)"
           :badge="badgeOf(one)"
           :data-test="`app-${one.id}`"
           @tap="use(one)"
@@ -301,6 +303,7 @@ function playWith(contact: string) {
             off
             :name="pluginName(one)"
             :icon="pluginIcon(one)"
+            :image="pluginImage(one)"
             :badge="badgeOf(one)"
             :caption="weight(one)"
             :busy="installing === one.id"
@@ -344,6 +347,7 @@ function playWith(contact: string) {
       :open="Boolean(asking)"
       :name="asking ? pluginName(asking) : ''"
       :icon="asking ? pluginIcon(asking) : undefined"
+      :image="asking ? pluginImage(asking) : undefined"
       @allow="allow"
       @cancel="asking = null"
     />

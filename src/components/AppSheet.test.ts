@@ -5,7 +5,7 @@ import { imageOutline, lockClosedOutline, openOutline, play, trashOutline } from
 import AppSheet from "./AppSheet.vue";
 import source from "./AppSheet.vue?raw";
 import { IonModalStub } from "../__tests__/ionic";
-import { installed, offered, premiumLocked } from "../plugins";
+import { installed, offered, pluginImage, premiumLocked } from "../plugins";
 import type { OfferedPlugin, PluginView } from "../core";
 
 const IMAGE: PluginView = {
@@ -193,5 +193,15 @@ describe("AppSheet", () => {
     await wrapper.setProps({ open: false, plugin: null });
     await wrapper.setProps({ open: true, plugin: QUIET });
     expect(wrapper.find("[data-test='remove-confirm']").exists()).toBe(false);
+  });
+
+  // 2026-10-08 ("Imagen por plugin"): the plugin's own image, in the 72 px box, when it has one.
+  it("draws the plugin's own image when it has one", () => {
+    const wrapper = sheet({ ...IMAGE, image: '<svg viewBox="0 0 64 64"><rect width="64" height="64"/></svg>' });
+    const box = wrapper.find(".ft-app-sheet__icon");
+    expect(box.find("img").attributes("src")).toBe(pluginImage({ image: '<svg viewBox="0 0 64 64"><rect width="64" height="64"/></svg>' }));
+    expect(box.find("img").attributes("alt")).toBe("");
+    expect(box.findComponent(IonIcon).exists()).toBe(false);
+    expect(sheet(QUIET).find(".ft-app-sheet__icon img").exists()).toBe(false);
   });
 });

@@ -62,4 +62,15 @@ describe("GamePermissions", () => {
     expect(icon({ icon: shieldOutline })).toBe(shieldOutline);
     expect(icon({})).toBe(gameControllerOutline);
   });
+
+  it("shows the game's own image when it has one", () => {
+    const wrapper = mount(GamePermissions, {
+      props: { open: true, name: "Chess", image: "data:image/svg+xml;base64,PHN2Zy8+" },
+      global: { stubs: { IonModal: IonModalStub } },
+    });
+    const img = wrapper.find("[data-test='game-permissions'] img");
+    expect(img.attributes("src")).toBe("data:image/svg+xml;base64,PHN2Zy8+");
+    expect(img.attributes("alt")).toBe("");
+    expect(wrapper.find("[data-test='game-permissions']").findComponent(IonIcon).exists()).toBe(false);
+  });
 });
