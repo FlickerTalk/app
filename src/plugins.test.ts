@@ -30,6 +30,7 @@ import {
   opensKind,
   PLUGIN_ICONS,
   pluginIcon,
+  pluginImage,
   pluginName,
   pluginSummary,
   refreshOffered,
@@ -527,6 +528,19 @@ describe("plugins in the app", () => {
         expect(Object.keys(PLUGIN_ICONS), name).toContain(name);
         expect(PLUGIN_ICONS[name], name).toMatch(/^data:image\/svg\+xml/);
       }
+    });
+  });
+
+  // 2026-10-08 ("Imagen por plugin"): a plugin's own icon.svg, drawn as an <img> from a data URL.
+  describe("the image of a tile", () => {
+    it("is a base64 data URL of the SVG, UTF-8 included, or nothing", () => {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><title>Échecs ♞</title><rect width="64" height="64"/></svg>';
+      const url = pluginImage({ image: svg })!;
+      expect(url.startsWith("data:image/svg+xml;base64,")).toBe(true);
+      const bytes = Uint8Array.from(atob(url.slice("data:image/svg+xml;base64,".length)), (c) => c.charCodeAt(0));
+      expect(new TextDecoder().decode(bytes)).toBe(svg);
+      expect(pluginImage({})).toBeUndefined();
+      expect(pluginImage({ image: "" })).toBeUndefined();
     });
   });
 });

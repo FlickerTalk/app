@@ -907,6 +907,8 @@ export interface PluginView {
   locales?: PluginLocales;
   /** The Ionicon of its tile, as its manifest names it (2026-10-08); `pluginIcon` draws it. */
   icon?: string;
+  /** Its own `icon.svg` as text (2026-10-08); `pluginImage` makes it an image. */
+  image?: string;
 }
 
 /** A plugin's name and summary by language code (`es`, `zh-TW`…), as `module.json` gives them. */
@@ -935,6 +937,8 @@ export interface OfferedPlugin {
   locales?: PluginLocales;
   /** The Ionicon of its tile, from its manifest or its catalogue entry (2026-10-08). */
   icon?: string;
+  /** Its own `icon.svg` as text (2026-10-08); `pluginImage` makes it an image. */
+  image?: string;
 }
 
 /**

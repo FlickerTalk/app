@@ -141,6 +141,19 @@ export function pluginIcon(plugin: { icon?: string; kind?: "tool" | "game" }): s
 }
 
 /**
+ * The plugin's own image for its tile (2026-10-08, "Imagen por plugin"): its `icon.svg`, which
+ * the core checked, as a base64 data URL for an `<img>`, where a browser runs nothing. None when
+ * the package carries no image: the tile draws `pluginIcon` instead.
+ */
+export function pluginImage(plugin: { image?: string }): string | undefined {
+  if (!plugin.image) return undefined;
+  const bytes = new TextEncoder().encode(plugin.image);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `data:image/svg+xml;base64,${btoa(binary)}`;
+}
+
+/**
  * What the catalogue offers this phone, kept for every screen (plan 10.6): the games section
  * reads it, and so does a bubble with an invitation, which must never fetch it by itself.
  */
