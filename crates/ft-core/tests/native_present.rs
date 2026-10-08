@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
-use ft_core::{CallPhase, CallUpdate, Core, Event, Transport};
+use ft_core::{CallPhase, CallUpdate, Core, Event, MessageId, PresentedBy, Presenting, Transport, PEER_CANNOT_PRESENT};
 use ft_media::testing::{fake_video, test_voice, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, CallRouting, MediaSession};
 use ft_push::RouterEvent;
@@ -178,6 +178,35 @@ async fn older_app_calls(alice: &Phone, bob: &Phone) -> (String, MediaSession) {
     (call, session)
 }
 
+const BOARD: &str = "com.flickertalk.board";
+const VIEWER: &str = "com.flickertalk.pdfviewer";
+
+/// The next presentation `call` hears: (plugin, file, by).
+async fn next_presenting(events: &mut broadcast::Receiver<Event>, call: &str) -> (Option<String>, Option<MessageId>, Option<PresentedBy>) {
+    match next_update(events, call, |update| matches!(update, CallUpdate::Presenting { .. })).await {
+        CallUpdate::Presenting { plugin, file, by } => (plugin, file, by),
+        _ => unreachable!(),
+    }
+}
+
+/// Whether `call` hears no presentation for `wait`.
+async fn quiet(events: &mut broadcast::Receiver<Event>, call: &str, wait: Duration) -> bool {
+    let heard = async {
+        loop {
+            if let Ok(Event::Call { call: id, update: CallUpdate::Presenting { .. }, .. }) = events.recv().await {
+                if id == call {
+                    return;
+                }
+            }
+        }
+    };
+    tokio::time::timeout(wait, heard).await.is_err()
+}
+
+async fn presenting(phone: &Phone) -> Option<Presenting> {
+    phone.core.current_call().await.unwrap().and_then(|current| current.presenting)
+}
+
 // Once a call between two apps at media version 2 is on, either side can present; not before.
 #[tokio::test(flavor = "multi_thread")]
 async fn both_sides_can_present_once_a_call_between_new_apps_is_on() {
@@ -221,4 +250,79 @@ async fn an_older_app_s_call_cannot_present() {
     assert!(!bob.core.current_call().await.unwrap().expect("on").can_present);
     bob.core.end_call(&call, false).await.unwrap();
     session.close().await;
+}
+
+// The heart of it: Alice presents, both cores say so; a newer presentation replaces it; she
+// stops, and both say nothing is presented.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_presentation_and_its_end_reach_the_other_side() {
+    let (alice, bob) = two_phones().await;
+    let call = connected_call(&alice, &bob).await;
+    let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+
+    alice.core.present_in_call(&call, BOARD, None).await.expect("alice presents the board");
+    assert_eq!(next_presenting(&mut alice_events, &call).await, (Some(BOARD.to_owned()), None, Some(PresentedBy::Me)));
+    assert_eq!(next_presenting(&mut bob_events, &call).await, (Some(BOARD.to_owned()), None, Some(PresentedBy::Them)));
+    assert_eq!(presenting(&alice).await, Some(Presenting { plugin: BOARD.to_owned(), file: None, by: PresentedBy::Me }));
+    assert_eq!(presenting(&bob).await, Some(Presenting { plugin: BOARD.to_owned(), file: None, by: PresentedBy::Them }));
+
+    alice.core.present_in_call(&call, VIEWER, None).await.expect("she switches to the viewer");
+    assert_eq!(next_presenting(&mut bob_events, &call).await.0, Some(VIEWER.to_owned()));
+
+    alice.core.stop_presenting(&call).await.expect("she stops");
+    assert_eq!(next_presenting(&mut bob_events, &call).await, (None, None, None));
+    assert_eq!(presenting(&alice).await, None);
+    assert_eq!(presenting(&bob).await, None);
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// An app at media version 1 never hears of a presentation: the command fails with the key the
+// call screen translates, and nothing is sent or shown.
+#[tokio::test(flavor = "multi_thread")]
+async fn presenting_to_an_app_at_media_one_fails_and_sends_nothing() {
+    let (alice, bob) = two_phones().await;
+    bob.core.set_call_media_version(1);
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    let refused = alice.core.present_in_call(&call, BOARD, None).await.expect_err("bob's app cannot show it");
+    assert_eq!(refused.to_string(), PEER_CANNOT_PRESENT);
+    let refused = bob.core.present_in_call(&call, BOARD, None).await.expect_err("nor can bob's present");
+    assert_eq!(refused.to_string(), PEER_CANNOT_PRESENT);
+    assert!(quiet(&mut bob_events, &call, Duration::from_secs(3)).await, "bob hears nothing");
+    assert_eq!(presenting(&alice).await, None);
+    assert_eq!(presenting(&bob).await, None);
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// An older app's WebView call: the same refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn presenting_in_an_older_app_s_call_fails() {
+    let (alice, bob) = two_phones().await;
+    let mut bob_events = bob.core.events();
+    let (call, session) = older_app_calls(&alice, &bob).await;
+    next_update(&mut bob_events, &call, |update| *update == CallUpdate::Connected).await;
+    let refused = bob.core.present_in_call(&call, BOARD, None).await.expect_err("her app cannot show it");
+    assert_eq!(refused.to_string(), PEER_CANNOT_PRESENT);
+    bob.core.end_call(&call, false).await.unwrap();
+    session.close().await;
+}
+
+// Hanging up ends the presentation with the call, and the end says it all; the next call
+// starts with nothing presented.
+#[tokio::test(flavor = "multi_thread")]
+async fn hanging_up_ends_the_presentation() {
+    let (alice, bob) = two_phones().await;
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    alice.core.present_in_call(&call, BOARD, None).await.expect("alice presents");
+    next_presenting(&mut bob_events, &call).await;
+    bob.core.end_call(&call, false).await.expect("bob hangs up");
+    next_update(&mut bob_events, &call, |update| matches!(update, CallUpdate::Ended { .. })).await;
+    assert!(quiet(&mut bob_events, &call, Duration::from_secs(1)).await, "no presentation after the end");
+    until("alice's call is over", || async { alice.core.current_call().await.unwrap().is_none() }).await;
+
+    let again = connected_call(&alice, &bob).await;
+    assert_eq!(presenting(&alice).await, None);
+    assert_eq!(presenting(&bob).await, None);
+    alice.core.end_call(&again, false).await.unwrap();
 }

@@ -67,6 +67,9 @@ const PAID_UNTIL: &str = "paid_until";
 /// What the core answers when the plan closes something premium (Ioan, 2026-10-08): a key, never a
 /// sentence; the screen says it in the user's language and offers the subscription.
 pub const NEEDS_SUBSCRIPTION: &str = "needs_subscription";
+/// What the core answers when the other side's app cannot show a presentation (2026-10-08): a
+/// key, never a sentence; the call screen says it in the user's language.
+pub const PEER_CANNOT_PRESENT: &str = "peer_cannot_present";
 
 /// The premium part is free for 15 days from the install (§40–41; a year until 2026-10-08).
 pub use ft_billing::FREE_PERIOD;
@@ -1592,6 +1595,7 @@ impl Core {
             Body::CallOffer { call, sdp, video, media } => self.call_offered(contact, call, sdp, video, media).await?,
             Body::CallAnswer { call, sdp, media } => self.call_answered(contact, call, sdp, media).await?,
             Body::CallMedia { call, seq, video, paused } => self.call_media_received(contact, call, seq, video, paused).await?,
+            Body::CallPresent { call, seq, plugin, file } => self.call_present_received(contact, call, seq, plugin, file).await?,
             Body::CallEnd { call, reason } => self.call_ended(contact, call, reason).await?,
             Body::MoveOffer { proof, key, size, hash } => self.move_offered(contact, proof, key, size, hash).await?,
             Body::MoveRequest { from, count } => self.move_requested(contact, from, count).await?,
@@ -1656,7 +1660,7 @@ impl Core {
                 let _ = self.send_control(contact, self.acknowledgement(contact, packet.id)).await;
             }
             // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::CallPresent { .. } | Body::Unknown => {}
+            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
         }
         Ok(())
     }
