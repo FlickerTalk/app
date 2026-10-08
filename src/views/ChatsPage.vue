@@ -452,7 +452,9 @@ const STATUS_ICON: Record<string, string> = {
         <CircleThread :circle-id="selectedCircle" :active="onScreen" />
       </section>
       <section v-else-if="wide && selectedId" class="ft-chats__detail">
-        <ChatThread ref="paneThread" :chat-id="selectedId" split :active="onScreen" />
+        <div class="ft-thread">
+          <ChatThread ref="paneThread" :chat-id="selectedId" split :active="onScreen" />
+        </div>
       </section>
     </div>
   </ion-page>
@@ -513,6 +515,14 @@ const STATUS_ICON: Record<string, string> = {
   position: relative;
   flex: 1;
   min-width: 0;
+}
+/* The thread beside the list: its header, content and footer in a column, as in its own page. */
+.ft-thread {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ft-bg);
 }
 
 .ft-row {

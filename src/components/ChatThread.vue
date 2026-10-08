@@ -1044,7 +1044,9 @@ watch(
 </script>
 
 <template>
-  <div v-if="chat" class="ft-thread">
+  <!-- Ionic's own shape (2026-10-09): header, content and footer are the page's own children, so
+       its transitions find them; the page (ChatPage) or the pane (ChatsPage) is the `.ft-thread`. -->
+  <template v-if="chat">
     <ion-header class="ion-no-border">
       <ion-toolbar class="ft-thread__bar">
         <ion-buttons v-if="showBack" slot="start">
@@ -1635,7 +1637,7 @@ watch(
         </div>
       </div>
     </ion-modal>
-  </div>
+  </template>
 </template>
 
 <style scoped>
@@ -1882,14 +1884,6 @@ watch(
 
 .ft-round--ghost.is-open {
   color: var(--ft-accent);
-}
-
-.ft-thread {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--ft-bg);
 }
 
 .ft-thread__bar {

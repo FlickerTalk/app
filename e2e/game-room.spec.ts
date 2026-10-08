@@ -202,6 +202,9 @@ test.describe("on a phone", () => {
     await app.goBack();
     await expect(app.getByTestId("call-bar")).toBeVisible();
     await expect(app.getByTestId("game-room")).toBeVisible();
+    // The chat slides back in (page-transition.ts, 2026-10-09); it is measured once in place, when
+    // Ionic gives the page its taps back.
+    await expect(app.locator("div.ion-page", { has: app.getByTestId("game-room") })).not.toHaveCSS("pointer-events", "none");
     expect(await frame.evaluate(() => (window as unknown as { mark?: string }).mark)).toBe("still me");
 
     const callBar = await box(app.getByTestId("call-bar"));

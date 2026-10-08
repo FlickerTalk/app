@@ -53,7 +53,15 @@ onIonViewWillLeave(() => {
 </script>
 
 <template>
-  <ion-page>
+  <!-- The thread's header, content and footer are this page's own children (Ionic's shape). -->
+  <ion-page class="ft-thread">
     <ChatThread ref="thread" :chat-id="chatId" :show-back="true" :play="play" :search="search" :active="onScreen" />
   </ion-page>
 </template>
+
+<style scoped>
+/* Ionic's page already lays out the thread's header, content and footer in a column. */
+.ft-thread {
+  background: var(--ft-bg);
+}
+</style>
