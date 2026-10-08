@@ -2512,7 +2512,7 @@ fn plugin_view(plugin: ft_core::plugins::InstalledPlugin) -> PluginView {
         kind: plugin.manifest.kind,
         locales: plugin.manifest.locales,
         icon: plugin.manifest.icon,
-        image: String::new(),
+        image: plugin.image,
     }
 }
 
@@ -2641,13 +2641,14 @@ fn seeds() -> Vec<OfferedPlugin> {
         .iter()
         .filter_map(|package| {
             let plugin = ft_plugins::open(package, &ft_plugins::catalogue()).ok()?;
-            Some(offered_from(plugin.manifest, package.len() as u64))
+            let image = plugin.image();
+            Some(offered_from(plugin.manifest, image, package.len() as u64))
         })
         .collect()
 }
 
 /// A tool the app carries, as the list shows it.
-fn offered_from(manifest: ft_plugins::Manifest, size: u64) -> OfferedPlugin {
+fn offered_from(manifest: ft_plugins::Manifest, image: String, size: u64) -> OfferedPlugin {
     OfferedPlugin {
         id: manifest.id,
         name: manifest.name,
@@ -2659,7 +2660,7 @@ fn offered_from(manifest: ft_plugins::Manifest, size: u64) -> OfferedPlugin {
         kind: manifest.kind,
         locales: manifest.locales,
         icon: manifest.icon,
-        image: String::new(),
+        image,
     }
 }
 
@@ -2679,7 +2680,7 @@ fn merged(carried: Vec<OfferedPlugin>, listed: &[ft_plugins::CatalogueEntry], he
             kind: entry.kind,
             locales: entry.locales.clone(),
             icon: entry.icon.clone(),
-            image: String::new(),
+            image: entry.image.clone(),
         };
         match offered.iter_mut().find(|one| one.id == entry.id) {
             Some(seed) if newer(&entry.version, &seed.version) => *seed = listed,
@@ -4488,7 +4489,7 @@ mod tests {
         let view = plugin_view(ft_core::plugins::InstalledPlugin { manifest: manifest.clone(), granted: Default::default(), installed_at: 7, image: String::new() });
         assert_eq!(serde_json::to_value(&view).unwrap()["locales"]["es"]["name"], "Listas");
 
-        let seed = serde_json::to_value(offered_from(manifest, 4096)).unwrap();
+        let seed = serde_json::to_value(offered_from(manifest, String::new(), 4096)).unwrap();
         assert_eq!((seed["locales"]["es"]["summary"].as_str(), seed["carried"].as_bool()), (Some("Una lista."), Some(true)));
 
         let spanish = |name: &str| {
@@ -4530,9 +4531,9 @@ mod tests {
         assert_eq!(installed(&drawn)["icon"], "list-outline");
         assert!(installed(&plain).get("icon").is_none(), "no icon, nothing written");
 
-        let seed = serde_json::to_value(offered_from(drawn, 4096)).unwrap();
+        let seed = serde_json::to_value(offered_from(drawn, String::new(), 4096)).unwrap();
         assert_eq!(seed["icon"], "list-outline");
-        assert!(serde_json::to_value(offered_from(plain, 4096)).unwrap().get("icon").is_none());
+        assert!(serde_json::to_value(offered_from(plain, String::new(), 4096)).unwrap().get("icon").is_none());
 
         let listed = vec![
             ft_plugins::CatalogueEntry { icon: "brush-outline".to_owned(), ..entry("com.flickertalk.sketch", "1.1.0") },
@@ -4542,6 +4543,37 @@ mod tests {
         let icon_of = |id: &str| offered.as_array().unwrap().iter().find(|one| one["id"] == id).unwrap().get("icon").cloned();
         assert_eq!(icon_of("com.flickertalk.sketch"), Some(serde_json::json!("brush-outline")));
         assert_eq!(icon_of("com.flickertalk.pdf"), None);
+    }
+
+    // 2026-10-08 ("Imagen por plugin"): every view of a plugin carries its icon.svg as text:
+    // installed, carried by the app, or only in the catalogue. Without one, nothing is written.
+    #[test]
+    fn every_view_of_a_plugin_keeps_its_image() {
+        const IMAGE: &str = r#"<svg viewBox="0 0 64 64"><rect width="64" height="64"/></svg>"#;
+        let manifest: ft_plugins::Manifest = serde_json::from_str(
+            r#"{"id":"com.flickertalk.list","name":"List","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-list"]}"#,
+        )
+        .unwrap();
+        let installed = |image: &str| {
+            serde_json::to_value(plugin_view(ft_core::plugins::InstalledPlugin {
+                manifest: manifest.clone(),
+                granted: Default::default(),
+                installed_at: 7,
+                image: image.to_owned(),
+            }))
+            .unwrap()
+        };
+        assert_eq!(installed(IMAGE)["image"], IMAGE);
+        assert!(installed("").get("image").is_none(), "no image, nothing written");
+        assert_eq!(serde_json::to_value(offered_from(manifest.clone(), IMAGE.to_owned(), 4096)).unwrap()["image"], IMAGE);
+        let listed = vec![
+            ft_plugins::CatalogueEntry { image: IMAGE.to_owned(), ..entry("com.flickertalk.sketch", "1.1.0") },
+            entry("com.flickertalk.pdf", "1.0.0"),
+        ];
+        let offered = serde_json::to_value(merged(vec![], &listed, &[])).unwrap();
+        let image_of = |id: &str| offered.as_array().unwrap().iter().find(|one| one["id"] == id).unwrap().get("image").cloned();
+        assert_eq!(image_of("com.flickertalk.sketch"), Some(serde_json::json!(IMAGE)));
+        assert_eq!(image_of("com.flickertalk.pdf"), None);
     }
 
     #[test]
