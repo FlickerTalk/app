@@ -334,7 +334,14 @@ function playWith(contact: string) {
     />
 
     <!-- On a wide screen the tab's sheets cover the tab, everything after the rail (2026-10-02). -->
-    <GamePermissions class="ft-sheet--tab" :open="Boolean(asking)" :name="asking ? pluginName(asking) : ''" @allow="allow" @cancel="asking = null" />
+    <GamePermissions
+      class="ft-sheet--tab"
+      :open="Boolean(asking)"
+      :name="asking ? pluginName(asking) : ''"
+      :icon="asking ? pluginIcon(asking) : undefined"
+      @allow="allow"
+      @cancel="asking = null"
+    />
 
     <!-- Plan 10.4: a game is played in a conversation; this is who with. -->
     <ion-modal

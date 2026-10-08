@@ -10,18 +10,19 @@ import { formatSize } from "../core";
 // weighs, and the same button installs it. Without a yes, nothing is installed or granted.
 // Ioan, 2026-10-02: Ionic's sheet modal, as tall as what it says; dismissing it (dragging it down,
 // a tap outside, the back button) is a no.
-const props = defineProps<{ open: boolean; name: string; size?: number }>();
+// The game's own icon (its tile's, `pluginIcon`), or the controller (device review of app#121).
+const props = defineProps<{ open: boolean; name: string; size?: number; icon?: string }>();
 const emit = defineEmits<{ allow: []; cancel: [] }>();
 
 // What was asked stays on the sheet while it slides away.
-const shown = ref({ name: props.name, size: props.size });
+const shown = ref({ name: props.name, size: props.size, icon: props.icon });
 /** Whether the user already answered; Ionic's dismissal that follows says nothing more. */
 let answered = false;
 watch(
-  () => [props.open, props.name, props.size] as const,
+  () => [props.open, props.name, props.size, props.icon] as const,
   ([open]) => {
     if (!open) return;
-    shown.value = { name: props.name, size: props.size };
+    shown.value = { name: props.name, size: props.size, icon: props.icon };
     answered = false;
   },
 );
@@ -51,7 +52,7 @@ function dismissed() {
     @did-dismiss="dismissed"
   >
     <div class="ion-padding ion-text-center ft-game-ask__body" data-test="game-permissions">
-      <ion-icon :icon="gameControllerOutline" color="primary" class="ft-game-ask__icon" aria-hidden="true" />
+      <ion-icon :icon="shown.icon || gameControllerOutline" color="primary" class="ft-game-ask__icon" aria-hidden="true" />
       <h2>{{ shown.name }}</h2>
       <p>{{ $t("games.permissionsBody") }}</p>
       <p v-if="shown.size !== undefined" class="ft-muted">{{ formatSize(shown.size) }}</p>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import { IonButton, IonIcon } from "@ionic/vue";
+import { gameControllerOutline, shieldOutline } from "ionicons/icons";
 import GamePermissions from "./GamePermissions.vue";
 import { IonModalStub } from "../__tests__/ionic";
 
@@ -48,5 +49,17 @@ describe("GamePermissions", () => {
 
   it("shows nothing while closed", () => {
     expect(sheet({ open: false }).find("[data-test='game-permissions']").exists()).toBe(false);
+  });
+
+  // Device review of app#121: the sheet shows the game's own icon, as its tile; without one, the
+  // controller.
+  it("shows the game's own icon, or the controller", () => {
+    const icon = (props: Record<string, unknown>) =>
+      mount(GamePermissions, { props: { open: true, name: "Chess", ...props }, global: { stubs: { IonModal: IonModalStub } } })
+        .find("[data-test='game-permissions']")
+        .findComponent(IonIcon)
+        .props("icon");
+    expect(icon({ icon: shieldOutline })).toBe(shieldOutline);
+    expect(icon({})).toBe(gameControllerOutline);
   });
 });

@@ -5,6 +5,7 @@ import source from "./ChatThread.vue?raw";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import AppTile from "./AppTile.vue";
+import { shieldOutline } from "ionicons/icons";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
@@ -1652,6 +1653,16 @@ describe("ChatThread", () => {
     });
 
     // Plan decision 11: the first time, one sheet; refused, the game does not open.
+    // Device review of app#121: the permissions sheet shows the game's own icon.
+    it("asks with the icon the game names", async () => {
+      bridge({ installed: [{ ...UNGRANTED, icon: "shield-outline" }] });
+      const wrapper = await thread();
+      await openGames(wrapper);
+      await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+      await flushPromises();
+      expect(wrapper.findComponent({ name: "GamePermissions" }).props("icon")).toBe(shieldOutline);
+    });
+
     it("asks first what a game needs, and opens nothing if refused", async () => {
       bridge({ installed: [UNGRANTED] });
       const wrapper = await thread();

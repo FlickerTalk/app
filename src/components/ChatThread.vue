@@ -751,7 +751,7 @@ const APPS_TABS = [
   { id: "games", icon: gameControllerOutline, label: "apps.games" },
 ] as const;
 /** The game whose permissions sheet is open (plan decision 11); `size` when it is a download. */
-const asking = ref<{ id: string; name: string; size?: number } | null>(null);
+const asking = ref<{ id: string; name: string; size?: number; icon?: string } | null>(null);
 closeOnBackWhile(() => props.active && Boolean(asking.value), () => (asking.value = null));
 
 /** The apps sheet, on the tools if there are any, otherwise on the games; nothing is remembered. */
@@ -781,12 +781,12 @@ function playGame(id: string) {
   composerError.value = "";
   const here = installed.value.find((one) => one.id === id && isGame(one));
   if (here) {
-    if (needsGameGrant(here)) asking.value = { id, name: pluginName(here) };
+    if (needsGameGrant(here)) asking.value = { id, name: pluginName(here), icon: pluginIcon(here) };
     else openGame(here);
     return;
   }
   const listed = offered.value.find((one) => one.id === id && isGame(one));
-  if (listed) asking.value = { id, name: pluginName(listed), size: listed.size };
+  if (listed) asking.value = { id, name: pluginName(listed), size: listed.size, icon: pluginIcon(listed) };
 }
 
 async function allowGame() {
@@ -1235,6 +1235,7 @@ watch(
       :open="Boolean(asking)"
       :name="asking?.name ?? ''"
       :size="asking?.size"
+      :icon="asking?.icon"
       @allow="allowGame"
       @cancel="asking = null"
     />

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonIcon, IonSegment, IonSegmentButton, IonTitle, IonToast, IonToggle } from "@ionic/vue";
-import { constructOutline, extensionPuzzleOutline, gameControllerOutline, imageOutline } from "ionicons/icons";
+import { constructOutline, extensionPuzzleOutline, gameControllerOutline, gridOutline, imageOutline } from "ionicons/icons";
+import GamePermissions from "../components/GamePermissions.vue";
 import AppsPage from "./AppsPage.vue";
 import AppTile from "../components/AppTile.vue";
 import AppSheet from "../components/AppSheet.vue";
@@ -238,6 +239,8 @@ describe("AppsPage", () => {
       await showGames(wrapper);
       await tile(wrapper, `app-${CHESS.id}`)!.trigger("click");
       expect(wrapper.find("[data-test='game-permissions']").text()).toContain("Chess");
+      // With the game's own icon (device review of app#121); Chess names none here.
+      expect(wrapper.findComponent(GamePermissions).props("icon")).toBe(gameControllerOutline);
       await wrapper.find("[data-test='game-allow']").trigger("click");
       await flushPromises();
       expect(calls).toContainEqual([
@@ -248,6 +251,14 @@ describe("AppsPage", () => {
       expect(picker.html()).toContain("Maria López");
       await wrapper.find("[data-test='play-with-c2']").trigger("click");
       expect(nav.push).toHaveBeenCalledWith(`/chat/c2?play=${CHESS.id}`);
+    });
+
+    it("asks with the icon the game names", async () => {
+      answering({ installed: [{ ...CHESS, icon: "grid-outline" }] });
+      const wrapper = await page();
+      await showGames(wrapper);
+      await tile(wrapper, `app-${CHESS.id}`)!.trigger("click");
+      expect(wrapper.findComponent(GamePermissions).props("icon")).toBe(gridOutline);
     });
 
     it("plays nothing when the game's question is refused", async () => {
