@@ -17,32 +17,25 @@ const tabs = [
 <template>
   <ion-page>
     <NavRail />
-    <!-- IonTabs sets an inline `inset: 0`, so the offset for the rail goes on this frame. -->
-    <div class="ft-tabs-frame">
-      <ion-tabs>
-        <ion-router-outlet />
-        <ion-tab-bar slot="bottom" class="ft-tab-bar">
-          <ion-tab-button
-            v-for="item in tabs"
-            :key="item.tab"
-            :tab="item.tab"
-            :href="item.href"
-            :aria-label="item.label"
-          >
-            <ion-icon :icon="item.icon" aria-hidden="true" />
-          </ion-tab-button>
-        </ion-tab-bar>
-      </ion-tabs>
-    </div>
+    <!-- The tabs are the page's own child (Ionic's shape, 2026-10-09): its transitions move them. -->
+    <ion-tabs class="ft-tabs-frame">
+      <ion-router-outlet />
+      <ion-tab-bar slot="bottom" class="ft-tab-bar">
+        <ion-tab-button
+          v-for="item in tabs"
+          :key="item.tab"
+          :tab="item.tab"
+          :href="item.href"
+          :aria-label="item.label"
+        >
+          <ion-icon :icon="item.icon" aria-hidden="true" />
+        </ion-tab-button>
+      </ion-tab-bar>
+    </ion-tabs>
   </ion-page>
 </template>
 
 <style>
-.ft-tabs-frame {
-  position: absolute;
-  inset: 0;
-}
-
 .ft-tab-bar {
   --border: 1px solid var(--ft-border);
   /* Ionic already pads the bar with the home indicator's space (content-box): adding it here
@@ -60,8 +53,11 @@ const tabs = [
 
 /* Wide screens: the bottom tab bar becomes the navigation rail. */
 @media (min-width: 768px) {
+  /* IonTabs pins itself with inline `left: 0`, `right: 0` and `width: 100%`: past the rail it starts
+     after it, so those give way. */
   .ft-tabs-frame {
-    inset-inline-start: var(--ft-rail-width);
+    inset-inline-start: var(--ft-rail-width) !important;
+    width: auto !important;
   }
   .ft-tab-bar {
     display: none;
