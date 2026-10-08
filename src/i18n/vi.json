@@ -319,6 +319,8 @@
     "drive": "Giữ tệp trong đám mây của riêng bạn",
     "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
     "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",
+    "askPermission": "{name} cần một quyền",
+    "allow": "Cho phép",
     "opens": "Mở: {kinds}",
     "locked": "Đăng ký để dùng công cụ",
     "lockedHint": "Những ngày miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",

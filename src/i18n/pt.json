@@ -319,6 +319,8 @@
     "drive": "Guardar ficheiros na sua própria nuvem",
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
     "location": "A sua localização, só quando você pedir",
+    "askPermission": "{name} precisa de uma permissão",
+    "allow": "Permitir",
     "opens": "Abre: {kinds}",
     "locked": "Assine para usar as ferramentas",
     "lockedHint": "Os dias grátis terminaram: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
