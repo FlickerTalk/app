@@ -12,7 +12,7 @@ vi.mock("@tauri-apps/api/event", () => ({
     return Promise.resolve(() => undefined);
   },
 }));
-const back = vi.hoisted(() => ({ closeAll: vi.fn() }));
+const back = vi.hoisted(() => ({ closeAll: vi.fn(async () => undefined) }));
 vi.mock("./back", () => back);
 
 import { decide, checkOpenedLink, isAppLink, openInApp, releaseKept, startOpenedLinks, takeOpened, type OpenedLink } from "./opened";
@@ -153,6 +153,24 @@ describe("an opened link", () => {
     await checkOpenedLink();
     expect(back.closeAll).toHaveBeenCalledTimes(1);
     expect(back.closeAll.mock.invocationCallOrder[0]).toBeLessThan(router.push.mock.invocationCallOrder[0]);
+  });
+
+  // Seen on the Lenovo tablet (2026-10-08): a tool's own page closes by going back, and the page
+  // of the link has to open after that, not before it lands and undoes it.
+  it("opens the page only once what was open on top has finished closing", async () => {
+    let closed!: () => void;
+    back.closeAll.mockImplementationOnce(() => new Promise<undefined>((resolve) => (closed = () => resolve(undefined))));
+    const router = start();
+    opensWith(contact);
+    const opening = checkOpenedLink();
+    await settle();
+    expect(back.closeAll).toHaveBeenCalledTimes(1);
+    expect(router.push).not.toHaveBeenCalled();
+
+    closed();
+    await opening;
+    expect(router.push).toHaveBeenCalledWith("/add-contact");
+    expect(takeOpened("add")).toEqual(contact);
   });
 
   it("does nothing when the app opened with no link", async () => {

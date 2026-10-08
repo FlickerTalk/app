@@ -87,3 +87,41 @@ test("a link that opens the app closes the scanner first", async ({ app }) => {
   expect(await commandsSent(app)).not.toContain("core_add_contact");
   expect(await app.evaluate(() => document.documentElement.classList.contains("ft-scanning"))).toBe(false);
 });
+
+// Seen on the Lenovo tablet (2026-10-08): with a tool open on its own page, the tool closed and the
+// app stayed on the Apps tab. Closing the page goes back, and that back landed after the push to
+// Add contact, undoing it. The page now goes back first, and Add contact opens over where it went.
+test("a link that opens the app over a tool's own page closes it and opens Add contact", async ({ app }) => {
+  await app.goto("/tabs/settings");
+  await app.getByRole("tab", { name: "Apps" }).click();
+  await expect(app).toHaveURL(/\/tabs\/apps$/);
+  await app.getByTestId("app-com.flickertalk.markdown").click();
+  await expect(app).toHaveURL(/\/plugin\/com\.flickertalk\.markdown$/);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+  await app.evaluate((link) => (window as unknown as { __ftFake: { openLink: (url: string) => void } }).__ftFake.openLink(link), CARD);
+  await expect(app).toHaveURL(/\/add-contact$/);
+  await expect(app.getByTestId("paste")).toHaveValue(CARD);
+  // It stays there: nothing that lands later takes the app back to the tool or the Apps tab.
+  await app.waitForTimeout(1000);
+  await expect(app).toHaveURL(/\/add-contact$/);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+  expect(await commandsSent(app)).not.toContain("core_add_contact");
+
+  // Back from Add contact goes to the Apps tab, as if Back had closed the tool first.
+  await app.goBack();
+  await expect(app).toHaveURL(/\/tabs\/apps$/);
+});
+
+// The same over a tool open inside a chat: the sheet closes and the app goes to Add contact.
+test("a link that opens the app over a tool in a chat closes it and opens Add contact", async ({ app }) => {
+  await app.goto("/chat/ft_bob123456789");
+  await app.getByTestId("apps").click();
+  await app.getByTestId("app-com.flickertalk.markdown").click();
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+  await app.evaluate((link) => (window as unknown as { __ftFake: { openLink: (url: string) => void } }).__ftFake.openLink(link), CARD);
+  await expect(app).toHaveURL(/\/add-contact$/);
+  await expect(app.getByTestId("paste")).toHaveValue(CARD);
+  await app.waitForTimeout(1000);
+  await expect(app).toHaveURL(/\/add-contact$/);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+});

@@ -15,7 +15,7 @@ import {
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
-import { closeOnBackWhile } from "../back";
+import { closeOnBackWhile, goBack } from "../back";
 import { chat } from "../core";
 import {
   call,
@@ -203,17 +203,17 @@ onMounted(() => {
 // so does the on-screen button at the top (2026-10-03): tablets and iPhones have no back button.
 let left = false;
 let leaving: ReturnType<typeof setTimeout> | undefined;
-function leave() {
+// It is over once it got there, as a tool's own page (`closeAll`, 2026-10-08).
+function leave(): Promise<unknown> | undefined {
   if (left) return;
   left = true;
   clearTimeout(leaving);
-  if (window.history.state?.back) router.back();
-  else void router.replace(`/chat/${id.value}`);
+  return window.history.state?.back ? goBack(router) : router.replace(`/chat/${id.value}`);
 }
 closeOnBackWhile(() => onScreen.value, leave);
 function end() {
   if (call.phase !== "idle" && call.phase !== "ended") void hangUp();
-  leave();
+  void leave();
 }
 
 onUnmounted(() => {

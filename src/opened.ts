@@ -99,8 +99,9 @@ async function act(opened: OpenedLink | null): Promise<void> {
       return;
     case "add":
     case "move":
-      // Whatever is open on top closes, as with Back: the page must not open under a plugin.
-      closeAll();
+      // Whatever is open on top closes, as with Back: the page must not open under a plugin. A tool's
+      // own page closes by going back, so the push waits until it got there.
+      await closeAll();
       handed[decision] = opened;
       await router.push(decision === "add" ? "/add-contact" : "/move");
   }

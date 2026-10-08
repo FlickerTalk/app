@@ -22,7 +22,7 @@ const app = vi.hoisted(() => {
 });
 vi.mock("@tauri-apps/api/app", () => ({ onBackButtonPress: app.onBackButtonPress }));
 
-import { closeAll, closeOnBack, closeOnBackWhile } from "./back";
+import { closeAll, closeOnBack, closeOnBackWhile, goBack } from "./back";
 
 const settle = async () => {
   for (let at = 0; at < 5; at += 1) await Promise.resolve();
@@ -82,8 +82,35 @@ describe("the back button", () => {
     expect(closed).toEqual(["plugin", "apps"]);
   });
 
+  // Seen on the Lenovo tablet (2026-10-08): a tool's own page closes by going back, and that back
+  // landed after the link's page was pushed, undoing it. Whoever closes everything waits for it.
+  it("finishes closing only once a closer that goes somewhere has got there, one after another", async () => {
+    const closed: string[] = [];
+    let land!: () => void;
+    closeOnBack(() => closed.push("apps"));
+    closeOnBack(
+      () =>
+        new Promise<void>((resolve) => {
+          closed.push("page");
+          land = () => {
+            closed.push("landed");
+            resolve();
+          };
+        }),
+    );
+    let done = false;
+    const closing = closeAll().then(() => (done = true));
+    await settle();
+    expect(closed).toEqual(["page"]);
+    expect(done).toBe(false);
+
+    land();
+    await closing;
+    expect(closed).toEqual(["page", "landed", "apps"]);
+  });
+
   it("closes nothing when nothing is open", async () => {
-    expect(() => closeAll()).not.toThrow();
+    await expect(closeAll()).resolves.toBeUndefined();
     await settle();
     expect(app.state.registered).toBe(0);
   });
@@ -109,5 +136,35 @@ describe("the back button", () => {
     await nextTick();
     await settle();
     expect(app.state.handler).toBeNull();
+  });
+});
+
+describe("going back", () => {
+  /** A router as the app's: going back lands later (the browser's popstate), then says so. */
+  function fakeRouter() {
+    const after: Array<() => void> = [];
+    return {
+      after,
+      back: vi.fn(),
+      afterEach: vi.fn((hook: () => void) => {
+        after.push(hook);
+        return () => after.splice(after.indexOf(hook), 1);
+      }),
+      land: () => [...after].forEach((hook) => hook()),
+    };
+  }
+
+  it("is over only once the router has landed where it went back to", async () => {
+    const router = fakeRouter();
+    let done = false;
+    const going = goBack(router as never).then(() => (done = true));
+    expect(router.back).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(done).toBe(false);
+
+    router.land();
+    await going;
+    expect(done).toBe(true);
+    expect(router.after).toHaveLength(0);
   });
 });
