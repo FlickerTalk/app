@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { IonButton, IonIcon } from "@ionic/vue";
 import { gameControllerOutline, shieldOutline } from "ionicons/icons";
 import GamePermissions from "./GamePermissions.vue";
+import source from "./GamePermissions.vue?raw";
 import { IonModalStub } from "../__tests__/ionic";
 
 const sheet = (props: Record<string, unknown>) =>
@@ -72,5 +73,11 @@ describe("GamePermissions", () => {
     expect(img.attributes("src")).toBe("data:image/svg+xml;base64,PHN2Zy8+");
     expect(img.attributes("alt")).toBe("");
     expect(wrapper.find("[data-test='game-permissions']").findComponent(IonIcon).exists()).toBe(false);
+  });
+
+  // Second device review: the image sat 6 px under the grab handle; the app's sheet leaves 26 px.
+  it("leaves the app sheet's room under the handle", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    expect(styles).toMatch(/\.ft-game-ask__body\s*\{[^}]*padding-top:\s*26px/);
   });
 });

@@ -236,11 +236,18 @@ test("an app's sheet darkens the page as much as the game's permissions sheet", 
   await app.goto("/tabs/apps?show=games");
   await app.getByTestId("app-com.flickertalk.game.tictactoe").click({ button: "right" });
   const ofApp = await darkness("ft-app-sheet");
+  // And the same room between the handle and the picture (second device review).
+  const room = async (sheet: string) => {
+    const top = (await app.locator(`ion-modal.${sheet} .modal-wrapper`).boundingBox())!.y;
+    return (await app.locator(`ion-modal.${sheet} img`).first().boundingBox())!.y - top;
+  };
+  const appRoom = await room("ft-app-sheet");
   await app.getByTestId("sheet-play").click();
   await expect(app.getByTestId("game-permissions")).toBeVisible();
   const ofPermissions = await darkness("ft-game-ask");
   expect(ofPermissions).toBeGreaterThan(0.3);
   expect(ofApp).toBeCloseTo(ofPermissions, 2);
+  expect(Math.abs((await room("ft-game-ask")) - appRoom), "the picture sits as far under the handle").toBeLessThanOrEqual(2);
 });
 
 test.describe("on a short screen", () => {
