@@ -1093,7 +1093,8 @@ impl RemoteCamera {
     }
 }
 
-/// The call media version we say in our offer or answer: 1 when this phone runs the call's video.
+/// The call media version we say in our offer or answer: `CALL_MEDIA_VERSION` when this phone
+/// runs the call's video, 0 (an older app's word) when it does not.
 fn media_version(has_video: bool) -> u16 {
     if has_video {
         ft_protocol::CALL_MEDIA_VERSION
@@ -1102,9 +1103,9 @@ fn media_version(has_video: bool) -> u16 {
     }
 }
 
-/// Whether the other side reads our `CallMedia`: only from media version 1 on.
+/// Whether the other side reads our `CallMedia`: from media version 1 on.
 fn speaks_camera_state(peer_media: u16) -> bool {
-    peer_media >= ft_protocol::CALL_MEDIA_VERSION
+    peer_media >= ft_protocol::CALL_MEDIA_CAMERA
 }
 
 /// Whether our camera may turn on: an older app's voice call has no video line at all.

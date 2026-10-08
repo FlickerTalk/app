@@ -1651,7 +1651,7 @@ impl Core {
                 let _ = self.send_control(contact, self.acknowledgement(contact, packet.id)).await;
             }
             // Offers and answers travel as signals (see `open_signal`), never as packets.
-            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::Unknown => {}
+            Body::Typing | Body::Block | Body::Offer { .. } | Body::Answer { .. } | Body::CallPresent { .. } | Body::Unknown => {}
         }
         Ok(())
     }
