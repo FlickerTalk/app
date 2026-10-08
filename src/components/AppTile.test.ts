@@ -205,4 +205,34 @@ describe("AppTile", () => {
     expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
     expect(tile({ name: "Batalla naval" }).find(".ft-app-tile__name").text()).toBe("Batalla naval");
   });
+
+  // 2026-10-08 ("Imagen por plugin"): a plugin's own image fills the icon box, clipped to its
+  // corners, with the badge and the spinner on top; without one, the Ionicon as before.
+  describe("with the plugin's own image", () => {
+    const IMAGE = "data:image/svg+xml;base64,PHN2Zy8+";
+
+    it("draws the image in the icon box instead of the Ionicon, with the badge over it", () => {
+      const wrapper = tile({ image: IMAGE, badge: "download", busy: true });
+      const box = wrapper.find(".ft-app-tile__icon");
+      expect(box.classes()).toContain("ft-app-tile__icon--image");
+      const img = box.find("img");
+      expect(img.attributes("src")).toBe(IMAGE);
+      expect(img.attributes("alt")).toBe("");
+      expect(img.attributes("draggable")).toBe("false");
+      expect(icons(wrapper)).toEqual([downloadOutline]);
+      expect(box.findComponent(IonSpinner).exists()).toBe(true);
+      expect(tile().find("img").exists()).toBe(false);
+    });
+
+    it("fills the box, without the tint behind it, dimmed when not installed or busy", () => {
+      const styles = source.slice(source.indexOf("<style"));
+      const rule = (selector: string) => styles.match(new RegExp(`${selector.replace(/[.[\]"=]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+      expect(rule(".ft-app-tile__image")).toMatch(/object-fit:\s*cover/);
+      // Cut to the box's corners by its own radius: a clipped box would cut the badge off too.
+      expect(rule(".ft-app-tile__image")).toMatch(/border-radius:\s*inherit/);
+      expect(rule(".ft-app-tile .ft-app-tile__icon--image")).toMatch(/background:\s*transparent/);
+      expect(rule(".ft-app-tile--off .ft-app-tile__image")).toMatch(/opacity:\s*0\.55/);
+      expect(rule('.ft-app-tile[aria-busy="true"] .ft-app-tile__image')).toMatch(/opacity:/);
+    });
+  });
 });

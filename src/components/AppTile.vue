@@ -10,6 +10,8 @@ const props = defineProps<{
   name: string;
   /** The icon as an SVG data URL (`pluginIcon`). */
   icon: string;
+  /** The plugin's own image (`pluginImage`, 2026-10-08): drawn instead of the icon when given. */
+  image?: string;
   /** A download, an app the phone carries (added, not downloaded), or the premium lock. */
   badge?: "download" | "add" | "lock";
   /** Not installed: dimmed. */
@@ -120,8 +122,9 @@ onBeforeUnmount(cancel);
     @contextmenu="menu"
     @keydown="key"
   >
-    <span class="ft-app-tile__icon">
-      <ion-icon :icon="icon" aria-hidden="true" />
+    <span class="ft-app-tile__icon" :class="{ 'ft-app-tile__icon--image': image }">
+      <img v-if="image" class="ft-app-tile__image" :src="image" alt="" draggable="false" />
+      <ion-icon v-else :icon="icon" aria-hidden="true" />
       <ion-spinner v-if="busy" name="crescent" class="ft-app-tile__spinner" aria-hidden="true" />
       <span
         v-if="badge"
@@ -193,6 +196,25 @@ onBeforeUnmount(cancel);
   color: var(--ion-color-primary);
 }
 .ft-app-tile[aria-busy="true"] .ft-app-tile__icon > ion-icon {
+  opacity: 0.25;
+}
+/* The plugin's own image (2026-10-08): it fills the box with nothing behind it, cut to the box's
+   corners by its own radius, so the badge, which stands past the corner, is never clipped. */
+.ft-app-tile .ft-app-tile__icon--image {
+  background: transparent;
+}
+.ft-app-tile__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  -webkit-user-drag: none;
+}
+.ft-app-tile--off .ft-app-tile__image {
+  opacity: 0.55;
+}
+.ft-app-tile[aria-busy="true"] .ft-app-tile__image {
   opacity: 0.25;
 }
 .ft-app-tile__name {
