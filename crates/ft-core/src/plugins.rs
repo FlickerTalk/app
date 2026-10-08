@@ -57,7 +57,9 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// 1.4.2 (2026-10-07): none (billing fixes only; the Plugin API gains nothing new).
 /// 1.5.0 (2026-10-08): no new call in the Plugin API; a package may carry an `icon` (`icon.svg`)
 /// that the Apps tab shows.
-pub const CORE_VERSION: &str = "1.5.0";
+/// 1.5.1 (2026-10-09): no new call; the Location tool travels as a seed; a tool asks for a missing
+/// permission on the spot.
+pub const CORE_VERSION: &str = "1.5.1";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 /// What the key of a plugin's chat ids is derived for, from the storage key (2026-10-02).
