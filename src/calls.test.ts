@@ -1038,6 +1038,17 @@ describe("presenting in a call", () => {
     expect(calls.call.canPresent).toBe(false);
   });
 
+  it("ignores a presentation or a connection heard after the call ended", async () => {
+    await live();
+    event({ kind: "ended", outcome: "answered" });
+    await flushPromises();
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "them" });
+    event({ kind: "connected", canPresent: true });
+    await flushPromises();
+    expect(calls.call.presenting).toBeNull();
+    expect(calls.call.canPresent).toBe(false);
+  });
+
   it("forgets them when this side hangs up", async () => {
     await live();
     event({ kind: "presenting", plugin: "com.flickertalk.board", by: "me" });

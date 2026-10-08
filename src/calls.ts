@@ -595,7 +595,9 @@ export async function loadHistory(): Promise<void> {
 }
 
 async function onEvent(event: CallEvent) {
-  if (event.call === call.id && event.kind === "connected") call.canPresent = Boolean(event.canPresent);
+  // A word heard after the call ended (a late event) brings nothing of it back.
+  const late = event.call === call.id && call.phase === "ended";
+  if (event.call === call.id && event.kind === "connected" && !late) call.canPresent = Boolean(event.canPresent);
   if (event.kind === "incoming" && !busy()) {
     const video = Boolean(event.video);
     Object.assign(call, idle(), { id: event.call, contact: event.contact, video, phase: "ringing", speaker: video });
@@ -623,7 +625,7 @@ async function onEvent(event: CallEvent) {
     call.cameraFailed = true;
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
-  } else if (event.call === call.id && event.kind === "presenting") {
+  } else if (event.call === call.id && event.kind === "presenting" && !late) {
     call.presenting = presentingOf(event);
   } else if (event.call === call.id && event.kind === "ended") {
     if (call.phase !== "ended") finish();
