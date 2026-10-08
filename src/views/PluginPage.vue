@@ -14,7 +14,7 @@ import {
   onIonViewWillLeave,
 } from "@ionic/vue";
 import { useRoute, useRouter } from "vue-router";
-import { closeOnBackWhile } from "../back";
+import { closeOnBackWhile, goBack } from "../back";
 import PluginSheet from "../components/PluginSheet.vue";
 import { lockClosedOutline } from "ionicons/icons";
 import { installed, isLocked, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
@@ -71,9 +71,10 @@ function reopen() {
 // tapped in the notifications opens this page that way). With nothing left to go back to, Android
 // put the app away, still on the plugin. While the page is on screen the app takes the button and
 // goes where the back arrow goes: back, or to the Apps tab with nothing behind (2026-10-08).
-function leave() {
-  if (window.history.state?.back) router.back();
-  else void router.replace("/tabs/apps");
+// It is over once it got there: a link that opens the app closes this page first and opens its own
+// after (`closeAll`), which a later back would undo.
+function leave(): Promise<unknown> {
+  return window.history.state?.back ? goBack(router) : router.replace("/tabs/apps");
 }
 closeOnBackWhile(() => here.value, leave);
 </script>
