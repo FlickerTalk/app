@@ -976,6 +976,12 @@ export async function plan(): Promise<PlanView> {
   return invoke<PlanView>("core_plan");
 }
 
+/**
+ * Where the subscription lives since the Plan screen went away (2026-10-08): the Premium section of
+ * Settings. Everything locked (a tool, the PIN pad) leads there.
+ */
+export const PREMIUM_PAGE = "/tabs/settings#premium";
+
 /** What the Store says about the subscription changed (2026-10-07), also with the app open. */
 export const PLAN_EVENT = "ft://plan";
 

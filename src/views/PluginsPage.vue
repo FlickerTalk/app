@@ -23,6 +23,7 @@ import {
   grantPlugin,
   installPlugin,
   needsSubscription,
+  PREMIUM_PAGE,
   removePlugin,
   type OfferedPlugin,
 } from "../core";
@@ -62,10 +63,10 @@ function weight(one: OfferedPlugin): string {
 
 /**
  * Ioan, 2026-10-08: after the 15 free days, without the subscription, the tools are locked. A tap on
- * a locked one goes to the Plan screen, where the subscription is.
+ * a locked one goes to the Premium section of Settings, where the subscription is.
  */
 function subscribe() {
-  void router.push("/plan");
+  void router.push(PREMIUM_PAGE);
 }
 
 function open(plugin: { id: string; kind?: "tool" | "game" }) {

@@ -246,10 +246,6 @@
     "light": "Sáng",
     "movePhone": "Chuyển sang điện thoại mới",
     "backup": "Sao lưu",
-    "plan": "Gói",
-    "planFree": "Premium miễn phí · 15 ngày",
-    "planFreeDays": "Premium miễn phí · còn {days} ngày",
-    "planOver": "Premium đã khóa",
     "privacy": "Quyền riêng tư",
     "version": "Phiên bản",
     "erase": "Xóa sạch điện thoại này",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Xóa",
     "erasing": "Đang xóa điện thoại này…",
     "eraseFailed": "Không thể xóa điện thoại này. Hãy thử lại.",
-    "plugins": "Plugin",
-    "session": "Phiên",
     "receipts": "Báo đã nhận và đã xem",
     "receiptsNote": "Cho liên hệ mới",
     "hours": "Giờ nhận",
@@ -354,14 +348,6 @@
     "symbols": "Biểu tượng"
   },
   "plan": {
-    "trial": "Premium miễn phí · còn {days} ngày",
-    "subscribed": "Đã trả phí · đến {until}",
-    "renewing": "Trả phí · tự động gia hạn",
-    "limited": "Những ngày miễn phí đã hết",
-    "hint": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí, mãi mãi. Công cụ và phiên bổ sung có PIN: miễn phí 15 ngày, sau đó {price} mỗi năm.",
-    "hintYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi miễn phí, mãi mãi. Công cụ và phiên bổ sung có PIN: miễn phí 15 ngày, sau đó dùng gói đăng ký năm.",
-    "pay": "{price} mỗi năm",
-    "payYearly": "Gói đăng ký năm",
     "restore": "Khôi phục giao dịch mua",
     "restored": "Đã khôi phục gói đăng ký",
     "nothingToRestore": "Không có giao dịch mua nào để khôi phục",
@@ -370,8 +356,22 @@
       "store_unavailable": "Cửa hàng không phản hồi. Hãy thử lại sau.",
       "pending_approval": "Giao dịch đang chờ phê duyệt.",
       "failed": "Cửa hàng không thể nhận thanh toán."
-    },
-    "premium": "Premium gồm các công cụ (có sẵn trong FlickerTalk và do bạn thêm) và mọi phiên có PIN ngoài phiên chính."
+    }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Trò chuyện, cuộc gọi, tệp và trò chơi: miễn phí mãi mãi. Công cụ và phiên có PIN: dùng thử 15 ngày, sau đó {price} mỗi năm.",
+    "trialNoteYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi: miễn phí mãi mãi. Công cụ và phiên có PIN: dùng thử 15 ngày, sau đó dùng gói đăng ký năm.",
+    "limitedNote": "Công cụ và phiên có PIN với giá {price} mỗi năm. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "limitedNoteYearly": "Công cụ và phiên có PIN với gói đăng ký năm. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "subscribe": "Đăng ký · {price} mỗi năm",
+    "subscribeYearly": "Đăng ký · theo năm",
+    "paid": "Trả phí · tự động gia hạn · quản lý trong cửa hàng",
+    "paidUntil": "Đã trả phí đến {until} · quản lý trong cửa hàng",
+    "tools": "Công cụ",
+    "sessions": "Phiên có PIN",
+    "daysLeft": "còn {days} ngày",
+    "active": "đang dùng"
   },
   "requests": {
     "title": "Yêu cầu",

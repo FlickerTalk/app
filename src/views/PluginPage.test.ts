@@ -120,7 +120,7 @@ describe("PluginPage", () => {
 
   // Ioan, 2026-10-08: a tool opened on its own (from Settings, a reminder) while the tools are
   // locked shows the lock and the way to the subscription, never its frame. A game still opens.
-  it("shows a locked tool's lock and leads to the Plan screen", async () => {
+  it("shows a locked tool's lock and leads to the Premium section of Settings", async () => {
     premiumLocked.value = true;
     try {
       route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: {} });
@@ -129,7 +129,7 @@ describe("PluginPage", () => {
       expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
       expect(wrapper.find("[data-test='locked']").exists()).toBe(true);
       await wrapper.find("[data-test='subscribe']").trigger("click");
-      expect(nav.push).toHaveBeenCalledWith("/plan");
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
 
       installed.value = [...installed.value, { id: "com.flickertalk.chess", name: "Chess", kind: "game" } as never];
       route.value = reactive({ params: { id: "com.flickertalk.chess" }, query: {} });

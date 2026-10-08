@@ -45,4 +45,9 @@ describe("routes", () => {
   it("opens a conversation full screen, outside the tabs", () => {
     expect(routes.some((route) => route.path === "/chat/:id")).toBe(true);
   });
+  // Ioan, 2026-10-08: the Plan screen is gone; its address leads to the Premium section of Settings.
+  it("sends the old Plan address to the Premium section of Settings", () => {
+    expect(routes.find((route) => route.path === "/plan")?.redirect).toEqual({ path: "/tabs/settings", hash: "#premium" });
+    expect(routes.find((route) => route.path === "/plan")?.component).toBeUndefined();
+  });
 });

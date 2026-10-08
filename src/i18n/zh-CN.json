@@ -246,10 +246,6 @@
     "light": "浅色",
     "movePhone": "迁移到新手机",
     "backup": "备份",
-    "plan": "套餐",
-    "planFree": "高级功能免费 · 15 天",
-    "planFreeDays": "高级功能免费 · 还剩 {days} 天",
-    "planOver": "高级功能已锁定",
     "privacy": "隐私",
     "version": "版本",
     "erase": "清除这部手机",
@@ -258,8 +254,6 @@
     "eraseConfirm": "清除",
     "erasing": "正在抹掉这部手机…",
     "eraseFailed": "无法抹掉这部手机。请重试。",
-    "plugins": "插件",
-    "session": "会话",
     "receipts": "送达和已读回执",
     "receiptsNote": "适用于新联系人",
     "hours": "时段",
@@ -354,14 +348,6 @@
     "symbols": "符号"
   },
   "plan": {
-    "trial": "高级功能免费 · 还剩 {days} 天",
-    "subscribed": "已付费 · 至 {until}",
-    "renewing": "已付费 · 自动续订",
-    "limited": "免费天数已结束",
-    "hint": "聊天、通话、文件和游戏永久免费。工具和带 PIN 的额外会话：免费 15 天，之后每年 {price}。",
-    "hintYearly": "聊天、通话、文件和游戏永久免费。工具和带 PIN 的额外会话：免费 15 天，之后需按年订阅。",
-    "pay": "每年 {price}",
-    "payYearly": "年度订阅",
     "restore": "恢复购买",
     "restored": "订阅已恢复",
     "nothingToRestore": "没有可恢复的购买",
@@ -370,8 +356,22 @@
       "store_unavailable": "商店没有响应，请稍后再试。",
       "pending_approval": "购买正在等待批准。",
       "failed": "商店无法完成付款。"
-    },
-    "premium": "高级功能包括工具（FlickerTalk 自带的和你添加的）以及主会话之外的每个带 PIN 的会话。"
+    }
+  },
+  "premium": {
+    "title": "高级功能",
+    "trialNote": "聊天、通话、文件和游戏：永久免费。工具和带 PIN 的会话：试用 15 天，之后每年 {price}。",
+    "trialNoteYearly": "聊天、通话、文件和游戏：永久免费。工具和带 PIN 的会话：试用 15 天，之后需按年订阅。",
+    "limitedNote": "工具和带 PIN 的会话每年 {price}。聊天、通话、文件和游戏仍然免费。",
+    "limitedNoteYearly": "工具和带 PIN 的会话需按年订阅。聊天、通话、文件和游戏仍然免费。",
+    "subscribe": "订阅 · 每年 {price}",
+    "subscribeYearly": "订阅 · 按年",
+    "paid": "已付费 · 自动续订 · 在商店中管理",
+    "paidUntil": "已付费至 {until} · 在商店中管理",
+    "tools": "工具",
+    "sessions": "带 PIN 的会话",
+    "daysLeft": "还剩 {days} 天",
+    "active": "已启用"
   },
   "requests": {
     "title": "请求",

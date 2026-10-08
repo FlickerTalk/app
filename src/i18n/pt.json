@@ -246,10 +246,6 @@
     "light": "Claro",
     "movePhone": "Transferir para um celular novo",
     "backup": "Backup",
-    "plan": "Plano",
-    "planFree": "Premium grátis · 15 dias",
-    "planFreeDays": "Premium grátis · faltam {days} dias",
-    "planOver": "Premium bloqueado",
     "privacy": "Privacidade",
     "version": "Versão",
     "erase": "Apagar este celular",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Apagar",
     "erasing": "Apagando este telefone…",
     "eraseFailed": "Não foi possível apagar este telefone. Tente novamente.",
-    "plugins": "Plugins",
-    "session": "Sessão",
     "receipts": "Confirmações de entrega e leitura",
     "receiptsNote": "Para novos contatos",
     "hours": "Horário",
@@ -354,14 +348,6 @@
     "symbols": "Símbolos"
   },
   "plan": {
-    "trial": "Premium grátis · faltam {days} dias",
-    "subscribed": "Pago · até {until}",
-    "renewing": "Pago · renovação automática",
-    "limited": "Os dias grátis terminaram",
-    "hint": "Chat, chamadas, arquivos e jogos são grátis, para sempre. Ferramentas e sessões extras com PIN: grátis por 15 dias, depois {price} por ano.",
-    "hintYearly": "Chat, chamadas, arquivos e jogos são grátis, para sempre. Ferramentas e sessões extras com PIN: grátis por 15 dias, depois com uma assinatura anual.",
-    "pay": "{price} por ano",
-    "payYearly": "Assinatura anual",
     "restore": "Restaurar compras",
     "restored": "Subscrição restaurada",
     "nothingToRestore": "Não há nenhuma compra para restaurar",
@@ -370,8 +356,22 @@
       "store_unavailable": "A loja não responde. Tenta mais tarde.",
       "pending_approval": "A compra está à espera de aprovação.",
       "failed": "A loja não conseguiu cobrar o pagamento."
-    },
-    "premium": "Premium são as ferramentas (as que o FlickerTalk traz e as que você adicionar) e cada sessão com PIN além da principal."
+    }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, chamadas, arquivos e jogos: grátis para sempre. Ferramentas e sessões com PIN: 15 dias de teste, depois {price} por ano.",
+    "trialNoteYearly": "Chat, chamadas, arquivos e jogos: grátis para sempre. Ferramentas e sessões com PIN: 15 dias de teste, depois uma assinatura anual.",
+    "limitedNote": "Ferramentas e sessões com PIN: {price} por ano. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "limitedNoteYearly": "Ferramentas e sessões com PIN: assinatura anual. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "subscribe": "Assinar · {price} por ano",
+    "subscribeYearly": "Assinar · anual",
+    "paid": "Pago · renovação automática · gerencie na loja",
+    "paidUntil": "Pago até {until} · gerencie na loja",
+    "tools": "Ferramentas",
+    "sessions": "Sessões com PIN",
+    "daysLeft": "faltam {days} dias",
+    "active": "ativo"
   },
   "requests": {
     "title": "Pedidos",

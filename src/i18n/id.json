@@ -246,10 +246,6 @@
     "light": "Terang",
     "movePhone": "Pindah ke ponsel baru",
     "backup": "Cadangan",
-    "plan": "Paket",
-    "planFree": "Premium gratis · 15 hari",
-    "planFreeDays": "Premium gratis · sisa {days} hari",
-    "planOver": "Premium terkunci",
     "privacy": "Privasi",
     "version": "Versi",
     "erase": "Hapus ponsel ini",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Hapus",
     "erasing": "Menghapus ponsel ini…",
     "eraseFailed": "Ponsel ini tidak dapat dihapus. Coba lagi.",
-    "plugins": "Plugin",
-    "session": "Sesi",
     "receipts": "Tanda diterima dan dibaca",
     "receiptsNote": "Untuk kontak baru",
     "hours": "Jam aktif",
@@ -354,14 +348,6 @@
     "symbols": "Simbol"
   },
   "plan": {
-    "trial": "Premium gratis · sisa {days} hari",
-    "subscribed": "Berbayar · sampai {until}",
-    "renewing": "Berbayar · diperpanjang otomatis",
-    "limited": "Hari gratis sudah berakhir",
-    "hint": "Chat, panggilan, file, dan game gratis, selamanya. Alat dan sesi tambahan dengan PIN: gratis 15 hari, lalu {price} per tahun.",
-    "hintYearly": "Chat, panggilan, file, dan game gratis, selamanya. Alat dan sesi tambahan dengan PIN: gratis 15 hari, lalu dengan langganan tahunan.",
-    "pay": "{price} per tahun",
-    "payYearly": "Langganan tahunan",
     "restore": "Pulihkan pembelian",
     "restored": "Langganan dipulihkan",
     "nothingToRestore": "Tidak ada pembelian untuk dipulihkan",
@@ -370,8 +356,22 @@
       "store_unavailable": "Toko tidak menjawab. Coba lagi nanti.",
       "pending_approval": "Pembelian menunggu persetujuan.",
       "failed": "Toko tidak dapat menerima pembayaran."
-    },
-    "premium": "Premium adalah alat (yang dibawa FlickerTalk dan yang kamu tambahkan) dan setiap sesi dengan PIN selain sesi utama."
+    }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, panggilan, file, dan game: gratis selamanya. Alat dan sesi dengan PIN: uji coba 15 hari, lalu {price} per tahun.",
+    "trialNoteYearly": "Chat, panggilan, file, dan game: gratis selamanya. Alat dan sesi dengan PIN: uji coba 15 hari, lalu dengan langganan tahunan.",
+    "limitedNote": "Alat dan sesi dengan PIN seharga {price} per tahun. Chat, panggilan, file, dan game tetap gratis.",
+    "limitedNoteYearly": "Alat dan sesi dengan PIN dengan langganan tahunan. Chat, panggilan, file, dan game tetap gratis.",
+    "subscribe": "Berlangganan · {price} per tahun",
+    "subscribeYearly": "Berlangganan · tahunan",
+    "paid": "Berbayar · diperpanjang otomatis · kelola di toko",
+    "paidUntil": "Berbayar sampai {until} · kelola di toko",
+    "tools": "Alat",
+    "sessions": "Sesi dengan PIN",
+    "daysLeft": "sisa {days} hari",
+    "active": "aktif"
   },
   "requests": {
     "title": "Permintaan",

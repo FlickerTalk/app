@@ -739,13 +739,13 @@ describe("ChatThread", () => {
   });
 
   // Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked. In the
-  // apps sheet each shows a lock and leads to the Plan screen; a file goes to another app instead
-  // of a locked viewer; "open with" leads to the Plan screen too.
+  // apps sheet each shows a lock and leads to the Premium section of Settings; a file goes to another app instead
+  // of a locked viewer; "open with" leads to the Premium section of Settings too.
   describe("with the tools locked", () => {
     const limited = (plugins: unknown[], answers: Record<string, unknown> = {}) => withPlugins(plugins, { core_plan: { state: "limited", until: 0 }, ...answers });
     afterEach(() => (premiumLocked.value = false));
 
-    it("shows a lock on each tool of the apps sheet and goes to the Plan screen", async () => {
+    it("shows a lock on each tool of the apps sheet and goes to the Premium section of Settings", async () => {
       push.mockClear();
       limited([VIEWER]);
       const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
@@ -756,7 +756,7 @@ describe("ChatThread", () => {
       expect(row.find("[data-test='locked']").exists()).toBe(true);
       await row.trigger("click");
       await flushPromises();
-      expect(push).toHaveBeenCalledWith("/plan");
+      expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
       expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
     });
 

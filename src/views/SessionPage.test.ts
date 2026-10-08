@@ -67,13 +67,13 @@ describe("SessionPage", () => {
     expect(wrapper.find("[data-test='key-1']").exists()).toBe(false);
     expect(wrapper.find("[data-test='locked']").exists()).toBe(true);
     await wrapper.find("[data-test='subscribe']").trigger("click");
-    expect(push).toHaveBeenCalledWith("/plan");
+    expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
     premiumLocked.value = false;
   });
 
   // The free days ending with the pad open: the core refuses any PIN alike, and the user is taken to
-  // the Plan screen, with nothing said about the PIN.
-  it("goes to the Plan screen when the core refuses a session", async () => {
+  // the Premium section of Settings, with nothing said about the PIN.
+  it("goes to the Premium section of Settings when the core refuses a session", async () => {
     installTauri((command, args) => {
       calls.push([command, args]);
       if (command === "core_session_open") throw "needs_subscription";
@@ -83,7 +83,7 @@ describe("SessionPage", () => {
     await flushPromises();
     await type(wrapper, "123456");
     await flushPromises();
-    expect(push).toHaveBeenCalledWith("/plan");
+    expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
     expect(push).not.toHaveBeenCalledWith("/tabs/chats");
   });
 });

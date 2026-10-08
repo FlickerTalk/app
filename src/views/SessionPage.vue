@@ -3,7 +3,7 @@ import { onMounted, ref } from "vue";
 import { IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonPage, IonToolbar } from "@ionic/vue";
 import { backspaceOutline, lockClosedOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
-import { needsSubscription, openSession } from "../core";
+import { needsSubscription, openSession, PREMIUM_PAGE } from "../core";
 import { premiumLocked, refreshPremiumLock } from "../plugins";
 
 // Hidden sessions: six digits on a pad of its own, no keyboard, no name, no title. The sixth
@@ -40,7 +40,7 @@ async function go() {
     // The free days ended with the pad open: the same for any PIN.
     if (!needsSubscription(error)) throw error;
     premiumLocked.value = true;
-    void router.push("/plan");
+    void router.push(PREMIUM_PAGE);
   } finally {
     pin.value = "";
     busy.value = false;
@@ -62,7 +62,7 @@ async function go() {
       <div v-if="premiumLocked" class="ft-pin ft-pin--locked" data-test="locked">
         <ion-icon :icon="lockClosedOutline" class="ft-pin__lock" aria-hidden="true" />
         <p>{{ $t("session.locked") }}</p>
-        <ion-button data-test="subscribe" @click="router.push('/plan')">{{ $t("plugins.subscribe") }}</ion-button>
+        <ion-button data-test="subscribe" @click="router.push(PREMIUM_PAGE)">{{ $t("plugins.subscribe") }}</ion-button>
       </div>
       <div v-else class="ft-pin">
         <div class="ft-pin__dots" role="status" :aria-label="$t('session.pin')">

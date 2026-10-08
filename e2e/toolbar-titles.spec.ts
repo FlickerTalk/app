@@ -89,7 +89,6 @@ const SCREENS: Array<Screen & { file: string }> = [
   { file: "views/MovePage.vue", name: "move to a new phone", open: (app, mode) => page(app, "/move", mode) },
   { file: "views/MovePage.vue", name: "move from the old phone", open: (app, mode) => page(app, "/move?role=new", mode) },
   { file: "views/NewCirclePage.vue", name: "new circle", open: (app, mode) => page(app, "/new-circle", mode) },
-  { file: "views/PlanPage.vue", name: "plan", open: (app, mode) => page(app, "/plan", mode) },
   { file: "views/PluginsPage.vue", name: "plugins", open: (app, mode) => page(app, "/plugins", mode) },
 ];
 
