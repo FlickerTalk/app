@@ -1,5 +1,6 @@
-//! The development switch `FT_DEBUG_FREE_YEAR_OVER=1`: a debug build acts as if the free year were
-//! over, so the Subscribe and Restore buttons can be reached on a real phone for a sandbox purchase.
+//! The development switch `FT_DEBUG_TRIAL_OVER=1`: a debug build acts as if the free days were
+//! over, so the locks and the Subscribe and Restore buttons can be reached on a real phone for a
+//! sandbox purchase.
 //! Release builds do not have it.
 //!
 //! The variable is process-wide, so this binary holds a single test: nothing else can read the
@@ -9,11 +10,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ft_billing::{Access, AgeClass};
+use ft_billing::Access;
 use ft_core::{Core, Peer, Transport};
 use ft_storage::Store;
 
-const SWITCH: &str = "FT_DEBUG_FREE_YEAR_OVER";
+const SWITCH: &str = "FT_DEBUG_TRIAL_OVER";
 
 struct Offline;
 
@@ -29,21 +30,20 @@ impl Transport for Offline {
 }
 
 #[tokio::test]
-async fn the_debug_switch_ends_the_free_year_without_touching_the_database() {
+async fn the_debug_switch_ends_the_free_days_without_touching_the_database() {
     let core = Core::open(Store::open_in_memory().await.expect("store"), [7; 32], Arc::new(Offline))
         .await
         .expect("opens");
-    core.set_age_class(AgeClass::Adult).await.expect("sets");
     let installed_at = core.store().setting("installed_at").await.expect("reads");
 
     std::env::remove_var(SWITCH);
-    assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }), "without the switch, the year is free");
+    assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }), "without the switch, the days are free");
 
     std::env::set_var(SWITCH, "0");
     assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }), "only `1` turns it on");
 
     std::env::set_var(SWITCH, "1");
-    assert_eq!(core.access().await.expect("reads"), Access::Limited, "an adult without a subscription is limited");
+    assert_eq!(core.access().await.expect("reads"), Access::Limited, "without a subscription the phone is limited");
     assert_eq!(core.store().setting("installed_at").await.expect("reads"), installed_at, "nothing is written");
 
     // The switch must not hide a real subscription.
@@ -52,5 +52,5 @@ async fn the_debug_switch_ends_the_free_year_without_touching_the_database() {
     assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: paid_until });
 
     std::env::remove_var(SWITCH);
-    assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }), "back to the free year");
+    assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }), "back to the free days");
 }

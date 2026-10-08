@@ -1046,6 +1046,12 @@ impl Client {
                 let _ = core_for_store.set_entitlement(until).await;
             }
         });
+        // And when the plan changes by itself with nothing said (2026-10-08): the free days end,
+        // the paid date passes (the Store is asked first), the grace ends. The screens hear it.
+        tauri::async_runtime::spawn(ft_core::Core::watch_plan(
+            Arc::downgrade(&online.core),
+            Arc::new(ShopWord(Arc::new(AppShop(app.clone())))),
+        ));
         refresh_served_plugins(app, &online.core, dir).await;
         // And what the user downloaded, from the catalogue, in the background (2026-10-03).
         look_for_updates(app, online.core.clone(), dir);
@@ -1260,7 +1266,12 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                         Event::VaultChanged => {
                             let _ = app.emit(VAULT_EVENT, ());
                         }
+                        // The tools open or close with the plan (2026-10-08): what the WebView
+                        // serves follows it.
                         Event::PlanChanged => {
+                            if let Ok(dir) = app.state::<Client>().dir() {
+                                refresh_served_plugins(&app, &core_for_events, dir).await;
+                            }
                             let _ = app.emit(PLAN_EVENT, ());
                         }
                         Event::VaultProgress { done, total } => {
@@ -1620,11 +1631,29 @@ async fn sync_reminders(app: &AppHandle, core: &Arc<Core>) {
     }
 }
 
-/// What the WebView may serve of each plugin right now: kept in step with what is installed and
-/// what the user granted (§53, §55).
+/// What the WebView may serve of each plugin right now: kept in step with what is installed, what
+/// the user granted (§53, §55) and what the plan lets open (a tool after the free year without
+/// the subscription does not, Ioan 2026-10-08).
 pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, dir: &Path) {
-    let mut served = std::collections::HashMap::new();
+    let mut plugins = Vec::new();
     for plugin in core.plugins().await.unwrap_or_default() {
+        let open = core.may_use(plugin.manifest.kind).await.unwrap_or(false);
+        plugins.push((plugin, open));
+    }
+    app.state::<crate::plugins::Plugins>().set(served_of(plugins, dir));
+}
+
+/// The plugins the WebView serves, each from its folder with the policy its grant allows; one
+/// the plan keeps closed (`false`) is not served at all.
+fn served_of(
+    plugins: Vec<(ft_core::plugins::InstalledPlugin, bool)>,
+    dir: &Path,
+) -> std::collections::HashMap<String, crate::plugins::Served> {
+    let mut served = std::collections::HashMap::new();
+    for (plugin, open) in plugins {
+        if !open {
+            continue;
+        }
         let Some(component) = plugin.manifest.components.first().cloned() else { continue };
         served.insert(
             plugin.manifest.id.clone(),
@@ -1636,7 +1665,7 @@ pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, 
             },
         );
     }
-    app.state::<crate::plugins::Plugins>().set(served);
+    served
 }
 
 /// After a move (§60): the new phone forgets its temporary identity on the router and starts
@@ -2113,7 +2142,6 @@ pub struct PlanView {
     state: String,
     /// When the free year ends, or when the subscription runs out (ms); 0 when neither applies.
     until: i64,
-    age: String,
     /// A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the
     /// last check of Play holds, not an expiry (Play never tells the phone one), so the screen says
     /// "renews automatically" instead of a date. On iOS `until` is StoreKit's own expiry.
@@ -2122,22 +2150,21 @@ pub struct PlanView {
 }
 
 /// The plan as the screen reads it; `play`: the Store is Google Play (Android).
-fn plan_view(access: ft_billing::Access, age: ft_billing::AgeClass, play: bool) -> PlanView {
+fn plan_view(access: ft_billing::Access, play: bool) -> PlanView {
     let renews = play && matches!(access, ft_billing::Access::Subscribed { .. });
     let (state, until) = match access {
         ft_billing::Access::Trial { until } => ("trial", until),
-        ft_billing::Access::Young => ("young", 0),
         ft_billing::Access::Subscribed { until } => ("subscribed", until),
         ft_billing::Access::Limited => ("limited", 0),
     };
-    PlanView { state: state.to_owned(), until, age: age.as_str().to_owned(), renews }
+    PlanView { state: state.to_owned(), until, renews }
 }
 
 #[tauri::command]
 pub async fn core_plan(client: State<'_, Client>) -> Result<PlanView, String> {
     let core = client.core().await?;
     let plan = core.plan().await.map_err(failed)?;
-    Ok(plan_view(ft_billing::Access::of(now_ms(), plan), plan.age, cfg!(target_os = "android")))
+    Ok(plan_view(ft_billing::Access::of(now_ms(), plan), cfg!(target_os = "android")))
 }
 
 /// What a year costs, as the Store formats it for this phone (2026-09-29); `price` is `null` when
@@ -2179,12 +2206,6 @@ fn feedback_word(outcome: ft_core::Feedback) -> &'static str {
     }
 }
 
-/// What the user said about their age. Under 21 is always free (§40); it never leaves the phone.
-#[tauri::command]
-pub async fn core_set_age(age: String, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.set_age_class(ft_billing::AgeClass::of(&age)).await.map_err(failed)
-}
-
 /// Asks the Store for the subscription and keeps what it answers (§45, §47). The app never sees
 /// a card, an address or a name: that is the Store's business.
 #[tauri::command]
@@ -2201,6 +2222,8 @@ pub async fn core_subscribe(app: AppHandle, client: State<'_, Client>) -> Result
 pub(crate) trait Shop {
     fn subscribe(&self) -> Result<i64, String>;
     fn restore(&self) -> Result<i64, String>;
+    /// What the Store says now, without buying anything.
+    fn current(&self) -> Result<i64, String>;
 }
 
 impl<R: tauri::Runtime> Shop for tauri_plugin_ft_platform::Platform<R> {
@@ -2210,6 +2233,38 @@ impl<R: tauri::Runtime> Shop for tauri_plugin_ft_platform::Platform<R> {
 
     fn restore(&self) -> Result<i64, String> {
         self.restore_subscription().map_err(failed)
+    }
+
+    fn current(&self) -> Result<i64, String> {
+        self.subscription().map_err(failed)
+    }
+}
+
+/// The Store of this app, for work that outlives a command (the plan's watch).
+struct AppShop(AppHandle);
+
+impl Shop for AppShop {
+    fn subscribe(&self) -> Result<i64, String> {
+        Shop::subscribe(self.0.platform())
+    }
+
+    fn restore(&self) -> Result<i64, String> {
+        Shop::restore(self.0.platform())
+    }
+
+    fn current(&self) -> Result<i64, String> {
+        Shop::current(self.0.platform())
+    }
+}
+
+/// The Store as the core's plan watch asks it (2026-10-08): the bridges block, so off the runtime.
+struct ShopWord<S>(Arc<S>);
+
+#[async_trait::async_trait]
+impl<S: Shop + Send + Sync + 'static> ft_core::Entitlements for ShopWord<S> {
+    async fn until(&self) -> anyhow::Result<i64> {
+        let shop = self.0.clone();
+        tauri::async_runtime::spawn_blocking(move || shop.current()).await?.map_err(anyhow::Error::msg)
     }
 }
 
@@ -2707,10 +2762,15 @@ impl OpenPlugins {
     }
 }
 
-/// A frame of a plugin opened (`open`) or has closed for good, as the screen says.
+/// A frame of a plugin opened (`open`) or has closed for good, as the screen says. A tool the plan
+/// keeps closed is refused with `needs_subscription` (2026-10-08) and not counted as open.
 #[tauri::command]
-pub fn core_plugin_open(plugin: String, open: bool, frames: State<'_, OpenPlugins>) {
+pub async fn core_plugin_open(plugin: String, open: bool, frames: State<'_, OpenPlugins>, client: State<'_, Client>) -> Result<(), String> {
+    if open {
+        client.core().await?.open_plugin(&plugin).await.map_err(failed)?;
+    }
     frames.set(&plugin, open);
+    Ok(())
 }
 
 /// How often the app looks for updates on its own, after it starts: the screens that read the
@@ -3145,6 +3205,8 @@ fn push_provider() -> &'static str {
 #[tauri::command]
 pub async fn core_resume(client: State<'_, Client>) -> Result<(), String> {
     let online = client.online().await?;
+    // The plan may have changed while the app was away; the Store may answer now (2026-10-08).
+    online.core.look_at_plan_again();
     if !online.set_foreground(true).await {
         online.router.reconnect_unless_fresh(CALL_SOCKET_FRESH);
     }
@@ -3986,15 +4048,20 @@ mod tests {
     struct FakeShop {
         bought: Result<i64, String>,
         restored: Result<i64, String>,
+        current: Result<i64, String>,
     }
 
     impl FakeShop {
         fn restoring(restored: Result<i64, String>) -> Self {
-            Self { bought: Err("not asked".into()), restored }
+            Self { bought: Err("not asked".into()), restored, current: Err("not asked".into()) }
         }
 
         fn selling(bought: Result<i64, String>) -> Self {
-            Self { bought, restored: Err("not asked".into()) }
+            Self { bought, restored: Err("not asked".into()), current: Err("not asked".into()) }
+        }
+
+        fn saying(current: Result<i64, String>) -> Self {
+            Self { bought: Err("not asked".into()), restored: Err("not asked".into()), current }
         }
     }
 
@@ -4006,6 +4073,20 @@ mod tests {
         fn restore(&self) -> Result<i64, String> {
             self.restored.clone()
         }
+
+        fn current(&self) -> Result<i64, String> {
+            self.current.clone()
+        }
+    }
+
+    // 2026-10-08: when a paid date passes, the core's watch asks the Store what it says now
+    // (StoreKit's current entitlements, Play's purchases); an error is an error, never a "nothing".
+    #[tokio::test]
+    async fn the_plans_watch_hears_what_the_store_says_now() {
+        use ft_core::Entitlements;
+        assert_eq!(ShopWord(Arc::new(FakeShop::saying(Ok(42)))).until().await.unwrap(), 42);
+        assert_eq!(ShopWord(Arc::new(FakeShop::saying(Ok(0)))).until().await.unwrap(), 0);
+        assert!(ShopWord(Arc::new(FakeShop::saying(Err("store_unavailable".into())))).until().await.is_err());
     }
 
     const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -4046,14 +4127,45 @@ mod tests {
     #[test]
     fn a_play_subscription_is_shown_as_renewing_and_an_apple_one_with_its_expiry() {
         let until = 1_830_000_000_000;
-        let play = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, true);
-        assert_eq!(serde_json::to_value(&play).unwrap(), serde_json::json!({ "state": "subscribed", "until": until, "age": "adult", "renews": true }));
-        let apple = plan_view(ft_billing::Access::Subscribed { until }, ft_billing::AgeClass::Adult, false);
+        let play = plan_view(ft_billing::Access::Subscribed { until }, true);
+        assert_eq!(serde_json::to_value(&play).unwrap(), serde_json::json!({ "state": "subscribed", "until": until, "renews": true }));
+        let apple = plan_view(ft_billing::Access::Subscribed { until }, false);
         assert_eq!(serde_json::to_value(&apple).unwrap()["renews"], serde_json::json!(false));
-        // Nothing else renews: the free year, under 21, the year over.
-        for access in [ft_billing::Access::Trial { until }, ft_billing::Access::Young, ft_billing::Access::Limited] {
-            assert_eq!(serde_json::to_value(plan_view(access, ft_billing::AgeClass::Unknown, true)).unwrap()["renews"], serde_json::json!(false));
+        // Nothing else renews: the free year, the year over.
+        for access in [ft_billing::Access::Trial { until }, ft_billing::Access::Limited] {
+            assert_eq!(serde_json::to_value(plan_view(access, true)).unwrap()["renews"], serde_json::json!(false));
         }
+    }
+
+    // Ioan, 2026-10-08: the screen hears three states, and no age (there is no age rule any more).
+    #[test]
+    fn the_plan_has_three_states_and_no_age() {
+        let states: Vec<serde_json::Value> = [ft_billing::Access::Trial { until: 1 }, ft_billing::Access::Subscribed { until: 1 }, ft_billing::Access::Limited]
+            .into_iter()
+            .map(|access| serde_json::to_value(plan_view(access, false)).unwrap())
+            .collect();
+        assert_eq!(states.iter().map(|view| view["state"].as_str().unwrap()).collect::<Vec<_>>(), ["trial", "subscribed", "limited"]);
+        assert!(states.iter().all(|view| view.get("age").is_none()));
+    }
+
+    // Ioan, 2026-10-08: a tool the plan has closed is not served to the WebView at all, whatever
+    // screen tries to show it; a game always is.
+    #[test]
+    fn a_closed_tool_is_not_served_and_a_game_is() {
+        let plugin = |id: &str, kind: &str| ft_core::plugins::InstalledPlugin {
+            manifest: serde_json::from_str(&format!(
+                r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"kind":"{kind}"}}"#
+            ))
+            .unwrap(),
+            granted: ft_plugins::Permissions::default(),
+            installed_at: 0,
+        };
+        let dir = Path::new("/tmp/ft");
+        let served = served_of(vec![(plugin("com.example.code", "tool"), false), (plugin("game.example.chess", "game"), true)], dir);
+        assert_eq!(served.keys().collect::<Vec<_>>(), ["game.example.chess"]);
+        assert_eq!(served["game.example.chess"].dir, dir.join("plugins").join("game.example.chess"));
+        let served = served_of(vec![(plugin("com.example.code", "tool"), true)], dir);
+        assert!(served.contains_key("com.example.code"), "open in the free year or with the subscription");
     }
 
     // A suggestion (2026-10-02): the screen gets one of three words, the ones `sendFeedback` in

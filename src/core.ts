@@ -136,7 +136,7 @@ export interface Me {
   mailbox: boolean;
   /** Whether contacts added from now on are told their messages arrived and were read (app#6). */
   receipts: boolean;
-  /** Until when (ms) the app is free: a year from the install, counted on this phone (§41). */
+  /** Until when (ms) the premium part is free: 15 days from the install, counted on this phone (§41). */
   freeUntil: number;
   /** Files up to this many bytes are downloaded as they arrive; bigger ones wait (A4). */
   autoDownload: number;
@@ -951,10 +951,10 @@ export async function installPlugin(plugin: string): Promise<void> {
 
 /** Where this phone stands with the plan (§40–§47); all of it decided on the phone. */
 export interface PlanView {
-  state: "trial" | "young" | "subscribed" | "limited";
-  /** When the free year ends, or when the subscription runs out (ms); 0 when neither applies. */
+  /** Ioan, 2026-10-08: `limited` locks the tools, and only them; nothing else is ever limited. */
+  state: "trial" | "subscribed" | "limited";
+  /** When the free days end, or when the subscription runs out (ms); 0 when neither applies. */
   until: number;
-  age: "minor" | "adult" | "unknown";
   /**
    * A subscription Google Play keeps renewing (2026-10-07): `until` is then only how long the last
    * check of Play holds, not an expiry, so no date is shown. StoreKit's (iOS) is a real expiry.
@@ -976,6 +976,12 @@ export async function plan(): Promise<PlanView> {
   return invoke<PlanView>("core_plan");
 }
 
+/**
+ * Where the subscription lives since the Plan screen went away (2026-10-08): the Premium section of
+ * Settings. Everything locked (a tool, the PIN pad) leads there.
+ */
+export const PREMIUM_PAGE = "/tabs/settings#premium";
+
 /** What the Store says about the subscription changed (2026-10-07), also with the app open. */
 export const PLAN_EVENT = "ft://plan";
 
@@ -988,9 +994,12 @@ export async function followPlan(changed: () => void): Promise<() => void> {
   return listen(PLAN_EVENT, () => changed()).catch(() => () => undefined);
 }
 
-/** What the user says about their age; never a date of birth (§30, §43). */
-export async function setAge(age: "minor" | "adult"): Promise<void> {
-  await invoke("core_set_age", { age });
+/** The core's refusal of a tool the plan keeps locked (2026-10-08): a key, never a sentence. */
+export const NEEDS_SUBSCRIPTION = "needs_subscription";
+
+/** Whether an error is the core saying a tool needs the subscription. */
+export function needsSubscription(error: unknown): boolean {
+  return String(error instanceof Error ? error.message : error) === NEEDS_SUBSCRIPTION;
 }
 
 /** Asks the Store for the subscription. No payment data ever reaches us (§47). */

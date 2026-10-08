@@ -5,6 +5,7 @@ import App from "./App.vue";
 import CallBar from "./components/CallBar.vue";
 import { installTauri } from "./__tests__/tauri";
 import { clearOnboarded, setOnboarded } from "./preferences";
+import { premiumLocked } from "./plugins";
 
 const push = vi.fn();
 vi.mock("vue-router", async (importOriginal) => ({ ...(await importOriginal<typeof import("vue-router")>()), useRouter: () => ({ push }) }));
@@ -42,6 +43,21 @@ describe("App", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
     expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r1");
+  });
+
+  // Ioan, 2026-10-08: the tools' lock follows the plan from the start, and again when the app comes
+  // back to the screen (the free year may have ended while it was away).
+  it("knows whether the tools are locked, at start and back on the screen", async () => {
+    let state = "trial";
+    installTauri((command) => (command === "core_plan" ? { state, until: 0 } : undefined));
+    mount(App, { shallow: true });
+    await flushPromises();
+    expect(premiumLocked.value).toBe(false);
+    state = "limited";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(premiumLocked.value).toBe(true);
+    premiumLocked.value = false;
   });
 
   // iOS cuts the socket of a suspended app (2026-09-28): back on the screen, or opened from a

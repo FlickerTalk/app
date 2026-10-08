@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonBackButton, IonIcon, IonList, IonNote, IonToggle } from "@ionic/vue";
-import { addCircleOutline, downloadOutline } from "ionicons/icons";
+import { addCircleOutline, downloadOutline, lockClosedOutline } from "ionicons/icons";
 import PluginsPage from "./PluginsPage.vue";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { setLocale } from "../i18n";
-import { installed } from "../plugins";
+import { installed, premiumLocked } from "../plugins";
 
 const route = vi.hoisted(() => ({ path: "/plugins" }));
-vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => ({ push: vi.fn() }) }));
+const nav = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => nav }));
 
 const CODE = {
   id: "com.flickertalk.code",
@@ -372,5 +373,80 @@ describe("PluginsPage", () => {
     await flushPromises();
     const granted = calls.find(([command]) => command === "core_plugin_grant");
     expect(granted?.[1]).toMatchObject({ plugin: "com.flickertalk.location", granted: { location: true, send: "propose" } });
+  });
+
+  // Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked. Each
+  // shows a lock, and a tap on it goes to the Premium section of Settings, where the subscription is.
+  describe("once the free year is over", () => {
+    function limited(state = "limited") {
+      nav.push.mockReset();
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        if (command === "core_plugins") return [CODE, AI];
+        if (command === "core_catalogue") return OFFERED;
+        if (command === "core_plan") return { state, until: 0 };
+        return undefined;
+      });
+    }
+    afterEach(() => (premiumLocked.value = false));
+
+    it("locks the installed tools and opens the Premium section of Settings instead", async () => {
+      limited();
+      const wrapper = mount(PluginsPage, { shallow: true });
+      await flushPromises();
+      const open = wrapper.find(`[data-test='open-${CODE.id}']`);
+      expect(open.findComponent(IonIcon).props("icon")).toBe(lockClosedOutline);
+      expect(open.attributes("aria-label")).toBe("Subscribe to use the tools");
+      await open.trigger("click");
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
+      expect(nav.push).not.toHaveBeenCalledWith(`/plugin/${CODE.id}`);
+    });
+
+    it("locks what could be installed, and installs nothing", async () => {
+      limited();
+      const wrapper = mount(PluginsPage, { shallow: true });
+      await flushPromises();
+      const install = wrapper.find("[data-test='install-com.flickertalk.sketch']");
+      expect(install.findComponent(IonIcon).props("icon")).toBe(lockClosedOutline);
+      await install.trigger("click");
+      await flushPromises();
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
+      expect(calls.map(([command]) => command)).not.toContain("core_plugin_add");
+    });
+
+    it("says why, with the way to subscribe", async () => {
+      limited();
+      const wrapper = mount(PluginsPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='locked']").text()).toContain("tools need the subscription");
+      await wrapper.find("[data-test='subscribe']").trigger("click");
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
+    });
+
+    it("locks nothing in the free year or with the subscription", async () => {
+      for (const state of ["trial", "subscribed"]) {
+        limited(state);
+        const wrapper = mount(PluginsPage, { shallow: true });
+        await flushPromises();
+        expect(wrapper.find("[data-test='locked']").exists(), state).toBe(false);
+        await wrapper.find(`[data-test='open-${CODE.id}']`).trigger("click");
+        expect(nav.push, state).toHaveBeenCalledWith(`/plugin/${CODE.id}`);
+      }
+    });
+
+    // The plan may close while the page is open (the year ends): the core refuses, and the user
+    // is taken where the subscription is rather than told the install failed.
+    it("goes to the Premium section of Settings when the core refuses a tool", async () => {
+      limited("trial");
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const answer = internals.invoke;
+      internals.invoke = (command, args) => (command === "core_plugin_add" ? Promise.reject("needs_subscription") : answer(command, args));
+      const wrapper = mount(PluginsPage, { shallow: true });
+      await flushPromises();
+      await wrapper.find("[data-test='install-com.flickertalk.sketch']").trigger("click");
+      await flushPromises();
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
+      expect(wrapper.find("[role='alert']").exists()).toBe(false);
+    });
   });
 });

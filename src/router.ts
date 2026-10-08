@@ -34,7 +34,8 @@ export const routes: RouteRecordRaw[] = [
   { path: "/plugins", component: () => import("./views/PluginsPage.vue") },
   // A plugin on its own (2026-09-27): from Settings, or from a reminder it set.
   { path: "/plugin/:id", component: () => import("./views/PluginPage.vue") },
-  { path: "/plan", component: () => import("./views/PlanPage.vue") },
+  // The Plan screen is gone (2026-10-08): its address opens the Premium section of Settings.
+  { path: "/plan", redirect: { path: "/tabs/settings", hash: "#premium" } },
   { path: "/move", component: () => import("./views/MovePage.vue") },
   // The user's own cloud (2026-09-27): the backup of this phone, and the drive behind it.
   { path: "/backup", component: () => import("./views/BackupPage.vue") },

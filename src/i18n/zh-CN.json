@@ -246,10 +246,6 @@
     "light": "浅色",
     "movePhone": "迁移到新手机",
     "backup": "备份",
-    "plan": "套餐",
-    "planFree": "免费 · 第一年",
-    "planFreeDays": "免费 · 剩余 {days} 天",
-    "planOver": "免费一年已结束",
     "privacy": "隐私",
     "version": "版本",
     "erase": "清除这部手机",
@@ -258,8 +254,6 @@
     "eraseConfirm": "清除",
     "erasing": "正在抹掉这部手机…",
     "eraseFailed": "无法抹掉这部手机。请重试。",
-    "plugins": "插件",
-    "session": "会话",
     "receipts": "送达和已读回执",
     "receiptsNote": "适用于新联系人",
     "hours": "时段",
@@ -303,7 +297,9 @@
     "close": "退出此会话",
     "empty": "这里还没有联系人。用二维码按钮添加：添加的联系人只属于此会话。",
     "remove": "删除此会话",
-    "removeSure": "删除"
+    "removeSure": "删除",
+    "locked": "带 PIN 的额外会话需要订阅。聊天、通话、文件和游戏依然免费。",
+    "subscribeToUse": "订阅以使用额外会话"
   },
   "colors": {
     "ember": "余烬",
@@ -333,7 +329,10 @@
     "storageLarge": "在这部手机上保存大量数据（最多 256 MB）",
     "location": "你的位置，仅在你请求时",
     "opens": "可打开：{kinds}",
-    "open": "打开"
+    "open": "打开",
+    "locked": "订阅以使用工具",
+    "lockedHint": "免费天数已结束：工具需要订阅。聊天、通话、文件和游戏依然免费。",
+    "subscribe": "订阅"
   },
   "emoji": {
     "open": "表情",
@@ -349,17 +348,6 @@
     "symbols": "符号"
   },
   "plan": {
-    "trial": "免费 · 剩余 {days} 天",
-    "young": "免费 · 未满 21 岁",
-    "subscribed": "已付费 · 至 {until}",
-    "renewing": "已付费 · 自动续订",
-    "limited": "免费一年已结束",
-    "hint": "FlickerTalk 每年 {price}，未满 21 岁免费。自安装起的第一年所有人免费。不付费仍可接收和回复；发起新对话、拨打电话和发送文件需要订阅。",
-    "hintYearly": "FlickerTalk 采用年度订阅，未满 21 岁免费。自安装起的第一年所有人免费。不付费仍可接收和回复；发起新对话、拨打电话和发送文件需要订阅。",
-    "pay": "每年 {price}",
-    "payYearly": "年度订阅",
-    "iAmYoung": "我未满 21 岁",
-    "iAmOlder": "我已满 21 岁",
     "restore": "恢复购买",
     "restored": "订阅已恢复",
     "nothingToRestore": "没有可恢复的购买",
@@ -369,6 +357,21 @@
       "pending_approval": "购买正在等待批准。",
       "failed": "商店无法完成付款。"
     }
+  },
+  "premium": {
+    "title": "高级功能",
+    "trialNote": "聊天、通话、文件和游戏：永久免费。工具和带 PIN 的会话：试用 15 天，之后每年 {price}。",
+    "trialNoteYearly": "聊天、通话、文件和游戏：永久免费。工具和带 PIN 的会话：试用 15 天，之后需按年订阅。",
+    "limitedNote": "工具和带 PIN 的会话每年 {price}。聊天、通话、文件和游戏仍然免费。",
+    "limitedNoteYearly": "工具和带 PIN 的会话需按年订阅。聊天、通话、文件和游戏仍然免费。",
+    "subscribe": "订阅 · 每年 {price}",
+    "subscribeYearly": "订阅 · 按年",
+    "paid": "已付费 · 自动续订 · 在商店中管理",
+    "paidUntil": "已付费至 {until} · 在商店中管理",
+    "tools": "工具",
+    "sessions": "带 PIN 的会话",
+    "daysLeft": "还剩 {days} 天",
+    "active": "已启用"
   },
   "requests": {
     "title": "请求",

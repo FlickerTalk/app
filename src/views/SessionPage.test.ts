@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import SessionPage from "./SessionPage.vue";
 import { calls, seed } from "../__tests__/seed";
+import { installTauri } from "../__tests__/tauri";
+import { premiumLocked } from "../plugins";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push, back: vi.fn() }) }));
@@ -54,5 +56,34 @@ describe("SessionPage", () => {
   it("has no way to make a session other than typing its pin", () => {
     const wrapper = mount(SessionPage, { shallow: true });
     expect(wrapper.find("[data-test='session-new']").exists()).toBe(false);
+  });
+
+  // Ioan, 2026-10-08 (§108): after the free days, without the subscription, the pad is not shown at
+  // all: the lock and Subscribe stand in front of it, so no PIN is typed and nothing is told.
+  it("shows the lock instead of the pad once the free days are over", async () => {
+    installTauri((command) => (command === "core_plan" ? { state: "limited", until: 0 } : undefined));
+    const wrapper = mount(SessionPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='key-1']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='locked']").exists()).toBe(true);
+    await wrapper.find("[data-test='subscribe']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
+    premiumLocked.value = false;
+  });
+
+  // The free days ending with the pad open: the core refuses any PIN alike, and the user is taken to
+  // the Premium section of Settings, with nothing said about the PIN.
+  it("goes to the Premium section of Settings when the core refuses a session", async () => {
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_session_open") throw "needs_subscription";
+      return command === "core_plan" ? { state: "trial", until: Date.now() + 1e9 } : undefined;
+    });
+    const wrapper = mount(SessionPage, { shallow: true });
+    await flushPromises();
+    await type(wrapper, "123456");
+    await flushPromises();
+    expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
+    expect(push).not.toHaveBeenCalledWith("/tabs/chats");
   });
 });

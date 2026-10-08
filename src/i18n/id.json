@@ -246,10 +246,6 @@
     "light": "Terang",
     "movePhone": "Pindah ke ponsel baru",
     "backup": "Cadangan",
-    "plan": "Paket",
-    "planFree": "Gratis · tahun pertama",
-    "planFreeDays": "Gratis · sisa {days} hari",
-    "planOver": "Tahun gratis berakhir",
     "privacy": "Privasi",
     "version": "Versi",
     "erase": "Hapus ponsel ini",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Hapus",
     "erasing": "Menghapus ponsel ini…",
     "eraseFailed": "Ponsel ini tidak dapat dihapus. Coba lagi.",
-    "plugins": "Plugin",
-    "session": "Sesi",
     "receipts": "Tanda diterima dan dibaca",
     "receiptsNote": "Untuk kontak baru",
     "hours": "Jam aktif",
@@ -303,7 +297,9 @@
     "close": "Keluar dari sesi ini",
     "empty": "Belum ada kontak di sini. Tambahkan dengan tombol QR: kontak itu hanya milik sesi ini.",
     "remove": "Hapus sesi ini",
-    "removeSure": "Hapus"
+    "removeSure": "Hapus",
+    "locked": "Sesi tambahan dengan PIN memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
+    "subscribeToUse": "Berlangganan untuk sesi tambahan"
   },
   "colors": {
     "ember": "Ember",
@@ -333,7 +329,10 @@
     "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
     "location": "Lokasi Anda, hanya saat Anda memintanya",
     "opens": "Membuka: {kinds}",
-    "open": "Buka"
+    "open": "Buka",
+    "locked": "Berlangganan untuk memakai alat",
+    "lockedHint": "Hari gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
+    "subscribe": "Berlangganan"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Simbol"
   },
   "plan": {
-    "trial": "Gratis · sisa {days} hari",
-    "young": "Gratis · di bawah 21 tahun",
-    "subscribed": "Berbayar · sampai {until}",
-    "renewing": "Berbayar · diperpanjang otomatis",
-    "limited": "Tahun gratis sudah berakhir",
-    "hint": "FlickerTalk seharga {price} per tahun, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan langganan.",
-    "hintYearly": "FlickerTalk adalah langganan tahunan, dan gratis jika Anda berusia di bawah 21 tahun. Tahun pertama sejak dipasang gratis untuk semua orang. Tanpa itu, Anda tetap bisa menerima dan membalas; memulai percakapan baru, menelepon, dan mengirim file memerlukan langganan.",
-    "pay": "{price} per tahun",
-    "payYearly": "Langganan tahunan",
-    "iAmYoung": "Usia saya di bawah 21 tahun",
-    "iAmOlder": "Usia saya 21 tahun atau lebih",
     "restore": "Pulihkan pembelian",
     "restored": "Langganan dipulihkan",
     "nothingToRestore": "Tidak ada pembelian untuk dipulihkan",
@@ -369,6 +357,21 @@
       "pending_approval": "Pembelian menunggu persetujuan.",
       "failed": "Toko tidak dapat menerima pembayaran."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, panggilan, file, dan game: gratis selamanya. Alat dan sesi dengan PIN: uji coba 15 hari, lalu {price} per tahun.",
+    "trialNoteYearly": "Chat, panggilan, file, dan game: gratis selamanya. Alat dan sesi dengan PIN: uji coba 15 hari, lalu dengan langganan tahunan.",
+    "limitedNote": "Alat dan sesi dengan PIN seharga {price} per tahun. Chat, panggilan, file, dan game tetap gratis.",
+    "limitedNoteYearly": "Alat dan sesi dengan PIN dengan langganan tahunan. Chat, panggilan, file, dan game tetap gratis.",
+    "subscribe": "Berlangganan · {price} per tahun",
+    "subscribeYearly": "Berlangganan · tahunan",
+    "paid": "Berbayar · diperpanjang otomatis · kelola di toko",
+    "paidUntil": "Berbayar sampai {until} · kelola di toko",
+    "tools": "Alat",
+    "sessions": "Sesi dengan PIN",
+    "daysLeft": "sisa {days} hari",
+    "active": "aktif"
   },
   "requests": {
     "title": "Permintaan",

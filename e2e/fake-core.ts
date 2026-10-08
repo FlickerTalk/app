@@ -20,6 +20,8 @@
  * listening (`onBackButtonPress`), `false` when the system would do its usual job.
  * `window.__ftFake.listening()` says whether it listens, without pressing.
  *
+ * `window.__ftFakeLimited` makes the plan `limited` (2026-10-08): the tools are locked.
+ *
  * `window.__ftFakeMeId` gives this phone a real-length FlickerTalk ID instead of `ft_me`.
  *
  * `window.__ftFakeLongChat` (a number) puts that many older texts before Bob's messages, for a
@@ -455,7 +457,8 @@ export function installFakeCore() {
       case "core_quiet_hours":
         return null;
       case "core_plan":
-        return { state: "trial", until: Date.now() + 1e10, age: "unknown" };
+        // `window.__ftFakeLimited`: the free days are over and nothing is paid (2026-10-08).
+        return (window as unknown as Record<string, unknown>).__ftFakeLimited ? { state: "limited", until: 0 } : { state: "trial", until: Date.now() + 1e10 };
       // Like the core (A3): every PIN opens its session or a new empty one, up to seven; an
       // empty one goes when it is closed. Only the first session of PIN 777777 holds a contact.
       // An open one stays open across a reload (2026-10-01), as the core keeps it on disk.

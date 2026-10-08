@@ -13,7 +13,6 @@
 //! requests until they write on their own or the user chooses them.
 
 use anyhow::{anyhow, bail, ensure, Result};
-use ft_billing::Doing;
 use ft_circles::{CircleCard, Member, Standing, MAX_MEMBERS};
 use ft_contacts::ContactCard;
 use ft_crypto::Channel;
@@ -38,7 +37,6 @@ impl Core {
         if let Some(session) = session {
             ensure!(self.is_session_open(session), "that session is not open");
         }
-        self.allowed(Doing::Start).await?;
         let mut members = vec![Member::from_card(&self.my_card_in(session).await?)];
         for contact in contacts {
             let contact = self.circle_worthy(contact, session).await?;
@@ -172,7 +170,6 @@ impl Core {
         let text = text.trim();
         ensure!(!text.is_empty(), "nothing to send");
         self.circle_writable(circle).await?;
-        self.allowed(Doing::Reply).await?;
         let others = self.other_members(circle).await?;
         let packet = Packet::new(Body::CircleMessage { circle: circle.to_owned(), text: text.to_owned() });
         let message_id = packet.id.to_string();

@@ -246,10 +246,6 @@
     "light": "Jasny",
     "movePhone": "Przenieś na nowy telefon",
     "backup": "Kopia zapasowa",
-    "plan": "Plan",
-    "planFree": "Za darmo · pierwszy rok",
-    "planFreeDays": "Za darmo · pozostało dni: {days}",
-    "planOver": "Darmowy rok minął",
     "privacy": "Prywatność",
     "version": "Wersja",
     "erase": "Wyczyść ten telefon",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Wyczyść",
     "erasing": "Wymazywanie tego telefonu…",
     "eraseFailed": "Nie udało się wymazać tego telefonu. Spróbuj ponownie.",
-    "plugins": "Wtyczki",
-    "session": "Sesja",
     "receipts": "Potwierdzenia dostarczenia i odczytu",
     "receiptsNote": "Dla nowych kontaktów",
     "hours": "Godziny",
@@ -303,7 +297,9 @@
     "close": "Opuść tę sesję",
     "empty": "Brak kontaktów. Dodaj kontakt przyciskiem QR: będzie należał tylko do tej sesji.",
     "remove": "Usuń tę sesję",
-    "removeSure": "Usuń"
+    "removeSure": "Usuń",
+    "locked": "Dodatkowe sesje z PIN-em wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
+    "subscribeToUse": "Subskrybuj, aby używać dodatkowych sesji"
   },
   "colors": {
     "ember": "Żar",
@@ -333,7 +329,10 @@
     "storageLarge": "Przechowywać dużo danych na tym telefonie (do 256 MB)",
     "location": "Twoja lokalizacja, tylko gdy o nią poprosisz",
     "opens": "Otwiera: {kinds}",
-    "open": "Otwórz"
+    "open": "Otwórz",
+    "locked": "Subskrybuj, aby używać narzędzi",
+    "lockedHint": "Darmowe dni się skończyły: narzędzia wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
+    "subscribe": "Subskrybuj"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Symbole"
   },
   "plan": {
-    "trial": "Za darmo · pozostało dni: {days}",
-    "young": "Za darmo · poniżej 21 lat",
-    "subscribed": "Opłacone · do {until}",
-    "renewing": "Płatny · odnawia się automatycznie",
-    "limited": "Darmowy rok się skończył",
-    "hint": "FlickerTalk kosztuje {price} rocznie i jest za darmo, jeśli masz mniej niż 21 lat. Pierwszy rok od instalacji jest darmowy dla wszystkich. Bez opłaty nadal odbierasz wiadomości i odpowiadasz; rozpoczęcie nowej rozmowy, dzwonienie i wysyłanie plików wymagają subskrypcji.",
-    "hintYearly": "FlickerTalk to subskrypcja roczna, za darmo, jeśli masz mniej niż 21 lat. Pierwszy rok od instalacji jest darmowy dla wszystkich. Bez opłaty nadal odbierasz wiadomości i odpowiadasz; rozpoczęcie nowej rozmowy, dzwonienie i wysyłanie plików wymagają subskrypcji.",
-    "pay": "{price} rocznie",
-    "payYearly": "Subskrypcja roczna",
-    "iAmYoung": "Mam mniej niż 21 lat",
-    "iAmOlder": "Mam 21 lat lub więcej",
     "restore": "Przywróć zakupy",
     "restored": "Subskrypcja przywrócona",
     "nothingToRestore": "Nie ma zakupu do przywrócenia",
@@ -369,6 +357,21 @@
       "pending_approval": "Zakup czeka na zatwierdzenie.",
       "failed": "Sklep nie mógł pobrać płatności."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Czat, połączenia, pliki i gry: za darmo na zawsze. Narzędzia i sesje z PIN-em: 15 dni próbnych, potem {price} rocznie.",
+    "trialNoteYearly": "Czat, połączenia, pliki i gry: za darmo na zawsze. Narzędzia i sesje z PIN-em: 15 dni próbnych, potem w ramach subskrypcji rocznej.",
+    "limitedNote": "Narzędzia i sesje z PIN-em za {price} rocznie. Czat, połączenia, pliki i gry pozostają darmowe.",
+    "limitedNoteYearly": "Narzędzia i sesje z PIN-em w ramach subskrypcji rocznej. Czat, połączenia, pliki i gry pozostają darmowe.",
+    "subscribe": "Subskrybuj · {price} rocznie",
+    "subscribeYearly": "Subskrybuj · rocznie",
+    "paid": "Płatny · odnawia się automatycznie · zarządzaj w sklepie",
+    "paidUntil": "Opłacone do {until} · zarządzaj w sklepie",
+    "tools": "Narzędzia",
+    "sessions": "Sesje z PIN-em",
+    "daysLeft": "zostało {days} dni",
+    "active": "aktywne"
   },
   "requests": {
     "title": "Prośby",

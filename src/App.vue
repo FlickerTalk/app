@@ -6,7 +6,7 @@ import CallBar from "./components/CallBar.vue";
 import IncomingCall from "./components/IncomingCall.vue";
 import ScannerOverlay from "./components/ScannerOverlay.vue";
 import { enablePush, pendingReminder, resumeRouter } from "./core";
-import { followPluginChanges } from "./plugins";
+import { followPluginChanges, followPremiumLock, refreshPremiumLock } from "./plugins";
 import { isOnboarded } from "./preferences";
 
 // A reminder notification opened the app (2026-09-27): straight to the plugin that set it, in the
@@ -28,19 +28,27 @@ function onVisible() {
   void resumeRouter();
   if (isOnboarded()) void enablePush();
   void openTappedReminder();
+  // The plan may have changed while the app was away (the free days ended): the tools' lock too.
+  void refreshPremiumLock();
 }
 // An update the core made in the background reaches every list of plugins (2026-10-03).
 let unfollow: (() => void) | undefined;
+// Whether the tools are locked (Ioan, 2026-10-08), followed while the app runs.
+let unfollowLock: (() => void) | undefined;
 onMounted(() => {
   document.addEventListener("visibilitychange", onVisible);
   void openTappedReminder();
   void followPluginChanges()
     .then((stop) => (unfollow = stop))
     .catch(() => undefined);
+  void followPremiumLock()
+    .then((stop) => (unfollowLock = stop))
+    .catch(() => undefined);
 });
 onUnmounted(() => {
   document.removeEventListener("visibilitychange", onVisible);
   unfollow?.();
+  unfollowLock?.();
 });
 </script>
 

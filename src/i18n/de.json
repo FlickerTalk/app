@@ -246,10 +246,6 @@
     "light": "Hell",
     "movePhone": "Auf neues Telefon übertragen",
     "backup": "Backup",
-    "plan": "Tarif",
-    "planFree": "Kostenlos · erstes Jahr",
-    "planFreeDays": "Kostenlos · Resttage: {days}",
-    "planOver": "Gratisjahr vorbei",
     "privacy": "Datenschutz",
     "version": "Version",
     "erase": "Dieses Telefon löschen",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Löschen",
     "erasing": "Dieses Telefon wird gelöscht…",
     "eraseFailed": "Dieses Telefon konnte nicht gelöscht werden. Versuche es noch einmal.",
-    "plugins": "Plugins",
-    "session": "Sitzung",
     "receipts": "Zustell- und Lesebestätigungen",
     "receiptsNote": "Für neue Kontakte",
     "hours": "Zeiten",
@@ -303,7 +297,9 @@
     "close": "Diese Sitzung verlassen",
     "empty": "Noch keine Kontakte hier. Füge einen mit der QR-Taste hinzu: Er gehört nur zu dieser Sitzung.",
     "remove": "Diese Sitzung löschen",
-    "removeSure": "Löschen"
+    "removeSure": "Löschen",
+    "locked": "Zusätzliche Sitzungen mit PIN brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
+    "subscribeToUse": "Abonnieren, um zusätzliche Sitzungen zu nutzen"
   },
   "colors": {
     "ember": "Glut",
@@ -333,7 +329,10 @@
     "storageLarge": "Viele Daten auf diesem Telefon behalten (bis 256 MB)",
     "location": "Dein Standort, nur wenn du ihn anforderst",
     "opens": "Öffnet: {kinds}",
-    "open": "Öffnen"
+    "open": "Öffnen",
+    "locked": "Abonnieren, um die Werkzeuge zu nutzen",
+    "lockedHint": "Die kostenlosen Tage sind vorbei: Werkzeuge brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
+    "subscribe": "Abonnieren"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Symbole"
   },
   "plan": {
-    "trial": "Kostenlos · Resttage: {days}",
-    "young": "Kostenlos · unter 21",
-    "subscribed": "Bezahlt · bis {until}",
-    "renewing": "Bezahlt · verlängert sich automatisch",
-    "limited": "Das Gratisjahr ist vorbei",
-    "hint": "FlickerTalk kostet {price} pro Jahr und ist kostenlos, wenn du unter 21 bist. Das erste Jahr ab der Installation ist für alle kostenlos. Ohne Bezahlung kannst du weiter empfangen und antworten; neue Unterhaltungen beginnen, anrufen und Dateien senden geht nur mit dem Abo.",
-    "hintYearly": "FlickerTalk ist ein Jahresabo und kostenlos, wenn du unter 21 bist. Das erste Jahr ab der Installation ist für alle kostenlos. Ohne Bezahlung kannst du weiter empfangen und antworten; neue Unterhaltungen beginnen, anrufen und Dateien senden geht nur mit dem Abo.",
-    "pay": "{price} pro Jahr",
-    "payYearly": "Jahresabo",
-    "iAmYoung": "Ich bin unter 21",
-    "iAmOlder": "Ich bin 21 oder älter",
     "restore": "Käufe wiederherstellen",
     "restored": "Abo wiederhergestellt",
     "nothingToRestore": "Es gibt keinen Kauf zum Wiederherstellen",
@@ -369,6 +357,21 @@
       "pending_approval": "Der Kauf wartet auf Freigabe.",
       "failed": "Der Store konnte die Zahlung nicht einziehen."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, Anrufe, Dateien und Spiele: für immer kostenlos. Werkzeuge und Sitzungen mit PIN: 15 Tage zum Testen, danach {price} pro Jahr.",
+    "trialNoteYearly": "Chat, Anrufe, Dateien und Spiele: für immer kostenlos. Werkzeuge und Sitzungen mit PIN: 15 Tage zum Testen, danach mit einem Jahresabo.",
+    "limitedNote": "Werkzeuge und Sitzungen mit PIN für {price} pro Jahr. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
+    "limitedNoteYearly": "Werkzeuge und Sitzungen mit PIN mit einem Jahresabo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
+    "subscribe": "Abonnieren · {price} pro Jahr",
+    "subscribeYearly": "Abonnieren · jährlich",
+    "paid": "Bezahlt · verlängert sich automatisch · im Store verwalten",
+    "paidUntil": "Bezahlt bis {until} · im Store verwalten",
+    "tools": "Werkzeuge",
+    "sessions": "Sitzungen mit PIN",
+    "daysLeft": "noch {days} Tage",
+    "active": "aktiv"
   },
   "requests": {
     "title": "Anfragen",

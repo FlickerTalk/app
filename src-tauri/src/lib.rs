@@ -133,7 +133,6 @@ pub fn run() {
             client::core_plugin_grant,
             client::core_plugin_remove,
             client::core_plan,
-            client::core_set_age,
             client::core_subscribe,
             client::core_restore_subscription,
             client::core_subscription_price,

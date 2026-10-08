@@ -246,10 +246,6 @@
     "light": "Chiaro",
     "movePhone": "Passa a un nuovo telefono",
     "backup": "Backup",
-    "plan": "Piano",
-    "planFree": "Gratis · primo anno",
-    "planFreeDays": "Gratis · giorni rimasti: {days}",
-    "planOver": "Anno gratuito terminato",
     "privacy": "Privacy",
     "version": "Versione",
     "erase": "Cancella questo telefono",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Cancella",
     "erasing": "Cancellazione di questo telefono…",
     "eraseFailed": "Impossibile cancellare questo telefono. Riprova.",
-    "plugins": "Plugin",
-    "session": "Sessione",
     "receipts": "Conferme di consegna e lettura",
     "receiptsNote": "Per i nuovi contatti",
     "hours": "Orari",
@@ -303,7 +297,9 @@
     "close": "Esci da questa sessione",
     "empty": "Ancora nessun contatto qui. Aggiungine uno con il pulsante QR: appartiene solo a questa sessione.",
     "remove": "Elimina questa sessione",
-    "removeSure": "Elimina"
+    "removeSure": "Elimina",
+    "locked": "Le sessioni extra con PIN richiedono l'abbonamento. Chat, chiamate, file e giochi restano gratis.",
+    "subscribeToUse": "Abbonati per usare sessioni extra"
   },
   "colors": {
     "ember": "Brace",
@@ -333,7 +329,10 @@
     "storageLarge": "Conservare molti dati su questo telefono (fino a 256 MB)",
     "location": "La tua posizione, solo quando la chiedi",
     "opens": "Apre: {kinds}",
-    "open": "Apri"
+    "open": "Apri",
+    "locked": "Abbonati per usare gli strumenti",
+    "lockedHint": "I giorni gratuiti sono finiti: gli strumenti richiedono l'abbonamento. Chat, chiamate, file e giochi restano gratis.",
+    "subscribe": "Abbonati"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Simboli"
   },
   "plan": {
-    "trial": "Gratis · giorni rimasti: {days}",
-    "young": "Gratis · meno di 21 anni",
-    "subscribed": "Pagato · fino al {until}",
-    "renewing": "A pagamento · rinnovo automatico",
-    "limited": "L'anno gratuito è terminato",
-    "hint": "FlickerTalk costa {price} all'anno, ed è gratis se hai meno di 21 anni. Il primo anno dall'installazione è gratis per tutti. Senza, puoi comunque ricevere e rispondere; per avviare una nuova conversazione, chiamare e inviare file serve l'abbonamento.",
-    "hintYearly": "FlickerTalk è un abbonamento annuale, ed è gratis se hai meno di 21 anni. Il primo anno dall'installazione è gratis per tutti. Senza, puoi comunque ricevere e rispondere; per avviare una nuova conversazione, chiamare e inviare file serve l'abbonamento.",
-    "pay": "{price} all'anno",
-    "payYearly": "Abbonamento annuale",
-    "iAmYoung": "Ho meno di 21 anni",
-    "iAmOlder": "Ho 21 anni o più",
     "restore": "Ripristina acquisti",
     "restored": "Abbonamento ripristinato",
     "nothingToRestore": "Non c'è nessun acquisto da ripristinare",
@@ -369,6 +357,21 @@
       "pending_approval": "L'acquisto è in attesa di approvazione.",
       "failed": "Lo store non è riuscito a incassare il pagamento."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, chiamate, file e giochi: gratis per sempre. Strumenti e sessioni con PIN: 15 giorni di prova, poi {price} all'anno.",
+    "trialNoteYearly": "Chat, chiamate, file e giochi: gratis per sempre. Strumenti e sessioni con PIN: 15 giorni di prova, poi un abbonamento annuale.",
+    "limitedNote": "Strumenti e sessioni con PIN a {price} all'anno. Chat, chiamate, file e giochi restano gratis.",
+    "limitedNoteYearly": "Strumenti e sessioni con PIN con un abbonamento annuale. Chat, chiamate, file e giochi restano gratis.",
+    "subscribe": "Abbonati · {price} all'anno",
+    "subscribeYearly": "Abbonati · annuale",
+    "paid": "A pagamento · rinnovo automatico · gestisci nello store",
+    "paidUntil": "Pagato fino al {until} · gestisci nello store",
+    "tools": "Strumenti",
+    "sessions": "Sessioni con PIN",
+    "daysLeft": "{days} giorni rimasti",
+    "active": "attivo"
   },
   "requests": {
     "title": "Richieste",

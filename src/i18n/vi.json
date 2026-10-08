@@ -246,10 +246,6 @@
     "light": "Sáng",
     "movePhone": "Chuyển sang điện thoại mới",
     "backup": "Sao lưu",
-    "plan": "Gói",
-    "planFree": "Miễn phí · năm đầu",
-    "planFreeDays": "Miễn phí · còn {days} ngày",
-    "planOver": "Hết năm miễn phí",
     "privacy": "Quyền riêng tư",
     "version": "Phiên bản",
     "erase": "Xóa sạch điện thoại này",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Xóa",
     "erasing": "Đang xóa điện thoại này…",
     "eraseFailed": "Không thể xóa điện thoại này. Hãy thử lại.",
-    "plugins": "Plugin",
-    "session": "Phiên",
     "receipts": "Báo đã nhận và đã xem",
     "receiptsNote": "Cho liên hệ mới",
     "hours": "Giờ nhận",
@@ -303,7 +297,9 @@
     "close": "Rời phiên này",
     "empty": "Chưa có liên hệ nào ở đây. Thêm bằng nút QR: liên hệ đó chỉ thuộc phiên này.",
     "remove": "Xóa phiên này",
-    "removeSure": "Xóa"
+    "removeSure": "Xóa",
+    "locked": "Phiên bổ sung có PIN cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "subscribeToUse": "Đăng ký để dùng phiên bổ sung"
   },
   "colors": {
     "ember": "Ember",
@@ -333,7 +329,10 @@
     "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
     "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",
     "opens": "Mở: {kinds}",
-    "open": "Mở"
+    "open": "Mở",
+    "locked": "Đăng ký để dùng công cụ",
+    "lockedHint": "Những ngày miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "subscribe": "Đăng ký"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Biểu tượng"
   },
   "plan": {
-    "trial": "Miễn phí · còn {days} ngày",
-    "young": "Miễn phí · dưới 21 tuổi",
-    "subscribed": "Đã trả phí · đến {until}",
-    "renewing": "Trả phí · tự động gia hạn",
-    "limited": "Năm miễn phí đã kết thúc",
-    "hint": "FlickerTalk có giá {price} mỗi năm, và miễn phí nếu bạn dưới 21 tuổi. Năm đầu tiên kể từ khi cài đặt miễn phí cho mọi người. Không trả phí, bạn vẫn nhận và trả lời được; bắt đầu cuộc trò chuyện mới, gọi điện và gửi tệp thì cần gói đăng ký.",
-    "hintYearly": "FlickerTalk là gói đăng ký theo năm, và miễn phí nếu bạn dưới 21 tuổi. Năm đầu tiên kể từ khi cài đặt miễn phí cho mọi người. Không trả phí, bạn vẫn nhận và trả lời được; bắt đầu cuộc trò chuyện mới, gọi điện và gửi tệp thì cần gói đăng ký.",
-    "pay": "{price} mỗi năm",
-    "payYearly": "Gói đăng ký năm",
-    "iAmYoung": "Tôi dưới 21 tuổi",
-    "iAmOlder": "Tôi từ 21 tuổi trở lên",
     "restore": "Khôi phục giao dịch mua",
     "restored": "Đã khôi phục gói đăng ký",
     "nothingToRestore": "Không có giao dịch mua nào để khôi phục",
@@ -369,6 +357,21 @@
       "pending_approval": "Giao dịch đang chờ phê duyệt.",
       "failed": "Cửa hàng không thể nhận thanh toán."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Trò chuyện, cuộc gọi, tệp và trò chơi: miễn phí mãi mãi. Công cụ và phiên có PIN: dùng thử 15 ngày, sau đó {price} mỗi năm.",
+    "trialNoteYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi: miễn phí mãi mãi. Công cụ và phiên có PIN: dùng thử 15 ngày, sau đó dùng gói đăng ký năm.",
+    "limitedNote": "Công cụ và phiên có PIN với giá {price} mỗi năm. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "limitedNoteYearly": "Công cụ và phiên có PIN với gói đăng ký năm. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
+    "subscribe": "Đăng ký · {price} mỗi năm",
+    "subscribeYearly": "Đăng ký · theo năm",
+    "paid": "Trả phí · tự động gia hạn · quản lý trong cửa hàng",
+    "paidUntil": "Đã trả phí đến {until} · quản lý trong cửa hàng",
+    "tools": "Công cụ",
+    "sessions": "Phiên có PIN",
+    "daysLeft": "còn {days} ngày",
+    "active": "đang dùng"
   },
   "requests": {
     "title": "Yêu cầu",

@@ -137,6 +137,11 @@ impl Core {
         // An update keeps what the user granted before, cut down to what this version asks for:
         // never more (§53), and a version that asks for less still installs (2026-10-03).
         let before = self.store.plugin(&plugin.manifest.id).await?;
+        // A new tool is what the subscription pays for (Ioan, 2026-10-08); an update of one already
+        // here is not, and a game never asks.
+        if before.is_none() {
+            self.usable(plugin.manifest.kind).await?;
+        }
         let had: Option<Permissions> = before.map(|installed| serde_json::from_str(&installed.granted).unwrap_or_default());
         let keep = match &had {
             Some(had) => narrowed(had, &plugin.manifest.permissions),
@@ -413,6 +418,10 @@ impl Core {
     ) -> Result<Manifest> {
         ensure!(entry.url.starts_with(&format!("{CATALOGUE_HOME}/")), "that plugin is not in our catalogue");
         ensure!(entry.size <= PACKAGE_LIMIT, "that plugin is too big");
+        // Nothing is downloaded for a tool the plan would not install.
+        if self.store.plugin(&entry.id).await?.is_none() {
+            self.usable(entry.kind).await?;
+        }
         let package = fetch.get(&entry.url, PACKAGE_LIMIT).await?;
         ft_plugins::download(entry, &package, catalogue)?;
         self.install_plugin(&package, catalogue, Permissions::default()).await
@@ -484,6 +493,26 @@ impl Core {
     pub(crate) async fn granted_to(&self, id: &str) -> Result<Permissions> {
         let row = self.store.plugin(id).await?.with_context(|| format!("{id} is not installed here"))?;
         Ok(serde_json::from_str(&row.granted).unwrap_or_default())
+    }
+
+    /// Whether a plugin of this kind may be opened or installed now (Ioan, 2026-10-08): a game
+    /// always; a tool (or a kind this core does not know) in the free year or with the
+    /// subscription.
+    pub async fn may_use(&self, kind: ft_plugins::Kind) -> Result<bool> {
+        Ok(kind == ft_plugins::Kind::Game || self.access().await?.may(ft_billing::Doing::UseTool))
+    }
+
+    /// Refuses what the plan closes: only the tools, after the free year and without the
+    /// subscription. Chat, calls, files, circles and games are never refused.
+    async fn usable(&self, kind: ft_plugins::Kind) -> Result<()> {
+        ensure!(self.may_use(kind).await?, crate::NEEDS_SUBSCRIPTION);
+        Ok(())
+    }
+
+    /// A plugin installed here is about to open: refused with `NEEDS_SUBSCRIPTION` for a tool the
+    /// plan has closed. The app asks before it shows the plugin's frame.
+    pub async fn open_plugin(&self, id: &str) -> Result<()> {
+        self.usable(self.plugin_manifest(id)?.kind).await
     }
 
     /// What the user grants or takes back, at any time. Never more than the plugin asked for.

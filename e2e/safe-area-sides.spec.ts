@@ -160,9 +160,8 @@ for (const locale of ["en", "ar"]) {
       const PAGES: Array<[string, string[]]> = [
         ["/tabs/calls", ["[data-test='empty']"]],
         ["/tabs/games", [".ft-games__title", "[data-test='my-games'] ion-label"]],
-        ["/tabs/settings", [".ft-me", ".ft-me button", "ion-item ion-label"]],
+        ["/tabs/settings", [".ft-me", ".ft-me button", "ion-item ion-label", "[data-test='premium-head']", "[data-test='premium-note']"]],
         ["/plugins", [".ft-plugins__hint", "ion-item ion-label"]],
-        ["/plan", ["[data-test='where']", "[data-test='hint']"]],
         ["/blocked", ["[data-test='empty']"]],
       ];
       for (const [route, parts] of PAGES) {

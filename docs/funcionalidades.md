@@ -142,6 +142,8 @@ separar vidas: un chat con los amigos aparte, o uno de trabajo que se cierra al 
 oficina y no molesta hasta el día siguiente.
 
 - **Ajustes → Session** abre un teclado numérico con seis puntos. Sin nombre, sin título.
+- **Premium (2026-10-08):** pasados los 15 días gratis sin suscripción, en lugar del teclado sale
+  el candado con Suscribirse (ver «Plan y precio»); una sesión ya abierta sigue hasta que se sale.
 - Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se crea una sesión
   **nueva y vacía**. Todo PIN es válido: no existe «PIN incorrecto» ni espera entre intentos, y
   nada dice cuál de las dos cosas ha pasado, así que nadie puede saber si hay sesiones.
@@ -271,15 +273,45 @@ nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
 
 ## Plan y precio
 
-Una suscripción anual: **0,99 €** en España desde el 2026-09-29 (Google no deja poner 1,00 €
-exactos). La pantalla del plan enseña el precio **tal como lo da la tienda** (Play Billing o
-StoreKit, con su moneda y su formato); si la tienda no puede decirlo (sin red, en escritorio, sin
-producto) dice «Suscripción anual» sin ninguna cantidad, y el botón de pagar funciona igual. La
-app no escribe ni guarda ningún importe. El **primer año es gratis** desde la instalación, contado en el propio teléfono, sin
-tarjeta. **Menores de 21, siempre gratis**: la edad se declara en el teléfono y nunca sale de él.
-Sin pagar se sigue **recibiendo y respondiendo** siempre; lo que no se puede es empezar una
-conversación nueva, llamar ni enviar ficheros. Ajustes y la pantalla del plan cuentan los días que
-quedan igual (un día empezado cuenta: recién instalada, 365).
+**Decisión de Ioan (2026-10-08).** El chat, las notas de voz, los ficheros, las llamadas de voz y
+vídeo, los contactos y conversaciones nuevos, los círculos y los **juegos** son **gratis para
+siempre**. Lo **premium** son las **herramientas** (plugins de tipo `tool`, también las que la app
+trae de serie) y las **sesiones extra con PIN** (todas menos la lista principal): gratis **15 días**
+desde la instalación, contados en el propio teléfono y sin tarjeta, y después con la suscripción
+anual `yearly`, **0,99 €** en España desde el 2026-09-29 (Google no deja poner 1,00 € exactos). No
+hay regla de edad.
+
+Sin suscripción, pasados los 15 días:
+
+- Cada herramienta enseña un candado (en Ajustes → Plugins, en la hoja de apps del chat, en «abrir
+  con» y en su propia página) y tocarla lleva a la pantalla del plan; un fichero cuyo visor es una
+  herramienta bloqueada se abre con otra app. El núcleo no abre ni instala una herramienta bloqueada
+  (`needs_subscription`) y el WebView no la sirve. Una herramienta ya instalada se sigue
+  actualizando.
+- El candado de las sesiones está **delante** del teclado del PIN (la fila de Ajustes lleva al plan
+  y la página del PIN enseña Suscribirse en lugar del teclado), nunca después del sexto dígito: el
+  teclado no puede delatar si una sesión existe. El núcleo rechaza igual cualquier PIN. Una sesión
+  que ya estaba abierta sigue funcionando hasta que el usuario sale de ella; la lista principal
+  funciona siempre.
+- Nada más se limita nunca.
+
+El plan se vigila solo: el núcleo vuelve a mirarlo justo cuando acaban los días gratis o pasa la
+fecha pagada, y al volver la app a la pantalla. Al pasar la fecha pagada pregunta antes a la tienda
+(entitlements actuales de StoreKit, compras de Play): si renovó, sigue de pago con la fecha nueva;
+si no hay nada, pasa a bloqueado; si la tienda no contesta, la fecha sigue valiendo **3 días** de
+gracia y se vuelve a preguntar. La pantalla del plan, la fila de Ajustes y los candados se ponen al
+día sin reiniciar.
+
+La pantalla del plan dice qué es gratis y qué es premium, con el precio **tal como lo da la tienda**
+(Play Billing o StoreKit, con su moneda y su formato), pedido otra vez al entrar, al cambiar el plan y
+al volver la app; si la tienda no puede decirlo (sin red, en escritorio, sin producto) se queda el
+último conocido o, si no hay ninguno, «Suscripción anual» sin cantidad, y el botón de pagar funciona
+igual. La app no escribe ni guarda ningún importe. Suscribirse y Restaurar compras aparecen cuando
+los días gratis han acabado. Ajustes y la pantalla del plan cuentan los días que quedan igual (un día
+empezado cuenta: recién instalada, 15).
+
+Para probarlo en un teléfono de desarrollo: `FT_DEBUG_TRIAL_OVER=1` (antes
+`FT_DEBUG_FREE_YEAR_OVER`) da los días gratis por acabados sin tocar la base de datos.
 
 ## Cambiar de teléfono
 

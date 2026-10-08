@@ -246,10 +246,6 @@
     "light": "Clair",
     "movePhone": "Transférer vers un nouveau téléphone",
     "backup": "Sauvegarde",
-    "plan": "Offre",
-    "planFree": "Gratuit · première année",
-    "planFreeDays": "Gratuit · jours restants : {days}",
-    "planOver": "Année gratuite terminée",
     "privacy": "Confidentialité",
     "version": "Version",
     "erase": "Effacer ce téléphone",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Effacer",
     "erasing": "Effacement de ce téléphone…",
     "eraseFailed": "Impossible d’effacer ce téléphone. Réessayez.",
-    "plugins": "Plugins",
-    "session": "Session",
     "receipts": "Accusés de réception et de lecture",
     "receiptsNote": "Pour les nouveaux contacts",
     "hours": "Horaires",
@@ -303,7 +297,9 @@
     "close": "Quitter cette session",
     "empty": "Aucun contact ici pour l’instant. Ajoutez-en un avec le bouton QR : il n’appartient qu’à cette session.",
     "remove": "Supprimer cette session",
-    "removeSure": "Supprimer"
+    "removeSure": "Supprimer",
+    "locked": "Les sessions supplémentaires avec PIN nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
+    "subscribeToUse": "Abonnez-vous pour utiliser des sessions supplémentaires"
   },
   "colors": {
     "ember": "Braise",
@@ -333,7 +329,10 @@
     "storageLarge": "Garder beaucoup de données sur ce téléphone (jusqu'à 256 Mo)",
     "location": "Votre position, seulement quand vous la demandez",
     "opens": "Ouvre : {kinds}",
-    "open": "Ouvrir"
+    "open": "Ouvrir",
+    "locked": "Abonnez-vous pour utiliser les outils",
+    "lockedHint": "Les jours gratuits sont terminés : les outils nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
+    "subscribe": "S'abonner"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Symboles"
   },
   "plan": {
-    "trial": "Gratuit · jours restants : {days}",
-    "young": "Gratuit · moins de 21 ans",
-    "subscribed": "Payé · jusqu’au {until}",
-    "renewing": "Payant · renouvellement automatique",
-    "limited": "L’année gratuite est terminée",
-    "hint": "FlickerTalk coûte {price} par an, et c’est gratuit si vous avez moins de 21 ans. La première année après l’installation est gratuite pour tous. Sans payer, vous pouvez toujours recevoir et répondre ; démarrer une nouvelle conversation, appeler et envoyer des fichiers demandent l’abonnement.",
-    "hintYearly": "FlickerTalk est un abonnement annuel, et c’est gratuit si vous avez moins de 21 ans. La première année après l’installation est gratuite pour tous. Sans payer, vous pouvez toujours recevoir et répondre ; démarrer une nouvelle conversation, appeler et envoyer des fichiers demandent l’abonnement.",
-    "pay": "{price} par an",
-    "payYearly": "Abonnement annuel",
-    "iAmYoung": "J’ai moins de 21 ans",
-    "iAmOlder": "J’ai 21 ans ou plus",
     "restore": "Restaurer les achats",
     "restored": "Abonnement restauré",
     "nothingToRestore": "Aucun achat à restaurer",
@@ -369,6 +357,21 @@
       "pending_approval": "L'achat attend une approbation.",
       "failed": "La boutique n'a pas pu encaisser le paiement."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, appels, fichiers et jeux : gratuits pour toujours. Outils et sessions avec PIN : 15 jours d’essai, puis {price} par an.",
+    "trialNoteYearly": "Chat, appels, fichiers et jeux : gratuits pour toujours. Outils et sessions avec PIN : 15 jours d’essai, puis un abonnement annuel.",
+    "limitedNote": "Outils et sessions avec PIN pour {price} par an. Chat, appels, fichiers et jeux restent gratuits.",
+    "limitedNoteYearly": "Outils et sessions avec PIN avec un abonnement annuel. Chat, appels, fichiers et jeux restent gratuits.",
+    "subscribe": "S’abonner · {price} par an",
+    "subscribeYearly": "S’abonner · annuel",
+    "paid": "Payant · renouvellement automatique · à gérer dans la boutique",
+    "paidUntil": "Payé jusqu’au {until} · à gérer dans la boutique",
+    "tools": "Outils",
+    "sessions": "Sessions avec PIN",
+    "daysLeft": "{days} jours restants",
+    "active": "actif"
   },
   "requests": {
     "title": "Demandes",

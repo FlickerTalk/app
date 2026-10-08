@@ -246,10 +246,6 @@
     "light": "Claro",
     "movePhone": "Transferir para um celular novo",
     "backup": "Backup",
-    "plan": "Plano",
-    "planFree": "Grátis · primeiro ano",
-    "planFreeDays": "Grátis · dias restantes: {days}",
-    "planOver": "Ano grátis encerrado",
     "privacy": "Privacidade",
     "version": "Versão",
     "erase": "Apagar este celular",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Apagar",
     "erasing": "Apagando este telefone…",
     "eraseFailed": "Não foi possível apagar este telefone. Tente novamente.",
-    "plugins": "Plugins",
-    "session": "Sessão",
     "receipts": "Confirmações de entrega e leitura",
     "receiptsNote": "Para novos contatos",
     "hours": "Horário",
@@ -303,7 +297,9 @@
     "close": "Sair desta sessão",
     "empty": "Ainda não há contatos aqui. Adicione um com o botão QR: ele pertence só a esta sessão.",
     "remove": "Apagar esta sessão",
-    "removeSure": "Apagar"
+    "removeSure": "Apagar",
+    "locked": "Sessões extras com PIN precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "subscribeToUse": "Assine para usar sessões extras"
   },
   "colors": {
     "ember": "Brasa",
@@ -333,7 +329,10 @@
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
     "location": "A sua localização, só quando você pedir",
     "opens": "Abre: {kinds}",
-    "open": "Abrir"
+    "open": "Abrir",
+    "locked": "Assine para usar as ferramentas",
+    "lockedHint": "Os dias grátis terminaram: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "subscribe": "Assinar"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Símbolos"
   },
   "plan": {
-    "trial": "Grátis · dias restantes: {days}",
-    "young": "Grátis · menor de 21",
-    "subscribed": "Pago · até {until}",
-    "renewing": "Pago · renovação automática",
-    "limited": "O ano grátis acabou",
-    "hint": "O FlickerTalk custa {price} por ano, e é grátis para quem tem menos de 21. O primeiro ano a partir da instalação é grátis para todos. Sem pagar, você continua recebendo e respondendo; iniciar uma nova conversa, ligar e enviar arquivos exigem a assinatura.",
-    "hintYearly": "O FlickerTalk é uma assinatura anual, e é grátis para quem tem menos de 21. O primeiro ano a partir da instalação é grátis para todos. Sem pagar, você continua recebendo e respondendo; iniciar uma nova conversa, ligar e enviar arquivos exigem a assinatura.",
-    "pay": "{price} por ano",
-    "payYearly": "Assinatura anual",
-    "iAmYoung": "Tenho menos de 21",
-    "iAmOlder": "Tenho 21 ou mais",
     "restore": "Restaurar compras",
     "restored": "Subscrição restaurada",
     "nothingToRestore": "Não há nenhuma compra para restaurar",
@@ -369,6 +357,21 @@
       "pending_approval": "A compra está à espera de aprovação.",
       "failed": "A loja não conseguiu cobrar o pagamento."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, chamadas, arquivos e jogos: grátis para sempre. Ferramentas e sessões com PIN: 15 dias de teste, depois {price} por ano.",
+    "trialNoteYearly": "Chat, chamadas, arquivos e jogos: grátis para sempre. Ferramentas e sessões com PIN: 15 dias de teste, depois uma assinatura anual.",
+    "limitedNote": "Ferramentas e sessões com PIN: {price} por ano. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "limitedNoteYearly": "Ferramentas e sessões com PIN: assinatura anual. Chat, chamadas, arquivos e jogos continuam grátis.",
+    "subscribe": "Assinar · {price} por ano",
+    "subscribeYearly": "Assinar · anual",
+    "paid": "Pago · renovação automática · gerencie na loja",
+    "paidUntil": "Pago até {until} · gerencie na loja",
+    "tools": "Ferramentas",
+    "sessions": "Sessões com PIN",
+    "daysLeft": "faltam {days} dias",
+    "active": "ativo"
   },
   "requests": {
     "title": "Pedidos",

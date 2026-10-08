@@ -246,10 +246,6 @@
     "light": "Luminos",
     "movePhone": "Mută pe un telefon nou",
     "backup": "Backup",
-    "plan": "Plan",
-    "planFree": "Gratuit · primul an",
-    "planFreeDays": "Gratuit · zile rămase: {days}",
-    "planOver": "Anul gratuit s-a încheiat",
     "privacy": "Confidențialitate",
     "version": "Versiune",
     "erase": "Șterge acest telefon",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Șterge",
     "erasing": "Se șterge acest telefon…",
     "eraseFailed": "Acest telefon nu a putut fi șters. Încearcă din nou.",
-    "plugins": "Pluginuri",
-    "session": "Sesiune",
     "receipts": "Confirmări de livrare și citire",
     "receiptsNote": "Pentru contactele noi",
     "hours": "Program",
@@ -303,7 +297,9 @@
     "close": "Ieși din această sesiune",
     "empty": "Încă nu sunt contacte aici. Adaugă unul cu butonul QR: aparține doar acestei sesiuni.",
     "remove": "Șterge această sesiune",
-    "removeSure": "Șterge"
+    "removeSure": "Șterge",
+    "locked": "Sesiunile suplimentare cu PIN necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
+    "subscribeToUse": "Abonează-te pentru sesiuni suplimentare"
   },
   "colors": {
     "ember": "Jar",
@@ -333,7 +329,10 @@
     "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
     "location": "Locația ta, doar când o ceri",
     "opens": "Deschide: {kinds}",
-    "open": "Deschide"
+    "open": "Deschide",
+    "locked": "Abonează-te pentru a folosi instrumentele",
+    "lockedHint": "Zilele gratuite s-au încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
+    "subscribe": "Abonează-te"
   },
   "emoji": {
     "open": "Emoji",
@@ -349,17 +348,6 @@
     "symbols": "Simboluri"
   },
   "plan": {
-    "trial": "Gratuit · zile rămase: {days}",
-    "young": "Gratuit · sub 21 de ani",
-    "subscribed": "Plătit · până la {until}",
-    "renewing": "Plătit · se reînnoiește automat",
-    "limited": "Anul gratuit s-a încheiat",
-    "hint": "FlickerTalk costă {price} pe an și este gratuit dacă ai sub 21 de ani. Primul an de la instalare este gratuit pentru toți. Fără plată poți în continuare să primești și să răspunzi; pentru a începe o conversație nouă, a suna și a trimite fișiere e nevoie de abonament.",
-    "hintYearly": "FlickerTalk este un abonament anual și este gratuit dacă ai sub 21 de ani. Primul an de la instalare este gratuit pentru toți. Fără plată poți în continuare să primești și să răspunzi; pentru a începe o conversație nouă, a suna și a trimite fișiere e nevoie de abonament.",
-    "pay": "{price} pe an",
-    "payYearly": "Abonament anual",
-    "iAmYoung": "Am sub 21 de ani",
-    "iAmOlder": "Am 21 de ani sau mai mult",
     "restore": "Restabilește achizițiile",
     "restored": "Abonament restabilit",
     "nothingToRestore": "Nu există nicio achiziție de restabilit",
@@ -369,6 +357,21 @@
       "pending_approval": "Achiziția așteaptă aprobarea.",
       "failed": "Magazinul nu a putut încasa plata."
     }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, apeluri, fișiere și jocuri: gratuite pentru totdeauna. Instrumente și sesiuni cu PIN: 15 zile de probă, apoi {price} pe an.",
+    "trialNoteYearly": "Chat, apeluri, fișiere și jocuri: gratuite pentru totdeauna. Instrumente și sesiuni cu PIN: 15 zile de probă, apoi un abonament anual.",
+    "limitedNote": "Instrumente și sesiuni cu PIN pentru {price} pe an. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
+    "limitedNoteYearly": "Instrumente și sesiuni cu PIN cu un abonament anual. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
+    "subscribe": "Abonează-te · {price} pe an",
+    "subscribeYearly": "Abonează-te · anual",
+    "paid": "Plătit · se reînnoiește automat · gestionează în magazin",
+    "paidUntil": "Plătit până la {until} · gestionează în magazin",
+    "tools": "Instrumente",
+    "sessions": "Sesiuni cu PIN",
+    "daysLeft": "mai sunt {days} zile",
+    "active": "activ"
   },
   "requests": {
     "title": "Cereri",

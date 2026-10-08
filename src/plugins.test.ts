@@ -21,6 +21,8 @@ import {
   frameUrl,
   games,
   installed,
+  isLocked,
+  followPremiumLock,
   offered,
   offeredGames,
   offeredOnce,
@@ -30,7 +32,9 @@ import {
   pluginSummary,
   refreshOffered,
   refreshPlugins,
+  refreshPremiumLock,
   tools,
+  premiumLocked,
   viewerOf,
 } from "./plugins";
 import type { OfferedPlugin, PluginView } from "./core";
@@ -445,6 +449,39 @@ describe("plugins in the app", () => {
       expect(tools.value.map(pluginName)).toEqual(["Árbol", "Bingo", "Zorro"]);
       await setLocale("en");
       expect(tools.value.map(pluginName)).toEqual(["Apple", "Mango", "Zebra"]);
+    });
+  });
+
+  // Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked; games,
+  // chat, calls and files never are. The core says where the phone stands.
+  describe("the tools' lock", () => {
+    const GAME = { ...CODE, id: "game.flickertalk.chess", kind: "game" as const };
+
+    it("locks the tools, never the games, only once the plan is limited", async () => {
+      for (const [state, locked] of [["trial", false], ["subscribed", false], ["limited", true]] as const) {
+        tauri.invoke.mockReset().mockResolvedValue({ state, until: 0 });
+        expect(await refreshPremiumLock(), state).toBe(locked);
+        expect(premiumLocked.value, state).toBe(locked);
+        expect(isLocked(CODE), state).toBe(locked);
+        expect(isLocked(GAME), state).toBe(false);
+      }
+      expect(tauri.invoke.mock.calls[0][0]).toBe("core_plan");
+    });
+
+    // A core that cannot answer locks nothing: the core refuses a closed tool by itself anyway.
+    it("locks nothing when the plan cannot be read", async () => {
+      tauri.invoke.mockReset().mockRejectedValueOnce(new Error("no core"));
+      expect(await refreshPremiumLock()).toBe(false);
+      expect(isLocked(CODE)).toBe(false);
+    });
+
+    it("reads the plan again whenever the core says it changed", async () => {
+      tauri.invoke.mockReset().mockResolvedValue({ state: "trial", until: 0 });
+      await followPremiumLock();
+      tauri.invoke.mockResolvedValue({ state: "limited", until: 0 });
+      events.handlers.get("ft://plan")?.();
+      await vi.waitFor(() => expect(premiumLocked.value).toBe(true));
+      premiumLocked.value = false;
     });
   });
 });

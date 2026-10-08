@@ -6,7 +6,7 @@
 import { computed, shallowRef } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { offeredPlugins, plugins, type OfferedPlugin, type PluginLocales, type PluginView } from "./core";
+import { PLAN_EVENT, offeredPlugins, plan, plugins, type OfferedPlugin, type PluginLocales, type PluginView } from "./core";
 import { isGame } from "./games";
 import { i18n } from "./i18n";
 
@@ -42,6 +42,31 @@ export const PLUGINS_EVENT = "ft://plugins";
  */
 export async function followPluginChanges(): Promise<() => void> {
   return listen(PLUGINS_EVENT, () => void refreshPlugins());
+}
+
+/**
+ * Whether the premium part is locked now (Ioan, 2026-10-08): the tools and the extra sessions with
+ * a PIN, once the 15 free days are over without a subscription. Chat, calls, files and games never
+ * are. The core refuses them by itself; this only lets the screens show the lock and offer the
+ * subscription instead.
+ */
+export const premiumLocked = shallowRef(false);
+
+/** Asks the core where the plan stands. A core that cannot answer locks nothing. */
+export async function refreshPremiumLock(): Promise<boolean> {
+  premiumLocked.value = (await plan().catch(() => null))?.state === "limited";
+  return premiumLocked.value;
+}
+
+/** Reads the lock again whenever the core says the plan changed. Returns how to stop listening. */
+export async function followPremiumLock(): Promise<() => void> {
+  void refreshPremiumLock();
+  return listen(PLAN_EVENT, () => void refreshPremiumLock());
+}
+
+/** Whether this plugin is locked now: a tool while the tools are; a game, never. */
+export function isLocked(plugin: { kind?: "tool" | "game" }): boolean {
+  return premiumLocked.value && !isGame(plugin);
 }
 
 /**

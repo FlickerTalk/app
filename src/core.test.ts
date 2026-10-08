@@ -798,3 +798,20 @@ describe("a suggestion", () => {
     expect(await core.sendFeedback("an idea")).toBe("failed");
   });
 });
+
+// Ioan, 2026-10-08: only the tools ask for the subscription, and there is no age rule any more.
+describe("the plan", () => {
+  beforeEach(() => tauri.invoke.mockReset());
+
+  it("never asks the age", () => {
+    expect("setAge" in core).toBe(false);
+  });
+
+  // The core refuses a locked tool with a key, never a sentence: the screen offers the subscription.
+  it("knows the core's refusal of a locked tool", () => {
+    expect(core.needsSubscription("needs_subscription")).toBe(true);
+    expect(core.needsSubscription(new Error("needs_subscription"))).toBe(true);
+    expect(core.needsSubscription("that tool is not offered here")).toBe(false);
+    expect(core.needsSubscription(undefined)).toBe(false);
+  });
+});
