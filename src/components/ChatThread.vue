@@ -1990,6 +1990,11 @@ watch(
 .ft-apps-sheet__content {
   --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
+/* The segment says its words as written, as the Apps tab's (the mockup of 2026-10-08). */
+.ft-apps-sheet ion-segment-button {
+  text-transform: none;
+  letter-spacing: 0;
+}
 .ft-apps-sheet__note {
   margin: 16px 20px 4px;
   text-align: center;

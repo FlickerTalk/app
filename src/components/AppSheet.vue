@@ -144,7 +144,10 @@ function dismissed() {
 .ft-app-sheet__content {
   --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
+/* On a wide screen the sheet is wide: what it says keeps a phone's measure, centred. */
 .ft-app-sheet__body {
+  max-width: 560px;
+  margin-inline: auto;
   padding: 26px 20px 20px;
 }
 .ft-app-sheet__head {
@@ -180,8 +183,12 @@ function dismissed() {
   font-size: 14px;
   line-height: 1.45;
 }
+/* A group of its own on the sheet, as in the mockup: a tint of Ionic's medium, rounded. */
 .ft-app-sheet__permissions {
+  --ion-item-background: transparent;
   margin: 14px 0 0;
+  border-radius: 14px;
+  background: rgba(var(--ion-color-medium-rgb), 0.12);
 }
 .ft-app-sheet__permissions ion-item ion-icon[slot="start"] {
   color: var(--ion-color-medium);
