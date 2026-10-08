@@ -65,8 +65,6 @@ const SAME_AS_ENGLISH: Record<string, SameAsEnglish> = {
   "colors.ember": { locales: ["id", "vi"], reason: THEME_NAME },
   "calls.video": { locales: ["de", "es", "id", "it", "ro", "vi"], reason: SAME_WORD },
   "contact.video": { locales: ["de", "id", "it", "ro", "vi"], reason: SAME_WORD },
-  "plugins.title": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
-  "tabs.plugins": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
   "tabs.apps": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
   "premium.title": { locales: ["de", "es", "fr", "id", "it", "pl", "pt", "ro", "tr", "vi"], reason: SAME_WORD },
   "chat.edit": { locales: ["id"], reason: SAME_WORD },

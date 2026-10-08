@@ -7,9 +7,7 @@
     "chats": "Chats",
     "calls": "Calls",
     "apps": "Apps",
-    "settings": "Settings",
-    "games": "Games",
-    "plugins": "Plugins"
+    "settings": "Settings"
   },
   "chats": {
     "empty": "No chats yet",
@@ -267,9 +265,7 @@
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
     "renewed": "Link renewed",
-    "feedback": "Suggest something",
-    "tabBar": "Show in the tab bar",
-    "tabBarNone": "Nothing"
+    "feedback": "Suggest something"
   },
   "hours": {
     "title": "Hours",
@@ -312,25 +308,18 @@
     "label": "QR code"
   },
   "plugins": {
-    "title": "Plugins",
-    "hint": "Plugins run inside FlickerTalk. They start with nothing: you choose what each one may do, and you can take it back.",
     "readsGiven": "Read what you send it",
     "writes": "Write in the chat",
     "sendsAlone": "Send messages by itself",
     "asksNothing": "Asks for nothing",
     "mayNotWrite": "This tool may not write in the chat. Turn on “Write in the chat” for it in Apps: touch and hold its icon.",
-    "remove": "Remove",
     "none": "No plugins yet",
-    "available": "Tools you can add",
-    "install": "Install",
-    "installFailed": "The tool could not be installed. Check your connection and try again.",
     "live": "Talk to the same plugin on the other side of the chat",
     "remind": "Set reminders on this phone",
     "drive": "Keep files in your own cloud",
     "storageLarge": "Keep a lot of data on this phone (up to 256 MB)",
     "location": "Your location, only when you ask",
     "opens": "Opens: {kinds}",
-    "open": "Open",
     "locked": "Subscribe to use the tools",
     "lockedHint": "The free days are over: tools need the subscription. Chat, calls, files and games stay free.",
     "subscribe": "Subscribe"
@@ -469,10 +458,6 @@
     "sees": "Your cloud sees how many sealed files there are, their sizes and dates. Never their names or contents."
   },
   "games": {
-    "mine": "My games",
-    "more": "More games",
-    "install": "Install",
-    "remove": "Remove",
     "removeWarning": "Removing it deletes its saved games on this phone.",
     "play": "Play",
     "pickContact": "Play with",
@@ -482,8 +467,6 @@
     "installAndPlay": "Install and play",
     "permissionsBody": "This game talks to the other person's phone and can leave the result in the chat.",
     "permissionsAllow": "Allow and play",
-    "none": "No games yet",
-    "offline": "No games to add right now. Check your connection and try again.",
     "installFailed": "The game could not be installed. Check your connection and try again.",
     "live": "Talk to the same game on the other person's phone",
     "showChat": "Show the chat",

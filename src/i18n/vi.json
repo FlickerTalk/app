@@ -7,9 +7,7 @@
     "chats": "Trò chuyện",
     "calls": "Cuộc gọi",
     "apps": "Ứng dụng",
-    "settings": "Cài đặt",
-    "games": "Trò chơi",
-    "plugins": "Plugin"
+    "settings": "Cài đặt"
   },
   "chats": {
     "empty": "Chưa có cuộc trò chuyện nào",
@@ -267,9 +265,7 @@
     "renewLinkHint": "Ai có liên kết cũ của bạn sẽ không liên lạc được với bạn nữa; liên hệ của bạn sẽ nhận liên kết mới",
     "renewLinkConfirm": "Làm mới",
     "renewed": "Đã làm mới liên kết",
-    "feedback": "Góp ý",
-    "tabBar": "Hiển thị trên thanh tab",
-    "tabBarNone": "Không có"
+    "feedback": "Góp ý"
   },
   "hours": {
     "title": "Giờ nhận",
@@ -312,25 +308,18 @@
     "label": "Mã QR"
   },
   "plugins": {
-    "title": "Plugin",
-    "hint": "Plugin chạy bên trong FlickerTalk. Ban đầu chúng không có quyền gì: bạn chọn mỗi plugin được làm gì, và có thể thu hồi lại.",
     "readsGiven": "Đọc những gì bạn đưa cho nó",
     "writes": "Viết trong cuộc trò chuyện",
     "sendsAlone": "Tự gửi tin nhắn",
     "asksNothing": "Không yêu cầu gì",
     "mayNotWrite": "Công cụ này không được phép viết trong cuộc trò chuyện. Hãy bật “Viết trong cuộc trò chuyện” cho nó trong Ứng dụng: chạm và giữ biểu tượng của nó.",
-    "remove": "Gỡ",
     "none": "Chưa có plugin nào",
-    "available": "Công cụ bạn có thể thêm",
-    "install": "Cài đặt",
-    "installFailed": "Không thể cài đặt công cụ. Hãy kiểm tra kết nối rồi thử lại.",
     "live": "Trò chuyện với cùng plugin ở phía bên kia cuộc trò chuyện",
     "remind": "Đặt lời nhắc trên điện thoại này",
     "drive": "Giữ tệp trong đám mây của riêng bạn",
     "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
     "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",
     "opens": "Mở: {kinds}",
-    "open": "Mở",
     "locked": "Đăng ký để dùng công cụ",
     "lockedHint": "Những ngày miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
     "subscribe": "Đăng ký"
@@ -469,10 +458,6 @@
     "sees": "Đám mây của bạn thấy có bao nhiêu tệp niêm phong, kích thước và ngày tháng. Không bao giờ thấy tên hay nội dung."
   },
   "games": {
-    "mine": "Trò chơi của tôi",
-    "more": "Thêm trò chơi",
-    "install": "Cài đặt",
-    "remove": "Gỡ",
     "removeWarning": "Gỡ trò chơi sẽ xóa các ván đã lưu trên điện thoại này.",
     "play": "Chơi",
     "pickContact": "Chơi với",
@@ -482,8 +467,6 @@
     "installAndPlay": "Cài đặt và chơi",
     "permissionsBody": "Trò chơi này trao đổi với điện thoại của người kia và có thể để lại kết quả trong cuộc trò chuyện.",
     "permissionsAllow": "Cho phép và chơi",
-    "none": "Chưa có trò chơi nào",
-    "offline": "Hiện không có trò chơi nào để thêm. Hãy kiểm tra kết nối rồi thử lại.",
     "installFailed": "Không thể cài đặt trò chơi. Hãy kiểm tra kết nối rồi thử lại.",
     "live": "Trao đổi với cùng trò chơi trên điện thoại của người kia",
     "showChat": "Xem cuộc trò chuyện",

@@ -7,9 +7,7 @@
     "chats": "Chaturi",
     "calls": "Apeluri",
     "apps": "Aplicații",
-    "settings": "Setări",
-    "games": "Jocuri",
-    "plugins": "Pluginuri"
+    "settings": "Setări"
   },
   "chats": {
     "empty": "Niciun chat încă",
@@ -267,9 +265,7 @@
     "renewLinkHint": "Cine are linkul tău vechi nu te mai poate contacta; contactele tale îl primesc pe cel nou",
     "renewLinkConfirm": "Reînnoiește",
     "renewed": "Link reînnoit",
-    "feedback": "Propune ceva",
-    "tabBar": "Afișează în bara de file",
-    "tabBarNone": "Nimic"
+    "feedback": "Propune ceva"
   },
   "hours": {
     "title": "Program",
@@ -312,25 +308,18 @@
     "label": "Cod QR"
   },
   "plugins": {
-    "title": "Pluginuri",
-    "hint": "Pluginurile rulează în FlickerTalk. Pornesc fără nicio permisiune: tu alegi ce poate face fiecare și poți retrage ce le-ai dat.",
     "readsGiven": "Citește ce îi trimiți",
     "writes": "Scrie în chat",
     "sendsAlone": "Trimite mesaje singur",
     "asksNothing": "Nu cere nimic",
     "mayNotWrite": "Acest instrument nu poate scrie în chat. Activează „Scrie în chat” pentru el în Aplicații: ține apăsat pe pictograma lui.",
-    "remove": "Elimină",
     "none": "Niciun plugin încă",
-    "available": "Instrumente pe care le poți adăuga",
-    "install": "Instalează",
-    "installFailed": "Instrumentul nu a putut fi instalat. Verifică-ți conexiunea și încearcă din nou.",
     "live": "Să vorbească cu același plugin de cealaltă parte a conversației",
     "remind": "Să seteze mementouri pe acest telefon",
     "drive": "Să păstreze fișiere în propriul tău cloud",
     "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
     "location": "Locația ta, doar când o ceri",
     "opens": "Deschide: {kinds}",
-    "open": "Deschide",
     "locked": "Abonează-te pentru a folosi instrumentele",
     "lockedHint": "Zilele gratuite s-au încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
     "subscribe": "Abonează-te"
@@ -469,10 +458,6 @@
     "sees": "Cloudul tău vede câte fișiere sigilate sunt, mărimea și datele lor. Niciodată numele sau conținutul."
   },
   "games": {
-    "mine": "Jocurile mele",
-    "more": "Mai multe jocuri",
-    "install": "Instalează",
-    "remove": "Elimină",
     "removeWarning": "Dacă îl elimini, partidele salvate pe acest telefon se șterg.",
     "play": "Joacă",
     "pickContact": "Joacă cu",
@@ -482,8 +467,6 @@
     "installAndPlay": "Instalează și joacă",
     "permissionsBody": "Acest joc vorbește cu telefonul celeilalte persoane și poate lăsa rezultatul în conversație.",
     "permissionsAllow": "Permite și joacă",
-    "none": "Niciun joc încă",
-    "offline": "Acum nu sunt jocuri de adăugat. Verifică-ți conexiunea și încearcă din nou.",
     "installFailed": "Jocul nu a putut fi instalat. Verifică-ți conexiunea și încearcă din nou.",
     "live": "Să vorbească cu același joc de pe telefonul celeilalte persoane",
     "showChat": "Arată conversația",

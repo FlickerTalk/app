@@ -7,9 +7,7 @@
     "chats": "聊天",
     "calls": "通话",
     "apps": "应用",
-    "settings": "设置",
-    "games": "游戏",
-    "plugins": "插件"
+    "settings": "设置"
   },
   "chats": {
     "empty": "还没有聊天",
@@ -267,9 +265,7 @@
     "renewLinkHint": "持有你旧链接的人将无法再联系你；你的联系人会收到新链接",
     "renewLinkConfirm": "更新",
     "renewed": "链接已更新",
-    "feedback": "提个建议",
-    "tabBar": "显示在标签栏",
-    "tabBarNone": "无"
+    "feedback": "提个建议"
   },
   "hours": {
     "title": "时段",
@@ -312,25 +308,18 @@
     "label": "二维码"
   },
   "plugins": {
-    "title": "插件",
-    "hint": "插件在 FlickerTalk 内运行。它们一开始没有任何权限：由你决定每个插件能做什么，之后也可以收回。",
     "readsGiven": "读取你发给它的内容",
     "writes": "在聊天中写入",
     "sendsAlone": "自行发送消息",
     "asksNothing": "不需要任何权限",
     "mayNotWrite": "此工具无权在聊天中写入。请在“应用”中长按它的图标，为它开启“在聊天中写入”。",
-    "remove": "移除",
     "none": "还没有插件",
-    "available": "可添加的工具",
-    "install": "安装",
-    "installFailed": "无法安装这个工具。请检查网络连接后重试。",
     "live": "与对话另一端的同一插件通信",
     "remind": "在这部手机上设置提醒",
     "drive": "把文件保存在你自己的云端",
     "storageLarge": "在这部手机上保存大量数据（最多 256 MB）",
     "location": "你的位置，仅在你请求时",
     "opens": "可打开：{kinds}",
-    "open": "打开",
     "locked": "订阅以使用工具",
     "lockedHint": "免费天数已结束：工具需要订阅。聊天、通话、文件和游戏依然免费。",
     "subscribe": "订阅"
@@ -469,10 +458,6 @@
     "sees": "你的云端只看到密封文件的数量、大小和日期，永远看不到名称或内容。"
   },
   "games": {
-    "mine": "我的游戏",
-    "more": "更多游戏",
-    "install": "安装",
-    "remove": "移除",
     "removeWarning": "移除后，这台手机上保存的对局也会被删除。",
     "play": "开始玩",
     "pickContact": "和谁一起玩",
@@ -482,8 +467,6 @@
     "installAndPlay": "安装并开始玩",
     "permissionsBody": "这个游戏会与对方的手机通信，并可能把结果留在聊天中。",
     "permissionsAllow": "允许并开始玩",
-    "none": "还没有游戏",
-    "offline": "现在没有可添加的游戏。请检查网络连接后重试。",
     "installFailed": "无法安装这个游戏。请检查网络连接后重试。",
     "live": "与对方手机上的同一游戏通信",
     "showChat": "显示聊天",

@@ -7,9 +7,7 @@
     "chats": "Chat",
     "calls": "Chiamate",
     "apps": "App",
-    "settings": "Impostazioni",
-    "games": "Giochi",
-    "plugins": "Plugin"
+    "settings": "Impostazioni"
   },
   "chats": {
     "empty": "Ancora nessuna chat",
@@ -267,9 +265,7 @@
     "renewLinkHint": "Chi ha il tuo vecchio link non può più raggiungerti; i tuoi contatti ricevono quello nuovo",
     "renewLinkConfirm": "Rinnova",
     "renewed": "Link rinnovato",
-    "feedback": "Suggerisci qualcosa",
-    "tabBar": "Mostra nella barra delle schede",
-    "tabBarNone": "Niente"
+    "feedback": "Suggerisci qualcosa"
   },
   "hours": {
     "title": "Orari",
@@ -312,25 +308,18 @@
     "label": "Codice QR"
   },
   "plugins": {
-    "title": "Plugin",
-    "hint": "I plugin funzionano dentro FlickerTalk. Partono senza alcun permesso: scegli tu cosa può fare ciascuno, e puoi revocarlo.",
     "readsGiven": "Legge ciò che gli invii",
     "writes": "Scrive nella chat",
     "sendsAlone": "Invia messaggi da solo",
     "asksNothing": "Non chiede nulla",
     "mayNotWrite": "Questo strumento non può scrivere nella chat. Attiva «Scrive nella chat» per lui in App: tieni premuta la sua icona.",
-    "remove": "Rimuovi",
     "none": "Ancora nessun plugin",
-    "available": "Strumenti che puoi aggiungere",
-    "install": "Installa",
-    "installFailed": "Non è stato possibile installare lo strumento. Controlla la connessione e riprova.",
     "live": "Parlare con lo stesso plugin dall'altra parte della chat",
     "remind": "Impostare promemoria su questo telefono",
     "drive": "Conservare file nel tuo cloud",
     "storageLarge": "Conservare molti dati su questo telefono (fino a 256 MB)",
     "location": "La tua posizione, solo quando la chiedi",
     "opens": "Apre: {kinds}",
-    "open": "Apri",
     "locked": "Abbonati per usare gli strumenti",
     "lockedHint": "I giorni gratuiti sono finiti: gli strumenti richiedono l'abbonamento. Chat, chiamate, file e giochi restano gratis.",
     "subscribe": "Abbonati"
@@ -469,10 +458,6 @@
     "sees": "Il tuo cloud vede quanti file sigillati ci sono, la loro dimensione e le date. Mai i nomi né il contenuto."
   },
   "games": {
-    "mine": "I miei giochi",
-    "more": "Altri giochi",
-    "install": "Installa",
-    "remove": "Rimuovi",
     "removeWarning": "Rimuovendolo si cancellano le partite salvate su questo telefono.",
     "play": "Gioca",
     "pickContact": "Gioca con",
@@ -482,8 +467,6 @@
     "installAndPlay": "Installa e gioca",
     "permissionsBody": "Questo gioco parla con il telefono dell'altra persona e può lasciare il risultato nella chat.",
     "permissionsAllow": "Consenti e gioca",
-    "none": "Ancora nessun gioco",
-    "offline": "Al momento non ci sono giochi da aggiungere. Controlla la connessione e riprova.",
     "installFailed": "Non è stato possibile installare il gioco. Controlla la connessione e riprova.",
     "live": "Parlare con lo stesso gioco sul telefono dell'altra persona",
     "showChat": "Mostra la chat",

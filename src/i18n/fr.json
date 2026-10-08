@@ -7,9 +7,7 @@
     "chats": "Discussions",
     "calls": "Appels",
     "apps": "Apps",
-    "settings": "Paramètres",
-    "games": "Jeux",
-    "plugins": "Plugins"
+    "settings": "Paramètres"
   },
   "chats": {
     "empty": "Aucune discussion",
@@ -267,9 +265,7 @@
     "renewLinkHint": "Qui a votre ancien lien ne peut plus vous joindre ; vos contacts reçoivent le nouveau",
     "renewLinkConfirm": "Renouveler",
     "renewed": "Lien renouvelé",
-    "feedback": "Suggérer quelque chose",
-    "tabBar": "Afficher dans la barre d'onglets",
-    "tabBarNone": "Rien"
+    "feedback": "Suggérer quelque chose"
   },
   "hours": {
     "title": "Horaires",
@@ -312,25 +308,18 @@
     "label": "Code QR"
   },
   "plugins": {
-    "title": "Plugins",
-    "hint": "Les plugins fonctionnent dans FlickerTalk. Ils démarrent sans aucune autorisation : vous choisissez ce que chacun peut faire, et vous pouvez le retirer.",
     "readsGiven": "Lire ce que vous lui envoyez",
     "writes": "Écrire dans la discussion",
     "sendsAlone": "Envoyer des messages tout seul",
     "asksNothing": "Ne demande rien",
     "mayNotWrite": "Cet outil ne peut pas écrire dans la discussion. Activez « Écrire dans la discussion » pour lui dans Apps : appuyez longuement sur son icône.",
-    "remove": "Retirer",
     "none": "Aucun plugin",
-    "available": "Outils à ajouter",
-    "install": "Installer",
-    "installFailed": "Impossible d’installer l’outil. Vérifiez votre connexion et réessayez.",
     "live": "Parler au même plugin de l'autre côté de la conversation",
     "remind": "Programmer des rappels sur ce téléphone",
     "drive": "Garder des fichiers dans votre propre cloud",
     "storageLarge": "Garder beaucoup de données sur ce téléphone (jusqu'à 256 Mo)",
     "location": "Votre position, seulement quand vous la demandez",
     "opens": "Ouvre : {kinds}",
-    "open": "Ouvrir",
     "locked": "Abonnez-vous pour utiliser les outils",
     "lockedHint": "Les jours gratuits sont terminés : les outils nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
     "subscribe": "S'abonner"
@@ -469,10 +458,6 @@
     "sees": "Votre cloud voit combien de fichiers scellés il y a, leur taille et leurs dates. Jamais leurs noms ni leur contenu."
   },
   "games": {
-    "mine": "Mes jeux",
-    "more": "Plus de jeux",
-    "install": "Installer",
-    "remove": "Retirer",
     "removeWarning": "Le retirer supprime ses parties enregistrées sur ce téléphone.",
     "play": "Jouer",
     "pickContact": "Jouer avec",
@@ -482,8 +467,6 @@
     "installAndPlay": "Installer et jouer",
     "permissionsBody": "Ce jeu communique avec le téléphone de l’autre personne et peut laisser le résultat dans la conversation.",
     "permissionsAllow": "Autoriser et jouer",
-    "none": "Aucun jeu",
-    "offline": "Aucun jeu à ajouter pour le moment. Vérifiez votre connexion et réessayez.",
     "installFailed": "Impossible d’installer le jeu. Vérifiez votre connexion et réessayez.",
     "live": "Communiquer avec le même jeu sur le téléphone de l’autre personne",
     "showChat": "Voir la conversation",

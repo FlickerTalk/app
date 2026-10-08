@@ -7,9 +7,7 @@
     "chats": "Sohbetler",
     "calls": "Aramalar",
     "apps": "Uygulamalar",
-    "settings": "Ayarlar",
-    "games": "Oyunlar",
-    "plugins": "Eklentiler"
+    "settings": "Ayarlar"
   },
   "chats": {
     "empty": "Henüz sohbet yok",
@@ -267,9 +265,7 @@
     "renewLinkHint": "Eski bağlantınız kimdeyse artık size ulaşamaz; kişileriniz yenisini alır",
     "renewLinkConfirm": "Yenile",
     "renewed": "Bağlantı yenilendi",
-    "feedback": "Bir şey önerin",
-    "tabBar": "Sekme çubuğunda göster",
-    "tabBarNone": "Hiçbiri"
+    "feedback": "Bir şey önerin"
   },
   "hours": {
     "title": "Saatler",
@@ -312,25 +308,18 @@
     "label": "QR kodu"
   },
   "plugins": {
-    "title": "Eklentiler",
-    "hint": "Eklentiler FlickerTalk içinde çalışır. Hiçbir izinle başlamazlar: her birinin ne yapabileceğini siz seçersiniz ve bunu geri alabilirsiniz.",
     "readsGiven": "Ona gönderdiğinizi okuma",
     "writes": "Sohbete yazma",
     "sendsAlone": "Kendi başına mesaj gönderme",
     "asksNothing": "Hiçbir şey istemiyor",
     "mayNotWrite": "Bu araç sohbete yazamaz. Uygulamalar bölümünde simgesini basılı tutun ve onun için “Sohbete yazma” seçeneğini açın.",
-    "remove": "Kaldır",
     "none": "Henüz eklenti yok",
-    "available": "Ekleyebileceğiniz araçlar",
-    "install": "Yükle",
-    "installFailed": "Araç yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
     "live": "Sohbetin öbür ucundaki aynı eklentiyle konuşmak",
     "remind": "Bu telefonda hatırlatıcı kurmak",
     "drive": "Dosyaları kendi bulutunda saklamak",
     "storageLarge": "Bu telefonda çok veri saklamak (256 MB'a kadar)",
     "location": "Konumunuz, yalnızca siz istediğinizde",
     "opens": "Açar: {kinds}",
-    "open": "Aç",
     "locked": "Araçları kullanmak için abone ol",
     "lockedHint": "Ücretsiz günler sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
     "subscribe": "Abone ol"
@@ -469,10 +458,6 @@
     "sees": "Bulutun kaç mühürlü dosya olduğunu, boyutlarını ve tarihlerini görür. Adlarını ya da içeriklerini asla."
   },
   "games": {
-    "mine": "Oyunlarım",
-    "more": "Daha fazla oyun",
-    "install": "Yükle",
-    "remove": "Kaldır",
     "removeWarning": "Kaldırırsanız bu telefondaki kayıtlı oyunları silinir.",
     "play": "Oyna",
     "pickContact": "Şununla oyna",
@@ -482,8 +467,6 @@
     "installAndPlay": "Yükle ve oyna",
     "permissionsBody": "Bu oyun karşı tarafın telefonuyla konuşur ve sonucu sohbete bırakabilir.",
     "permissionsAllow": "İzin ver ve oyna",
-    "none": "Henüz oyun yok",
-    "offline": "Şu anda eklenecek oyun yok. Bağlantınızı kontrol edip tekrar deneyin.",
     "installFailed": "Oyun yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
     "live": "Karşı tarafın telefonundaki aynı oyunla konuşmak",
     "showChat": "Sohbeti göster",

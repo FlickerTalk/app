@@ -1060,7 +1060,7 @@ watch(
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
           <!-- Issue app#3: the utilities installed on this phone, and the games. -->
-          <ion-button data-test="apps" :aria-label="$t('plugins.title')" @click="openApps">
+          <ion-button data-test="apps" :aria-label="$t('tabs.apps')" @click="openApps">
             <ion-icon slot="icon-only" :icon="appsOutline" aria-hidden="true" />
           </ion-button>
         </ion-buttons>
