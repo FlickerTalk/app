@@ -2565,6 +2565,7 @@ const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/sketch.ftplugin"),
     include_bytes!("../resources/plugins/scanner.ftplugin"),
     include_bytes!("../resources/plugins/countdown.ftplugin"),
+    include_bytes!("../resources/plugins/location.ftplugin"),
     include_bytes!("../resources/plugins/game.tictactoe.ftplugin"),
     include_bytes!("../resources/plugins/game.fourinarow.ftplugin"),
     include_bytes!("../resources/plugins/game.chess.ftplugin"),
@@ -4350,9 +4351,10 @@ mod tests {
     /// 2026-10-03 (Ioan): the games travel inside the app like the tools, so an iPhone, which
     /// downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
     /// 2026-10-06 (Ioan): the ten new games, Scanner and Countdown travel too, on both platforms.
+    /// 2026-10-08: and Location, so an iPhone can send where it is.
     #[test]
     fn the_app_carries_its_tools_and_games() {
-        const TOOLS: [&str; 7] = ["markdown", "images", "pdf", "redact", "sketch", "scanner", "countdown"];
+        const TOOLS: [&str; 8] = ["markdown", "images", "pdf", "redact", "sketch", "scanner", "countdown", "location"];
         const GAMES: [&str; 13] = [
             "tictactoe", "fourinarow", "chess", "backgammon", "checkers", "dotsandboxes", "eights", "gomoku", "mancala", "reversi",
             "seabattle", "wordduel", "wordgrid",
