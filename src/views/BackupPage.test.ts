@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import BackupPage from "./BackupPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 
@@ -199,5 +200,11 @@ describe("BackupPage", () => {
     const wrapper = mount(BackupPage, { shallow: true });
     await flushPromises();
     expect(wrapper.find("[role='alert']").text()).toContain("the login is no longer valid");
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button and title, then its content", () => {
+    expect(pageShape(mount(BackupPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

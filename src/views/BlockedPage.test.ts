@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import BlockedPage from "./BlockedPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { store } from "../core";
 
@@ -30,5 +31,11 @@ describe("BlockedPage", () => {
     await rows[0].find("[aria-label='Unblock']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_block", { contact: id, blocked: false }]);
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button and title, then the list", () => {
+    expect(pageShape(mount(BlockedPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

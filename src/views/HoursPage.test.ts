@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonToggle } from "@ionic/vue";
 import HoursPage from "./HoursPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 
@@ -62,5 +63,11 @@ describe("HoursPage", () => {
     wrapper.findComponent(IonToggle).vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
     await flushPromises();
     expect(saved()).toBeNull();
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button and title, then the week", () => {
+    expect(pageShape(mount(HoursPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

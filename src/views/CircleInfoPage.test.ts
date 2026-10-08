@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonLabel } from "@ionic/vue";
 import CircleInfoPage from "./CircleInfoPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { store, type Circle } from "../core";
 
@@ -117,5 +118,11 @@ describe("CircleInfoPage", () => {
     await flushPromises();
     expect(calls).toContainEqual(["core_circle_forget", { circle: "circle1" }]);
     expect(replace).toHaveBeenCalledWith("/tabs/chats");
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button, then the circle's settings", () => {
+    expect(pageShape(mount(CircleInfoPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

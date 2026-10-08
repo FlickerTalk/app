@@ -7,8 +7,10 @@ import type { VueWrapper } from "@vue/test-utils";
 /** Overlays sit anywhere in a page: Ionic presents them over it and its transitions skip them. */
 const OVERLAYS = new Set(["ion-modal", "ion-alert", "ion-toast", "ion-loading", "ion-popover", "ion-action-sheet"]);
 
-/** The tag a shallow mount gives a component's stub, without the `-stub`. */
-const tagOf = (element: Element) => element.tagName.toLowerCase().replace(/-stub$/, "");
+/** The tag a shallow mount gives a component's stub, without the `-stub`; IonPage itself draws a
+ *  `div.ion-page` when it is not stubbed. */
+const tagOf = (element: Element) =>
+  element.classList.contains("ion-page") ? "ion-page" : element.tagName.toLowerCase().replace(/-stub$/, "");
 
 /** The children of an element, by tag, overlays and the components named in `skip` left out. */
 export function childTags(element: Element, skip: string[] = []): string[] {
@@ -18,7 +20,7 @@ export function childTags(element: Element, skip: string[] = []): string[] {
 }
 
 /**
- * The shape of a page mounted shallow: its root must be the `ion-page`, and what it holds, by tag,
+ * The shape of a mounted page: its root must be the `ion-page`, and what it holds, by tag,
  * comes back (overlays and the components in `skip`, which present sheets, left out).
  */
 export function pageShape(wrapper: VueWrapper, skip: string[] = []): string[] {

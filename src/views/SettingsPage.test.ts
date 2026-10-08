@@ -3,6 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { IonIcon, IonModal, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
 import { checkmarkOutline, copyOutline, sparklesOutline } from "ionicons/icons";
 import SettingsPage from "./SettingsPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { PREMIUM_PAGE } from "../core";
 import { installTauri } from "../__tests__/tauri";
@@ -708,5 +709,11 @@ describe("SettingsPage", () => {
       for (const key of ["young", "iAmYoung", "iAmOlder"]) expect(catalogue.plan, path).not.toHaveProperty(key);
       for (const key of ["subscribe", "trialNote", "limitedNote"]) expect(String(catalogue.premium[key]), `${path} ${key}`).toContain("{price}");
     }
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with the title, then the settings", () => {
+    expect(pageShape(mount(SettingsPage, { shallow: true }), ["feedback-modal"])).toEqual(["ion-header", "ion-content"]);
   });
 });

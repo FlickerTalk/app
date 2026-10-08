@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import WelcomePage from "./WelcomePage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { isOnboarded } from "../preferences";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
@@ -72,5 +73,11 @@ describe("WelcomePage", () => {
   it("offers bringing everything from an old phone", async () => {
     await mount(WelcomePage, { shallow: true }).find("[data-test='move-from-old']").trigger("click");
     expect(push).toHaveBeenCalledWith("/move?role=new");
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: the welcome fills its content, with no header", () => {
+    expect(pageShape(mount(WelcomePage, { shallow: true }))).toEqual(["ion-content"]);
   });
 });
