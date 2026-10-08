@@ -6,6 +6,7 @@ import CallBar from "./components/CallBar.vue";
 import IncomingCall from "./components/IncomingCall.vue";
 import ScannerOverlay from "./components/ScannerOverlay.vue";
 import { enablePush, pendingReminder, resumeRouter } from "./core";
+import { checkOpenedLink, startOpenedLinks } from "./opened";
 import { followPluginChanges, followPremiumLock, refreshPremiumLock } from "./plugins";
 import { isOnboarded } from "./preferences";
 
@@ -28,6 +29,8 @@ function onVisible() {
   void resumeRouter();
   if (isOnboarded()) void enablePush();
   void openTappedReminder();
+  // A link may only have brought the app to the front (2026-10-08).
+  void checkOpenedLink();
   // The plan may have changed while the app was away (the free days ended): the tools' lock too.
   void refreshPremiumLock();
 }
@@ -35,9 +38,14 @@ function onVisible() {
 let unfollow: (() => void) | undefined;
 // Whether the tools are locked (Ioan, 2026-10-08), followed while the app runs.
 let unfollowLock: (() => void) | undefined;
+// Links that open the app (2026-10-08, `opened.ts`): asked for at start, back on the screen and
+// when the core says one came while the app runs.
+let stopLinks: (() => void) | undefined;
 onMounted(() => {
   document.addEventListener("visibilitychange", onVisible);
   void openTappedReminder();
+  stopLinks = startOpenedLinks(router);
+  void checkOpenedLink();
   void followPluginChanges()
     .then((stop) => (unfollow = stop))
     .catch(() => undefined);
@@ -49,6 +57,7 @@ onUnmounted(() => {
   document.removeEventListener("visibilitychange", onVisible);
   unfollow?.();
   unfollowLock?.();
+  stopLinks?.();
 });
 </script>
 

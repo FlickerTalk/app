@@ -1441,6 +1441,24 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(JSObject().apply { put("reminder", tappedReminder.take()) })
     }
 
+    /** The link the phone opened the app with (App Links, 2026-10-08), once; empty if none. */
+    @Command
+    fun openedLink(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("url", openedLinks.take()) })
+    }
+
+    /** The app listens for links that open it while it runs (`listen_links`). */
+    @Command
+    fun registerLinkEvents(invoke: Invoke) {
+        try {
+            val channel = invoke.parseArgs(CallEventsArgs::class.java).channel
+            openedLinks.register { channel.sendObject(mapOf("event" to "linkOpened")) }
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "no channel")
+        }
+    }
+
     /** Every reminder there is, from the core: the alarm clock is set again from scratch. */
     @Command
     fun setReminders(invoke: Invoke) {

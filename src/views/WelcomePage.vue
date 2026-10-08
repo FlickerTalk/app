@@ -4,6 +4,7 @@ import { IonContent, IonIcon, IonPage } from "@ionic/vue";
 import { arrowForward } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import { enablePush, setName, store } from "../core";
+import { releaseKept } from "../opened";
 import { setOnboarded } from "../preferences";
 
 const router = useRouter();
@@ -18,7 +19,9 @@ async function start() {
   setOnboarded();
   // M4: from now on the phone can be woken when the app is closed (asks for notifications).
   void enablePush();
-  router.replace("/tabs/chats");
+  await router.replace("/tabs/chats");
+  // A contact link that opened the app before Start (2026-10-08) opens Add contact now.
+  await releaseKept();
 }
 </script>
 

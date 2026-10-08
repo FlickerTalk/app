@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   IonAlert,
   IonBackButton,
@@ -18,21 +18,41 @@ import QrCode from "../components/QrCode.vue";
 import { addContact, block, chat, myCardLink, refreshChats, shareText, store } from "../core";
 import { scanQr } from "../scanner";
 import { t } from "../i18n";
+import { takeOpened, waitingFor } from "../opened";
 
 // Plan §32: pairing happens through a signed Contact Card shared by QR, link or share sheet.
 const router = useRouter();
 const route = useRoute();
 // Opened from a hidden session's QR button: the contact belongs to that session (Plan, 2026-09-23).
-const session = typeof route.query.session === "string" ? route.query.session : undefined;
+// Followed, not read once: a link that opens the app comes here without one, to the main list.
+const session = computed(() => (typeof route.query.session === "string" ? route.query.session : undefined));
 const link = ref("");
 const mode = ref<"code" | "scan">("code");
 const copied = ref(false);
 const pasted = ref("");
 const error = ref("");
 
-onMounted(async () => {
-  link.value = await myCardLink(session);
-});
+watch(
+  session,
+  async (now) => {
+    link.value = await myCardLink(now);
+  },
+  { immediate: true },
+);
+
+// A link that opened the app (2026-10-08): it goes in the field, ready to add. Nothing is sent
+// until the user taps "Add": adding opens a session and sends our card to whoever made the link.
+watch(
+  () => waitingFor("add"),
+  (waiting) => {
+    const opened = waiting ? takeOpened("add") : null;
+    if (!opened) return;
+    mode.value = "scan";
+    pasted.value = opened.link;
+    error.value = opened.valid ? "" : t("addContact.invalid");
+  },
+  { immediate: true },
+);
 
 // The share sheet (WhatsApp, Signal, mail…) sends the link; only where there is none is it copied.
 async function share() {
@@ -53,7 +73,7 @@ async function scanCode() {
 async function add(value: string) {
   error.value = "";
   try {
-    const id = await addContact(value, session);
+    const id = await addContact(value, session.value);
     await refreshChats();
     // app#78: adding someone blocked again leaves them blocked; a chat with them could not send.
     if (chat(id)?.blocked) blockedId.value = id;

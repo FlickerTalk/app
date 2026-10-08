@@ -22,7 +22,7 @@ const app = vi.hoisted(() => {
 });
 vi.mock("@tauri-apps/api/app", () => ({ onBackButtonPress: app.onBackButtonPress }));
 
-import { closeOnBack, closeOnBackWhile } from "./back";
+import { closeAll, closeOnBack, closeOnBackWhile } from "./back";
 
 const settle = async () => {
   for (let at = 0; at < 5; at += 1) await Promise.resolve();
@@ -65,6 +65,27 @@ describe("the back button", () => {
     await press();
     expect(closed).toEqual(["apps"]);
     expect(app.state.handler).toBeNull();
+  });
+
+  // A link opened the app (2026-10-08): whatever is open on top closes, as with Back, and the app
+  // goes to the link's page. Then the button does its usual job again.
+  it("closes everything open on top at once, the latest first", async () => {
+    const closed: string[] = [];
+    closeOnBack(() => closed.push("apps"));
+    closeOnBack(() => closed.push("plugin"));
+    await settle();
+    closeAll();
+    await settle();
+    expect(closed).toEqual(["plugin", "apps"]);
+    expect(app.state.handler).toBeNull();
+    await press();
+    expect(closed).toEqual(["plugin", "apps"]);
+  });
+
+  it("closes nothing when nothing is open", async () => {
+    expect(() => closeAll()).not.toThrow();
+    await settle();
+    expect(app.state.registered).toBe(0);
   });
 
   it("does nothing where there is no back button to hear", async () => {

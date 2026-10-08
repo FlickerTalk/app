@@ -4,6 +4,7 @@ import { readCode } from "../code";
 import { clock as clockOf, formatSize } from "../core";
 import { gameIdFromText, isGame } from "../games";
 import { mapsLink, piecesOf, type Place } from "../links";
+import { isAppLink, openInApp } from "../opened";
 import { installed, offered, pluginName } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonButton, IonIcon } from "@ionic/vue";
@@ -139,6 +140,16 @@ function endPress() {
 }
 
 function openLink(href: string) {
+  // FlickerTalk's own contact and move links are the app's (2026-10-08): handled here, never by
+  // the system, as if the phone had opened them. A link is still only put in a field.
+  if (isAppLink(href)) {
+    void openInApp(href).then((handled) => handled || openOutside(href));
+    return;
+  }
+  openOutside(href);
+}
+
+function openOutside(href: string) {
   void Promise.resolve(openUrl(href)).catch(() => undefined);
 }
 

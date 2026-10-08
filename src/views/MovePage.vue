@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   IonBackButton,
   IonButton,
@@ -16,6 +16,7 @@ import { useRoute } from "vue-router";
 import QrCode from "../components/QrCode.vue";
 import { invite, move, moveTo } from "../moving";
 import { scanQr } from "../scanner";
+import { takeOpened, waitingFor } from "../opened";
 
 // Plan §60: the new phone shows a QR (its card and a one-time secret, never a key); the old
 // phone scans it and hands over the identity, contacts and history, directly. The old phone is
@@ -29,6 +30,17 @@ const percent = computed(() => (move.total ? Math.round((move.done / move.total)
 onMounted(async () => {
   if (isNew.value) link.value = await invite();
 });
+
+// The new phone's invite opened the app (2026-10-08): it goes in the field of the old phone's
+// screen. Moving (and erasing this phone) waits for the user's tap on "Move and erase".
+watch(
+  () => waitingFor("move"),
+  (waiting) => {
+    const opened = waiting ? takeOpened("move") : null;
+    if (opened) pasted.value = opened.link;
+  },
+  { immediate: true },
+);
 
 async function scanInvite() {
   // Cancelled or no camera: the link can be pasted instead.

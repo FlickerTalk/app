@@ -3,6 +3,8 @@ import { flushPromises, mount } from "@vue/test-utils";
 import WelcomePage from "./WelcomePage.vue";
 import { isOnboarded } from "../preferences";
 import { calls, fixture, seed } from "../__tests__/seed";
+import { installTauri } from "../__tests__/tauri";
+import { checkOpenedLink, startOpenedLinks, takeOpened } from "../opened";
 
 const replace = vi.fn();
 const push = vi.fn();
@@ -28,6 +30,26 @@ describe("WelcomePage", () => {
     await wrapper.find("[data-test='start']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_set_name", { name: "Ioan" }]);
+  });
+
+  // Links that open the app (2026-10-08): the usual case is a link someone sent, the app
+  // installed, and the link tapped again. It waits in memory until Start, then Add contact opens
+  // with it in the field.
+  it("opens Add contact with a link that came before Start", async () => {
+    const link = { kind: "add", link: "https://flickertalk.com/add#theirs", valid: true };
+    installTauri((command) => (command === "core_opened_link" ? link : undefined));
+    const app = { currentRoute: { value: { path: "/welcome" } }, push: vi.fn(), afterEach: () => () => undefined };
+    const stop = startOpenedLinks(app as never);
+    await checkOpenedLink();
+    expect(app.push).not.toHaveBeenCalled();
+
+    const wrapper = mount(WelcomePage, { shallow: true });
+    await wrapper.find("[data-test='start']").trigger("click");
+    await flushPromises();
+    expect(replace).toHaveBeenCalledWith("/tabs/chats");
+    expect(app.push).toHaveBeenCalledWith("/add-contact");
+    expect(takeOpened("add")).toEqual(link);
+    stop();
   });
 
   it("remembers the welcome was seen and opens the chats", async () => {

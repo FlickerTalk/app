@@ -396,6 +396,8 @@ enum AppVisibility {
 /// Tauri's app delegate and tao's scene delegate (`TaoSceneDelegate`) receive it and only look
 /// for a web link, so their methods are wrapped once: ours hears the activity first, then theirs
 /// runs as before. A video one tells the core (`VideoRequested`), which turns our camera on.
+/// Since 2026-10-08 the same wrappers hear the links that open the app (`OpenedLinks`): tao reads
+/// no user activity when the scene connects, so a cold start from a link would lose it.
 /// Unverified on a phone: if the activity does not reach these methods, the button only opens the
 /// app, and the user turns the camera on in it.
 enum CallIntentActivities {
@@ -413,9 +415,17 @@ enum CallIntentActivities {
         }
     }
 
-    static func heard(_ activity: NSUserActivity) {
-        guard asksForVideo(activity) else { return }
+    /// Whether the activity was one of ours: a call intent asking for video, or a link that
+    /// opens the app (Universal Links, 2026-10-08; `OpenedLinks.swift`).
+    @discardableResult
+    static func heard(_ activity: NSUserActivity) -> Bool {
+        if let link = openedLinkOf(activityType: activity.activityType, url: activity.webpageURL) {
+            OpenedLinks.shared.put(link)
+            return true
+        }
+        guard asksForVideo(activity) else { return false }
         CallEvents.shared.emit(.videoRequested)
+        return true
     }
 
     /// `scene:continueUserActivity:`: the app was running with its scene.
@@ -439,7 +449,7 @@ enum CallIntentActivities {
         typealias Original = @convention(c) (AnyObject, Selector, UIScene, UISceneSession, UIScene.ConnectionOptions) -> Void
         let original = unsafeBitCast(method_getImplementation(method), to: Original.self)
         let wrapped: @convention(block) (AnyObject, UIScene, UISceneSession, UIScene.ConnectionOptions) -> Void = { this, scene, session, options in
-            options.userActivities.forEach(heard)
+            options.userActivities.forEach { heard($0) }
             original(this, selector, scene, session, options)
         }
         method_setImplementation(method, imp_implementationWithBlock(wrapped))
@@ -452,8 +462,8 @@ enum CallIntentActivities {
         typealias Original = @convention(c) (AnyObject, Selector, UIApplication, NSUserActivity, AnyObject?) -> Bool
         let original = unsafeBitCast(method_getImplementation(method), to: Original.self)
         let wrapped: @convention(block) (AnyObject, UIApplication, NSUserActivity, AnyObject?) -> Bool = { this, app, activity, restore in
-            heard(activity)
-            return original(this, selector, app, activity, restore) || asksForVideo(activity)
+            let ours = heard(activity)
+            return original(this, selector, app, activity, restore) || ours
         }
         method_setImplementation(method, imp_implementationWithBlock(wrapped))
     }

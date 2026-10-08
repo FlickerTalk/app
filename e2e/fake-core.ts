@@ -60,6 +60,12 @@
  * `core_plugin_live_send` takes what such a plugin says to its twin (kept in `calls`), as the core
  * would over a direct connection; one without the grant is refused.
  *
+ * Links that open the app (2026-10-08): `window.__ftFakeOpenedLink` (a URL) is the link the phone
+ * opened the app with, handed over once (`core_opened_link`); `window.__ftFake.openLink(url)` is a
+ * link opening the app that runs already (the core's `ft://opened-link`). `core_read_link` reads
+ * a link tapped in a chat. Either is read as the core does: only `https://flickertalk.com/add#…`
+ * and `/move#…`, valid when what follows `#` is a run of base64url of a card's length at least.
+ *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
 export function installFakeCore() {
@@ -263,6 +269,19 @@ export function installFakeCore() {
     // Nothing kept: no session.
   }
 
+  /** The link the phone opened the app with, until the app takes it; the test's (set after this
+   *  runs) is read on the first ask. */
+  let openedLink: string | null = null;
+  let launchLinkTaken = false;
+  const readLink = (url: string) => {
+    for (const [kind, prefix] of [["add", "https://flickertalk.com/add#"], ["move", "https://flickertalk.com/move#"]] as const) {
+      if (!url.startsWith(prefix)) continue;
+      const fragment = url.slice(prefix.length);
+      return { kind, link: url, valid: /^[A-Za-z0-9_-]{16,}$/.test(fragment) };
+    }
+    return null;
+  };
+
   const answer = (command: string, args: Args): unknown => {
     const a = (args ?? {}) as Record<string, string | number | undefined>;
     switch (command) {
@@ -387,6 +406,17 @@ export function installFakeCore() {
         return [];
       case "core_card":
         return "https://flickertalk.com/add#card";
+      case "core_opened_link": {
+        if (!launchLinkTaken) {
+          launchLinkTaken = true;
+          openedLink ??= ((window as unknown as Record<string, unknown>).__ftFakeOpenedLink as string | undefined) ?? null;
+        }
+        const url = openedLink;
+        openedLink = null;
+        return url ? readLink(url) : null;
+      }
+      case "core_read_link":
+        return readLink(String(a.url));
       // Native calls (2026-09-28, video since 2026-09-29): the fake is a browser, so calls stay on
       // the WebView unless a test plays a phone; no call is going on when the app starts.
       case "core_native_calls":
@@ -710,6 +740,11 @@ export function installFakeCore() {
     scanned: (content: string) => {
       scanning?.resolve({ content, format: "QR_CODE", bounds: null });
       scanning = null;
+    },
+    /** A link opens the app that runs already: the core says so, and the app asks for it. */
+    openLink: (url: string) => {
+      openedLink = url;
+      emit("ft://opened-link", null);
     },
     /** Whether the app listens to the back button now, without pressing it. */
     listening: () => back !== null,
