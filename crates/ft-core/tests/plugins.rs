@@ -976,6 +976,7 @@ fn listing(packages: &[(&str, &[u8])]) -> (Shop, Vec<ft_plugins::CatalogueEntry>
             kind: manifest.kind,
             locales: manifest.locales,
             icon: manifest.icon,
+            image: String::new(),
         });
         files.insert(url, package.to_vec());
     }

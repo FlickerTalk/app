@@ -28,6 +28,8 @@ pub fn catalogue() -> Ed25519PublicKey {
     Ed25519PublicKey::from_base64(CATALOGUE_KEY).expect("the catalogue key is built in")
 }
 
+pub mod icon;
+
 /// Where the signature lives inside the package; everything else is what gets signed.
 const SIGNATURE: &str = "signature";
 /// The manifest, read only after the signature checks out.
@@ -230,6 +232,23 @@ impl Plugin {
     pub fn files(&self) -> impl Iterator<Item = (&str, &[u8])> {
         self.files.iter().map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
     }
+
+    /// Its `icon.svg` as text (2026-10-08), checked when the package was opened; empty if none.
+    pub fn image(&self) -> String {
+        self.file(icon::IMAGE).map(|bytes| String::from_utf8_lossy(bytes).into_owned()).unwrap_or_default()
+    }
+}
+
+/// The `icon.svg` of the plugin installed under `dir/<id>`, as text, checked again; empty if it
+/// has none, or one that is not an icon.
+pub fn image_of(dir: &Path, id: &str) -> String {
+    if !is_id(id) {
+        return String::new();
+    }
+    match std::fs::read(dir.join(id).join(icon::IMAGE)) {
+        Ok(bytes) if icon::check(&bytes).is_ok() => String::from_utf8(bytes).unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 /// What the catalogue signs: the name and the hash of every file, in order, hashed together. A
@@ -260,6 +279,10 @@ pub fn open(package: &[u8], catalogue: &Ed25519PublicKey) -> Result<Plugin> {
     check(&manifest)?;
     for path in files.keys() {
         safe_path(path)?;
+    }
+    // Its tile's image (2026-10-08): a plain icon, or no package at all.
+    if let Some(image) = files.get(icon::IMAGE) {
+        icon::check(image)?;
     }
     Ok(Plugin { manifest, files })
 }
@@ -595,6 +618,10 @@ pub struct CatalogueEntry {
     /// The Ionicon of its tile, copied from the manifest (2026-10-08); empty when it names none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub icon: String,
+    /// The package's own `icon.svg`, as text (2026-10-08), so the tile is drawn before installing;
+    /// empty when it carries none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub image: String,
 }
 
 /// Whether a FlickerTalk of `core_version` is new enough for something that needs `min` (§51).
@@ -696,6 +723,7 @@ mod tests {
             kind: Kind::Tool,
             locales: BTreeMap::new(),
             icon: String::new(),
+            image: String::new(),
         };
         assert!(!entry.runs_on("0.1.0"));
         assert!(entry.runs_on("9.0.0"));
@@ -799,6 +827,7 @@ mod tests {
             kind: Kind::Game,
             locales: BTreeMap::new(),
             icon: String::new(),
+            image: String::new(),
         };
         assert!(!entry.runs_on("1.2.2"));
         assert!(entry.runs_on(GAMES_SINCE));
@@ -954,6 +983,68 @@ mod tests {
         let listed = read(&drawn).expect("still signed, still a catalogue");
         assert_eq!(listed[0].icon, "language-outline");
         assert_eq!(serde_json::to_value(&listed[0]).unwrap()["icon"], "language-outline");
+    }
+
+    const IMAGE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><title>Échecs</title><rect width="64" height="64" rx="18" fill="#f0742a"/></svg>"##;
+
+    /// A package with an `icon.svg` beside its manifest.
+    fn drawn_package(image: &str, signer: &Ed25519SecretKey) -> Vec<u8> {
+        let files = vec![
+            ("module.json".to_owned(), manifest_of("com.example.translator").into_bytes()),
+            ("icon.svg".to_owned(), image.as_bytes().to_vec()),
+            ("dist/index.js".to_owned(), b"".to_vec()),
+        ];
+        sign_package(&files, signer)
+    }
+
+    // 2026-10-08 (plan of the apps grid, "Imagen por plugin"): a package may carry its tile's
+    // image, signed with the rest. One that is not a plain icon takes the whole package down.
+    #[test]
+    fn a_package_may_carry_the_image_of_its_tile_and_a_bad_one_is_refused() {
+        let catalogue = Ed25519SecretKey::new();
+        let drawn = open(&drawn_package(IMAGE_SVG, &catalogue), &catalogue.public_key()).expect("a good icon");
+        assert_eq!(drawn.image(), IMAGE_SVG);
+        let plain = open(&package(&manifest_of("com.example.translator"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(plain.image(), "", "no icon.svg, no image");
+        for wrong in [
+            r#"<svg viewBox="0 0 64 64"><script>alert(1)</script></svg>"#,
+            r#"<svg viewBox="0 0 64 64" onload="alert(1)"/>"#,
+            r#"<svg viewBox="0 0 64 32"/>"#,
+            "not an svg",
+        ] {
+            assert!(open(&drawn_package(wrong, &catalogue), &catalogue.public_key()).is_err(), "{wrong} should take the package down");
+        }
+    }
+
+    // Installed, the image is read back from the plugin's folder, and checked again there.
+    #[test]
+    fn the_image_of_an_installed_plugin_is_read_from_its_folder() {
+        let catalogue = Ed25519SecretKey::new();
+        let home = std::env::temp_dir().join(format!("ft-plugins-image-{}", blake3::hash(IMAGE_SVG.as_bytes()).to_hex()));
+        let _ = std::fs::remove_dir_all(&home);
+        install(&open(&drawn_package(IMAGE_SVG, &catalogue), &catalogue.public_key()).unwrap(), &home).unwrap();
+        assert_eq!(image_of(&home, "com.example.translator"), IMAGE_SVG);
+        assert_eq!(image_of(&home, "com.example.other"), "", "nothing installed, no image");
+        std::fs::write(home.join("com.example.translator").join(icon::IMAGE), "<svg><script/></svg>").unwrap();
+        assert_eq!(image_of(&home, "com.example.translator"), "", "one changed on the disk is not drawn");
+        assert_eq!(image_of(&home, "../etc"), "", "never outside the folder");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // The catalogue carries the image as text, so "More tools" draws it before the download; an
+    // entry without one is written as before.
+    #[test]
+    fn the_catalogue_carries_the_image() {
+        let catalogue = Ed25519SecretKey::new();
+        let read = |index: &str| catalogue_entries(index, &catalogue.sign(index.as_bytes()).to_base64(), &catalogue.public_key());
+        let plain = read(&index_of(&"ab".repeat(32))).unwrap();
+        assert_eq!(plain[0].image, "");
+        assert!(serde_json::to_value(&plain[0]).unwrap().get("image").is_none());
+        let image = serde_json::to_string(IMAGE_SVG).unwrap();
+        let drawn = index_of(&"ab".repeat(32)).replacen(r#""summary":"#, &format!(r#""image":{image},"summary":"#), 1);
+        let listed = read(&drawn).expect("still signed, still a catalogue");
+        assert_eq!(listed[0].image, IMAGE_SVG);
+        assert_eq!(serde_json::to_value(&listed[0]).unwrap()["image"], IMAGE_SVG);
     }
 
     /// A package as its author would build it: the manifest and the files of `dist/`.

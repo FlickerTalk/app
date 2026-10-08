@@ -181,6 +181,7 @@ fn listed(packages: &[(&str, &str, &[u8])]) -> (Shop, Vec<CatalogueEntry>) {
             kind: if *kind == "game" { ft_plugins::Kind::Game } else { ft_plugins::Kind::Tool },
             locales: Default::default(),
             icon: String::new(),
+            image: String::new(),
         });
         files.insert(url, package.to_vec());
     }

@@ -33,6 +33,7 @@ fn entry_of(manifest: &Manifest, package: &[u8], base: &str) -> CatalogueEntry {
         kind: manifest.kind,
         locales: manifest.locales.clone(),
         icon: manifest.icon.clone(),
+        image: String::new(),
     }
 }
 

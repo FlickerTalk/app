@@ -109,6 +109,8 @@ pub struct InstalledPlugin {
     /// What the user granted, always a subset of what the manifest asks for.
     pub granted: Permissions,
     pub installed_at: i64,
+    /// Its `icon.svg` as text (2026-10-08); empty when it carries none.
+    pub image: String,
 }
 
 impl Core {
@@ -538,6 +540,7 @@ impl Core {
                 manifest: manifest.clone(),
                 granted: serde_json::from_str(&row.granted).unwrap_or_default(),
                 installed_at: row.installed_at,
+                image: String::new(),
             });
         }
         Ok(plugins)
@@ -693,6 +696,7 @@ mod tests {
                 locales: languages(*summary),
                 // The longest name chosen for a tile (2026-10-08).
                 icon: "radio-button-on-outline".to_owned(),
+                image: String::new(),
             })
             .collect();
         serde_json::to_string_pretty(&serde_json::json!({ "plugins": entries })).unwrap()

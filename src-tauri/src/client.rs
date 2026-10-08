@@ -2420,6 +2420,9 @@ pub struct PluginView {
     /// The Ionicon of its tile (2026-10-08); left out when the manifest names none.
     #[serde(skip_serializing_if = "String::is_empty")]
     icon: String,
+    /// Its `icon.svg` as text (2026-10-08); left out when the package carries none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    image: String,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -2509,6 +2512,7 @@ fn plugin_view(plugin: ft_core::plugins::InstalledPlugin) -> PluginView {
         kind: plugin.manifest.kind,
         locales: plugin.manifest.locales,
         icon: plugin.manifest.icon,
+        image: String::new(),
     }
 }
 
@@ -2620,6 +2624,9 @@ pub struct OfferedPlugin {
     /// The Ionicon of its tile (2026-10-08), from its manifest or its entry; left out when none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     icon: String,
+    /// Its `icon.svg` as text (2026-10-08), from the package or the entry; left out when none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    image: String,
 }
 
 /// Whether `version` is newer than `than`, both as `1.2.3`.
@@ -2652,6 +2659,7 @@ fn offered_from(manifest: ft_plugins::Manifest, size: u64) -> OfferedPlugin {
         kind: manifest.kind,
         locales: manifest.locales,
         icon: manifest.icon,
+        image: String::new(),
     }
 }
 
@@ -2671,6 +2679,7 @@ fn merged(carried: Vec<OfferedPlugin>, listed: &[ft_plugins::CatalogueEntry], he
             kind: entry.kind,
             locales: entry.locales.clone(),
             icon: entry.icon.clone(),
+            image: String::new(),
         };
         match offered.iter_mut().find(|one| one.id == entry.id) {
             Some(seed) if newer(&entry.version, &seed.version) => *seed = listed,
@@ -4168,6 +4177,7 @@ mod tests {
             .unwrap(),
             granted: ft_plugins::Permissions::default(),
             installed_at: 0,
+            image: String::new(),
         };
         let dir = Path::new("/tmp/ft");
         let served = served_of(vec![(plugin("com.example.code", "tool"), false), (plugin("game.example.chess", "game"), true)], dir);
@@ -4396,6 +4406,7 @@ mod tests {
             kind: ft_plugins::Kind::Tool,
             locales: Default::default(),
             icon: String::new(),
+            image: String::new(),
         }
     }
 
@@ -4411,6 +4422,7 @@ mod tests {
             kind: ft_plugins::Kind::Tool,
             locales: Default::default(),
             icon: String::new(),
+            image: String::new(),
         }
     }
 
@@ -4457,7 +4469,7 @@ mod tests {
             r#"{"id":"com.flickertalk.game.chess","name":"Chess","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-chess"],"kind":"game","permissions":{"live":true}}"#,
         )
         .unwrap();
-        let view = plugin_view(ft_core::plugins::InstalledPlugin { manifest, granted: Default::default(), installed_at: 7 });
+        let view = plugin_view(ft_core::plugins::InstalledPlugin { manifest, granted: Default::default(), installed_at: 7, image: String::new() });
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(json["kind"], "game");
         assert_eq!((json["id"].as_str(), json["installedAt"].as_i64()), (Some("com.flickertalk.game.chess"), Some(7)));
@@ -4473,7 +4485,7 @@ mod tests {
             r#"{"id":"com.flickertalk.list","name":"List","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-list"],"summary":"A list.","locales":{"es":{"name":"Listas","summary":"Una lista."}}}"#,
         )
         .unwrap();
-        let view = plugin_view(ft_core::plugins::InstalledPlugin { manifest: manifest.clone(), granted: Default::default(), installed_at: 7 });
+        let view = plugin_view(ft_core::plugins::InstalledPlugin { manifest: manifest.clone(), granted: Default::default(), installed_at: 7, image: String::new() });
         assert_eq!(serde_json::to_value(&view).unwrap()["locales"]["es"]["name"], "Listas");
 
         let seed = serde_json::to_value(offered_from(manifest, 4096)).unwrap();
@@ -4512,7 +4524,7 @@ mod tests {
         .unwrap();
         let plain = ft_plugins::Manifest { icon: String::new(), ..drawn.clone() };
         let installed = |manifest: &ft_plugins::Manifest| {
-            serde_json::to_value(plugin_view(ft_core::plugins::InstalledPlugin { manifest: manifest.clone(), granted: Default::default(), installed_at: 7 }))
+            serde_json::to_value(plugin_view(ft_core::plugins::InstalledPlugin { manifest: manifest.clone(), granted: Default::default(), installed_at: 7, image: String::new() }))
                 .unwrap()
         };
         assert_eq!(installed(&drawn)["icon"], "list-outline");
