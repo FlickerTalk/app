@@ -250,3 +250,12 @@ ion-footer > * {
   --ion-safe-area-left: 0px;
   --ion-safe-area-right: 0px;
 }
+
+/* The apps as a grid of tiles (2026-10-08, plan of the apps grid): in the Apps tab and in the chat's
+   apps sheet. Columns of at least 84 px, as many as fit: four on a phone, more on a wide screen. */
+.ft-app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 18px 8px;
+  padding: 12px 16px;
+}

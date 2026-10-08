@@ -13,10 +13,11 @@ export const routes: RouteRecordRaw[] = [
       { path: "", redirect: "/tabs/chats" },
       { path: "chats", component: () => import("./views/ChatsPage.vue") },
       { path: "calls", component: () => import("./views/CallsPage.vue") },
-      // Plan 10.3 (app 1.3.0): games, where they can be downloaded. Games and plugins are tabs only
-      // when Settings says so (2026-10-05): the bar shows one of them, or neither.
-      { path: "games", component: () => import("./views/GamesPage.vue") },
-      { path: "plugins", component: () => import("./views/PluginsPage.vue") },
+      // 2026-10-08 (plan of the apps grid): the tools and the games, one tab. The games and the
+      // plugins had a tab each (Settings' choice, 2026-10-05); their addresses lead here now.
+      { path: "apps", component: () => import("./views/AppsPage.vue") },
+      { path: "games", redirect: "/tabs/apps" },
+      { path: "plugins", redirect: "/tabs/apps" },
       { path: "settings", component: () => import("./views/SettingsPage.vue") },
     ],
   },
@@ -31,7 +32,8 @@ export const routes: RouteRecordRaw[] = [
   { path: "/blocked", component: () => import("./views/BlockedPage.vue") },
   { path: "/session", component: () => import("./views/SessionPage.vue") },
   { path: "/hours", component: () => import("./views/HoursPage.vue") },
-  { path: "/plugins", component: () => import("./views/PluginsPage.vue") },
+  // Settings → Plugins is gone (2026-10-08): its address opens the Apps tab.
+  { path: "/plugins", redirect: "/tabs/apps" },
   // A plugin on its own (2026-09-27): from Settings, or from a reminder it set.
   { path: "/plugin/:id", component: () => import("./views/PluginPage.vue") },
   // The Plan screen is gone (2026-10-08): its address opens the Premium section of Settings.

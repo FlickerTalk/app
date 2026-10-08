@@ -7,16 +7,24 @@ describe("routes", () => {
     expect(routes.find((route) => route.path === "/")?.redirect).toBe("/tabs/chats");
   });
 
-  it("exposes chats, calls, games, plugins and settings as tabs", () => {
+  it("exposes chats, calls, apps and settings as tabs", () => {
     const tabs = routes.find((route) => route.path === "/tabs/");
-    expect(tabs?.children?.map((child) => child.path)).toEqual(
-      expect.arrayContaining(["chats", "calls", "games", "plugins", "settings"]),
-    );
+    expect(tabs?.children?.map((child) => child.path)).toEqual(expect.arrayContaining(["chats", "calls", "apps", "settings"]));
+    expect(tabs?.children?.find((child) => child.path === "apps")?.component).toBeDefined();
   });
 
-  // The plugins keep their own screen too: Settings opens it, and so does a plugin's reminder.
-  it("keeps the plugins screen outside the tabs as well", () => {
-    expect(routes.some((route) => route.path === "/plugins")).toBe(true);
+  // 2026-10-08 (plan of the apps grid): the games and the plugins are one Apps tab now; their old
+  // addresses (a tab each, and Settings → Plugins) lead there.
+  it("sends the old games and plugins addresses to the Apps tab", () => {
+    const tabs = routes.find((route) => route.path === "/tabs/");
+    for (const path of ["games", "plugins"]) {
+      const child = tabs?.children?.find((one) => one.path === path);
+      expect(child?.redirect, path).toBe("/tabs/apps");
+      expect(child?.component, path).toBeUndefined();
+    }
+    const plugins = routes.find((route) => route.path === "/plugins");
+    expect(plugins?.redirect).toBe("/tabs/apps");
+    expect(plugins?.component).toBeUndefined();
   });
 
   it("has a screen for the welcome, adding contacts, a contact and a call", () => {
