@@ -153,14 +153,16 @@ function dismissed() {
    the sheet is wide: what it says keeps a phone's measure, centred. */
 .ft-app-sheet__body {
   box-sizing: border-box;
-  max-height: calc(100vh - var(--ion-safe-area-top, 0px) - 24px);
-  max-height: calc(100dvh - var(--ion-safe-area-top, 0px) - 24px);
+  /* Ionic sets --ion-safe-area-top to 0 inside a modal: the system's own inset counts too, or a
+     tall sheet reaches under the status bar (second device review). */
+  max-height: calc(100vh - max(var(--ion-safe-area-top, 0px), env(safe-area-inset-top, 0px)) - 24px);
+  max-height: calc(100dvh - max(var(--ion-safe-area-top, 0px), env(safe-area-inset-top, 0px)) - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
   max-width: 560px;
   margin-inline: auto;
   padding: 26px 20px 20px;
-  padding-bottom: calc(20px + var(--ion-safe-area-bottom, 0px));
+  padding-bottom: calc(20px + max(var(--ion-safe-area-bottom, 0px), env(safe-area-inset-bottom, 0px)));
 }
 .ft-app-sheet__head {
   display: flex;

@@ -74,6 +74,10 @@ describe("AppSheet", () => {
     expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*overflow-y:\s*auto/);
     expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*max-height:/);
     expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*padding-bottom:[^;]*--ion-safe-area-bottom/);
+    // Second device review: Ionic sets --ion-safe-area-top to 0 inside a modal, so a tall sheet
+    // reached under the status bar. The system's own inset counts too, at the top and the bottom.
+    expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*max-height:[^;]*env\(safe-area-inset-top/);
+    expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*padding-bottom:[^;]*env\(safe-area-inset-bottom/);
   });
 
   it("shows nothing while closed", () => {
