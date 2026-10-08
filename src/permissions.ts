@@ -92,3 +92,25 @@ export function withPermission(plugin: PluginView, key: string, on: boolean): Pl
   }
   return granted;
 }
+
+/**
+ * The permission `key` if the plugin asked for it and lacks it (Ioan, 2026-10-08): what the app
+ * offers to turn on, on the spot, when the plugin asks for something that needs it. Read from the
+ * same lines as the switches, never from the core's words. Nothing for a permission it never asked
+ * for (the user could not grant it) or one it has.
+ */
+export function missingPermission(plugin: PluginView, key: string): PermissionLine | undefined {
+  const line = permissionsOf(plugin).find((one) => one.key === key);
+  return line && !line.on ? line : undefined;
+}
+
+/**
+ * The host a plugin's fetch goes to, as the core reads it (`host_of` in ft-core's `web.rs`):
+ * https only, no user in front of it, without the port, in lower case. Nothing otherwise.
+ */
+export function hostOf(url: string): string | undefined {
+  if (!url.startsWith("https://")) return undefined;
+  const authority = url.slice("https://".length).split(/[/?#]/)[0];
+  if (!authority || authority.includes("@")) return undefined;
+  return authority.split(":")[0].toLowerCase() || undefined;
+}
