@@ -1479,6 +1479,18 @@ class PlatformPlugin: Plugin {
         await currentEntitlements()
     }
 
+    /// The link the phone opened the app with (Universal Links, 2026-10-08), once; empty if none.
+    @objc public func openedLink(_ invoke: Invoke) throws {
+        invoke.resolve(["url": OpenedLinks.shared.take()])
+    }
+
+    /// The app listens for links that open it while it runs (`listen_links`).
+    @objc public func registerLinkEvents(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(CallEventsArgs.self)
+        OpenedLinks.shared.register { args.channel.send(["event": "linkOpened"] as JsonObject) }
+        invoke.resolve()
+    }
+
     /// The core listens to the Store's changes (`listen_entitlements`): what waited goes out now.
     @objc public func registerEntitlementEvents(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(CallEventsArgs.self)

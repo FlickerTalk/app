@@ -282,6 +282,39 @@ struct PendingReminder {
     reminder: String,
 }
 
+/// What the native `openedLink` command resolves with (links that open the app, 2026-10-08): the
+/// URL the phone opened the app with, once; empty when there is none.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct OpenedLinkWire {
+    #[serde(default)]
+    url: Option<String>,
+}
+
+#[cfg_attr(not(mobile), allow(dead_code))]
+impl OpenedLinkWire {
+    fn url(self) -> Option<String> {
+        self.url.filter(|url| !url.is_empty())
+    }
+}
+
+/// Arguments of the native `registerLinkEvents` command: the channel, like the calls'.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct LinkEvents<'a> {
+    channel: &'a tauri::ipc::Channel<serde_json::Value>,
+}
+
+/// Whether what came through the link channel says a link opened the app: `{"event":"linkOpened"}`.
+#[cfg_attr(not(mobile), allow(dead_code))]
+fn link_opened(body: tauri::ipc::InvokeResponseBody) -> bool {
+    #[derive(Deserialize)]
+    struct Wire {
+        event: String,
+    }
+    body.deserialize::<Wire>().is_ok_and(|wire| wire.event == "linkOpened")
+}
+
 /// Arguments of the native `authorize` command (drive, 2026-09-27): the login page to open in
 /// the system's browser sheet, and the scheme the provider sends the user back with.
 #[derive(Serialize)]
@@ -789,6 +822,38 @@ impl<R: Runtime> Platform<R> {
         }
     }
 
+    /// The link the phone opened the app with (App Links on Android, Universal Links on iOS), once:
+    /// the native side forgets it as it hands it over. `None` when there is none, and on desktop.
+    pub fn opened_link(&self) -> Result<Option<String>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<OpenedLinkWire>("openedLink", ())?.url())
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(None)
+        }
+    }
+
+    /// Hears a link open the app while it runs (`LinkOpened`): the handler then asks for it with
+    /// `opened_link`. A second call replaces the handler. It runs on a native thread: it must not
+    /// block. On desktop it does nothing.
+    pub fn listen_links(&self, handler: impl Fn() + Send + Sync + 'static) {
+        #[cfg(mobile)]
+        {
+            let channel = tauri::ipc::Channel::new(move |body| {
+                if link_opened(body) {
+                    handler();
+                }
+                Ok(())
+            });
+            // Only fails if the plugin is not loaded, and then no link can open the app.
+            let _ = self.run("registerLinkEvents", LinkEvents { channel: &channel });
+        }
+        #[cfg(not(mobile))]
+        let _ = handler;
+    }
+
     /// Opens a login page in the system's browser sheet (Custom Tabs, `ASWebAuthenticationSession`)
     /// and waits for the provider to send the user back with `scheme`. Returns that URL. The
     /// WebView never sees the page nor the tokens (§54).
@@ -1004,6 +1069,35 @@ mod tests {
         assert_eq!(read(r#"{"until":0}"#), Some(0));
         assert_eq!(read(r#"{"price":"0,99 €"}"#), None);
         assert_eq!(read("not json"), None);
+    }
+
+    // Links that open the app (App Links, Universal Links): Swift and Kotlin resolve `openedLink`
+    // with the URL the phone opened the app with, once, empty when there is none.
+    #[test]
+    fn an_opened_link_comes_back_as_swift_and_kotlin_resolve_it() {
+        let opened: OpenedLinkWire = serde_json::from_value(serde_json::json!({ "url": "https://flickertalk.com/add#card" })).unwrap();
+        assert_eq!(opened.url(), Some("https://flickertalk.com/add#card".to_owned()));
+        for none in [serde_json::json!({ "url": "" }), serde_json::json!({}), serde_json::json!({ "url": null })] {
+            let opened: OpenedLinkWire = serde_json::from_value(none).unwrap();
+            assert_eq!(opened.url(), None);
+        }
+    }
+
+    // What they send through the link channel when a link opens the app that runs already.
+    #[test]
+    fn a_link_opened_event_is_read_as_the_native_side_sends_it() {
+        let read = |json: &str| link_opened(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert!(read(r#"{"event":"linkOpened"}"#));
+        assert!(!read(r#"{"event":"answer"}"#));
+        assert!(!read("not json"));
+    }
+
+    // A desktop is never opened by a link.
+    #[cfg(not(mobile))]
+    #[test]
+    fn a_desktop_has_no_opened_link() {
+        let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
+        assert_eq!(platform.opened_link().ok(), Some(None));
     }
 
     // A desktop has no store: no price, and no error either.
