@@ -103,6 +103,7 @@ export function installFakeCore() {
       {
         id: "com.flickertalk.markdown",
         icon: "logo-markdown",
+        image: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a74f0"/><circle cx="32" cy="32" r="14" fill="#fff"/></svg>',
         name: "Markdown",
         version: "1.0.0",
         asks: { network: [], messages: false, send: "propose" },
@@ -121,6 +122,7 @@ export function installFakeCore() {
       {
         id: "com.flickertalk.game.tictactoe",
         icon: "grid-outline",
+        image: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a74f0"/><circle cx="32" cy="32" r="14" fill="#fff"/></svg>',
         name: "Tic-tac-toe",
         version: "1.0.0",
         kind: "game",
