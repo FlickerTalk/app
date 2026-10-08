@@ -509,6 +509,7 @@ async fn following_does_not_unlock_the_tool_outside_the_call() {
     let mut bob_events = bob.core.events();
     alice.core.present_in_call(&call, TOOL, None).await.expect("alice presents");
     next_presenting(&mut bob_events, &call).await;
+    assert!(plan_changed(&mut bob_events).await, "the WebView serves the tool");
     bob.core.open_plugin(TOOL).await.expect("bob follows it");
 
     bob.core.end_call(&call, false).await.expect("bob hangs up");
