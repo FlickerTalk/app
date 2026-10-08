@@ -113,8 +113,11 @@ const isActive = (path: string) => route.path.startsWith(path);
     background 0.2s,
     color 0.2s;
 }
-.ft-rail__item:hover .ft-rail__pill {
-  background: var(--ft-surface-2);
+/* Only for a pointer that hovers: after a touch on Android the pill stayed (device review). */
+@media (hover: hover) {
+  .ft-rail__item:hover .ft-rail__pill {
+    background: var(--ft-surface-2);
+  }
 }
 .ft-rail__item.is-active {
   color: var(--ft-accent);

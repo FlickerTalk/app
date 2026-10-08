@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { seed } from "../__tests__/seed";
 import NavRail from "./NavRail.vue";
+import source from "./NavRail.vue?raw";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({
@@ -49,5 +50,15 @@ describe("NavRail", () => {
     const wrapper = mount(NavRail, { shallow: true });
     await wrapper.find("button[aria-label='Chats']").trigger("click");
     expect(push).toHaveBeenCalledWith("/tabs/chats");
+  });
+
+  // Device review of app#121: on Android the hover pill stayed after a touch. It is for a pointer
+  // that hovers only.
+  it("shows the hover pill only where the pointer can hover", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    const hover = styles.indexOf(".ft-rail__item:hover");
+    expect(hover).toBeGreaterThan(0);
+    const before = styles.slice(0, hover);
+    expect(before).toMatch(/@media \(hover: hover\) \{\s*$/);
   });
 });
