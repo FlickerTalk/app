@@ -922,3 +922,164 @@ describe("video on the desktop", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_video_layout", expect.anything());
   });
 });
+
+describe("presenting in a call", () => {
+  let current: Record<string, unknown> | null;
+  let refusal: string | null;
+
+  function answers(command: string) {
+    switch (command) {
+      case "core_native_calls":
+        return Promise.resolve(true);
+      case "core_call_start_native":
+        return Promise.resolve("call-1");
+      case "core_current_call":
+        return Promise.resolve(current);
+      case "core_calls":
+        return Promise.resolve([]);
+      case "core_call_present":
+        return refusal ? Promise.reject(refusal) : Promise.resolve(undefined);
+      default:
+        return Promise.resolve(undefined);
+    }
+  }
+
+  const event = (payload: Record<string, unknown>) => tauri.handlers["ft://call"]({ payload: { contact: "ft_bob", call: "call-1", ...payload } });
+
+  /** A call going on; `canPresent` as the core says it when it connects. */
+  async function live(canPresent = true) {
+    await calls.startCall("ft_bob", false);
+    event({ kind: "answered", sdp: "their-answer" });
+    event({ kind: "connected", canPresent });
+    await flushPromises();
+  }
+
+  beforeEach(async () => {
+    vi.useRealTimers();
+    current = null;
+    refusal = null;
+    tauri.invoke.mockReset();
+    tauri.invoke.mockImplementation(answers);
+    calls.media.getUserMedia = vi.fn();
+    calls.media.createPeer = vi.fn();
+    calls.media.ringback = { start: vi.fn(), stop: vi.fn() };
+    navigation.currentRoute.value.path = "/call/ft_bob";
+    localStorage.clear();
+    calls.reset();
+    await calls.startCalls();
+  });
+
+  it("starts a call with nothing presented, and no presenting until it connects", async () => {
+    await calls.startCall("ft_bob", false);
+    expect(calls.call.presenting).toBeNull();
+    expect(calls.call.canPresent).toBe(false);
+  });
+
+  it("learns from the core whether the call can present as it connects", async () => {
+    await live(true);
+    expect(calls.call.canPresent).toBe(true);
+  });
+
+  it("cannot present with an app that does not show presentations", async () => {
+    await live(false);
+    expect(calls.call.canPresent).toBe(false);
+  });
+
+  it("asks the core to present a plugin, with or without a chat file", async () => {
+    await live();
+    await calls.presentInCall("call-1", "com.flickertalk.board");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_present", { call: "call-1", plugin: "com.flickertalk.board", file: null });
+    await calls.presentInCall("call-1", "com.flickertalk.pdfviewer", "msg-7");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_present", { call: "call-1", plugin: "com.flickertalk.pdfviewer", file: "msg-7" });
+    expect(calls.call.presenting).toBeNull();
+  });
+
+  it("passes the core's refusal on, and tells an old app's apart", async () => {
+    await live();
+    refusal = "peer_cannot_present";
+    const error = await calls.presentInCall("call-1", "com.flickertalk.board").catch((caught: unknown) => caught);
+    expect(calls.cannotPresent(error)).toBe(true);
+    expect(calls.cannotPresent(new Error("peer_cannot_present"))).toBe(true);
+    expect(calls.cannotPresent("the other side is presenting")).toBe(false);
+  });
+
+  it("asks the core to stop presenting", async () => {
+    await live();
+    await calls.stopPresenting("call-1");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_call_present_stop", { call: "call-1" });
+  });
+
+  it("follows what the core says is presented, by either side, and its end", async () => {
+    await live();
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "me" });
+    await flushPromises();
+    expect(calls.call.presenting).toEqual({ plugin: "com.flickertalk.board", by: "me" });
+    event({ kind: "presenting", plugin: "com.flickertalk.pdfviewer", file: "msg-7", by: "them" });
+    await flushPromises();
+    expect(calls.call.presenting).toEqual({ plugin: "com.flickertalk.pdfviewer", file: "msg-7", by: "them" });
+    event({ kind: "presenting" });
+    await flushPromises();
+    expect(calls.call.presenting).toBeNull();
+  });
+
+  it("ignores a presentation in another call", async () => {
+    await live();
+    event({ call: "call-2", kind: "presenting", plugin: "com.flickertalk.board", by: "them" });
+    await flushPromises();
+    expect(calls.call.presenting).toBeNull();
+  });
+
+  it("forgets the presentation and presenting when the other side hangs up", async () => {
+    await live();
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "them" });
+    event({ kind: "ended", outcome: "answered" });
+    await flushPromises();
+    expect(calls.call.presenting).toBeNull();
+    expect(calls.call.canPresent).toBe(false);
+  });
+
+  it("forgets them when this side hangs up", async () => {
+    await live();
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "me" });
+    await flushPromises();
+    await calls.hangUp();
+    expect(calls.call.presenting).toBeNull();
+    expect(calls.call.canPresent).toBe(false);
+  });
+
+  it("restores a presentation the core has going on", async () => {
+    current = {
+      call: "c9",
+      contact: "ft_bob",
+      video: false,
+      outgoing: false,
+      phase: "active",
+      native: true,
+      muted: false,
+      connectedAt: 1,
+      canPresent: true,
+      presenting: { plugin: "com.flickertalk.pdfviewer", file: "msg-7", by: "them" },
+    };
+    calls.reset();
+    await calls.startCalls();
+    expect(calls.call).toMatchObject({ id: "c9", canPresent: true, presenting: { plugin: "com.flickertalk.pdfviewer", file: "msg-7", by: "them" } });
+  });
+
+  it("reads the presentation again when it comes back to the screen", async () => {
+    await live();
+    current = {
+      call: "call-1",
+      contact: "ft_bob",
+      video: false,
+      outgoing: true,
+      phase: "active",
+      native: true,
+      muted: false,
+      canPresent: true,
+      presenting: { plugin: "com.flickertalk.board", by: "them" },
+    };
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(calls.call.presenting).toEqual({ plugin: "com.flickertalk.board", by: "them" });
+  });
+});

@@ -50,6 +50,14 @@ export interface VideoLayout {
   localRadius: number;
 }
 
+/** What is presented in a call (2026-10-08): a plugin on both screens, and who leads it. */
+export interface Presenting {
+  plugin: string;
+  /** The chat file it shows (its message id), the same on both phones. */
+  file?: string;
+  by: "me" | "them";
+}
+
 export interface CallState {
   id: string;
   contact: string;
@@ -75,6 +83,10 @@ export interface CallState {
   cameraDenied: boolean;
   /** The camera was wanted and could not start (an encoder that cannot be set up, say): voice. */
   cameraFailed: boolean;
+  /** What is presented in the call, by either side; null when nothing is. */
+  presenting: Presenting | null;
+  /** The call is on and both apps show presentations (call media version 2). */
+  canPresent: boolean;
 }
 
 export interface CallEntry {
@@ -91,13 +103,19 @@ export interface CallEntry {
 interface CallEvent extends Partial<CallVideo> {
   contact: string;
   call: string;
-  kind: "incoming" | "answering" | "answered" | "connected" | "muted" | "ended" | "video" | "camera_failed";
+  kind: "incoming" | "answering" | "answered" | "connected" | "muted" | "ended" | "video" | "camera_failed" | "presenting";
   video?: boolean;
   /** `incoming`: the core answered it already, on the phone's own screen, before its offer came. */
   answered?: boolean;
   sdp?: string;
   outcome?: CallOutcome;
   muted?: boolean;
+  /** `connected`: whether a presentation can start. */
+  canPresent?: boolean;
+  /** `presenting`: none of them when nothing is presented any more. */
+  plugin?: string;
+  file?: string;
+  by?: "me" | "them";
 }
 
 /** The call the core has going on, for a WebView that comes up after it started. */
@@ -112,6 +130,8 @@ interface CurrentCall {
   native: boolean;
   muted: boolean;
   connectedAt?: number;
+  canPresent?: boolean;
+  presenting?: Presenting | null;
 }
 
 export const CALL_EVENT = "ft://call";
@@ -185,6 +205,8 @@ const idle = (): CallState => ({
   view: noVideo(),
   cameraDenied: false,
   cameraFailed: false,
+  presenting: null,
+  canPresent: false,
 });
 
 export const call = reactive<CallState>(idle());
@@ -290,6 +312,8 @@ function release() {
 function finish() {
   release();
   call.phase = "ended";
+  call.presenting = null;
+  call.canPresent = false;
 }
 
 /** Back to no call at all. */
@@ -456,6 +480,33 @@ export async function switchCamera(): Promise<void> {
   if (view) applyVideo(view);
 }
 
+/** What the core answers when the other side's app cannot show presentations. */
+export const CANNOT_PRESENT = "peer_cannot_present";
+
+export function cannotPresent(error: unknown): boolean {
+  return String(error instanceof Error ? error.message : error) === CANNOT_PRESENT;
+}
+
+/** What the core says is presented, as the call keeps it; null when nothing is. */
+function presentingOf(said: { plugin?: string | null; file?: string | null; by?: "me" | "them" | null } | null | undefined): Presenting | null {
+  if (!said?.plugin || !said.by) return null;
+  return said.file ? { plugin: said.plugin, file: said.file, by: said.by } : { plugin: said.plugin, by: said.by };
+}
+
+/**
+ * Presents a plugin in the call (2026-10-08), with the chat file it shows (its message id), if
+ * any. The core tells the other side, and both screens hear `presenting`. Rejects with
+ * `CANNOT_PRESENT` when the other app cannot show it.
+ */
+export async function presentInCall(callId: string, plugin: string, file?: string): Promise<void> {
+  await invoke("core_call_present", { call: callId, plugin, file: file ?? null });
+}
+
+/** Stops our presentation; the core tells the other side. */
+export async function stopPresenting(callId: string): Promise<void> {
+  await invoke("core_call_present_stop", { call: callId });
+}
+
 /** Whether a call shows pictures: either camera on. */
 const anyVideo = (view: CallVideo) => view.camera || view.remote;
 
@@ -492,6 +543,8 @@ async function followCore(): Promise<void> {
   const live = current.phase === "connecting" || current.phase === "active";
   if (call.phase === "ringing" && live) await answeredByTheCore();
   if (typeof current.video === "object" && current.video) applyVideo(current.video);
+  call.canPresent = Boolean(current.canPresent);
+  call.presenting = presentingOf(current.presenting);
 }
 
 /** A video's place on the screen, in CSS pixels. */
@@ -542,6 +595,7 @@ export async function loadHistory(): Promise<void> {
 }
 
 async function onEvent(event: CallEvent) {
+  if (event.call === call.id && event.kind === "connected") call.canPresent = Boolean(event.canPresent);
   if (event.kind === "incoming" && !busy()) {
     const video = Boolean(event.video);
     Object.assign(call, idle(), { id: event.call, contact: event.contact, video, phase: "ringing", speaker: video });
@@ -569,6 +623,8 @@ async function onEvent(event: CallEvent) {
     call.cameraFailed = true;
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
+  } else if (event.call === call.id && event.kind === "presenting") {
+    call.presenting = presentingOf(event);
   } else if (event.call === call.id && event.kind === "ended") {
     if (call.phase !== "ended") finish();
     call.outcome = event.outcome ?? null;
@@ -602,6 +658,8 @@ async function restoreCall(): Promise<void> {
     speaker: video,
     since: current.connectedAt ?? 0,
     view,
+    canPresent: Boolean(current.canPresent),
+    presenting: presentingOf(current.presenting),
   });
   offer = current.offer ?? "";
   setNative(current.native);
