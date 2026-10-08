@@ -10,13 +10,15 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use ft_core::net::{Network, Relay};
-use ft_core::{CallPhase, CallUpdate, Core, Event, MessageId, PresentedBy, Presenting, Transport, PEER_CANNOT_PRESENT};
+use ft_core::{CallPhase, CallUpdate, Core, Event, MessageId, PresentedBy, Presenting, Transport, NEEDS_SUBSCRIPTION, PEER_CANNOT_PRESENT};
+use ft_plugins::{sign_package, Kind, Permissions};
 use ft_media::testing::{fake_video, test_voice, DeviceProbe, ToneDevice};
 use ft_media::{Activation, AudioPlatform, CallRouting, MediaSession};
 use ft_push::RouterEvent;
 use ft_storage::Store;
 use ft_webrtc::SessionConfig;
 use tokio::sync::{broadcast, mpsc};
+use vodozemac::Ed25519SecretKey;
 
 #[derive(Default)]
 struct Bus {
@@ -406,4 +408,111 @@ async fn both_presenting_at_once_end_up_showing_the_same() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     assert!(agree(&alice, &bob).await, "and it stays so");
     alice.core.end_call(&call, false).await.unwrap();
+}
+
+const TOOL: &str = "com.example.board";
+const OTHER_TOOL: &str = "com.example.notes";
+const DAY: i64 = 24 * 60 * 60 * 1000;
+
+/// The phone's own clock, in ms, as the core counts it.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_millis() as i64
+}
+
+/// Installs these tools as the catalogue signs them, while the free days last.
+async fn install_tools(phone: &Phone, ids: &[&str]) {
+    let dir = std::env::temp_dir().join(format!("ft-present-plugins-{}", MessageId::new()));
+    std::fs::create_dir_all(&dir).expect("a folder for plugins");
+    phone.core.set_plugins_dir(dir);
+    let catalogue = Ed25519SecretKey::new();
+    for id in ids {
+        let manifest = format!(
+            r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"kind":"tool","permissions":{{"live":true}}}}"#
+        );
+        let package = sign_package(&[("module.json".to_owned(), manifest.into_bytes()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+        phone.core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs while free");
+    }
+}
+
+/// The free days ended yesterday and there is no subscription: the tools are closed
+/// (as `tests/billing.rs` moves the phone's clock).
+async fn lock_tools(phone: &Phone) {
+    let installed = now_ms() - 16 * DAY;
+    phone.core.store().set_setting("installed_at", &installed.to_string()).await.expect("sets");
+    assert!(!phone.core.may_use(Kind::Tool).await.unwrap(), "the tools are closed");
+}
+
+/// Whether the phone says, within a few seconds, that what may open changed.
+async fn plan_changed(events: &mut broadcast::Receiver<Event>) -> bool {
+    let heard = async {
+        loop {
+            if let Ok(Event::PlanChanged) = events.recv().await {
+                return;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), heard).await.is_ok()
+}
+
+// Ioan, 2026-10-08: watching a class is free. With his tools closed, Bob still opens the one
+// Alice presents while she presents it, and only that one; when she stops, it closes again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_student_with_locked_tools_may_follow_a_presentation() {
+    let (alice, bob) = two_phones().await;
+    install_tools(&alice, &[TOOL]).await;
+    install_tools(&bob, &[TOOL, OTHER_TOOL]).await;
+    lock_tools(&bob).await;
+    let call = connected_call(&alice, &bob).await;
+    assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("closed").to_string(), NEEDS_SUBSCRIPTION);
+
+    let mut bob_events = bob.core.events();
+    alice.core.present_in_call(&call, TOOL, None).await.expect("alice, in her free days, presents");
+    next_presenting(&mut bob_events, &call).await;
+    assert!(plan_changed(&mut bob_events).await, "the WebView serves the tool again");
+    bob.core.open_plugin(TOOL).await.expect("bob follows it");
+    assert!(bob.core.may_use_plugin(TOOL, Kind::Tool).await.unwrap());
+    let refused = bob.core.open_plugin(OTHER_TOOL).await.expect_err("only the one presented");
+    assert_eq!(refused.to_string(), NEEDS_SUBSCRIPTION);
+
+    alice.core.stop_presenting(&call).await.expect("she stops");
+    next_presenting(&mut bob_events, &call).await;
+    assert!(plan_changed(&mut bob_events).await, "and stops serving it");
+    assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("closed again").to_string(), NEEDS_SUBSCRIPTION);
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// Presenting is using the tool: with her tools closed, Alice may not present one, and Bob hears
+// nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_teacher_with_locked_tools_may_not_present() {
+    let (alice, bob) = two_phones().await;
+    install_tools(&alice, &[TOOL]).await;
+    install_tools(&bob, &[TOOL]).await;
+    lock_tools(&alice).await;
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    let refused = alice.core.present_in_call(&call, TOOL, None).await.expect_err("her tools are closed");
+    assert_eq!(refused.to_string(), NEEDS_SUBSCRIPTION);
+    assert!(quiet(&mut bob_events, &call, Duration::from_secs(3)).await, "bob hears nothing");
+    assert_eq!(presenting(&alice).await, None);
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+// Following opens the tool only inside the call: once it is over, the same open is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn following_does_not_unlock_the_tool_outside_the_call() {
+    let (alice, bob) = two_phones().await;
+    install_tools(&alice, &[TOOL]).await;
+    install_tools(&bob, &[TOOL]).await;
+    lock_tools(&bob).await;
+    let call = connected_call(&alice, &bob).await;
+    let mut bob_events = bob.core.events();
+    alice.core.present_in_call(&call, TOOL, None).await.expect("alice presents");
+    next_presenting(&mut bob_events, &call).await;
+    bob.core.open_plugin(TOOL).await.expect("bob follows it");
+
+    bob.core.end_call(&call, false).await.expect("bob hangs up");
+    assert!(plan_changed(&mut bob_events).await, "the WebView stops serving it");
+    assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("closed again").to_string(), NEEDS_SUBSCRIPTION);
+    assert!(!bob.core.may_use_plugin(TOOL, Kind::Tool).await.unwrap());
 }

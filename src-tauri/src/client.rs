@@ -1637,7 +1637,7 @@ async fn sync_reminders(app: &AppHandle, core: &Arc<Core>) {
 pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, dir: &Path) {
     let mut plugins = Vec::new();
     for plugin in core.plugins().await.unwrap_or_default() {
-        let open = core.may_use(plugin.manifest.kind).await.unwrap_or(false);
+        let open = core.may_use_plugin(&plugin.manifest.id, plugin.manifest.kind).await.unwrap_or(false);
         plugins.push((plugin, open));
     }
     app.state::<crate::plugins::Plugins>().set(served_of(plugins, dir));

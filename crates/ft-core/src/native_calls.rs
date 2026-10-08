@@ -966,6 +966,10 @@ impl Core {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
         ensure!(native.connected_at().is_some(), "the call is not on yet");
         ensure!(native.can_present(), crate::PEER_CANNOT_PRESENT);
+        // Presenting is using the tool (Ioan, 2026-10-08): a plugin this phone does not have
+        // counts as one.
+        let kind = self.plugin_manifest(plugin).map_or(ft_plugins::Kind::Tool, |manifest| manifest.kind);
+        self.usable(kind).await?;
         ensure!(!plugin.is_empty(), "no plugin to present");
         if let Some(file) = file {
             ensure!(self.file_in(&native.contact, &file.to_string()).await?, "not a file of this conversation");
@@ -1005,6 +1009,13 @@ impl Core {
         Ok(())
     }
 
+    /// Whether this phone follows `plugin` now: the call going on is active and the other side
+    /// presents that very plugin. Only the core's own state counts.
+    pub(crate) async fn following(&self, plugin: &str) -> Result<bool> {
+        let Some(current) = self.current_call().await? else { return Ok(false) };
+        Ok(current.phase == CallPhase::Active && followed(current.presenting.as_ref()).as_deref() == Some(plugin))
+    }
+
     /// Tells the other side what we present, with its `seq`, in the background.
     fn send_presenting(&self, native: &Arc<NativeCall>, seq: u32, plugin: Option<String>, file: Option<MessageId>) {
         let Some(core) = self.this.upgrade() else { return };
@@ -1039,9 +1050,11 @@ impl Core {
             return Ok(());
         }
         let mine_wins = mine_wins_clash(self.device_id().as_str(), &native.contact);
-        let (changed, withdrawal) = {
+        let (changed, withdrawal, followed_changed) = {
             let mut presenting = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
-            take_their_present(&mut presenting, &native.present_seq, plugin, file, mine_wins)
+            let before = followed(presenting.as_ref());
+            let (changed, withdrawal) = take_their_present(&mut presenting, &native.present_seq, plugin, file, mine_wins);
+            (changed, withdrawal, followed(presenting.as_ref()) != before)
         };
         if changed {
             self.announce_presenting(&native);
@@ -1049,6 +1062,10 @@ impl Core {
         if let Some(seq) = withdrawal {
             // Ours lost a clash: withdraw it, so a late copy of it never shows on their side.
             self.send_presenting(&native, seq, None, None);
+        }
+        if followed_changed {
+            // What may open changed: the WebView serves the followed tool, or stops serving it.
+            let _ = self.events.send(Event::PlanChanged);
         }
         Ok(())
     }
@@ -1135,6 +1152,10 @@ impl Core {
         };
         if let Some(native) = taken {
             self.shut_native(&native).await;
+            if followed(native.presenting().as_ref()).is_some() {
+                // The tool followed closes with the call.
+                let _ = self.events.send(Event::PlanChanged);
+            }
             // The follower stops with the call and would not tell it: the UI hears the video is
             // gone (nothing available, no camera) before it hears the call ended.
             if let Some(video) = &native.video {
@@ -1325,6 +1346,11 @@ fn next_seq(counter: &AtomicU32) -> u32 {
 /// device id sorts first keeps its presentation and the other takes it, so both show the same.
 fn mine_wins_clash(me: &str, them: &str) -> bool {
     me < them
+}
+
+/// The plugin this phone follows: the one the other side presents; none when we present.
+fn followed(now: Option<&Presenting>) -> Option<String> {
+    now.filter(|now| now.by == PresentedBy::Them).map(|now| now.plugin.clone())
 }
 
 /// Whether our camera may turn on: an older app's voice call has no video line at all.
@@ -1524,5 +1550,15 @@ mod tests {
         assert_eq!(take_their_present(&mut now, &ours_sent, board(), None, false), (true, None), "nothing of ours to withdraw");
         assert_eq!(take_their_present(&mut now, &ours_sent, None, None, false), (true, None), "their stop");
         assert_eq!(ours_sent.load(Ordering::SeqCst), 2, "only the withdrawal took a seq");
+    }
+
+    // 2026-10-08: only what the other side presents is followed (and opens with the tools closed).
+    #[test]
+    fn only_what_the_other_side_presents_is_followed() {
+        let theirs = Presenting { plugin: "com.example.board".to_owned(), file: None, by: PresentedBy::Them };
+        let mine = Presenting { by: PresentedBy::Me, ..theirs.clone() };
+        assert_eq!(followed(Some(&theirs)), Some("com.example.board".to_owned()));
+        assert_eq!(followed(Some(&mine)), None, "presenting is using the tool");
+        assert_eq!(followed(None), None);
     }
 }
