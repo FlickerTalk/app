@@ -836,6 +836,10 @@ impl Core {
         if native.connected_at.compare_exchange(0, now(), Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return;
         }
+        if plan_changes_on_connect(native.presenting().as_ref()) {
+            // Their presentation came before our connection: the followed tool is served now.
+            let _ = self.events.send(Event::PlanChanged);
+        }
         self.mark_call_stage(CallStage::Connected);
         if native.voice.connected().await.is_err() {
             // No microphone or speaker: a call nobody can hear is a failed call.
@@ -1353,6 +1357,13 @@ fn followed(now: Option<&Presenting>) -> Option<String> {
     now.filter(|now| now.by == PresentedBy::Them).map(|now| now.plugin.clone())
 }
 
+/// Whether our own connection coming up changes what may open: `following` needs the call
+/// active, and what the other side presents may have arrived before (it travels over the chat
+/// channel, not the call's media).
+fn plan_changes_on_connect(now: Option<&Presenting>) -> bool {
+    followed(now).is_some()
+}
+
 /// Whether our camera may turn on: an older app's voice call has no video line at all.
 fn camera_allowed(peer_media: u16, video_call: bool) -> bool {
     video_call || speaks_camera_state(peer_media)
@@ -1560,5 +1571,16 @@ mod tests {
         assert_eq!(followed(Some(&theirs)), Some("com.example.board".to_owned()));
         assert_eq!(followed(Some(&mine)), None, "presenting is using the tool");
         assert_eq!(followed(None), None);
+    }
+
+    // What the other side presents may arrive before our own connection is up (it travels over
+    // the chat channel): when it comes up, what may open changes, and only then.
+    #[test]
+    fn connecting_while_the_other_side_presents_changes_what_may_open() {
+        let theirs = Presenting { plugin: "com.example.board".to_owned(), file: None, by: PresentedBy::Them };
+        let mine = Presenting { by: PresentedBy::Me, ..theirs.clone() };
+        assert!(plan_changes_on_connect(Some(&theirs)), "the followed tool is served from now on");
+        assert!(!plan_changes_on_connect(Some(&mine)), "ours changes nothing");
+        assert!(!plan_changes_on_connect(None));
     }
 }
