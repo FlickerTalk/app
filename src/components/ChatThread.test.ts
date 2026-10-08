@@ -427,7 +427,14 @@ describe("ChatThread", () => {
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
     // The way out is always there, with the name of the tool next to it.
     expect(wrapper.find("[data-test='close-app']").exists()).toBe(true);
-    expect(wrapper.find(".ft-app__name").text()).toBe("Code block");
+    expect(wrapper.find(".ft-app__bar .ft-title").text()).toBe("Code block");
+    // Ioan, 2026-10-08: Ionic's own bar and button, as the game room's, never a hand-made one.
+    const close = wrapper.find("[data-test='close-app']");
+    expect(close.element.tagName).toBe("ION-BUTTON");
+    expect(close.element.closest("ion-toolbar")?.getAttribute("data-test")).toBe("app-bar");
+    expect(close.element.closest("ion-buttons")?.getAttribute("slot")).toBe("start");
+    expect(close.attributes("aria-label")).toBe("Back");
+    expect(wrapper.find("[data-test='app-bar'] ion-title").exists()).toBe(true);
   });
 
   // 2026-10-01 (§108): a plugin opened from a conversation of a hidden session is open in that
@@ -665,7 +672,7 @@ describe("ChatThread", () => {
       expect(wrapper.find("[data-test='app-com.flickertalk.notes'] .ft-app-tile__name").text()).toBe("Notas");
       await wrapper.find("[data-test='app-com.flickertalk.notes']").trigger("click");
       await flushPromises();
-      expect(wrapper.find(".ft-app__name").text()).toBe("Notas");
+      expect(wrapper.find(".ft-app__bar .ft-title").text()).toBe("Notas");
       expect(wrapper.find(".ft-app").attributes("aria-label")).toBe("Notas");
       await wrapper.find("[data-test='close-app']").trigger("click");
 

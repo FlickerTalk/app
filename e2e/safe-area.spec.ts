@@ -170,7 +170,7 @@ test.describe("a tool taller than the screen", () => {
       // (Polled: the apps sheet that opened the tool may still be sliding away over it.)
       await expect
         .poll(
-          () => app.evaluate(([top, under]) => [document.elementFromPoint(180, top / 2), document.elementFromPoint(180, under - 2)].map((one) => one?.closest("iframe, .ft-app__bar, .ft-app")?.className ?? "nothing"), [TOP, bar.y + bar.height] as const),
+          () => app.evaluate(([top, under]) => [document.elementFromPoint(180, top / 2), document.elementFromPoint(180, under - 2)].map((one) => one?.closest("iframe, .ft-app__bar, .ft-app")?.classList[0] ?? "nothing"), [TOP, bar.y + bar.height] as const),
           { message: to },
         )
         .toEqual(["ft-app", "ft-app__bar"]);
