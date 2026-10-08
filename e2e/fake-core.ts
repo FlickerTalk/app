@@ -102,6 +102,7 @@ export function installFakeCore() {
     plugins: [
       {
         id: "com.flickertalk.markdown",
+        icon: "logo-markdown",
         name: "Markdown",
         version: "1.0.0",
         asks: { network: [], messages: false, send: "propose" },
@@ -110,6 +111,7 @@ export function installFakeCore() {
       },
       {
         id: "com.flickertalk.sketch",
+        icon: "brush-outline",
         name: "Sketch",
         version: "1.0.0",
         asks: { network: [], messages: false, send: "propose" },
@@ -118,6 +120,7 @@ export function installFakeCore() {
       },
       {
         id: "com.flickertalk.game.tictactoe",
+        icon: "grid-outline",
         name: "Tic-tac-toe",
         version: "1.0.0",
         kind: "game",
@@ -130,6 +133,7 @@ export function installFakeCore() {
     catalogue: [
       {
         id: "com.flickertalk.game.chess",
+        icon: "shield-outline",
         name: "Chess",
         version: "1.0.0",
         summary: "Chess for two, move by move.",

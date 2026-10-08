@@ -39,6 +39,9 @@ describe("AppTile", () => {
     const locked = tile({ badge: "lock" });
     expect(icons(locked)).toEqual([imageOutline, lockClosedOutline]);
     expect(locked.find(".ft-app-tile__badge").classes()).toContain("ft-app-tile__badge--lock");
+    // The end-to-end tests look for the lock as they did on the rows before the grid.
+    expect(locked.find("[data-test='locked']").exists()).toBe(true);
+    expect(tile({ badge: "download" }).find("[data-test='locked']").exists()).toBe(false);
     expect(locked.find("button").attributes("aria-label")).toBe("Image, locked");
   });
 
@@ -121,6 +124,20 @@ describe("AppTile", () => {
     wrapper.find("button").element.dispatchEvent(menu);
     expect(menu.defaultPrevented).toBe(true);
     expect(wrapper.emitted("hold")).toHaveLength(1);
+  });
+
+  // Found end to end: a second right click held nothing, because no click had ended the first.
+  it("holds on every right click", async () => {
+    const wrapper = tile();
+    const button = wrapper.find("button");
+    for (let time = 0; time < 2; time += 1) {
+      await button.trigger("pointerdown", { button: 2, clientX: 10, clientY: 10 });
+      await button.trigger("contextmenu");
+      await button.trigger("pointerup", { button: 2 });
+    }
+    expect(wrapper.emitted("hold")).toHaveLength(2);
+    await button.trigger("click");
+    expect(wrapper.emitted("tap")).toHaveLength(1);
   });
 
   // Android's long press also opens the context menu: one hold, not two.

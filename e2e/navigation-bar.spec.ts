@@ -166,9 +166,9 @@ function installKeyboard() {
 const SCREENS: Array<{ path: string; many?: boolean }> = [
   { path: "/tabs/chats" },
   { path: "/tabs/calls" },
-  { path: "/tabs/games", many: true },
+  { path: "/tabs/apps", many: true },
+  { path: "/tabs/apps?show=games", many: true },
   { path: "/tabs/settings" },
-  { path: "/plugins", many: true },
   { path: "/blocked" },
   { path: "/hours" },
   { path: "/session" },

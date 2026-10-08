@@ -1,6 +1,6 @@
-// Settings → Plugins (found 2026-10-02): "Open" shares the remove button's reset and was drawn in its
-// danger red, so opening a plugin looked like removing it. It is the accent; remove stays red.
-import { expect, test } from "./helpers";
+// An app's sheet (2026-10-08, the Apps tab; found on Settings → Plugins on 2026-10-02): opening a
+// plugin must never look like removing it. Open is the accent; Remove is the danger red.
+import { expect, holdTile, test } from "./helpers";
 
 const MARKDOWN = "com.flickertalk.markdown";
 
@@ -13,21 +13,25 @@ for (const [direction, appearance] of [["mono", "dark"], ["ember", "light"]]) {
       },
       [direction, appearance],
     );
-    await app.goto("/plugins");
-    const open = app.getByTestId(`open-${MARKDOWN}`);
-    const remove = app.getByTestId(`remove-${MARKDOWN}`);
+    await app.goto("/tabs/apps");
+    await holdTile(app, `app-${MARKDOWN}`);
+    const open = app.getByTestId("sheet-open");
+    const remove = app.getByTestId("sheet-remove");
     await expect(open).toBeVisible();
-    // The accent as the browser resolves it, read off a probe painted with it.
-    const accent = await app.evaluate(() => {
-      const probe = document.createElement("span");
-      probe.style.color = "var(--ft-accent)";
-      document.body.append(probe);
-      const colour = getComputedStyle(probe).color;
-      probe.remove();
-      return colour;
-    });
-    const colour = (one: typeof open) => one.evaluate((node) => getComputedStyle(node).color);
-    expect(await colour(open)).toBe(accent);
-    expect(await colour(remove)).not.toBe(await colour(open));
+    // A colour as the browser resolves it, read off a probe painted with it.
+    const resolved = (colour: string) =>
+      app.evaluate((css) => {
+        const probe = document.createElement("span");
+        probe.style.color = css;
+        document.body.append(probe);
+        const seen = getComputedStyle(probe).color;
+        probe.remove();
+        return seen;
+      }, colour);
+    const native = (one: typeof open, property: "backgroundColor" | "color") =>
+      one.evaluate((node, which) => getComputedStyle(node.shadowRoot!.querySelector(".button-native")!)[which], property);
+    expect(await native(open, "backgroundColor")).toBe(await resolved("var(--ion-color-primary)"));
+    expect(await native(remove, "color")).toBe(await resolved("var(--ion-color-danger)"));
+    expect(await native(remove, "color")).not.toBe(await native(open, "backgroundColor"));
   });
 }

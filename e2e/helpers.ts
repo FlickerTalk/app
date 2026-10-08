@@ -59,6 +59,15 @@ export async function frameHeard(page: Page): Promise<unknown[]> {
   return frame ? frame.evaluate(() => (window as unknown as { heard: unknown[] }).heard) : [];
 }
 
+/**
+ * Holds an app's tile, as a long press would (2026-10-08, plan of the apps grid): a right click,
+ * which the tile takes as a hold. Its sheet opens; returns once its buttons are there.
+ */
+export async function holdTile(page: Page, testId: string): Promise<void> {
+  await page.getByTestId(testId).click({ button: "right" });
+  await expect(page.getByTestId("app-sheet")).toBeVisible();
+}
+
 /** A page with the fake core in place before the app loads. */
 export const test = base.extend<{ app: Page }>({
   app: async ({ page }, use) => {

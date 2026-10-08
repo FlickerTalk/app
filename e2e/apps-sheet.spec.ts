@@ -1,6 +1,7 @@
-// The chat's apps sheet (Ioan, 2026-10-02): Ionic's sheet modal with a segment for the plugins and
+// The chat's apps sheet (Ioan, 2026-10-02): Ionic's sheet modal with a segment for the tools and
 // one for the games, as the apps themselves open. On a phone it is the width of the screen; on a
-// tablet, beside the list, it covers exactly the chat pane. Long names are cut, not wrapped.
+// tablet, beside the list, it covers exactly the chat pane. Since 2026-10-08 the apps are tiles, as
+// in the Apps tab: a long name takes two lines at most, then it is cut.
 import type { Page } from "@playwright/test";
 import { expect, test } from "./helpers";
 
@@ -44,13 +45,13 @@ for (const appearance of ["dark", "light"]) {
         await app.addInitScript((chosen) => localStorage.setItem("ft-appearance", chosen), appearance);
       });
 
-      test("the sheet opens on the plugins, lies on the screen and switches to the games", async ({ app }) => {
+      test("the sheet opens on the tools, lies on the screen and switches to the games", async ({ app }) => {
         await app.goto(size.chat);
         await app.locator(size.apps).click();
         await expect(app.getByTestId("apps-tab-tools")).toHaveClass(/segment-button-checked/);
         await expect(app.getByTestId("app-com.flickertalk.markdown")).toBeVisible();
         // A dialog with a name, for a screen reader.
-        await expect(app.getByRole("dialog", { name: "Plugins" })).toBeVisible();
+        await expect(app.getByRole("dialog", { name: "Apps" })).toBeVisible();
         // One sheet, even with another page of the app kept behind this one.
         await expect(app.locator("ion-modal.ft-apps-sheet")).toHaveCount(1);
         const box = await sheetBox(app);
@@ -87,15 +88,18 @@ test("the back button closes the sheet and stays in the chat", async ({ app }) =
 
 test.describe("with many plugins, on a phone", () => {
   test.use({ viewport: { width: 360, height: 740 } });
-  test("a long name is cut, not wrapped", async ({ app }) => {
+  test("a long name takes two lines at most, then it is cut", async ({ app }) => {
     await app.addInitScript(() => ((window as unknown as Record<string, unknown>).__ftFakeManyPlugins = 30));
     await app.goto(`/chat/${BOB}`);
     await app.getByTestId("apps").click();
-    const label = app.getByTestId("app-com.example.tool00").locator("ion-label");
+    const label = app.getByTestId("app-com.example.tool00").locator(".ft-app-tile__name");
     await expect(label).toBeVisible();
-    // One line, cut with an ellipsis.
-    const cut = await label.evaluate((el) => ({ cut: el.scrollWidth > el.clientWidth, oneLine: el.getBoundingClientRect().height < 1.6 * parseFloat(getComputedStyle(el).fontSize) }));
-    expect(cut).toEqual({ cut: true, oneLine: true });
+    // Two lines, then cut with an ellipsis; the tiles of a row keep one height.
+    const cut = await label.evaluate((el) => {
+      const line = parseFloat(getComputedStyle(el).lineHeight);
+      return { cut: el.scrollHeight > el.clientHeight + 1, lines: Math.round(el.getBoundingClientRect().height / line) };
+    });
+    expect(cut).toEqual({ cut: true, lines: 2 });
     await shot(app, "phone-many-plugins-dark");
   });
 });

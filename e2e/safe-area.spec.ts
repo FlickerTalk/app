@@ -44,7 +44,7 @@ test("the chat's apps sheet keeps its last row above the navigation bar, on both
   await app.getByTestId("apps").click();
   await expect(app.getByTestId("app-com.flickertalk.sketch")).toBeVisible();
   await shot(app, "apps-tab");
-  await aboveTheBar(app, app.locator("[data-test='apps-sheet-tools'] ion-item").last());
+  await aboveTheBar(app, app.locator("[data-test='apps-sheet-tools'] .ft-app-tile").last());
 
   await app.getByTestId("apps-tab-games").click();
   await expect(app.getByTestId("more-games-link")).toBeVisible();
@@ -53,8 +53,8 @@ test("the chat's apps sheet keeps its last row above the navigation bar, on both
 });
 
 test("the games' permissions sheet and contact picker stay above the navigation bar", async ({ app }) => {
-  await app.goto("/tabs/games");
-  await app.getByTestId("play-com.flickertalk.game.tictactoe").click();
+  await app.goto("/tabs/apps?show=games");
+  await app.getByTestId("app-com.flickertalk.game.tictactoe").click();
   await expect(app.getByTestId("game-allow")).toBeVisible();
   await shot(app, "permissions-sheet");
   await aboveTheBar(app, app.getByTestId("game-allow"));
@@ -187,13 +187,24 @@ test.describe("a tool taller than the screen", () => {
   });
 });
 
-// The same report: Settings → Plugins ended under the bar too.
-test("Settings → Plugins, scrolled to its end, ends above the bar", async ({ app }) => {
+// The same report: Settings → Plugins ended under the bar too. Its place is the Apps tab now.
+test("the Apps tab, scrolled to its end, ends above the bar", async ({ app }) => {
   await app.addInitScript(() => ((window as unknown as Record<string, unknown>).__ftFakeManyPlugins = 12));
-  await app.goto("/plugins");
-  const last = app.locator("ion-content ion-list").last();
+  await app.goto("/tabs/apps");
+  const page = app.locator(".ion-page:not(.ion-page-hidden) ion-content.ft-apps");
+  const last = page.locator("[data-test='apps-offline'], [data-test='apps-all-here'], [data-test='apps-more'] .ft-app-tile").last();
   await expect(last).toBeVisible();
-  await app.locator("ion-content").last().evaluate((content) => (content as HTMLIonContentElement).scrollToBottom(0));
+  await page.evaluate((content) => (content as HTMLIonContentElement).scrollToBottom(0));
   await aboveTheBar(app, last);
+});
+
+// An app's sheet (2026-10-08): scrolled to its end, Remove is above the bar.
+test("an app's sheet, scrolled to its end, keeps Remove above the bar", async ({ app }) => {
+  await app.goto("/tabs/apps");
+  await app.getByTestId("app-com.flickertalk.markdown").click({ button: "right" });
+  await expect(app.getByTestId("sheet-remove")).toBeVisible();
+  await app.locator("ion-modal.ft-app-sheet ion-content").evaluate((content) => (content as HTMLIonContentElement).scrollToBottom(0));
+  await shot(app, "app-sheet");
+  await aboveTheBar(app, app.getByTestId("sheet-remove"));
 });
 

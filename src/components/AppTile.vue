@@ -60,9 +60,9 @@ function hold() {
 }
 
 function down(event: PointerEvent) {
-  if (event.button !== 0) return;
   cancel();
   held = false;
+  if (event.button !== 0) return;
   start = { x: event.clientX, y: event.clientY };
   timer = setTimeout(hold, HOLD_MS);
 }
@@ -80,11 +80,16 @@ function click() {
   emit("tap");
 }
 
-/** A right click, or the menu Android opens on a long press: one hold, never the browser's menu. */
+/**
+ * A right click, or the menu Android opens on a long press: one hold, never the browser's menu.
+ * During a press (the timer running) it is that press's hold, and the click ending it is no tap;
+ * a right click has no click after it, so nothing is held over for the next one.
+ */
 function menu(event: Event) {
   event.preventDefault();
-  if (held && timer === undefined) return;
-  hold();
+  if (held) return;
+  if (timer !== undefined) return hold();
+  emit("hold");
 }
 
 /** Enter and Space click the button by themselves; Shift+Enter holds. */
@@ -117,7 +122,13 @@ onBeforeUnmount(cancel);
     <span class="ft-app-tile__icon">
       <ion-icon :icon="icon" aria-hidden="true" />
       <ion-spinner v-if="busy" name="crescent" class="ft-app-tile__spinner" aria-hidden="true" />
-      <span v-if="badge" class="ft-app-tile__badge" :class="`ft-app-tile__badge--${badge}`" aria-hidden="true">
+      <span
+        v-if="badge"
+        class="ft-app-tile__badge"
+        :class="`ft-app-tile__badge--${badge}`"
+        :data-test="badge === 'lock' ? 'locked' : undefined"
+        aria-hidden="true"
+      >
         <ion-icon :icon="BADGES[badge]" />
       </span>
     </span>
