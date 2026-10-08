@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { nextTick } from "vue";
-import { IonIcon } from "@ionic/vue";
+import { IonActionSheet, IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
+import { installTauri } from "../__tests__/tauri";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
+import { chat } from "../core";
 import { setLocale } from "../i18n";
 import { callScreenGone } from "../call-screen";
+import GamePermissions from "../components/GamePermissions.vue";
 import CallPage from "./CallPage.vue";
 import { pageShape } from "../__tests__/page-shape";
 import source from "./CallPage.vue?raw";
@@ -15,6 +18,7 @@ const route = { params: { id: "c1" }, query: {} as Record<string, string> };
 const nav = {
   back: vi.fn(),
   replace: vi.fn(),
+  push: vi.fn(),
   afterEach: vi.fn(() => () => undefined),
   currentRoute: { value: { path: "/call/c1" } },
 };
@@ -27,6 +31,12 @@ vi.mock("@tauri-apps/api/app", () => ({
     back.handler = handler;
     return { unregister: async () => (back.handler === handler ? (back.handler = null) : undefined) };
   },
+}));
+// Ionic's toasts are overlays of the real app; here, what the screen asks of them.
+const toast = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock("@ionic/vue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@ionic/vue")>()),
+  toastController: { create: toast.create },
 }));
 
 describe("CallPage", () => {
@@ -583,5 +593,171 @@ describe("CallPage with native video", () => {
   // Ionic's transitions look for them, with nothing of ours in between.
   it("is an Ionic page: the call fills its content, with no header", () => {
     expect(pageShape(mount(CallPage, { shallow: true }))).toEqual(["ion-content"]);
+  });
+});
+
+// Presenting in a call (docs/plan-presentar-en-llamada.md, 2026-10-08).
+describe("CallPage presenting", () => {
+  const BOARD = "com.flickertalk.board";
+  const PDF = "com.flickertalk.pdfviewer";
+  const tool = (id: string, name: string, live: boolean) => ({
+    id, name, version: "1.1.0", installedAt: 1,
+    asks: { network: [], messages: false, send: "nothing", live: true },
+    granted: { network: [], messages: false, send: "nothing", live },
+  });
+  let tools: unknown[] = [];
+  let messages: unknown[] = [];
+  let planState = "trial";
+  let picked = { path: "/data/uploads/class.pdf", name: "class.pdf", mime: "application/pdf", size: 1_000_000 };
+  const hooks: Record<string, () => unknown> = {};
+  const invoked: Array<[string, Record<string, unknown> | undefined]> = [];
+  const sent = (command: string) => invoked.filter(([one]) => one === command).map(([, args]) => args);
+  const view = (patch: Partial<typeof call.view> = {}) => ({ available: true, camera: false, paused: false, facing: "front" as const, remote: false, remotePaused: false, ...patch });
+  const active = (patch: Record<string, unknown> = {}) =>
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: false, view: view(), canPresent: true, ...patch });
+  const open = async () => {
+    const wrapper = mount(CallPage, { shallow: true });
+    await flushPromises();
+    return wrapper;
+  };
+
+  beforeEach(() => {
+    seed();
+    resetCalls();
+    route.query = {};
+    nav.push.mockReset();
+    toast.create.mockReset().mockResolvedValue({ present: vi.fn() });
+    window.history.replaceState({ back: "/chat/c1" }, "");
+    document.documentElement.className = "";
+    tools = [tool(BOARD, "Board", true), tool(PDF, "PDF viewer", true)];
+    messages = [];
+    planState = "trial";
+    picked = { path: "/data/uploads/class.pdf", name: "class.pdf", mime: "application/pdf", size: 1_000_000 };
+    for (const key of Object.keys(hooks)) delete hooks[key];
+    invoked.length = 0;
+    installTauri((command, args) => {
+      invoked.push([command, args]);
+      if (hooks[command]) return hooks[command]();
+      if (command === "core_plugins") return tools;
+      if (command === "core_messages") return messages;
+      if (command === "core_plan") return { state: planState, until: 0 };
+      if (command === "core_pick_files") return [picked];
+      if (command === "core_read_message_file") return { name: "class.pdf", mime: "application/pdf", data: "JVBERi0=" };
+      if (command === "core_conversations" || command === "core_requests") return [];
+      return undefined;
+    });
+  });
+
+  it("offers to present only on an active call with a phone that can see it", async () => {
+    active({ canPresent: false });
+    expect((await open()).find("[data-test='present']").exists()).toBe(false);
+    active({ phase: "calling" });
+    expect((await open()).find("[data-test='present']").exists()).toBe(false);
+    active();
+    const button = (await open()).find("[data-test='present']");
+    expect(button.attributes("aria-label")).toBe("Present");
+  });
+
+  it("presents the whiteboard from Ionic's sheet", async () => {
+    active();
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    const sheet = wrapper.findComponent(IonActionSheet);
+    expect(sheet.props("isOpen")).toBe(true);
+    const buttons = sheet.props("buttons") as Array<{ text: string; icon?: string; handler?: () => void }>;
+    expect(buttons.map((one) => one.text)).toEqual(["Whiteboard", "Document (PDF)", "Cancel"]);
+    expect(buttons.slice(0, 2).every((one) => typeof one.icon === "string")).toBe(true);
+    buttons[0].handler?.();
+    await flushPromises();
+    expect(actions.presentInCall).toHaveBeenCalledWith("x", BOARD);
+  });
+
+  it("sends the chosen PDF as a file of the chat, then presents that message", async () => {
+    active();
+    hooks.core_send_picked = () => {
+      chat("c1")!.messages.push({ id: "m-pdf", mine: true, text: "", time: "", sentAt: 2, kind: "file", file: { name: "class.pdf", size: "1 MB", mime: "application/pdf", progress: 0, state: "sending" } });
+    };
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[1].handler?.();
+    await flushPromises();
+    expect(sent("core_pick_files")).toEqual([{ accept: "application/pdf" }]);
+    expect(sent("core_send_picked")).toEqual([{ contact: "c1", file: picked }]);
+    expect(actions.presentInCall).toHaveBeenCalledWith("x", PDF, "m-pdf");
+  });
+
+  it("refuses a PDF too big to present, and sends nothing", async () => {
+    active();
+    picked = { ...picked, size: 40 * 1024 * 1024 };
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[1].handler?.();
+    await flushPromises();
+    expect(sent("core_send_picked")).toEqual([]);
+    expect(actions.presentInCall).not.toHaveBeenCalled();
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "This PDF is too big to present (32 MB at most)" }));
+  });
+
+  it("asks once for the live channel before presenting with a tool that lacks it", async () => {
+    active();
+    tools = [tool(BOARD, "Board", false), tool(PDF, "PDF viewer", false)];
+    hooks.core_plugin_grant = () => {
+      tools = [tool(BOARD, "Board", true), tool(PDF, "PDF viewer", false)];
+    };
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    const ask = wrapper.findComponent(GamePermissions);
+    expect(ask.props("open")).toBe(true);
+    expect(ask.props("body")).toBe("Talk to the same plugin on the other side of the chat");
+    expect(actions.presentInCall).not.toHaveBeenCalled();
+    ask.vm.$emit("allow");
+    await flushPromises();
+    expect(sent("core_plugin_grant")[0]).toMatchObject({ plugin: BOARD, granted: { live: true } });
+    expect(actions.presentInCall).toHaveBeenCalledWith("x", BOARD);
+  });
+
+  it("takes a locked tool to the subscription instead of presenting", async () => {
+    active();
+    planState = "limited";
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
+    expect(actions.presentInCall).not.toHaveBeenCalled();
+  });
+
+  // The mock's `cannotPresent` is the real rule: only `peer_cannot_present` means their app is old.
+  it("says their app is too old when the core refuses for that, and that it failed otherwise", async () => {
+    active();
+    actions.presentInCall.mockRejectedValueOnce(new Error("peer_cannot_present"));
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "Their app can't show presentations yet" }));
+    actions.presentInCall.mockRejectedValueOnce(new Error("busy"));
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(toast.create).toHaveBeenLastCalledWith(expect.objectContaining({ message: "The presentation couldn't start" }));
+  });
+
+  it("hides Present while the other side presents", async () => {
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.find("[data-test='present']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='stop-presenting']").exists()).toBe(false);
+  });
+
+  it("stops presenting from the top corner, where Present was", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    expect(wrapper.find("[data-test='present']").exists()).toBe(false);
+    const stop = wrapper.find("[data-test='stop-presenting']");
+    expect(stop.attributes("aria-label")).toBe("Stop presenting");
+    await stop.trigger("click");
+    expect(actions.stopPresenting).toHaveBeenCalledWith("x");
   });
 });

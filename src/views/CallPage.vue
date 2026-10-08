@@ -1,30 +1,39 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from "vue";
-import { IonButton, IonContent, IonIcon, IonPage, onIonViewDidEnter, onIonViewWillLeave } from "@ionic/vue";
+import { IonActionSheet, IonButton, IonContent, IonIcon, IonPage, onIonViewDidEnter, onIonViewWillLeave, toastController } from "@ionic/vue";
 import {
   callOutline,
   cameraReverseOutline,
   chevronDown,
+  documentOutline,
+  easelOutline,
   micOffOutline,
   micOutline,
   pauseCircleOutline,
   phonePortraitOutline,
+  stopCircleOutline,
   videocamOffOutline,
   videocamOutline,
   volumeHighOutline,
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
+import GamePermissions from "../components/GamePermissions.vue";
 import { closeOnBackWhile, goBack } from "../back";
 import { callScreenMounted } from "../call-screen";
-import { chat } from "../core";
+import { PREMIUM_PAGE, chat, grantPlugin, loadMessages, pickFiles, sendPicked } from "../core";
+import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
+import { PRESENT_BOARD, PRESENT_DOCUMENT, PRESENT_FILE_LIMIT, SEND_WAIT, canPresentWith, needsPresentGrant, presentGrant, sentFile, waitFor } from "../present";
 import {
   call,
+  cannotPresent,
   hangUp,
   hideVideo,
   layoutVideo,
+  presentInCall,
   rectOf,
   startCall,
+  stopPresenting,
   switchCamera,
   toggleCamera,
   toggleMute,
@@ -61,6 +70,96 @@ const state = computed(() => {
       return t("calls.connecting");
   }
 });
+
+// ---- Presenting (docs/plan-presentar-en-llamada.md, 2026-10-08) ----
+// A whiteboard or a PDF fills the call screen on both phones; the core says who presents
+// (`call.presenting`), the app opens the tool. A tool talks to its twin only with `live`, asked
+// once with the games' sheet.
+const presenting = computed(() => (current.value && call.phase === "active" ? call.presenting : null));
+const presentKey = computed(() => (presenting.value ? `${presenting.value.by}|${presenting.value.plugin}|${presenting.value.file ?? ""}` : ""));
+/** Present appears only when the other phone can see it (`media` ≥ 2) and nobody presents. The
+ *  state comes only from the core's events: `presentInCall` itself changes nothing here. */
+const canOffer = computed(() => current.value && call.native && call.canPresent && call.phase === "active" && !call.presenting);
+const choosing = ref(false);
+
+interface Asking {
+  them: boolean;
+  name: string;
+  body: string;
+  icon?: string;
+  image?: string;
+  allow: () => Promise<void>;
+}
+/** The tool whose permission sheet is open. */
+const asking = ref<Asking | null>(null);
+/** The presentation of theirs the user said no to: not asked again. */
+const declined = ref("");
+
+async function say(key: string) {
+  const toast = await toastController.create({ message: t(key), duration: 4000, position: "top" });
+  await toast.present();
+}
+
+const presentButtons = computed(() => [
+  { text: t("calls.presentBoard"), icon: easelOutline, handler: () => void present(PRESENT_BOARD) },
+  { text: t("calls.presentDocument"), icon: documentOutline, handler: () => void present(PRESENT_DOCUMENT) },
+  { text: t("common.cancel"), role: "cancel" },
+]);
+
+async function grantLive(tool: string): Promise<boolean> {
+  const plugin = installed.value.find((one) => one.id === tool);
+  if (plugin) await grantPlugin(plugin.id, presentGrant(plugin)).catch(() => undefined);
+  await refreshPlugins();
+  const now = installed.value.find((one) => one.id === tool);
+  return Boolean(now && !needsPresentGrant(now));
+}
+
+/** Present, from the sheet: the tool must be here, unlocked and allowed to talk to its twin. */
+async function present(tool: string) {
+  choosing.value = false;
+  await Promise.all([refreshPlugins(), refreshPremiumLock()]);
+  const plugin = installed.value.find((one) => one.id === tool);
+  if (!canPresentWith(plugin)) return say("calls.presentMissing");
+  if (isLocked(plugin)) return void router.push(PREMIUM_PAGE);
+  if (!needsPresentGrant(plugin)) return begin(tool);
+  asking.value = {
+    them: false,
+    name: pluginName(plugin),
+    body: t("plugins.live"),
+    icon: pluginIcon(plugin),
+    image: pluginImage(plugin),
+    allow: async () => {
+      if (await grantLive(tool)) await begin(tool);
+    },
+  };
+}
+
+/** The board presents at once; a PDF first goes to the chat as a file, then that message is shown. */
+async function begin(tool: string) {
+  try {
+    if (tool !== PRESENT_DOCUMENT) return await presentInCall(call.id, tool);
+    const [file] = await pickFiles("application/pdf");
+    if (!file) return;
+    if (file.size > PRESENT_FILE_LIMIT) return await say("calls.presentTooBig");
+    await loadMessages(id.value);
+    const before = new Set((chat(id.value)?.messages ?? []).map((one) => one.id));
+    await sendPicked(id.value, file);
+    const message = await waitFor(() => sentFile(chat(id.value)?.messages ?? [], before, file.name), SEND_WAIT);
+    if (!message) throw new Error("the PDF did not show up in the chat");
+    await presentInCall(call.id, PRESENT_DOCUMENT, message);
+  } catch (error) {
+    // The core said their app is too old (plan A); anything else is a plain failure (§84).
+    await say(cannotPresent(error) ? "calls.cannotPresentOld" : "calls.presentFailed");
+  }
+}
+
+function answerAsk(yes: boolean) {
+  const ask = asking.value;
+  asking.value = null;
+  if (!ask) return;
+  if (yes) void ask.allow();
+  else if (ask.them) declined.value = presentKey.value;
+}
 
 // Native video (2026-09-29, docs/video-nativo.md): on the phones the pictures are native views
 // under the WebView. This screen leaves see-through holes where they go and tells the core where
@@ -117,6 +216,9 @@ function measure(): VideoLayout {
 let shown = true;
 /** On this screen, for Android's back button (Ionic keeps a page mounted under the next one). */
 const onScreen = ref(true);
+// Android's back button closes the presenting sheets first, the last one opened first.
+closeOnBackWhile(() => onScreen.value && choosing.value, () => (choosing.value = false));
+closeOnBackWhile(() => onScreen.value && Boolean(asking.value), () => answerAsk(false));
 function relayout() {
   if (shown && native.value) layoutVideo(measure);
 }
@@ -194,6 +296,8 @@ watchEffect(() => {
 let unmounted: (() => void) | undefined;
 onMounted(() => {
   unmounted = callScreenMounted(router);
+  void refreshPlugins();
+  void refreshPremiumLock();
   if (!current.value || call.phase === "ended") void startCall(id.value, Boolean(route.query.video));
   ticking = setInterval(() => (now.value = Date.now()), 1000);
   window.addEventListener("resize", relayout);
@@ -262,6 +366,29 @@ watch(
         >
           <ion-icon slot="icon-only" :icon="chevronDown" aria-hidden="true" />
         </ion-button>
+        <ion-button
+          v-if="canOffer"
+          class="ft-call__end ft-call__end--clear"
+          fill="clear"
+          shape="round"
+          data-test="present"
+          :aria-label="$t('calls.present')"
+          @click="choosing = true"
+        >
+          <ion-icon slot="icon-only" :icon="easelOutline" aria-hidden="true" />
+        </ion-button>
+        <ion-button
+          v-else-if="presenting?.by === 'me'"
+          class="ft-call__end"
+          color="danger"
+          shape="round"
+          data-test="stop-presenting"
+          :aria-label="$t('calls.stopPresenting')"
+          @click="stopPresenting(call.id)"
+        >
+          <ion-icon slot="icon-only" :icon="stopCircleOutline" aria-hidden="true" />
+        </ion-button>
+        <ion-action-sheet :is-open="choosing" :header="$t('calls.present')" :buttons="presentButtons" @did-dismiss="choosing = false" />
         <div v-if="native" class="ft-call__stage" :data-test="stage ? 'video' : undefined">
           <div v-if="showRemote" ref="remoteSlot" class="ft-call__slot ft-call__slot--remote" data-test="remote-slot">
             <p v-if="call.view.remotePaused" class="ft-call__paused" data-test="remote-paused">
@@ -393,6 +520,16 @@ watch(
           </button>
         </div>
       </div>
+    <GamePermissions
+      :open="Boolean(asking)"
+      :name="asking?.name ?? ''"
+      :icon="asking?.icon"
+      :image="asking?.image"
+      :body="asking?.body"
+      :allow-label="$t('calls.presentAllow')"
+      @allow="answerAsk(true)"
+      @cancel="answerAsk(false)"
+    />
     </ion-content>
   </ion-page>
 </template>
@@ -431,6 +568,19 @@ watch(
   min-height: 44px;
   /* Ionic's medium, not the color prop: a colored clear button drops its background, and the
      button needs one to show over the pictures. */
+  --color: var(--ion-color-medium);
+  --background: rgba(var(--ion-color-medium-rgb), 0.18);
+}
+/* Present, or stop presenting: the top corner opposite the way back, the same 44 pt target. */
+.ft-call__end {
+  position: absolute;
+  z-index: 2;
+  top: calc(env(safe-area-inset-top) + var(--ft-space-2));
+  inset-inline-end: calc(max(env(safe-area-inset-left), env(safe-area-inset-right)) + var(--ft-space-2));
+  min-width: 44px;
+  min-height: 44px;
+}
+.ft-call__end--clear {
   --color: var(--ion-color-medium);
   --background: rgba(var(--ion-color-medium-rgb), 0.18);
 }
