@@ -144,6 +144,12 @@ impl NativeCall {
         self.presenting.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    /// The `seq` of our next `CallPresent`. Taken while `presenting` is held, so the newest `seq`
+    /// always carries the newest state of ours.
+    fn next_present_seq(&self) -> u32 {
+        self.present_seq.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+    }
+
     /// Whether a presentation can start (2026-10-08): the call is on and both sides said media
     /// version 2 or later.
     fn can_present(&self) -> bool {
@@ -954,39 +960,53 @@ impl Core {
     /// Presents `plugin` in the call going on (2026-10-08), with the chat `file` it shows, if
     /// any: both screens show it, ours leading. Only once the call is on and both apps show
     /// presentations (`PEER_CANNOT_PRESENT` otherwise). The core opens nothing and reads nothing:
-    /// what the plugin shows travels over `ft.live`.
+    /// what the plugin shows travels over `ft.live`. Never while the other side presents, and the
+    /// file must be a file message of this conversation, either way.
     pub async fn present_in_call(&self, call: &str, plugin: &str, file: Option<MessageId>) -> Result<()> {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
         ensure!(native.connected_at().is_some(), "the call is not on yet");
         ensure!(native.can_present(), crate::PEER_CANNOT_PRESENT);
         ensure!(!plugin.is_empty(), "no plugin to present");
-        *native.presenting.lock().unwrap_or_else(PoisonError::into_inner) = Some(Presenting { plugin: plugin.to_owned(), file, by: PresentedBy::Me });
+        if let Some(file) = file {
+            ensure!(self.file_in(&native.contact, &file.to_string()).await?, "not a file of this conversation");
+        }
+        let seq = {
+            let mut presenting = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            ensure!(presenting.as_ref().is_none_or(|now| now.by == PresentedBy::Me), "the other side is presenting");
+            *presenting = Some(Presenting { plugin: plugin.to_owned(), file, by: PresentedBy::Me });
+            native.next_present_seq()
+        };
         self.announce_presenting(&native);
-        self.send_presenting(&native, Some(plugin.to_owned()), file);
+        self.send_presenting(&native, seq, Some(plugin.to_owned()), file);
         Ok(())
+    }
+
+    /// Whether `message_id` is a file message of the conversation with `contact`, either way.
+    async fn file_in(&self, contact: &str, message_id: &str) -> Result<bool> {
+        let Some(message) = self.store.message(message_id).await? else { return Ok(false) };
+        Ok(message.contact == contact && self.store.file(message_id).await?.is_some())
     }
 
     /// Stops our presentation in the call going on; nothing to do when we present nothing.
     pub async fn stop_presenting(&self, call: &str) -> Result<()> {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
-        let ours = {
+        let seq = {
             let mut presenting = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
             let ours = presenting.as_ref().is_some_and(|now| now.by == PresentedBy::Me);
             if ours {
                 *presenting = None;
             }
-            ours
+            ours.then(|| native.next_present_seq())
         };
-        if ours {
+        if let Some(seq) = seq {
             self.announce_presenting(&native);
-            self.send_presenting(&native, None, None);
+            self.send_presenting(&native, seq, None, None);
         }
         Ok(())
     }
 
-    /// Tells the other side what we present, with the next `seq`, in the background.
-    fn send_presenting(&self, native: &Arc<NativeCall>, plugin: Option<String>, file: Option<MessageId>) {
-        let seq = native.present_seq.fetch_add(1, Ordering::SeqCst).wrapping_add(1);
+    /// Tells the other side what we present, with its `seq`, in the background.
+    fn send_presenting(&self, native: &Arc<NativeCall>, seq: u32, plugin: Option<String>, file: Option<MessageId>) {
         let Some(core) = self.this.upgrade() else { return };
         let native = native.clone();
         tokio::spawn(async move { core.deliver_presenting(&native, seq, plugin, file).await });
