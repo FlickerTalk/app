@@ -30,13 +30,14 @@ for (const appearance of ["dark", "light"]) {
         await app.addInitScript((chosen) => localStorage.setItem("ft-appearance", chosen), appearance);
       });
 
-      test("from the games tab: the permissions sheet, then the contact picker", async ({ app }) => {
-        await app.goto("/tabs/games");
+      test("from the Apps tab: the permissions sheet, then the contact picker", async ({ app }) => {
+        await app.goto("/tabs/apps?show=games");
         await shot(app, `${size.name}-games-tab-${appearance}`);
-        await app.getByTestId(`play-${TICTACTOE}`).click();
+        await app.getByTestId(`app-${TICTACTOE}`).click();
         const ask = app.getByRole("dialog", { name: "Tic-tac-toe" });
         await expect(ask).toBeVisible();
-        await expect(app.getByTestId("game-permissions").locator("ion-icon")).toBeVisible();
+        // The game's own picture: its image (Tic-tac-toe has one in the fake core), or an icon.
+        await expect(app.getByTestId("game-permissions").locator("img, ion-icon").first()).toBeVisible();
         await expect(app.getByTestId("game-permissions")).not.toContainText("🎮");
         await shot(app, `${size.name}-permissions-${appearance}`);
 
@@ -71,18 +72,18 @@ test.describe("the back button", () => {
   test.use({ viewport: { width: 360, height: 740 } });
 
   test("closes the permissions sheet and the picker, and stays on the games", async ({ app }) => {
-    await app.goto("/tabs/games");
-    await app.getByTestId(`play-${TICTACTOE}`).click();
+    await app.goto("/tabs/apps?show=games");
+    await app.getByTestId(`app-${TICTACTOE}`).click();
     await expect(app.getByRole("dialog", { name: "Tic-tac-toe" })).toBeVisible();
     expect(await back(app)).toBe(true);
     await expect(app.getByTestId("game-permissions")).toBeHidden();
     // Refused that way, nothing was granted.
-    await app.getByTestId(`play-${TICTACTOE}`).click();
+    await app.getByTestId(`app-${TICTACTOE}`).click();
     await app.getByTestId("game-allow").click();
     await expect(app.getByRole("dialog", { name: "Play with" })).toBeVisible();
     expect(await back(app)).toBe(true);
     await expect(app.getByTestId("contact-picker")).toBeHidden();
-    await expect(app).toHaveURL(/\/tabs\/games$/);
+    await expect(app).toHaveURL(/\/tabs\/apps\?show=games$/);
     expect(await back(app)).toBe(false);
   });
 

@@ -1,36 +1,19 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import { IonIcon } from "@ionic/vue";
-import {
-  call,
-  callOutline,
-  chatbubbles,
-  chatbubblesOutline,
-  extensionPuzzle,
-  extensionPuzzleOutline,
-  gameController,
-  gameControllerOutline,
-  settings,
-  settingsOutline,
-} from "ionicons/icons";
+import { apps, appsOutline, call, callOutline, chatbubbles, chatbubblesOutline, settings, settingsOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import { t } from "../i18n";
 import { store } from "../core";
-import { extraTab } from "../preferences";
 
-// Plan 10.3: the games between Calls and Settings, on every phone: the app carries them (2026-10-03).
-// Since 2026-10-05 that place is Settings' choice, as on the tab bar: games, plugins, or nothing.
-const EXTRA = {
-  games: { path: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline, activeIcon: gameController },
-  plugins: { path: "/tabs/plugins", label: t("tabs.plugins"), icon: extensionPuzzleOutline, activeIcon: extensionPuzzle },
-};
-const sections = computed(() => [
+// 2026-10-08 (plan of the apps grid): the same four sections as the tab bar, the Apps tab between
+// Calls and Settings.
+const sections = [
   { path: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline, activeIcon: chatbubbles },
   { path: "/tabs/calls", label: t("tabs.calls"), icon: callOutline, activeIcon: call },
-  ...(extraTab.value === "none" ? [] : [EXTRA[extraTab.value]]),
+  { path: "/tabs/apps", label: t("tabs.apps"), icon: appsOutline, activeIcon: apps },
   { path: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline, activeIcon: settings },
-]);
+];
 
 const route = useRoute();
 const router = useRouter();
@@ -130,8 +113,11 @@ const isActive = (path: string) => route.path.startsWith(path);
     background 0.2s,
     color 0.2s;
 }
-.ft-rail__item:hover .ft-rail__pill {
-  background: var(--ft-surface-2);
+/* Only for a pointer that hovers: after a touch on Android the pill stayed (device review). */
+@media (hover: hover) {
+  .ft-rail__item:hover .ft-rail__pill {
+    background: var(--ft-surface-2);
+  }
 }
 .ft-rail__item.is-active {
   color: var(--ft-accent);

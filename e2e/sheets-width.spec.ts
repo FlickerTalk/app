@@ -79,15 +79,19 @@ for (const tablet of TABLETS) {
         await shot(app, `${tablet.name}-${locale}-permissions-in-chat`);
       });
 
-      test("on the games tab, the sheets cover everything after the rail", async ({ app }) => {
-        await app.goto("/tabs/games");
+      test("on the Apps tab, the sheets cover everything after the rail", async ({ app }) => {
+        await app.goto("/tabs/apps?show=games");
         const rail = (await app.locator("nav.ft-rail").boundingBox())!;
         const [from, to] = locale === "ar" ? [0, rail.x] : [rail.x + rail.width, tablet.width];
-        await app.getByTestId(`play-${TICTACTOE}`).click();
+        // An app's sheet (a hold on its tile), then a game's two sheets.
+        await app.getByTestId(`app-${TICTACTOE}`).click({ button: "right" });
+        covers(await settled(app.locator("ion-modal.ft-app-sheet .modal-wrapper")), from, to, tablet.height);
+        await shot(app, `${tablet.name}-${locale}-app-sheet`);
+        await app.getByTestId("sheet-play").click();
         covers(await settled(app.locator("ion-modal.ft-game-ask .modal-wrapper")), from, to, tablet.height);
         await shot(app, `${tablet.name}-${locale}-games-permissions`);
         await app.getByTestId("game-allow").click();
-        covers(await settled(app.locator("ion-modal.ft-games__picker .modal-wrapper")), from, to, tablet.height);
+        covers(await settled(app.locator("ion-modal.ft-apps__picker .modal-wrapper")), from, to, tablet.height);
         await shot(app, `${tablet.name}-${locale}-games-picker`);
       });
 
@@ -108,10 +112,10 @@ test.describe("a phone", () => {
     await app.goto(`/chat/${BOB}`);
     await app.getByTestId("apps").click();
     covers(await settled(app.locator("ion-modal.ft-apps-sheet .modal-wrapper")), 0, 360, 740);
-    await app.goto("/tabs/games");
-    await app.getByTestId(`play-${TICTACTOE}`).click();
+    await app.goto("/tabs/apps?show=games");
+    await app.getByTestId(`app-${TICTACTOE}`).click();
     covers(await settled(app.locator("ion-modal.ft-game-ask .modal-wrapper")), 0, 360, 740);
     await app.getByTestId("game-allow").click();
-    covers(await settled(app.locator("ion-modal.ft-games__picker .modal-wrapper")), 0, 360, 740);
+    covers(await settled(app.locator("ion-modal.ft-apps__picker .modal-wrapper")), 0, 360, 740);
   });
 });

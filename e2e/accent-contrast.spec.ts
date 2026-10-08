@@ -3,7 +3,7 @@
 // Measured on the page in every colour and appearance: what is behind an element is the first
 // opaque background up its ancestors, the see-through ones laid over it.
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "./helpers";
+import { expect, holdTile, test } from "./helpers";
 
 type Rgba = [number, number, number, number];
 
@@ -89,13 +89,14 @@ for (const direction of ["ember", "aurora", "mono", "lime"]) {
       // Danger red (decided 2026-10-02): as text 4.5:1, as a lone glyph 3:1, in the light themes
       // too, where #ff4d5e was about 3:1 on the page.
       test("danger reads as text and as a glyph", async ({ app }) => {
-        // Settings → Plugins: remove, then the word that confirms it.
-        await app.goto("/plugins");
-        const bin = await measure(app.getByTestId("remove-com.flickertalk.markdown"));
+        // An app's sheet (2026-10-08, the Apps tab): remove, then the question that confirms it.
+        await app.goto("/tabs/apps");
+        await holdTile(app, "app-com.flickertalk.markdown");
+        const bin = await measure(app.getByTestId("sheet-remove").locator("ion-icon"));
         expect(bin.worst, `remove ${bin.colour}`).toBeGreaterThanOrEqual(3);
-        await app.getByTestId("remove-com.flickertalk.markdown").click();
-        const sure = await measure(app.getByTestId("remove-confirm"));
-        expect(sure.worst, `remove confirm ${sure.colour}`).toBeGreaterThanOrEqual(4.5);
+        await app.getByTestId("sheet-remove").click();
+        const sure = await measure(app.locator(".ft-app-sheet__ask p"));
+        expect(sure.worst, `remove question ${sure.colour}`).toBeGreaterThanOrEqual(4.5);
         // A contact: «Report», and its flag on its own tint.
         await app.goto("/contact/ft_bob123456789");
         const report = await measure(app.getByTestId("report").locator("ion-label"));

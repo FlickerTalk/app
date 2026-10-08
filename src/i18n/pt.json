@@ -6,9 +6,8 @@
   "tabs": {
     "chats": "Conversas",
     "calls": "Chamadas",
-    "settings": "Configurações",
-    "games": "Jogos",
-    "plugins": "Plugins"
+    "apps": "Apps",
+    "settings": "Configurações"
   },
   "chats": {
     "empty": "Nenhuma conversa ainda",
@@ -266,9 +265,7 @@
     "renewLinkHint": "Quem tiver o teu link antigo já não te alcança; os teus contactos recebem o novo",
     "renewLinkConfirm": "Renovar",
     "renewed": "Link renovado",
-    "feedback": "Sugerir algo",
-    "tabBar": "Mostrar na barra de separadores",
-    "tabBarNone": "Nada"
+    "feedback": "Sugerir algo"
   },
   "hours": {
     "title": "Horário",
@@ -311,25 +308,18 @@
     "label": "Código QR"
   },
   "plugins": {
-    "title": "Plugins",
-    "hint": "Os plugins rodam dentro do FlickerTalk. Eles começam sem nenhuma permissão: você escolhe o que cada um pode fazer, e pode revogar depois.",
     "readsGiven": "Ler o que você enviar a ele",
     "writes": "Escrever na conversa",
     "sendsAlone": "Enviar mensagens sozinho",
     "asksNothing": "Não pede nada",
-    "mayNotWrite": "Esta ferramenta não pode escrever na conversa. Ative “Escrever na conversa” para ela em Configurações → Plugins.",
-    "remove": "Remover",
+    "mayNotWrite": "Esta ferramenta não pode escrever na conversa. Ative “Escrever na conversa” para ela em Apps: toque e segure o ícone dela.",
     "none": "Nenhum plugin ainda",
-    "available": "Ferramentas para adicionar",
-    "install": "Instalar",
-    "installFailed": "Não foi possível instalar a ferramenta. Verifique sua conexão e tente de novo.",
     "live": "Falar com o mesmo plugin do outro lado da conversa",
     "remind": "Pôr lembretes neste telemóvel",
     "drive": "Guardar ficheiros na sua própria nuvem",
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
     "location": "A sua localização, só quando você pedir",
     "opens": "Abre: {kinds}",
-    "open": "Abrir",
     "locked": "Assine para usar as ferramentas",
     "lockedHint": "Os dias grátis terminaram: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
     "subscribe": "Assinar"
@@ -468,10 +458,6 @@
     "sees": "A sua nuvem vê quantos ficheiros selados há, o seu tamanho e as datas. Nunca os nomes nem o conteúdo."
   },
   "games": {
-    "mine": "Meus jogos",
-    "more": "Mais jogos",
-    "install": "Instalar",
-    "remove": "Remover",
     "removeWarning": "Ao removê-lo, as partidas salvas neste telefone são apagadas.",
     "play": "Jogar",
     "pickContact": "Jogar com",
@@ -481,12 +467,31 @@
     "installAndPlay": "Instalar e jogar",
     "permissionsBody": "Este jogo conversa com o telefone da outra pessoa e pode deixar o resultado na conversa.",
     "permissionsAllow": "Permitir e jogar",
-    "none": "Nenhum jogo ainda",
-    "offline": "Não há jogos para adicionar agora. Verifique sua conexão e tente de novo.",
     "installFailed": "Não foi possível instalar o jogo. Verifique sua conexão e tente de novo.",
     "live": "Falar com o mesmo jogo no telefone da outra pessoa",
     "showChat": "Ver a conversa",
     "showGame": "Voltar ao jogo"
+  },
+  "apps": {
+    "tools": "Ferramentas",
+    "games": "Jogos",
+    "moreTools": "Mais ferramentas",
+    "moreGames": "Mais jogos",
+    "allToolsHere": "Todas as ferramentas já estão neste telefone",
+    "allGamesHere": "Todos os jogos já estão neste telefone",
+    "noTools": "Nenhuma ferramenta ainda",
+    "noGames": "Nenhum jogo ainda",
+    "offline": "Não há nada para adicionar agora. Verifique sua conexão e tente de novo.",
+    "installFailed": "Não foi possível instalar. Verifique sua conexão e tente de novo.",
+    "lockedLabel": "{name}, bloqueada",
+    "downloadLabel": "{name}, baixar {size}",
+    "addLabel": "{name}, adicionar",
+    "inviteLabel": "{name}. Toque e segure para convidar",
+    "open": "Abrir",
+    "install": "Instalar",
+    "remove": "Remover",
+    "removeAsk": "Remover deste telefone?",
+    "subscribe": "Assinar"
   },
   "feedback": {
     "title": "Sugerir algo",

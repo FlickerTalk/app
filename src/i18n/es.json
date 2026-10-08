@@ -6,9 +6,8 @@
   "tabs": {
     "chats": "Chats",
     "calls": "Llamadas",
-    "settings": "Ajustes",
-    "games": "Juegos",
-    "plugins": "Plugins"
+    "apps": "Apps",
+    "settings": "Ajustes"
   },
   "chats": {
     "empty": "Aún no hay chats",
@@ -266,9 +265,7 @@
     "renewLinkHint": "Quien tenga tu enlace antiguo ya no podrá llegar a ti; tus contactos reciben el nuevo",
     "renewLinkConfirm": "Renovar",
     "renewed": "Enlace renovado",
-    "feedback": "Sugerir algo",
-    "tabBar": "Mostrar en la barra de pestañas",
-    "tabBarNone": "Nada"
+    "feedback": "Sugerir algo"
   },
   "hours": {
     "title": "Horario",
@@ -311,25 +308,18 @@
     "label": "Código QR"
   },
   "plugins": {
-    "title": "Plugins",
-    "hint": "Los plugins funcionan dentro de FlickerTalk. Empiezan sin ningún permiso: tú eliges qué puede hacer cada uno, y puedes retirarlo.",
     "readsGiven": "Leer lo que le envías",
     "writes": "Escribir en el chat",
     "sendsAlone": "Enviar mensajes por su cuenta",
     "asksNothing": "No pide nada",
-    "mayNotWrite": "Esta herramienta no puede escribir en el chat. Activa «Escribir en el chat» para ella en Ajustes → Plugins.",
-    "remove": "Quitar",
+    "mayNotWrite": "Esta herramienta no puede escribir en el chat. Activa «Escribir en el chat» para ella en Apps: mantén pulsado su icono.",
     "none": "Aún no hay plugins",
-    "available": "Herramientas que puedes añadir",
-    "install": "Instalar",
-    "installFailed": "No se pudo instalar la herramienta. Comprueba la conexión y vuelve a intentarlo.",
     "live": "Hablar con el mismo plugin al otro lado del chat",
     "remind": "Poner avisos en este teléfono",
     "drive": "Guardar ficheros en tu propia nube",
     "storageLarge": "Guardar muchos datos en este teléfono (hasta 256 MB)",
     "location": "Tu ubicación, solo cuando la pides",
     "opens": "Abre: {kinds}",
-    "open": "Abrir",
     "locked": "Suscríbete para usar las herramientas",
     "lockedHint": "Los días gratis han terminado: las herramientas necesitan la suscripción. El chat, las llamadas, los archivos y los juegos siguen gratis.",
     "subscribe": "Suscribirse"
@@ -468,10 +458,6 @@
     "sees": "Tu nube ve cuántos ficheros sellados hay, su tamaño y sus fechas. Nunca sus nombres ni su contenido."
   },
   "games": {
-    "mine": "Mis juegos",
-    "more": "Más juegos",
-    "install": "Instalar",
-    "remove": "Quitar",
     "removeWarning": "Al quitarlo se borran sus partidas guardadas en este teléfono.",
     "play": "Jugar",
     "pickContact": "Jugar con",
@@ -481,12 +467,31 @@
     "installAndPlay": "Instalar y jugar",
     "permissionsBody": "Este juego habla con el teléfono de la otra persona y puede dejar el resultado en el chat.",
     "permissionsAllow": "Permitir y jugar",
-    "none": "Aún no hay juegos",
-    "offline": "Ahora no hay juegos para añadir. Comprueba la conexión y vuelve a intentarlo.",
     "installFailed": "No se pudo instalar el juego. Comprueba la conexión y vuelve a intentarlo.",
     "live": "Hablar con el mismo juego en el teléfono de la otra persona",
     "showChat": "Ver el chat",
     "showGame": "Volver al juego"
+  },
+  "apps": {
+    "tools": "Herramientas",
+    "games": "Juegos",
+    "moreTools": "Más herramientas",
+    "moreGames": "Más juegos",
+    "allToolsHere": "Todas las herramientas ya están en este teléfono",
+    "allGamesHere": "Todos los juegos ya están en este teléfono",
+    "noTools": "Aún no hay herramientas",
+    "noGames": "Aún no hay juegos",
+    "offline": "Ahora no hay nada para añadir. Comprueba la conexión y vuelve a intentarlo.",
+    "installFailed": "No se pudo instalar. Comprueba la conexión y vuelve a intentarlo.",
+    "lockedLabel": "{name}, bloqueada",
+    "downloadLabel": "{name}, descargar {size}",
+    "addLabel": "{name}, añadir",
+    "inviteLabel": "{name}. Mantén pulsado para invitar",
+    "open": "Abrir",
+    "install": "Instalar",
+    "remove": "Quitar",
+    "removeAsk": "¿Quitarla de este teléfono?",
+    "subscribe": "Suscribirse"
   },
   "feedback": {
     "title": "Sugerir algo",

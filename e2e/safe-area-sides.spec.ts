@@ -100,12 +100,12 @@ for (const locale of ["en", "ar"]) {
 
       await pane.locator("[data-test='apps']").click();
       const sheet = app.locator("ion-modal.ft-apps-sheet");
-      await clearOfTheSides(sheet.locator("ion-item ion-icon"), "an apps sheet icon");
-      await clearOfTheSides(sheet.locator("ion-item ion-label"), "an apps sheet name");
-      // Same pane, same rule: the icons start where Ionic puts them, beside the list.
-      const icon = (await sheet.locator("ion-item ion-icon").first().boundingBox())!;
-      if (locale === "ar") expect(paneBox.x + paneBox.width - (icon.x + icon.width), "no inset beside the list").toBeLessThan(SIDE);
-      else expect(icon.x - paneBox.x, "no inset beside the list").toBeLessThan(SIDE);
+      await clearOfTheSides(sheet.locator(".ft-app-tile__icon"), "an apps sheet icon");
+      await clearOfTheSides(sheet.locator(".ft-app-tile__name"), "an apps sheet name");
+      // Same pane, same rule: the grid of tiles starts where the content does, beside the list.
+      const grid = (await sheet.locator(".ft-app-grid").first().boundingBox())!;
+      if (locale === "ar") expect(paneBox.x + paneBox.width - (grid.x + grid.width), "no inset beside the list").toBeLessThan(SIDE);
+      else expect(grid.x - paneBox.x, "no inset beside the list").toBeLessThan(SIDE);
       await shot(app, `${locale}-split-apps-sheet`);
 
       // A tool's window covers the list and the chat.
@@ -125,8 +125,8 @@ for (const locale of ["en", "ar"]) {
 
       await app.getByTestId("apps").click();
       const sheet = app.locator("ion-modal.ft-apps-sheet");
-      await clearOfTheSides(sheet.locator("ion-item ion-icon"), "an apps sheet icon");
-      await clearOfTheSides(sheet.locator("ion-item ion-label"), "an apps sheet name");
+      await clearOfTheSides(sheet.locator(".ft-app-tile__icon"), "an apps sheet icon");
+      await clearOfTheSides(sheet.locator(".ft-app-tile__name"), "an apps sheet name");
       await shot(app, `${locale}-alone-apps-sheet`);
 
       await app.getByTestId("app-com.flickertalk.sketch").click();
@@ -136,17 +136,17 @@ for (const locale of ["en", "ar"]) {
       await shot(app, `${locale}-alone-tool`);
     });
 
-    test("the games tab: the permissions sheet and the contact picker stay clear of the sides", async ({ app }) => {
-      await app.goto("/tabs/games");
-      await app.getByTestId(`play-${TICTACTOE}`).click();
+    test("the Apps tab's games: the permissions sheet and the contact picker stay clear of the sides", async ({ app }) => {
+      await app.goto("/tabs/apps?show=games");
+      await app.getByTestId(`app-${TICTACTOE}`).click();
       await expect(app.getByTestId("game-allow")).toBeVisible();
       await clearOfTheSides(app.locator("[data-test='game-permissions'] > *"), "the permissions sheet");
       await shot(app, `${locale}-games-permissions`);
 
       await app.getByTestId("game-allow").click();
       await expect(app.getByTestId(`play-with-${BOB}`)).toBeVisible();
-      await clearOfTheSides(app.locator("ion-modal.ft-games__picker ion-item ion-label"), "a contact's name");
-      const picture = app.locator("ion-modal.ft-games__picker ion-item [slot='start']");
+      await clearOfTheSides(app.locator("ion-modal.ft-apps__picker ion-item ion-label"), "a contact's name");
+      const picture = app.locator("ion-modal.ft-apps__picker ion-item [slot='start']");
       await clearOfTheSides(picture, "a contact's picture");
       // The sheet starts past the rail, away from the edge: the pictures start where Ionic puts them.
       const rail = (await app.locator("nav.ft-rail").boundingBox())!;
@@ -159,9 +159,8 @@ for (const locale of ["en", "ar"]) {
     test("the pages of the tabs and of Settings keep their texts and buttons clear of the sides", async ({ app }) => {
       const PAGES: Array<[string, string[]]> = [
         ["/tabs/calls", ["[data-test='empty']"]],
-        ["/tabs/games", [".ft-games__title", "[data-test='my-games'] ion-label"]],
+        ["/tabs/apps", [".ft-app-tile__name", ".ft-app-tile__icon", "[data-test='apps-more-title']"]],
         ["/tabs/settings", [".ft-me", ".ft-me button", "ion-item ion-label", "[data-test='premium-head']", "[data-test='premium-note']"]],
-        ["/plugins", [".ft-plugins__hint", "ion-item ion-label"]],
         ["/blocked", ["[data-test='empty']"]],
       ];
       for (const [route, parts] of PAGES) {

@@ -35,16 +35,16 @@ async function playTicTacToe(app: Page, apps = app.getByTestId("apps")) {
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 360, height: 740 } });
 
-  test("a game left open in a chat does not take Back on Settings → Plugins", async ({ app }) => {
+  test("a game left open in a chat does not take Back on Settings → Blocked", async ({ app }) => {
     await openBobsChat(app);
     await playTicTacToe(app);
     await app.getByTestId("apps").click();
     await app.getByTestId("apps-tab-games").click();
     await app.getByTestId("more-games-link").click();
-    await expect(app).toHaveURL(/\/tabs\/games$/);
+    await expect(app).toHaveURL(/\/tabs\/apps\?show=games$/);
     await app.getByRole("tab", { name: "Settings" }).click();
-    await app.getByTestId("plugins").click();
-    await expect(app).toHaveURL(/\/plugins$/);
+    await app.getByTestId("blocked").click();
+    await expect(app).toHaveURL(/\/blocked$/);
     expect(await pressBack(app)).toBe("system");
     await expect(app).toHaveURL(/\/tabs\/settings$/);
   });
@@ -92,8 +92,8 @@ test.describe("on a tablet", () => {
     await playTicTacToe(app, app.locator(".ft-chats__detail [data-test='apps']"));
     await app.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(app).toHaveURL(/\/tabs\/settings$/);
-    await app.getByTestId("plugins").click();
-    await expect(app).toHaveURL(/\/plugins$/);
+    await app.getByTestId("blocked").click();
+    await expect(app).toHaveURL(/\/blocked$/);
     expect(await pressBack(app)).toBe("system");
     await expect(app).toHaveURL(/\/tabs\/settings$/);
     await app.getByRole("button", { name: "Chats", exact: true }).click();

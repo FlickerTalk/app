@@ -26,7 +26,6 @@ import {
   toastController,
 } from "@ionic/vue";
 import {
-  appsOutline,
   banOutline,
   bulbOutline,
   callOutline,
@@ -75,7 +74,7 @@ import {
   subscriptionPrice,
   type PlanView,
 } from "../core";
-import { extraTab, setCallRouting, setExtraTab, storedCallRouting, type CallRouting, type ExtraTab } from "../preferences";
+import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
   applyAppearance,
@@ -143,7 +142,8 @@ const premiumBadge = computed(() => {
 
 /** The two premium rows; locked, each says what it needs. */
 const premiumRows = [
-  { test: "plugins", label: "premium.tools", locked: "plugins.locked", icon: constructOutline, path: "/plugins" },
+  // The tools live in the Apps tab (2026-10-08): this row is a shortcut there.
+  { test: "plugins", label: "premium.tools", locked: "plugins.locked", icon: constructOutline, path: "/tabs/apps?show=tools" },
   // Hidden sessions: a PIN pad, nothing else. The same six digits create or enter one. §108: locked,
   // the row never reaches the pad, so nothing after a PIN tells whether a session exists.
   { test: "session", label: "premium.sessions", locked: "session.subscribeToUse", icon: keypadOutline, path: "/session" },
@@ -358,12 +358,6 @@ function chooseAppearance(id: Appearance) {
   appearance.value = id;
   applyAppearance(id);
 }
-
-// 2026-10-05 (Ioan): the fourth tab is the games, the plugins or none (the default). The bar and
-// the rail change at once, behind the sheet.
-function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
-  setExtraTab(event.detail.value);
-}
 </script>
 
 <template>
@@ -530,24 +524,6 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
                 <ion-icon :icon="option.icon" aria-hidden="true" />
               </button>
             </span>
-          </ion-item>
-          <!-- 2026-10-05: what the bar shows between Calls and Settings: nothing, the games or the plugins. -->
-          <ion-item lines="none">
-            <span slot="start" class="ft-tile"><ion-icon :icon="appsOutline" aria-hidden="true" /></span>
-            <ion-select
-              :value="extraTab"
-              data-test="extra-tab"
-              :aria-label="$t('settings.tabBar')"
-              interface="modal"
-              :interface-options="{ header: $t('settings.tabBar') }"
-              :cancel-text="$t('common.cancel')"
-              @ion-change="onExtraTabChange"
-            >
-              <div slot="label">{{ $t("settings.tabBar") }}</div>
-              <ion-select-option value="none">{{ $t("settings.tabBarNone") }}</ion-select-option>
-              <ion-select-option value="games">{{ $t("tabs.games") }}</ion-select-option>
-              <ion-select-option value="plugins">{{ $t("tabs.plugins") }}</ion-select-option>
-            </ion-select>
           </ion-item>
         </ion-list>
 

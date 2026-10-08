@@ -6,9 +6,8 @@
   "tabs": {
     "chats": "Chat",
     "calls": "Panggilan",
-    "settings": "Pengaturan",
-    "games": "Game",
-    "plugins": "Plugin"
+    "apps": "Aplikasi",
+    "settings": "Pengaturan"
   },
   "chats": {
     "empty": "Belum ada chat",
@@ -266,9 +265,7 @@
     "renewLinkHint": "Siapa pun yang punya tautan lama Anda tidak bisa lagi menghubungi Anda; kontak Anda mendapatkan yang baru",
     "renewLinkConfirm": "Perbarui",
     "renewed": "Tautan diperbarui",
-    "feedback": "Usulkan sesuatu",
-    "tabBar": "Tampilkan di bilah tab",
-    "tabBarNone": "Tidak ada"
+    "feedback": "Usulkan sesuatu"
   },
   "hours": {
     "title": "Jam aktif",
@@ -311,25 +308,18 @@
     "label": "Kode QR"
   },
   "plugins": {
-    "title": "Plugin",
-    "hint": "Plugin berjalan di dalam FlickerTalk. Awalnya plugin tidak punya izin apa pun: Anda memilih apa yang boleh dilakukan masing-masing, dan Anda bisa mencabutnya kembali.",
     "readsGiven": "Membaca yang Anda berikan",
     "writes": "Menulis di chat",
     "sendsAlone": "Mengirim pesan sendiri",
     "asksNothing": "Tidak meminta apa pun",
-    "mayNotWrite": "Alat ini tidak boleh menulis di chat. Aktifkan “Menulis di chat” untuknya di Pengaturan → Plugin.",
-    "remove": "Hapus",
+    "mayNotWrite": "Alat ini tidak boleh menulis di chat. Aktifkan “Menulis di chat” untuknya di Aplikasi: sentuh lama ikonnya.",
     "none": "Belum ada plugin",
-    "available": "Alat yang bisa Anda tambahkan",
-    "install": "Pasang",
-    "installFailed": "Alat tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi.",
     "live": "Berbicara dengan plugin yang sama di sisi lain obrolan",
     "remind": "Memasang pengingat di ponsel ini",
     "drive": "Menyimpan berkas di cloud milikmu sendiri",
     "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
     "location": "Lokasi Anda, hanya saat Anda memintanya",
     "opens": "Membuka: {kinds}",
-    "open": "Buka",
     "locked": "Berlangganan untuk memakai alat",
     "lockedHint": "Hari gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
     "subscribe": "Berlangganan"
@@ -468,10 +458,6 @@
     "sees": "Cloud-mu melihat berapa banyak berkas tersegel, ukuran dan tanggalnya. Tidak pernah nama atau isinya."
   },
   "games": {
-    "mine": "Game saya",
-    "more": "Game lainnya",
-    "install": "Pasang",
-    "remove": "Hapus",
     "removeWarning": "Menghapusnya juga menghapus permainan tersimpan di ponsel ini.",
     "play": "Main",
     "pickContact": "Main dengan",
@@ -481,12 +467,31 @@
     "installAndPlay": "Pasang dan main",
     "permissionsBody": "Game ini berbicara dengan ponsel orang lain dan bisa meninggalkan hasilnya di obrolan.",
     "permissionsAllow": "Izinkan dan main",
-    "none": "Belum ada game",
-    "offline": "Saat ini tidak ada game untuk ditambahkan. Periksa koneksi Anda lalu coba lagi.",
     "installFailed": "Game tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi.",
     "live": "Berbicara dengan game yang sama di ponsel orang lain",
     "showChat": "Tampilkan obrolan",
     "showGame": "Kembali ke game"
+  },
+  "apps": {
+    "tools": "Alat",
+    "games": "Game",
+    "moreTools": "Alat lainnya",
+    "moreGames": "Game lainnya",
+    "allToolsHere": "Semua alat sudah ada di ponsel ini",
+    "allGamesHere": "Semua game sudah ada di ponsel ini",
+    "noTools": "Belum ada alat",
+    "noGames": "Belum ada game",
+    "offline": "Saat ini tidak ada yang bisa ditambahkan. Periksa koneksi Anda lalu coba lagi.",
+    "installFailed": "Tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi.",
+    "lockedLabel": "{name}, terkunci",
+    "downloadLabel": "{name}, unduh {size}",
+    "addLabel": "{name}, tambahkan",
+    "inviteLabel": "{name}. Sentuh lama untuk mengundang",
+    "open": "Buka",
+    "install": "Pasang",
+    "remove": "Hapus",
+    "removeAsk": "Hapus dari ponsel ini?",
+    "subscribe": "Berlangganan"
   },
   "feedback": {
     "title": "Usulkan sesuatu",

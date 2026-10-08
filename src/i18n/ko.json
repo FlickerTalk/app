@@ -6,9 +6,8 @@
   "tabs": {
     "chats": "채팅",
     "calls": "통화",
-    "settings": "설정",
-    "games": "게임",
-    "plugins": "플러그인"
+    "apps": "앱",
+    "settings": "설정"
   },
   "chats": {
     "empty": "아직 채팅이 없습니다",
@@ -266,9 +265,7 @@
     "renewLinkHint": "이전 링크를 가진 사람은 더 이상 나에게 연락할 수 없으며, 내 연락처에는 새 링크가 전달됩니다",
     "renewLinkConfirm": "갱신",
     "renewed": "링크가 갱신되었습니다",
-    "feedback": "제안하기",
-    "tabBar": "탭 바에 표시",
-    "tabBarNone": "없음"
+    "feedback": "제안하기"
   },
   "hours": {
     "title": "수신 시간",
@@ -311,25 +308,18 @@
     "label": "QR 코드"
   },
   "plugins": {
-    "title": "플러그인",
-    "hint": "플러그인은 FlickerTalk 안에서 실행됩니다. 처음에는 아무 권한도 없습니다. 각 플러그인에 무엇을 허용할지 직접 선택하고, 나중에 다시 취소할 수 있습니다.",
     "readsGiven": "보낸 내용 읽기",
     "writes": "채팅에 쓰기",
     "sendsAlone": "스스로 메시지 보내기",
     "asksNothing": "요청하는 권한 없음",
-    "mayNotWrite": "이 도구는 채팅에 쓸 수 없습니다. 설정 → 플러그인에서 이 도구의 ‘채팅에 쓰기’를 켜세요.",
-    "remove": "삭제",
+    "mayNotWrite": "이 도구는 채팅에 쓸 수 없습니다. 앱에서 아이콘을 길게 눌러 이 도구의 ‘채팅에 쓰기’를 켜세요.",
     "none": "아직 플러그인이 없습니다",
-    "available": "추가할 수 있는 도구",
-    "install": "설치",
-    "installFailed": "도구를 설치하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
     "live": "대화 상대편의 같은 플러그인과 통신",
     "remind": "이 휴대폰에 알림 설정",
     "drive": "내 클라우드에 파일 보관",
     "storageLarge": "이 휴대폰에 많은 데이터 보관 (최대 256 MB)",
     "location": "내 위치, 요청할 때만",
     "opens": "여는 형식: {kinds}",
-    "open": "열기",
     "locked": "도구를 쓰려면 구독하세요",
     "lockedHint": "무료 기간이 끝났어요: 도구는 구독이 필요해요. 채팅, 통화, 파일, 게임은 계속 무료예요.",
     "subscribe": "구독하기"
@@ -468,10 +458,6 @@
     "sees": "클라우드는 봉인된 파일의 개수, 크기, 날짜만 봅니다. 이름이나 내용은 절대 보지 못합니다."
   },
   "games": {
-    "mine": "내 게임",
-    "more": "더 많은 게임",
-    "install": "설치",
-    "remove": "삭제",
     "removeWarning": "삭제하면 이 휴대폰에 저장된 게임 기록도 지워집니다.",
     "play": "플레이",
     "pickContact": "함께 할 상대",
@@ -481,12 +467,31 @@
     "installAndPlay": "설치하고 플레이",
     "permissionsBody": "이 게임은 상대방의 휴대폰과 통신하며 결과를 채팅에 남길 수 있습니다.",
     "permissionsAllow": "허용하고 플레이",
-    "none": "아직 게임이 없습니다",
-    "offline": "지금은 추가할 게임이 없습니다. 연결을 확인하고 다시 시도하세요.",
     "installFailed": "게임을 설치하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
     "live": "상대방 휴대폰의 같은 게임과 통신",
     "showChat": "채팅 보기",
     "showGame": "게임으로 돌아가기"
+  },
+  "apps": {
+    "tools": "도구",
+    "games": "게임",
+    "moreTools": "더 많은 도구",
+    "moreGames": "더 많은 게임",
+    "allToolsHere": "모든 도구가 이미 이 휴대폰에 있습니다",
+    "allGamesHere": "모든 게임이 이미 이 휴대폰에 있습니다",
+    "noTools": "아직 도구가 없습니다",
+    "noGames": "아직 게임이 없습니다",
+    "offline": "지금은 추가할 항목이 없습니다. 연결을 확인하고 다시 시도하세요.",
+    "installFailed": "설치하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
+    "lockedLabel": "{name}, 잠김",
+    "downloadLabel": "{name}, 다운로드 {size}",
+    "addLabel": "{name}, 추가",
+    "inviteLabel": "{name}. 길게 눌러 초대",
+    "open": "열기",
+    "install": "설치",
+    "remove": "삭제",
+    "removeAsk": "이 휴대폰에서 삭제할까요?",
+    "subscribe": "구독하기"
   },
   "feedback": {
     "title": "제안하기",

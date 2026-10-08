@@ -58,13 +58,13 @@ async function page(app: Page, path: string, mode: Mode): Promise<Locator> {
 const SCREENS: Array<Screen & { file: string }> = [
   { file: "views/ChatsPage.vue", name: "chats", open: (app, mode) => page(app, "/tabs/chats", mode) },
   { file: "views/CallsPage.vue", name: "calls", open: (app, mode) => page(app, "/tabs/calls", mode) },
-  { file: "views/GamesPage.vue", name: "games", open: (app, mode) => page(app, "/tabs/games", mode) },
+  { file: "views/AppsPage.vue", name: "apps", open: (app, mode) => page(app, "/tabs/apps", mode) },
   {
-    file: "views/GamesPage.vue",
-    name: "games, who to play with",
+    file: "views/AppsPage.vue",
+    name: "apps, who to play with",
     open: async (app, mode) => {
-      await page(app, "/tabs/games", mode);
-      await app.getByTestId(`play-${TICTACTOE}`).click();
+      await page(app, "/tabs/apps?show=games", mode);
+      await app.getByTestId(`app-${TICTACTOE}`).click();
       await app.getByTestId("game-allow").click();
       await expect(app.getByTestId(`play-with-${BOB}`)).toBeVisible();
       return app.locator("ion-modal").filter({ has: app.getByTestId("contact-picker") });
@@ -89,7 +89,6 @@ const SCREENS: Array<Screen & { file: string }> = [
   { file: "views/MovePage.vue", name: "move to a new phone", open: (app, mode) => page(app, "/move", mode) },
   { file: "views/MovePage.vue", name: "move from the old phone", open: (app, mode) => page(app, "/move?role=new", mode) },
   { file: "views/NewCirclePage.vue", name: "new circle", open: (app, mode) => page(app, "/new-circle", mode) },
-  { file: "views/PluginsPage.vue", name: "plugins", open: (app, mode) => page(app, "/plugins", mode) },
 ];
 
 /** Titles that are not catalogue text (see the top of this file), by the file they are in. */

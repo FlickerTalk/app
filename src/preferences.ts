@@ -1,6 +1,5 @@
 // Privacy choices made in Settings. They stay on this device and never reach a server (Plan §17, §44).
 // The mailbox preference lives in the core, which tells contacts about it (Plan §19).
-import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
 const CALL_ROUTING_KEY = "ft-call-routing";
@@ -27,26 +26,6 @@ export function setCallRouting(routing: CallRouting) {
  */
 export async function syncCallRouting(): Promise<void> {
   await invoke("core_set_call_routing", { routing: storedCallRouting() }).catch(() => undefined);
-}
-
-// 2026-10-05 (Ioan): a fourth tab, between Calls and Settings, for the games or the plugins, chosen
-// in Settings. By default there is none: the bar keeps Chats, Calls and Settings only.
-const EXTRA_TAB_KEY = "ft-extra-tab";
-
-export const EXTRA_TABS = ["none", "games", "plugins"] as const;
-export type ExtraTab = (typeof EXTRA_TABS)[number];
-
-export function storedExtraTab(): ExtraTab {
-  const value = localStorage.getItem(EXTRA_TAB_KEY);
-  return EXTRA_TABS.includes(value as ExtraTab) ? (value as ExtraTab) : "none";
-}
-
-/** The extra tab as chosen right now: the bar and the rail follow it while Settings is open. */
-export const extraTab = ref<ExtraTab>(storedExtraTab());
-
-export function setExtraTab(tab: ExtraTab) {
-  localStorage.setItem(EXTRA_TAB_KEY, tab);
-  extraTab.value = tab;
 }
 
 const ONBOARDED_KEY = "ft-onboarded";

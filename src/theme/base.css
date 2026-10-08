@@ -250,3 +250,27 @@ ion-footer > * {
   --ion-safe-area-left: 0px;
   --ion-safe-area-right: 0px;
 }
+
+/* The apps as a grid of tiles (2026-10-08, plan of the apps grid): in the Apps tab and in the chat's
+   apps sheet. As many columns as fit: four on a phone (76 px is what four take on a 360 px one;
+   84 px left three there), more on a wide screen, where the tiles get more room, as in the mockup. */
+.ft-app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 18px 8px;
+  padding: 12px 16px;
+}
+@media (min-width: 768px) {
+  .ft-app-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 22px 12px;
+    padding: 12px 28px;
+  }
+}
+
+/* A segment button with its icon before the label (device review of app#121): Ionic's iOS look
+   leaves 2 px between them, its Android look 8 px (the label's margin). The iOS icon takes the rest,
+   so both have the mockup's gap and Android's is not doubled. */
+html.ios ion-segment-button.segment-button-layout-icon-start > ion-icon {
+  margin-inline-end: 6px;
+}

@@ -5,17 +5,17 @@ import { callsTo, expect, servePluginFrames, test } from "./helpers";
 
 const SKETCH = "com.flickertalk.sketch";
 
-test("a plugin updated in the background shows its new version in Settings at once", async ({ app }) => {
-  await app.goto("/plugins");
-  const page = app.locator("ion-content.ft-plugins");
-  await expect(page).toContainText("Sketch");
-  await expect(page).not.toContainText("1.0.1");
+test("a plugin updated in the background shows its new version on its sheet at once", async ({ app }) => {
+  await app.goto("/tabs/apps");
+  await app.getByTestId(`app-${SKETCH}`).click({ button: "right" });
+  const page = app.getByTestId("sheet-meta");
+  await expect(page).toHaveText("1.0.0");
   await app.evaluate((id) => {
     const fake = (window as unknown as { __ftFake: { state: { plugins: Array<{ id: string; version: string }> }; emit: (event: string, payload: unknown) => void } }).__ftFake;
     fake.state.plugins.find((one) => one.id === id)!.version = "1.0.1";
     fake.emit("ft://plugins", null);
   }, SKETCH);
-  await expect(page).toContainText("1.0.1");
+  await expect(page).toHaveText("1.0.1");
 });
 
 test("the core hears that a plugin is open until its frame is gone", async ({ app }) => {

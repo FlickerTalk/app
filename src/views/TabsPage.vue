@@ -1,23 +1,17 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import { IonIcon, IonPage, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } from "@ionic/vue";
-import { callOutline, chatbubblesOutline, extensionPuzzleOutline, gameControllerOutline, settingsOutline } from "ionicons/icons";
+import { appsOutline, callOutline, chatbubblesOutline, settingsOutline } from "ionicons/icons";
 import NavRail from "../components/NavRail.vue";
 import { t } from "../i18n";
-import { extraTab } from "../preferences";
 
-// Plan 10.3: the games between Calls and Settings, on every phone: the app carries them (2026-10-03).
-// Since 2026-10-05 that place is Settings' choice: the games, the plugins, or nothing (the default).
-const EXTRA = {
-  games: { tab: "games", href: "/tabs/games", label: t("tabs.games"), icon: gameControllerOutline },
-  plugins: { tab: "plugins", href: "/tabs/plugins", label: t("tabs.plugins"), icon: extensionPuzzleOutline },
-};
-const tabs = computed(() => [
+// 2026-10-08 (plan of the apps grid): four fixed tabs. The tools and the games are the Apps tab,
+// between Calls and Settings, on every phone: the app carries the games and the small tools.
+const tabs = [
   { tab: "chats", href: "/tabs/chats", label: t("tabs.chats"), icon: chatbubblesOutline },
   { tab: "calls", href: "/tabs/calls", label: t("tabs.calls"), icon: callOutline },
-  ...(extraTab.value === "none" ? [] : [EXTRA[extraTab.value]]),
+  { tab: "apps", href: "/tabs/apps", label: t("tabs.apps"), icon: appsOutline },
   { tab: "settings", href: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline },
-]);
+];
 </script>
 
 <template>

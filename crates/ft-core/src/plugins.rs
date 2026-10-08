@@ -110,6 +110,8 @@ pub struct InstalledPlugin {
     /// What the user granted, always a subset of what the manifest asks for.
     pub granted: Permissions,
     pub installed_at: i64,
+    /// Its `icon.svg` as text (2026-10-08); empty when it carries none.
+    pub image: String,
 }
 
 impl Core {
@@ -539,6 +541,7 @@ impl Core {
                 manifest: manifest.clone(),
                 granted: serde_json::from_str(&row.granted).unwrap_or_default(),
                 installed_at: row.installed_at,
+                image: ft_plugins::image_of(home, &row.id),
             });
         }
         Ok(plugins)
@@ -671,7 +674,8 @@ mod tests {
 
     /// The index as `ftcatalogue` writes it, for the sixteen plugins served on 2026-10-02 (their
     /// ids, names and the length of their English summaries), each with `locales` from `languages`.
-    fn served_index(languages: impl Fn(usize) -> std::collections::BTreeMap<String, ft_plugins::Localized>) -> String {
+    /// Each entry with `image` as its `icon.svg` (2026-10-08).
+    fn served_index(languages: impl Fn(usize) -> std::collections::BTreeMap<String, ft_plugins::Localized>, image: &str) -> String {
         const SERVED: [(&str, &str, usize); 16] = [
             ("game.chess", "Chess", 88), ("game.fourinarow", "Four in a Row", 96), ("game.tictactoe", "Tic-Tac-Toe", 94),
             ("board", "Board", 81), ("clean", "Clean", 123), ("drive", "My drive", 58), ("images", "Image", 91),
@@ -692,6 +696,9 @@ mod tests {
                 summary: "x".repeat(*summary),
                 kind: if id.starts_with("game.") { ft_plugins::Kind::Game } else { ft_plugins::Kind::Tool },
                 locales: languages(*summary),
+                // The longest name chosen for a tile (2026-10-08).
+                icon: "radio-button-on-outline".to_owned(),
+                image: image.to_owned(),
             })
             .collect();
         serde_json::to_string_pretty(&serde_json::json!({ "plugins": entries })).unwrap()
@@ -712,6 +719,12 @@ mod tests {
     #[test]
     fn a_fully_translated_index_fits_what_the_core_downloads() {
         let text = |word: &str, chars: usize| word.chars().cycle().take(chars).collect::<String>();
+        let svg = |bytes: usize, filler: char| {
+            let bare = r#"<svg viewBox="0 0 64 64"><desc></desc></svg>"#;
+            format!(r#"<svg viewBox="0 0 64 64"><desc>{}</desc></svg>"#, filler.to_string().repeat(bytes - bare.len()))
+        };
+        // 2026-10-08: with an image each, as our generated ones weigh (about 1.5 KB), and at its
+        // limit (4096 bytes, quotes that JSON doubles) where the texts are at theirs.
         let realistic = served_index(|summary| {
             LANGUAGES
                 .iter()
@@ -723,13 +736,13 @@ mod tests {
                     ((*code).to_owned(), said)
                 })
                 .collect()
-        });
+        }, &svg(1500, 'x'));
         let longest = served_index(|_| {
             LANGUAGES
                 .iter()
                 .map(|(code, _)| ((*code).to_owned(), ft_plugins::Localized { name: Some("न".repeat(64)), summary: Some("न".repeat(200)) }))
                 .collect()
-        });
+        }, &svg(ft_plugins::icon::IMAGE_LIMIT, '"'));
         eprintln!("catalogue.json: {} bytes translated, {} bytes at the limits", realistic.len(), longest.len());
         assert!((realistic.len() as u64) < INDEX_LIMIT / 4, "{} bytes leaves little room to grow", realistic.len());
         assert!((longest.len() as u64) < INDEX_LIMIT, "{} bytes is more than the core downloads", longest.len());

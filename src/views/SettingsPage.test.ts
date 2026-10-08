@@ -8,7 +8,6 @@ import { PREMIUM_PAGE } from "../core";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
 import en from "../i18n/en.json";
-import { extraTab, storedExtraTab } from "../preferences";
 
 // Android's back button: the handler the app listens with while something is open on top.
 const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
@@ -309,27 +308,12 @@ describe("SettingsPage", () => {
     expect(calls.map(([command]) => command)).not.toContain("core_erase");
   });
 
-  // 2026-10-05 (Ioan): the fourth tab is picked here, in a sheet: nothing, the games or the plugins.
-  it("lets the user choose what the tab bar shows besides Chats, Calls and Settings", () => {
+  // 2026-10-08 (plan of the apps grid): the tab bar is fixed (Chats, Calls, Apps, Settings), so
+  // there is nothing to choose about it here any more.
+  it("has no choice of what the tab bar shows", () => {
     const wrapper = mount(SettingsPage, { shallow: true });
-    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Show in the tab bar");
-    expect(select?.attributes("value")).toBe("none");
-    expect(select?.attributes("interface")).toBe("modal");
-    expect(select?.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual(["Nothing", "Games", "Plugins"]);
-    expect(select?.findAllComponents(IonSelectOption).map((option) => option.attributes("value"))).toEqual(["none", "games", "plugins"]);
-  });
-
-  it("keeps the chosen tab on this phone, and the bar follows at once", async () => {
-    const wrapper = mount(SettingsPage, { shallow: true });
-    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Show in the tab bar");
-    select?.vm.$emit("ionChange", { detail: { value: "games" } });
-    await flushPromises();
-    expect(storedExtraTab()).toBe("games");
-    expect(extraTab.value).toBe("games");
-    expect(select?.attributes("value")).toBe("games");
-    select?.vm.$emit("ionChange", { detail: { value: "none" } });
-    await flushPromises();
-    expect(storedExtraTab()).toBe("none");
+    expect(wrapper.find("[data-test='extra-tab']").exists()).toBe(false);
+    expect(wrapper.html()).not.toContain("Show in the tab bar");
   });
 
   // Issue app#6: the default for contacts added later; each contact can differ.
@@ -386,7 +370,9 @@ describe("SettingsPage", () => {
       planning({ state: "trial", until: Date.now() + 15 * DAY });
       const html = (await settings()).html();
       const at = (test: string) => html.indexOf(`data-test="${test}"`);
-      expect(at("premium")).toBeGreaterThan(at("extra-tab"));
+      // The appearance group ends with the light/dark/system choice.
+      expect(html.lastIndexOf("ft-segment__option")).toBeGreaterThan(0);
+      expect(at("premium")).toBeGreaterThan(html.lastIndexOf("ft-segment__option"));
       expect(at("premium")).toBeLessThan(at("move"));
       expect(at("plugins")).toBeGreaterThan(at("premium"));
       expect(at("session")).toBeGreaterThan(at("premium"));
@@ -430,7 +416,7 @@ describe("SettingsPage", () => {
         expect(tools(wrapper).text()).toContain(en.premium.tools);
         expect(sessions(wrapper).text()).toContain(en.premium.sessions);
         await tools(wrapper).trigger("click");
-        expect(push).toHaveBeenCalledWith("/plugins");
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
         await sessions(wrapper).trigger("click");
         expect(push).toHaveBeenCalledWith("/session");
       });
@@ -600,7 +586,7 @@ describe("SettingsPage", () => {
         expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
         expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
         await tools(wrapper).trigger("click");
-        expect(push).toHaveBeenCalledWith("/plugins");
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
         await sessions(wrapper).trigger("click");
         expect(push).toHaveBeenCalledWith("/session");
       });

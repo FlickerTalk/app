@@ -6,9 +6,8 @@
   "tabs": {
     "chats": "聊天",
     "calls": "通話",
-    "settings": "設定",
-    "games": "遊戲",
-    "plugins": "外掛程式"
+    "apps": "應用程式",
+    "settings": "設定"
   },
   "chats": {
     "empty": "還沒有聊天",
@@ -266,9 +265,7 @@
     "renewLinkHint": "持有你舊連結的人將無法再聯絡你；你的聯絡人會收到新連結",
     "renewLinkConfirm": "更新",
     "renewed": "已更新連結",
-    "feedback": "提出建議",
-    "tabBar": "顯示在標籤列",
-    "tabBarNone": "無"
+    "feedback": "提出建議"
   },
   "hours": {
     "title": "時段",
@@ -311,25 +308,18 @@
     "label": "QR 碼"
   },
   "plugins": {
-    "title": "外掛程式",
-    "hint": "外掛程式在 FlickerTalk 內執行。它們一開始沒有任何權限：由你決定每個外掛程式能做什麼，之後也可以收回。",
     "readsGiven": "讀取你傳給它的內容",
     "writes": "在聊天中寫入",
     "sendsAlone": "自行傳送訊息",
     "asksNothing": "不需要任何權限",
-    "mayNotWrite": "此工具無權在聊天中寫入。請在「設定 → 外掛程式」中為它開啟「在聊天中寫入」。",
-    "remove": "移除",
+    "mayNotWrite": "此工具無權在聊天中寫入。請在「應用程式」中長按它的圖示，為它開啟「在聊天中寫入」。",
     "none": "還沒有外掛程式",
-    "available": "可新增的工具",
-    "install": "安裝",
-    "installFailed": "無法安裝這個工具。請檢查網路連線後再試一次。",
     "live": "與對話另一端的同一外掛通訊",
     "remind": "在這支手機上設定提醒",
     "drive": "把檔案保存在你自己的雲端",
     "storageLarge": "在這支手機上保存大量資料（最多 256 MB）",
     "location": "你的位置，僅在你要求時",
     "opens": "可開啟：{kinds}",
-    "open": "開啟",
     "locked": "訂閱以使用工具",
     "lockedHint": "免費天數已結束：工具需要訂閱。聊天、通話、檔案和遊戲依然免費。",
     "subscribe": "訂閱"
@@ -468,10 +458,6 @@
     "sees": "你的雲端只看到密封檔案的數量、大小和日期，永遠看不到名稱或內容。"
   },
   "games": {
-    "mine": "我的遊戲",
-    "more": "更多遊戲",
-    "install": "安裝",
-    "remove": "移除",
     "removeWarning": "移除後，這支手機上儲存的對局也會被刪除。",
     "play": "開始玩",
     "pickContact": "和誰一起玩",
@@ -481,12 +467,31 @@
     "installAndPlay": "安裝並開始玩",
     "permissionsBody": "這個遊戲會與對方的手機通訊，並可能把結果留在聊天中。",
     "permissionsAllow": "允許並開始玩",
-    "none": "還沒有遊戲",
-    "offline": "現在沒有可新增的遊戲。請檢查網路連線後再試一次。",
     "installFailed": "無法安裝這個遊戲。請檢查網路連線後再試一次。",
     "live": "與對方手機上的同一遊戲通訊",
     "showChat": "顯示聊天",
     "showGame": "返回遊戲"
+  },
+  "apps": {
+    "tools": "工具",
+    "games": "遊戲",
+    "moreTools": "更多工具",
+    "moreGames": "更多遊戲",
+    "allToolsHere": "所有工具都已在這支手機上",
+    "allGamesHere": "所有遊戲都已在這支手機上",
+    "noTools": "還沒有工具",
+    "noGames": "還沒有遊戲",
+    "offline": "現在沒有可新增的內容。請檢查網路連線後再試一次。",
+    "installFailed": "無法安裝。請檢查網路連線後再試一次。",
+    "lockedLabel": "{name}，已鎖定",
+    "downloadLabel": "{name}，下載 {size}",
+    "addLabel": "{name}，新增",
+    "inviteLabel": "{name}。長按即可邀請",
+    "open": "開啟",
+    "install": "安裝",
+    "remove": "移除",
+    "removeAsk": "要從這支手機移除嗎？",
+    "subscribe": "訂閱"
   },
   "feedback": {
     "title": "提出建議",

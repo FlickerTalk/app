@@ -70,10 +70,10 @@ function reopen() {
 // history, and Android's WebView skips the entries added without a touch on the page (a reminder
 // tapped in the notifications opens this page that way). With nothing left to go back to, Android
 // put the app away, still on the plugin. While the page is on screen the app takes the button and
-// goes where the back arrow goes: back, or to Settings with nothing behind.
+// goes where the back arrow goes: back, or to the Apps tab with nothing behind (2026-10-08).
 function leave() {
   if (window.history.state?.back) router.back();
-  else void router.replace("/tabs/settings");
+  else void router.replace("/tabs/apps");
 }
 closeOnBackWhile(() => here.value, leave);
 </script>
@@ -83,7 +83,7 @@ closeOnBackWhile(() => here.value, leave);
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start">
-          <ion-back-button default-href="/tabs/settings" :aria-label="$t('common.back')" />
+          <ion-back-button default-href="/tabs/apps" :aria-label="$t('common.back')" />
         </ion-buttons>
         <ion-title><span class="ft-title">{{ plugin ? pluginName(plugin) : "" }}</span></ion-title>
       </ion-toolbar>

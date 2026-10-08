@@ -6,9 +6,8 @@
   "tabs": {
     "chats": "Czaty",
     "calls": "Połączenia",
-    "settings": "Ustawienia",
-    "games": "Gry",
-    "plugins": "Wtyczki"
+    "apps": "Aplikacje",
+    "settings": "Ustawienia"
   },
   "chats": {
     "empty": "Brak czatów",
@@ -266,9 +265,7 @@
     "renewLinkHint": "Kto ma Twój stary link, nie może się już z Tobą skontaktować; Twoje kontakty dostaną nowy",
     "renewLinkConfirm": "Odnów",
     "renewed": "Odnowiono link",
-    "feedback": "Zaproponuj coś",
-    "tabBar": "Pokazuj na pasku kart",
-    "tabBarNone": "Nic"
+    "feedback": "Zaproponuj coś"
   },
   "hours": {
     "title": "Godziny",
@@ -311,25 +308,18 @@
     "label": "Kod QR"
   },
   "plugins": {
-    "title": "Wtyczki",
-    "hint": "Wtyczki działają wewnątrz FlickerTalk. Na start nie mogą nic: Ty decydujesz, co każda może robić, i możesz to cofnąć.",
     "readsGiven": "Czytanie tego, co jej wyślesz",
     "writes": "Pisanie w czacie",
     "sendsAlone": "Samodzielne wysyłanie wiadomości",
     "asksNothing": "Nie prosi o nic",
-    "mayNotWrite": "To narzędzie nie może pisać w czacie. Włącz dla niego „Pisanie w czacie” w Ustawienia → Wtyczki.",
-    "remove": "Usuń",
+    "mayNotWrite": "To narzędzie nie może pisać w czacie. Włącz dla niego „Pisanie w czacie” w Aplikacjach: przytrzymaj jego ikonę.",
     "none": "Brak wtyczek",
-    "available": "Narzędzia do dodania",
-    "install": "Zainstaluj",
-    "installFailed": "Nie udało się zainstalować narzędzia. Sprawdź połączenie i spróbuj ponownie.",
     "live": "Rozmawiać z tą samą wtyczką po drugiej stronie czatu",
     "remind": "Ustawiać przypomnienia na tym telefonie",
     "drive": "Przechowywać pliki w twojej własnej chmurze",
     "storageLarge": "Przechowywać dużo danych na tym telefonie (do 256 MB)",
     "location": "Twoja lokalizacja, tylko gdy o nią poprosisz",
     "opens": "Otwiera: {kinds}",
-    "open": "Otwórz",
     "locked": "Subskrybuj, aby używać narzędzi",
     "lockedHint": "Darmowe dni się skończyły: narzędzia wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
     "subscribe": "Subskrybuj"
@@ -468,10 +458,6 @@
     "sees": "Twoja chmura widzi, ile jest zapieczętowanych plików, ich rozmiar i daty. Nigdy ich nazw ani treści."
   },
   "games": {
-    "mine": "Moje gry",
-    "more": "Więcej gier",
-    "install": "Zainstaluj",
-    "remove": "Usuń",
     "removeWarning": "Usunięcie kasuje zapisane rozgrywki na tym telefonie.",
     "play": "Graj",
     "pickContact": "Graj z",
@@ -481,12 +467,31 @@
     "installAndPlay": "Zainstaluj i graj",
     "permissionsBody": "Ta gra łączy się z telefonem drugiej osoby i może zostawić wynik w czacie.",
     "permissionsAllow": "Zezwól i graj",
-    "none": "Brak gier",
-    "offline": "Teraz nie ma gier do dodania. Sprawdź połączenie i spróbuj ponownie.",
     "installFailed": "Nie udało się zainstalować gry. Sprawdź połączenie i spróbuj ponownie.",
     "live": "Rozmawiać z tą samą grą na telefonie drugiej osoby",
     "showChat": "Pokaż czat",
     "showGame": "Wróć do gry"
+  },
+  "apps": {
+    "tools": "Narzędzia",
+    "games": "Gry",
+    "moreTools": "Więcej narzędzi",
+    "moreGames": "Więcej gier",
+    "allToolsHere": "Wszystkie narzędzia są już na tym telefonie",
+    "allGamesHere": "Wszystkie gry są już na tym telefonie",
+    "noTools": "Brak narzędzi",
+    "noGames": "Brak gier",
+    "offline": "Teraz nie ma nic do dodania. Sprawdź połączenie i spróbuj ponownie.",
+    "installFailed": "Nie udało się zainstalować. Sprawdź połączenie i spróbuj ponownie.",
+    "lockedLabel": "{name}, zablokowane",
+    "downloadLabel": "{name}, pobierz {size}",
+    "addLabel": "{name}, dodaj",
+    "inviteLabel": "{name}. Przytrzymaj, aby zaprosić",
+    "open": "Otwórz",
+    "install": "Zainstaluj",
+    "remove": "Usuń",
+    "removeAsk": "Usunąć z tego telefonu?",
+    "subscribe": "Subskrybuj"
   },
   "feedback": {
     "title": "Zaproponuj coś",

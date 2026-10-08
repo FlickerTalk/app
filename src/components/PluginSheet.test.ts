@@ -555,7 +555,8 @@ describe("PluginSheet", () => {
 
     says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
     await flushPromises();
-    const message = "This tool may not write in the chat. Turn on “Write in the chat” for it in Settings → Plugins.";
+    // Since 2026-10-08 the switches are on the app's sheet in the Apps tab: the notice says where.
+    const message = "This tool may not write in the chat. Turn on “Write in the chat” for it in Apps: touch and hold its icon.";
     expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message }));
     expect(toast.present).toHaveBeenCalled();
 

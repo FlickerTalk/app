@@ -28,6 +28,9 @@ import {
   offeredOnce,
   openersOf,
   opensKind,
+  PLUGIN_ICONS,
+  pluginIcon,
+  pluginImage,
   pluginName,
   pluginSummary,
   refreshOffered,
@@ -39,6 +42,8 @@ import {
 } from "./plugins";
 import type { OfferedPlugin, PluginView } from "./core";
 import { setLocale } from "./i18n";
+import { bookOutline, extensionPuzzleOutline, gameControllerOutline, imageOutline, logoMarkdown, radioButtonOnOutline } from "ionicons/icons";
+import { readdirSync } from "node:fs";
 
 const CODE: PluginView = {
   id: "com.flickertalk.code",
@@ -482,6 +487,60 @@ describe("plugins in the app", () => {
       events.handlers.get("ft://plan")?.();
       await vi.waitFor(() => expect(premiumLocked.value).toBe(true));
       premiumLocked.value = false;
+    });
+  });
+  // 2026-10-08 (plan of the apps grid): a plugin names the Ionicon of its tile; the app draws it
+  // only if it is one of those it allows, and otherwise its own: a puzzle piece for a tool, a
+  // controller for a game.
+  describe("the icon of a tile", () => {
+    it("draws the Ionicon the plugin names", () => {
+      expect(pluginIcon({ icon: "image-outline" })).toBe(imageOutline);
+      expect(pluginIcon({ icon: "logo-markdown", kind: "tool" })).toBe(logoMarkdown);
+      expect(pluginIcon({ icon: "radio-button-on-outline", kind: "game" })).toBe(radioButtonOnOutline);
+      expect(pluginIcon({ icon: "book-outline" })).toMatch(/^data:image\/svg\+xml/);
+      expect(pluginIcon({ icon: "book-outline" })).toBe(bookOutline);
+    });
+
+    it("draws its own for a name it does not allow, or none", () => {
+      expect(pluginIcon({ icon: "rocket-outline-of-nowhere" })).toBe(extensionPuzzleOutline);
+      expect(pluginIcon({ icon: "toString" })).toBe(extensionPuzzleOutline);
+      expect(pluginIcon({ icon: "__proto__", kind: "game" })).toBe(gameControllerOutline);
+      expect(pluginIcon({})).toBe(extensionPuzzleOutline);
+      expect(pluginIcon({ kind: "tool", icon: "" })).toBe(extensionPuzzleOutline);
+      expect(pluginIcon({ kind: "game" })).toBe(gameControllerOutline);
+      expect(pluginIcon({ kind: "game", icon: "nope" })).toBe(gameControllerOutline);
+    });
+
+    // Every name chosen for our plugins (docs/plan-apps-grid.md) and every icon a plugin's frame
+    // can ask the core for (src-tauri/resources/icons) can be a tile.
+    it("allows every icon our plugins use and every icon of the frame", () => {
+      const chosen = [
+        "image-outline", "logo-markdown", "document-outline", "eye-off-outline", "brush-outline", "scan-outline",
+        "timer-outline", "reader-outline", "easel-outline", "cloud-outline", "book-outline", "sparkles-outline",
+        "list-outline", "location-outline", "stats-chart-outline", "pencil-outline", "cut-outline", "grid-outline",
+        "ellipse-outline", "shield-outline", "radio-button-on-outline", "dice-outline", "square-outline",
+        "albums-outline", "apps-outline", "basket-outline", "contrast-outline", "boat-outline", "text-outline",
+        "language-outline",
+      ];
+      const frame = readdirSync("src-tauri/resources/icons").filter((file) => file.endsWith(".svg")).map((file) => file.slice(0, -4));
+      expect(frame.length).toBeGreaterThan(40);
+      for (const name of [...chosen, ...frame]) {
+        expect(Object.keys(PLUGIN_ICONS), name).toContain(name);
+        expect(PLUGIN_ICONS[name], name).toMatch(/^data:image\/svg\+xml/);
+      }
+    });
+  });
+
+  // 2026-10-08 ("Imagen por plugin"): a plugin's own icon.svg, drawn as an <img> from a data URL.
+  describe("the image of a tile", () => {
+    it("is a base64 data URL of the SVG, UTF-8 included, or nothing", () => {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><title>Échecs ♞</title><rect width="64" height="64"/></svg>';
+      const url = pluginImage({ image: svg })!;
+      expect(url.startsWith("data:image/svg+xml;base64,")).toBe(true);
+      const bytes = Uint8Array.from(atob(url.slice("data:image/svg+xml;base64,".length)), (c) => c.charCodeAt(0));
+      expect(new TextDecoder().decode(bytes)).toBe(svg);
+      expect(pluginImage({})).toBeUndefined();
+      expect(pluginImage({ image: "" })).toBeUndefined();
     });
   });
 });

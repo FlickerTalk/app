@@ -44,11 +44,20 @@ test("a game is never locked", async ({ app }) => {
   await expect(app).not.toHaveURL(/premium/);
 });
 
-test("the tools page locks every tool and installs nothing", async ({ app }) => {
-  await app.goto("/plugins");
-  await expect(app.getByTestId("locked")).toContainText("tools need the subscription");
-  await app.getByTestId("open-com.flickertalk.markdown").click();
+// 2026-10-08 (plan of the apps grid): the Apps tab locks each tool's tile, and its sheet offers
+// the subscription; a game's tile has no lock.
+test("the Apps tab locks every tool, offers the subscription on its sheet, and installs nothing", async ({ app }) => {
+  await app.goto("/tabs/apps");
+  const tool = app.getByTestId("app-com.flickertalk.markdown");
+  await expect(tool.getByTestId("locked")).toBeVisible();
+  await expect(tool).toHaveAttribute("aria-label", "Markdown, locked");
+  await tool.click({ button: "right" });
+  await expect(app.getByTestId("sheet-open")).toContainText("Subscribe");
+  await app.getByTestId("sheet-open").click();
   await atPremium(app);
+
+  await app.goto("/tabs/apps?show=games");
+  await expect(app.getByTestId(`app-${TICTACTOE}`).getByTestId("locked")).toHaveCount(0);
   expect((await callsTo(app)).some(([command]) => command === "core_plugin_add")).toBe(false);
 });
 
