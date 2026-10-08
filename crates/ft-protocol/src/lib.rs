@@ -153,7 +153,8 @@ pub enum Body {
     FileFailed { file: MessageId },
     /// A voice or video call (§66). Its descriptions travel here, directly and encrypted, never
     /// through the mailbox. `video` is how the caller starts the call; `media` is the sender's
-    /// call media version (`CALL_MEDIA_VERSION`, 2026-09-29), absent (0) from older apps.
+    /// call media version (`CALL_MEDIA_VERSION`: 1 since 2026-09-29, 2 since 2026-10-08), absent
+    /// (0) from older apps.
     CallOffer {
         call: MessageId,
         sdp: String,
