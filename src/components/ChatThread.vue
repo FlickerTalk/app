@@ -62,6 +62,7 @@ import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import AppTile from "./AppTile.vue";
 import GamePermissions from "./GamePermissions.vue";
+import PermissionAsk from "./PermissionAsk.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import {
@@ -124,6 +125,7 @@ import {
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
+import type { PermissionNeed } from "../permissions";
 import { firstDayOfWeek, i18n, t } from "../i18n";
 import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
@@ -636,6 +638,8 @@ function openPlugin(chosen: Opening) {
 
 function closePlugin() {
   if (!plugin.value || leaving.value) return;
+  // A question the plugin was waiting on goes with it, as a no.
+  answerNeed(false);
   leaving.value = true;
   if (sheet.value) void sheet.value.close();
   else pluginClosed();
@@ -717,12 +721,23 @@ function pluginDone() {
   closePlugin();
 }
 
+// Ioan, 2026-10-08: a plugin asking for something it lacks the permission for (the tool window or
+// the game room) asks the user here, for that one permission; the sheet grants it on a yes.
+const needing = ref<PermissionNeed | null>(null);
+const openView = computed(() => installed.value.find((one) => one.id === plugin.value?.id));
+function answerNeed(allowed: boolean) {
+  const need = needing.value;
+  needing.value = null;
+  need?.answer(allowed);
+}
+
 // Android's back button closes what is open on top, and only that (2026-09-28).
 // Only while the conversation is on screen (`active`).
 closeOnBackWhile(() => props.active && emoji.value, () => (emoji.value = false));
 closeOnBackWhile(() => props.active && Boolean(acting.value), () => closeActions());
 closeOnBackWhile(() => props.active && showApps.value, () => (showApps.value = false));
 closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, () => closePlugin());
+closeOnBackWhile(() => props.active && Boolean(needing.value), () => answerNeed(false));
 
 /**
  * Ioan, 2026-10-08: after the 15 free days, without the subscription, the tools are locked: a tap on
@@ -1132,6 +1147,7 @@ watch(
           @open-chat="(contact) => router.push(`/chat/${contact}`)"
           @done="pluginDone"
           @closed="pluginClosed"
+          @needs="(need) => (needing = need)"
         />
       </div>
     </section>
@@ -1165,6 +1181,7 @@ watch(
           @open-chat="(contact) => router.push(`/chat/${contact}`)"
           @done="pluginDone"
           @closed="pluginClosed"
+          @needs="(need) => (needing = need)"
         />
       </div>
     </div>
@@ -1235,6 +1252,17 @@ watch(
         </template>
       </ion-content>
     </ion-modal>
+
+    <PermissionAsk
+      :class="sheetPane"
+      :open="Boolean(needing)"
+      :name="plugin?.name ?? ''"
+      :permission="needing ?? undefined"
+      :icon="openView && pluginIcon(openView)"
+      :image="openView && pluginImage(openView)"
+      @allow="answerNeed(true)"
+      @cancel="answerNeed(false)"
+    />
 
     <GamePermissions
       :class="sheetPane"

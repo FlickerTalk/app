@@ -7,7 +7,8 @@ import source from "./PermissionAsk.vue?raw";
 import { IonModalStub } from "../__tests__/ionic";
 
 const LOCATION = { label: "Your location, only when you ask", icon: locationOutline };
-const sheet = (props: Record<string, unknown>, stubs: Record<string, unknown> = { IonModal: IonModalStub, IonIcon: true }) =>
+type Stubs = NonNullable<NonNullable<Parameters<typeof mount>[1]>["global"]>["stubs"];
+const sheet = (props: Record<string, unknown>, stubs: Stubs = { IonModal: IonModalStub, IonIcon: true }) =>
   mount(PermissionAsk, { props: { open: true, name: "Location", permission: LOCATION, ...props }, global: { stubs } });
 
 describe("PermissionAsk", () => {
