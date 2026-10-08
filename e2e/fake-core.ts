@@ -60,6 +60,11 @@
  * `core_plugin_live_send` takes what such a plugin says to its twin (kept in `calls`), as the core
  * would over a direct connection; one without the grant is refused.
  *
+ * A tool that asks for permissions it was not granted (2026-10-08): `window.__ftFakeLocationTool`
+ * installs Location (`com.flickertalk.location`), which asks for the phone's position, to write in
+ * the chat and for the live channel, and was granted none. `core_plugin_location` answers a fixed
+ * position (`FAKE_FIX`) only to a plugin granted `location`, and refuses any other, as the core.
+ *
  * Links that open the app (2026-10-08): `window.__ftFakeOpenedLink` (a URL) is the link the phone
  * opened the app with, handed over once (`core_opened_link`); `window.__ftFake.openLink(url)` is a
  * link opening the app that runs already (the core's `ft://opened-link`). `core_read_link` reads
@@ -191,6 +196,16 @@ export function installFakeCore() {
     for (const plugin of state.plugins) if (ids.includes(plugin.id)) plugin.granted = { ...plugin.granted, live: true };
   };
   const NATIVE_CALL = "call-e2e";
+  const LOCATION_TOOL = {
+    id: "com.flickertalk.location",
+    icon: "location-outline",
+    name: "Location",
+    version: "1.0.1",
+    asks: { network: [], messages: false, send: "propose", live: true, location: true },
+    granted: { network: [], messages: false, send: "nothing", live: false, location: false },
+    installedAt: 3,
+  };
+  const FAKE_FIX = { lat: 40.41678, lon: -3.70379, accuracy: 35, at: 1_790_000_000_000 };
   const callEvent = (payload: Record<string, unknown>) =>
     emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
 
@@ -365,6 +380,7 @@ export function installFakeCore() {
       }
       case "core_plugins": {
         grantLive();
+        if (flag("__ftFakeLocationTool") && !state.plugins.some((p) => p.id === LOCATION_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(LOCATION_TOOL)));
         const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
         const extra = Array.from({ length: many }, (_, at) => String(at).padStart(2, "0")).flatMap((n) => [
           { id: `com.example.tool${n}`, name: `Tool ${n} with a rather long name to see it cut`, version: "1.0.0", asks: { network: [], messages: false, send: "nothing" }, granted: { network: [], messages: false, send: "nothing" }, installedAt: 1 },
@@ -605,6 +621,11 @@ export function installFakeCore() {
         return undefined;
       case "core_renew_link":
         return "https://flickertalk.com/add#renewed";
+      case "core_plugin_location": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.location) throw new Error(`${String(a.plugin)} may not ask where the phone is`);
+        return FAKE_FIX;
+      }
       case "core_plugin_live_send": {
         grantLive();
         const plugin = state.plugins.find((p) => p.id === a.plugin);
