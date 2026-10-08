@@ -114,3 +114,11 @@ export function hostOf(url: string): string | undefined {
   if (!authority || authority.includes("@")) return undefined;
   return authority.split(":")[0].toLowerCase() || undefined;
 }
+
+/**
+ * A permission a plugin needs right now for what it asked (2026-10-08): the line the user is shown,
+ * and how the screen showing the question gives the answer. Answering twice changes nothing.
+ */
+export interface PermissionNeed extends PermissionLine {
+  answer: (allowed: boolean) => void;
+}
