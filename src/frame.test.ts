@@ -60,6 +60,18 @@ describe("the frame", () => {
     expect(document.documentElement.lang).toBe("es");
   });
 
+  // Plugin API 1.6.0: the app opens a plugin inside a call to lead or follow a presentation.
+  it("tells a plugin opened in a call whether it leads or follows, and nothing else", async () => {
+    const opened: Said[] = [];
+    const { says, ran } = await frame(() => ft().onOpen((one) => opened.push(one)));
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    await ran;
+    await says({ type: "ft.open", live: true, presenting: "follow" });
+    await says({ type: "ft.open", live: true, presenting: "boss" });
+    expect(opened[0]).toMatchObject({ live: true, presenting: "follow" });
+    expect(opened[1]).not.toHaveProperty("presenting");
+  });
+
   // 2026-10-02 (Ioan): the app's colours, as Ionic's variables on the frame's root, there before
   // the plugin draws anything and kept up to date; and whether the app is dark.
   const dark = {

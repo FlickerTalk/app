@@ -229,6 +229,8 @@ addEventListener("message", (event) => {
       theme: { ...theme },
       // The chat it was opened in (2026-10-02): an opaque id, only when there is one.
       ...(typeof said.chat === "string" ? { chat: said.chat } : {}),
+      // Opened by the app inside a call to present (Plugin API 1.6.0): "lead" or "follow", only then.
+      ...(said.presenting === "lead" || said.presenting === "follow" ? { presenting: said.presenting } : {}),
     };
     for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);
