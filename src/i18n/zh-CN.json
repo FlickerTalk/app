@@ -137,7 +137,19 @@
     "minimize": "返回聊天",
     "answer": "接听",
     "decline": "拒绝",
-    "empty": "还没有通话记录"
+    "empty": "还没有通话记录",
+    "present": "演示",
+    "presentBoard": "白板",
+    "presentDocument": "文档（PDF）",
+    "stopPresenting": "停止演示",
+    "presenting": "{name} 正在演示",
+    "acceptToSee": "接受文件即可查看演示",
+    "presentTooBig": "此 PDF 太大，无法演示（最大 32 MB）",
+    "presentMissing": "此手机没有这次演示所需的工具，请在“应用”中添加。",
+    "presentAsk": "{name} 想用 {plugin} 进行演示",
+    "presentAllow": "允许",
+    "presentFailed": "无法开始演示",
+    "cannotPresentOld": "对方的应用暂时无法显示演示"
   },
   "welcome": {
     "fromOld": "我在另一部手机上有 FlickerTalk",

@@ -137,7 +137,19 @@
     "minimize": "채팅으로 돌아가기",
     "answer": "받기",
     "decline": "거절",
-    "empty": "아직 통화 기록이 없습니다"
+    "empty": "아직 통화 기록이 없습니다",
+    "present": "발표하기",
+    "presentBoard": "화이트보드",
+    "presentDocument": "문서(PDF)",
+    "stopPresenting": "발표 중지",
+    "presenting": "{name} 님이 발표 중",
+    "acceptToSee": "발표를 보려면 파일을 수락하세요",
+    "presentTooBig": "이 PDF는 너무 커서 발표할 수 없습니다(최대 32MB)",
+    "presentMissing": "이 휴대폰에는 이 발표에 필요한 도구가 없습니다. 앱에서 추가하세요.",
+    "presentAsk": "{name} 님이 {plugin}(으)로 발표하려고 합니다",
+    "presentAllow": "허용",
+    "presentFailed": "발표를 시작할 수 없습니다",
+    "cannotPresentOld": "상대방 앱은 아직 발표를 표시할 수 없습니다"
   },
   "welcome": {
     "fromOld": "다른 휴대폰에 FlickerTalk가 있어요",

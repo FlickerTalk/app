@@ -137,7 +137,19 @@
     "minimize": "返回聊天",
     "answer": "接聽",
     "decline": "拒接",
-    "empty": "還沒有通話紀錄"
+    "empty": "還沒有通話紀錄",
+    "present": "簡報",
+    "presentBoard": "白板",
+    "presentDocument": "文件（PDF）",
+    "stopPresenting": "停止簡報",
+    "presenting": "{name} 正在簡報",
+    "acceptToSee": "接受檔案即可觀看簡報",
+    "presentTooBig": "這個 PDF 太大，無法簡報（最多 32 MB）",
+    "presentMissing": "這支手機沒有這場簡報所需的工具，請在「應用程式」中加入。",
+    "presentAsk": "{name} 想用 {plugin} 進行簡報",
+    "presentAllow": "允許",
+    "presentFailed": "無法開始簡報",
+    "cannotPresentOld": "對方的應用程式還無法顯示簡報"
   },
   "welcome": {
     "fromOld": "我在另一支手機上有 FlickerTalk",

@@ -137,7 +137,19 @@
     "minimize": "Sohbete dön",
     "answer": "Cevapla",
     "decline": "Reddet",
-    "empty": "Henüz arama yok"
+    "empty": "Henüz arama yok",
+    "present": "Sun",
+    "presentBoard": "Tahta",
+    "presentDocument": "Belge (PDF)",
+    "stopPresenting": "Sunumu durdur",
+    "presenting": "{name} sunum yapıyor",
+    "acceptToSee": "Sunumu görmek için dosyayı kabul et",
+    "presentTooBig": "Bu PDF sunmak için çok büyük (en fazla 32 MB)",
+    "presentMissing": "Bu telefonda bu sunumun aracı yok. Uygulamalar'dan ekle.",
+    "presentAsk": "{name}, {plugin} ile sunum yapmak istiyor",
+    "presentAllow": "İzin ver",
+    "presentFailed": "Sunum başlatılamadı",
+    "cannotPresentOld": "Karşı tarafın uygulaması henüz sunum gösteremiyor"
   },
   "welcome": {
     "fromOld": "Başka bir telefonda FlickerTalk kullanıyorum",

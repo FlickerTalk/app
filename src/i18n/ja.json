@@ -137,7 +137,19 @@
     "minimize": "チャットに戻る",
     "answer": "応答",
     "decline": "拒否",
-    "empty": "まだ通話履歴はありません"
+    "empty": "まだ通話履歴はありません",
+    "present": "発表",
+    "presentBoard": "ホワイトボード",
+    "presentDocument": "ドキュメント（PDF）",
+    "stopPresenting": "発表を終了",
+    "presenting": "{name}さんが発表中",
+    "acceptToSee": "発表を見るにはファイルを受け取ってください",
+    "presentTooBig": "この PDF は大きすぎて発表できません（最大 32 MB）",
+    "presentMissing": "この端末にはこの発表のツールがありません。「アプリ」で追加してください。",
+    "presentAsk": "{name}さんが{plugin}で発表しようとしています",
+    "presentAllow": "許可",
+    "presentFailed": "発表を開始できませんでした",
+    "cannotPresentOld": "相手のアプリはまだ発表を表示できません"
   },
   "welcome": {
     "fromOld": "別のスマホでFlickerTalkを使っています",

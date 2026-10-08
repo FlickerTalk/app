@@ -80,4 +80,14 @@ describe("GamePermissions", () => {
     const styles = source.slice(source.indexOf("<style"));
     expect(styles).toMatch(/\.ft-game-ask__body\s*\{[^}]*padding-top:\s*26px/);
   });
+
+  // 2026-10-08: the same sheet asks before presenting in a call, with its own words.
+  it("says what it is given instead of the game's text, with its own allow button", () => {
+    const wrapper = sheet({ name: "Board", body: "Maria wants to present with Board", allowLabel: "Allow" });
+    const html = wrapper.find("[data-test='game-permissions']").html();
+    expect(html).toContain("Maria wants to present with Board");
+    expect(html).not.toContain("This game talks");
+    expect(wrapper.find("[data-test='game-allow']").element.innerHTML).toContain("Allow");
+    expect(wrapper.find("[data-test='game-allow']").element.innerHTML).not.toContain("play");
+  });
 });

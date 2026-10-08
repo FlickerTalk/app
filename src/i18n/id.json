@@ -137,7 +137,19 @@
     "minimize": "Kembali ke chat",
     "answer": "Jawab",
     "decline": "Tolak",
-    "empty": "Belum ada panggilan"
+    "empty": "Belum ada panggilan",
+    "present": "Presentasikan",
+    "presentBoard": "Papan tulis",
+    "presentDocument": "Dokumen (PDF)",
+    "stopPresenting": "Hentikan presentasi",
+    "presenting": "{name} sedang presentasi",
+    "acceptToSee": "Terima file untuk melihat presentasi",
+    "presentTooBig": "PDF ini terlalu besar untuk dipresentasikan (maksimal 32 MB)",
+    "presentMissing": "Ponsel ini tidak punya alat untuk presentasi ini. Tambahkan di Aplikasi.",
+    "presentAsk": "{name} ingin presentasi dengan {plugin}",
+    "presentAllow": "Izinkan",
+    "presentFailed": "Presentasi tidak bisa dimulai",
+    "cannotPresentOld": "Aplikasi lawan bicara belum bisa menampilkan presentasi"
   },
   "welcome": {
     "fromOld": "Saya punya FlickerTalk di ponsel lain",

@@ -137,7 +137,19 @@
     "minimize": "चैट पर वापस जाएँ",
     "answer": "उठाएँ",
     "decline": "अस्वीकार करें",
-    "empty": "अभी कोई कॉल नहीं"
+    "empty": "अभी कोई कॉल नहीं",
+    "present": "प्रस्तुत करें",
+    "presentBoard": "व्हाइटबोर्ड",
+    "presentDocument": "दस्तावेज़ (PDF)",
+    "stopPresenting": "प्रस्तुति रोकें",
+    "presenting": "{name} प्रस्तुत कर रहे हैं",
+    "acceptToSee": "प्रस्तुति देखने के लिए फ़ाइल स्वीकार करें",
+    "presentTooBig": "यह PDF प्रस्तुत करने के लिए बहुत बड़ा है (अधिकतम 32 MB)",
+    "presentMissing": "इस फ़ोन में इस प्रस्तुति का टूल नहीं है। इसे ऐप्स में जोड़ें।",
+    "presentAsk": "{name} {plugin} से प्रस्तुत करना चाहते हैं",
+    "presentAllow": "अनुमति दें",
+    "presentFailed": "प्रस्तुति शुरू नहीं हो सकी",
+    "cannotPresentOld": "सामने वाले का ऐप अभी प्रस्तुतियाँ नहीं दिखा सकता"
   },
   "welcome": {
     "fromOld": "मेरे दूसरे फ़ोन पर FlickerTalk है",

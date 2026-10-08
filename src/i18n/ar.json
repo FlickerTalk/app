@@ -137,7 +137,19 @@
     "minimize": "العودة إلى الدردشة",
     "answer": "رد",
     "decline": "رفض",
-    "empty": "لا توجد مكالمات بعد"
+    "empty": "لا توجد مكالمات بعد",
+    "present": "تقديم",
+    "presentBoard": "سبورة",
+    "presentDocument": "مستند (PDF)",
+    "stopPresenting": "إيقاف العرض",
+    "presenting": "{name} يقدّم عرضًا",
+    "acceptToSee": "اقبل الملف لرؤية العرض",
+    "presentTooBig": "ملف PDF هذا كبير جدًا لتقديمه (32 ميغابايت كحد أقصى)",
+    "presentMissing": "لا توجد في هذا الهاتف أداة هذا العرض. أضِفها من التطبيقات.",
+    "presentAsk": "{name} يريد التقديم باستخدام {plugin}",
+    "presentAllow": "سماح",
+    "presentFailed": "تعذّر بدء العرض",
+    "cannotPresentOld": "لا يستطيع تطبيق الطرف الآخر عرض العروض التقديمية بعد"
   },
   "welcome": {
     "fromOld": "لديّ FlickerTalk على هاتف آخر",

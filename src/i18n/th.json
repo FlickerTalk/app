@@ -137,7 +137,19 @@
     "minimize": "กลับไปที่แชท",
     "answer": "รับสาย",
     "decline": "ปฏิเสธ",
-    "empty": "ยังไม่มีการโทร"
+    "empty": "ยังไม่มีการโทร",
+    "present": "นำเสนอ",
+    "presentBoard": "ไวท์บอร์ด",
+    "presentDocument": "เอกสาร (PDF)",
+    "stopPresenting": "หยุดนำเสนอ",
+    "presenting": "{name} กำลังนำเสนอ",
+    "acceptToSee": "ยอมรับไฟล์เพื่อดูการนำเสนอ",
+    "presentTooBig": "PDF นี้ใหญ่เกินกว่าจะนำเสนอได้ (สูงสุด 32 MB)",
+    "presentMissing": "โทรศัพท์เครื่องนี้ไม่มีเครื่องมือสำหรับการนำเสนอนี้ เพิ่มได้ในแอป",
+    "presentAsk": "{name} ต้องการนำเสนอด้วย {plugin}",
+    "presentAllow": "อนุญาต",
+    "presentFailed": "เริ่มการนำเสนอไม่ได้",
+    "cannotPresentOld": "แอปของอีกฝ่ายยังแสดงการนำเสนอไม่ได้"
   },
   "welcome": {
     "fromOld": "ฉันมี FlickerTalk ในโทรศัพท์เครื่องอื่น",

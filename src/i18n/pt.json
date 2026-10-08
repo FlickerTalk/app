@@ -137,7 +137,19 @@
     "minimize": "Voltar à conversa",
     "answer": "Atender",
     "decline": "Recusar",
-    "empty": "Nenhuma chamada ainda"
+    "empty": "Nenhuma chamada ainda",
+    "present": "Apresentar",
+    "presentBoard": "Quadro",
+    "presentDocument": "Documento (PDF)",
+    "stopPresenting": "Parar de apresentar",
+    "presenting": "{name} está apresentando",
+    "acceptToSee": "Aceite o arquivo para ver a apresentação",
+    "presentTooBig": "Este PDF é grande demais para apresentar (32 MB no máximo)",
+    "presentMissing": "Este telefone não tem a ferramenta desta apresentação. Adicione-a em Apps.",
+    "presentAsk": "{name} quer apresentar com {plugin}",
+    "presentAllow": "Permitir",
+    "presentFailed": "Não foi possível iniciar a apresentação",
+    "cannotPresentOld": "O app da outra pessoa ainda não mostra apresentações"
   },
   "welcome": {
     "fromOld": "Tenho o FlickerTalk em outro celular",
