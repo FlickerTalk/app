@@ -143,7 +143,7 @@ const premiumBadge = computed(() => {
 /** The two premium rows; locked, each says what it needs. */
 const premiumRows = [
   // The tools live in the Apps tab (2026-10-08): this row is a shortcut there.
-  { test: "plugins", label: "premium.tools", locked: "plugins.locked", icon: constructOutline, path: "/tabs/apps" },
+  { test: "plugins", label: "premium.tools", locked: "plugins.locked", icon: constructOutline, path: "/tabs/apps?show=tools" },
   // Hidden sessions: a PIN pad, nothing else. The same six digits create or enter one. §108: locked,
   // the row never reaches the pad, so nothing after a PIN tells whether a session exists.
   { test: "session", label: "premium.sessions", locked: "session.subscribeToUse", icon: keypadOutline, path: "/session" },

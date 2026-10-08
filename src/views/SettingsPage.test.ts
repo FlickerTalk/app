@@ -416,7 +416,7 @@ describe("SettingsPage", () => {
         expect(tools(wrapper).text()).toContain(en.premium.tools);
         expect(sessions(wrapper).text()).toContain(en.premium.sessions);
         await tools(wrapper).trigger("click");
-        expect(push).toHaveBeenCalledWith("/tabs/apps");
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
         await sessions(wrapper).trigger("click");
         expect(push).toHaveBeenCalledWith("/session");
       });
@@ -586,7 +586,7 @@ describe("SettingsPage", () => {
         expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
         expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
         await tools(wrapper).trigger("click");
-        expect(push).toHaveBeenCalledWith("/tabs/apps");
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
         await sessions(wrapper).trigger("click");
         expect(push).toHaveBeenCalledWith("/session");
       });

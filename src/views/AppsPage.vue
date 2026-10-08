@@ -63,11 +63,12 @@ const route = useRoute();
 type Segment = "tools" | "games";
 /** The segment shown; Ionic keeps the tab mounted, so it is remembered while the app runs. */
 const segment = ref<Segment>(route.query?.show === "games" ? "games" : "tools");
-// The chat's apps sheet asks for the games ("More games"), also when the tab is already mounted.
+// The chat's apps sheet asks for the games ("More games") and Settings' Tools row for the tools,
+// also when the tab is already mounted and was left on the other segment.
 watch(
   () => route.query?.show,
   (show) => {
-    if (show === "games") segment.value = "games";
+    if (show === "games" || show === "tools") segment.value = show;
   },
 );
 const SEGMENTS = [

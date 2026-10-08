@@ -164,6 +164,10 @@ describe("AppsPage", () => {
     nav.route.query = { show: "games" };
     await flushPromises();
     expect(wrapper.findComponent(IonSegment).props("value")).toBe("games");
+    // Settings' Tools row asks for the tools, even when the tab was left on the games.
+    nav.route.query = { show: "tools" };
+    await flushPromises();
+    expect(wrapper.findComponent(IonSegment).props("value")).toBe("tools");
   });
 
   it("says when there is nothing yet, and when there is nothing to add offline", async () => {
