@@ -62,6 +62,19 @@ describe("App", () => {
     premiumLocked.value = false;
   });
 
+  // A device profile (2026-10-08): each chat read the whole list of plugins as it opened, in the
+  // middle of the page transition. The app reads it once at start and then follows `ft://plugins`.
+  it("reads the installed plugins once at start", async () => {
+    const asked: string[] = [];
+    installTauri((command) => {
+      asked.push(command);
+      return command === "core_plugins" ? [] : undefined;
+    });
+    mount(App, { shallow: true });
+    await flushPromises();
+    expect(asked.filter((command) => command === "core_plugins")).toHaveLength(1);
+  });
+
   // iOS cuts the socket of a suspended app (2026-09-28): back on the screen, or opened from a
   // push, the app reconnects at once and so fetches what waits, instead of waiting for it.
   it("reconnects to the router at once when it comes back to the screen", async () => {

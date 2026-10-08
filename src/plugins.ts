@@ -41,20 +41,35 @@ export function frameUrl(id: string): string {
  */
 export const installed = shallowRef<PluginView[]>([]);
 
+/** The first read of the list since the app started: whoever waits on it shares it. */
+let firstRead: Promise<PluginView[]> | undefined;
+
 /** Asks the core what is installed and hands it to every screen that is watching. */
-export async function refreshPlugins(): Promise<PluginView[]> {
-  installed.value = await plugins().catch(() => []);
-  return installed.value;
+export function refreshPlugins(): Promise<PluginView[]> {
+  const read = plugins()
+    .catch(() => [])
+    .then((list) => (installed.value = list));
+  firstRead ??= read;
+  return read;
+}
+
+/**
+ * The list once it has been read (2026-10-08, device profile): a screen that only needs it to be
+ * there reads nothing when the app already did, and shares the first read while it is on its way.
+ */
+export function pluginsReady(): Promise<PluginView[]> {
+  return firstRead ?? refreshPlugins();
 }
 
 /** What the core says when the plugins installed here changed: an update made in the background. */
 export const PLUGINS_EVENT = "ft://plugins";
 
 /**
- * Reads the plugins again whenever the core says they changed (2026-10-03): an update it made in
- * the background reaches every screen. Returns how to stop listening.
+ * Reads the plugins once, then again whenever the core says they changed (2026-10-03): an update
+ * it made in the background reaches every screen. Returns how to stop listening.
  */
 export async function followPluginChanges(): Promise<() => void> {
+  void refreshPlugins();
   return listen(PLUGINS_EVENT, () => void refreshPlugins());
 }
 

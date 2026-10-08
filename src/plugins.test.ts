@@ -94,6 +94,39 @@ describe("plugins in the app", () => {
     installed.value = [];
   });
 
+  // 2026-10-08 (device profile): the chats no longer read the list as they open, so the app reads
+  // it once as it starts following the changes.
+  it("reads the plugins once as it starts following them", async () => {
+    tauri.invoke.mockResolvedValue([CODE]);
+    const stop = await followPluginChanges();
+    await vi.waitFor(() => expect(installed.value.map((one) => one.id)).toEqual([CODE.id]));
+    expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_plugins")).toHaveLength(1);
+    stop();
+    installed.value = [];
+  });
+
+  // A chat opened before anything read the list reads it once; after that, it reads nothing.
+  it("reads the plugins for whoever waits on them only if nobody read them yet", async () => {
+    vi.resetModules();
+    const fresh = await import("./plugins");
+    tauri.invoke.mockResolvedValue([CODE]);
+    expect((await fresh.pluginsReady()).map((one) => one.id)).toEqual([CODE.id]);
+    expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_plugins")).toHaveLength(1);
+    await fresh.pluginsReady();
+    expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_plugins")).toHaveLength(1);
+  });
+
+  // The first read still on its way (the app has just started): whoever waits shares it.
+  it("shares the first read of the plugins while it is on its way", async () => {
+    vi.resetModules();
+    const fresh = await import("./plugins");
+    tauri.invoke.mockResolvedValue([CODE]);
+    const first = fresh.refreshPlugins();
+    await fresh.pluginsReady();
+    await first;
+    expect(tauri.invoke.mock.calls.filter(([command]) => command === "core_plugins")).toHaveLength(1);
+  });
+
   // 2026-10-03 (updates): the frame's address names the version installed, so an update is never
   // answered from a cache by the old address.
   it("names the installed version in the frame's address", () => {
