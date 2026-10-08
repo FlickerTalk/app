@@ -116,6 +116,7 @@ import {
   type PickedFile,
   type PluginView,
   type Sending,
+  PREMIUM_PAGE,
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
@@ -721,17 +722,17 @@ closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, 
 
 /**
  * Ioan, 2026-10-08: after the 15 free days, without the subscription, the tools are locked: a tap on
- * one goes to the Plan screen, where the subscription is. Games never are.
+ * one goes to the Premium section of Settings, where the subscription is. Games never are.
  */
-function toPlan() {
-  void router.push("/plan");
+function toPremium() {
+  void router.push(PREMIUM_PAGE);
 }
 
 function useApp(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   if (!chosen) return;
   showApps.value = false;
-  if (isLocked(chosen)) return toPlan();
+  if (isLocked(chosen)) return toPremium();
   openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) });
 }
 
@@ -852,7 +853,7 @@ async function openWith(id: string) {
   const chosen = installed.value.find((one) => one.id === id);
   closeActions();
   if (!message || !chosen) return;
-  if (isLocked(chosen)) return toPlan();
+  if (isLocked(chosen)) return toPremium();
   await openIn(chosen, message);
 }
 

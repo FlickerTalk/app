@@ -172,7 +172,6 @@ const SCREENS: Array<{ path: string; many?: boolean }> = [
   { path: "/blocked" },
   { path: "/hours" },
   { path: "/session" },
-  { path: "/plan" },
   { path: "/move?role=old" },
   { path: "/backup" },
   { path: `/contact/${BOB}` },

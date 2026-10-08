@@ -246,10 +246,6 @@
     "light": "Light",
     "movePhone": "Move to a new phone",
     "backup": "Backup",
-    "plan": "Plan",
-    "planFree": "Premium free · 15 days",
-    "planFreeDays": "Premium free · {days} days left",
-    "planOver": "Premium locked",
     "privacy": "Privacy",
     "version": "Version",
     "erase": "Erase this phone",
@@ -258,8 +254,6 @@
     "eraseConfirm": "Erase",
     "erasing": "Erasing this phone…",
     "eraseFailed": "This phone could not be erased. Try again.",
-    "plugins": "Plugins",
-    "session": "Session",
     "receipts": "Delivered and read receipts",
     "receiptsNote": "For new contacts",
     "hours": "Hours",
@@ -354,14 +348,6 @@
     "symbols": "Symbols"
   },
   "plan": {
-    "trial": "Premium free · {days} days left",
-    "subscribed": "Paid · until {until}",
-    "renewing": "Paid · renews automatically",
-    "limited": "The free days are over",
-    "hint": "Chat, calls, files and games are free, forever. Tools and extra sessions with PIN: free for 15 days, then {price} a year.",
-    "hintYearly": "Chat, calls, files and games are free, forever. Tools and extra sessions with PIN: free for 15 days, then a yearly subscription.",
-    "pay": "{price} a year",
-    "payYearly": "Yearly subscription",
     "restore": "Restore purchases",
     "restored": "Subscription restored",
     "nothingToRestore": "There is no purchase to restore",
@@ -370,8 +356,22 @@
       "store_unavailable": "The Store is not answering. Try again later.",
       "pending_approval": "The purchase is waiting to be approved.",
       "failed": "The Store could not take the payment."
-    },
-    "premium": "Premium is the tools (the ones FlickerTalk carries and the ones you add) and every session with PIN beyond the main one."
+    }
+  },
+  "premium": {
+    "title": "Premium",
+    "trialNote": "Chat, calls, files and games: free forever. Tools and sessions with PIN: 15-day trial, then {price} a year.",
+    "trialNoteYearly": "Chat, calls, files and games: free forever. Tools and sessions with PIN: 15-day trial, then a yearly subscription.",
+    "limitedNote": "Tools and sessions with PIN for {price} a year. Chat, calls, files and games stay free.",
+    "limitedNoteYearly": "Tools and sessions with PIN with a yearly subscription. Chat, calls, files and games stay free.",
+    "subscribe": "Subscribe · {price} a year",
+    "subscribeYearly": "Subscribe · yearly",
+    "paid": "Paid · renews automatically · manage it in the store",
+    "paidUntil": "Paid until {until} · manage it in the store",
+    "tools": "Tools",
+    "sessions": "Sessions with PIN",
+    "daysLeft": "{days} days left",
+    "active": "active"
   },
   "requests": {
     "title": "Requests",

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonIcon, IonModal, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
-import { checkmarkOutline, copyOutline } from "ionicons/icons";
+import { checkmarkOutline, copyOutline, sparklesOutline } from "ionicons/icons";
 import SettingsPage from "./SettingsPage.vue";
 import { calls, seed } from "../__tests__/seed";
+import { PREMIUM_PAGE } from "../core";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
 import en from "../i18n/en.json";
@@ -27,7 +28,25 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 const push = vi.fn();
-vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
+// Where the app is: `/plan` and every locked premium thing land on Settings at `#premium`.
+const route = vi.hoisted(() => ({ path: "/tabs/settings", hash: "" }));
+vi.mock("vue-router", () => ({ useRouter: () => ({ push }), useRoute: () => route }));
+// Ionic's toasts are overlays of the real app; here, what the screen asks of them.
+const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+vi.mock("@ionic/vue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@ionic/vue")>()),
+  toastController: { create: toast.create },
+}));
+
+const catalogues = import.meta.glob<{ plan: Record<string, unknown>; premium: Record<string, unknown> }>("../i18n/*.json", {
+  eager: true,
+  import: "default",
+});
+
+function texts(node: unknown): string[] {
+  if (typeof node === "string") return [node];
+  return typeof node === "object" && node !== null ? Object.values(node).flatMap(texts) : [];
+}
 
 describe("SettingsPage", () => {
   beforeEach(() => {
@@ -61,84 +80,6 @@ describe("SettingsPage", () => {
     expect(text).toContain("Backup");
     expect(text).not.toContain("Privacy");
     expect(text).not.toContain("Export identity");
-  });
-
-  // §41: the free days, counted on this phone. Settings and the Plan screen count them the same
-  // way (`daysLeft`): a phone installed a moment ago reads 15 days on both, not 14 here. Since
-  // 2026-10-08 only the premium part has free days (15): the row says so.
-  it("shows how long the premium part stays free", () => {
-    store.me.freeUntil = Date.now() + 15 * 24 * 3600 * 1000 - 5;
-    const text = mount(SettingsPage, { shallow: true }).text();
-    expect(text).toContain(en.settings.planFreeDays.replace("{days}", "15"));
-    expect(en.settings.planFreeDays).toMatch(/premium/i);
-  });
-
-  it("says the premium part is locked once the free days are over", () => {
-    store.me.freeUntil = Date.now() - 1000;
-    expect(mount(SettingsPage, { shallow: true }).text()).toContain(en.settings.planOver);
-    expect(en.settings.planOver).toMatch(/premium/i);
-  });
-
-  // Found in the StoreKit test of 2026-10-07: the row only knew the free year, so a subscriber
-  // read "Free year over". It says what the Plan screen says.
-  it("says a subscriber has paid, until when", async () => {
-    const until = Date.now() + 300 * 24 * 3600 * 1000;
-    store.me.freeUntil = Date.now() - 1000;
-    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until } : undefined));
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain(`Paid · until ${new Date(until).toLocaleDateString()}`);
-    expect(wrapper.text()).not.toContain(en.settings.planOver);
-  });
-
-  // 2026-10-07: on Android the date is only how long the last check of Play holds: no date.
-  it("says a Play subscription renews automatically", async () => {
-    const until = Date.now() + 300 * 24 * 3600 * 1000;
-    store.me.freeUntil = Date.now() - 1000;
-    installTauri((command) => (command === "core_plan" ? { state: "subscribed", until, renews: true } : undefined));
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · renews automatically");
-    expect(wrapper.find("[data-test='plan']").text()).not.toContain(new Date(until).toLocaleDateString());
-  });
-
-  // Ioan, 2026-10-08: no age rule; the row never speaks of one.
-  it("never speaks of an age", async () => {
-    store.me.freeUntil = Date.now() - 1000;
-    installTauri((command) => (command === "core_plan" ? { state: "limited", until: 0 } : undefined));
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).not.toMatch(/21|under/i);
-  });
-
-  // Settings stays alive behind the tabs: back from a purchase, the row says it without a restart.
-  it("reads the plan again every time the page is entered", async () => {
-    store.me.freeUntil = Date.now() - 1000;
-    let state = "limited";
-    const until = Date.now() + 300 * 24 * 3600 * 1000;
-    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : until } : undefined));
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain(en.settings.planOver);
-    state = "subscribed";
-    ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
-    await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · until");
-  });
-
-  // 2026-10-07: the Store changes its mind with the app open (a renewal, an expiry, an approved Ask
-  // to Buy): the row follows without leaving the page.
-  it("follows the plan when the Store changes its mind with the app open", async () => {
-    store.me.freeUntil = Date.now() - 1000;
-    let state = "limited";
-    installTauri((command) => (command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 1e10 } : undefined));
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain(en.settings.planOver);
-    state = "subscribed";
-    events.handlers.get("ft://plan")?.();
-    await flushPromises();
-    expect(wrapper.find("[data-test='plan']").text()).toContain("Paid · until");
   });
 
   it("shows the app's real version", async () => {
@@ -391,42 +332,6 @@ describe("SettingsPage", () => {
     expect(storedExtraTab()).toBe("none");
   });
 
-  // Issue app#3: from here you see what runs inside FlickerTalk.
-  it("opens the plugins screen", async () => {
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await wrapper.find("[data-test='plugins']").trigger("click");
-    expect(push).toHaveBeenCalledWith("/plugins");
-  });
-
-  // §40: the plan is a screen of its own, where the subscription is asked for and the age is said.
-  it("opens the plan", async () => {
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await flushPromises();
-    await wrapper.find("[data-test='plan']").trigger("click");
-    expect(push).toHaveBeenCalledWith("/plan");
-  });
-
-  // Hidden sessions: one row, no explanation, that goes to the PIN pad.
-  it("goes to the PIN pad from a row", async () => {
-    await mount(SettingsPage, { shallow: true }).find("[data-test='session']").trigger("click");
-    expect(push).toHaveBeenCalledWith("/session");
-  });
-
-  // Ioan, 2026-10-08 (§108): extra sessions with a PIN are premium. After the free days, without the
-  // subscription, the lock sits in front of the PIN pad, never after the sixth digit: the pad must
-  // never tell whether a session exists. The row shows the lock and leads to the Plan screen.
-  it("puts the lock in front of the PIN pad once the free days are over", async () => {
-    push.mockClear();
-    installTauri((command) => (command === "core_plan" ? { state: "limited", until: 0 } : undefined));
-    const wrapper = mount(SettingsPage, { shallow: true });
-    await flushPromises();
-    const row = wrapper.find("[data-test='session']");
-    expect(row.find("[data-test='session-locked']").exists()).toBe(true);
-    await row.trigger("click");
-    expect(push).toHaveBeenCalledWith("/plan");
-    expect(push).not.toHaveBeenCalledWith("/session");
-  });
-
   // Issue app#6: the default for contacts added later; each contact can differ.
   it("turns receipts off for new contacts through the core", async () => {
     const toggle = mount(SettingsPage, { shallow: true })
@@ -442,5 +347,380 @@ describe("SettingsPage", () => {
   it("goes to the weekly hours from a row", async () => {
     await mount(SettingsPage, { shallow: true }).find("[data-test='hours']").trigger("click");
     expect(push).toHaveBeenCalledWith("/hours");
+  });
+  // Ioan, 2026-10-08 (mockup settings-premium.html): the Plan screen is gone. Settings has a
+  // Premium section between the appearance and the move/backup groups: a note, the tools and the
+  // sessions with a PIN, and, once the 15 days are over without paying, the subscription itself.
+  describe("the Premium section", () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const section = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='premium']");
+    const note = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='premium-note']");
+    const tools = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='plugins']");
+    const sessions = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='session']");
+    const enter = (wrapper: ReturnType<typeof mount>) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
+
+    /** What the core says about the plan, and what the Store says a year costs (null: it cannot say). */
+    function planning(plan: Record<string, unknown>, price: string | null = "0,99 €") {
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        if (command === "core_subscription_price") return { price };
+        return command === "core_plan" ? plan : undefined;
+      });
+    }
+
+    async function settings() {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      await flushPromises();
+      return wrapper;
+    }
+
+    beforeEach(() => {
+      push.mockClear();
+      route.hash = "";
+      toast.create.mockReset().mockImplementation(async () => ({ present: toast.present }));
+      toast.present.mockReset();
+    });
+
+    it("sits after the appearance group and before moving and the backup", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const html = (await settings()).html();
+      const at = (test: string) => html.indexOf(`data-test="${test}"`);
+      expect(at("premium")).toBeGreaterThan(at("extra-tab"));
+      expect(at("premium")).toBeLessThan(at("move"));
+      expect(at("plugins")).toBeGreaterThan(at("premium"));
+      expect(at("session")).toBeGreaterThan(at("premium"));
+      expect(at("session")).toBeLessThan(at("move"));
+    });
+
+    it("is headed Premium, with the sparkles", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const head = (await settings()).find("[data-test='premium-head']");
+      expect(head.text()).toBe(en.premium.title);
+      expect(head.findComponent(IonIcon).props("icon")).toBe(sparklesOutline);
+    });
+
+    it("has no Plan row any more, nor a lone plugins group", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const wrapper = await settings();
+      expect(wrapper.find("[data-test='plan']").exists()).toBe(false);
+      expect(wrapper.findAll("[data-test='plugins']")).toHaveLength(1);
+      expect(wrapper.findAll("[data-test='session']")).toHaveLength(1);
+    });
+
+    describe("in the 15 free days", () => {
+      it("says what is free forever and what the trial is, with the Store's price", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.trialNote.replace("{price}", "0,99 €"));
+      });
+
+      it("counts the days left as every screen does, on both rows", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        const wrapper = await settings();
+        const days = en.premium.daysLeft.replace("{days}", "15");
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
+        expect(sessions(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
+        expect(tools(wrapper).find("[data-test='premium-badge']").attributes("color")).toBe("primary");
+      });
+
+      it("opens the tools and the PIN pad", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY });
+        const wrapper = await settings();
+        expect(tools(wrapper).text()).toContain(en.premium.tools);
+        expect(sessions(wrapper).text()).toContain(en.premium.sessions);
+        await tools(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/plugins");
+        await sessions(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/session");
+      });
+
+      it("asks for nothing", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY });
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='premium-locked']").exists()).toBe(false);
+      });
+    });
+
+    describe("once the free days are over, without paying", () => {
+      const limited = { state: "limited", until: 0 };
+
+      it("says what the subscription is for, at the Store's price", async () => {
+        planning(limited, "0,99 €");
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.limitedNote.replace("{price}", "0,99 €"));
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "0,99 €"));
+      });
+
+      it("subscribes through the Store from the button", async () => {
+        planning(limited);
+        const wrapper = await settings();
+        await wrapper.find("[data-test='pay']").trigger("click");
+        await flushPromises();
+        expect(calls.map(([command]) => command)).toContain("core_subscribe");
+      });
+
+      it("shows both rows locked, with no way in but the subscription", async () => {
+        planning(limited);
+        const wrapper = await settings();
+        for (const [row, label] of [
+          [tools(wrapper), en.plugins.locked],
+          [sessions(wrapper), en.session.subscribeToUse],
+        ] as const) {
+          expect(row.classes()).toContain("ft-premium__locked");
+          expect(row.attributes("detail")).toBe("false");
+          expect(row.attributes("aria-label")).toBe(label);
+          expect(row.find("[data-test='premium-locked']").exists()).toBe(true);
+          expect(row.find("[data-test='premium-badge']").exists()).toBe(false);
+          calls.length = 0;
+          await row.trigger("click");
+          await flushPromises();
+          // §108: the lock stands in front of the PIN pad, never after a PIN.
+          expect(push).not.toHaveBeenCalled();
+          expect(calls.map(([command]) => command)).toContain("core_subscribe");
+        }
+      });
+
+      it("offers to restore a purchase, and says what the Store found", async () => {
+        installTauri((command, args) => {
+          calls.push([command, args]);
+          if (command === "core_restore_subscription") return "restored";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        const restore = wrapper.find("[data-test='restore']");
+        expect(restore.text()).toBe(en.plan.restore);
+        calls.length = 0;
+        await restore.trigger("click");
+        await flushPromises();
+        expect(calls.map(([command]) => command)).toContain("core_restore_subscription");
+        expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.restored }));
+        expect(toast.present).toHaveBeenCalled();
+        // And the plan is read again.
+        expect(calls.map(([command]) => command)).toContain("core_plan");
+      });
+
+      it("says when the Store has nothing to restore", async () => {
+        installTauri((command) => (command === "core_restore_subscription" ? "nothing" : command === "core_plan" ? limited : undefined));
+        const wrapper = await settings();
+        await wrapper.find("[data-test='restore']").trigger("click");
+        await flushPromises();
+        expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.nothingToRestore }));
+        expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+      });
+
+      it("says a Store that does not answer a restore as it does when paying", async () => {
+        installTauri((command) => {
+          if (command === "core_restore_subscription") throw "store_unavailable";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='restore']").trigger("click");
+        await flushPromises();
+        expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.store_unavailable);
+        expect(toast.create).not.toHaveBeenCalled();
+      });
+
+      // The Store answers with a key, never a sentence; a key nobody wrote never reaches the screen.
+      it("says in the user's words when the Store will not sell, and keeps unknown answers off", async () => {
+        for (const [thrown, said] of [
+          ["not_on_sale", en.plan.trouble.not_on_sale],
+          ["BillingClient exploded at 0x7f", en.plan.trouble.failed],
+        ]) {
+          installTauri((command) => {
+            if (command === "core_subscribe") throw thrown;
+            return command === "core_plan" ? limited : undefined;
+          });
+          const wrapper = await settings();
+          await wrapper.find("[data-test='pay']").trigger("click");
+          await flushPromises();
+          expect(wrapper.find("[data-test='trouble']").text()).toBe(said);
+          expect(wrapper.text()).not.toContain("0x7f");
+        }
+      });
+
+      it("says nothing when the user backs out of the Store", async () => {
+        installTauri((command) => {
+          if (command === "core_subscribe") throw "cancelled";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='pay']").trigger("click");
+        await flushPromises();
+        expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+      });
+
+      // Offline, on a desktop or with the product missing: no amount at all, and paying still works.
+      it("names no amount when the Store cannot say the price", async () => {
+        planning(limited, null);
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribeYearly);
+        expect(note(wrapper).text()).toBe(en.premium.limitedNoteYearly);
+        expect(section(wrapper).text()).not.toMatch(/€|\$|euro/i);
+      });
+
+      it("names no amount when asking the Store fails", async () => {
+        installTauri((command) => {
+          if (command === "core_subscription_price") throw "store_unavailable";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribeYearly);
+      });
+    });
+
+    describe("subscribed", () => {
+      it("says until when on iOS, where the Store gives a real expiry", async () => {
+        const until = Date.parse("2027-09-23T10:00:00Z");
+        planning({ state: "subscribed", until });
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.paidUntil.replace("{until}", new Date(until).toLocaleDateString()));
+      });
+
+      // 2026-10-07: Google Play never tells the phone until when: no date that means nothing.
+      it("says a Play subscription renews automatically, with no date", async () => {
+        const until = Date.parse("2027-10-07T10:00:00Z");
+        planning({ state: "subscribed", until, renews: true });
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.paid);
+        expect(wrapper.text()).not.toContain(new Date(until).toLocaleDateString());
+      });
+
+      it("shows both rows active, open, and asks for nothing", async () => {
+        planning({ state: "subscribed", until: Date.now() + 300 * DAY });
+        const wrapper = await settings();
+        for (const row of [tools(wrapper), sessions(wrapper)]) {
+          const badge = row.find("[data-test='premium-badge']");
+          expect(badge.text()).toBe(en.premium.active);
+          expect(badge.attributes("color")).toBe("success");
+          expect(row.classes()).not.toContain("ft-premium__locked");
+        }
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
+        await tools(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/plugins");
+        await sessions(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/session");
+      });
+    });
+
+    // Settings stays alive behind the tabs: back from the Store, the section says it without a restart.
+    it("reads the plan and the price again every time the page is entered", async () => {
+      let state = "limited";
+      let price = "$0.99";
+      installTauri((command) => {
+        if (command === "core_subscription_price") return { price };
+        return command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 300 * DAY } : undefined;
+      });
+      const wrapper = await settings();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "$0.99"));
+      price = "0,99 €";
+      enter(wrapper);
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "0,99 €"));
+      state = "subscribed";
+      enter(wrapper);
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+    });
+
+    // Seen on an iPhone (2026-10-08): the App Store account changed and the old price stayed. It is
+    // asked again when the app comes back; a Store that cannot answer leaves the last one known.
+    it("asks the price again when the app comes back, and keeps the last one known", async () => {
+      let price: string | null = "$0.99";
+      installTauri((command) => {
+        if (command === "core_subscription_price") return { price };
+        return command === "core_plan" ? { state: "limited", until: 0 } : undefined;
+      });
+      const wrapper = await settings();
+      price = "US$0.99";
+      document.dispatchEvent(new Event("visibilitychange"));
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "US$0.99"));
+      price = null;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "US$0.99"));
+    });
+
+    // 2026-10-07: the Store changes its mind with the app open (a renewal, an expiry, an approved
+    // Ask to Buy): the section follows, and what the Store said before is forgotten.
+    it("follows the plan when the Store changes its mind, and forgets the old trouble", async () => {
+      let state = "limited";
+      installTauri((command) => {
+        if (command === "core_subscribe") throw "pending_approval";
+        return command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 300 * DAY } : undefined;
+      });
+      const wrapper = await settings();
+      await wrapper.find("[data-test='pay']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.pending_approval);
+      state = "subscribed";
+      events.handlers.get("ft://plan")?.();
+      await flushPromises();
+      expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+      expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
+      wrapper.unmount();
+      expect(events.unlisten).toHaveBeenCalled();
+    });
+
+    // Ioan, 2026-10-08: no age rule; nothing in the section asks it or speaks of it.
+    it("never speaks of an age", async () => {
+      for (const state of ["trial", "limited", "subscribed"]) {
+        planning({ state, until: Date.now() + 15 * DAY });
+        const wrapper = await settings();
+        expect(section(wrapper).text(), state).not.toMatch(/\b21\b|under|minor|birth/i);
+        expect(wrapper.find("[data-test='young']").exists()).toBe(false);
+      }
+    });
+
+    // `/plan` and every locked premium thing elsewhere lead here (the tools, the PIN pad).
+    /** Ionic's content area, as the stub stands for it: where it scrolls to, and from where. */
+    function scrollArea(wrapper: ReturnType<typeof mount>, from = 0) {
+      const scrollToPoint = vi.fn().mockResolvedValue(undefined);
+      const area = wrapper.find("ion-content-stub").element as HTMLElement & Record<string, unknown>;
+      area.getScrollElement = async () => ({ scrollTop: from, getBoundingClientRect: () => ({ top: 100 }) });
+      area.scrollToPoint = scrollToPoint;
+      return scrollToPoint;
+    }
+    const entered = async (wrapper: ReturnType<typeof mount>) => {
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewDidEnter ?? []).forEach((hook) => hook());
+      await flushPromises();
+    };
+
+    it("brings the section to the top when the app asks for it", async () => {
+      planning({ state: "limited", until: 0 });
+      route.hash = "#premium";
+      const wrapper = await settings();
+      const scrolled = scrollArea(wrapper, 40);
+      section(wrapper).element.getBoundingClientRect = () => ({ top: 700 }) as DOMRect;
+      await entered(wrapper);
+      expect(scrolled).toHaveBeenCalledWith(0, 640, expect.any(Number));
+      expect(PREMIUM_PAGE).toBe("/tabs/settings#premium");
+    });
+
+    it("stays where it is when nothing asks for the section", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const wrapper = await settings();
+      const scrolled = scrollArea(wrapper);
+      await entered(wrapper);
+      expect(scrolled).not.toHaveBeenCalled();
+    });
+  });
+
+  // No language may carry a price of its own: an amount in a catalogue would be wrong in every other
+  // store, and the day the price changes. Nor an age rule (2026-10-08).
+  it("has no amount of money nor an age in the Premium and Plan texts of any language", () => {
+    const money = /[€$£¥₹₩₽]|\beuros?\b|ユーロ|유로|欧元|歐元|ยูโร|यूरो|ইউরো|євро|евро|يورو/i;
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      for (const text of [...texts(catalogue.plan), ...texts(catalogue.premium)]) {
+        expect(text, path).not.toMatch(money);
+        expect(text, path).not.toMatch(/\b21\b/);
+      }
+      for (const key of ["young", "iAmYoung", "iAmOlder"]) expect(catalogue.plan, path).not.toHaveProperty(key);
+      for (const key of ["subscribe", "trialNote", "limitedNote"]) expect(String(catalogue.premium[key]), `${path} ${key}`).toContain("{price}");
+    }
   });
 });

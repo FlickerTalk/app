@@ -246,10 +246,6 @@
     "light": "ライト",
     "movePhone": "新しいスマホに移行",
     "backup": "バックアップ",
-    "plan": "プラン",
-    "planFree": "プレミアム無料 · 15日間",
-    "planFreeDays": "プレミアム無料 · 残り{days}日",
-    "planOver": "プレミアムはロック中",
     "privacy": "プライバシー",
     "version": "バージョン",
     "erase": "このスマホのデータを消去",
@@ -258,8 +254,6 @@
     "eraseConfirm": "消去",
     "erasing": "この端末を消去しています…",
     "eraseFailed": "この端末を消去できませんでした。もう一度お試しください。",
-    "plugins": "プラグイン",
-    "session": "セッション",
     "receipts": "配信・既読の通知",
     "receiptsNote": "新しい連絡先に適用",
     "hours": "時間帯",
@@ -354,14 +348,6 @@
     "symbols": "記号"
   },
   "plan": {
-    "trial": "プレミアム無料 · 残り{days}日",
-    "subscribed": "有料 · {until}まで",
-    "renewing": "有料・自動更新",
-    "limited": "無料期間が終了しました",
-    "hint": "チャット、通話、ファイル、ゲームはずっと無料です。ツールとPIN付きの追加セッション：15日間無料、その後は年額{price}です。",
-    "hintYearly": "チャット、通話、ファイル、ゲームはずっと無料です。ツールとPIN付きの追加セッション：15日間無料、その後は年間サブスクリプションです。",
-    "pay": "年額 {price}",
-    "payYearly": "年間サブスクリプション",
     "restore": "購入を復元",
     "restored": "サブスクリプションを復元しました",
     "nothingToRestore": "復元できる購入はありません",
@@ -370,8 +356,22 @@
       "store_unavailable": "ストアが応答しません。しばらくしてからお試しください。",
       "pending_approval": "購入は承認待ちです。",
       "failed": "ストアが支払いを処理できませんでした。"
-    },
-    "premium": "プレミアムは、ツール（FlickerTalk に入っているものと追加したもの）と、メイン以外のPIN付きセッションです。"
+    }
+  },
+  "premium": {
+    "title": "プレミアム",
+    "trialNote": "チャット、通話、ファイル、ゲーム：ずっと無料。ツールとPIN付きセッション：15日間のお試し、その後は年額{price}。",
+    "trialNoteYearly": "チャット、通話、ファイル、ゲーム：ずっと無料。ツールとPIN付きセッション：15日間のお試し、その後は年間サブスクリプション。",
+    "limitedNote": "ツールとPIN付きセッションは年額{price}。チャット、通話、ファイル、ゲームは引き続き無料です。",
+    "limitedNoteYearly": "ツールとPIN付きセッションは年間サブスクリプションで。チャット、通話、ファイル、ゲームは引き続き無料です。",
+    "subscribe": "登録する · 年額{price}",
+    "subscribeYearly": "登録する · 年額",
+    "paid": "有料 · 自動更新 · ストアで管理",
+    "paidUntil": "{until}まで有料 · ストアで管理",
+    "tools": "ツール",
+    "sessions": "PIN付きセッション",
+    "daysLeft": "残り{days}日",
+    "active": "有効"
   },
   "requests": {
     "title": "リクエスト",

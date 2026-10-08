@@ -246,10 +246,6 @@
     "light": "淺色",
     "movePhone": "移轉到新手機",
     "backup": "備份",
-    "plan": "方案",
-    "planFree": "進階功能免費 · 15 天",
-    "planFreeDays": "進階功能免費 · 還剩 {days} 天",
-    "planOver": "進階功能已鎖定",
     "privacy": "隱私",
     "version": "版本",
     "erase": "清除這支手機",
@@ -258,8 +254,6 @@
     "eraseConfirm": "清除",
     "erasing": "正在清除這支手機…",
     "eraseFailed": "無法清除這支手機。請再試一次。",
-    "plugins": "外掛程式",
-    "session": "工作階段",
     "receipts": "送達與已讀回條",
     "receiptsNote": "適用於新聯絡人",
     "hours": "時段",
@@ -354,14 +348,6 @@
     "symbols": "符號"
   },
   "plan": {
-    "trial": "進階功能免費 · 還剩 {days} 天",
-    "subscribed": "已付費 · 至 {until}",
-    "renewing": "已付費 · 自動續訂",
-    "limited": "免費天數已結束",
-    "hint": "聊天、通話、檔案和遊戲永久免費。工具和帶 PIN 的額外工作階段：免費 15 天，之後每年 {price}。",
-    "hintYearly": "聊天、通話、檔案和遊戲永久免費。工具和帶 PIN 的額外工作階段：免費 15 天，之後需按年訂閱。",
-    "pay": "每年 {price}",
-    "payYearly": "年度訂閱",
     "restore": "恢復購買",
     "restored": "訂閱已恢復",
     "nothingToRestore": "沒有可恢復的購買",
@@ -370,8 +356,22 @@
       "store_unavailable": "商店沒有回應，請稍後再試。",
       "pending_approval": "購買正在等待核准。",
       "failed": "商店無法完成付款。"
-    },
-    "premium": "進階功能包括工具（FlickerTalk 內建的和你新增的）以及主要工作階段之外的每個帶 PIN 的工作階段。"
+    }
+  },
+  "premium": {
+    "title": "進階功能",
+    "trialNote": "聊天、通話、檔案和遊戲：永久免費。工具和帶 PIN 的工作階段：試用 15 天，之後每年 {price}。",
+    "trialNoteYearly": "聊天、通話、檔案和遊戲：永久免費。工具和帶 PIN 的工作階段：試用 15 天，之後需按年訂閱。",
+    "limitedNote": "工具和帶 PIN 的工作階段每年 {price}。聊天、通話、檔案和遊戲仍然免費。",
+    "limitedNoteYearly": "工具和帶 PIN 的工作階段需按年訂閱。聊天、通話、檔案和遊戲仍然免費。",
+    "subscribe": "訂閱 · 每年 {price}",
+    "subscribeYearly": "訂閱 · 按年",
+    "paid": "已付費 · 自動續訂 · 在商店中管理",
+    "paidUntil": "已付費至 {until} · 在商店中管理",
+    "tools": "工具",
+    "sessions": "帶 PIN 的工作階段",
+    "daysLeft": "還剩 {days} 天",
+    "active": "已啟用"
   },
   "requests": {
     "title": "請求",

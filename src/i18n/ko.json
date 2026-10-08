@@ -246,10 +246,6 @@
     "light": "라이트",
     "movePhone": "새 휴대폰으로 이동",
     "backup": "백업",
-    "plan": "요금제",
-    "planFree": "무료 · 15일",
-    "planFreeDays": "무료 · {days}일 남음",
-    "planOver": "프리미엄 잠김",
     "privacy": "개인정보 보호",
     "version": "버전",
     "erase": "이 휴대폰 데이터 삭제",
@@ -258,8 +254,6 @@
     "eraseConfirm": "삭제",
     "erasing": "이 휴대폰을 지우는 중…",
     "eraseFailed": "이 휴대폰을 지울 수 없습니다. 다시 시도하세요.",
-    "plugins": "플러그인",
-    "session": "세션",
     "receipts": "전달 및 읽음 확인",
     "receiptsNote": "새 연락처에 적용",
     "hours": "수신 시간",
@@ -354,14 +348,6 @@
     "symbols": "기호"
   },
   "plan": {
-    "trial": "프리미엄 무료 · {days}일 남음",
-    "subscribed": "유료 · {until}까지",
-    "renewing": "유료 · 자동 갱신",
-    "limited": "무료 기간이 끝났어요",
-    "hint": "채팅, 통화, 파일, 게임은 영원히 무료예요. 도구와 PIN 추가 세션: 15일 무료, 그 후에는 연 {price}예요.",
-    "hintYearly": "채팅, 통화, 파일, 게임은 영원히 무료예요. 도구와 PIN 추가 세션: 15일 무료, 그 후에는 연간 구독이에요.",
-    "pay": "연 {price}",
-    "payYearly": "연간 구독",
     "restore": "구매 복원",
     "restored": "구독이 복원되었습니다",
     "nothingToRestore": "복원할 구매가 없습니다",
@@ -370,8 +356,22 @@
       "store_unavailable": "스토어가 응답하지 않습니다. 나중에 다시 시도하세요.",
       "pending_approval": "구매가 승인을 기다리고 있습니다.",
       "failed": "스토어가 결제를 처리하지 못했습니다."
-    },
-    "premium": "프리미엄은 도구(FlickerTalk에 들어 있는 도구와 직접 추가한 도구)와 기본 세션 외의 모든 PIN 세션이에요."
+    }
+  },
+  "premium": {
+    "title": "프리미엄",
+    "trialNote": "채팅, 통화, 파일, 게임: 영원히 무료. 도구와 PIN 세션: 15일 체험 후 연 {price}.",
+    "trialNoteYearly": "채팅, 통화, 파일, 게임: 영원히 무료. 도구와 PIN 세션: 15일 체험 후 연간 구독.",
+    "limitedNote": "도구와 PIN 세션은 연 {price}. 채팅, 통화, 파일, 게임은 계속 무료예요.",
+    "limitedNoteYearly": "도구와 PIN 세션은 연간 구독. 채팅, 통화, 파일, 게임은 계속 무료예요.",
+    "subscribe": "구독하기 · 연 {price}",
+    "subscribeYearly": "구독하기 · 연간",
+    "paid": "유료 · 자동 갱신 · 스토어에서 관리",
+    "paidUntil": "{until}까지 유료 · 스토어에서 관리",
+    "tools": "도구",
+    "sessions": "PIN 세션",
+    "daysLeft": "{days}일 남음",
+    "active": "활성"
   },
   "requests": {
     "title": "요청",

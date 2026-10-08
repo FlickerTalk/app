@@ -18,6 +18,7 @@ import { closeOnBackWhile } from "../back";
 import PluginSheet from "../components/PluginSheet.vue";
 import { lockClosedOutline } from "ionicons/icons";
 import { installed, isLocked, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
+import { PREMIUM_PAGE } from "../core";
 
 // A plugin on its own (2026-09-27): from Settings, or from a reminder it set. There is no chat
 // behind it, so it cannot write in one nor talk to another side; it can open the conversation a
@@ -91,7 +92,7 @@ closeOnBackWhile(() => here.value, leave);
       <div v-if="ready && plugin && locked" class="ft-plugin-page__missing" data-test="locked">
         <ion-icon :icon="lockClosedOutline" class="ft-plugin-page__lock" aria-hidden="true" />
         <p>{{ $t("plugins.lockedHint") }}</p>
-        <ion-button data-test="subscribe" @click="router.push('/plan')">{{ $t("plugins.subscribe") }}</ion-button>
+        <ion-button data-test="subscribe" @click="router.push(PREMIUM_PAGE)">{{ $t("plugins.subscribe") }}</ion-button>
       </div>
       <PluginSheet
         v-else-if="ready && plugin"

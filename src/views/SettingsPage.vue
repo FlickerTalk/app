@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import {
+  IonBadge,
+  IonButton,
   IonContent,
   IonHeader,
   IonIcon,
@@ -14,12 +16,14 @@ import {
   IonSelect,
   IonSelectOption,
   IonSpinner,
+  IonText,
   IonTitle,
   IonToggle,
   IonToolbar,
   onIonViewDidEnter,
   onIonViewWillEnter,
   onIonViewWillLeave,
+  toastController,
 } from "@ionic/vue";
 import {
   appsOutline,
@@ -29,10 +33,12 @@ import {
   checkmarkDoneOutline,
   checkmarkOutline,
   colorPaletteOutline,
+  constructOutline,
   contrastOutline,
   copyOutline,
   fileTrayOutline,
   informationCircleOutline,
+  keypadOutline,
   lockClosedOutline,
   moonOutline,
   notificationsOffOutline,
@@ -40,7 +46,6 @@ import {
   qrCodeOutline,
   sparklesOutline,
   sunnyOutline,
-  extensionPuzzleOutline,
   swapHorizontalOutline,
   trashOutline,
   cloudDownloadOutline,
@@ -50,7 +55,26 @@ import {
 import Avatar from "../components/Avatar.vue";
 import FeedbackModal from "../components/FeedbackModal.vue";
 import { closeOnBackWhile } from "../back";
-import { AUTO_DOWNLOAD_CHOICES, autoDownloadChoice, daysLeft, erasePhone, followPlan, formatSize, plan as planOf, quietHours, renewLink, setAutoDownload, setMailbox, setReceipts, store, type PlanView } from "../core";
+import {
+  AUTO_DOWNLOAD_CHOICES,
+  autoDownloadChoice,
+  daysLeft,
+  erasePhone,
+  followPlan,
+  formatSize,
+  payTrouble,
+  plan as planOf,
+  quietHours,
+  renewLink,
+  restoreSubscription,
+  setAutoDownload,
+  setMailbox,
+  setReceipts,
+  store,
+  subscribe,
+  subscriptionPrice,
+  type PlanView,
+} from "../core";
 import { extraTab, setCallRouting, setExtraTab, storedCallRouting, type CallRouting, type ExtraTab } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -63,22 +87,126 @@ import {
 } from "../theme";
 
 const router = useRouter();
+const route = useRoute();
 
-// §41: the premium part is free for 15 days from the install, counted on this phone (Ioan,
-// 2026-10-08: everything else is free forever). After it, the row says what the Plan screen says:
-// paid until a date, or that the premium part is locked.
+// Plan §40–§47 (Ioan, 2026-10-08): chat, calls, files and games are free forever. The premium part
+// (the tools and the sessions with a PIN) is free for 15 days from the install, then a yearly
+// subscription at the Store's price. It all lives in the Premium section here (mockup
+// settings-premium.html); the Plan screen is gone. Everything is decided on this phone.
 const planView = ref<PlanView | null>(null);
-/** Whether the premium part, the extra sessions among it, is locked now (2026-10-08). */
-const sessionsLocked = computed(() => planView.value?.state === "limited");
-const plan = computed(() => {
-  if (planView.value?.state === "subscribed") {
-    if (planView.value.renews) return t("plan.renewing");
-    return t("plan.subscribed", { until: new Date(planView.value.until).toLocaleDateString() });
+/** Whether the premium part is locked now: the free days are over and nothing is paid. */
+const premiumLocked = computed(() => planView.value?.state === "limited");
+/** What a year costs, as the Store formats it; null while unknown or when it cannot say. */
+const price = ref<string | null>(null);
+/** What the Store answered to a purchase or a restore, already in the user's words. */
+const trouble = ref("");
+
+/**
+ * Asks the Store what a year costs (on entering, when the plan changes and back on the screen,
+ * since the Store's account or country may have changed). The Store may take a while or not answer
+ * at all: the screen does not wait for it, and keeps the last price it said.
+ */
+function askPrice() {
+  void subscriptionPrice().then((said) => {
+    if (said) price.value = said;
+  });
+}
+
+/** The line under the heading: what is free and what is paid, or until when it is paid. */
+const premiumNote = computed(() => {
+  const plan = planView.value;
+  switch (plan?.state) {
+    case "trial":
+      return price.value ? t("premium.trialNote", { price: price.value }) : t("premium.trialNoteYearly");
+    case "limited":
+      return price.value ? t("premium.limitedNote", { price: price.value }) : t("premium.limitedNoteYearly");
+    case "subscribed":
+      // 2026-10-07: Google Play never says until when (`renews`); StoreKit's date is a real expiry.
+      return plan.renews || !plan.until
+        ? t("premium.paid")
+        : t("premium.paidUntil", { until: new Date(plan.until).toLocaleDateString() });
+    default:
+      return "";
   }
-  if (!store.me.freeUntil) return t("settings.planFree");
-  const days = daysLeft(store.me.freeUntil);
-  return days > 0 ? t("settings.planFreeDays", { days }) : t("settings.planOver");
 });
+
+/** With the Store's price, or with no amount at all: the app never writes one of its own. */
+const payText = computed(() => (price.value ? t("premium.subscribe", { price: price.value }) : t("premium.subscribeYearly")));
+
+/** The badge on both premium rows: the days left of the trial, or that it is paid. None when locked. */
+const premiumBadge = computed(() => {
+  const plan = planView.value;
+  if (plan?.state === "trial") return { text: t("premium.daysLeft", { days: daysLeft(plan.until) }), color: "primary", icon: null };
+  if (plan?.state === "subscribed") return { text: t("premium.active"), color: "success", icon: checkmarkOutline };
+  return null;
+});
+
+/** The two premium rows; locked, each says what it needs. */
+const premiumRows = [
+  { test: "plugins", label: "premium.tools", locked: "plugins.locked", icon: constructOutline, path: "/plugins" },
+  // Hidden sessions: a PIN pad, nothing else. The same six digits create or enter one. §108: locked,
+  // the row never reaches the pad, so nothing after a PIN tells whether a session exists.
+  { test: "session", label: "premium.sessions", locked: "session.subscribeToUse", icon: keypadOutline, path: "/session" },
+];
+
+/** A premium row opens its page; locked, it asks the Store, as the Subscribe button above it does. */
+function openPremium(path: string) {
+  if (premiumLocked.value) void pay();
+  else void router.push(path);
+}
+
+async function pay() {
+  trouble.value = "";
+  try {
+    await subscribe();
+  } catch (error) {
+    const say = payTrouble(error);
+    trouble.value = say ? t(say) : "";
+  }
+  await refreshPlan();
+}
+
+/** A year bought on another phone, or before a reinstall, comes back from the Store (2026-10-07). */
+async function restore() {
+  trouble.value = "";
+  try {
+    const found = await restoreSubscription();
+    const notice = await toastController.create({
+      message: t(found === "restored" ? "plan.restored" : "plan.nothingToRestore"),
+      duration: 2500,
+      position: "bottom",
+    });
+    await notice.present();
+  } catch (error) {
+    const say = payTrouble(error);
+    trouble.value = say ? t(say) : "";
+  }
+  await refreshPlan();
+}
+
+// `/plan` and everything locked elsewhere (a tool, the PIN pad) come here at `#premium`. The
+// section is scrolled to through Ionic's content area: `scrollIntoView` while the page is still
+// entering does nothing (seen in Chromium, 2026-10-08).
+type ScrollArea = HTMLElement & {
+  componentOnReady?: () => Promise<unknown>;
+  getScrollElement?: () => Promise<HTMLElement>;
+  scrollToPoint?: (x: number, y: number, ms: number) => Promise<void>;
+};
+const content = ref<{ $el: ScrollArea } | null>(null);
+const premiumSection = ref<HTMLElement | null>(null);
+async function showPremiumIfAsked() {
+  if (route.hash !== "#premium") return;
+  const area = content.value?.$el;
+  const section = premiumSection.value;
+  if (!area?.getScrollElement || !area.scrollToPoint || !section) return;
+  await area.componentOnReady?.();
+  const scroller = await area.getScrollElement();
+  const y = scroller.scrollTop + section.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  await area.scrollToPoint(0, Math.max(0, y), 300);
+}
+onMounted(showPremiumIfAsked);
+onIonViewDidEnter(showPremiumIfAsked);
+watch(() => route.fullPath, showPremiumIfAsked);
 
 // The ID on the card, to paste anywhere. The tick says so only once the clipboard took it, and for
 // a moment: then the button copies again.
@@ -102,18 +230,39 @@ onMounted(async () => {
   version.value = await getVersion().catch(() => "");
   hoursOn.value = (await quietHours().catch(() => null)) !== null;
 });
-// Settings stays alive behind the tabs, so the plan is read again each time it comes back.
+// Settings stays alive behind the tabs, so the plan and the price are read again each time it
+// comes back, and when the app does.
 async function refreshPlan() {
   planView.value = await planOf().catch(() => null);
 }
-onMounted(refreshPlan);
-onIonViewWillEnter(refreshPlan);
-// And when the Store changes its mind with the app open (2026-10-07): a renewal, an expiry.
+function onVisible() {
+  if (document.visibilityState !== "visible") return;
+  void refreshPlan();
+  askPrice();
+}
+onMounted(() => {
+  void refreshPlan();
+  askPrice();
+  document.addEventListener("visibilitychange", onVisible);
+});
+onIonViewWillEnter(() => {
+  void refreshPlan();
+  askPrice();
+});
+// And when the Store changes its mind with the app open (2026-10-07): a renewal, an expiry, an
+// approved Ask to Buy. What the Store said before is no longer true then.
 let stopFollowingPlan: (() => void) | null = null;
 let gone = false;
-onMounted(() => void followPlan(() => void refreshPlan()).then((stop) => (gone ? stop() : (stopFollowingPlan = stop))));
+onMounted(() =>
+  void followPlan(() => {
+    trouble.value = "";
+    void refreshPlan();
+    askPrice();
+  }).then((stop) => (gone ? stop() : (stopFollowingPlan = stop))),
+);
 onBeforeUnmount(() => {
   gone = true;
+  document.removeEventListener("visibilitychange", onVisible);
   stopFollowingPlan?.();
 });
 
@@ -225,7 +374,7 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
       </ion-toolbar>
     </ion-header>
 
-    <ion-content>
+    <ion-content ref="content">
       <ion-header collapse="condense" class="ion-no-border">
         <ion-toolbar>
           <ion-title size="large"><span class="ft-title">{{ $t("settings.title") }}</span></ion-title>
@@ -342,21 +491,6 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.blocked") }}</ion-label>
           </ion-item>
-          <!-- Hidden sessions: a PIN pad, nothing else. The same six digits create or enter one.
-               Premium (2026-10-08, §108): after the free days without the subscription, the row
-               leads to the Plan screen, in front of the pad and never after a PIN. -->
-          <ion-item
-            button
-            detail
-            lines="none"
-            data-test="session"
-            :aria-label="sessionsLocked ? $t('session.subscribeToUse') : undefined"
-            @click="router.push(sessionsLocked ? '/plan' : '/session')"
-          >
-            <span slot="start" class="ft-tile"><ion-icon :icon="lockClosedOutline" aria-hidden="true" /></span>
-            <ion-label>{{ $t("settings.session") }}</ion-label>
-            <ion-note v-if="sessionsLocked" slot="end" color="primary" data-test="session-locked">{{ $t("plugins.subscribe") }}</ion-note>
-          </ion-item>
         </ion-list>
 
         <ion-list inset class="ft-group">
@@ -417,13 +551,48 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
           </ion-item>
         </ion-list>
 
-        <ion-list inset class="ft-group">
-          <!-- Issue app#3: what runs inside FlickerTalk, and what each one may do. -->
-          <ion-item button detail lines="none" data-test="plugins" @click="router.push('/plugins')">
-            <span slot="start" class="ft-tile"><ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" /></span>
-            <ion-label>{{ $t("settings.plugins") }}</ion-label>
-          </ion-item>
-        </ion-list>
+        <!-- Premium (2026-10-08): the tools and the sessions with a PIN; the subscription lives here. -->
+        <section ref="premiumSection" id="premium" class="ft-premium" data-test="premium">
+          <h2 class="ft-premium__head" data-test="premium-head">
+            <span class="ft-premium__rule" aria-hidden="true" />
+            <span class="ft-premium__title"><ion-icon :icon="sparklesOutline" aria-hidden="true" />{{ $t("premium.title") }}</span>
+            <span class="ft-premium__rule" aria-hidden="true" />
+          </h2>
+          <ion-text v-if="premiumNote" color="medium">
+            <p class="ft-premium__note" data-test="premium-note">{{ premiumNote }}</p>
+          </ion-text>
+          <div v-if="premiumLocked" class="ft-premium__cta">
+            <ion-button expand="block" data-test="pay" @click="pay">{{ payText }}</ion-button>
+          </div>
+          <ion-list inset class="ft-group">
+            <!-- Issue app#3: what runs inside FlickerTalk, and what each one may do. -->
+            <ion-item
+              v-for="row in premiumRows"
+              :key="row.test"
+              button
+              :detail="!premiumLocked"
+              lines="none"
+              :class="{ 'ft-premium__locked': premiumLocked }"
+              :data-test="row.test"
+              :aria-label="premiumLocked ? $t(row.locked) : undefined"
+              @click="openPremium(row.path)"
+            >
+              <span slot="start" class="ft-tile"><ion-icon :icon="row.icon" aria-hidden="true" /></span>
+              <ion-label>{{ $t(row.label) }}</ion-label>
+              <ion-badge v-if="premiumBadge" slot="end" :color="premiumBadge.color" class="ft-premium__badge" data-test="premium-badge">
+                <ion-icon v-if="premiumBadge.icon" :icon="premiumBadge.icon" aria-hidden="true" />{{ premiumBadge.text }}
+              </ion-badge>
+              <ion-icon v-if="premiumLocked" slot="end" :icon="lockClosedOutline" color="medium" data-test="premium-locked" aria-hidden="true" />
+            </ion-item>
+            <!-- A year bought on another phone or before a reinstall (App Review guideline 3.1.1). -->
+            <ion-item v-if="premiumLocked" button :detail="false" lines="none" data-test="restore" @click="restore">
+              <ion-label color="medium" class="ft-premium__restore">{{ $t("plan.restore") }}</ion-label>
+            </ion-item>
+          </ion-list>
+          <ion-text v-if="trouble" color="danger">
+            <p class="ft-premium__note" role="alert" data-test="trouble">{{ trouble }}</p>
+          </ion-text>
+        </section>
 
         <ion-list inset class="ft-group">
           <!-- Plan §60: a QR pairs both phones for a direct P2P transfer; it never contains the key. -->
@@ -464,12 +633,6 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
         </ion-list>
 
         <ion-list inset class="ft-group">
-          <!-- §40: what it costs, what is left of the free days and where the subscription is paid. -->
-          <ion-item button detail lines="none" data-test="plan" @click="router.push('/plan')">
-            <span slot="start" class="ft-tile"><ion-icon :icon="sparklesOutline" aria-hidden="true" /></span>
-            <ion-label>{{ $t("settings.plan") }}</ion-label>
-            <ion-note slot="end">{{ plan }}</ion-note>
-          </ion-item>
           <!-- 2026-10-02: an anonymous suggestion, mailed on by the router, which keeps nothing. -->
           <ion-item button detail lines="none" data-test="feedback" @click="suggesting = true">
             <span slot="start" class="ft-tile"><ion-icon :icon="bulbOutline" aria-hidden="true" /></span>
@@ -621,7 +784,7 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
-/* A long note at the end of a row (the plan's days left) wraps before the row's label gives up a
+/* A long note at the end of a row (the hours, a chosen value) wraps before the row's label gives up a
    word: without this Ionic shrinks the label's box to nothing (iOS) or breaks its word (Android). */
 .ft-group ion-item::part(container) {
   min-width: min-content;
@@ -629,6 +792,75 @@ function onExtraTabChange(event: CustomEvent<{ value: ExtraTab }>) {
 
 .ft-item__title {
   display: block;
+}
+
+/* Premium (mockup of 2026-10-08): a heading between two thin rules, a note, the rows. */
+.ft-premium {
+  margin-top: var(--ft-space-5);
+}
+.ft-premium__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px;
+  color: var(--ion-color-medium);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* Spacing letters apart breaks joined and combining scripts. */
+.ft-premium__head:lang(ar),
+.ft-premium__head:lang(hi),
+.ft-premium__head:lang(bn),
+.ft-premium__head:lang(th) {
+  letter-spacing: normal;
+}
+.ft-premium__rule {
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+.ft-premium__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ft-premium__note {
+  margin: 8px 20px 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.ft-premium__cta {
+  margin: 10px 16px 0;
+}
+.ft-premium__cta ion-button {
+  margin: 0;
+  font-weight: 600;
+}
+/* Ionic's badge, tinted: the colour's text on a faint wash of it, as the mockup draws it. */
+.ft-premium__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(var(--ion-color-base-rgb), 0.16);
+  color: var(--ion-color-base);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ft-premium__locked ion-label {
+  color: var(--ion-color-medium);
+}
+.ft-premium__locked .ft-tile {
+  background: rgba(var(--ion-color-medium-rgb), 0.14);
+  color: var(--ion-color-medium);
+}
+.ft-premium__restore {
+  text-align: center;
+  font-size: 14px;
 }
 .ft-item__note {
   display: block;

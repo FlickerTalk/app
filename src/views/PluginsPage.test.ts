@@ -376,7 +376,7 @@ describe("PluginsPage", () => {
   });
 
   // Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked. Each
-  // shows a lock, and a tap on it goes to the Plan screen, where the subscription is.
+  // shows a lock, and a tap on it goes to the Premium section of Settings, where the subscription is.
   describe("once the free year is over", () => {
     function limited(state = "limited") {
       nav.push.mockReset();
@@ -390,7 +390,7 @@ describe("PluginsPage", () => {
     }
     afterEach(() => (premiumLocked.value = false));
 
-    it("locks the installed tools and opens the Plan screen instead", async () => {
+    it("locks the installed tools and opens the Premium section of Settings instead", async () => {
       limited();
       const wrapper = mount(PluginsPage, { shallow: true });
       await flushPromises();
@@ -398,7 +398,7 @@ describe("PluginsPage", () => {
       expect(open.findComponent(IonIcon).props("icon")).toBe(lockClosedOutline);
       expect(open.attributes("aria-label")).toBe("Subscribe to use the tools");
       await open.trigger("click");
-      expect(nav.push).toHaveBeenCalledWith("/plan");
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
       expect(nav.push).not.toHaveBeenCalledWith(`/plugin/${CODE.id}`);
     });
 
@@ -410,7 +410,7 @@ describe("PluginsPage", () => {
       expect(install.findComponent(IonIcon).props("icon")).toBe(lockClosedOutline);
       await install.trigger("click");
       await flushPromises();
-      expect(nav.push).toHaveBeenCalledWith("/plan");
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
       expect(calls.map(([command]) => command)).not.toContain("core_plugin_add");
     });
 
@@ -420,7 +420,7 @@ describe("PluginsPage", () => {
       await flushPromises();
       expect(wrapper.find("[data-test='locked']").text()).toContain("tools need the subscription");
       await wrapper.find("[data-test='subscribe']").trigger("click");
-      expect(nav.push).toHaveBeenCalledWith("/plan");
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
     });
 
     it("locks nothing in the free year or with the subscription", async () => {
@@ -436,7 +436,7 @@ describe("PluginsPage", () => {
 
     // The plan may close while the page is open (the year ends): the core refuses, and the user
     // is taken where the subscription is rather than told the install failed.
-    it("goes to the Plan screen when the core refuses a tool", async () => {
+    it("goes to the Premium section of Settings when the core refuses a tool", async () => {
       limited("trial");
       const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
       const answer = internals.invoke;
@@ -445,7 +445,7 @@ describe("PluginsPage", () => {
       await flushPromises();
       await wrapper.find("[data-test='install-com.flickertalk.sketch']").trigger("click");
       await flushPromises();
-      expect(nav.push).toHaveBeenCalledWith("/plan");
+      expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
       expect(wrapper.find("[role='alert']").exists()).toBe(false);
     });
   });
