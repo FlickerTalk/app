@@ -8,7 +8,9 @@ import { clearOnboarded, setOnboarded } from "./preferences";
 import { premiumLocked } from "./plugins";
 
 const push = vi.fn();
-vi.mock("vue-router", async (importOriginal) => ({ ...(await importOriginal<typeof import("vue-router")>()), useRouter: () => ({ push }) }));
+// What the app's links need of the router (2026-10-08): where it is, and each navigation.
+const router = { push, currentRoute: { value: { path: "/tabs/chats" } }, afterEach: () => () => undefined };
+vi.mock("vue-router", async (importOriginal) => ({ ...(await importOriginal<typeof import("vue-router")>()), useRouter: () => router }));
 
 describe("App", () => {
   beforeEach(() => {
@@ -97,6 +99,44 @@ describe("App", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
     expect(asked).toContain("core_enable_push");
+    clearOnboarded();
+  });
+
+  // Links that open the app (2026-10-08): the app asks when it starts, and Add contact opens with
+  // the link in its field. Nothing is added until the user taps "Add".
+  it("opens Add contact when the phone opened the app with a contact link", async () => {
+    setOnboarded();
+    const asked: string[] = [];
+    installTauri((command) => {
+      asked.push(command);
+      return command === "core_opened_link" ? { kind: "add", link: "https://flickertalk.com/add#card", valid: true } : undefined;
+    });
+    mount(App, { shallow: true });
+    await flushPromises();
+    expect(push).toHaveBeenCalledWith("/add-contact");
+    expect(asked).not.toContain("core_add_contact");
+    clearOnboarded();
+  });
+
+  // With the app in the background, a link only brings it to the front: it asks again then, and
+  // listens for the core's word that one came while it is on the screen.
+  it("asks for an opened link again back on the screen, and listens for one", async () => {
+    setOnboarded();
+    let link: unknown = null;
+    const listened: unknown[] = [];
+    installTauri((command, args) => {
+      if (command === "plugin:event|listen") listened.push(args?.event);
+      return command === "core_opened_link" ? link : undefined;
+    });
+    mount(App, { shallow: true });
+    await flushPromises();
+    expect(push).not.toHaveBeenCalled();
+    expect(listened).toContain("ft://opened-link");
+
+    link = { kind: "move", link: "https://flickertalk.com/move#invite", valid: true };
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(push).toHaveBeenCalledWith("/move");
     clearOnboarded();
   });
 

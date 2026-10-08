@@ -145,7 +145,10 @@ export function startOpenedLinks(appRouter: Router): () => void {
   return () => {
     stopped = true;
     stopAfter();
-    unlisten?.();
+    // Where the event plugin is gone (a test, a page being torn down) there is nothing to stop.
+    void Promise.resolve()
+      .then(() => unlisten?.())
+      .catch(() => undefined);
     if (router === appRouter) router = undefined;
   };
 }

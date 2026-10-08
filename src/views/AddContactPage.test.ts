@@ -1,13 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { flushPromises, mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { IonAlert } from "@ionic/vue";
 import AddContactPage from "./AddContactPage.vue";
 import QrCode from "../components/QrCode.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
+import { linkOpens } from "../__tests__/opened";
+import { clearOnboarded } from "../preferences";
+import { reactive } from "vue";
 
 const replace = vi.fn();
-const query: Record<string, string> = {};
+const query: Record<string, string> = reactive({});
 vi.mock("vue-router", () => ({ useRouter: () => ({ replace }), useRoute: () => ({ query }) }));
 const scanner = vi.hoisted(() => ({ scan: vi.fn() }));
 // The camera was already allowed: asking for it is `scanner.test.ts`'s business.
@@ -17,6 +20,9 @@ vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
   requestPermissions: async () => "granted",
   Format: { QRCode: "QR_CODE" },
 }));
+
+// A page left mounted would take the link meant for the next test's.
+enableAutoUnmount(afterEach);
 
 describe("AddContactPage", () => {
   beforeEach(() => {
@@ -157,6 +163,53 @@ describe("AddContactPage", () => {
       expect(wrapper.findComponent(IonAlert).props("isOpen")).toBe(false);
       expect(calls.some(([command]) => command === "core_block")).toBe(false);
       expect(replace).not.toHaveBeenCalled();
+    });
+  });
+
+  // Links that open the app (2026-10-08): a link never acts alone. The page opens on "Scan" with
+  // the link in the field; adding the contact (which opens a session and sends our card) waits
+  // for the user's tap on "Add".
+  describe("opened by a link", () => {
+    const link = "https://flickertalk.com/add#theirs";
+    afterEach(() => clearOnboarded());
+
+    it("shows the link in the field, ready to add, and sends nothing", async () => {
+      await linkOpens({ kind: "add", link, valid: true });
+      const wrapper = mount(AddContactPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='scanner']").exists()).toBe(true);
+      expect((wrapper.find("[data-test='paste']").element as HTMLInputElement).value).toBe(link);
+      expect(wrapper.find("[role='alert']").exists()).toBe(false);
+      expect(calls.some(([command]) => command === "core_add_contact")).toBe(false);
+      await wrapper.find("[data-test='add']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_add_contact", { link }]);
+    });
+
+    // A cut link still opens the page, which says it is not a contact link (a text it had).
+    it("says a broken link is not a contact link", async () => {
+      await linkOpens({ kind: "add", link: "https://flickertalk.com/add#cut", valid: false });
+      const wrapper = mount(AddContactPage, { shallow: true });
+      await flushPromises();
+      expect((wrapper.find("[data-test='paste']").element as HTMLInputElement).value).toBe("https://flickertalk.com/add#cut");
+      expect(wrapper.find("[role='alert']").text()).toBe("That is not a FlickerTalk contact link");
+    });
+
+    // The page may be open already, from a hidden session's QR button: the link is added to the
+    // main list, never to that session.
+    it("adds to the main list even when the page was opened from a hidden session", async () => {
+      query.session = "s1";
+      const wrapper = mount(AddContactPage, { shallow: true });
+      await flushPromises();
+      delete query.session;
+      await linkOpens({ kind: "add", link, valid: true });
+      await flushPromises();
+      expect((wrapper.find("[data-test='paste']").element as HTMLInputElement).value).toBe(link);
+      expect(calls).toContainEqual(["core_card", {}]);
+      await wrapper.find("[data-test='add']").trigger("click");
+      await flushPromises();
+      const added = calls.find(([command]) => command === "core_add_contact");
+      expect(added?.[1]).toEqual({ link });
     });
   });
 
