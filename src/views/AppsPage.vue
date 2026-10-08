@@ -19,7 +19,7 @@ import {
   onIonViewWillEnter,
   onIonViewWillLeave,
 } from "@ionic/vue";
-import { constructOutline, gameControllerOutline, lockClosedOutline } from "ionicons/icons";
+import { constructOutline, gameControllerOutline, lockClosedOutline, personAddOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import AppSheet from "../components/AppSheet.vue";
 import AppTile from "../components/AppTile.vue";
@@ -242,6 +242,11 @@ const places = computed(() =>
     .filter((place) => place.chats.length),
 );
 
+function addContact() {
+  picking.value = "";
+  void router.push("/add-contact");
+}
+
 function playWith(contact: string) {
   const game = picking.value;
   picking.value = "";
@@ -359,9 +364,11 @@ function playWith(contact: string) {
         </ion-toolbar>
       </ion-header>
       <ion-content class="ft-apps__picker-content" data-test="contact-picker">
+        <!-- Nobody to play with yet: the way to add someone (device review of app#121). -->
         <ion-list v-if="!places.length">
-          <ion-item lines="none">
-            <ion-label color="medium">{{ $t("games.noContacts") }}</ion-label>
+          <ion-item button :detail="false" lines="none" data-test="picker-add-contact" @click="addContact">
+            <ion-icon slot="start" :icon="personAddOutline" color="primary" aria-hidden="true" />
+            <ion-label color="primary">{{ $t("games.noContacts") }}</ion-label>
           </ion-item>
         </ion-list>
         <ion-list v-for="place in places" :key="place.id">

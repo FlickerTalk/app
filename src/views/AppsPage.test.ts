@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonIcon, IonSegment, IonSegmentButton, IonTitle, IonToast, IonToggle } from "@ionic/vue";
+import { IonIcon, IonItem, IonSegment, IonSegmentButton, IonTitle, IonToast, IonToggle } from "@ionic/vue";
 import { constructOutline, extensionPuzzleOutline, gameControllerOutline, gridOutline, imageOutline } from "ionicons/icons";
 import GamePermissions from "../components/GamePermissions.vue";
 import AppsPage from "./AppsPage.vue";
@@ -289,6 +289,15 @@ describe("AppsPage", () => {
       await showGames(wrapper);
       await tile(wrapper, `app-${READY.id}`)!.trigger("click");
       expect(wrapper.find("[data-test='contact-picker']").html()).toContain("Add a contact to play with");
+      // Device review of app#121: it was text with nothing to tap. It leads to adding a contact.
+      const add = wrapper.findAllComponents(IonItem).find((one) => one.attributes("data-test") === "picker-add-contact")!;
+      // A button item (the bare attribute reaches Ionic as an empty string, which it takes as on).
+      expect(add.props("button")).not.toBe(false);
+      expect(add.props("button")).toBeDefined();
+      await add.trigger("click");
+      await flushPromises();
+      expect(nav.push).toHaveBeenCalledWith("/add-contact");
+      expect(wrapper.find("[data-test='contact-picker']").exists()).toBe(false);
     });
   });
 
