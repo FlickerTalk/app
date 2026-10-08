@@ -88,7 +88,12 @@ const contentWith = (scroller: { scrollHeight: number; clientHeight: number; scr
   });
 
 describe("ChatThread", () => {
-  beforeEach(() => seed());
+  // The app reads the installed plugins as it starts (`followPluginChanges`); the chat does not.
+  beforeEach(async () => {
+    seed();
+    await refreshPlugins();
+    calls.length = 0;
+  });
 
   it("shows every message of the conversation", () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
@@ -437,6 +442,20 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='app-bar'] ion-title").exists()).toBe(true);
   });
 
+  // A device profile (2026-10-08): reading the installed list on every chat opening cost 30–75 ms
+  // in the middle of Ionic's transition. The app keeps the list; the chat reads it again only when
+  // the apps sheet opens, where a stale list would show.
+  it("reads the installed plugins when the apps sheet opens, not when the chat opens", async () => {
+    const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+    await flushPromises();
+    expect(calls.some(([command]) => command === "core_plugins")).toBe(false);
+
+    await wrapper.find("[data-test='apps']").trigger("click");
+    await flushPromises();
+    expect(calls.filter(([command]) => command === "core_plugins")).toHaveLength(1);
+    expect(calls.some(([command]) => command === "core_plan")).toBe(true);
+  });
+
   // 2026-10-01 (§108): a plugin opened from a conversation of a hidden session is open in that
   // session; from the main list, in none.
   it("opens a plugin in the hidden session the conversation lives in", async () => {
@@ -625,6 +644,7 @@ describe("ChatThread", () => {
       }
       return fallback(command, args);
     };
+    await refreshPlugins();
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
     await flushPromises();
     await pressed(wrapper);
@@ -666,6 +686,7 @@ describe("ChatThread", () => {
         if (command === "core_plugin_ref") return Promise.resolve("ref_1");
         return fallback(command, args);
       };
+      await refreshPlugins();
       const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
       await flushPromises();
       await wrapper.find("[data-test='apps']").trigger("click");
@@ -699,6 +720,8 @@ describe("ChatThread", () => {
       }
       return fallback(command, args);
     };
+    // What the app reads as it starts; the chat itself reads nothing as it opens.
+    void refreshPlugins();
   }
   const VIEWER = {
     id: "com.flickertalk.pdfviewer",
@@ -1493,6 +1516,8 @@ describe("ChatThread", () => {
         if (command === "core_plugin_grant") list = list.map((one) => (one.id === args?.plugin ? { ...one, granted: args?.granted } : one));
         return undefined;
       });
+      // What the app reads as it starts; the chat itself reads nothing as it opens.
+      void refreshPlugins();
     }
 
     const thread = async (props: Record<string, unknown> = {}) => {
