@@ -4,6 +4,7 @@ import { IonTabButton } from "@ionic/vue";
 import { appsOutline } from "ionicons/icons";
 import TabsPage from "./TabsPage.vue";
 import NavRail from "../components/NavRail.vue";
+import { childTags, pageShape } from "../__tests__/page-shape";
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 
@@ -34,5 +35,16 @@ describe("TabsPage", () => {
   it("includes the navigation rail used on wide screens", () => {
     const wrapper = mount(TabsPage, { shallow: true });
     expect(wrapper.findComponent(NavRail).exists()).toBe(true);
+  });
+
+  // Ionic's own shape (2026-10-09): the page holds the tabs themselves, as Ionic's transitions look
+  // for them (`:scope > ion-tabs`); with a frame of ours in between the tabs never slid away on the
+  // iPhone. The rail sits beside them, and the tabs hold the outlet and the bar.
+  it("is Ionic's tabs page: the rail and ion-tabs, with the outlet and the bottom bar inside", () => {
+    const wrapper = mount(TabsPage, { shallow: true });
+    expect(pageShape(wrapper)).toEqual(["nav-rail", "ion-tabs"]);
+    const tabs = wrapper.find("ion-tabs-stub");
+    expect(childTags(tabs.element)).toEqual(["ion-router-outlet", "ion-tab-bar"]);
+    expect(tabs.find("ion-tab-bar-stub").attributes("slot")).toBe("bottom");
   });
 });
