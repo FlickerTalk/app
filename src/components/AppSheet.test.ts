@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { IonButton, IonIcon, IonToggle } from "@ionic/vue";
 import { imageOutline, lockClosedOutline, openOutline, play, trashOutline } from "ionicons/icons";
 import AppSheet from "./AppSheet.vue";
+import source from "./AppSheet.vue?raw";
 import { IonModalStub } from "../__tests__/ionic";
 import { installed, offered, premiumLocked } from "../plugins";
 import type { OfferedPlugin, PluginView } from "../core";
@@ -52,14 +53,27 @@ describe("AppSheet", () => {
   });
 
   // 2026-10-08 (plan of the apps grid, screen 3): Ionic's sheet modal, as the chat's apps sheet.
-  it("is Ionic's sheet modal, at 60 % first, scrolling inside", () => {
-    const modal = sheet(IMAGE).findComponent(IonModalStub);
+  // Device review of app#121 (2026-10-08): at a fixed 60 % the sheet was half empty, and on the
+  // iPhone a game's remove question ran under the home indicator. As tall as what it says, as the
+  // game's permissions sheet; taller than the screen, it scrolls inside (a scroll host of Ionic's,
+  // so a drag there scrolls rather than moving the sheet).
+  it("is Ionic's sheet modal, as tall as what it says, scrolling inside when that is too tall", () => {
+    const wrapper = sheet(IMAGE);
+    const modal = wrapper.findComponent(IonModalStub);
     expect(modal.props("isOpen")).toBe(true);
-    expect(modal.props("breakpoints")).toEqual([0, 0.6, 1]);
-    expect(modal.props("initialBreakpoint")).toBe(0.6);
-    expect(modal.attributes("expand-to-scroll")).toBe("false");
+    expect(modal.props("breakpoints")).toEqual([0, 1]);
+    expect(modal.props("initialBreakpoint")).toBe(1);
     expect(modal.classes()).toContain("ft-sheet--tab");
     expect(modal.attributes("aria-label")).toBe("Image");
+    // No ion-content: it has no height of its own, and an auto-height sheet would be empty.
+    expect(wrapper.find("ion-content").exists()).toBe(false);
+    expect(wrapper.find("[data-test='app-sheet']").classes()).toContain("ion-content-scroll-host");
+    // Its styles: an auto height, a body that scrolls within the screen, and the bottom inset.
+    const styles = source.slice(source.indexOf("<style"));
+    expect(styles).toMatch(/\.ft-app-sheet\s*\{[^}]*--height:\s*auto/);
+    expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*overflow-y:\s*auto/);
+    expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*max-height:/);
+    expect(styles).toMatch(/\.ft-app-sheet__body\s*\{[^}]*padding-bottom:[^;]*--ion-safe-area-bottom/);
   });
 
   it("shows nothing while closed", () => {

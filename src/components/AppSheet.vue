@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from "vue";
-import { IonButton, IonContent, IonIcon, IonItem, IonLabel, IonList, IonModal, IonNote, IonToggle } from "@ionic/vue";
+import { IonButton, IonIcon, IonItem, IonLabel, IonList, IonModal, IonNote, IonToggle } from "@ionic/vue";
 import { addOutline, downloadOutline, lockClosedOutline, openOutline, play, trashOutline } from "ionicons/icons";
 import { formatSize, type OfferedPlugin, type PluginView } from "../core";
 import { isGame } from "../games";
@@ -73,82 +73,91 @@ function dismissed() {
     :key="shown?.id"
     :is-open="open"
     class="ft-app-sheet ft-sheet--tab"
-    :breakpoints="[0, 0.6, 1]"
-    :initial-breakpoint="0.6"
-    :expand-to-scroll="false"
+    :breakpoints="[0, 1]"
+    :initial-breakpoint="1"
     :aria-label="shown ? pluginName(shown) : ''"
     @did-dismiss="dismissed"
   >
-    <ion-content v-if="shown" class="ft-app-sheet__content">
-      <div class="ft-app-sheet__body" data-test="app-sheet">
-        <div class="ft-app-sheet__head">
-          <span class="ft-app-sheet__icon"><ion-icon :icon="pluginIcon(shown)" aria-hidden="true" /></span>
-          <h2 dir="auto">{{ pluginName(shown) }}</h2>
-          <ion-note data-test="sheet-meta">{{ meta }}</ion-note>
-        </div>
-        <p v-if="summary" class="ft-app-sheet__summary" dir="auto" data-test="sheet-summary">{{ summary }}</p>
+    <!-- As tall as what it says (device review of app#121): no ion-content, which has no height of
+         its own. Taller than the screen, the body scrolls; as Ionic's scroll host a drag there
+         scrolls it instead of moving the sheet. -->
+    <div v-if="shown" class="ft-app-sheet__body ion-content-scroll-host" data-test="app-sheet">
+      <div class="ft-app-sheet__head">
+        <span class="ft-app-sheet__icon"><ion-icon :icon="pluginIcon(shown)" aria-hidden="true" /></span>
+        <h2 dir="auto">{{ pluginName(shown) }}</h2>
+        <ion-note data-test="sheet-meta">{{ meta }}</ion-note>
+      </div>
+      <p v-if="summary" class="ft-app-sheet__summary" dir="auto" data-test="sheet-summary">{{ summary }}</p>
 
-        <ion-list v-if="here" inset class="ft-app-sheet__permissions">
-          <ion-item v-for="permission in permissions" :key="permission.key" lines="none">
-            <ion-icon slot="start" :icon="permission.icon" aria-hidden="true" />
-            <ion-label class="ion-text-wrap">{{ permission.label }}</ion-label>
-            <ion-toggle
-              slot="end"
-              :checked="permission.on"
-              :aria-label="permission.label"
-              :data-test="`toggle-${permission.key}`"
-              @ion-change="emit('toggle', permission.key, $event)"
-            />
-          </ion-item>
-          <ion-item v-if="!permissions.length" lines="none">
-            <ion-note>{{ $t("plugins.asksNothing") }}</ion-note>
-          </ion-item>
-        </ion-list>
+      <ion-list v-if="here" inset class="ft-app-sheet__permissions">
+        <ion-item v-for="permission in permissions" :key="permission.key" lines="none">
+          <ion-icon slot="start" :icon="permission.icon" aria-hidden="true" />
+          <ion-label class="ion-text-wrap">{{ permission.label }}</ion-label>
+          <ion-toggle
+            slot="end"
+            :checked="permission.on"
+            :aria-label="permission.label"
+            :data-test="`toggle-${permission.key}`"
+            @ion-change="emit('toggle', permission.key, $event)"
+          />
+        </ion-item>
+        <ion-item v-if="!permissions.length" lines="none">
+          <ion-note>{{ $t("plugins.asksNothing") }}</ion-note>
+        </ion-item>
+      </ion-list>
 
-        <!-- Removing a game deletes its saved games: said before, with a way back (as before). -->
-        <div v-if="here && asksToRemove" class="ft-app-sheet__ask" role="alert">
-          <p>{{ game ? $t("games.removeWarning") : $t("apps.removeAsk") }}</p>
-          <div class="ft-app-sheet__actions">
-            <ion-button fill="outline" data-test="remove-cancel" @click="asksToRemove = false">{{ $t("common.cancel") }}</ion-button>
-            <ion-button color="danger" data-test="remove-confirm" @click="emit('remove')">{{ $t("apps.remove") }}</ion-button>
-          </div>
-        </div>
-
-        <div v-else class="ft-app-sheet__actions">
-          <template v-if="here">
-            <ion-button v-if="game" expand="block" data-test="sheet-play" @click="emit('play')">
-              <ion-icon slot="start" :icon="play" aria-hidden="true" />
-              {{ $t("games.play") }}
-            </ion-button>
-            <ion-button v-else expand="block" data-test="sheet-open" @click="emit('open')">
-              <ion-icon slot="start" :icon="locked ? lockClosedOutline : openOutline" aria-hidden="true" />
-              {{ locked ? $t("apps.subscribe") : $t("apps.open") }}
-            </ion-button>
-            <ion-button fill="clear" color="danger" data-test="sheet-remove" @click="asksToRemove = true">
-              <ion-icon slot="start" :icon="trashOutline" aria-hidden="true" />
-              {{ $t("apps.remove") }}
-            </ion-button>
-          </template>
-          <ion-button v-else expand="block" data-test="sheet-install" :disabled="busy" @click="emit('install')">
-            <ion-icon slot="start" :icon="installLocked ? lockClosedOutline : carried ? addOutline : downloadOutline" aria-hidden="true" />
-            {{ installLocked ? $t("apps.subscribe") : $t("apps.install") }}
-          </ion-button>
+      <!-- Removing a game deletes its saved games: said before, with a way back (as before). -->
+      <div v-if="here && asksToRemove" class="ft-app-sheet__ask" role="alert">
+        <p>{{ game ? $t("games.removeWarning") : $t("apps.removeAsk") }}</p>
+        <div class="ft-app-sheet__actions">
+          <ion-button fill="outline" data-test="remove-cancel" @click="asksToRemove = false">{{ $t("common.cancel") }}</ion-button>
+          <ion-button color="danger" data-test="remove-confirm" @click="emit('remove')">{{ $t("apps.remove") }}</ion-button>
         </div>
       </div>
-    </ion-content>
+
+      <div v-else class="ft-app-sheet__actions">
+        <template v-if="here">
+          <ion-button v-if="game" expand="block" data-test="sheet-play" @click="emit('play')">
+            <ion-icon slot="start" :icon="play" aria-hidden="true" />
+            {{ $t("games.play") }}
+          </ion-button>
+          <ion-button v-else expand="block" data-test="sheet-open" @click="emit('open')">
+            <ion-icon slot="start" :icon="locked ? lockClosedOutline : openOutline" aria-hidden="true" />
+            {{ locked ? $t("apps.subscribe") : $t("apps.open") }}
+          </ion-button>
+          <ion-button fill="clear" color="danger" data-test="sheet-remove" @click="asksToRemove = true">
+            <ion-icon slot="start" :icon="trashOutline" aria-hidden="true" />
+            {{ $t("apps.remove") }}
+          </ion-button>
+        </template>
+        <ion-button v-else expand="block" data-test="sheet-install" :disabled="busy" @click="emit('install')">
+          <ion-icon slot="start" :icon="installLocked ? lockClosedOutline : carried ? addOutline : downloadOutline" aria-hidden="true" />
+          {{ installLocked ? $t("apps.subscribe") : $t("apps.install") }}
+        </ion-button>
+      </div>
+    </div>
   </ion-modal>
 </template>
 
 <style scoped>
-/* The last button scrolls above Android's navigation bar (edge to edge), as the apps sheet's. */
-.ft-app-sheet__content {
-  --padding-bottom: var(--ion-safe-area-bottom, 0px);
+/* As tall as what it says (Ionic's breakpoints are shares of the sheet's own height), as the
+   game's permissions sheet. */
+.ft-app-sheet {
+  --height: auto;
 }
-/* On a wide screen the sheet is wide: what it says keeps a phone's measure, centred. */
+/* Never taller than the screen below its top inset: past that it scrolls. The last button sits
+   above Android's navigation bar (edge to edge) and the iPhone's home indicator. On a wide screen
+   the sheet is wide: what it says keeps a phone's measure, centred. */
 .ft-app-sheet__body {
+  box-sizing: border-box;
+  max-height: calc(100vh - var(--ion-safe-area-top, 0px) - 24px);
+  max-height: calc(100dvh - var(--ion-safe-area-top, 0px) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   max-width: 560px;
   margin-inline: auto;
   padding: 26px 20px 20px;
+  padding-bottom: calc(20px + var(--ion-safe-area-bottom, 0px));
 }
 .ft-app-sheet__head {
   display: flex;

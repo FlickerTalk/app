@@ -198,13 +198,71 @@ test("the Apps tab, scrolled to its end, ends above the bar", async ({ app }) =>
   await aboveTheBar(app, last);
 });
 
-// An app's sheet (2026-10-08): scrolled to its end, Remove is above the bar.
-test("an app's sheet, scrolled to its end, keeps Remove above the bar", async ({ app }) => {
-  await app.goto("/tabs/apps");
-  await app.getByTestId("app-com.flickertalk.markdown").click({ button: "right" });
-  await expect(app.getByTestId("sheet-remove")).toBeVisible();
-  await app.locator("ion-modal.ft-app-sheet ion-content").evaluate((content) => (content as HTMLIonContentElement).scrollToBottom(0));
+// An app's sheet (device review of app#121, 2026-10-08): as tall as what it says, nothing empty
+// under it, and its last button above the bar; on the iPhone a game's remove question with two
+// switches ran 13 pt under the home indicator.
+test("an app's sheet is as tall as what it says, and its last button stays above the bar", async ({ app }) => {
+  await app.goto("/tabs/apps?show=games");
+  await app.getByTestId("app-com.flickertalk.game.tictactoe").click({ button: "right" });
+  await app.getByTestId("sheet-remove").click();
+  const confirm = app.getByTestId("remove-confirm");
+  await expect(confirm).toBeVisible();
   await shot(app, "app-sheet");
-  await aboveTheBar(app, app.getByTestId("sheet-remove"));
+  await aboveTheBar(app, confirm);
+  // No empty part: the sheet ends where its content (with the bar's inset) ends.
+  const sheet = (await app.locator("ion-modal.ft-app-sheet .modal-wrapper").boundingBox())!;
+  const body = (await app.getByTestId("app-sheet").boundingBox())!;
+  expect(Math.abs(sheet.y + sheet.height - (body.y + body.height)), "the sheet ends with its content").toBeLessThanOrEqual(2);
+  expect(sheet.y + sheet.height).toBeLessThanOrEqual(app.viewportSize()!.height + 1);
+  expect(sheet.y, "and leaves the page above it").toBeGreaterThan(200);
+});
+
+// The same review, on the Lenovo: the app's sheet barely darkened the page, the game's permissions
+// sheet darkened all of it. Both darken it as much.
+test("an app's sheet darkens the page as much as the game's permissions sheet", async ({ app }) => {
+  const darkness = async (sheet: string) => {
+    const backdrop = app.locator(`ion-modal.${sheet} ion-backdrop`);
+    let last = "";
+    await expect
+      .poll(async () => {
+        const now = await backdrop.evaluate((el) => getComputedStyle(el).opacity);
+        const still = now === last;
+        last = now;
+        return still;
+      }, { intervals: [150] })
+      .toBe(true);
+    return Number(last);
+  };
+  await app.goto("/tabs/apps?show=games");
+  await app.getByTestId("app-com.flickertalk.game.tictactoe").click({ button: "right" });
+  const ofApp = await darkness("ft-app-sheet");
+  await app.getByTestId("sheet-play").click();
+  await expect(app.getByTestId("game-permissions")).toBeVisible();
+  const ofPermissions = await darkness("ft-game-ask");
+  expect(ofPermissions).toBeGreaterThan(0.3);
+  expect(ofApp).toBeCloseTo(ofPermissions, 2);
+});
+
+test.describe("on a short screen", () => {
+  test.use({ viewport: { width: 360, height: 380 } });
+
+  // Taller than the screen, the sheet keeps within it and scrolls inside, to its last button.
+  test("an app's sheet scrolls inside rather than running off the screen", async ({ app }) => {
+    await app.addInitScript(() => {
+      const fake = window as unknown as Record<string, unknown>;
+      fake.__ftFakeCatalogue = [];
+    });
+    await app.goto("/tabs/apps?show=games");
+    await app.getByTestId("app-com.flickertalk.game.tictactoe").click({ button: "right" });
+    await app.getByTestId("sheet-remove").click();
+    const body = app.getByTestId("app-sheet");
+    await expect(app.getByTestId("remove-confirm")).toBeAttached();
+    const sheet = (await app.locator("ion-modal.ft-app-sheet .modal-wrapper").boundingBox())!;
+    expect(sheet.y, "within the screen").toBeGreaterThanOrEqual(0);
+    expect(sheet.y + sheet.height).toBeLessThanOrEqual(380 + 1);
+    expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight), "it scrolls").toBe(true);
+    await body.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await aboveTheBar(app, app.getByTestId("remove-confirm"));
+  });
 });
 
