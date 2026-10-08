@@ -206,7 +206,6 @@ onBeforeUnmount(cancel);
   line-height: 1.25;
   text-align: center;
   overflow-wrap: anywhere;
-  hyphens: auto;
 }
 .ft-app-tile__caption {
   display: block;

@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { IonIcon, IonSpinner } from "@ionic/vue";
 import { addOutline, downloadOutline, imageOutline, lockClosedOutline } from "ionicons/icons";
 import AppTile from "./AppTile.vue";
+import source from "./AppTile.vue?raw";
 
 const tile = (props: Record<string, unknown> = {}) =>
   mount(AppTile, { props: { name: "Image", icon: imageOutline, ...props }, attachTo: document.body });
@@ -172,5 +173,14 @@ describe("AppTile", () => {
     expect(tile({ label: "Chess. Touch and hold to invite" }).find("button").attributes("aria-label")).toBe(
       "Chess. Touch and hold to invite",
     );
+  });
+
+  // Device review of app#121: "Batalla naval" wrapped as "Batalla na-/val". A name breaks between
+  // its words, never with a hyphen; only a single word longer than the tile breaks, as a last resort.
+  it("breaks a name between its words, not with a hyphen", () => {
+    const rule = source.slice(source.indexOf("<style")).match(/\.ft-app-tile__name\s*\{([^}]*)\}/)![1];
+    expect(rule).not.toMatch(/hyphens\s*:\s*auto/);
+    expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(tile({ name: "Batalla naval" }).find(".ft-app-tile__name").text()).toBe("Batalla naval");
   });
 });
