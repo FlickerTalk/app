@@ -137,7 +137,19 @@
     "minimize": "চ্যাটে ফিরে যান",
     "answer": "ধরুন",
     "decline": "প্রত্যাখ্যান",
-    "empty": "এখনও কোনো কল নেই"
+    "empty": "এখনও কোনো কল নেই",
+    "present": "উপস্থাপন করুন",
+    "presentBoard": "হোয়াইটবোর্ড",
+    "presentDocument": "নথি (PDF)",
+    "stopPresenting": "উপস্থাপনা বন্ধ করুন",
+    "presenting": "{name} উপস্থাপন করছেন",
+    "acceptToSee": "উপস্থাপনা দেখতে ফাইলটি গ্রহণ করুন",
+    "presentTooBig": "এই PDF উপস্থাপনের জন্য খুব বড় (সর্বোচ্চ 32 MB)",
+    "presentMissing": "এই ফোনে এই উপস্থাপনার টুলটি নেই। অ্যাপ থেকে যোগ করুন।",
+    "presentAsk": "{name} {plugin} দিয়ে উপস্থাপন করতে চান",
+    "presentAllow": "অনুমতি দিন",
+    "presentFailed": "উপস্থাপনা শুরু করা যায়নি",
+    "cannotPresentOld": "অপর ব্যক্তির অ্যাপ এখনও উপস্থাপনা দেখাতে পারে না"
   },
   "welcome": {
     "fromOld": "অন্য ফোনে আমার FlickerTalk আছে",

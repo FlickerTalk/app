@@ -137,7 +137,19 @@
     "minimize": "Înapoi la chat",
     "answer": "Răspunde",
     "decline": "Respinge",
-    "empty": "Niciun apel încă"
+    "empty": "Niciun apel încă",
+    "present": "Prezintă",
+    "presentBoard": "Tablă",
+    "presentDocument": "Document PDF",
+    "stopPresenting": "Oprește prezentarea",
+    "presenting": "{name} prezintă",
+    "acceptToSee": "Acceptă fișierul ca să vezi prezentarea",
+    "presentTooBig": "Acest PDF e prea mare pentru a fi prezentat (cel mult 32 MB)",
+    "presentMissing": "Telefonul acesta nu are instrumentul pentru această prezentare. Adaugă-l din Aplicații.",
+    "presentAsk": "{name} vrea să prezinte cu {plugin}",
+    "presentAllow": "Permite",
+    "presentFailed": "Prezentarea nu a putut începe",
+    "cannotPresentOld": "Aplicația celeilalte persoane nu poate încă afișa prezentări"
   },
   "welcome": {
     "fromOld": "Am FlickerTalk pe alt telefon",
