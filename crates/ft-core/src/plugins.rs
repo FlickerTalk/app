@@ -508,9 +508,13 @@ impl Core {
 
     /// Whether this plugin may be opened, and served to the WebView, now: what `may_use` says of
     /// its kind or, with the tools closed, the plugin the other side presents in the call going on
-    /// (watching a class is free, Ioan 2026-10-08). The core decides it from its own call.
+    /// (watching a class is free, Ioan 2026-10-08) if it asks for the live channel, the only way
+    /// a plugin can follow anything. The core decides it from its own call.
     pub async fn may_use_plugin(&self, id: &str, kind: ft_plugins::Kind) -> Result<bool> {
-        Ok(self.may_use(kind).await? || self.following(id).await?)
+        if self.may_use(kind).await? {
+            return Ok(true);
+        }
+        Ok(self.following(id).await? && self.plugin_manifest(id).is_ok_and(|manifest| manifest.permissions.live))
     }
 
     /// Refuses what the plan closes: only the tools, after the free year and without the

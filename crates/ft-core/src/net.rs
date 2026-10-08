@@ -620,6 +620,8 @@ impl Network {
         // File transfers stopped by the last connection go on over this one (§63), and what
         // waits for its receipt goes over it too, even if it is in the mailbox (2026-09-29).
         if let Ok(core) = self.core() {
+            // What we present in a call with them, in case a word went with the last connection.
+            core.link_opened_in_call(contact);
             let from = contact.to_owned();
             tokio::spawn(async move {
                 let _ = core.retry_contact_now(&from).await;

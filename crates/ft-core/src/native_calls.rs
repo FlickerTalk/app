@@ -112,12 +112,20 @@ pub(crate) struct NativeCall {
     /// The call media version we say in our offer or answer (`media_version`, at most the core's
     /// `call_media_ceiling`).
     our_media: u16,
-    /// What is presented in the call now, by either side (2026-10-08).
-    presenting: Mutex<Option<Presenting>>,
-    /// The `seq` of our latest `CallPresent`.
+    /// What is presented in the call now, by either side, and the newest word heard of it
+    /// (2026-10-08).
+    presenting: Mutex<PresentState>,
+    /// The `seq` of our latest `CallPresent`; 0 while we never said one.
     present_seq: AtomicU32,
-    /// The highest `seq` the other side said in a `CallPresent`.
-    heard_present: Mutex<Option<u32>>,
+}
+
+/// What is presented in a call and the highest `seq` the other side said in a `CallPresent`: one
+/// lock, so a word's `seq` and the state it makes are decided together, and the UI hears the
+/// states in the order they were made.
+#[derive(Default)]
+struct PresentState {
+    now: Option<Presenting>,
+    heard: Option<u32>,
 }
 
 impl NativeCall {
@@ -141,7 +149,7 @@ impl NativeCall {
     }
 
     fn presenting(&self) -> Option<Presenting> {
-        self.presenting.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.presenting.lock().unwrap_or_else(PoisonError::into_inner).now.clone()
     }
 
     /// The `seq` of our next `CallPresent`. Taken while `presenting` is held, so the newest `seq`
@@ -775,9 +783,8 @@ impl Core {
             remote: Mutex::new(RemoteCamera::default()),
             connected_at: AtomicI64::new(0),
             our_media,
-            presenting: Mutex::new(None),
+            presenting: Mutex::new(PresentState::default()),
             present_seq: AtomicU32::new(0),
-            heard_present: Mutex::new(None),
         });
         Ok(native)
     }
@@ -976,38 +983,50 @@ impl Core {
         self.usable(kind).await?;
         ensure!(!plugin.is_empty(), "no plugin to present");
         if let Some(file) = file {
-            ensure!(self.file_in(&native.contact, &file.to_string()).await?, "not a file of this conversation");
+            ensure!(self.file_belongs_to(&file, &native.contact).await?, "not a file of this conversation");
         }
         let seq = {
-            let mut presenting = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
-            ensure!(presenting.as_ref().is_none_or(|now| now.by == PresentedBy::Me), "the other side is presenting");
-            *presenting = Some(Presenting { plugin: plugin.to_owned(), file, by: PresentedBy::Me });
+            let mut state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            ensure!(state.now.as_ref().is_none_or(|now| now.by == PresentedBy::Me), "the other side is presenting");
+            state.now = Some(Presenting { plugin: plugin.to_owned(), file, by: PresentedBy::Me });
+            self.announce_presenting(&native, state.now.as_ref());
             native.next_present_seq()
         };
-        self.announce_presenting(&native);
         self.send_presenting(&native, seq, Some(plugin.to_owned()), file);
         Ok(())
     }
 
-    /// Whether `message_id` is a file message of the conversation with `contact`, either way.
-    async fn file_in(&self, contact: &str, message_id: &str) -> Result<bool> {
-        let Some(message) = self.store.message(message_id).await? else { return Ok(false) };
-        Ok(message.contact == contact && self.store.file(message_id).await?.is_some())
+    /// Whether `file` is a file message of the conversation with `contact`, sent or received
+    /// (2026-10-08): what a presentation may show. The follow sheet checks it before it reads a
+    /// presented file.
+    pub async fn file_belongs_to(&self, file: &MessageId, contact: &str) -> Result<bool> {
+        let id = file.to_string();
+        let Some(message) = self.store.message(&id).await? else { return Ok(false) };
+        Ok(message.contact == contact && self.store.file(&id).await?.is_some())
+    }
+
+    /// Says a `CallPresent` to `contact` over the direct connection with no check at all, as a
+    /// modified peer could: for the tests (`tests/native_present.rs`). `false` if it did not go.
+    #[doc(hidden)]
+    pub async fn say_call_present(&self, contact: &str, call: &str, seq: u32, plugin: Option<String>, file: Option<MessageId>) -> Result<bool> {
+        let contact = self.contact(contact).await?;
+        let packet = Packet::new(Body::CallPresent { call: MessageId::parse(call)?, seq, plugin, file });
+        self.transmit_direct(&contact, &packet).await
     }
 
     /// Stops our presentation in the call going on; nothing to do when we present nothing.
     pub async fn stop_presenting(&self, call: &str) -> Result<()> {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
         let seq = {
-            let mut presenting = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
-            let ours = presenting.as_ref().is_some_and(|now| now.by == PresentedBy::Me);
+            let mut state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            let ours = state.now.as_ref().is_some_and(|now| now.by == PresentedBy::Me);
             if ours {
-                *presenting = None;
+                state.now = None;
+                self.announce_presenting(&native, None);
             }
             ours.then(|| native.next_present_seq())
         };
         if let Some(seq) = seq {
-            self.announce_presenting(&native);
             self.send_presenting(&native, seq, None, None);
         }
         Ok(())
@@ -1044,43 +1063,83 @@ impl Core {
     }
 
     /// The other side says what it presents (`CallPresent`): the newest word wins. Ignored when
-    /// it is not this call's contact, or when this phone said it does not show presentations.
+    /// it is not this call's contact, when this phone said it does not show presentations, before
+    /// the call is answered, and when its file is a message here that is not a file of this
+    /// call's chat (a file not here yet is taken: its offer may come after the word).
     pub(crate) async fn call_present_received(&self, contact: &ft_storage::Contact, call: MessageId, seq: u32, plugin: Option<String>, file: Option<MessageId>) -> Result<()> {
         let Some(native) = self.native_of(&call.to_string()) else { return Ok(()) };
         if native.contact != contact.device_id || !presents(native.media()) {
             return Ok(());
         }
-        if !newer_present(&mut native.heard_present.lock().unwrap_or_else(PoisonError::into_inner), seq) {
+        let answered = self.store.call(&native.call).await?.is_some_and(|record| record.answered_at.is_some());
+        if !answered {
+            // A word before the answer is not part of the call.
             return Ok(());
         }
-        let mine_wins = mine_wins_clash(self.device_id().as_str(), &native.contact);
-        let (changed, withdrawal, followed_changed) = {
-            let mut presenting = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
-            let before = followed(presenting.as_ref());
-            let (changed, withdrawal) = take_their_present(&mut presenting, &native.present_seq, plugin, file, mine_wins);
-            (changed, withdrawal, followed(presenting.as_ref()) != before)
-        };
-        if changed {
-            self.announce_presenting(&native);
+        if let Some(file) = file {
+            let id = file.to_string();
+            let found = match self.store.message(&id).await? {
+                Some(message) => Some((message.contact, self.store.file(&id).await?.is_some())),
+                None => None,
+            };
+            if !presentable_file(found.as_ref().map(|(of, is_file)| (of.as_str(), *is_file)), &native.contact) {
+                return Ok(());
+            }
         }
+        let mine_wins = mine_wins_clash(self.device_id().as_str(), &native.contact);
+        let withdrawal = {
+            let mut state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            if !newer_present(&mut state.heard, seq) {
+                return Ok(());
+            }
+            let before = followed(state.now.as_ref());
+            let (changed, withdrawal) = take_their_present(&mut state.now, &native.present_seq, plugin, file, mine_wins);
+            let after = followed(state.now.as_ref());
+            // What may open changed: the WebView serves the followed tool before the sheet that
+            // shows it mounts, and stops serving it only once the sheet is gone.
+            let serve = after != before;
+            if serve && after.is_some() {
+                let _ = self.events.send(Event::PlanChanged);
+            }
+            if changed {
+                self.announce_presenting(&native, state.now.as_ref());
+            }
+            if serve && after.is_none() {
+                let _ = self.events.send(Event::PlanChanged);
+            }
+            withdrawal
+        };
         if let Some(seq) = withdrawal {
             // Ours lost a clash: withdraw it, so a late copy of it never shows on their side.
             self.send_presenting(&native, seq, None, None);
         }
-        if followed_changed {
-            // What may open changed: the WebView serves the followed tool, or stops serving it.
-            let _ = self.events.send(Event::PlanChanged);
-        }
         Ok(())
     }
 
-    /// Tells the UI what is presented now, as a whole.
-    fn announce_presenting(&self, native: &NativeCall) {
-        let now = native.presenting();
+    /// A data link with `contact` opened (`net.rs`): a word of ours handed to the one before may
+    /// have been lost with it, so in a call with them in which we ever said what we present, we
+    /// say it again with a newer `seq` (2026-10-08). A lost stop would leave the other side
+    /// showing our presentation until the end of the call.
+    pub(crate) fn link_opened_in_call(&self, contact: &str) {
+        let native = self.native_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let Some(native) = native.filter(|native| native.contact == contact) else { return };
+        let again = {
+            let state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            let ever_said = native.present_seq.load(Ordering::SeqCst) > 0;
+            said_again(state.now.as_ref(), ever_said).map(|(plugin, file)| (native.next_present_seq(), plugin, file))
+        };
+        if let Some((seq, plugin, file)) = again {
+            self.send_presenting(&native, seq, plugin, file);
+        }
+    }
+
+    /// Tells the UI what is presented now, as a whole. Called with the state still held, so the
+    /// UI hears the states in the order they were made.
+    fn announce_presenting(&self, native: &NativeCall, now: Option<&Presenting>) {
         let update = CallUpdate::Presenting {
-            plugin: now.as_ref().map(|now| now.plugin.clone()),
-            file: now.as_ref().and_then(|now| now.file),
-            by: now.as_ref().map(|now| now.by),
+            plugin: now.map(|now| now.plugin.clone()),
+            file: now.and_then(|now| now.file),
+            by: now.map(|now| now.by),
         };
         self.announce(native, update);
     }
@@ -1357,6 +1416,21 @@ fn followed(now: Option<&Presenting>) -> Option<String> {
     now.filter(|now| now.by == PresentedBy::Them).map(|now| now.plugin.clone())
 }
 
+/// Whether a presented file may be followed: `found` is its message here (its contact, and
+/// whether it is a file), `None` if not here yet.
+fn presentable_file(found: Option<(&str, bool)>, contact: &str) -> bool {
+    found.is_none_or(|(of, is_file)| of == contact && is_file)
+}
+
+/// What a side says again of its presentation once the data link is back, as (plugin, file):
+/// what it presents, or nothing; `None` (no word) if it never said one in this call.
+fn said_again(now: Option<&Presenting>, ever_said: bool) -> Option<(Option<String>, Option<MessageId>)> {
+    if !ever_said {
+        return None;
+    }
+    Some(now.filter(|now| now.by == PresentedBy::Me).map_or((None, None), |now| (Some(now.plugin.clone()), now.file)))
+}
+
 /// Whether our own connection coming up changes what may open: `following` needs the call
 /// active, and what the other side presents may have arrived before (it travels over the chat
 /// channel, not the call's media).
@@ -1582,5 +1656,31 @@ mod tests {
         assert!(plan_changes_on_connect(Some(&theirs)), "the followed tool is served from now on");
         assert!(!plan_changes_on_connect(Some(&mine)), "ours changes nothing");
         assert!(!plan_changes_on_connect(None));
+    }
+
+    // A presented file is followed only if it is a file of the call's chat. One not here yet is
+    // taken: the file's offer travels through the outbox and may come after the word.
+    #[test]
+    fn a_presented_file_must_be_a_file_of_the_call_s_chat() {
+        assert!(presentable_file(Some(("ft_alice", true)), "ft_alice"), "a file of this chat");
+        assert!(!presentable_file(Some(("ft_carol", true)), "ft_alice"), "a file of another chat");
+        assert!(!presentable_file(Some(("ft_alice", false)), "ft_alice"), "a text of this chat");
+        assert!(presentable_file(None, "ft_alice"), "not here yet");
+    }
+
+    // Once the data link is back, a side that ever said what it presents says it again: what it
+    // presents, or that it presents nothing (a lost stop). A side that never said a word says
+    // nothing.
+    #[test]
+    fn a_side_that_spoke_says_its_presentation_again() {
+        let board = || Some("com.example.board".to_owned());
+        let file = MessageId::new();
+        let mine = Presenting { plugin: "com.example.board".to_owned(), file: Some(file), by: PresentedBy::Me };
+        let theirs = Presenting { by: PresentedBy::Them, ..mine.clone() };
+        assert_eq!(said_again(Some(&mine), true), Some((board(), Some(file))), "ours");
+        assert_eq!(said_again(None, true), Some((None, None)), "our stop, maybe lost");
+        assert_eq!(said_again(Some(&theirs), true), Some((None, None)), "we present nothing");
+        assert_eq!(said_again(None, false), None, "nothing ever said");
+        assert_eq!(said_again(Some(&theirs), false), None);
     }
 }
