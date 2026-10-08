@@ -245,6 +245,38 @@ describe("PluginSheet", () => {
     expect(lone.post).toHaveBeenCalledWith(expect.objectContaining({ live: false, reminder: "r1" }), "*");
   });
 
+  // A presentation in a call (API 1.6.0): the app says whether this side leads or follows.
+  it("tells a plugin opened in a call whether it leads or follows, and says nothing of it otherwise", async () => {
+    const shown = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: true, presenting: "follow" }, shallow: true });
+    await flushPromises();
+    const call = framed(shown);
+    call.says({ type: "ft.ready" });
+    await flushPromises();
+    expect(call.post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", live: true, presenting: "follow" }), "*");
+
+    const plain = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: true }, shallow: true });
+    await flushPromises();
+    const chat = framed(plain);
+    chat.says({ type: "ft.ready" });
+    await flushPromises();
+    const opened = chat.post.mock.calls.map(([message]) => message).find((message) => message.type === "ft.open");
+    expect(opened).not.toHaveProperty("presenting");
+  });
+
+  // Whoever shows the plugin learns when the core will not open it (the call screen says so).
+  it("says when the core refuses to open the plugin", async () => {
+    tauri.invoke.mockImplementation(async (command: string) => {
+      if (command === "core_plugin_open") throw "refused";
+    });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: true, presenting: "follow" }, shallow: true });
+    await flushPromises();
+    expect(wrapper.emitted("refused")).toHaveLength(1);
+    tauri.invoke.mockReset();
+    const fine = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    expect(fine.emitted("refused")).toBeUndefined();
+  });
+
   // Found on a real phone (2026-09-27): a reminder tapped while its plugin is already on screen
   // only changes the reminder; the plugin has to hear it to open that note.
   it("opens the plugin again on a new reminder", async () => {
