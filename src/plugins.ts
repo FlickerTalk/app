@@ -9,6 +9,20 @@ import { listen } from "@tauri-apps/api/event";
 import { PLAN_EVENT, offeredPlugins, plan, plugins, type OfferedPlugin, type PluginLocales, type PluginView } from "./core";
 import { isGame } from "./games";
 import { i18n } from "./i18n";
+import {
+  addOutline, alarmOutline, albumsOutline, appsOutline, arrowBackOutline, arrowRedoOutline, arrowUndoOutline,
+  arrowUpOutline, basketOutline, boatOutline, bookOutline, brushOutline, calculatorOutline, calendarOutline,
+  cameraOutline, chatbubbleOutline, checkboxOutline, checkmarkOutline, closeOutline, cloudDoneOutline, cloudOutline,
+  cloudUploadOutline, codeSlashOutline, colorPaletteOutline, constructOutline, contrastOutline, cropOutline,
+  cubeOutline, cutOutline, diceOutline, documentOutline, documentTextOutline, downloadOutline, easelOutline,
+  ellipseOutline, ellipsisHorizontalOutline, expandOutline, extensionPuzzleOutline, eyeOffOutline, eyeOutline,
+  folderOpenOutline, folderOutline, gameControllerOutline, gridOutline, handLeftOutline, imageOutline, keyOutline,
+  languageOutline, linkOutline, listOutline, locationOutline, lockClosedOutline, logoMarkdown, mapOutline,
+  micOutline, moveOutline, musicalNotesOutline, optionsOutline, pauseOutline, pencilOutline, playOutline,
+  qrCodeOutline, radioButtonOnOutline, readerOutline, refreshOutline, removeOutline, resizeOutline, saveOutline,
+  scanOutline, searchOutline, sendOutline, shieldOutline, sparklesOutline, squareOutline, statsChartOutline,
+  textOutline, timeOutline, timerOutline, trashOutline, trophyOutline,
+} from "ionicons/icons";
 
 /**
  * Where the frame of a plugin lives; never the app's own origin. Only the id goes through
@@ -75,6 +89,56 @@ export function isLocked(plugin: { kind?: "tool" | "game" }): boolean {
  */
 export const tools = computed(() => byPluginName(installed.value.filter((one) => !isGame(one))));
 export const games = computed(() => byPluginName(installed.value.filter(isGame)));
+
+/**
+ * The Ionicons a plugin may name for its tile (2026-10-08, plan of the apps grid), by their
+ * kebab-case name as `module.json` says it. A whitelist, not the whole set: the app carries only
+ * these, and a name it does not know draws the app's own icon. It holds every icon chosen for our
+ * plugins and every icon a plugin's frame can ask the core for (`src-tauri/resources/icons`).
+ */
+export const PLUGIN_ICONS: Readonly<Record<string, string>> = Object.freeze(
+  Object.assign(Object.create(null) as Record<string, string>, {
+    "add-outline": addOutline, "alarm-outline": alarmOutline, "albums-outline": albumsOutline,
+    "apps-outline": appsOutline, "arrow-back-outline": arrowBackOutline, "arrow-redo-outline": arrowRedoOutline,
+    "arrow-undo-outline": arrowUndoOutline, "arrow-up-outline": arrowUpOutline, "basket-outline": basketOutline,
+    "boat-outline": boatOutline, "book-outline": bookOutline, "brush-outline": brushOutline,
+    "calculator-outline": calculatorOutline, "calendar-outline": calendarOutline, "camera-outline": cameraOutline,
+    "chatbubble-outline": chatbubbleOutline, "checkbox-outline": checkboxOutline, "checkmark-outline": checkmarkOutline,
+    "close-outline": closeOutline, "cloud-done-outline": cloudDoneOutline, "cloud-outline": cloudOutline,
+    "cloud-upload-outline": cloudUploadOutline, "code-slash-outline": codeSlashOutline,
+    "color-palette-outline": colorPaletteOutline, "construct-outline": constructOutline,
+    "contrast-outline": contrastOutline, "crop-outline": cropOutline, "cube-outline": cubeOutline,
+    "cut-outline": cutOutline, "dice-outline": diceOutline, "document-outline": documentOutline,
+    "document-text-outline": documentTextOutline, "download-outline": downloadOutline, "easel-outline": easelOutline,
+    "ellipse-outline": ellipseOutline, "ellipsis-horizontal-outline": ellipsisHorizontalOutline,
+    "expand-outline": expandOutline, "extension-puzzle-outline": extensionPuzzleOutline,
+    "eye-off-outline": eyeOffOutline, "eye-outline": eyeOutline, "folder-open-outline": folderOpenOutline,
+    "folder-outline": folderOutline, "game-controller-outline": gameControllerOutline, "grid-outline": gridOutline,
+    "hand-left-outline": handLeftOutline, "image-outline": imageOutline, "key-outline": keyOutline,
+    "language-outline": languageOutline, "link-outline": linkOutline, "list-outline": listOutline,
+    "location-outline": locationOutline, "lock-closed-outline": lockClosedOutline, "logo-markdown": logoMarkdown,
+    "map-outline": mapOutline, "mic-outline": micOutline, "move-outline": moveOutline,
+    "musical-notes-outline": musicalNotesOutline, "options-outline": optionsOutline, "pause-outline": pauseOutline,
+    "pencil-outline": pencilOutline, "play-outline": playOutline, "qr-code-outline": qrCodeOutline,
+    "radio-button-on-outline": radioButtonOnOutline, "reader-outline": readerOutline,
+    "refresh-outline": refreshOutline, "remove-outline": removeOutline, "resize-outline": resizeOutline,
+    "save-outline": saveOutline, "scan-outline": scanOutline, "search-outline": searchOutline,
+    "send-outline": sendOutline, "shield-outline": shieldOutline, "sparkles-outline": sparklesOutline,
+    "square-outline": squareOutline, "stats-chart-outline": statsChartOutline, "text-outline": textOutline,
+    "time-outline": timeOutline, "timer-outline": timerOutline, "trash-outline": trashOutline,
+    "trophy-outline": trophyOutline,
+  }),
+);
+
+/**
+ * The icon of a plugin's tile, as the SVG data URL `ion-icon` takes: the Ionicon its manifest
+ * names, if the app allows it; otherwise a puzzle piece for a tool and a controller for a game.
+ */
+export function pluginIcon(plugin: { icon?: string; kind?: "tool" | "game" }): string {
+  // The map has no prototype: `toString` or `__proto__` is no icon.
+  const named = plugin.icon && plugin.icon in PLUGIN_ICONS ? PLUGIN_ICONS[plugin.icon] : undefined;
+  return named ?? (isGame(plugin) ? gameControllerOutline : extensionPuzzleOutline);
+}
 
 /**
  * What the catalogue offers this phone, kept for every screen (plan 10.6): the games section

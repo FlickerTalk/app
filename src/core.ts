@@ -905,6 +905,8 @@ export interface PluginView {
   kind?: PluginKind;
   /** Its name in other languages, from its package (2026-10-02); `pluginName` picks one. */
   locales?: PluginLocales;
+  /** The Ionicon of its tile, as its manifest names it (2026-10-08); `pluginIcon` draws it. */
+  icon?: string;
 }
 
 /** A plugin's name and summary by language code (`es`, `zh-TW`…), as `module.json` gives them. */
@@ -931,6 +933,8 @@ export interface OfferedPlugin {
   kind?: PluginKind;
   /** Its name and summary in other languages (2026-10-02); `pluginName` and `pluginSummary` pick. */
   locales?: PluginLocales;
+  /** The Ionicon of its tile, from its manifest or its catalogue entry (2026-10-08). */
+  icon?: string;
 }
 
 /**
