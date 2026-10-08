@@ -62,7 +62,7 @@ function hold() {
 function down(event: PointerEvent) {
   cancel();
   held = false;
-  if (event.button !== 0) return;
+  if (event.button !== 0 || props.busy) return;
   start = { x: event.clientX, y: event.clientY };
   timer = setTimeout(hold, HOLD_MS);
 }
@@ -73,6 +73,7 @@ function move(event: PointerEvent) {
 }
 
 function click() {
+  if (props.busy) return;
   if (held) {
     held = false;
     return;
@@ -87,14 +88,14 @@ function click() {
  */
 function menu(event: Event) {
   event.preventDefault();
-  if (held) return;
+  if (held || props.busy) return;
   if (timer !== undefined) return hold();
   emit("hold");
 }
 
 /** Enter and Space click the button by themselves; Shift+Enter holds. */
 function key(event: KeyboardEvent) {
-  if (event.key !== "Enter" || !event.shiftKey) return;
+  if (event.key !== "Enter" || !event.shiftKey || props.busy) return;
   event.preventDefault();
   emit("hold");
 }
@@ -105,11 +106,11 @@ onBeforeUnmount(cancel);
 <template>
   <button
     type="button"
-    class="ft-app-tile ion-activatable"
-    :class="{ 'ft-app-tile--off': off }"
+    class="ft-app-tile"
+    :class="{ 'ft-app-tile--off': off, 'ion-activatable': !busy }"
     :aria-label="ariaLabel"
     :aria-busy="busy ? 'true' : undefined"
-    :disabled="busy"
+    :aria-disabled="busy ? 'true' : undefined"
     @pointerdown="down"
     @pointermove="move"
     @pointerup="cancel"
@@ -134,7 +135,8 @@ onBeforeUnmount(cancel);
     </span>
     <span class="ft-app-tile__name" dir="auto">{{ name }}</span>
     <span v-if="caption" class="ft-app-tile__caption">{{ caption }}</span>
-    <ion-ripple-effect />
+    <!-- Not while busy: a press that a ripple started would stay lit until the install ends. -->
+    <ion-ripple-effect v-if="!busy" />
   </button>
 </template>
 
@@ -161,7 +163,7 @@ onBeforeUnmount(cancel);
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
-.ft-app-tile:disabled {
+.ft-app-tile[aria-busy="true"] {
   cursor: progress;
 }
 .ft-app-tile:focus-visible {

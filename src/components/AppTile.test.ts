@@ -64,6 +64,28 @@ describe("AppTile", () => {
     expect(tile().findComponent(IonSpinner).exists()).toBe(false);
   });
 
+  // Device review of app#121: a tile made `disabled` mid-press kept Ionic's pressed look, a lit
+  // rectangle, until the install ended. A busy tile stays a live button, without the ripple, and
+  // ignores taps and holds.
+  it("ignores taps and holds while busy, without being disabled or keeping a pressed look", async () => {
+    const wrapper = tile({ busy: true });
+    const button = wrapper.find("button");
+    expect(button.attributes("disabled")).toBeUndefined();
+    expect(button.attributes("aria-disabled")).toBe("true");
+    expect(button.classes()).not.toContain("ion-activatable");
+    expect(wrapper.find("ion-ripple-effect").exists()).toBe(false);
+    await button.trigger("click");
+    button.element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await button.trigger("pointerdown", { button: 0, clientX: 1, clientY: 1 });
+    vi.advanceTimersByTime(1000);
+    expect(wrapper.emitted("tap")).toBeUndefined();
+    expect(wrapper.emitted("hold")).toBeUndefined();
+    await wrapper.setProps({ busy: false });
+    expect(button.classes()).toContain("ion-activatable");
+    await button.trigger("click");
+    expect(wrapper.emitted("tap")).toHaveLength(1);
+  });
+
   it("taps", async () => {
     const wrapper = tile();
     await wrapper.find("button").trigger("click");
