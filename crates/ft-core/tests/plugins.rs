@@ -427,6 +427,30 @@ async fn the_catalogue_offers_tools_and_games_but_no_kind_this_core_does_not_kno
     assert_eq!(kinds, [("com.example.code", ft_plugins::Kind::Tool), ("com.example.chess", ft_plugins::Kind::Game)]);
 }
 
+// 2026-10-08 (plan of the apps grid): the Ionicon a plugin names reaches the app both ways: in
+// what the catalogue offers, and in what is installed once added.
+#[tokio::test]
+async fn the_icon_of_a_plugin_comes_through_the_catalogue_and_the_install() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.example.code","name":"Code","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-code"],"icon":"code-outline"}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    let (shop, entries) = listing(&[(manifest, &package)]);
+    let index = serde_json::to_string(&serde_json::json!({ "plugins": entries })).unwrap();
+    let mut files = shop.files;
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+    let shop = Shop { files };
+
+    let offered = core.catalogue(&shop, &catalogue.public_key()).await.expect("reads the catalogue");
+    assert_eq!(offered[0].icon, "code-outline");
+    core.add_plugin(&offered[0], &shop, &catalogue.public_key()).await.expect("installs");
+    assert_eq!(core.plugins().await.unwrap()[0].manifest.icon, "code-outline");
+}
+
 // ---- Hidden sessions (2026-10-01, §108): what a plugin keeps inside one stays inside it ----
 
 /// A core with a plugin that keeps records, and a hidden session open.
@@ -951,6 +975,7 @@ fn listing(packages: &[(&str, &[u8])]) -> (Shop, Vec<ft_plugins::CatalogueEntry>
             summary: String::new(),
             kind: manifest.kind,
             locales: manifest.locales,
+            icon: manifest.icon,
         });
         files.insert(url, package.to_vec());
     }

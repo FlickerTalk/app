@@ -32,6 +32,7 @@ fn entry_of(manifest: &Manifest, package: &[u8], base: &str) -> CatalogueEntry {
         summary: manifest.summary.clone(),
         kind: manifest.kind,
         locales: manifest.locales.clone(),
+        icon: manifest.icon.clone(),
     }
 }
 
@@ -253,6 +254,32 @@ mod tests {
             let pdf = raw["plugins"].as_array().unwrap().iter().find(|entry| entry["id"] == "com.flickertalk.pdf").unwrap();
             assert!(pdf.get("locales").is_none(), "nothing to say, nothing written: {pdf}");
             assert!(raw["plugins"][1]["locales"]["ja"].get("summary").is_none(), "only what was said: {index}");
+        }
+    }
+
+    // 2026-10-08 (plan of the apps grid): the index copies the icon a plugin names, so the app
+    // draws its tile before installing it. A plugin without one is listed as before.
+    #[test]
+    fn the_index_copies_each_plugins_icon() {
+        let home = std::env::temp_dir().join(format!("ftcat-{}", blake3::hash(b"icons").to_hex()));
+        let _ = std::fs::remove_dir_all(&home);
+        a_plugin(&home.join("src/sketch"), "com.flickertalk.sketch");
+        let manifest = home.join("src/sketch/module.json");
+        let said = std::fs::read_to_string(&manifest).unwrap().replacen('{', r#"{"icon":"brush-outline","#, 1);
+        std::fs::write(&manifest, said).unwrap();
+        a_plugin(&home.join("src/pdf"), "com.flickertalk.pdf");
+        let key = Ed25519SecretKey::new();
+        build(&home.join("src"), &home.join("site"), &key, BASE).unwrap();
+
+        for name in [INDEX, LEGACY_INDEX] {
+            let index = std::fs::read_to_string(home.join("site").join(name)).unwrap();
+            let signature = std::fs::read_to_string(home.join("site").join(format!("{name}.sig"))).unwrap();
+            let listed = catalogue_entries(&index, &signature, &key.public_key()).expect("signed");
+            let sketch = listed.iter().find(|entry| entry.id == "com.flickertalk.sketch").unwrap();
+            assert_eq!(sketch.icon, "brush-outline", "{name}");
+            let raw: serde_json::Value = serde_json::from_str(&index).unwrap();
+            let pdf = raw["plugins"].as_array().unwrap().iter().find(|entry| entry["id"] == "com.flickertalk.pdf").unwrap();
+            assert!(pdf.get("icon").is_none(), "no icon, nothing written: {pdf}");
         }
     }
 

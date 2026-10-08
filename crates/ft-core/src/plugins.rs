@@ -691,6 +691,8 @@ mod tests {
                 summary: "x".repeat(*summary),
                 kind: if id.starts_with("game.") { ft_plugins::Kind::Game } else { ft_plugins::Kind::Tool },
                 locales: languages(*summary),
+                // The longest name chosen for a tile (2026-10-08).
+                icon: "radio-button-on-outline".to_owned(),
             })
             .collect();
         serde_json::to_string_pretty(&serde_json::json!({ "plugins": entries })).unwrap()

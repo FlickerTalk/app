@@ -2417,6 +2417,9 @@ pub struct PluginView {
     kind: ft_plugins::Kind,
     /// Its name and summary in other languages (2026-10-02); the screen picks the phone's.
     locales: BTreeMap<String, ft_plugins::Localized>,
+    /// The Ionicon of its tile (2026-10-08); left out when the manifest names none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    icon: String,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -2505,6 +2508,7 @@ fn plugin_view(plugin: ft_core::plugins::InstalledPlugin) -> PluginView {
         views: plugin.manifest.views,
         kind: plugin.manifest.kind,
         locales: plugin.manifest.locales,
+        icon: plugin.manifest.icon,
     }
 }
 
@@ -2613,6 +2617,9 @@ pub struct OfferedPlugin {
     kind: ft_plugins::Kind,
     /// Its name and summary in other languages (2026-10-02), from its manifest or its entry.
     locales: BTreeMap<String, ft_plugins::Localized>,
+    /// The Ionicon of its tile (2026-10-08), from its manifest or its entry; left out when none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    icon: String,
 }
 
 /// Whether `version` is newer than `than`, both as `1.2.3`.
@@ -2644,6 +2651,7 @@ fn offered_from(manifest: ft_plugins::Manifest, size: u64) -> OfferedPlugin {
         carried: true,
         kind: manifest.kind,
         locales: manifest.locales,
+        icon: manifest.icon,
     }
 }
 
@@ -2662,6 +2670,7 @@ fn merged(carried: Vec<OfferedPlugin>, listed: &[ft_plugins::CatalogueEntry], he
             carried: false,
             kind: entry.kind,
             locales: entry.locales.clone(),
+            icon: entry.icon.clone(),
         };
         match offered.iter_mut().find(|one| one.id == entry.id) {
             Some(seed) if newer(&entry.version, &seed.version) => *seed = listed,
@@ -4386,6 +4395,7 @@ mod tests {
             summary: "Does a thing.".to_owned(),
             kind: ft_plugins::Kind::Tool,
             locales: Default::default(),
+            icon: String::new(),
         }
     }
 
@@ -4400,6 +4410,7 @@ mod tests {
             carried: true,
             kind: ft_plugins::Kind::Tool,
             locales: Default::default(),
+            icon: String::new(),
         }
     }
 
@@ -4488,6 +4499,37 @@ mod tests {
         assert_eq!(spanish_of("com.flickertalk.sketch"), "Boceto", "the catalogue's is newer");
         assert_eq!(spanish_of("com.flickertalk.images"), "Imagen", "the app's is newer");
         assert_eq!(spanish_of("com.flickertalk.game.chess"), "Ajedrez", "only in the catalogue");
+    }
+
+    // 2026-10-08 (plan of the apps grid): every view of a plugin keeps the Ionicon its manifest
+    // names, so the tile is drawn the same installed, carried by the app or only in the catalogue.
+    // One that names none says nothing, and the screen draws its own.
+    #[test]
+    fn every_view_of_a_plugin_keeps_its_icon() {
+        let drawn: ft_plugins::Manifest = serde_json::from_str(
+            r#"{"id":"com.flickertalk.list","name":"List","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-list"],"icon":"list-outline"}"#,
+        )
+        .unwrap();
+        let plain = ft_plugins::Manifest { icon: String::new(), ..drawn.clone() };
+        let installed = |manifest: &ft_plugins::Manifest| {
+            serde_json::to_value(plugin_view(ft_core::plugins::InstalledPlugin { manifest: manifest.clone(), granted: Default::default(), installed_at: 7 }))
+                .unwrap()
+        };
+        assert_eq!(installed(&drawn)["icon"], "list-outline");
+        assert!(installed(&plain).get("icon").is_none(), "no icon, nothing written");
+
+        let seed = serde_json::to_value(offered_from(drawn, 4096)).unwrap();
+        assert_eq!(seed["icon"], "list-outline");
+        assert!(serde_json::to_value(offered_from(plain, 4096)).unwrap().get("icon").is_none());
+
+        let listed = vec![
+            ft_plugins::CatalogueEntry { icon: "brush-outline".to_owned(), ..entry("com.flickertalk.sketch", "1.1.0") },
+            entry("com.flickertalk.pdf", "1.0.0"),
+        ];
+        let offered = serde_json::to_value(merged(vec![], &listed, &[])).unwrap();
+        let icon_of = |id: &str| offered.as_array().unwrap().iter().find(|one| one["id"] == id).unwrap().get("icon").cloned();
+        assert_eq!(icon_of("com.flickertalk.sketch"), Some(serde_json::json!("brush-outline")));
+        assert_eq!(icon_of("com.flickertalk.pdf"), None);
     }
 
     #[test]

@@ -67,6 +67,10 @@ pub struct Manifest {
     /// (`es`, `zh-TW`…). The English ones above stay the fallback and what older apps show.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub locales: BTreeMap<String, Localized>,
+    /// The Ionicon the app draws on its tile (2026-10-08, plan of the apps grid): a name such as
+    /// `image-outline`. Empty means the app's own: a puzzle piece for a tool, a controller for a game.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub icon: String,
 }
 
 /// A plugin's name and summary in one language; either may be left out, and then the English one
@@ -417,6 +421,7 @@ fn check(manifest: &Manifest) -> Result<()> {
         ensure!(fits(&said.name, NAME_LIMIT), "the name in '{code}' is empty or too long");
         ensure!(fits(&said.summary, SUMMARY_LIMIT), "the summary in '{code}' is empty or too long");
     }
+    ensure!(manifest.icon.is_empty() || is_icon(&manifest.icon), "'{}' is not the name of an icon", manifest.icon);
     match manifest.kind {
         Kind::Tool => {}
         Kind::Game => {
@@ -479,6 +484,12 @@ fn is_host(host: &str) -> bool {
                 && !label.ends_with('-')
                 && label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         })
+}
+
+/// The name of an Ionicon (2026-10-08): lowercase letters, digits and dashes, 64 at most. Whether the
+/// app draws it is the app's choice; here only what could never be an icon's name is refused.
+fn is_icon(name: &str) -> bool {
+    (1..=64).contains(&name.len()) && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// A key of `locales`: short, letters, digits and dashes. The schema holds authors to the app's
@@ -581,6 +592,9 @@ pub struct CatalogueEntry {
     /// The name and the summary in other languages, copied from the manifest (2026-10-02).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub locales: BTreeMap<String, Localized>,
+    /// The Ionicon of its tile, copied from the manifest (2026-10-08); empty when it names none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub icon: String,
 }
 
 /// Whether a FlickerTalk of `core_version` is new enough for something that needs `min` (§51).
@@ -681,6 +695,7 @@ mod tests {
             summary: String::new(),
             kind: Kind::Tool,
             locales: BTreeMap::new(),
+            icon: String::new(),
         };
         assert!(!entry.runs_on("0.1.0"));
         assert!(entry.runs_on("9.0.0"));
@@ -783,6 +798,7 @@ mod tests {
             summary: String::new(),
             kind: Kind::Game,
             locales: BTreeMap::new(),
+            icon: String::new(),
         };
         assert!(!entry.runs_on("1.2.2"));
         assert!(entry.runs_on(GAMES_SINCE));
@@ -885,6 +901,59 @@ mod tests {
         }
         let old: Catalogue12 = serde_json::from_str(&translated).expect("an older app reads it");
         assert_eq!(old.plugins[0].name, "Translator", "and shows the English name");
+    }
+
+    /// A manifest that names the Ionicon of its tile.
+    fn manifest_drawn(icon: &str) -> String {
+        manifest_of("com.example.translator").replacen('{', &format!(r#"{{"icon":"{icon}","#), 1)
+    }
+
+    // 2026-10-08 (plan of the apps grid): a plugin may name the Ionicon the app draws on its tile.
+    // Without one it has none, and its manifest is written as before.
+    #[test]
+    fn a_manifest_may_name_the_icon_of_its_tile() {
+        let catalogue = Ed25519SecretKey::new();
+        let drawn = open(&package(&manifest_drawn("image-outline"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(drawn.manifest.icon, "image-outline");
+        assert_eq!(serde_json::to_value(&drawn.manifest).unwrap()["icon"], "image-outline");
+
+        let plain = open(&package(&manifest_of("com.example.translator"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(plain.manifest.icon, "");
+        let written = serde_json::to_value(&plain.manifest).unwrap();
+        assert!(written.get("icon").is_none(), "no icon, nothing written: {written}");
+    }
+
+    // An icon is an Ionicon's name: lowercase letters, digits and dashes, 64 at most. Anything
+    // else is not a name the app could look up, and the package is refused like any bad manifest.
+    #[test]
+    fn an_icon_that_is_not_an_ionicon_name_is_refused() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        assert!(opens(&manifest_drawn(&"x".repeat(64))).is_ok(), "64 characters is a name");
+        assert!(opens(&manifest_drawn("logo-markdown")).is_ok());
+        assert!(opens(&manifest_drawn("radio-button-on-outline")).is_ok());
+        let longest = "x".repeat(65);
+        for wrong in ["Image-Outline", "image outline", "../image", "image_outline", "imagé", "<svg>", "image/outline", longest.as_str()] {
+            assert!(opens(&manifest_drawn(wrong)).is_err(), "{wrong:?} should be refused");
+        }
+        assert!(opens(&manifest_of("com.example.translator").replacen('{', r#"{"icon":7,"#, 1)).is_err(), "a name, not a number");
+    }
+
+    // The catalogue carries the icon too, so a tile is drawn before the plugin is installed. An
+    // entry without one is written as before, and an older app reads an index with one.
+    #[test]
+    fn the_catalogue_carries_the_icon() {
+        let catalogue = Ed25519SecretKey::new();
+        let read = |index: &str| catalogue_entries(index, &catalogue.sign(index.as_bytes()).to_base64(), &catalogue.public_key());
+        let plain = read(&index_of(&"ab".repeat(32))).expect("an index without icons");
+        assert_eq!(plain[0].icon, "");
+        let without = serde_json::to_value(&plain[0]).unwrap();
+        assert!(without.get("icon").is_none(), "no icon, nothing written: {without}");
+
+        let drawn = index_of(&"ab".repeat(32)).replacen(r#""summary":"#, r#""icon":"language-outline","summary":"#, 1);
+        let listed = read(&drawn).expect("still signed, still a catalogue");
+        assert_eq!(listed[0].icon, "language-outline");
+        assert_eq!(serde_json::to_value(&listed[0]).unwrap()["icon"], "language-outline");
     }
 
     /// A package as its author would build it: the manifest and the files of `dist/`.
