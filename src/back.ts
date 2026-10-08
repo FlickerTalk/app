@@ -27,6 +27,16 @@ function pressed(): void {
   close?.();
 }
 
+/**
+ * Closes everything open on top, the latest first, as presses of Back would (2026-10-08: a link
+ * opened the app, and its page must not open under a plugin or a sheet).
+ */
+export function closeAll(): void {
+  const closing = open.splice(0).reverse();
+  sync();
+  for (const close of closing) close();
+}
+
 /** Back closes this until it is released (it closed some other way). */
 export function closeOnBack(close: () => void): () => void {
   open.push(close);
