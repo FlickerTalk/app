@@ -69,6 +69,7 @@ import { pluginTheme } from "../theme";
 // that place; the core keeps each place apart and the plugin never hears of sessions.
 // 2026-10-02: opened in a conversation, it learns the core's opaque id of it (`chat`), its own
 // for this plugin, never who it is with.
+// 2026-10-08: opened by the call screen to present, it is told whether it leads or follows.
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -80,6 +81,7 @@ const props = withDefaults(
     reminder?: string;
     live?: boolean;
     session?: string;
+    presenting?: "lead" | "follow";
   }>(),
   {
     text: undefined,
@@ -89,11 +91,12 @@ const props = withDefaults(
     reminder: undefined,
     live: false,
     session: undefined,
+    presenting: undefined,
   },
 );
 // `done`: the plugin is finished or asked to be closed; whoever shows it decides, and closes it with
-// `close()`. `closed`: it has said goodbye and can go.
-const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: []; openChat: [contact: string]; closed: [] }>();
+// `close()`. `closed`: it has said goodbye and can go. `refused`: the core would not open it.
+const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: []; openChat: [contact: string]; closed: []; refused: [] }>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
 // Where a notice floats from: the top of what the plugin shows, under the window's bar.
@@ -284,6 +287,8 @@ function opening() {
     ref: props.reference ?? null,
     reminder: props.reminder ?? null,
     live: Boolean(props.live && props.contact),
+    // Only inside a call (API 1.6.0); a chat or a page never says it.
+    ...(props.presenting ? { presenting: props.presenting } : {}),
   };
 }
 
@@ -470,7 +475,8 @@ watch(
 );
 
 onMounted(async () => {
-  reportOpen(props.plugin.id, true);
+  // Refused by the core (a locked tool, say): whoever shows it decides what to tell the user.
+  void pluginOpen(props.plugin.id, true).catch(() => emit("refused"));
   lastTheme = JSON.stringify(pluginTheme());
   looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction"] });
   window.addEventListener("message", onMessage);
