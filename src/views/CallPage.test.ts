@@ -717,6 +717,53 @@ describe("CallPage presenting", () => {
     expect(toast.create).toHaveBeenLastCalledWith(expect.objectContaining({ message: "The presentation couldn't start" }));
   });
 
+  // The client's lock check can be stale; the core has the last word (`needs_subscription`).
+  it("takes a refusal for the subscription to Premium, without a toast", async () => {
+    active();
+    actions.presentInCall.mockRejectedValueOnce(new Error("needs_subscription"));
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(nav.push).toHaveBeenCalledWith("/tabs/settings#premium");
+    expect(toast.create).not.toHaveBeenCalled();
+  });
+
+  it("sends the PDF once however often Present is tapped while it is on its way", async () => {
+    active();
+    let arrive = () => undefined as void;
+    hooks.core_send_picked = () =>
+      new Promise<void>((done) => {
+        arrive = () => {
+          chat("c1")!.messages.push({ id: "m-pdf", mine: true, text: "", time: "", sentAt: 2, kind: "file", file: { name: "class.pdf", size: "1 MB", mime: "application/pdf", progress: 0, state: "sending" } });
+          done();
+        };
+      });
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    const pdf = () => (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[1].handler?.();
+    pdf();
+    await flushPromises();
+    expect(wrapper.find("[data-test='present']").attributes("disabled")).toBe("true");
+    pdf();
+    await flushPromises();
+    arrive();
+    await flushPromises();
+    expect(sent("core_send_picked")).toHaveLength(1);
+    expect(actions.presentInCall).toHaveBeenCalledTimes(1);
+    expect(wrapper.find("[data-test='present']").attributes("disabled")).toBe("false");
+  });
+
+  it("says so when stopping fails", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    actions.stopPresenting.mockRejectedValueOnce(new Error("busy"));
+    const wrapper = await open();
+    await wrapper.find("[data-test='stop-presenting']").trigger("click");
+    await flushPromises();
+    expect(toast.create).toHaveBeenCalledTimes(1);
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "The presentation couldn't start" }));
+  });
+
   it("hides Present while the other side presents", async () => {
     active({ presenting: { plugin: BOARD, by: "them" } });
     const wrapper = await open();
