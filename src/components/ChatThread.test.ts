@@ -4,6 +4,7 @@ import { IonButton, IonDatetime, IonSearchbar, IonSegment, IonSegmentButton, Ion
 import source from "./ChatThread.vue?raw";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
+import AppTile from "./AppTile.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
@@ -660,7 +661,7 @@ describe("ChatThread", () => {
       const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
       await flushPromises();
       await wrapper.find("[data-test='apps']").trigger("click");
-      expect(wrapper.find("[data-test='app-com.flickertalk.notes'] ion-label").element.innerHTML).toBe("Notas");
+      expect(wrapper.find("[data-test='app-com.flickertalk.notes'] .ft-app-tile__name").text()).toBe("Notas");
       await wrapper.find("[data-test='app-com.flickertalk.notes']").trigger("click");
       await flushPromises();
       expect(wrapper.find(".ft-app__name").text()).toBe("Notas");
@@ -753,7 +754,8 @@ describe("ChatThread", () => {
       await wrapper.find("[data-test='apps']").trigger("click");
       await flushPromises();
       const row = wrapper.find(`[data-test='app-${VIEWER.id}']`);
-      expect(row.find("[data-test='locked']").exists()).toBe(true);
+      expect(wrapper.findAllComponents(AppTile).find((one) => one.attributes("data-test") === `app-${VIEWER.id}`)?.props("badge")).toBe("lock");
+      expect(row.attributes("aria-label")).toContain("locked");
       await row.trigger("click");
       await flushPromises();
       expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
@@ -1508,8 +1510,9 @@ describe("ChatThread", () => {
 
     // Ioan, 2026-10-02: one button, the apps, in the header (three buttons, so a name has room on
     // a small phone). It opens an Ionic sheet modal, as the apps themselves open, with a segment for
-    // the plugins and one for the games.
-    it("opens a sheet with a segment for the plugins and one for the games", async () => {
+    // the tools and one for the games. 2026-10-08 (plan of the apps grid, screen 4): each is a grid
+    // of the same tiles as the Apps tab, installed ones only.
+    it("opens a sheet with a segment for the tools and one for the games", async () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       expect(wrapper.find("[data-test='games']").exists()).toBe(false);
@@ -1520,25 +1523,30 @@ describe("ChatThread", () => {
       await wrapper.find("[data-test='apps']").trigger("click");
       // A sheet: it rises from the bottom and has heights to be dragged between; and a name.
       const sheet = wrapper.findComponent(IonModalStub);
-      expect(sheet.attributes("aria-label")).toBe("Plugins");
+      expect(sheet.attributes("aria-label")).toBe("Apps");
       expect(sheet.props("isOpen")).toBe(true);
       expect(sheet.props("breakpoints")).toContain(sheet.props("initialBreakpoint"));
       const segments = wrapper.findAllComponents(IonSegmentButton);
       // Ionic's components are Stencil "scoped" elements: in happy-dom their text is only in the HTML.
       expect(segments.map((one) => [one.props("value"), one.find("ion-label").element.innerHTML])).toEqual([
-        ["tools", "Plugins"],
+        ["tools", "Tools"],
         ["games", "Games"],
       ]);
       // With a tool installed it opens on the plugins, and they are tools only.
       expect(selected(wrapper)).toBe("tools");
       expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(true);
       expect(wrapper.find(`[data-test='app-${CHESS.id}']`).exists()).toBe(false);
+      const tiles = () => wrapper.findAllComponents(AppTile).map((one) => [one.attributes("data-test"), one.props("name"), Boolean(one.props("off"))]);
+      expect(tiles()).toEqual([[`app-${CODE.id}`, "Code block", false]]);
+      expect(wrapper.find("[data-test='apps-sheet-tools']").classes()).toContain("ft-app-grid");
       // The games segment: games only.
       wrapper.findComponent(IonSegment).vm.$emit("ionChange", { detail: { value: "games" } });
       await flushPromises();
       expect(selected(wrapper)).toBe("games");
       expect(wrapper.find("[data-test='games-sheet']").html()).toContain("Chess");
       expect(wrapper.find(`[data-test='app-${CODE.id}']`).exists()).toBe(false);
+      expect(tiles()).toEqual([[`game-${CHESS.id}`, "Chess", false]]);
+      expect(wrapper.find("[data-test='games-sheet']").classes()).toContain("ft-app-grid");
     });
 
     // Shown wherever games can be had, so they can be found even with nothing installed.
@@ -1602,7 +1610,7 @@ describe("ChatThread", () => {
       expect(sheet.html()).toContain("Chess");
       expect(sheet.html()).not.toContain("Code block");
       await wrapper.find("[data-test='more-games-link']").trigger("click");
-      expect(push).toHaveBeenCalledWith("/tabs/games");
+      expect(push).toHaveBeenCalledWith("/tabs/apps?show=games");
     });
 
     it("says there is no game yet, and still leads to more", async () => {
@@ -1636,7 +1644,7 @@ describe("ChatThread", () => {
       const wrapper = await thread();
       await openGames(wrapper);
       await flushPromises();
-      expect(wrapper.find(`[data-test='game-${CHESS.id}'] [data-test='locked']`).exists()).toBe(false);
+      expect(wrapper.findAllComponents(AppTile).find((one) => one.attributes("data-test") === `game-${CHESS.id}`)?.props("badge")).toBeUndefined();
       await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
       await flushPromises();
       expect(wrapper.findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ id: CHESS.id });
@@ -1687,11 +1695,14 @@ describe("ChatThread", () => {
     });
 
     // Plan 10.6: the invitation is a text in the composer, with the game's page; the user sends it.
-    it("leaves an invitation in the composer, without sending it", async () => {
+    // 2026-10-08 (plan of the apps grid): a game's tile is touched and held to invite.
+    it("leaves an invitation in the composer, without sending it, when a game's tile is held", async () => {
       bridge({ installed: [CHESS] });
       const wrapper = await thread();
       await openGames(wrapper);
-      await wrapper.find(`[data-test='invite-${CHESS.id}']`).trigger("click");
+      const chess = wrapper.findAllComponents(AppTile).find((one) => one.attributes("data-test") === `game-${CHESS.id}`)!;
+      expect(chess.attributes("aria-label")).toBe("Chess. Touch and hold to invite");
+      chess.vm.$emit("hold");
       await flushPromises();
       expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("🎮 Chess · Shall we play? https://flickertalk.com/games/chess");
       expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(false);
@@ -1710,7 +1721,7 @@ describe("ChatThread", () => {
         offered.value = [{ ...GO, id: CHESS.id, name: "Chess", installed: true, locales: { es: { name: "Ajedrez" } } } as never];
         const wrapper = await thread();
         await openGames(wrapper);
-        expect(wrapper.find(`[data-test='game-${CHESS.id}'] ion-label`).element.innerHTML).toBe("Ajedrez");
+        expect(wrapper.find(`[data-test='game-${CHESS.id}'] .ft-app-tile__name`).text()).toBe("Ajedrez");
         await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
         await flushPromises();
         expect(wrapper.find("[data-test='game-permissions']").text()).toContain("Ajedrez");

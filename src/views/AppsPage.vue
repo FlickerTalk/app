@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   IonContent,
   IonHeader,
@@ -63,6 +63,13 @@ const route = useRoute();
 type Segment = "tools" | "games";
 /** The segment shown; Ionic keeps the tab mounted, so it is remembered while the app runs. */
 const segment = ref<Segment>(route.query?.show === "games" ? "games" : "tools");
+// The chat's apps sheet asks for the games ("More games"), also when the tab is already mounted.
+watch(
+  () => route.query?.show,
+  (show) => {
+    if (show === "games") segment.value = "games";
+  },
+);
 const SEGMENTS = [
   { id: "tools", icon: constructOutline, label: "apps.tools" },
   { id: "games", icon: gameControllerOutline, label: "apps.games" },

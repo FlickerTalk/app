@@ -26,6 +26,7 @@ import {
 import {
   add,
   appsOutline,
+  constructOutline,
   arrowUp,
   banOutline,
   chatbubblesOutline,
@@ -59,6 +60,7 @@ import {
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
+import AppTile from "./AppTile.vue";
 import GamePermissions from "./GamePermissions.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
@@ -70,6 +72,7 @@ import {
   offeredOnce,
   openersOf,
   byPluginName,
+  pluginIcon,
   pluginName,
   refreshPlugins,
   refreshPremiumLock,
@@ -744,8 +747,8 @@ function useApp(id: string) {
 type AppsTab = "tools" | "games";
 const appsTab = ref<AppsTab>("tools");
 const APPS_TABS = [
-  { id: "tools", icon: appsOutline, label: "plugins.title" },
-  { id: "games", icon: gameControllerOutline, label: "tabs.games" },
+  { id: "tools", icon: constructOutline, label: "apps.tools" },
+  { id: "games", icon: gameControllerOutline, label: "apps.games" },
 ] as const;
 /** The game whose permissions sheet is open (plan decision 11); `size` when it is a download. */
 const asking = ref<{ id: string; name: string; size?: number } | null>(null);
@@ -820,7 +823,7 @@ function invite(game: PluginView) {
 
 function moreGames() {
   showApps.value = false;
-  void router.push("/tabs/games");
+  void router.push("/tabs/apps?show=games");
 }
 
 // An invitation to a game this phone does not have is matched against the signed catalogue. It is
@@ -1170,7 +1173,7 @@ watch(
       :is-open="showApps"
       class="ft-apps-sheet"
       :class="sheetPane"
-      :aria-label="$t('plugins.title')"
+      :aria-label="$t('tabs.apps')"
       :breakpoints="[0, 0.5, 1]"
       :initial-breakpoint="0.5"
       :expand-to-scroll="false"
@@ -1187,41 +1190,43 @@ watch(
         </ion-toolbar>
       </ion-header>
       <ion-content class="ft-apps-sheet__content">
-        <ion-list v-if="appsTab === 'tools'" data-test="apps-sheet-tools">
-          <ion-item v-for="one in tools" :key="one.id" button :detail="false" :data-test="`app-${one.id}`" @click="useApp(one.id)">
-            <ion-icon slot="start" :icon="appsOutline" aria-hidden="true" />
-            <ion-label class="ion-text-nowrap">{{ pluginName(one) }}</ion-label>
-            <ion-icon v-if="isLocked(one)" slot="end" :icon="lockClosedOutline" data-test="locked" :aria-label="$t('plugins.locked')" />
-          </ion-item>
-          <ion-item v-if="!tools.length" lines="none">
-            <ion-label color="medium">{{ $t("plugins.none") }}</ion-label>
-          </ion-item>
-        </ion-list>
-        <!-- Plan 10.4–10.6: the games of this phone; each plays here, or is offered to the contact. -->
-        <ion-list v-else data-test="games-sheet">
-          <ion-item v-for="one in installedGames" :key="one.id" button :detail="false" :data-test="`game-${one.id}`" @click="playGame(one.id)">
-            <ion-icon slot="start" :icon="gameControllerOutline" aria-hidden="true" />
-            <ion-label class="ion-text-nowrap">{{ pluginName(one) }}</ion-label>
-            <ion-button
-              v-if="gameUrl(one.id)"
-              slot="end"
-              fill="clear"
-              size="default"
-              :data-test="`invite-${one.id}`"
-              :aria-label="$t('games.invite')"
-              @click.stop="invite(one)"
-            >
-              <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
-            </ion-button>
-          </ion-item>
-          <ion-item v-if="!installedGames.length" lines="none">
-            <ion-label color="medium">{{ $t("games.none") }}</ion-label>
-          </ion-item>
-          <ion-item button :detail="false" lines="none" data-test="more-games-link" @click="moreGames">
-            <ion-icon slot="start" :icon="add" color="primary" aria-hidden="true" />
-            <ion-label color="primary">{{ $t("games.more") }}</ion-label>
-          </ion-item>
-        </ion-list>
+        <!-- 2026-10-08 (plan of the apps grid, screen 4): the same tiles as the Apps tab, installed
+             ones only. A tool opens here; a game plays here, and a hold on it invites the contact. -->
+        <template v-if="appsTab === 'tools'">
+          <div v-if="tools.length" class="ft-app-grid" data-test="apps-sheet-tools">
+            <AppTile
+              v-for="one in tools"
+              :key="one.id"
+              :name="pluginName(one)"
+              :icon="pluginIcon(one)"
+              :badge="isLocked(one) ? 'lock' : undefined"
+              :data-test="`app-${one.id}`"
+              @tap="useApp(one.id)"
+            />
+          </div>
+          <p v-else class="ft-apps-sheet__note">{{ $t("apps.noTools") }}</p>
+        </template>
+        <template v-else>
+          <div v-if="installedGames.length" class="ft-app-grid" data-test="games-sheet">
+            <AppTile
+              v-for="one in installedGames"
+              :key="one.id"
+              :name="pluginName(one)"
+              :icon="pluginIcon(one)"
+              :label="gameUrl(one.id) ? $t('apps.inviteLabel', { name: pluginName(one) }) : undefined"
+              :data-test="`game-${one.id}`"
+              @tap="playGame(one.id)"
+              @hold="invite(one)"
+            />
+          </div>
+          <p v-else class="ft-apps-sheet__note" data-test="games-sheet">{{ $t("apps.noGames") }}</p>
+          <ion-list lines="none">
+            <ion-item button :detail="false" lines="none" data-test="more-games-link" @click="moreGames">
+              <ion-icon slot="start" :icon="add" color="primary" aria-hidden="true" />
+              <ion-label color="primary">{{ $t("apps.moreGames") }}</ion-label>
+            </ion-item>
+          </ion-list>
+        </template>
       </ion-content>
     </ion-modal>
 
@@ -1984,6 +1989,12 @@ watch(
    a footer for it, not a content, so the content's own padding hook takes it, as the composer does. */
 .ft-apps-sheet__content {
   --padding-bottom: var(--ion-safe-area-bottom, 0px);
+}
+.ft-apps-sheet__note {
+  margin: 16px 20px 4px;
+  text-align: center;
+  color: var(--ion-color-medium);
+  font-size: 14px;
 }
 
 .ft-thread__day {

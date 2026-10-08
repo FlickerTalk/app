@@ -12,8 +12,12 @@ import { store } from "../core";
 import { setLocale } from "../i18n";
 import { installed as installedList, premiumLocked } from "../plugins";
 
-const nav = vi.hoisted(() => ({ push: vi.fn(), query: {} as Record<string, string> }));
-vi.mock("vue-router", () => ({ useRouter: () => ({ push: nav.push }), useRoute: () => ({ query: nav.query }) }));
+const nav = vi.hoisted(() => ({ push: vi.fn(), route: { query: {} as Record<string, string> } }));
+vi.mock("vue-router", async () => {
+  const { reactive } = await import("vue");
+  nav.route = reactive(nav.route);
+  return { useRouter: () => ({ push: nav.push }), useRoute: () => nav.route };
+});
 
 const IMAGE = {
   id: "com.flickertalk.images",
@@ -101,7 +105,7 @@ describe("AppsPage", () => {
   beforeEach(() => {
     seed();
     nav.push.mockClear();
-    nav.query = {};
+    nav.route.query = {};
     answering();
   });
   afterEach(() => {
@@ -150,9 +154,15 @@ describe("AppsPage", () => {
   });
 
   // The chat's apps sheet sends the user here for more games.
-  it("opens on the games when asked to", async () => {
-    nav.query = { show: "games" };
+  it("opens on the games when asked to, also when the tab was already there", async () => {
+    nav.route.query = { show: "games" };
+    expect((await page()).findComponent(IonSegment).props("value")).toBe("games");
+
+    nav.route.query = {};
     const wrapper = await page();
+    expect(wrapper.findComponent(IonSegment).props("value")).toBe("tools");
+    nav.route.query = { show: "games" };
+    await flushPromises();
     expect(wrapper.findComponent(IonSegment).props("value")).toBe("games");
   });
 
