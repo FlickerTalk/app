@@ -36,7 +36,8 @@ for (const appearance of ["dark", "light"]) {
         await app.getByTestId(`app-${TICTACTOE}`).click();
         const ask = app.getByRole("dialog", { name: "Tic-tac-toe" });
         await expect(ask).toBeVisible();
-        await expect(app.getByTestId("game-permissions").locator("ion-icon")).toBeVisible();
+        // The game's own picture: its image (Tic-tac-toe has one in the fake core), or an icon.
+        await expect(app.getByTestId("game-permissions").locator("img, ion-icon").first()).toBeVisible();
         await expect(app.getByTestId("game-permissions")).not.toContainText("🎮");
         await shot(app, `${size.name}-permissions-${appearance}`);
 
