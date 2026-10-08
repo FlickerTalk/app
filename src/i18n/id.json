@@ -319,6 +319,8 @@
     "drive": "Menyimpan berkas di cloud milikmu sendiri",
     "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
     "location": "Lokasi Anda, hanya saat Anda memintanya",
+    "askPermission": "{name} memerlukan izin",
+    "allow": "Izinkan",
     "opens": "Membuka: {kinds}",
     "locked": "Berlangganan untuk memakai alat",
     "lockedHint": "Hari gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",

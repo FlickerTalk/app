@@ -319,6 +319,8 @@
     "drive": "Dosyaları kendi bulutunda saklamak",
     "storageLarge": "Bu telefonda çok veri saklamak (256 MB'a kadar)",
     "location": "Konumunuz, yalnızca siz istediğinizde",
+    "askPermission": "{name} bir izne ihtiyaç duyuyor",
+    "allow": "İzin ver",
     "opens": "Açar: {kinds}",
     "locked": "Araçları kullanmak için abone ol",
     "lockedHint": "Ücretsiz günler sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",

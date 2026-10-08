@@ -427,7 +427,14 @@ describe("ChatThread", () => {
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
     // The way out is always there, with the name of the tool next to it.
     expect(wrapper.find("[data-test='close-app']").exists()).toBe(true);
-    expect(wrapper.find(".ft-app__name").text()).toBe("Code block");
+    expect(wrapper.find(".ft-app__bar .ft-title").text()).toBe("Code block");
+    // Ioan, 2026-10-08: Ionic's own bar and button, as the game room's, never a hand-made one.
+    const close = wrapper.find("[data-test='close-app']");
+    expect(close.element.tagName).toBe("ION-BUTTON");
+    expect(close.element.closest("ion-toolbar")?.getAttribute("data-test")).toBe("app-bar");
+    expect(close.element.closest("ion-buttons")?.getAttribute("slot")).toBe("start");
+    expect(close.attributes("aria-label")).toBe("Back");
+    expect(wrapper.find("[data-test='app-bar'] ion-title").exists()).toBe(true);
   });
 
   // 2026-10-01 (§108): a plugin opened from a conversation of a hidden session is open in that
@@ -665,7 +672,7 @@ describe("ChatThread", () => {
       expect(wrapper.find("[data-test='app-com.flickertalk.notes'] .ft-app-tile__name").text()).toBe("Notas");
       await wrapper.find("[data-test='app-com.flickertalk.notes']").trigger("click");
       await flushPromises();
-      expect(wrapper.find(".ft-app__name").text()).toBe("Notas");
+      expect(wrapper.find(".ft-app__bar .ft-title").text()).toBe("Notas");
       expect(wrapper.find(".ft-app").attributes("aria-label")).toBe("Notas");
       await wrapper.find("[data-test='close-app']").trigger("click");
 
@@ -1948,6 +1955,92 @@ describe("ChatThread", () => {
         await flushPromises();
         expect(room(wrapper).exists()).toBe(false);
         expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
+      });
+    });
+
+    // Ioan, 2026-10-08: a tool that lacks a permission asks for it on the spot. The sheet holds the
+    // request and says what it needs (`needs`); the thread shows Ionic's sheet with the tool and
+    // that one permission, and hands the user's answer back.
+    describe("asking for a permission on the spot", () => {
+      const LOCATION = {
+        ...CODE,
+        id: "com.flickertalk.location",
+        name: "Location",
+        asks: { network: [], messages: false, send: "propose", location: true },
+        granted: { network: [], messages: false, send: "nothing", location: false },
+      };
+      const openTool = async () => {
+        bridge({ installed: [LOCATION, CHESS] });
+        const wrapper = await thread();
+        await wrapper.find("[data-test='apps']").trigger("click");
+        await wrapper.find(`[data-test='app-${LOCATION.id}']`).trigger("click");
+        await flushPromises();
+        return wrapper;
+      };
+      const need = (key = "location") => ({ key, label: key === "location" ? "Your location, only when you ask" : "Write in the chat", icon: shieldOutline, on: false, answer: vi.fn() });
+      const asks = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.find("[data-test='permission-ask']");
+
+      it("shows the tool and the one permission it needs, and hands a yes back", async () => {
+        const wrapper = await openTool();
+        expect(asks(wrapper).exists()).toBe(false);
+        const asked = need();
+        wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("needs", asked);
+        await flushPromises();
+        expect(asks(wrapper).html()).toContain("Location needs a permission");
+        expect(asks(wrapper).html()).toContain("Your location, only when you ask");
+        await wrapper.find("[data-test='permission-allow']").trigger("click");
+        await flushPromises();
+        expect(asked.answer).toHaveBeenCalledWith(true);
+        expect(asks(wrapper).exists()).toBe(false);
+        // The tool stays open: it gets its answer and goes on.
+        expect(wrapper.find(".ft-app").exists()).toBe(true);
+      });
+
+      it("hands a no back on Cancel", async () => {
+        const wrapper = await openTool();
+        const asked = need("send");
+        wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("needs", asked);
+        await flushPromises();
+        expect(asks(wrapper).html()).toContain("Write in the chat");
+        await wrapper.find("[data-test='permission-cancel']").trigger("click");
+        await flushPromises();
+        expect(asked.answer).toHaveBeenCalledWith(false);
+        expect(asked.answer).toHaveBeenCalledTimes(1);
+        expect(asks(wrapper).exists()).toBe(false);
+      });
+
+      it("takes Android's back button as a no, and leaves the tool open", async () => {
+        const wrapper = await openTool();
+        const asked = need();
+        wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("needs", asked);
+        await flushPromises();
+        back.handler?.();
+        await flushPromises();
+        expect(asked.answer).toHaveBeenCalledWith(false);
+        expect(asks(wrapper).exists()).toBe(false);
+        expect(wrapper.find(".ft-app").exists()).toBe(true);
+      });
+
+      it("takes the question away when the tool closes", async () => {
+        const wrapper = await openTool();
+        const asked = need();
+        wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("needs", asked);
+        await flushPromises();
+        await wrapper.find("[data-test='close-app']").trigger("click");
+        await flushPromises();
+        expect(asked.answer).toHaveBeenCalledWith(false);
+        expect(asks(wrapper).exists()).toBe(false);
+      });
+
+      it("asks in the game room too", async () => {
+        bridge({ installed: [CODE, CHESS] });
+        const wrapper = await thread({ play: CHESS.id });
+        const asked = { ...need("live"), label: "Talk to the same game on the other person's phone" };
+        wrapper.findComponent({ name: "PluginSheet" }).vm.$emit("needs", asked);
+        await flushPromises();
+        expect(asks(wrapper).html()).toContain("Chess needs a permission");
+        await wrapper.find("[data-test='permission-allow']").trigger("click");
+        expect(asked.answer).toHaveBeenCalledWith(true);
       });
     });
 

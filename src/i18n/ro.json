@@ -319,6 +319,8 @@
     "drive": "Să păstreze fișiere în propriul tău cloud",
     "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
     "location": "Locația ta, doar când o ceri",
+    "askPermission": "{name} are nevoie de o permisiune",
+    "allow": "Permite",
     "opens": "Deschide: {kinds}",
     "locked": "Abonează-te pentru a folosi instrumentele",
     "lockedHint": "Zilele gratuite s-au încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",

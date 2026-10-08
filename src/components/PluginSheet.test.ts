@@ -18,7 +18,9 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
 import PluginSheet from "./PluginSheet.vue";
 import source from "./PluginSheet.vue?raw";
 import { setLocale } from "../i18n";
-import { CLOSING_WAIT, NOTICE_DURATION } from "../plugins";
+import { CLOSING_WAIT, NOTICE_DURATION, installed } from "../plugins";
+import type { PluginView } from "../core";
+import type { PermissionNeed } from "../permissions";
 
 const plugin = { id: "com.flickertalk.markdown", name: "Markdown" };
 
@@ -1069,6 +1071,267 @@ describe("PluginSheet", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  // Ioan, 2026-10-08: «si no tiene permiso se debería pedir siempre». Installing grants nothing
+  // (§53), so a tool that asks for something it was not granted asks the user there and then: the
+  // sheet holds the request, says which permission it needs (`needs`), and once the user allows it
+  // grants it and asks the core again; the plugin only ever sees the real answer.
+  describe("asking for a permission on the spot", () => {
+    const NOTHING = { network: [], messages: false, send: "nothing", live: false, remind: false, drive: false, location: false, storage: "small" } as const;
+    const TOOL: PluginView = {
+      id: plugin.id,
+      name: "Markdown",
+      version: "1.0.0",
+      asks: { network: ["api.example.com"], messages: false, send: "propose", live: true, remind: true, drive: true, location: true, storage: "large" },
+      granted: { ...NOTHING, network: [] },
+      installedAt: 1,
+    };
+    const FIX = { lat: 40.41678, lon: -3.70379, accuracy: 35, at: 1_790_000_000_000 };
+
+    /** A core that keeps the plugin's grants, as the real one does, and answers the rest. */
+    function core(answers: Record<string, unknown> = {}, view: PluginView = TOOL) {
+      let now: PluginView = JSON.parse(JSON.stringify(view));
+      installed.value = [JSON.parse(JSON.stringify(now))];
+      tauri.invoke.mockImplementation((command: string, args?: Record<string, unknown>) => {
+        if (command === "core_plugins") return Promise.resolve([JSON.parse(JSON.stringify(now))]);
+        if (command === "core_plugin_grant") {
+          now = { ...now, granted: JSON.parse(JSON.stringify(args?.granted)) };
+          return Promise.resolve(undefined);
+        }
+        const answer = answers[command];
+        return typeof answer === "function" ? Promise.resolve((answer as () => unknown)()) : Promise.resolve(answer);
+      });
+      return { granted: () => now.granted };
+    }
+
+    async function open(props: Record<string, unknown> = {}) {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", ...props }, shallow: true });
+      await flushPromises();
+      const frame = framed(wrapper);
+      frame.says({ type: "ft.ready" });
+      await flushPromises();
+      return { wrapper, ...frame };
+    }
+    const needs = (wrapper: ReturnType<typeof mount>) => (wrapper.emitted("needs") ?? []).map(([need]) => need as PermissionNeed);
+    const invoked = (command: string) => tauri.invoke.mock.calls.filter(([one]) => one === command);
+
+    afterEach(() => {
+      installed.value = [];
+    });
+
+    it("asks for the location it lacks, and after a yes hands the plugin the real position", async () => {
+      const kept = core({ core_plugin_location: () => (kept.granted().location ? FIX : Promise.reject(new Error("refused"))) });
+      const { wrapper, post, says } = await open();
+
+      says({ type: "ft.location", id: "l1" });
+      await flushPromises();
+      const [need] = needs(wrapper);
+      expect(need).toMatchObject({ key: "location", label: "Your location, only when you ask" });
+      expect(need.icon).toBeTruthy();
+      // Held: the core is not asked yet, and the plugin has heard nothing.
+      expect(invoked("core_plugin_location")).toHaveLength(0);
+      expect(post).not.toHaveBeenCalledWith(expect.objectContaining({ type: "ft.done", id: "l1" }), "*");
+
+      need.answer(true);
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_grant", { plugin: plugin.id, granted: expect.objectContaining({ location: true, send: "nothing" }) });
+      expect(invoked("core_plugin_location")).toHaveLength(1);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l1", answer: FIX }, "*");
+
+      // Granted now: the next time nothing is asked.
+      says({ type: "ft.location", id: "l2" });
+      await flushPromises();
+      expect(needs(wrapper)).toHaveLength(1);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l2", answer: FIX }, "*");
+    });
+
+    it("hands the plugin the refusal when the user says no, and grants nothing", async () => {
+      core({ core_plugin_location: FIX });
+      const { wrapper, post, says } = await open();
+      says({ type: "ft.location", id: "l1" });
+      await flushPromises();
+      needs(wrapper)[0].answer(false);
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l1", answer: null }, "*");
+      expect(invoked("core_plugin_grant")).toHaveLength(0);
+      expect(invoked("core_plugin_location")).toHaveLength(0);
+      // A second answer to the same question changes nothing.
+      needs(wrapper)[0].answer(true);
+      await flushPromises();
+      expect(invoked("core_plugin_grant")).toHaveLength(0);
+    });
+
+    it("asks once for two requests that need the same permission", async () => {
+      const kept = core({ core_plugin_location: () => (kept.granted().location ? FIX : null) });
+      const { wrapper, post, says } = await open();
+      says({ type: "ft.location", id: "l1" });
+      says({ type: "ft.location", id: "l2" });
+      await flushPromises();
+      expect(needs(wrapper)).toHaveLength(1);
+      needs(wrapper)[0].answer(true);
+      await flushPromises();
+      expect(invoked("core_plugin_grant")).toHaveLength(1);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l1", answer: FIX }, "*");
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l2", answer: FIX }, "*");
+    });
+
+    it("asks nothing for a permission the plugin never asked for, nor for one it has", async () => {
+      core({ core_plugin_location: null }, { ...TOOL, asks: { ...TOOL.asks, location: false } });
+      const first = await open();
+      first.says({ type: "ft.location", id: "l1" });
+      await flushPromises();
+      expect(needs(first.wrapper)).toHaveLength(0);
+      expect(first.post).toHaveBeenCalledWith({ type: "ft.done", id: "l1", answer: null }, "*");
+
+      core({ core_plugin_location: FIX }, { ...TOOL, granted: { ...TOOL.granted, location: true } });
+      const second = await open();
+      second.says({ type: "ft.location", id: "l2" });
+      await flushPromises();
+      expect(needs(second.wrapper)).toHaveLength(0);
+      expect(second.post).toHaveBeenCalledWith({ type: "ft.done", id: "l2", answer: FIX }, "*");
+    });
+
+    it("asks to write in the chat, then stages what the plugin made", async () => {
+      const staged = { path: "/data/files/outgoing/1-clean.jpg", name: "clean.jpg", mime: "image/jpeg", size: 3 };
+      core({ core_plugin_made: { sent: false, staged } });
+      const { wrapper, says } = await open({ sending: "nothing" });
+      says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+      await flushPromises();
+      expect(needs(wrapper).map((one) => [one.key, one.label])).toEqual([["send", "Write in the chat"]]);
+      expect(invoked("core_plugin_made")).toHaveLength(0);
+      needs(wrapper)[0].answer(true);
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_grant", { plugin: plugin.id, granted: expect.objectContaining({ send: "propose" }) });
+      expect(invoked("core_plugin_made")).toHaveLength(1);
+      expect(wrapper.emitted("attach")).toEqual([[staged]]);
+      // Allowed now: a proposed text lands in the composer without asking again.
+      says({ type: "ft.text", text: "# Title" });
+      await flushPromises();
+      expect(needs(wrapper)).toHaveLength(1);
+      expect(wrapper.emitted("text")).toEqual([["# Title"]]);
+    });
+
+    it("lets nothing reach the chat after a no, and tells the user nothing more", async () => {
+      core({ core_plugin_made: { sent: true } });
+      const { wrapper, says } = await open({ sending: "nothing" });
+      says({ type: "ft.text", text: "# Title" });
+      await flushPromises();
+      expect(needs(wrapper).map((one) => one.key)).toEqual(["send"]);
+      needs(wrapper)[0].answer(false);
+      await flushPromises();
+      expect(wrapper.emitted("text")).toBeUndefined();
+      expect(invoked("core_plugin_grant")).toHaveLength(0);
+      // The user just said no: no notice telling where to allow it.
+      expect(toast.create).not.toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("may not write") }));
+    });
+
+    it("asks nothing to write in the chat from outside a conversation", async () => {
+      core();
+      const { wrapper, says } = await open({ contact: "", sending: "nothing" });
+      says({ type: "ft.text", text: "# Title" });
+      await flushPromises();
+      expect(needs(wrapper)).toHaveLength(0);
+      expect(wrapper.emitted("text")).toBeUndefined();
+    });
+
+    it("asks for the live channel, then carries what the plugin says both ways", async () => {
+      core({ core_plugin_live_send: true });
+      const { wrapper, post, says } = await open({ live: false });
+      says({ type: "ft.liveSend", id: "q1", data: "AQID" });
+      await flushPromises();
+      expect(needs(wrapper).map((one) => one.key)).toEqual(["live"]);
+      expect(invoked("core_plugin_live_send")).toHaveLength(0);
+      needs(wrapper)[0].answer(true);
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_grant", { plugin: plugin.id, granted: expect.objectContaining({ live: true }) });
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_live_send", { plugin: plugin.id, contact: "ft_bob", data: "AQID" });
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: true }, "*");
+    });
+
+    it("answers false to the live channel after a no", async () => {
+      core({ core_plugin_live_send: true });
+      const { wrapper, post, says } = await open({ live: false });
+      says({ type: "ft.liveSend", id: "q1", data: "AQID" });
+      await flushPromises();
+      needs(wrapper)[0].answer(false);
+      await flushPromises();
+      expect(invoked("core_plugin_live_send")).toHaveLength(0);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: false }, "*");
+    });
+
+    it("asks for reminders, the drive and an address the plugin lacks", async () => {
+      const kept = core({
+        core_plugin_may_use_drive: () => Boolean(kept.granted().drive),
+        core_vault_status: { state: "ready" },
+        core_plugin_fetch: { status: 200, body: "" },
+      });
+      const { wrapper, post, says } = await open();
+      says({ type: "ft.remindSet", id: "r1", reminder: "milk", at: 5, text: "milk" });
+      await flushPromises();
+      expect(needs(wrapper).map((one) => one.key)).toEqual(["remind"]);
+      needs(wrapper)[0].answer(true);
+      await flushPromises();
+      expect(invoked("core_remind_set")).toHaveLength(1);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "r1", answer: true }, "*");
+
+      says({ type: "ft.drive", id: "d1", op: "status" });
+      await flushPromises();
+      expect(needs(wrapper).map((one) => one.key)).toEqual(["remind", "drive"]);
+      needs(wrapper)[1].answer(true);
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d1", answer: { state: "ready" } }, "*");
+
+      says({ type: "ft.fetch", id: "f1", url: "https://api.example.com/v1", method: "GET", headers: [], body: null });
+      await flushPromises();
+      expect(needs(wrapper).map((one) => one.key)).toEqual(["remind", "drive", "network:api.example.com"]);
+      needs(wrapper)[2].answer(true);
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_grant", { plugin: plugin.id, granted: expect.objectContaining({ network: ["api.example.com"] }) });
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "f1", answer: { status: 200, body: "" } }, "*");
+      expect(kept.granted()).toMatchObject({ remind: true, drive: true, network: ["api.example.com"], location: false });
+    });
+
+    it("never asks for the drive to set it up or open it", async () => {
+      core({ core_plugin_may_use_drive: false });
+      const { wrapper, post, says } = await open();
+      says({ type: "ft.drive", id: "d1", op: "setup" });
+      await flushPromises();
+      expect(needs(wrapper)).toHaveLength(0);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d1", answer: false }, "*");
+    });
+
+    it("asks for the large room only when a record would not fit in the small one", async () => {
+      core({ core_plugin_record_usage: [4 * 1024 * 1024 - 2, 4 * 1024 * 1024], core_plugin_record_get: null });
+      const { wrapper, post, says } = await open();
+      says({ type: "ft.recordSet", id: "q1", key: "a", value: "x" });
+      await flushPromises();
+      expect(needs(wrapper)).toHaveLength(0);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: true }, "*");
+
+      says({ type: "ft.recordSet", id: "q2", key: "b", value: "xyz" });
+      await flushPromises();
+      expect(needs(wrapper).map((one) => one.key)).toEqual(["storage"]);
+      needs(wrapper)[0].answer(true);
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_grant", { plugin: plugin.id, granted: expect.objectContaining({ storage: "large" }) });
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_record_set", expect.objectContaining({ key: "b" }));
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: true }, "*");
+    });
+
+    it("lets a question go unanswered when the plugin closes, and grants nothing", async () => {
+      core({ core_plugin_location: FIX });
+      const { wrapper, post, says } = await open();
+      says({ type: "ft.location", id: "l1" });
+      await flushPromises();
+      const [need] = needs(wrapper);
+      void (wrapper.vm as unknown as { close: () => Promise<void> }).close();
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l1", answer: null }, "*");
+      need.answer(true);
+      await flushPromises();
+      expect(invoked("core_plugin_grant")).toHaveLength(0);
     });
   });
 });

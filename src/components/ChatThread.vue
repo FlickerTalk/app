@@ -62,6 +62,7 @@ import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
 import AppTile from "./AppTile.vue";
 import GamePermissions from "./GamePermissions.vue";
+import PermissionAsk from "./PermissionAsk.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
 import {
@@ -124,6 +125,7 @@ import {
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
+import type { PermissionNeed } from "../permissions";
 import { firstDayOfWeek, i18n, t } from "../i18n";
 import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
@@ -636,6 +638,8 @@ function openPlugin(chosen: Opening) {
 
 function closePlugin() {
   if (!plugin.value || leaving.value) return;
+  // A question the plugin was waiting on goes with it, as a no.
+  answerNeed(false);
   leaving.value = true;
   if (sheet.value) void sheet.value.close();
   else pluginClosed();
@@ -717,12 +721,23 @@ function pluginDone() {
   closePlugin();
 }
 
+// Ioan, 2026-10-08: a plugin asking for something it lacks the permission for (the tool window or
+// the game room) asks the user here, for that one permission; the sheet grants it on a yes.
+const needing = ref<PermissionNeed | null>(null);
+const openView = computed(() => installed.value.find((one) => one.id === plugin.value?.id));
+function answerNeed(allowed: boolean) {
+  const need = needing.value;
+  needing.value = null;
+  need?.answer(allowed);
+}
+
 // Android's back button closes what is open on top, and only that (2026-09-28).
 // Only while the conversation is on screen (`active`).
 closeOnBackWhile(() => props.active && emoji.value, () => (emoji.value = false));
 closeOnBackWhile(() => props.active && Boolean(acting.value), () => closeActions());
 closeOnBackWhile(() => props.active && showApps.value, () => (showApps.value = false));
 closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, () => closePlugin());
+closeOnBackWhile(() => props.active && Boolean(needing.value), () => answerNeed(false));
 
 /**
  * Ioan, 2026-10-08: after the 15 free days, without the subscription, the tools are locked: a tap on
@@ -1132,18 +1147,22 @@ watch(
           @open-chat="(contact) => router.push(`/chat/${contact}`)"
           @done="pluginDone"
           @closed="pluginClosed"
+          @needs="(need) => (needing = need)"
         />
       </div>
     </section>
 
     <!-- Issue app#3: each tool does its thing inside its own window. -->
     <div v-if="plugin && !plugin.game" v-show="!leaving" class="ft-app" role="dialog" :aria-label="plugin.name">
-      <div class="ft-app__bar">
-        <button type="button" class="ft-app__close" data-test="close-app" :aria-label="$t('common.back')" @click="closePlugin">
-          <ion-icon :icon="closeOutline" aria-hidden="true" />
-        </button>
-        <span class="ft-app__name">{{ plugin.name }}</span>
-      </div>
+      <!-- Ionic's own bar and button (Ioan, 2026-10-08), as the game room's: the way out and the name. -->
+      <ion-toolbar class="ft-app__bar" data-test="app-bar">
+        <ion-buttons slot="start">
+          <ion-button data-test="close-app" :aria-label="$t('common.back')" @click="closePlugin">
+            <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
+          </ion-button>
+        </ion-buttons>
+        <ion-title size="small"><span class="ft-title">{{ plugin.name }}</span></ion-title>
+      </ion-toolbar>
       <!-- Only the tool scrolls, below its bar: nothing of it reaches the status bar's strip. -->
       <div class="ft-app__body">
         <PluginSheet
@@ -1162,6 +1181,7 @@ watch(
           @open-chat="(contact) => router.push(`/chat/${contact}`)"
           @done="pluginDone"
           @closed="pluginClosed"
+          @needs="(need) => (needing = need)"
         />
       </div>
     </div>
@@ -1232,6 +1252,17 @@ watch(
         </template>
       </ion-content>
     </ion-modal>
+
+    <PermissionAsk
+      :class="sheetPane"
+      :open="Boolean(needing)"
+      :name="plugin?.name ?? ''"
+      :permission="needing ?? undefined"
+      :icon="openView && pluginIcon(openView)"
+      :image="openView && pluginImage(openView)"
+      @allow="answerNeed(true)"
+      @cancel="answerNeed(false)"
+    />
 
     <GamePermissions
       :class="sheetPane"
@@ -1950,45 +1981,21 @@ watch(
      itself does not scroll, so this strip stays its own at any scroll position (seen on the
      Samsung, 2026-10-02, when it was the padding of what scrolled). Ionic's inset, as its headers. */
   padding-top: var(--ion-safe-area-top, 0px);
-  /* And out of the side insets (a phone held sideways): bar and tool both. */
-  padding-left: var(--ion-safe-area-left, 0px);
-  padding-right: var(--ion-safe-area-right, 0px);
 }
-/* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar. */
+/* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar.
+   It keeps clear of the side insets (a phone held sideways); Ionic's bar does by itself. */
 .ft-app__body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-bottom: var(--ion-safe-area-bottom, 0px);
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
 }
 /* A bar of its own, so the way out is always there while the tool scrolls under it. */
 .ft-app__bar {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--ft-space-2);
-  padding: var(--ft-space-2);
-  background: var(--ft-bg);
 }
-.ft-app__close {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  flex: none;
-  border: 0;
-  border-radius: 50%;
-  background: var(--ft-surface-2);
-  color: var(--ft-text);
-  font-size: 20px;
-  cursor: pointer;
-}
-.ft-app__name {
-  font-size: var(--ft-font-title);
-  font-weight: 600;
-}
-
-
 
 /* The apps sheet scrolls to its last row above Android's navigation bar (edge to edge): Ionic pads
    a footer for it, not a content, so the content's own padding hook takes it, as the composer does. */

@@ -133,6 +133,11 @@ for (const locale of ["en", "ar"]) {
       await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
       await clearOfTheSides(app.getByTestId("close-app"), "the tool's way out");
       await clearOfTheSides(app.locator("iframe.ft-plugin__frame"), "the tool");
+      // Ionic's bar keeps clear of the sides by itself (2026-10-08): the window must not add the
+      // inset a second time, or the way out sits far from the edge.
+      const out = await settled(app.getByTestId("close-app"), "the tool's way out");
+      const edge = Math.min(out.x, WIDTH - (out.x + out.width));
+      expect(edge, "the tool's way out keeps the inset once").toBeLessThan(SIDE + 24);
       await shot(app, `${locale}-alone-tool`);
     });
 

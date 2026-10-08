@@ -30,10 +30,18 @@ test("a plugin with the propose permission stages its file; the user sends it", 
   expect(sent?.[1]).toMatchObject({ contact: "ft_bob123456789", file: { name: "notes.md" } });
 });
 
+// Since 2026-10-08 (Ioan) a plugin that asked for the permission asks the user on the spot; the
+// user says no each time, and nothing reaches the chat.
 test("a plugin without the permission gets nothing into the chat", async ({ app }) => {
   await openTool(app, "com.flickertalk.sketch");
   await frameSays(app, { type: "ft.made", name: "drawing.png", mime: "image/png", data: "AAAA" });
+  await expect(app.getByTestId("permission-ask")).toBeVisible();
+  await app.getByTestId("permission-cancel").click();
+  await expect(app.getByTestId("permission-ask")).toHaveCount(0);
   await frameSays(app, { type: "ft.text", text: "look at this" });
+  await expect(app.getByTestId("permission-ask")).toBeVisible();
+  await app.getByTestId("permission-cancel").click();
+  await expect(app.getByTestId("permission-ask")).toHaveCount(0);
   // Nothing to stage, nothing in the composer, and the core was never asked.
   await expect(app.getByTestId("staged")).toHaveCount(0);
   await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);

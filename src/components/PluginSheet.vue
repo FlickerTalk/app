@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { toastController } from "@ionic/vue";
 import {
+  grantPlugin,
   pickForPlugin,
   takePhotoForPlugin,
   pluginMayUseDrive,
@@ -51,7 +52,18 @@ import {
   type Sending,
 } from "../core";
 import { i18n } from "../i18n";
-import { CLOSING_WAIT, NOTICE_DURATION, frameUrl, fromFrame, pluginName, type FrameMessage, type HandedFile } from "../plugins";
+import {
+  CLOSING_WAIT,
+  NOTICE_DURATION,
+  frameUrl,
+  fromFrame,
+  installed,
+  pluginName,
+  refreshPlugins,
+  type FrameMessage,
+  type HandedFile,
+} from "../plugins";
+import { hostOf, missingPermission, permissionsOf, withPermission, type PermissionNeed } from "../permissions";
 import { pluginTheme } from "../theme";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
@@ -93,7 +105,16 @@ const props = withDefaults(
 );
 // `done`: the plugin is finished or asked to be closed; whoever shows it decides, and closes it with
 // `close()`. `closed`: it has said goodbye and can go.
-const emit = defineEmits<{ text: [text: string]; attach: [file: PickedFile]; done: []; openChat: [contact: string]; closed: [] }>();
+// `needs` (2026-10-08): the plugin asked for something it lacks the permission for; whoever shows
+// it asks the user and answers through the need.
+const emit = defineEmits<{
+  text: [text: string];
+  attach: [file: PickedFile];
+  done: [];
+  openChat: [contact: string];
+  closed: [];
+  needs: [need: PermissionNeed];
+}>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
 // Where a notice floats from: the top of what the plugin shows, under the window's bar.
@@ -145,7 +166,7 @@ async function onMessage(event: MessageEvent) {
     });
   } else if (said.type === "ft.made") {
     // Nothing leaves without the permission: the core checks it again on its side (A2).
-    if (props.sending === "nothing") return void mayNotWrite();
+    if (!(await mayWrite())) return;
     await busy(async () => {
       try {
         const made = await pluginMade(props.plugin.id, props.contact, said.name, said.mime, said.data);
@@ -156,8 +177,7 @@ async function onMessage(event: MessageEvent) {
       }
     });
   } else if (said.type === "ft.text") {
-    if (props.sending !== "nothing") emit("text", said.text);
-    else void mayNotWrite();
+    if (await mayWrite()) emit("text", said.text);
   } else if (said.type === "ft.notify") {
     // No permission: the text never leaves the phone and never reaches the chat; only the user
     // sees it, for a moment, in the app's own toast (2026-10-06).
@@ -170,6 +190,17 @@ async function onMessage(event: MessageEvent) {
   } else {
     await answer(said);
   }
+}
+
+/**
+ * Whether the plugin may write in the chat now. Without the permission, one that asked for it asks
+ * the user first (2026-10-08); one that never asked for it is refused, and the user is told why.
+ */
+async function mayWrite(): Promise<boolean> {
+  if (sending.value !== "nothing") return true;
+  if (props.contact && lacks("send")) return obtain("send");
+  void mayNotWrite();
+  return false;
 }
 
 /**
@@ -260,8 +291,10 @@ function close(): Promise<void> {
       if (!gone) emit("closed");
       resolve();
     };
-    // Out of sight, its notice goes with it: a sticky one must not outlive the plugin.
+    // Out of sight, its notice goes with it: a sticky one must not outlive the plugin, nor a
+    // question it was waiting on.
     void notify("");
+    refuseUnanswered();
     // A plugin that never came up has heard nothing, started nothing and has nothing to say.
     if (!ready) return letGo();
     timer = setTimeout(letGo, CLOSING_WAIT);
@@ -304,6 +337,10 @@ async function chatOf(): Promise<{ chat?: string }> {
 
 /** The questions the core answers for a plugin, each with the id it was asked with (§53). */
 async function answer(said: Extract<FrameMessage, { id: string }>) {
+  // What it lacks for this, asked of the user first (2026-10-08): no to any is the refusal.
+  for (const key of await needed(said)) {
+    if (lacks(key) && !(await obtain(key))) return tell({ type: "ft.done", id: said.id, answer: refusal(said) });
+  }
   await busy(async () => {
     try {
       let value: unknown = true;
@@ -323,7 +360,7 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
       else if (said.type === "ft.remindSet") await remindSet(id, said.reminder, said.at, said.text, session);
       else if (said.type === "ft.remindCancel") value = await remindCancel(id, said.reminder, session);
       else if (said.type === "ft.remindList") value = await remindList(id, session);
-      else if (said.type === "ft.liveSend") value = props.live && props.contact ? await pluginLiveSend(id, props.contact, said.data) : false;
+      else if (said.type === "ft.liveSend") value = live.value && props.contact ? await pluginLiveSend(id, props.contact, said.data) : false;
       else if (said.type === "ft.openChat") {
         const target = await pluginOpenChat(id, said.ref, session);
         if (target) emit("openChat", target.contact);
@@ -332,11 +369,129 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
       else if (said.type === "ft.location") value = await pluginLocation(id);
       tell({ type: "ft.done", id: said.id, answer: value ?? null });
     } catch {
-      // A position the plugin may not have is no position: `null`, as the contract says.
-      tell({ type: "ft.done", id: said.id, answer: said.type === "ft.location" ? null : false });
+      tell({ type: "ft.done", id: said.id, answer: refusal(said) });
     }
   });
 }
+
+/** A position the plugin may not have is no position: `null`, as the contract says; else `false`. */
+function refusal(said: { type: string }): null | false {
+  return said.type === "ft.location" ? null : false;
+}
+
+// ---- Asking for a permission on the spot (Ioan, 2026-10-08) ----
+//
+// Installing grants nothing (§53), so a tool asking for something it was not granted (where the
+// phone is, writing in the chat, its twin on the other side…) used to get a plain no, and nothing
+// offered to turn it on. Now the request waits, the user is asked for that one permission
+// (`needs`), and a yes grants it and lets the request through to the core, which checks it again.
+// What a plugin lacks is read from what the core says it asked for and was granted
+// (`missingPermission`, the same lines as the switches in Apps), never from an error's words.
+
+// What it may do in the chat and over the live channel: what it was opened with, or granted since.
+const sending = ref<Sending>(props.sending);
+const live = ref(props.live);
+watch(
+  () => props.sending,
+  (now) => (sending.value = now),
+);
+watch(
+  () => props.live,
+  (now) => (live.value = now),
+);
+
+/** Whether the plugin, as the app last heard from the core, asked for `key` and lacks it. */
+function lacks(key: string): boolean {
+  const view = installed.value.find((one) => one.id === props.plugin.id);
+  return Boolean(view && missingPermission(view, key));
+}
+
+/** The permissions a request needs, before the core is asked. */
+async function needed(said: Extract<FrameMessage, { id: string }>): Promise<string[]> {
+  switch (said.type) {
+    case "ft.location":
+      return ["location"];
+    case "ft.remindSet":
+      return ["remind"];
+    case "ft.liveSend":
+      return props.contact && !live.value ? ["live"] : [];
+    case "ft.fetch": {
+      const host = hostOf(said.url);
+      return host ? [`network:${host}`] : [];
+    }
+    case "ft.drive":
+      // The phrase is never typed in a plugin: nothing to ask for that.
+      if (said.op === "setup" || said.op === "unlock") return [];
+      return said.op === "send" && props.contact && sending.value === "nothing" ? ["drive", "send"] : ["drive"];
+    case "ft.recordSet":
+      return lacks("storage") && !(await fits(said.key, said.value)) ? ["storage"] : [];
+    default:
+      return [];
+  }
+}
+
+const bytes = (text: string) => new TextEncoder().encode(text).length;
+
+/** Whether a record fits in the room the plugin has now; a core that cannot say decides itself. */
+async function fits(key: string, value: string): Promise<boolean> {
+  try {
+    const { used, quota } = await pluginRecordUsage(props.plugin.id, props.session);
+    const held = await pluginRecordGet(props.plugin.id, key, props.session);
+    return used - bytes(held ?? "") + bytes(value) <= quota;
+  } catch {
+    return true;
+  }
+}
+
+/** One question on screen at a time; the same permission asked twice meanwhile is one question. */
+let questions: Promise<unknown> = Promise.resolve();
+const asking = new Map<string, Promise<boolean>>();
+const unanswered = new Set<(allowed: boolean) => void>();
+
+function refuseUnanswered() {
+  for (const answer of [...unanswered]) answer(false);
+}
+
+/** Asks the user for `key` and grants it on a yes: whether the plugin has it now. */
+function obtain(key: string): Promise<boolean> {
+  const already = asking.get(key);
+  if (already) return already;
+  const asked = questions.then(() => ask(key));
+  questions = asked.catch(() => undefined);
+  asking.set(key, asked);
+  void asked.finally(() => asking.delete(key)).catch(() => undefined);
+  return asked;
+}
+
+async function ask(key: string): Promise<boolean> {
+  const id = props.plugin.id;
+  if (closing || gone) return false;
+  // What the core says now: it may have been granted meanwhile, elsewhere.
+  const view = (await refreshPlugins()).find((one) => one.id === id);
+  const line = view && missingPermission(view, key);
+  // Nothing to ask: it has it (yes), or never asked for it, so the user could not grant it (no).
+  if (!view || !line) return Boolean(view && permissionsOf(view).some((one) => one.key === key && one.on));
+  const yes = await new Promise<boolean>((resolve) => {
+    const answer = (allowed: boolean) => {
+      if (!unanswered.delete(answer)) return;
+      resolve(allowed);
+    };
+    unanswered.add(answer);
+    emit("needs", { ...line, answer });
+  });
+  if (!yes || closing || gone) return false;
+  try {
+    await grantPlugin(id, withPermission(view, key, true));
+  } catch {
+    return false;
+  }
+  await refreshPlugins();
+  if (lacks(key)) return false;
+  if (key === "send") sending.value = installed.value.find((one) => one.id === id)?.granted.send ?? "nothing";
+  if (key === "live") live.value = true;
+  return true;
+}
+
 
 /**
  * The user's cloud, for a plugin granted it (plan-drive): the core does everything; the plugin
@@ -392,9 +547,9 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
       return true;
     case "send": {
       // As any file a plugin makes (A2): sent with `auto`, staged for the user with `propose`.
-      if (props.sending === "nothing" || !props.contact) return false;
+      if (sending.value === "nothing" || !props.contact) return false;
       const file = await vaultDownload(said.a);
-      if (props.sending === "auto") await sendPicked(props.contact, file);
+      if (sending.value === "auto") await sendPicked(props.contact, file);
       else emit("attach", file);
       emit("done");
       return true;
@@ -417,7 +572,7 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
 
 /** What the twin on the other side said, for this plugin and this conversation only. */
 function onLive(event: PluginEvent) {
-  if (props.live && event.plugin === props.plugin.id && event.contact === props.contact) {
+  if (live.value && event.plugin === props.plugin.id && event.contact === props.contact) {
     tell({ type: "ft.live", data: event.data });
   }
 }
@@ -483,6 +638,7 @@ onBeforeUnmount(() => {
   gone = true;
   if (ready && !closing) tell({ type: "ft.closing" });
   letGo?.();
+  refuseUnanswered();
   void notify("");
   looks.disconnect();
   window.removeEventListener("message", onMessage);

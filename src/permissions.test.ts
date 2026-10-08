@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { permissionsOf, withPermission } from "./permissions";
+import { hostOf, missingPermission, permissionsOf, withPermission } from "./permissions";
 import type { PluginView } from "./core";
 
 const BOARD: PluginView = {
@@ -52,5 +52,30 @@ describe("plugin permissions", () => {
     const keys = permissionsOf({ ...BOARD, kind: "game" }).map((one) => one.key);
     expect(keys).not.toContain("location");
     expect(permissionsOf(BOARD).map((one) => one.key)).toContain("location");
+  });
+
+  // Ioan, 2026-10-08: a tool that lacks a permission it asked for asks the user on the spot. What
+  // it lacks is read from the same lines as the switches, never from what the core said.
+  it("says which permission a plugin asked for and lacks, with its label and icon", () => {
+    expect(missingPermission(BOARD, "location")).toMatchObject({ key: "location", label: "Your location, only when you ask", on: false });
+    expect(missingPermission(BOARD, "location")?.icon).toBeTruthy();
+    expect(missingPermission(BOARD, "send")?.label).toBe("Write in the chat");
+    expect(missingPermission(BOARD, "network:api.example.com")?.label).toBe("api.example.com");
+    // Granted already: nothing to ask.
+    expect(missingPermission({ ...BOARD, granted: { ...BOARD.granted, location: true } }, "location")).toBeUndefined();
+    // Never asked for in its manifest: nothing the user could grant, so nothing to ask.
+    expect(missingPermission({ ...BOARD, asks: { ...BOARD.asks, location: false } }, "location")).toBeUndefined();
+    expect(missingPermission(BOARD, "network:elsewhere.example.com")).toBeUndefined();
+    // A game is never offered the phone's position.
+    expect(missingPermission({ ...BOARD, kind: "game" }, "location")).toBeUndefined();
+  });
+
+  // The host a plugin's fetch goes to, as the core reads it (`host_of` in ft-core's web.rs).
+  it("reads the host of an address as the core does", () => {
+    expect(hostOf("https://API.example.com:8443/v1?q=1")).toBe("api.example.com");
+    expect(hostOf("https://api.example.com#top")).toBe("api.example.com");
+    expect(hostOf("http://api.example.com/")).toBeUndefined();
+    expect(hostOf("https://user@api.example.com/")).toBeUndefined();
+    expect(hostOf("https:///nothing")).toBeUndefined();
   });
 });

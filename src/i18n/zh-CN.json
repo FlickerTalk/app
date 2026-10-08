@@ -319,6 +319,8 @@
     "drive": "把文件保存在你自己的云端",
     "storageLarge": "在这部手机上保存大量数据（最多 256 MB）",
     "location": "你的位置，仅在你请求时",
+    "askPermission": "{name} 需要一项权限",
+    "allow": "允许",
     "opens": "可打开：{kinds}",
     "locked": "订阅以使用工具",
     "lockedHint": "免费天数已结束：工具需要订阅。聊天、通话、文件和游戏依然免费。",
