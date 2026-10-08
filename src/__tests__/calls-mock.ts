@@ -24,6 +24,8 @@ export function idleCall(): CallState {
     view: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
     cameraDenied: false,
     cameraFailed: false,
+    presenting: null,
+    canPresent: false,
   };
 }
 
@@ -40,6 +42,8 @@ export const actions = {
   layoutVideo: vi.fn(),
   hideVideo: vi.fn(),
   loadHistory: vi.fn(),
+  presentInCall: vi.fn(),
+  stopPresenting: vi.fn(),
 };
 
 export function resetCalls() {
@@ -49,7 +53,12 @@ export function resetCalls() {
 }
 
 export function callsMock() {
-  return { call, history, ...actions, rectOf };
+  return { call, history, ...actions, rectOf, cannotPresent };
+}
+
+/** As in `calls.ts`: the core's refusal when the other app cannot show presentations. */
+function cannotPresent(error: unknown) {
+  return String(error instanceof Error ? error.message : error) === "peer_cannot_present";
 }
 
 /** As in `calls.ts`: a video's place on the screen, in CSS pixels. */
