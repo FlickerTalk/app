@@ -267,3 +267,10 @@ ion-footer > * {
     padding: 12px 28px;
   }
 }
+
+/* A segment button with its icon before the label (device review of app#121): Ionic's iOS look
+   leaves 2 px between them, its Android look 8 px (the label's margin). The iOS icon takes the rest,
+   so both have the mockup's gap and Android's is not doubled. */
+html.ios ion-segment-button.segment-button-layout-icon-start > ion-icon {
+  margin-inline-end: 6px;
+}

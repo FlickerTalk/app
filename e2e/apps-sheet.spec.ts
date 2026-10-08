@@ -103,3 +103,29 @@ test.describe("with many plugins, on a phone", () => {
     await shot(app, "phone-many-plugins-dark");
   });
 });
+
+// Device review of app#121 (iPhone): in Ionic's iOS look a segment's icon touched its label (2 px).
+// Both looks leave the mockup's gap, on the Apps tab and in the chat's apps sheet; Android's is
+// not doubled.
+for (const mode of ["ios", "md"] as const) {
+  test(`${mode}: a segment's icon keeps its gap to the label`, async ({ app }) => {
+    const gaps = async (button: import("@playwright/test").Locator) =>
+      button.evaluate((el) => {
+        const icon = el.querySelector("ion-icon")!.getBoundingClientRect();
+        const label = el.querySelector("ion-label")!.getBoundingClientRect();
+        return Math.round(label.left - icon.right);
+      });
+    await app.goto(`/tabs/apps?ionic:mode=${mode}`);
+    await expect(app.locator("html")).toHaveClass(new RegExp(`\\b${mode}\\b`));
+    for (const id of ["tools", "games"]) {
+      const gap = await gaps(app.getByTestId(`apps-segment-${id}`));
+      expect(gap, `Apps tab, ${id}`).toBeGreaterThanOrEqual(6);
+      expect(gap, `Apps tab, ${id}`).toBeLessThanOrEqual(10);
+    }
+    await app.goto(`/chat/${BOB}?ionic:mode=${mode}`);
+    await app.getByTestId("apps").click();
+    const gap = await gaps(app.getByTestId("apps-tab-tools"));
+    expect(gap, "chat sheet").toBeGreaterThanOrEqual(6);
+    expect(gap, "chat sheet").toBeLessThanOrEqual(10);
+  });
+}
