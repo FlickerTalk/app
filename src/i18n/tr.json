@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Sohbetler",
     "calls": "Aramalar",
+    "apps": "Uygulamalar",
     "settings": "Ayarlar",
     "games": "Oyunlar",
     "plugins": "Eklentiler"
@@ -317,7 +318,7 @@
     "writes": "Sohbete yazma",
     "sendsAlone": "Kendi başına mesaj gönderme",
     "asksNothing": "Hiçbir şey istemiyor",
-    "mayNotWrite": "Bu araç sohbete yazamaz. Ayarlar → Eklentiler bölümünden onun için “Sohbete yazma” seçeneğini açın.",
+    "mayNotWrite": "Bu araç sohbete yazamaz. Uygulamalar bölümünde simgesini basılı tutun ve onun için “Sohbete yazma” seçeneğini açın.",
     "remove": "Kaldır",
     "none": "Henüz eklenti yok",
     "available": "Ekleyebileceğiniz araçlar",
@@ -487,6 +488,27 @@
     "live": "Karşı tarafın telefonundaki aynı oyunla konuşmak",
     "showChat": "Sohbeti göster",
     "showGame": "Oyuna dön"
+  },
+  "apps": {
+    "tools": "Araçlar",
+    "games": "Oyunlar",
+    "moreTools": "Daha fazla araç",
+    "moreGames": "Daha fazla oyun",
+    "allToolsHere": "Tüm araçlar zaten bu telefonda",
+    "allGamesHere": "Tüm oyunlar zaten bu telefonda",
+    "noTools": "Henüz araç yok",
+    "noGames": "Henüz oyun yok",
+    "offline": "Şu anda eklenecek bir şey yok. Bağlantınızı kontrol edip tekrar deneyin.",
+    "installFailed": "Yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+    "lockedLabel": "{name}, kilitli",
+    "downloadLabel": "{name}, indir {size}",
+    "addLabel": "{name}, ekle",
+    "inviteLabel": "{name}. Davet etmek için basılı tutun",
+    "open": "Aç",
+    "install": "Yükle",
+    "remove": "Kaldır",
+    "removeAsk": "Bu telefondan kaldırılsın mı?",
+    "subscribe": "Abone ol"
   },
   "feedback": {
     "title": "Bir şey önerin",

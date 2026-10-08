@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Chaturi",
     "calls": "Apeluri",
+    "apps": "Aplicații",
     "settings": "Setări",
     "games": "Jocuri",
     "plugins": "Pluginuri"
@@ -317,7 +318,7 @@
     "writes": "Scrie în chat",
     "sendsAlone": "Trimite mesaje singur",
     "asksNothing": "Nu cere nimic",
-    "mayNotWrite": "Acest instrument nu poate scrie în chat. Activează „Scrie în chat” pentru el în Setări → Pluginuri.",
+    "mayNotWrite": "Acest instrument nu poate scrie în chat. Activează „Scrie în chat” pentru el în Aplicații: ține apăsat pe pictograma lui.",
     "remove": "Elimină",
     "none": "Niciun plugin încă",
     "available": "Instrumente pe care le poți adăuga",
@@ -487,6 +488,27 @@
     "live": "Să vorbească cu același joc de pe telefonul celeilalte persoane",
     "showChat": "Arată conversația",
     "showGame": "Înapoi la joc"
+  },
+  "apps": {
+    "tools": "Instrumente",
+    "games": "Jocuri",
+    "moreTools": "Mai multe instrumente",
+    "moreGames": "Mai multe jocuri",
+    "allToolsHere": "Toate instrumentele sunt deja pe acest telefon",
+    "allGamesHere": "Toate jocurile sunt deja pe acest telefon",
+    "noTools": "Niciun instrument încă",
+    "noGames": "Niciun joc încă",
+    "offline": "Acum nu e nimic de adăugat. Verifică-ți conexiunea și încearcă din nou.",
+    "installFailed": "Nu a putut fi instalat. Verifică-ți conexiunea și încearcă din nou.",
+    "lockedLabel": "{name}, blocat",
+    "downloadLabel": "{name}, descarcă {size}",
+    "addLabel": "{name}, adaugă",
+    "inviteLabel": "{name}. Ține apăsat pentru a invita",
+    "open": "Deschide",
+    "install": "Instalează",
+    "remove": "Elimină",
+    "removeAsk": "Îl elimini de pe acest telefon?",
+    "subscribe": "Abonează-te"
   },
   "feedback": {
     "title": "Propune ceva",

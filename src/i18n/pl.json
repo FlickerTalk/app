@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Czaty",
     "calls": "Połączenia",
+    "apps": "Aplikacje",
     "settings": "Ustawienia",
     "games": "Gry",
     "plugins": "Wtyczki"
@@ -317,7 +318,7 @@
     "writes": "Pisanie w czacie",
     "sendsAlone": "Samodzielne wysyłanie wiadomości",
     "asksNothing": "Nie prosi o nic",
-    "mayNotWrite": "To narzędzie nie może pisać w czacie. Włącz dla niego „Pisanie w czacie” w Ustawienia → Wtyczki.",
+    "mayNotWrite": "To narzędzie nie może pisać w czacie. Włącz dla niego „Pisanie w czacie” w Aplikacjach: przytrzymaj jego ikonę.",
     "remove": "Usuń",
     "none": "Brak wtyczek",
     "available": "Narzędzia do dodania",
@@ -487,6 +488,27 @@
     "live": "Rozmawiać z tą samą grą na telefonie drugiej osoby",
     "showChat": "Pokaż czat",
     "showGame": "Wróć do gry"
+  },
+  "apps": {
+    "tools": "Narzędzia",
+    "games": "Gry",
+    "moreTools": "Więcej narzędzi",
+    "moreGames": "Więcej gier",
+    "allToolsHere": "Wszystkie narzędzia są już na tym telefonie",
+    "allGamesHere": "Wszystkie gry są już na tym telefonie",
+    "noTools": "Brak narzędzi",
+    "noGames": "Brak gier",
+    "offline": "Teraz nie ma nic do dodania. Sprawdź połączenie i spróbuj ponownie.",
+    "installFailed": "Nie udało się zainstalować. Sprawdź połączenie i spróbuj ponownie.",
+    "lockedLabel": "{name}, zablokowane",
+    "downloadLabel": "{name}, pobierz {size}",
+    "addLabel": "{name}, dodaj",
+    "inviteLabel": "{name}. Przytrzymaj, aby zaprosić",
+    "open": "Otwórz",
+    "install": "Zainstaluj",
+    "remove": "Usuń",
+    "removeAsk": "Usunąć z tego telefonu?",
+    "subscribe": "Subskrybuj"
   },
   "feedback": {
     "title": "Zaproponuj coś",

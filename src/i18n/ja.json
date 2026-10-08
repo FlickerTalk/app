@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "チャット",
     "calls": "通話",
+    "apps": "アプリ",
     "settings": "設定",
     "games": "ゲーム",
     "plugins": "プラグイン"
@@ -317,7 +318,7 @@
     "writes": "チャットに書き込む",
     "sendsAlone": "自動でメッセージを送信",
     "asksNothing": "権限は不要",
-    "mayNotWrite": "このツールはチャットに書き込めません。「設定 → プラグイン」で、このツールの「チャットに書き込む」をオンにしてください。",
+    "mayNotWrite": "このツールはチャットに書き込めません。「アプリ」でアイコンを長押しして、このツールの「チャットに書き込む」をオンにしてください。",
     "remove": "削除",
     "none": "まだプラグインはありません",
     "available": "追加できるツール",
@@ -487,6 +488,27 @@
     "live": "相手の端末にある同じゲームと通信する",
     "showChat": "チャットを表示",
     "showGame": "ゲームに戻る"
+  },
+  "apps": {
+    "tools": "ツール",
+    "games": "ゲーム",
+    "moreTools": "ほかのツール",
+    "moreGames": "ほかのゲーム",
+    "allToolsHere": "すべてのツールがこの端末にあります",
+    "allGamesHere": "すべてのゲームがこの端末にあります",
+    "noTools": "まだツールはありません",
+    "noGames": "まだゲームはありません",
+    "offline": "今は追加できるものがありません。接続を確認して、もう一度お試しください。",
+    "installFailed": "インストールできませんでした。接続を確認して、もう一度お試しください。",
+    "lockedLabel": "{name}、ロック中",
+    "downloadLabel": "{name}、ダウンロード {size}",
+    "addLabel": "{name}、追加",
+    "inviteLabel": "{name}。長押しで招待",
+    "open": "開く",
+    "install": "インストール",
+    "remove": "削除",
+    "removeAsk": "この端末から削除しますか？",
+    "subscribe": "登録する"
   },
   "feedback": {
     "title": "提案する",

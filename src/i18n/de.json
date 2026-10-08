@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Chats",
     "calls": "Anrufe",
+    "apps": "Apps",
     "settings": "Einstellungen",
     "games": "Spiele",
     "plugins": "Plugins"
@@ -317,7 +318,7 @@
     "writes": "Im Chat schreiben",
     "sendsAlone": "Selbst Nachrichten senden",
     "asksNothing": "Fordert nichts an",
-    "mayNotWrite": "Dieses Werkzeug darf nicht im Chat schreiben. Schalte dafür „Im Chat schreiben“ unter Einstellungen → Plugins ein.",
+    "mayNotWrite": "Dieses Werkzeug darf nicht im Chat schreiben. Schalte dafür „Im Chat schreiben“ unter Apps ein: Halte sein Symbol gedrückt.",
     "remove": "Entfernen",
     "none": "Noch keine Plugins",
     "available": "Tools zum Hinzufügen",
@@ -487,6 +488,27 @@
     "live": "Mit demselben Spiel auf dem Telefon der anderen Person sprechen",
     "showChat": "Chat anzeigen",
     "showGame": "Zurück zum Spiel"
+  },
+  "apps": {
+    "tools": "Werkzeuge",
+    "games": "Spiele",
+    "moreTools": "Mehr Werkzeuge",
+    "moreGames": "Mehr Spiele",
+    "allToolsHere": "Alle Werkzeuge sind schon auf diesem Telefon",
+    "allGamesHere": "Alle Spiele sind schon auf diesem Telefon",
+    "noTools": "Noch keine Werkzeuge",
+    "noGames": "Noch keine Spiele",
+    "offline": "Gerade gibt es nichts zum Hinzufügen. Prüfe deine Verbindung und versuch es noch einmal.",
+    "installFailed": "Das konnte nicht installiert werden. Prüfe deine Verbindung und versuch es noch einmal.",
+    "lockedLabel": "{name}, gesperrt",
+    "downloadLabel": "{name}, herunterladen {size}",
+    "addLabel": "{name}, hinzufügen",
+    "inviteLabel": "{name}. Gedrückt halten zum Einladen",
+    "open": "Öffnen",
+    "install": "Installieren",
+    "remove": "Entfernen",
+    "removeAsk": "Von diesem Telefon entfernen?",
+    "subscribe": "Abonnieren"
   },
   "feedback": {
     "title": "Etwas vorschlagen",

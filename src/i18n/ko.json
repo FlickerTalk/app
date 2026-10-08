@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "채팅",
     "calls": "통화",
+    "apps": "앱",
     "settings": "설정",
     "games": "게임",
     "plugins": "플러그인"
@@ -317,7 +318,7 @@
     "writes": "채팅에 쓰기",
     "sendsAlone": "스스로 메시지 보내기",
     "asksNothing": "요청하는 권한 없음",
-    "mayNotWrite": "이 도구는 채팅에 쓸 수 없습니다. 설정 → 플러그인에서 이 도구의 ‘채팅에 쓰기’를 켜세요.",
+    "mayNotWrite": "이 도구는 채팅에 쓸 수 없습니다. 앱에서 아이콘을 길게 눌러 이 도구의 ‘채팅에 쓰기’를 켜세요.",
     "remove": "삭제",
     "none": "아직 플러그인이 없습니다",
     "available": "추가할 수 있는 도구",
@@ -487,6 +488,27 @@
     "live": "상대방 휴대폰의 같은 게임과 통신",
     "showChat": "채팅 보기",
     "showGame": "게임으로 돌아가기"
+  },
+  "apps": {
+    "tools": "도구",
+    "games": "게임",
+    "moreTools": "더 많은 도구",
+    "moreGames": "더 많은 게임",
+    "allToolsHere": "모든 도구가 이미 이 휴대폰에 있습니다",
+    "allGamesHere": "모든 게임이 이미 이 휴대폰에 있습니다",
+    "noTools": "아직 도구가 없습니다",
+    "noGames": "아직 게임이 없습니다",
+    "offline": "지금은 추가할 항목이 없습니다. 연결을 확인하고 다시 시도하세요.",
+    "installFailed": "설치하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
+    "lockedLabel": "{name}, 잠김",
+    "downloadLabel": "{name}, 다운로드 {size}",
+    "addLabel": "{name}, 추가",
+    "inviteLabel": "{name}. 길게 눌러 초대",
+    "open": "열기",
+    "install": "설치",
+    "remove": "삭제",
+    "removeAsk": "이 휴대폰에서 삭제할까요?",
+    "subscribe": "구독하기"
   },
   "feedback": {
     "title": "제안하기",

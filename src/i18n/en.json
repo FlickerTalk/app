@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Chats",
     "calls": "Calls",
+    "apps": "Apps",
     "settings": "Settings",
     "games": "Games",
     "plugins": "Plugins"
@@ -317,7 +318,7 @@
     "writes": "Write in the chat",
     "sendsAlone": "Send messages by itself",
     "asksNothing": "Asks for nothing",
-    "mayNotWrite": "This tool may not write in the chat. Turn on “Write in the chat” for it in Settings → Plugins.",
+    "mayNotWrite": "This tool may not write in the chat. Turn on “Write in the chat” for it in Apps: touch and hold its icon.",
     "remove": "Remove",
     "none": "No plugins yet",
     "available": "Tools you can add",
@@ -487,6 +488,27 @@
     "live": "Talk to the same game on the other person's phone",
     "showChat": "Show the chat",
     "showGame": "Back to the game"
+  },
+  "apps": {
+    "tools": "Tools",
+    "games": "Games",
+    "moreTools": "More tools",
+    "moreGames": "More games",
+    "allToolsHere": "All the tools are on this phone",
+    "allGamesHere": "All the games are on this phone",
+    "noTools": "No tools yet",
+    "noGames": "No games yet",
+    "offline": "Nothing to add right now. Check your connection and try again.",
+    "installFailed": "It could not be installed. Check your connection and try again.",
+    "lockedLabel": "{name}, locked",
+    "downloadLabel": "{name}, download {size}",
+    "addLabel": "{name}, add",
+    "inviteLabel": "{name}. Touch and hold to invite",
+    "open": "Open",
+    "install": "Install",
+    "remove": "Remove",
+    "removeAsk": "Remove it from this phone?",
+    "subscribe": "Subscribe"
   },
   "feedback": {
     "title": "Suggest something",

@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Chat",
     "calls": "Chiamate",
+    "apps": "App",
     "settings": "Impostazioni",
     "games": "Giochi",
     "plugins": "Plugin"
@@ -317,7 +318,7 @@
     "writes": "Scrive nella chat",
     "sendsAlone": "Invia messaggi da solo",
     "asksNothing": "Non chiede nulla",
-    "mayNotWrite": "Questo strumento non può scrivere nella chat. Attiva «Scrive nella chat» per lui in Impostazioni → Plugin.",
+    "mayNotWrite": "Questo strumento non può scrivere nella chat. Attiva «Scrive nella chat» per lui in App: tieni premuta la sua icona.",
     "remove": "Rimuovi",
     "none": "Ancora nessun plugin",
     "available": "Strumenti che puoi aggiungere",
@@ -487,6 +488,27 @@
     "live": "Parlare con lo stesso gioco sul telefono dell'altra persona",
     "showChat": "Mostra la chat",
     "showGame": "Torna al gioco"
+  },
+  "apps": {
+    "tools": "Strumenti",
+    "games": "Giochi",
+    "moreTools": "Altri strumenti",
+    "moreGames": "Altri giochi",
+    "allToolsHere": "Tutti gli strumenti sono già su questo telefono",
+    "allGamesHere": "Tutti i giochi sono già su questo telefono",
+    "noTools": "Ancora nessuno strumento",
+    "noGames": "Ancora nessun gioco",
+    "offline": "Al momento non c’è niente da aggiungere. Controlla la connessione e riprova.",
+    "installFailed": "Non è stato possibile installarlo. Controlla la connessione e riprova.",
+    "lockedLabel": "{name}, bloccato",
+    "downloadLabel": "{name}, scarica {size}",
+    "addLabel": "{name}, aggiungi",
+    "inviteLabel": "{name}. Tieni premuto per invitare",
+    "open": "Apri",
+    "install": "Installa",
+    "remove": "Rimuovi",
+    "removeAsk": "Rimuoverlo da questo telefono?",
+    "subscribe": "Abbonati"
   },
   "feedback": {
     "title": "Suggerisci qualcosa",

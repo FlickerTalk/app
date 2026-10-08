@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Conversas",
     "calls": "Chamadas",
+    "apps": "Apps",
     "settings": "Configurações",
     "games": "Jogos",
     "plugins": "Plugins"
@@ -317,7 +318,7 @@
     "writes": "Escrever na conversa",
     "sendsAlone": "Enviar mensagens sozinho",
     "asksNothing": "Não pede nada",
-    "mayNotWrite": "Esta ferramenta não pode escrever na conversa. Ative “Escrever na conversa” para ela em Configurações → Plugins.",
+    "mayNotWrite": "Esta ferramenta não pode escrever na conversa. Ative “Escrever na conversa” para ela em Apps: toque e segure o ícone dela.",
     "remove": "Remover",
     "none": "Nenhum plugin ainda",
     "available": "Ferramentas para adicionar",
@@ -487,6 +488,27 @@
     "live": "Falar com o mesmo jogo no telefone da outra pessoa",
     "showChat": "Ver a conversa",
     "showGame": "Voltar ao jogo"
+  },
+  "apps": {
+    "tools": "Ferramentas",
+    "games": "Jogos",
+    "moreTools": "Mais ferramentas",
+    "moreGames": "Mais jogos",
+    "allToolsHere": "Todas as ferramentas já estão neste telefone",
+    "allGamesHere": "Todos os jogos já estão neste telefone",
+    "noTools": "Nenhuma ferramenta ainda",
+    "noGames": "Nenhum jogo ainda",
+    "offline": "Não há nada para adicionar agora. Verifique sua conexão e tente de novo.",
+    "installFailed": "Não foi possível instalar. Verifique sua conexão e tente de novo.",
+    "lockedLabel": "{name}, bloqueada",
+    "downloadLabel": "{name}, baixar {size}",
+    "addLabel": "{name}, adicionar",
+    "inviteLabel": "{name}. Toque e segure para convidar",
+    "open": "Abrir",
+    "install": "Instalar",
+    "remove": "Remover",
+    "removeAsk": "Remover deste telefone?",
+    "subscribe": "Assinar"
   },
   "feedback": {
     "title": "Sugerir algo",

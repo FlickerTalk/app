@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Discussions",
     "calls": "Appels",
+    "apps": "Apps",
     "settings": "Paramètres",
     "games": "Jeux",
     "plugins": "Plugins"
@@ -317,7 +318,7 @@
     "writes": "Écrire dans la discussion",
     "sendsAlone": "Envoyer des messages tout seul",
     "asksNothing": "Ne demande rien",
-    "mayNotWrite": "Cet outil ne peut pas écrire dans la discussion. Activez « Écrire dans la discussion » pour lui dans Paramètres → Plugins.",
+    "mayNotWrite": "Cet outil ne peut pas écrire dans la discussion. Activez « Écrire dans la discussion » pour lui dans Apps : appuyez longuement sur son icône.",
     "remove": "Retirer",
     "none": "Aucun plugin",
     "available": "Outils à ajouter",
@@ -487,6 +488,27 @@
     "live": "Communiquer avec le même jeu sur le téléphone de l’autre personne",
     "showChat": "Voir la conversation",
     "showGame": "Revenir au jeu"
+  },
+  "apps": {
+    "tools": "Outils",
+    "games": "Jeux",
+    "moreTools": "Plus d’outils",
+    "moreGames": "Plus de jeux",
+    "allToolsHere": "Tous les outils sont déjà sur ce téléphone",
+    "allGamesHere": "Tous les jeux sont déjà sur ce téléphone",
+    "noTools": "Aucun outil",
+    "noGames": "Aucun jeu",
+    "offline": "Rien à ajouter pour le moment. Vérifiez votre connexion et réessayez.",
+    "installFailed": "Impossible de l’installer. Vérifiez votre connexion et réessayez.",
+    "lockedLabel": "{name}, verrouillé",
+    "downloadLabel": "{name}, télécharger {size}",
+    "addLabel": "{name}, ajouter",
+    "inviteLabel": "{name}. Appuyez longuement pour inviter",
+    "open": "Ouvrir",
+    "install": "Installer",
+    "remove": "Retirer",
+    "removeAsk": "Le retirer de ce téléphone ?",
+    "subscribe": "S’abonner"
   },
   "feedback": {
     "title": "Suggérer quelque chose",

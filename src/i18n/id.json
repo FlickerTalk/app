@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "Chat",
     "calls": "Panggilan",
+    "apps": "Aplikasi",
     "settings": "Pengaturan",
     "games": "Game",
     "plugins": "Plugin"
@@ -317,7 +318,7 @@
     "writes": "Menulis di chat",
     "sendsAlone": "Mengirim pesan sendiri",
     "asksNothing": "Tidak meminta apa pun",
-    "mayNotWrite": "Alat ini tidak boleh menulis di chat. Aktifkan “Menulis di chat” untuknya di Pengaturan → Plugin.",
+    "mayNotWrite": "Alat ini tidak boleh menulis di chat. Aktifkan “Menulis di chat” untuknya di Aplikasi: sentuh lama ikonnya.",
     "remove": "Hapus",
     "none": "Belum ada plugin",
     "available": "Alat yang bisa Anda tambahkan",
@@ -487,6 +488,27 @@
     "live": "Berbicara dengan game yang sama di ponsel orang lain",
     "showChat": "Tampilkan obrolan",
     "showGame": "Kembali ke game"
+  },
+  "apps": {
+    "tools": "Alat",
+    "games": "Game",
+    "moreTools": "Alat lainnya",
+    "moreGames": "Game lainnya",
+    "allToolsHere": "Semua alat sudah ada di ponsel ini",
+    "allGamesHere": "Semua game sudah ada di ponsel ini",
+    "noTools": "Belum ada alat",
+    "noGames": "Belum ada game",
+    "offline": "Saat ini tidak ada yang bisa ditambahkan. Periksa koneksi Anda lalu coba lagi.",
+    "installFailed": "Tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi.",
+    "lockedLabel": "{name}, terkunci",
+    "downloadLabel": "{name}, unduh {size}",
+    "addLabel": "{name}, tambahkan",
+    "inviteLabel": "{name}. Sentuh lama untuk mengundang",
+    "open": "Buka",
+    "install": "Pasang",
+    "remove": "Hapus",
+    "removeAsk": "Hapus dari ponsel ini?",
+    "subscribe": "Berlangganan"
   },
   "feedback": {
     "title": "Usulkan sesuatu",

@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "聊天",
     "calls": "通話",
+    "apps": "應用程式",
     "settings": "設定",
     "games": "遊戲",
     "plugins": "外掛程式"
@@ -317,7 +318,7 @@
     "writes": "在聊天中寫入",
     "sendsAlone": "自行傳送訊息",
     "asksNothing": "不需要任何權限",
-    "mayNotWrite": "此工具無權在聊天中寫入。請在「設定 → 外掛程式」中為它開啟「在聊天中寫入」。",
+    "mayNotWrite": "此工具無權在聊天中寫入。請在「應用程式」中長按它的圖示，為它開啟「在聊天中寫入」。",
     "remove": "移除",
     "none": "還沒有外掛程式",
     "available": "可新增的工具",
@@ -487,6 +488,27 @@
     "live": "與對方手機上的同一遊戲通訊",
     "showChat": "顯示聊天",
     "showGame": "返回遊戲"
+  },
+  "apps": {
+    "tools": "工具",
+    "games": "遊戲",
+    "moreTools": "更多工具",
+    "moreGames": "更多遊戲",
+    "allToolsHere": "所有工具都已在這支手機上",
+    "allGamesHere": "所有遊戲都已在這支手機上",
+    "noTools": "還沒有工具",
+    "noGames": "還沒有遊戲",
+    "offline": "現在沒有可新增的內容。請檢查網路連線後再試一次。",
+    "installFailed": "無法安裝。請檢查網路連線後再試一次。",
+    "lockedLabel": "{name}，已鎖定",
+    "downloadLabel": "{name}，下載 {size}",
+    "addLabel": "{name}，新增",
+    "inviteLabel": "{name}。長按即可邀請",
+    "open": "開啟",
+    "install": "安裝",
+    "remove": "移除",
+    "removeAsk": "要從這支手機移除嗎？",
+    "subscribe": "訂閱"
   },
   "feedback": {
     "title": "提出建議",

@@ -6,6 +6,7 @@
   "tabs": {
     "chats": "聊天",
     "calls": "通话",
+    "apps": "应用",
     "settings": "设置",
     "games": "游戏",
     "plugins": "插件"
@@ -317,7 +318,7 @@
     "writes": "在聊天中写入",
     "sendsAlone": "自行发送消息",
     "asksNothing": "不需要任何权限",
-    "mayNotWrite": "此工具无权在聊天中写入。请在“设置 → 插件”中为它开启“在聊天中写入”。",
+    "mayNotWrite": "此工具无权在聊天中写入。请在“应用”中长按它的图标，为它开启“在聊天中写入”。",
     "remove": "移除",
     "none": "还没有插件",
     "available": "可添加的工具",
@@ -487,6 +488,27 @@
     "live": "与对方手机上的同一游戏通信",
     "showChat": "显示聊天",
     "showGame": "返回游戏"
+  },
+  "apps": {
+    "tools": "工具",
+    "games": "游戏",
+    "moreTools": "更多工具",
+    "moreGames": "更多游戏",
+    "allToolsHere": "所有工具都已在这台手机上",
+    "allGamesHere": "所有游戏都已在这台手机上",
+    "noTools": "还没有工具",
+    "noGames": "还没有游戏",
+    "offline": "现在没有可添加的内容。请检查网络连接后重试。",
+    "installFailed": "无法安装。请检查网络连接后重试。",
+    "lockedLabel": "{name}，已锁定",
+    "downloadLabel": "{name}，下载 {size}",
+    "addLabel": "{name}，添加",
+    "inviteLabel": "{name}。长按可邀请",
+    "open": "打开",
+    "install": "安装",
+    "remove": "移除",
+    "removeAsk": "要从这台手机移除吗？",
+    "subscribe": "订阅"
   },
   "feedback": {
     "title": "提个建议",
