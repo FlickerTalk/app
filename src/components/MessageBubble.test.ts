@@ -3,6 +3,8 @@ import { mount } from "@vue/test-utils";
 
 const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => opener);
+const opened = vi.hoisted(() => ({ openInApp: vi.fn(async (_url: string) => true) }));
+vi.mock("../opened", async (original) => ({ ...(await original<typeof import("../opened")>()), openInApp: opened.openInApp }));
 
 import { IonButton, IonIcon } from "@ionic/vue";
 import MessageBubble from "./MessageBubble.vue";
@@ -481,6 +483,29 @@ describe("MessageBubble", () => {
     await links[1].trigger("click");
     expect(opener.openUrl).toHaveBeenCalledWith("mailto:info@flickertalk.com");
     expect(wrapper.find("img[src^='http']").exists()).toBe(false);
+  });
+
+  // Links that open the app (2026-10-08): a FlickerTalk contact or move link tapped inside a
+  // chat is the app's own, handled in the app as if the phone had opened it, never by the system.
+  // Any other address of the site (the games, `/add` with no card) opens in the browser.
+  it("handles FlickerTalk's own links in the app", async () => {
+    opener.openUrl.mockReset();
+    opened.openInApp.mockClear();
+    const card = "https://flickertalk.com/add#card";
+    const invite = "https://flickertalk.com/move#invite";
+    const wrapper = mount(MessageBubble, {
+      props: { message: { ...base, mine: false, text: `add me ${card} or ${invite}, or play https://flickertalk.com/games/chess` } },
+      shallow: true,
+    });
+    const links = wrapper.findAll("[data-test='link']");
+    await links[0].trigger("click");
+    await links[1].trigger("click");
+    await Promise.resolve();
+    expect(opened.openInApp.mock.calls.map(([url]) => url)).toEqual([card, invite]);
+    expect(opener.openUrl).not.toHaveBeenCalled();
+    await links[2].trigger("click");
+    expect(opened.openInApp).toHaveBeenCalledTimes(2);
+    expect(opener.openUrl).toHaveBeenCalledWith("https://flickertalk.com/games/chess");
   });
 
   // 2026-10-02: a place the location plugin wrote is a card, never a map: 📍, "Location" and how
