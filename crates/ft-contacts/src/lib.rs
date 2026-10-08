@@ -249,6 +249,44 @@ impl MoveInvite {
     }
 }
 
+/// Which page a link the phone opened the app with leads to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkKind {
+    /// A contact's card: "Add contact".
+    Add,
+    /// A new phone's invite: the move screen of the old phone.
+    Move,
+}
+
+/// A link the phone opened the app with (App Links on Android, Universal Links on iOS).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedLink {
+    pub kind: LinkKind,
+    /// The link as it came, for the page's field.
+    pub link: String,
+    /// Whether it reads as a card (or an invite); a broken one still opens its page.
+    pub valid: bool,
+}
+
+/// The page a link opened by the phone leads to, if it is one of ours: the URL has to start with
+/// `https://flickertalk.com/add#` or `/move#`, exactly. Unlike a pasted link it is never looked for
+/// inside text, and `/add` with no `#`, `www.` or another domain is none of ours (the app just
+/// opens). Nothing is added or moved here: the page waits for the user's tap.
+pub fn opened_link(url: &str) -> Option<OpenedLink> {
+    let (kind, fragment) = if let Some(fragment) = url.strip_prefix(LINK_PREFIX) {
+        (LinkKind::Add, fragment)
+    } else {
+        (LinkKind::Move, url.strip_prefix(MOVE_LINK_PREFIX)?)
+    };
+    let whole = !fragment.is_empty() && fragment.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    let valid = whole
+        && match kind {
+            LinkKind::Add => ContactCard::from_link(url).is_ok(),
+            LinkKind::Move => MoveInvite::from_link(url).is_ok(),
+        };
+    Some(OpenedLink { kind, link: url.to_owned(), valid })
+}
+
 /// What the old phone shows to prove it read the QR: bound to the secret and to both phones.
 pub fn move_proof(secret: &[u8; 32], old_device: &str, new_device: &str) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new_keyed(secret);
@@ -513,6 +551,77 @@ mod tests {
         assert!(MoveInvite::from_link("Move here: https://flickertalk.com/move#garbage.").is_err());
         let card = card_of(&mut Identity::generate()).to_link();
         assert!(MoveInvite::from_link(&format!("Add me on FlickerTalk: {card}")).is_err(), "a card is not an invite");
+    }
+
+    // A link the phone opened the app with (App Links, Universal Links): only the exact address
+    // counts. What the system hands over is a whole URL, never text around it.
+    #[test]
+    fn an_opened_contact_link_goes_to_add_contact() {
+        let link = card_of(&mut Identity::generate()).to_link();
+        assert_eq!(opened_link(&link), Some(OpenedLink { kind: LinkKind::Add, link: link.clone(), valid: true }));
+    }
+
+    #[test]
+    fn an_opened_move_link_goes_to_the_move_screen() {
+        let link = MoveInvite::new(card_of(&mut Identity::generate())).to_link();
+        assert_eq!(opened_link(&link), Some(OpenedLink { kind: LinkKind::Move, link: link.clone(), valid: true }));
+    }
+
+    // A broken or cut link still opens its page, with the field filled and the page's warning.
+    #[test]
+    fn a_broken_opened_link_keeps_its_kind_and_says_it_is_not_valid() {
+        let link = card_of(&mut Identity::generate()).to_link();
+        let cut = &link[..link.len() - 20];
+        assert_eq!(opened_link(cut), Some(OpenedLink { kind: LinkKind::Add, link: cut.to_owned(), valid: false }));
+        assert_eq!(opened_link("https://flickertalk.com/add#"), Some(OpenedLink { kind: LinkKind::Add, link: "https://flickertalk.com/add#".to_owned(), valid: false }));
+        let garbage = "https://flickertalk.com/move#garbage";
+        assert_eq!(opened_link(garbage), Some(OpenedLink { kind: LinkKind::Move, link: garbage.to_owned(), valid: false }));
+        // A card is no invite, and an invite no card.
+        let card_as_move = link.replacen(LINK_PREFIX, MOVE_LINK_PREFIX, 1);
+        assert_eq!(opened_link(&card_as_move).map(|opened| (opened.kind, opened.valid)), Some((LinkKind::Move, false)));
+        let invite = MoveInvite::new(card_of(&mut Identity::generate())).to_link();
+        let invite_as_add = invite.replacen(MOVE_LINK_PREFIX, LINK_PREFIX, 1);
+        assert_eq!(opened_link(&invite_as_add).map(|opened| (opened.kind, opened.valid)), Some((LinkKind::Add, false)));
+        // Something after a valid card is not the card the person shared.
+        assert_eq!(opened_link(&format!("{link}!x")).map(|opened| opened.valid), Some(false));
+    }
+
+    // `/add` with no `#`, another domain, `www.`: the app just opens.
+    #[test]
+    fn other_addresses_open_nothing() {
+        let link = card_of(&mut Identity::generate()).to_link();
+        let payload = link.strip_prefix(LINK_PREFIX).expect("a contact link");
+        for url in [
+            "https://flickertalk.com/add".to_owned(),
+            "https://flickertalk.com/add/".to_owned(),
+            "https://flickertalk.com/move".to_owned(),
+            "https://flickertalk.com/".to_owned(),
+            "https://flickertalk.com/games/chess".to_owned(),
+            format!("https://www.flickertalk.com/add#{payload}"),
+            format!("https://example.com/add#{payload}"),
+            format!("https://flickertalk.com.example.com/add#{payload}"),
+            format!("http://flickertalk.com/add#{payload}"),
+            format!("https://FlickerTalk.com/add#{payload}"),
+            format!("https://flickertalk.com/add?x=1#{payload}"),
+            format!("https://flickertalk.com/added#{payload}"),
+            format!("flickertalk://add#{payload}"),
+            String::new(),
+        ] {
+            assert_eq!(opened_link(&url), None, "{url}");
+        }
+    }
+
+    // Unlike a pasted link, an opened one is never searched for inside text.
+    #[test]
+    fn an_opened_link_is_never_searched_for_inside_text() {
+        let link = card_of(&mut Identity::generate()).to_link();
+        for text in pasted_forms(&link) {
+            match opened_link(&text) {
+                // Text after the link is not part of the card the person shared.
+                Some(opened) => assert!(text.starts_with(LINK_PREFIX) && !opened.valid, "{text:?}"),
+                None => assert!(!text.starts_with(LINK_PREFIX), "{text:?}"),
+            }
+        }
     }
 
     // §29: both phones compute the same safety number and the users compare it in person.
