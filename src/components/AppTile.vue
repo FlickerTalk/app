@@ -225,11 +225,14 @@ onBeforeUnmount(cancel);
   overflow: hidden;
   box-sizing: border-box;
   max-width: 100%;
-  padding-inline: 2px;
-  font-size: 13px;
+  /* At 12 px with no side padding a ten-letter word ("Backgammon") fits a 76 px column. A word is
+     split only when it cannot fit on a line of its own (break-word; splitting at any letter gave
+     "Backgammo/n"), and never with a hyphen. */
+  padding-inline: 0;
+  font-size: 12px;
   line-height: 1.25;
   text-align: center;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .ft-app-tile__caption {
   display: block;

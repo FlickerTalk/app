@@ -202,7 +202,14 @@ describe("AppTile", () => {
   it("breaks a name between its words, not with a hyphen", () => {
     const rule = source.slice(source.indexOf("<style")).match(/\.ft-app-tile__name\s*\{([^}]*)\}/)![1];
     expect(rule).not.toMatch(/hyphens\s*:\s*auto/);
-    expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
+    // Second device review: "Backgammon" broke as "Backgammo/n". A word is only split when it
+    // cannot fit on a line of its own (break-word, not anywhere), and at 12 px with no side
+    // padding a ten-letter word fits a 76 px column.
+    expect(rule).not.toMatch(/anywhere/);
+    expect(rule).toMatch(/overflow-wrap:\s*break-word/);
+    expect(rule).toMatch(/font-size:\s*12px/);
+    expect(rule).toMatch(/padding-inline:\s*0/);
+    expect(rule).toMatch(/-webkit-line-clamp:\s*2/);
     expect(tile({ name: "Batalla naval" }).find(".ft-app-tile__name").text()).toBe("Batalla naval");
   });
 

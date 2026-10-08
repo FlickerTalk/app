@@ -129,3 +129,46 @@ for (const mode of ["ios", "md"] as const) {
     expect(gap, "chat sheet").toBeLessThanOrEqual(10);
   });
 }
+
+// Second device review of app#121: on a 360 px phone "Backgammon" broke as "Backgammo/n". A word
+// of ten letters keeps one line, two words wrap at the space, and a long name fits two lines.
+test.describe("tile names on a 360 px phone", () => {
+  test.use({ viewport: { width: 360, height: 740 } });
+
+  test("break between words, and never inside a word that fits", async ({ app }) => {
+    const game = (id: string, name: string) => ({ id, name, version: "1.0.0", summary: "A game.", size: 40_000, carried: false, kind: "game" });
+    await app.addInitScript(
+      (entries) => ((window as unknown as Record<string, unknown>).__ftFakeCatalogue = entries),
+      [game("com.flickertalk.game.backgammon", "Backgammon"), game("com.flickertalk.game.seabattle", "Batalla naval"), game("com.flickertalk.game.wordgrid", "Cuadrícula de letras")],
+    );
+    await app.goto("/tabs/apps?show=games");
+    /** How many lines the name takes, whether the clamp cuts it, and the words split over two lines. */
+    const lines = (id: string) =>
+      app.getByTestId(`install-${id}`).locator(".ft-app-tile__name").evaluate((el) => {
+        const node = el.firstChild as Text;
+        const tops = (from: number, to: number) => {
+          const range = document.createRange();
+          range.setStart(node, from);
+          range.setEnd(node, to);
+          return new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top))).size;
+        };
+        const text = node.textContent ?? "";
+        const split: string[] = [];
+        let at = 0;
+        for (const word of text.trim().split(/\s+/)) {
+          const start = text.indexOf(word, at);
+          if (tops(start, start + word.length) > 1) split.push(word);
+          at = start + word.length;
+        }
+        return { lines: tops(0, text.length), cut: el.scrollHeight > el.clientHeight + 1, split };
+      });
+    expect(await lines("com.flickertalk.game.backgammon")).toEqual({ lines: 1, cut: false, split: [] });
+    // On one line or two, but never "na-/val": a wrap falls at the space.
+    const two = await lines("com.flickertalk.game.seabattle");
+    expect(two.lines).toBeLessThanOrEqual(2);
+    expect(two).toMatchObject({ cut: false, split: [] });
+    const long = await lines("com.flickertalk.game.wordgrid");
+    expect(long.lines).toBeLessThanOrEqual(2);
+    expect(long).toMatchObject({ cut: false, split: [] });
+  });
+});
