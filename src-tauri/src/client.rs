@@ -11,7 +11,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use ft_core::online::{self, Online};
 use ft_core::moving::MoveUpdate;
-use ft_core::{CallPhase, CallUpdate, Core, Event, TurnGrant};
+use ft_core::{CallPhase, CallUpdate, Core, Event, PresentedBy, TurnGrant};
 use ft_media::{CallRouting, Facing, Layers, RemoteShape, VideoState};
 use ft_storage::{CallOutcome, CallRecord, Conversation, FileRecord, Message, MessageState, Store};
 use ft_webrtc::SessionConfig;
@@ -386,6 +386,17 @@ pub struct CallEvent {
     /// `incoming`: answered already on the phone's own screen, before its offer came (2026-09-29).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     answered: bool,
+    /// `presenting` (2026-10-08): the plugin shown in the call, the chat file it shows and who
+    /// presents it; none of them when nothing is presented any more.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    by: Option<&'static str>,
+    /// `connected`: whether a presentation can start (both apps at call media version 2).
+    #[serde(rename = "canPresent", skip_serializing_if = "Option::is_none")]
+    can_present: Option<bool>,
 }
 
 impl CallEvent {
@@ -393,6 +404,10 @@ impl CallEvent {
         let view = match update {
             CallUpdate::Video(state) => Some(CallVideoView::from(state)),
             _ => None,
+        };
+        let (plugin, file, by) = match &update {
+            CallUpdate::Presenting { plugin, file, by } => (plugin.clone(), file.map(|file| file.to_string()), by.map(presented_by)),
+            _ => (None, None, None),
         };
         let (kind, video, sdp, outcome, muted) = match update {
             CallUpdate::Incoming { video, sdp } => ("incoming", Some(video), Some(sdp), None, None),
@@ -405,14 +420,46 @@ impl CallEvent {
             CallUpdate::MissedWhileBusy => ("ended", None, None, Some(CallOutcome::Missed.as_str()), None),
             CallUpdate::Video(_) => ("video", None, None, None, None),
             CallUpdate::CameraFailed => ("camera_failed", None, None, None, None),
+            CallUpdate::Presenting { .. } => ("presenting", None, None, None, None),
         };
-        Self { contact: contact.to_owned(), call: call.to_owned(), kind, video, sdp, outcome, muted, view, answered: false }
+        Self {
+            contact: contact.to_owned(),
+            call: call.to_owned(),
+            kind,
+            video,
+            sdp,
+            outcome,
+            muted,
+            view,
+            answered: false,
+            plugin,
+            file,
+            by,
+            can_present: None,
+        }
     }
 
     /// An incoming call the core is answering already: the WebView shows it connecting.
     pub fn answered(self, answered: bool) -> Self {
         Self { answered, ..self }
     }
+
+    /// A call that connects says whether a presentation can start.
+    pub fn can_present(self, can_present: bool) -> Self {
+        Self { can_present: Some(can_present), ..self }
+    }
+}
+
+fn presented_by(by: PresentedBy) -> &'static str {
+    match by {
+        PresentedBy::Me => "me",
+        PresentedBy::Them => "them",
+    }
+}
+
+/// What `connected` says of presenting: the core's word on the call going on, `false` for any other.
+fn can_present_now(current: Option<&ft_core::CurrentCall>, call: &str) -> bool {
+    current.is_some_and(|current| current.call == call && current.can_present)
 }
 
 /// What the phone's own call screen (CallKit, the ongoing call notification) is told.
@@ -433,7 +480,8 @@ pub fn native_screen(update: &CallUpdate) -> NativeScreen {
         | CallUpdate::Muted { .. }
         | CallUpdate::MissedWhileBusy
         | CallUpdate::Video(_)
-        | CallUpdate::CameraFailed => NativeScreen::Nothing,
+        | CallUpdate::CameraFailed
+        | CallUpdate::Presenting { .. } => NativeScreen::Nothing,
     }
 }
 
@@ -456,6 +504,10 @@ pub struct CurrentCallView {
     muted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     connected_at: Option<i64>,
+    /// Whether a presentation can start (2026-10-08).
+    can_present: bool,
+    /// What is presented in the call, `null` when nothing is.
+    presenting: Option<PresentingView>,
 }
 
 impl From<ft_core::CurrentCall> for CurrentCallView {
@@ -476,7 +528,24 @@ impl From<ft_core::CurrentCall> for CurrentCallView {
             native: current.native,
             muted: current.muted,
             connected_at: current.connected_at,
+            can_present: current.can_present,
+            presenting: current.presenting.map(PresentingView::from),
         }
+    }
+}
+
+/// What is presented in a call (2026-10-08), as `core_current_call` says it.
+#[derive(Serialize)]
+pub struct PresentingView {
+    plugin: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
+    by: &'static str,
+}
+
+impl From<ft_core::Presenting> for PresentingView {
+    fn from(presenting: ft_core::Presenting) -> Self {
+        Self { plugin: presenting.plugin, file: presenting.file.map(|file| file.to_string()), by: presented_by(presenting.by) }
     }
 }
 
@@ -652,9 +721,12 @@ pub fn ringing(update: &CallUpdate, answered: bool) -> Ring {
         CallUpdate::Incoming { video, .. } => Ring::Start { video: *video },
         CallUpdate::Ended { .. } => Ring::Stop,
         CallUpdate::Answered { .. } => Ring::Nothing,
-        CallUpdate::Connected | CallUpdate::Muted { .. } | CallUpdate::MissedWhileBusy | CallUpdate::Video(_) | CallUpdate::CameraFailed => {
-            Ring::Nothing
-        }
+        CallUpdate::Connected
+        | CallUpdate::Muted { .. }
+        | CallUpdate::MissedWhileBusy
+        | CallUpdate::Video(_)
+        | CallUpdate::CameraFailed
+        | CallUpdate::Presenting { .. } => Ring::Nothing,
     }
 }
 
@@ -1206,7 +1278,7 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                     // Answered on the phone's own screen before its offer came: the core
                     // is answering it, so it rings nowhere (2026-09-29).
                     let current = match update {
-                        CallUpdate::Incoming { .. } | CallUpdate::Answering => core_for_events.current_call().await.ok().flatten(),
+                        CallUpdate::Incoming { .. } | CallUpdate::Answering | CallUpdate::Connected => core_for_events.current_call().await.ok().flatten(),
                         _ => None,
                     };
                     let answered = matches!(update, CallUpdate::Incoming { .. }) && answered_already(current.as_ref(), &call);
@@ -1246,7 +1318,12 @@ fn follow_events(online: &Online, host: Arc<Host<AppHandle>>) {
                         })
                         .await;
                     }
-                    let _ = app.emit(CALL_EVENT, CallEvent::new(&contact, &call, update).answered(answered));
+                    let connected = matches!(update, CallUpdate::Connected);
+                    let mut event = CallEvent::new(&contact, &call, update).answered(answered);
+                    if connected {
+                        event = event.can_present(can_present_now(current.as_ref(), &call));
+                    }
+                    let _ = app.emit(CALL_EVENT, event);
                     continue;
                 }
                 // What follows is the app's alone: a core a push started has no WebView, no
@@ -3385,6 +3462,26 @@ pub async fn core_call_mute(call: String, muted: bool, client: State<'_, Client>
     client.core().await?.mute_call(&call, muted).await.map_err(failed)
 }
 
+/// Presents a plugin in the call going on (2026-10-08), with the chat file it shows (a message
+/// id), if any: the other side's call screen shows it too. `peer_cannot_present` when the other
+/// app cannot show presentations.
+#[tauri::command]
+pub async fn core_call_present(call: String, plugin: String, file: Option<String>, client: State<'_, Client>) -> Result<(), String> {
+    let file = presented_file(file)?;
+    client.core().await?.present_in_call(&call, &plugin, file).await.map_err(failed)
+}
+
+/// Stops our presentation in the call going on.
+#[tauri::command]
+pub async fn core_call_present_stop(call: String, client: State<'_, Client>) -> Result<(), String> {
+    client.core().await?.stop_presenting(&call).await.map_err(failed)
+}
+
+/// The chat file a presentation shows, as the core takes it: a message id, or none.
+fn presented_file(file: Option<String>) -> Result<Option<ft_core::MessageId>, String> {
+    file.map(|file| ft_core::MessageId::parse(&file).map_err(failed)).transpose()
+}
+
 /// The routing chosen in Settings, kept in the core for calls answered with no WebView (§17).
 #[tauri::command]
 pub async fn core_set_call_routing(routing: String, client: State<'_, Client>) -> Result<(), String> {
@@ -4753,6 +4850,91 @@ mod tests {
         }));
     }
 
+    // 2026-10-08: what is presented in a call reaches the WebView as `presenting`, and its end
+    // as a `presenting` with nothing in it. It never touches the phone's own call screen.
+    #[test]
+    fn what_is_presented_reaches_the_webview() {
+        let file = ft_core::MessageId::new();
+        let viewer = CallUpdate::Presenting { plugin: Some("com.flickertalk.pdfviewer".to_owned()), file: Some(file), by: Some(PresentedBy::Them) };
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", viewer.clone())).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "presenting", "plugin": "com.flickertalk.pdfviewer", "file": file.to_string(), "by": "them"
+        }));
+        let board = CallUpdate::Presenting { plugin: Some("com.flickertalk.board".to_owned()), file: None, by: Some(PresentedBy::Me) };
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", board)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "presenting", "plugin": "com.flickertalk.board", "by": "me"
+        }));
+        let stopped = CallUpdate::Presenting { plugin: None, file: None, by: None };
+        assert_eq!(serde_json::to_value(CallEvent::new("ft_bob", "c1", stopped)).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "presenting"
+        }));
+        assert_eq!(native_screen(&viewer), NativeScreen::Nothing);
+        assert_eq!(ringing(&viewer, false), Ring::Nothing);
+    }
+
+    // `connected` says whether a presentation can start, as the core has the call going on.
+    #[test]
+    fn connected_says_whether_the_call_can_present() {
+        let connected = CallEvent::new("ft_bob", "c1", CallUpdate::Connected).can_present(true);
+        assert_eq!(serde_json::to_value(connected).unwrap(), serde_json::json!({
+            "contact": "ft_bob", "call": "c1", "kind": "connected", "canPresent": true
+        }));
+        let current = |can_present| ft_core::CurrentCall {
+            call: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: false,
+            outgoing: true,
+            phase: ft_core::CallPhase::Active,
+            offer: None,
+            native: true,
+            muted: false,
+            connected_at: Some(7),
+            video_state: None,
+            presenting: None,
+            can_present,
+        };
+        assert!(can_present_now(Some(&current(true)), "c1"));
+        assert!(!can_present_now(Some(&current(false)), "c1"));
+        assert!(!can_present_now(Some(&current(true)), "c2"), "another call");
+        assert!(!can_present_now(None, "c1"));
+    }
+
+    // A WebView back on the screen finds what is presented, and whether it can present.
+    #[test]
+    fn the_current_call_carries_what_is_presented() {
+        let file = ft_core::MessageId::new();
+        let active = ft_core::CurrentCall {
+            call: "c1".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: false,
+            outgoing: true,
+            phase: ft_core::CallPhase::Active,
+            offer: None,
+            native: true,
+            muted: false,
+            connected_at: Some(7),
+            video_state: None,
+            presenting: Some(ft_core::Presenting { plugin: "com.flickertalk.pdfviewer".to_owned(), file: Some(file), by: PresentedBy::Them }),
+            can_present: true,
+        };
+        let view = serde_json::to_value(CurrentCallView::from(active.clone())).unwrap();
+        assert_eq!(view["canPresent"], true);
+        assert_eq!(view["presenting"], serde_json::json!({ "plugin": "com.flickertalk.pdfviewer", "file": file.to_string(), "by": "them" }));
+        let board = ft_core::CurrentCall {
+            presenting: Some(ft_core::Presenting { plugin: "com.flickertalk.board".to_owned(), file: None, by: PresentedBy::Me }),
+            ..active
+        };
+        assert_eq!(serde_json::to_value(CurrentCallView::from(board)).unwrap()["presenting"], serde_json::json!({ "plugin": "com.flickertalk.board", "by": "me" }));
+    }
+
+    // The file a presentation shows comes from the WebView as a message id, or not at all.
+    #[test]
+    fn a_presented_file_is_a_message_id() {
+        assert_eq!(presented_file(None), Ok(None));
+        let file = ft_core::MessageId::new();
+        assert_eq!(presented_file(Some(file.to_string())), Ok(Some(file)));
+        assert!(presented_file(Some("not an id".to_owned())).is_err());
+    }
+
     // The phone's own call screen (CallKit, the ongoing call notification) follows the call.
     #[test]
     fn the_native_call_screen_hears_when_a_call_connects_and_ends() {
@@ -4854,6 +5036,8 @@ mod tests {
             muted: false,
             connected_at: None,
             video_state: None,
+            presenting: None,
+            can_present: false,
         };
         assert!(answered_already(Some(&current(ft_core::CallPhase::Connecting)), "c1"));
         assert!(!answered_already(Some(&current(ft_core::CallPhase::Ringing)), "c1"));
@@ -4903,13 +5087,15 @@ mod tests {
             muted: false,
             connected_at: None,
             video_state: None,
+            presenting: None,
+            can_present: false,
         };
         let no_video = serde_json::json!({
             "available": false, "camera": false, "paused": false, "facing": "front", "remote": false, "remotePaused": false
         });
         assert_eq!(serde_json::to_value(CurrentCallView::from(ringing.clone())).unwrap(), serde_json::json!({
             "call": "c1", "contact": "ft_bob", "video": no_video, "outgoing": false, "phase": "ringing",
-            "offer": "offer", "native": false, "muted": false
+            "offer": "offer", "native": false, "muted": false, "canPresent": false, "presenting": null
         }));
         let active = ft_core::CurrentCall { phase: ft_core::CallPhase::Active, offer: None, native: true, muted: true, connected_at: Some(7), ..ringing.clone() };
         let view = serde_json::to_value(CurrentCallView::from(active)).unwrap();
@@ -4933,6 +5119,8 @@ mod tests {
             muted: false,
             connected_at: None,
             video_state: None,
+            presenting: None,
+            can_present: false,
         };
         let view = serde_json::to_value(CurrentCallView::from(ringing.clone())).unwrap();
         assert_eq!(view["video"]["camera"], true, "a video call wants our camera: {view}");
