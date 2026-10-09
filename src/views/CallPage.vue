@@ -79,6 +79,9 @@ const isVideo = computed(() => (current.value ? call.video : Boolean(route.query
 
 const now = ref(Date.now());
 let ticking: ReturnType<typeof setInterval> | undefined;
+/** On this screen, for Android's back button and the presented tool (Ionic keeps a page mounted
+ *  under the next one). */
+const onScreen = ref(true);
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const state = computed(() => {
@@ -384,11 +387,12 @@ interface Shown {
 const onSheet = ref<Shown | null>(null);
 const sheetLeaving = ref(false);
 const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
-/** The tool the presentation wants on screen now, if any. */
+/** The tool the presentation wants on screen now, if any. None while another screen is in front
+ *  (defect 2 of the retest, 2026-10-09): a call screen out of sight keeps no live tool frame. */
 const wanted = computed<Shown | null>(() => {
   const now = presenting.value;
   const plugin = presentPlugin.value;
-  if (presentState.value !== "sheet" || !now || !plugin) return null;
+  if (!onScreen.value || presentState.value !== "sheet" || !now || !plugin) return null;
   return { key: presentKey.value, plugin: { id: plugin.id, name: pluginName(plugin) }, file: presentFile.value, lead: now.by === "me" };
 });
 
@@ -482,8 +486,6 @@ function measure(): VideoLayout {
 }
 /** On this screen: the core is told where the pictures go (nowhere, on a voice call). */
 let shown = true;
-/** On this screen, for Android's back button (Ionic keeps a page mounted under the next one). */
-const onScreen = ref(true);
 // Android's back button closes the presenting sheets first, the last one opened first.
 closeOnBackWhile(() => onScreen.value && choosing.value, () => (choosing.value = false));
 closeOnBackWhile(() => onScreen.value && Boolean(asking.value), () => answerAsk(false));

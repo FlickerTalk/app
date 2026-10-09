@@ -43,6 +43,12 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
 // Every screen mounted here watches the same call: one left mounted would react to the next test.
 enableAutoUnmount(afterEach);
 
+// Ionic keeps the page mounted under the next one: it must act as gone, and as back when it shows.
+const leaveView = (wrapper: { vm: unknown }) =>
+  ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
+const enterView = (wrapper: { vm: unknown }) =>
+  ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewDidEnter ?? []).forEach((hook) => hook());
+
 describe("CallPage", () => {
   beforeEach(() => {
     seed();
@@ -272,10 +278,6 @@ describe("CallPage", () => {
     Object.assign(call, { id: "x", contact: "c1", phase: "ended", outcome: "busy" });
     expect(minimize(mount(CallPage, { shallow: true })).exists()).toBe(false);
   });
-
-  // Ionic keeps the page mounted under the next one: it must act as gone.
-  const leaveView = (wrapper: { vm: unknown }) =>
-    ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
 
   it("gives Android's back button back once another screen is in front", async () => {
     Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
@@ -842,6 +844,23 @@ describe("CallPage presenting", () => {
     expect(stop.attributes("aria-label")).toBe("Stop presenting");
     await stop.trigger("click");
     expect(actions.stopPresenting).toHaveBeenCalledWith("x");
+  });
+
+  // Defect 2 of the retest (2026-10-09): a page pushed over the call screen (Premium, a reminder)
+  // keeps it mounted underneath, and coming back through the call bar pushes another: each one
+  // under the screen kept its own live tool frame. A screen out of sight lets its tool go.
+  it("lets the tool go while another screen is in front, and opens it again on coming back", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    const close = goodbye(wrapper);
+    leaveView(wrapper);
+    await flushPromises();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+    expect(actions.stopPresenting).not.toHaveBeenCalled();
+    enterView(wrapper);
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props()).toMatchObject({ plugin: { id: BOARD }, presenting: "lead" });
   });
 
   it("opens the presenter's tool over the call, leading", async () => {
