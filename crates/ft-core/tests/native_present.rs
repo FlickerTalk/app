@@ -419,6 +419,46 @@ async fn both_presenting_at_once_end_up_showing_the_same() {
     alice.core.end_call(&call, false).await.unwrap();
 }
 
+/// The last presentation `events` said of `call` until it has been quiet for a while: what a
+/// screen that follows only the core's events shows.
+async fn last_heard(events: &mut broadcast::Receiver<Event>, call: &str) -> Option<Option<Presenting>> {
+    let mut last = None;
+    loop {
+        let next = tokio::time::timeout(Duration::from_millis(1500), events.recv()).await;
+        match next {
+            Ok(Ok(Event::Call { call: id, update: CallUpdate::Presenting { plugin, file, by }, .. })) if id == call => {
+                last = Some(plugin.zip(by).map(|(plugin, by)| Presenting { plugin, file, by }));
+            }
+            Ok(Ok(_)) => {}
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => panic!("events lost"),
+            Ok(Err(_)) | Err(_) => return last,
+        }
+    }
+}
+
+// Both press Present at once, again and again (defect H, 2026-10-09): whatever each side's screen
+// heard last is what its core keeps, so a screen led only by events never shows a stale one. The
+// loser hears its own presentation and then the winner's.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_clash_the_last_word_each_screen_hears_is_what_its_core_keeps() {
+    let (alice, bob) = two_phones().await;
+    let call = connected_call(&alice, &bob).await;
+    for round in 0..6 {
+        let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+        let (by_alice, by_bob) = tokio::join!(alice.core.present_in_call(&call, BOARD, None), bob.core.present_in_call(&call, BOARD, None));
+        assert!(by_alice.is_ok() || by_bob.is_ok(), "round {round}: someone presents");
+        until("both show the same presentation", || agree(&alice, &bob)).await;
+        let (alice_heard, bob_heard) = tokio::join!(last_heard(&mut alice_events, &call), last_heard(&mut bob_events, &call));
+        assert_eq!(alice_heard, Some(presenting(&alice).await), "round {round}: alice's screen");
+        assert_eq!(bob_heard, Some(presenting(&bob).await), "round {round}: bob's screen");
+        for phone in [&alice, &bob] {
+            phone.core.stop_presenting(&call).await.expect("stops");
+        }
+        until("nothing presented", || async { presenting(&alice).await.is_none() && presenting(&bob).await.is_none() }).await;
+    }
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
 /// A tool that talks to its twin but is not one of the two that present.
 const TOOL: &str = "com.example.board";
 const DAY: i64 = 24 * 60 * 60 * 1000;

@@ -948,22 +948,6 @@ describe("CallPage presenting", () => {
     expect(wrapper.findComponent(GamePermissions).props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
   });
 
-  it("asks about their presentation once the sheet in the way is answered", async () => {
-    active();
-    tools = [tool(BOARD, "Board", false), tool(PDF, "PDF viewer", false)];
-    const wrapper = await open();
-    await wrapper.find("[data-test='present']").trigger("click");
-    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
-    await flushPromises();
-    call.presenting = { plugin: BOARD, by: "them" };
-    await flushPromises();
-    const ask = wrapper.findComponent(GamePermissions);
-    expect(ask.props("body")).toBe("Talk to the same plugin on the other side of the chat");
-    ask.vm.$emit("cancel");
-    await flushPromises();
-    expect(ask.props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
-  });
-
   it("says the presentation could not start when the permission could not be given", async () => {
     tools = [tool(BOARD, "Board", false)];
     active({ presenting: { plugin: BOARD, by: "them" } });
@@ -1313,6 +1297,80 @@ describe("CallPage presenting", () => {
     call.phase = "ended";
     await flushPromises();
     expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+  });
+
+  // Defect H (2026-10-09): both pressed Present at once. The loser's screen follows its core: no
+  // sheet of its own left open, its own tool handed over to the winner's, no Stop.
+  it("closes Present's sheet when the other side starts presenting", async () => {
+    active();
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    expect(wrapper.findComponent(IonActionSheet).props("isOpen")).toBe(true);
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    expect(wrapper.findComponent(IonActionSheet).props("isOpen")).toBe(false);
+  });
+
+  it("closes my own permission sheet when the other side starts presenting, and asks about theirs", async () => {
+    active();
+    tools = [tool(BOARD, "Board", false), tool(PDF, "PDF viewer", false)];
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    const ask = wrapper.findComponent(GamePermissions);
+    expect(ask.props("body")).toBe("Talk to the same plugin on the other side of the chat");
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    expect(ask.props("open")).toBe(true);
+    expect(ask.props("body")).toBe("Maria López wants to present with Board");
+    ask.vm.$emit("allow");
+    await flushPromises();
+    expect(actions.presentInCall).not.toHaveBeenCalled();
+  });
+
+  it("hands its own tool over to theirs when the core says they won", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    expect(wrapper.findComponent(PluginSheet).props("presenting")).toBe("lead");
+    const close = goodbye(wrapper, true);
+    const mine = wrapper.findComponent(PluginSheet);
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(wrapper.find("[data-test='stop-presenting']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='present']").exists()).toBe(false);
+    mine.vm.$emit("closed");
+    await flushPromises();
+    const theirs = wrapper.findComponent(PluginSheet);
+    expect(theirs.props()).toMatchObject({ plugin: { id: BOARD }, presenting: "follow" });
+    expect(wrapper.find("[data-test='presenter']").exists()).toBe(true);
+  });
+
+  it("presents nothing, and says nothing, when their presentation came while mine was on its way", async () => {
+    active();
+    let refuse: (error: Error) => void = () => undefined;
+    actions.presentInCall.mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)));
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    call.presenting = { plugin: BOARD, by: "them" };
+    refuse(new Error("the other side is presenting"));
+    await flushPromises();
+    expect(toast.create).not.toHaveBeenCalled();
+  });
+
+  it("does not present from a sheet tapped after the other side started", async () => {
+    active();
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    const buttons = wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>;
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    buttons[0].handler?.();
+    await flushPromises();
+    expect(actions.presentInCall).not.toHaveBeenCalled();
   });
 
   it("says so, and rejects nothing unheard, when the presenter's tool closes and stopping fails", async () => {
