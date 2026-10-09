@@ -2630,10 +2630,9 @@ pub async fn core_plugin_remove(plugin: String, app: AppHandle, client: State<'_
     Ok(())
 }
 
-/// The tools and games the app carries: a **seed**, not a store (§52). They weigh little, so a
-/// phone with no network —and an iPhone, where nothing is downloaded in v1— still has them. The
-/// games travel here too (decisions 2026-10-03 and 2026-10-06), so every iPhone has them. What is
-/// heavy never travels here: it is a download, and only for whoever wants it.
+/// The tools and games the app carries: since 2026-10-08 (Ioan, Plan §56) every plugin of ours, so
+/// presenting in a call works on any phone and an iPhone, which downloads nothing, has them all.
+/// The catalogue only updates them.
 const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/markdown.ftplugin"),
     include_bytes!("../resources/plugins/images.ftplugin"),
@@ -2642,7 +2641,16 @@ const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/sketch.ftplugin"),
     include_bytes!("../resources/plugins/scanner.ftplugin"),
     include_bytes!("../resources/plugins/countdown.ftplugin"),
+    include_bytes!("../resources/plugins/board.ftplugin"),
+    include_bytes!("../resources/plugins/clean.ftplugin"),
+    include_bytes!("../resources/plugins/drive.ftplugin"),
+    include_bytes!("../resources/plugins/list.ftplugin"),
     include_bytes!("../resources/plugins/location.ftplugin"),
+    include_bytes!("../resources/plugins/notes.ftplugin"),
+    include_bytes!("../resources/plugins/poll.ftplugin"),
+    include_bytes!("../resources/plugins/sign.ftplugin"),
+    include_bytes!("../resources/plugins/split.ftplugin"),
+    include_bytes!("../resources/plugins/pdfviewer.ftplugin"),
     include_bytes!("../resources/plugins/game.tictactoe.ftplugin"),
     include_bytes!("../resources/plugins/game.fourinarow.ftplugin"),
     include_bytes!("../resources/plugins/game.chess.ftplugin"),
@@ -2658,17 +2666,14 @@ const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/game.wordgrid.ftplugin"),
 ];
 
-/// What a seed may weigh, and what all of them may weigh together. Past this, a plugin is a
-/// download: the app does not grow because the catalogue does. The test is what holds the line,
-/// so a heavy plugin never reaches a release. Raised on 2026-10-03 for the games (chess, about
-/// 87 KiB), and again on 2026-10-06 (Ioan) when the ten new games, Scanner and Countdown went
-/// inside the app: the two word games carry their MIT word lists (Word Grid, the largest seed,
-/// about 113 KiB), and all the seeds together, about 839 KiB, are negligible next to the ~30 MB
-/// of the app.
+/// What a seed may weigh, and what all of them may weigh together. Raised on 2026-10-08 (Ioan,
+/// Plan §56) when every plugin of ours went inside the app: the PDF viewer, about 1.1 MiB with
+/// pdf.js and its fonts, is the largest, and all the seeds together weigh about 3.7 MiB. The test
+/// still holds the line: nothing heavier travels.
 #[cfg(test)]
-const SEED_LIMIT: u64 = 128 * 1024;
+const SEED_LIMIT: u64 = 4 * 1024 * 1024;
 #[cfg(test)]
-const SEEDS_LIMIT: u64 = 1024 * 1024;
+const SEEDS_LIMIT: u64 = 8 * 1024 * 1024;
 
 /// Why seeds of these weights cannot travel inside the app, if they cannot.
 #[cfg(test)]
@@ -4415,11 +4420,28 @@ mod tests {
         assert_eq!(seeds_weight_problem(weights), None);
     }
 
-    /// The line still holds after the limits went up on 2026-10-06: a heavy plugin, or too many
-    /// of them, is a download and never reaches a release as a seed.
+    /// A seed this core cannot run is never installed (`install_plugin` checks `minCoreVersion`):
+    /// it would sit in the app for nothing. The PDF viewer asks for 1.6.0, the core that presents.
+    #[test]
+    fn every_seed_runs_on_this_core() {
+        for package in BUNDLED_PLUGINS {
+            let manifest = ft_plugins::open(package, &ft_plugins::catalogue()).expect("a seed is signed for us").manifest;
+            assert!(
+                ft_plugins::version_at_least(ft_core::plugins::CORE_VERSION, &manifest.min_core_version),
+                "{} needs FlickerTalk {}",
+                manifest.id,
+                manifest.min_core_version
+            );
+        }
+    }
+
+    /// The line holds after 2026-10-08 (Ioan, Plan §56: every plugin of ours travels inside the
+    /// app, the PDF viewer, about 1.1 MiB, included): a heavier plugin, or too many, still never
+    /// reaches a release as a seed.
     #[test]
     fn a_heavy_seed_is_a_download() {
-        assert!(seeds_weight_problem([2 * 1024 * 1024]).is_some(), "a seed of 2 MiB is refused");
+        assert!(seeds_weight_problem([5 * 1024 * 1024]).is_some(), "a seed of 5 MiB is refused");
+        assert_eq!(seeds_weight_problem([3 * 1024 * 1024 + 512 * 1024]), None, "the PDF viewer travels");
         assert!(seeds_weight_problem([SEED_LIMIT + 1]).is_some(), "a seed just over the limit is refused");
         assert_eq!(seeds_weight_problem([SEED_LIMIT]), None, "a seed at the limit travels");
         let many = vec![SEED_LIMIT; (SEEDS_LIMIT / SEED_LIMIT) as usize + 1];
@@ -4462,9 +4484,13 @@ mod tests {
     /// downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
     /// 2026-10-06 (Ioan): the ten new games, Scanner and Countdown travel too, on both platforms.
     /// 2026-10-08: and Location, so an iPhone can send where it is.
+    /// 2026-10-08 (Ioan, Plan §56): all our tools travel, so presenting in a call works on every phone.
     #[test]
     fn the_app_carries_its_tools_and_games() {
-        const TOOLS: [&str; 8] = ["markdown", "images", "pdf", "redact", "sketch", "scanner", "countdown", "location"];
+        const TOOLS: [&str; 17] = [
+            "markdown", "images", "pdf", "redact", "sketch", "scanner", "countdown", "board", "clean", "drive", "list", "location",
+            "notes", "poll", "sign", "split", "pdfviewer",
+        ];
         const GAMES: [&str; 13] = [
             "tictactoe", "fourinarow", "chess", "backgammon", "checkers", "dotsandboxes", "eights", "gomoku", "mancala", "reversi",
             "seabattle", "wordduel", "wordgrid",
