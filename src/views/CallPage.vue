@@ -253,6 +253,16 @@ async function readPlugins() {
 const seeding = ref("");
 /** Their presentation whose tool was offered but could not be added: it could not start. */
 const seedFailed = ref("");
+/** Their presentation whose tool is still to be added, once this screen is in sight (review M3). */
+let toFollow = "";
+function follow() {
+  const tool = presenting.value?.plugin;
+  if (!toFollow || !onScreen.value || !tool) return;
+  const key = toFollow;
+  toFollow = "";
+  void followWith(key, tool);
+}
+watch(onScreen, follow);
 async function followWith(key: string, tool: string) {
   seeding.value = key;
   try {
@@ -316,13 +326,14 @@ watch(
 const granting = ref("");
 
 // Their presentation came and the tool may not talk to its twin yet: ask, once per presentation;
-// with another sheet open, as soon as it is answered.
+// with another sheet open, as soon as it is answered. Not while another screen is in front: the
+// sheet goes to the app's root and would show over it (review M3, 2026-10-09); on coming back.
 watch(
-  [presentState, asking],
-  ([state]) => {
+  [presentState, asking, onScreen],
+  ([state, , shown]) => {
     const plugin = presentPlugin.value;
     const key = presentKey.value;
-    if (state === "ask" && plugin && presenting.value?.by === "them" && !asking.value && granting.value !== key) {
+    if (shown && state === "ask" && plugin && presenting.value?.by === "them" && !asking.value && granting.value !== key) {
       asking.value = {
         them: true,
         name: pluginName(plugin),
@@ -352,11 +363,15 @@ watch(
     presentBroken.value = false;
     seedFailed.value = "";
     declined.value = "";
+    toFollow = "";
     if (!key) return;
     const tool = presenting.value?.plugin;
-    // Theirs, with one of the two tools that present: added first if the app carries it (§56).
-    if (presenting.value?.by === "them" && (tool === PRESENT_BOARD || tool === PRESENT_DOCUMENT)) void followWith(key, tool);
-    else void readPlugins();
+    // Theirs, with one of the two tools that present: added first if the app carries it (§56),
+    // with the screen in sight.
+    if (presenting.value?.by === "them" && (tool === PRESENT_BOARD || tool === PRESENT_DOCUMENT)) {
+      toFollow = key;
+      follow();
+    } else void readPlugins();
     if (presenting.value?.file) void loadMessages(id.value).catch(() => undefined);
   },
   { immediate: true },
@@ -385,7 +400,10 @@ interface Shown {
   file?: HandedFile;
   lead: boolean;
 }
-const onSheet = ref<Shown | null>(null);
+/** `round` counts the sheets shown: one shown again with the same key, back in sight before the
+ *  last one's goodbye, is mounted anew instead of patching the one that was closing (review M1). */
+const onSheet = ref<(Shown & { round: number }) | null>(null);
+let sheetRounds = 0;
 const sheetLeaving = ref(false);
 const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
 /** The tool the presentation wants on screen now, if any. None while another screen is in front
@@ -404,7 +422,7 @@ function showSheet() {
     sheetLeaving.value = true;
     if (sheet.value) void sheet.value.close();
     else sheetClosed();
-  } else if (!onSheet.value && want) onSheet.value = want;
+  } else if (!onSheet.value && want) onSheet.value = { ...want, round: ++sheetRounds };
 }
 
 function sheetClosed() {
@@ -739,7 +757,7 @@ watch(
             v-if="onSheet"
             v-show="!sheetLeaving"
             ref="sheet"
-            :key="onSheet.key"
+            :key="`${onSheet.key}#${onSheet.round}`"
             :plugin="onSheet.plugin"
             :contact="id"
             :live="true"

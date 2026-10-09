@@ -887,6 +887,60 @@ describe("CallPage presenting", () => {
     expect(wrapper.findComponent(PluginSheet).props()).toMatchObject({ plugin: { id: BOARD }, presenting: "lead" });
   });
 
+  // Review M1 (2026-10-09): back in sight before the tool said goodbye, the next sheet has the same
+  // key as the one going; patched instead of mounted again, it would keep the old one's `closing`
+  // and never say goodbye again. Each sheet shown is a new one.
+  it("opens a new tool, not the one on its way out, when the screen comes back before its goodbye", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    const first = wrapper.findComponent(PluginSheet);
+    const close = goodbye(wrapper, true);
+    leaveView(wrapper);
+    await flushPromises();
+    expect(close).toHaveBeenCalledTimes(1);
+    enterView(wrapper);
+    await flushPromises();
+    first.vm.$emit("closed");
+    await flushPromises();
+    const again = wrapper.findComponent(PluginSheet);
+    expect(again.props()).toMatchObject({ plugin: { id: BOARD }, presenting: "lead" });
+    expect(again.vm).not.toBe(first.vm);
+  });
+
+  // Review M3 (2026-10-09): Present's permission sheet goes to the app's root and would show over
+  // the page in front; adding the tool is part of following. Both wait until the screen is back.
+  it("asks nothing and adds nothing while another screen is in front, and does both on coming back", async () => {
+    tools = [];
+    hooks.core_catalogue = () => [carried(BOARD, "Board")];
+    hooks.core_plugin_add = () => {
+      tools = [tool(BOARD, "Board", false)];
+    };
+    active();
+    const wrapper = await open();
+    leaveView(wrapper);
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    expect(sent("core_plugin_add")).toEqual([]);
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+    enterView(wrapper);
+    await flushPromises();
+    expect(sent("core_plugin_add")).toEqual([{ plugin: BOARD }]);
+    expect(wrapper.findComponent(GamePermissions).props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
+  });
+
+  it("does not ask about their presentation of a tool it has while another screen is in front", async () => {
+    tools = [tool(BOARD, "Board", false)];
+    active();
+    const wrapper = await open();
+    leaveView(wrapper);
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+    enterView(wrapper);
+    await flushPromises();
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(true);
+  });
+
   // The retest (2026-10-09): the PDF viewer's pages never scrolled, the whole frame did. A presented
   // tool fills its area as a tool window does (app#133): the frame is as tall as the area, it tells
   // the plugin so, and the plugin scrolls inside it.
