@@ -92,7 +92,11 @@ const state = computed(() => {
 const presenting = computed(() => (current.value && call.phase === "active" ? call.presenting : null));
 // The tool stays as it is while this key does: a lost link says the same presentation again.
 const presentKey = computed(() => (presenting.value ? `${presenting.value.by}|${presenting.value.plugin}|${presenting.value.file ?? ""}` : ""));
-const presentPlugin = computed(() => installed.value.find((one) => one.id === presenting.value?.plugin));
+/** Only the board and the PDF viewer present: a presentation naming any other tool opens nothing. */
+const presentPlugin = computed(() => {
+  const id = presenting.value?.plugin;
+  return id === PRESENT_BOARD || id === PRESENT_DOCUMENT ? installed.value.find((one) => one.id === id) : undefined;
+});
 /** Present appears only when the other phone can see it (`media` ≥ 2) and nobody presents. The
  *  state comes only from the core's events: `presentInCall` itself changes nothing here. */
 const canOffer = computed(() => current.value && call.native && call.canPresent && call.phase === "active" && !call.presenting);
@@ -134,10 +138,11 @@ const presentButtons = computed(() => [
   { text: t("common.cancel"), role: "cancel" },
 ]);
 
+/** Gives the tool the live channel; whether it has it now (no, if the list could not be read). */
 async function grantLive(tool: string): Promise<boolean> {
   const plugin = installed.value.find((one) => one.id === tool);
   if (plugin) await grantPlugin(plugin.id, presentGrant(plugin)).catch(() => undefined);
-  await refreshPlugins();
+  if (!(await refreshPlugins().then(() => true, () => false))) return false;
   const now = installed.value.find((one) => one.id === tool);
   return Boolean(now && !needsPresentGrant(now));
 }
@@ -160,6 +165,7 @@ function present(tool: string) {
       allow: () =>
         once(async () => {
           if (await grantLive(tool)) await begin(tool);
+          else await say("calls.presentFailed");
         }),
     };
   });
@@ -170,12 +176,13 @@ async function begin(tool: string) {
   try {
     if (tool !== PRESENT_DOCUMENT) return await presentInCall(call.id, tool);
     const [file] = await pickFiles("application/pdf");
-    if (!file) return;
+    // The picker can stay open past the call's end: nothing goes to the chat then.
+    if (!file || call.phase !== "active") return;
     if (file.size > PRESENT_FILE_LIMIT) return await say("calls.presentTooBig");
     await loadMessages(id.value);
     const before = new Set((chat(id.value)?.messages ?? []).map((one) => one.id));
     await sendPicked(id.value, file);
-    const message = await waitFor(() => sentFile(chat(id.value)?.messages ?? [], before, file.name), SEND_WAIT);
+    const message = await waitFor(() => sentFile(chat(id.value)?.messages ?? [], before, file.size), SEND_WAIT);
     if (!message) throw new Error("the PDF did not show up in the chat");
     await presentInCall(call.id, PRESENT_DOCUMENT, message);
   } catch (error) {
@@ -209,11 +216,18 @@ const fileMessage = computed(() => {
 });
 const presentFile = ref<HandedFile | undefined>();
 const presentBroken = ref(false);
+/** This screen has read the plugins of the phone: until then a tool is not "missing", only awaited
+ *  (opened cold, from CallKit say, the list is still empty). */
+const pluginsRead = ref(false);
+async function readPlugins() {
+  await refreshPlugins().catch(() => undefined);
+  pluginsRead.value = true;
+}
 const presentState = computed<PresentState>(() => {
   const now = presenting.value;
   if (!now) return "none";
   const plugin = presentPlugin.value;
-  if (!canPresentWith(plugin)) return "missing";
+  if (!canPresentWith(plugin)) return pluginsRead.value ? "missing" : "loading";
   // Before the grant: a grant that failed is not asked about again.
   if (presentBroken.value) return "failed";
   // No lock here (Ioan, 2026-10-08): following is free, the core decides; presenting checks it first.
@@ -226,6 +240,8 @@ const presentState = computed<PresentState>(() => {
   if ((arrived?.bytes ?? 0) > PRESENT_FILE_LIMIT) return "tooBig";
   return arrived?.state === "waiting" ? "accept" : "loading";
 });
+/** What the spinner says to screen readers: who presents (no text of its own, §84). */
+const waitLabel = computed(() => (presenting.value?.by === "them" ? t("calls.presenting", { name: contact.value.name }) : t("calls.present")));
 /** The presentation takes the screen (the tool, or what it waits for); a refusal or a lack does not. */
 const presentArea = computed(() => ["sheet", "accept", "loading", "failed", "tooBig"].includes(presentState.value));
 /** The hole the presentation leaves for their picture, which sits under the WebView. */
@@ -252,9 +268,11 @@ watch(
         image: pluginImage(plugin),
         allow: async () => {
           granting.value = key;
-          const granted = await grantLive(plugin.id);
-          if (!granted && presentKey.value === key) presentBroken.value = true;
-          if (granting.value === key) granting.value = "";
+          try {
+            if (!(await grantLive(plugin.id)) && presentKey.value === key) presentBroken.value = true;
+          } finally {
+            if (granting.value === key) granting.value = "";
+          }
         },
       };
     }
@@ -271,7 +289,7 @@ watch(
     presentBroken.value = false;
     declined.value = "";
     if (!key) return;
-    void refreshPlugins();
+    void readPlugins();
     if (presenting.value?.file) void loadMessages(id.value).catch(() => undefined);
   },
   { immediate: true },
@@ -333,9 +351,15 @@ function acceptPresented() {
   if (file) void acceptFile(file).catch(() => undefined);
 }
 
+/** The core refused to open the tool: only the presentation on screen failed, not the next one
+ *  (a tool on its way out can still refuse). */
+function presentRefused() {
+  if (onSheet.value?.key === presentKey.value) presentBroken.value = true;
+}
+
 /** The tool asked to close: the presenter stops; a follower's goes when the presenter stops. */
 function presentDone() {
-  if (presenting.value?.by === "me") void stopPresenting(call.id);
+  if (presenting.value?.by === "me") void stop();
 }
 
 // Native video (2026-09-29, docs/video-nativo.md): on the phones the pictures are native views
@@ -439,7 +463,11 @@ onIonViewWillLeave(() => {
 const drag = reactive({ x: 0, y: 0 });
 let grab: { id: number; x: number; y: number; fromX: number; fromY: number } | null = null;
 const thumbStyle = computed(() => ((localThumb.value || remoteThumb.value) && (drag.x || drag.y) ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined));
-watch([localThumb, remoteThumb], () => Object.assign(drag, { x: 0, y: 0 }));
+// A new small picture starts in its corner, and a drag cut short (the picture went) is forgotten.
+watch([localThumb, remoteThumb], () => {
+  grab = null;
+  Object.assign(drag, { x: 0, y: 0 });
+});
 // The hole is measured once the drag is on screen, not where the picture was a step before.
 watch(thumbStyle, relayout, { flush: "post" });
 /** The slot that is the small picture now, if one is. */
@@ -484,7 +512,7 @@ watchEffect(() => {
 let unmounted: (() => void) | undefined;
 onMounted(() => {
   unmounted = callScreenMounted(router);
-  void refreshPlugins();
+  void readPlugins();
   void refreshPremiumLock();
   if (!current.value || call.phase === "ended") void startCall(id.value, Boolean(route.query.video));
   ticking = setInterval(() => (now.value = Date.now()), 1000);
@@ -530,6 +558,11 @@ onUnmounted(() => {
 watch(
   () => call.phase,
   (phase) => {
+    // Nothing to present on a call that is no longer on: its sheets go (theirs go with the state).
+    if (phase !== "active") {
+      choosing.value = false;
+      if (asking.value && !asking.value.them) asking.value = null;
+    }
     // Only from this screen: the call may end while another one is in front.
     if (phase === "ended" && onScreen.value) leaving = setTimeout(leave, 1500);
   },
@@ -579,7 +612,19 @@ watch(
         </ion-button>
         <ion-action-sheet :is-open="choosing" :header="$t('calls.present')" :buttons="presentButtons" @did-dismiss="choosing = false" />
         <p v-if="presenting?.by === 'them'" class="ft-call__presenter" data-test="presenter" dir="auto">
-          {{ $t("calls.presenting", { name: contact.name }) }}
+          <!-- Said no: tapping who presents asks again. -->
+          <ion-button
+            v-if="presentState === 'declined'"
+            fill="clear"
+            size="small"
+            color="medium"
+            data-test="presenter-ask"
+            :aria-label="$t('calls.presentAsk', { name: contact.name, plugin: presentPlugin ? pluginName(presentPlugin) : '' })"
+            @click="declined = ''"
+          >
+            {{ $t("calls.presenting", { name: contact.name }) }}
+          </ion-button>
+          <template v-else>{{ $t("calls.presenting", { name: contact.name }) }}</template>
         </p>
         <section
           v-if="presentArea || onSheet"
@@ -601,7 +646,7 @@ watch(
             :session="sessionOf(id)"
             :presenting="onSheet.lead ? 'lead' : 'follow'"
             @done="presentDone"
-            @refused="presentBroken = true"
+            @refused="presentRefused"
             @closed="sheetClosed"
           />
           <div v-if="!onSheet || sheetLeaving" class="ft-call__present-wait">
@@ -611,7 +656,7 @@ watch(
             </ion-button>
             <p v-else-if="presentState === 'failed'" class="ft-call__notice" role="alert" data-test="present-failed">{{ $t("calls.presentFailed") }}</p>
             <p v-else-if="presentState === 'tooBig'" class="ft-call__notice" role="alert" data-test="present-too-big">{{ $t("calls.presentTooBig") }}</p>
-            <ion-spinner v-else name="crescent" color="medium" data-test="present-loading" aria-hidden="true" />
+            <ion-spinner v-else name="crescent" color="medium" data-test="present-loading" role="status" :aria-label="waitLabel" />
           </div>
         </section>
         <div v-if="native" class="ft-call__stage" :data-test="stage ? 'video' : undefined">
@@ -627,7 +672,11 @@ watch(
             @pointerup="dropThumb"
             @pointercancel="dropThumb"
           >
-            <p v-if="call.view.remotePaused" class="ft-call__paused" data-test="remote-paused">
+            <!-- In the 96 px corner the words do not fit: the icon alone, named. -->
+            <span v-if="call.view.remotePaused && remoteThumb" class="ft-call__paused" :aria-label="$t('calls.cameraPaused')" role="img" data-test="remote-paused">
+              <ion-icon :icon="pauseCircleOutline" aria-hidden="true" />
+            </span>
+            <p v-else-if="call.view.remotePaused" class="ft-call__paused" data-test="remote-paused">
               <ion-icon :icon="pauseCircleOutline" aria-hidden="true" />
               {{ $t("calls.cameraPaused") }}
             </p>
@@ -675,7 +724,7 @@ watch(
             <ion-icon :icon="videocamOffOutline" aria-hidden="true" />
             {{ $t("calls.videoUnavailable") }}
           </p>
-          <p v-if="invite" class="ft-call__notice ft-call__notice--invite">
+          <p v-if="invite && !presentArea" class="ft-call__notice ft-call__notice--invite">
             <ion-icon :icon="videocamOutline" aria-hidden="true" />
             {{ $t("calls.turnOnCamera") }}
           </p>
@@ -761,16 +810,16 @@ watch(
           </button>
         </div>
       </div>
-    <GamePermissions
-      :open="Boolean(asking)"
-      :name="asking?.name ?? ''"
-      :icon="asking?.icon"
-      :image="asking?.image"
-      :body="asking?.body"
-      :allow-label="$t('calls.presentAllow')"
-      @allow="answerAsk(true)"
-      @cancel="answerAsk(false)"
-    />
+      <GamePermissions
+        :open="Boolean(asking)"
+        :name="asking?.name ?? ''"
+        :icon="asking?.icon"
+        :image="asking?.image"
+        :body="asking?.body"
+        :allow-label="$t('calls.presentAllow')"
+        @allow="answerAsk(true)"
+        @cancel="answerAsk(false)"
+      />
     </ion-content>
   </ion-page>
 </template>
@@ -990,7 +1039,8 @@ watch(
   color: var(--ft-text);
   font-size: 14px;
 }
-.ft-call__slot--local .ft-call__paused {
+.ft-call__slot--local .ft-call__paused,
+.ft-call__slot--remote.is-thumb .ft-call__paused {
   position: absolute;
   inset: 0;
   justify-content: center;

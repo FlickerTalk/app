@@ -30,9 +30,10 @@ export function presentGrant(plugin: PluginView): PluginPermissions {
   return { ...plugin.granted, live: Boolean(plugin.asks.live) };
 }
 
-/** The id of the file I just sent: mine, with this name, and not among the messages before. */
-export function sentFile(messages: readonly ChatMessage[], before: ReadonlySet<string>, name: string): string | undefined {
-  return messages.find((one) => one.mine && one.kind === "file" && one.file?.name === name && !before.has(one.id))?.id;
+/** The id of the file I just sent: mine, of this many bytes, and not among the messages before.
+ *  Never by its name: the core keeps a cleaned one (`safe_file_name`, "a: b.pdf" → "a_ b.pdf"). */
+export function sentFile(messages: readonly ChatMessage[], before: ReadonlySet<string>, bytes: number): string | undefined {
+  return messages.find((one) => one.mine && one.kind === "file" && one.file?.bytes === bytes && !before.has(one.id))?.id;
 }
 
 /** The first value `read` gives that is not undefined, or undefined after `limit` ms. */
