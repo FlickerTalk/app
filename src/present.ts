@@ -68,16 +68,25 @@ export function holeClip(area: VideoRect | null, hole: VideoRect | null): string
   return `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px)`;
 }
 
+/** What adding a tool to present or follow with came to: already here, added, offered by nothing
+ *  (it is missing), or offered but the install failed. */
+export type AddedTool = "here" | "added" | "missing" | "failed";
+
 /**
- * Adds a tool the app carries and this phone has not added (2026-10-09, §56: ours arrive
- * installed): presenting or following never sends anyone to Apps for it. Granting nothing, as any
- * install (§53). Whether it added it; never for a tool the app does not carry, or one already here.
+ * Adds a tool to present or follow with that this phone has not added (2026-10-09, §56: ours
+ * arrive installed): presenting or following never sends anyone to Apps for it. Any offered entry
+ * counts, the app's own copy or the catalogue's newer one (which replaces the seed's in the list,
+ * `carried: false`): the core picks one, as the Apps grid does. Granting nothing (§53).
  */
-export async function installCarried(tool: string): Promise<boolean> {
-  if (installed.value.some((one) => one.id === tool)) return false;
+export async function installOffered(tool: string): Promise<AddedTool> {
+  if (installed.value.some((one) => one.id === tool)) return "here";
   const offer = await refreshOffered().catch(() => offered.value);
-  if (!(offer ?? []).some((one) => one.id === tool && one.carried)) return false;
-  await installPlugin(tool);
-  await refreshPlugins();
-  return installed.value.some((one) => one.id === tool);
+  if (!(offer ?? []).some((one) => one.id === tool)) return "missing";
+  try {
+    await installPlugin(tool);
+    await refreshPlugins();
+  } catch {
+    return "failed";
+  }
+  return installed.value.some((one) => one.id === tool) ? "added" : "failed";
 }

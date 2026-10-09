@@ -44,7 +44,7 @@ import {
   SEND_WAIT,
   canPresentWith,
   holeClip,
-  installCarried,
+  installOffered,
   needsPresentGrant,
   presentGrant,
   sentFile,
@@ -166,8 +166,11 @@ function present(tool: string) {
   if (call.presenting) return;
   return once(async () => {
     await Promise.all([refreshPlugins(), refreshPremiumLock()]);
-    // Not added yet but carried by the app: added here (§56), not in Apps.
-    await installCarried(tool).catch(() => false);
+    // Not added yet but offered (the app's own copy, or a newer one): added here (§56), not in Apps.
+    const added = await installOffered(tool);
+    // Adding it can take seconds: theirs may have started meanwhile, and it shows.
+    if (call.presenting) return;
+    if (added === "failed") return say("calls.presentFailed");
     const plugin = installed.value.find((one) => one.id === tool);
     if (!canPresentWith(plugin)) return say("calls.presentMissing");
     if (isLocked(plugin)) return void router.push(PREMIUM_PAGE);
@@ -243,13 +246,15 @@ async function readPlugins() {
   await refreshPlugins().catch(() => undefined);
   pluginsRead.value = true;
 }
-/** Their presentation whose tool is being added from what the app carries: awaited, not missing. */
+/** Their presentation whose tool is being added: awaited, not missing. */
 const seeding = ref("");
+/** Their presentation whose tool was offered but could not be added: it could not start. */
+const seedFailed = ref("");
 async function followWith(key: string, tool: string) {
   seeding.value = key;
   try {
     await readPlugins();
-    await installCarried(tool).catch(() => false);
+    if ((await installOffered(tool)) === "failed") seedFailed.value = key;
   } finally {
     if (seeding.value === key) seeding.value = "";
   }
@@ -258,7 +263,10 @@ const presentState = computed<PresentState>(() => {
   const now = presenting.value;
   if (!now) return "none";
   const plugin = presentPlugin.value;
-  if (!canPresentWith(plugin)) return pluginsRead.value && seeding.value !== presentKey.value ? "missing" : "loading";
+  if (!canPresentWith(plugin)) {
+    if (seedFailed.value === presentKey.value) return "failed";
+    return pluginsRead.value && seeding.value !== presentKey.value ? "missing" : "loading";
+  }
   // Before the grant: a grant that failed is not asked about again.
   if (presentBroken.value) return "failed";
   // No lock here (Ioan, 2026-10-08): following is free, the core decides; presenting checks it first.
@@ -339,6 +347,7 @@ watch(
   (key) => {
     presentFile.value = undefined;
     presentBroken.value = false;
+    seedFailed.value = "";
     declined.value = "";
     if (!key) return;
     const tool = presenting.value?.plugin;
