@@ -76,7 +76,7 @@ describe("PluginSheet", () => {
     says({ type: "ft.ready" });
     await flushPromises();
     expect(post).toHaveBeenCalledWith(
-      { type: "ft.open", text: "hello", dark: false, theme: {}, lang: "en", file: null, ref: null, reminder: null, live: false },
+      { type: "ft.open", text: "hello", dark: false, dir: "ltr", theme: {}, lang: "en", file: null, ref: null, reminder: null, live: false },
       "*",
     );
   });
@@ -101,7 +101,7 @@ describe("PluginSheet", () => {
       says({ type: "ft.hello" });
       await flushPromises();
       expect(post).toHaveBeenCalledWith(
-        { type: "ft.theme", dark: true, theme: { "--ion-text-color": "#f5f5f5", "--ion-background-color": "#000000" } },
+        { type: "ft.theme", dark: true, dir: "ltr", theme: { "--ion-text-color": "#f5f5f5", "--ion-background-color": "#000000" } },
         "*",
       );
       says({ type: "ft.ready" });
@@ -124,13 +124,20 @@ describe("PluginSheet", () => {
       html.classList.remove("ft-dark");
       await flushPromises();
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, theme: { "--ion-text-color": "#0a0a0a" } }, "*");
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, dir: "ltr", theme: { "--ion-text-color": "#0a0a0a" } }, "*");
 
       // Another colour direction, same mode.
       document.body.style.setProperty("--ion-text-color", "#121821");
       html.dataset.direction = "aurora";
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, theme: { "--ion-text-color": "#121821" } }, "*");
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, dir: "ltr", theme: { "--ion-text-color": "#121821" } }, "*");
+
+      // The language turns the text right to left (2026-10-09): the frame hears it.
+      html.dir = "rtl";
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, dir: "rtl", theme: { "--ion-text-color": "#121821" } }, "*");
+      html.removeAttribute("dir");
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // A class that changes nothing of the look says nothing.
       const before = post.mock.calls.length;

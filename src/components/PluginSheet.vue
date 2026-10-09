@@ -641,7 +641,8 @@ async function busy(work: () => Promise<void>) {
 /**
  * The app's look, followed while the plugin is open (2026-10-02): the root's class (`ft-dark`) and
  * `data-direction` are what the stylesheet reads, whoever changes them (Settings, or the system's
- * dark mode in `theme.ts`). The frame hears the colours again only when they really changed.
+ * dark mode in `theme.ts`), and `dir` which way the text runs (2026-10-09). The frame hears them
+ * again only when they really changed.
  */
 let lastTheme = "";
 const looks = new MutationObserver(() => {
@@ -666,7 +667,7 @@ watch(
 onMounted(async () => {
   reportOpen(props.plugin.id, true);
   lastTheme = JSON.stringify(pluginTheme());
-  looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction"] });
+  looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction", "dir"] });
   window.addEventListener("message", onMessage);
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });

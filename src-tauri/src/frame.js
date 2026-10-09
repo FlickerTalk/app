@@ -172,7 +172,12 @@ const paint = (said) => {
   if (said.dark) root.dataset.dark = "1";
   else delete root.dataset.dark;
   root.style.colorScheme = said.dark ? "dark" : "light";
+  // The app's text direction (2026-10-09): Ionic's components and overlays read it from the root.
+  if (said.dir === "rtl" || said.dir === "ltr") root.dir = said.dir;
 };
+
+// Which Ionic the app lends this frame (2026-10-09), as its page says: `globalThis.ftIonic`.
+const lent = document.documentElement.dataset.ionic;
 
 // The colours are there before the plugin draws anything: asked for, and waited for a moment only.
 await new Promise((resolve) => {
@@ -229,6 +234,7 @@ addEventListener("message", (event) => {
       theme: { ...theme },
       // The chat it was opened in (2026-10-02): an opaque id, only when there is one.
       ...(typeof said.chat === "string" ? { chat: said.chat } : {}),
+      ...(lent ? { ionic: { version: lent } } : {}),
     };
     for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);

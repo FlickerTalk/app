@@ -235,6 +235,16 @@ describe("the colours a plugin is handed", () => {
     expect(pluginTheme().dark).toBe(true);
   });
 
+  // 2026-10-09: and the app's text direction, for Ionic inside the frame.
+  it("say which way the app's text runs", () => {
+    document.documentElement.dir = "rtl";
+    expect(pluginTheme().dir).toBe("rtl");
+    document.documentElement.dir = "ltr";
+    expect(pluginTheme().dir).toBe("ltr");
+    document.documentElement.removeAttribute("dir");
+    expect(pluginTheme().dir).toBe("ltr");
+  });
+
   it("leave out a colour the app does not have", () => {
     document.body.style.setProperty("--ion-text-color", "#ffffff");
     expect(pluginTheme().theme).toEqual({ "--ion-text-color": "#ffffff" });

@@ -43,6 +43,7 @@ const ft = () => (globalThis as unknown as { ft: { onOpen(handler: (opened: Said
 afterEach(() => {
   const root = document.documentElement;
   root.removeAttribute("style");
+  root.removeAttribute("dir");
   delete root.dataset.dark;
 });
 
@@ -125,6 +126,35 @@ describe("the frame", () => {
     expect(colour("--ion-background-color")).toBe("#ffffff");
     expect(root().dataset.dark).toBeUndefined();
     expect(root().style.colorScheme).toBe("light");
+  });
+
+  // 2026-10-09: the app's text direction, on the frame's root, so Ionic's components (and the
+  // overlays, which go to the body, outside the plugin's element) read right to left in Arabic.
+  it("takes the app's direction and follows it", async () => {
+    const { says, ran } = await frame();
+    await says({ type: "ft.theme", dark: false, theme: {}, dir: "rtl" });
+    await ran;
+    expect(root().dir).toBe("rtl");
+    await says({ type: "ft.theme", dark: false, theme: {}, dir: "ltr" });
+    expect(root().dir).toBe("ltr");
+    // Anything else is no direction: the last one stays.
+    await says({ type: "ft.open", dark: false, theme: {}, dir: "sideways" });
+    expect(root().dir).toBe("ltr");
+  });
+
+  // 2026-10-09: which Ionic the app lends the frame, as the page says it (`data-ionic`).
+  it("tells the plugin which Ionic it is lent", async () => {
+    root().dataset.ionic = "9.0.4";
+    try {
+      const opened: Said[] = [];
+      const { says, ran } = await frame(() => ft().onOpen((one) => opened.push(one)));
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says({ type: "ft.open", text: "" });
+      expect(opened[0].ionic).toEqual({ version: "9.0.4" });
+    } finally {
+      delete root().dataset.ionic;
+    }
   });
 
   it("loads the plugin all the same if the colours never come", async () => {
