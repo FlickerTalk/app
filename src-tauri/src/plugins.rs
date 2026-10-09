@@ -112,6 +112,7 @@ pub fn icon(name: &str) -> Option<(&'static str, &'static [u8])> {
 /// in the app means `node scripts/build-frame-ionic.mjs` and these two; a test checks them against
 /// `package-lock.json`.
 pub const IONIC_VERSION: &str = "9.0.4";
+#[cfg(test)]
 pub const IONICONS_VERSION: &str = "8.1.0";
 
 /// What a frame finds at `./ionic/<file>`: every component as one module, with the icons of
@@ -131,6 +132,7 @@ pub fn ionic(file: &str) -> Option<(&'static str, &'static [u8])> {
 }
 
 /// What the lent Ionic adds to the app, in bytes.
+#[cfg(test)]
 pub fn ionic_size() -> usize {
     IONIC.iter().map(|(_, bytes)| bytes.len()).sum()
 }

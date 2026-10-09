@@ -10,6 +10,14 @@ describe("Ionic's settings", () => {
     expect(ionicConfig("رجوع", true)).toMatchObject({ backButtonText: "رجوع" });
   });
 
+  // 2026-10-09: the Ionic lent to the plugins' frames picks ios or md from the user agent, which the
+  // frame shares with the app. That is the same as the app's only while the app forces no mode; if
+  // it ever does, the frame has to be told (`frame.html`, `<html mode>`).
+  it("lets Ionic pick the mode from the phone, as the plugins' frames do", () => {
+    expect(ionicConfig("رجوع", true)).not.toHaveProperty("mode");
+    expect(ionicConfig("رجوع", false)).not.toHaveProperty("mode");
+  });
+
   // Android's (Material) back button is an arrow alone; it stays so.
   it("leaves Android's back button as an arrow alone", () => {
     expect(ionicConfig("رجوع", false)).not.toHaveProperty("backButtonText");
