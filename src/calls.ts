@@ -14,6 +14,7 @@ import { markRaw, reactive } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { storedCallRouting, syncCallRouting } from "./preferences";
+import { showCallScreen } from "./call-screen";
 import { router } from "./router";
 
 export type CallPhase = "idle" | "calling" | "ringing" | "connecting" | "active" | "ended";
@@ -378,13 +379,12 @@ async function answerNativeCall() {
 }
 
 /**
- * The call screen, unless the app is on it already: the only place where a call is seen and hung
- * up (2026-09-29). Whichever way the call was answered (the app, CallKit's banner or lock screen,
+ * The call screen, unless the app is on it already (back to it if it is under the pages on top,
+ * 2026-10-09): the only place where a call is seen and hung up (2026-09-29). Whichever way the call was answered (the app, CallKit's banner or lock screen,
  * the notification), it must end up there.
  */
 async function showCall(): Promise<void> {
-  const screen = `/call/${call.contact}`;
-  if (call.contact && router.currentRoute.value.path !== screen) await router.push(screen);
+  if (call.contact) await showCallScreen(router, `/call/${call.contact}`);
 }
 
 /**

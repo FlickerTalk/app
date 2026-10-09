@@ -190,9 +190,10 @@ watchEffect(() => {
 });
 
 // On the page until Ionic takes it away, after its leaving transition: the call bar waits for that.
+// Under pages opened over it, it stays in the history, and going back to the call comes back here.
 let unmounted: (() => void) | undefined;
 onMounted(() => {
-  unmounted = callScreenMounted();
+  unmounted = callScreenMounted(router);
   if (!current.value || call.phase === "ended") void startCall(id.value, Boolean(route.query.video));
   ticking = setInterval(() => (now.value = Date.now()), 1000);
   window.addEventListener("resize", relayout);

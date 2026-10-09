@@ -12,7 +12,7 @@ import base from "../theme/base.css?raw";
 
 const push = vi.fn();
 const route = { path: "/tabs/chats" };
-vi.mock("vue-router", () => ({ useRouter: () => ({ push }), useRoute: () => route }));
+vi.mock("vue-router", () => ({ useRouter: () => ({ push, currentRoute: { value: route } }), useRoute: () => route }));
 vi.mock("../calls", async () => (await import("../__tests__/calls-mock")).callsMock());
 
 // 2026-09-29: a call going on while the app shows something else can always be gone back to and

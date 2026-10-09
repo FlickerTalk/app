@@ -5,7 +5,7 @@ import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import IncomingCall from "./IncomingCall.vue";
 
 const push = vi.fn();
-vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
+vi.mock("vue-router", () => ({ useRouter: () => ({ push, currentRoute: { value: { path: "/tabs/chats" } } }) }));
 vi.mock("../calls", async () => (await import("../__tests__/calls-mock")).callsMock());
 
 describe("IncomingCall", () => {

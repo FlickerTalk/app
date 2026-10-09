@@ -17,6 +17,43 @@ const DIM = 0.8;
  * back (iOS) drives it step by step; `root` navigations and tab switches are not animated.
  */
 export function pageTransition(baseEl: HTMLElement, opts: TransitionOptions): Animation {
+  const root = build(baseEl, opts);
+  follow(root);
+  return root;
+}
+
+/** Transitions under way: each says, once, that it is over. */
+const moving = new Set<() => void>();
+/** Whoever waits for the pages to stop moving. */
+let waiting: Array<() => void> = [];
+
+/**
+ * A transition counts as under way until it finishes, or past its time and some should it never
+ * (an animation Ionic drops unplayed): nobody may wait for ever on a page that never came.
+ */
+function follow(root: Animation): void {
+  const over = () => {
+    clearTimeout(cap);
+    if (!moving.delete(over) || moving.size) return;
+    const woken = waiting;
+    waiting = [];
+    woken.forEach((wake) => wake());
+  };
+  const cap = setTimeout(over, (root.getDuration() || DURATION) * 3);
+  moving.add(over);
+  root.onFinish(over, { oneTimeCallback: true });
+}
+
+/**
+ * Resolves once no page is moving (2026-10-09): going back while a page was still coming in left
+ * the page gone back to hidden, as Ionic hid it when the push's transition ended.
+ */
+export function pageTransitionsDone(): Promise<void> {
+  if (!moving.size) return Promise.resolve();
+  return new Promise((resolve) => waiting.push(resolve));
+}
+
+function build(baseEl: HTMLElement, opts: TransitionOptions): Animation {
   const rtl = (baseEl?.ownerDocument ?? document).documentElement.dir === "rtl";
   const side = (percent: string) => (rtl ? `translateX(-${percent})` : `translateX(${percent})`);
   const under = (percent: string) => (rtl ? `translateX(${percent})` : `translateX(-${percent})`);

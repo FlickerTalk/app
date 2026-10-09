@@ -71,6 +71,13 @@
  * a link tapped in a chat. Either is read as the core does: only `https://flickertalk.com/add#…`
  * and `/move#…`, valid when what follows `#` is a run of base64url of a card's length at least.
  *
+ * A reminder tapped in the notifications (2026-10-09): `window.__ftFake.tapReminder(plugin, id)`
+ * is what the core hands over once (`core_pending_reminder`), and the app is told it came back on
+ * the screen, as a tap does: the plugin's page opens over whatever was on the screen.
+ *
+ * `window.__ftFakeAnswerLater` keeps an outgoing native call calling until
+ * `window.__ftFake.theyAnswer()`: the other phone answers then, and the call connects.
+ *
  * Everything is one function, serialised into the page by Playwright: it may import nothing.
  */
 export function installFakeCore() {
@@ -208,6 +215,20 @@ export function installFakeCore() {
   const FAKE_FIX = { lat: 40.41678, lon: -3.70379, accuracy: 35, at: 1_790_000_000_000 };
   const callEvent = (payload: Record<string, unknown>) =>
     emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
+  /** The other phone answering the outgoing native call, until it has. */
+  let theyAnswer: (() => void) | null = null;
+  /** Right after `connected` the core says the video it has, then the camera it turned on (or could not). */
+  const videoReady = (wanted: boolean) => {
+    Object.assign(state.video, { available: true, camera: false });
+    callEvent({ kind: "video", ...state.video });
+    if (!wanted) return;
+    if (flag("__ftFakeCameraFails")) {
+      callEvent({ kind: "camera_failed" });
+      return;
+    }
+    state.video.camera = true;
+    callEvent({ kind: "video", ...state.video });
+  };
 
   const handlers = new Map<number, Handler>();
   const listeners = new Map<string, number[]>();
@@ -287,6 +308,8 @@ export function installFakeCore() {
   /** The link the phone opened the app with, until the app takes it; the test's (set after this
    *  runs) is read on the first ask. */
   let openedLink: string | null = null;
+  /** The reminder a notification tap opened the app with, until the app takes it. */
+  let tappedReminder: { plugin: string; id: string; session: string | null } | null = null;
   let launchLinkTaken = false;
   const readLink = (url: string) => {
     for (const [kind, prefix] of [["add", "https://flickertalk.com/add#"], ["move", "https://flickertalk.com/move#"]] as const) {
@@ -433,6 +456,11 @@ export function installFakeCore() {
       }
       case "core_read_link":
         return readLink(String(a.url));
+      case "core_pending_reminder": {
+        const tapped = tappedReminder;
+        tappedReminder = null;
+        return tapped;
+      }
       // Native calls (2026-09-28, video since 2026-09-29): the fake is a browser, so calls stay on
       // the WebView unless a test plays a phone; no call is going on when the app starts.
       case "core_native_calls":
@@ -460,26 +488,18 @@ export function installFakeCore() {
         state.nativeOutgoing = true;
         const wanted = Boolean(args?.video);
         Object.assign(state.video, { available: false, camera: wanted, paused: false, facing: "front", remote: false, remotePaused: false });
-        setTimeout(() => {
+        theyAnswer = () => {
+          theyAnswer = null;
           state.nativePhase = "connecting";
           callEvent({ kind: "answered" });
-        }, 10);
-        setTimeout(() => {
-          state.nativePhase = "active";
-          state.connectedAt = Date.now();
-          callEvent({ kind: "connected" });
-        }, 20);
-        setTimeout(() => {
-          Object.assign(state.video, { available: true, camera: false });
-          callEvent({ kind: "video", ...state.video });
-          if (!wanted) return;
-          if (flag("__ftFakeCameraFails")) {
-            callEvent({ kind: "camera_failed" });
-            return;
-          }
-          state.video.camera = true;
-          callEvent({ kind: "video", ...state.video });
-        }, 30);
+          setTimeout(() => {
+            state.nativePhase = "active";
+            state.connectedAt = Date.now();
+            callEvent({ kind: "connected" });
+          }, 10);
+          setTimeout(() => videoReady(wanted), 20);
+        };
+        if (!flag("__ftFakeAnswerLater")) setTimeout(() => theyAnswer?.(), 10);
         return NATIVE_CALL;
       }
       case "core_call_set_video":
@@ -767,6 +787,13 @@ export function installFakeCore() {
       openedLink = url;
       emit("ft://opened-link", null);
     },
+    /** A reminder's notification is tapped: the core keeps it, and the app comes back on the screen. */
+    tapReminder: (plugin: string, id: string) => {
+      tappedReminder = { plugin, id, session: null };
+      document.dispatchEvent(new Event("visibilitychange"));
+    },
+    /** The other phone answers the outgoing call kept calling (`__ftFakeAnswerLater`). */
+    theyAnswer: () => theyAnswer?.(),
     /** Whether the app listens to the back button now, without pressing it. */
     listening: () => back !== null,
     back: () => {

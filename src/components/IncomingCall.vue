@@ -6,6 +6,7 @@ import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import { chat, hueOf } from "../core";
 import { acceptCall, call, hangUp } from "../calls";
+import { showCallScreen } from "../call-screen";
 
 // Plan §66: an incoming call rings over whatever screen is open.
 const router = useRouter();
@@ -15,7 +16,8 @@ const name = computed(() => chat(call.contact)?.name ?? call.contact.slice(0, 9)
 async function answer() {
   const contact = call.contact;
   const accepting = acceptCall();
-  await router.push(`/call/${contact}`);
+  // The last call's screen may still be under the pages on top: the new call takes it (2026-10-09).
+  await showCallScreen(router, `/call/${contact}`);
   await accepting;
 }
 </script>

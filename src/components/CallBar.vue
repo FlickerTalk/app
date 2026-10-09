@@ -5,7 +5,7 @@ import { callOutline, pauseCircleOutline, videocamOutline } from "ionicons/icons
 import { useRoute, useRouter } from "vue-router";
 import { chat } from "../core";
 import { call, hangUp } from "../calls";
-import { callScreenGone } from "../call-screen";
+import { showCallScreen } from "../call-screen";
 
 // 2026-09-29: a call going on while the app shows another screen can always be gone back to and
 // hung up. On the iPhone a call answered from CallKit's banner used to leave no way to hang up.
@@ -52,9 +52,9 @@ const clock = computed(() => {
 
 // The bar shows as soon as the call screen starts to go; a tap before it has gone waits for it
 // (2026-10-09): pushed meanwhile, the route found the leaving screen and was left on a blank page.
+// Under the pages opened over it, the call screen is gone back to, not pushed a second time.
 async function back() {
-  await callScreenGone();
-  await router.push(screen.value);
+  await showCallScreen(router, screen.value);
 }
 </script>
 
