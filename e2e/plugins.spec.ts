@@ -178,9 +178,10 @@ test("a plugin wears the app's colours, and follows the app from dark to light w
 });
 
 // 2026-10-04: the frame follows the plugin's content down as well as up. A game's waiting screen is
-// tall and its board is short: once the board shows, the window shrinks to it and leaves no empty
-// area to scroll under it.
-test("a plugin's window shrinks when its content does", async ({ app }) => {
+// tall and its board is short: once the board shows, the room shrinks to it and leaves no empty
+// area to scroll under it. (Since 2026-10-09 only the game room sizes its frame by the content: a
+// tool's frame is as tall as its window.)
+test("a game's frame in the room shrinks when its content does", async ({ app }) => {
   await serveRealFrames(
     app,
     `customElements.define("ft-markdown", class extends HTMLElement {
@@ -191,7 +192,12 @@ test("a plugin's window shrinks when its content does", async ({ app }) => {
       }
     });`,
   );
-  await openTool(app, "com.flickertalk.markdown");
+  await app.goto("/chat/ft_bob123456789");
+  await app.getByTestId("apps").click();
+  await app.getByTestId("apps-tab-games").click();
+  await app.getByTestId(`game-${TICTACTOE}`).click();
+  await app.getByTestId("game-allow").click();
+  await expect(app.getByTestId("game-room")).toBeVisible();
   const tall = () => app.locator("iframe.ft-plugin__frame").evaluate((frame) => frame.getBoundingClientRect().height);
   await expect.poll(tall).toBeGreaterThan(1200);
 
