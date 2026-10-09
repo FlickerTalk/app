@@ -5,6 +5,7 @@ import { IonIcon } from "@ionic/vue";
 import { callOutline, pauseCircleOutline, videocamOutline } from "ionicons/icons";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
+import { callScreenMounted } from "../call-screen";
 import CallBar from "./CallBar.vue";
 import source from "./CallBar.vue?raw";
 import base from "../theme/base.css?raw";
@@ -53,6 +54,20 @@ describe("CallBar", () => {
     expect(wrapper.text()).toContain("Maria López");
     await wrapper.find("[aria-label='Back to the call']").trigger("click");
     expect(push).toHaveBeenCalledWith("/call/c1");
+  });
+
+  // 2026-10-09: the bar shows as soon as the call screen starts to go; a tap before that screen
+  // had gone left a blank page (Ionic took the leaving screen away under the new route).
+  it("goes back to the call only once the call screen that was leaving has gone", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const unmounted = callScreenMounted();
+    const wrapper = mount(CallBar, { shallow: true });
+    await wrapper.find("[aria-label='Back to the call']").trigger("click");
+    await nextTick();
+    expect(push).not.toHaveBeenCalled();
+    unmounted();
+    await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/call/c1"));
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
   it("shows a call that is still connecting or calling, too", () => {
