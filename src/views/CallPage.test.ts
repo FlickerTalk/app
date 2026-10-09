@@ -5,6 +5,7 @@ import { IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import { setLocale } from "../i18n";
+import { callScreenGone } from "../call-screen";
 import CallPage from "./CallPage.vue";
 import { pageShape } from "../__tests__/page-shape";
 import source from "./CallPage.vue?raw";
@@ -33,6 +34,19 @@ describe("CallPage", () => {
     nav.back.mockReset();
     nav.replace.mockReset();
     window.history.replaceState({ back: "/chat/c1" }, "");
+  });
+
+  // 2026-10-09: the screen is on the page until it unmounts, after the transition that takes it
+  // away; going back to the call waits for that (the call bar tapped while it left: a blank page).
+  it("is on the page from its mount to its unmount", async () => {
+    let gone = false;
+    const wrapper = mount(CallPage, { shallow: true });
+    void callScreenGone().then(() => (gone = true));
+    await flushPromises();
+    expect(gone).toBe(false);
+    wrapper.unmount();
+    await flushPromises();
+    expect(gone).toBe(true);
   });
 
   // Seen in Arabic (2026-10-02): a name reads in its own direction, not in the app's.

@@ -16,6 +16,7 @@ import {
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import { closeOnBackWhile, goBack } from "../back";
+import { callScreenMounted } from "../call-screen";
 import { chat } from "../core";
 import {
   call,
@@ -188,7 +189,10 @@ watchEffect(() => {
   if (remoteAudio.value) remoteAudio.value.srcObject = call.remote;
 });
 
+// On the page until Ionic takes it away, after its leaving transition: the call bar waits for that.
+let unmounted: (() => void) | undefined;
 onMounted(() => {
+  unmounted = callScreenMounted();
   if (!current.value || call.phase === "ended") void startCall(id.value, Boolean(route.query.video));
   ticking = setInterval(() => (now.value = Date.now()), 1000);
   window.addEventListener("resize", relayout);
@@ -217,6 +221,7 @@ function end() {
 }
 
 onUnmounted(() => {
+  unmounted?.();
   clearInterval(ticking);
   clearTimeout(unavailableTimer);
   window.removeEventListener("resize", relayout);
