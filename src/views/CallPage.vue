@@ -201,7 +201,7 @@ function answerAsk(yes: boolean) {
   else if (ask.them) declined.value = presentKey.value;
 }
 
-type PresentState = "none" | "missing" | "ask" | "declined" | "accept" | "loading" | "failed" | "sheet";
+type PresentState = "none" | "missing" | "ask" | "declined" | "accept" | "loading" | "failed" | "tooBig" | "sheet";
 const fileMessage = computed(() => {
   const file = presenting.value?.file;
   return file ? chat(id.value)?.messages.find((one) => one.id === file) : undefined;
@@ -213,33 +213,46 @@ const presentState = computed<PresentState>(() => {
   if (!now) return "none";
   const plugin = presentPlugin.value;
   if (!canPresentWith(plugin)) return "missing";
+  // Before the grant: a grant that failed is not asked about again.
+  if (presentBroken.value) return "failed";
   // No lock here (Ioan, 2026-10-08): following is free, the core decides; presenting checks it first.
   if (needsPresentGrant(plugin)) return declined.value === presentKey.value ? "declined" : "ask";
-  if (presentBroken.value) return "failed";
   if (!now.file || presentFile.value) return "sheet";
   if (now.by === "me") return "loading";
-  const arrived = fileMessage.value?.file?.state;
-  if (arrived === "failed") return "failed";
-  return arrived === "waiting" ? "accept" : "loading";
+  const arrived = fileMessage.value?.file;
+  if (arrived?.state === "failed") return "failed";
+  // The tool is handed no more than this: said at once, not after a download that leads nowhere.
+  if ((arrived?.bytes ?? 0) > PRESENT_FILE_LIMIT) return "tooBig";
+  return arrived?.state === "waiting" ? "accept" : "loading";
 });
 /** The presentation takes the screen (the tool, or what it waits for); a refusal or a lack does not. */
-const presentArea = computed(() => ["sheet", "accept", "loading", "failed"].includes(presentState.value));
+const presentArea = computed(() => ["sheet", "accept", "loading", "failed", "tooBig"].includes(presentState.value));
 /** The hole the presentation leaves for their picture (Task 12 draws it). */
 const presentClip = ref<string | undefined>();
 
-// Their presentation came and the tool may not talk to its twin yet: ask, once.
+/** Their presentation whose permission is being given: not asked about meanwhile. */
+const granting = ref("");
+
+// Their presentation came and the tool may not talk to its twin yet: ask, once per presentation;
+// with another sheet open, as soon as it is answered.
 watch(
-  presentState,
-  (state) => {
+  [presentState, asking],
+  ([state]) => {
     const plugin = presentPlugin.value;
-    if (state === "ask" && plugin && presenting.value?.by === "them" && !asking.value) {
+    const key = presentKey.value;
+    if (state === "ask" && plugin && presenting.value?.by === "them" && !asking.value && granting.value !== key) {
       asking.value = {
         them: true,
         name: pluginName(plugin),
         body: t("calls.presentAsk", { name: contact.value.name, plugin: pluginName(plugin) }),
         icon: pluginIcon(plugin),
         image: pluginImage(plugin),
-        allow: async () => void (await grantLive(plugin.id)),
+        allow: async () => {
+          granting.value = key;
+          const granted = await grantLive(plugin.id);
+          if (!granted && presentKey.value === key) presentBroken.value = true;
+          if (granting.value === key) granting.value = "";
+        },
       };
     }
     if (state !== "ask" && asking.value?.them) asking.value = null;
@@ -253,6 +266,7 @@ watch(
   (key) => {
     presentFile.value = undefined;
     presentBroken.value = false;
+    declined.value = "";
     if (!key) return;
     void refreshPlugins();
     if (presenting.value?.file) void loadMessages(id.value).catch(() => undefined);
@@ -262,7 +276,7 @@ watch(
 // The PDF opens once it is here whole: mine at once, theirs when the chat says it arrived and the
 // core says it is a file of this chat (its message may have come after the presentation did).
 watch(
-  [presentKey, presentState, () => fileMessage.value?.file?.state],
+  [presentKey, presentState, () => (presenting.value?.by === "them" ? fileMessage.value?.file?.state : undefined)],
   async ([key, state, arrived]) => {
     const now = presenting.value;
     if (state !== "loading" || !now?.file || (now.by === "them" && arrived !== "done")) return;
@@ -274,6 +288,42 @@ watch(
   },
   { immediate: true },
 );
+
+/** The tool on screen. It outlives its presentation until it has said goodbye (`closed`), out of
+ *  sight, so it hears `ft.onClose` on both phones (the same as in a chat, ChatThread). */
+interface Shown {
+  key: string;
+  plugin: { id: string; name: string };
+  file?: HandedFile;
+  lead: boolean;
+}
+const onSheet = ref<Shown | null>(null);
+const sheetLeaving = ref(false);
+const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
+/** The tool the presentation wants on screen now, if any. */
+const wanted = computed<Shown | null>(() => {
+  const now = presenting.value;
+  const plugin = presentPlugin.value;
+  if (presentState.value !== "sheet" || !now || !plugin) return null;
+  return { key: presentKey.value, plugin: { id: plugin.id, name: pluginName(plugin) }, file: presentFile.value, lead: now.by === "me" };
+});
+
+function showSheet() {
+  if (sheetLeaving.value) return;
+  const want = wanted.value;
+  if (onSheet.value && onSheet.value.key !== want?.key) {
+    sheetLeaving.value = true;
+    if (sheet.value) void sheet.value.close();
+    else sheetClosed();
+  } else if (!onSheet.value && want) onSheet.value = want;
+}
+
+function sheetClosed() {
+  sheetLeaving.value = false;
+  onSheet.value = null;
+  showSheet();
+}
+watch(() => wanted.value?.key ?? "", showSheet, { immediate: true });
 
 function acceptPresented() {
   const file = presenting.value?.file;
@@ -513,29 +563,34 @@ watch(
           {{ $t("calls.presenting", { name: contact.name }) }}
         </p>
         <section
-          v-if="presentArea"
+          v-if="presentArea || onSheet"
+          v-show="presentArea"
           class="ft-call__present"
           :style="presentClip ? { clipPath: presentClip } : undefined"
           data-test="present-area"
         >
           <PluginSheet
-            v-if="presentState === 'sheet' && presentPlugin && presenting"
-            :key="presentKey"
-            :plugin="{ id: presentPlugin.id, name: pluginName(presentPlugin) }"
+            v-if="onSheet"
+            v-show="!sheetLeaving"
+            ref="sheet"
+            :key="onSheet.key"
+            :plugin="onSheet.plugin"
             :contact="id"
             :live="true"
-            :file="presentFile"
+            :file="onSheet.file"
             :session="sessionOf(id)"
-            :presenting="presenting.by === 'me' ? 'lead' : 'follow'"
+            :presenting="onSheet.lead ? 'lead' : 'follow'"
             @done="presentDone"
             @refused="presentBroken = true"
+            @closed="sheetClosed"
           />
-          <div v-else class="ft-call__present-wait">
+          <div v-if="!onSheet || sheetLeaving" class="ft-call__present-wait">
             <ion-button v-if="presentState === 'accept'" shape="round" data-test="present-accept" @click="acceptPresented">
               <ion-icon slot="start" :icon="downloadOutline" aria-hidden="true" />
               {{ $t("calls.acceptToSee") }}
             </ion-button>
             <p v-else-if="presentState === 'failed'" class="ft-call__notice" role="alert" data-test="present-failed">{{ $t("calls.presentFailed") }}</p>
+            <p v-else-if="presentState === 'tooBig'" class="ft-call__notice" role="alert" data-test="present-too-big">{{ $t("calls.presentTooBig") }}</p>
             <ion-spinner v-else name="crescent" color="medium" data-test="present-loading" aria-hidden="true" />
           </div>
         </section>

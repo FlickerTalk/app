@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
+import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { IonActionSheet, IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import { chat, loadMessages } from "../core";
+import { refreshPlugins } from "../plugins";
 import { setLocale } from "../i18n";
 import GamePermissions from "../components/GamePermissions.vue";
 import PluginSheet from "../components/PluginSheet.vue";
@@ -591,6 +592,13 @@ describe("CallPage presenting", () => {
     id, outgoing, text: "", sentAt: 1, state: "delivered",
     file: { name: "class.pdf", size: 15_000_000, mime: "application/pdf", progress: state === "done" ? 1 : 0, state, path: "/data/files/class.pdf" },
   });
+  /** The stub sheet has no `close()`: this one says goodbye at once, or, with `wait`, when told to. */
+  const goodbye = (wrapper: VueWrapper, wait = false) => {
+    const sheet = wrapper.findComponent(PluginSheet);
+    const close = vi.fn(async () => void (wait || sheet.vm.$emit("closed")));
+    Object.assign(sheet.vm, { close });
+    return close;
+  };
   let tools: unknown[] = [];
   let messages: unknown[] = [];
   let planState = "trial";
@@ -601,8 +609,12 @@ describe("CallPage presenting", () => {
   const view = (patch: Partial<typeof call.view> = {}) => ({ available: true, camera: false, paused: false, facing: "front" as const, remote: false, remotePaused: false, ...patch });
   const active = (patch: Record<string, unknown> = {}) =>
     Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now(), native: true, video: false, view: view(), canPresent: true, ...patch });
-  const open = async () => {
-    const wrapper = mount(CallPage, { shallow: true });
+  // The plugins this phone has are read first, as the app has them by the time a call is on: none
+  // left over from the test before.
+  const open = async (attach = false) => {
+    await refreshPlugins();
+    // `attach`: in the document, since happy-dom computes no style for a detached element (`isVisible`).
+    const wrapper = mount(CallPage, { shallow: true, attachTo: attach ? document.body : undefined });
     await flushPromises();
     return wrapper;
   };
@@ -802,6 +814,15 @@ describe("CallPage presenting", () => {
     expect(sheet.props("file")).toBeUndefined();
   });
 
+  it("leads with the PDF it sent, read at once with no question about whose it is", async () => {
+    messages = [pdfView("m1", "done", true)];
+    active({ presenting: { plugin: PDF, file: "m1", by: "me" } });
+    const wrapper = await open();
+    expect(sent("core_read_message_file")).toEqual([{ message: "m1" }]);
+    expect(sent("core_file_belongs_to")).toEqual([]);
+    expect(wrapper.findComponent(PluginSheet).props()).toMatchObject({ presenting: "lead", file: { name: "class.pdf", mime: "application/pdf", data: "JVBERi0=" } });
+  });
+
   it("follows their presentation with the PDF of the chat, and says who presents", async () => {
     messages = [pdfView("m1", "done")];
     active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
@@ -836,6 +857,16 @@ describe("CallPage presenting", () => {
     await loadMessages("c1");
     await flushPromises();
     expect(wrapper.findComponent(PluginSheet).props("presenting")).toBe("follow");
+  });
+
+  it("says at once that their PDF is too big to present, with nothing to accept", async () => {
+    const big = pdfView("m1", "waiting");
+    messages = [{ ...big, file: { ...big.file, size: 40_000_000 } }];
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.find("[data-test='present-accept']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='present-too-big']").text()).toBe("This PDF is too big to present (32 MB at most)");
+    expect(sent("core_read_message_file")).toEqual([]);
   });
 
   it("waits for a PDF still on its way with a spinner that takes no room", async () => {
@@ -873,6 +904,47 @@ describe("CallPage presenting", () => {
     expect(wrapper.find("[data-test='present-area']").exists()).toBe(false);
   });
 
+  // Asked once per presentation, not once per call.
+  it("asks again about their next presentation after the user said no to one", async () => {
+    tools = [tool(BOARD, "Board", false)];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    wrapper.findComponent(GamePermissions).vm.$emit("cancel");
+    await flushPromises();
+    call.presenting = null;
+    await flushPromises();
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    expect(wrapper.findComponent(GamePermissions).props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
+  });
+
+  it("asks about their presentation once the sheet in the way is answered", async () => {
+    active();
+    tools = [tool(BOARD, "Board", false), tool(PDF, "PDF viewer", false)];
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    const ask = wrapper.findComponent(GamePermissions);
+    expect(ask.props("body")).toBe("Talk to the same plugin on the other side of the chat");
+    ask.vm.$emit("cancel");
+    await flushPromises();
+    expect(ask.props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
+  });
+
+  it("says the presentation could not start when the permission could not be given", async () => {
+    tools = [tool(BOARD, "Board", false)];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    wrapper.findComponent(GamePermissions).vm.$emit("allow");
+    await flushPromises();
+    expect(sent("core_plugin_grant")).toHaveLength(1);
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+    expect(wrapper.find("[data-test='present-failed']").text()).toBe("The presentation couldn't start");
+  });
+
   it("says when this phone lacks the tool, and the call goes on", async () => {
     tools = [];
     active({ presenting: { plugin: BOARD, by: "them" } });
@@ -893,6 +965,7 @@ describe("CallPage presenting", () => {
   it("says the presentation could not start when the core refuses to open the tool", async () => {
     active({ presenting: { plugin: BOARD, by: "them" } });
     const wrapper = await open();
+    goodbye(wrapper);
     wrapper.findComponent(PluginSheet).vm.$emit("refused");
     await flushPromises();
     expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
@@ -939,19 +1012,61 @@ describe("CallPage presenting", () => {
 
   it("goes back to the call as it was when the presentation stops", async () => {
     active({ presenting: { plugin: BOARD, by: "them" } });
-    // In the document: happy-dom computes no style for a detached element, so `isVisible` would not see it.
-    const wrapper = mount(CallPage, { shallow: true, attachTo: document.body });
-    await flushPromises();
+    const wrapper = await open(true);
     expect(wrapper.find(".ft-call__peer").isVisible()).toBe(false);
+    goodbye(wrapper);
     call.presenting = null;
     await flushPromises();
     expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
     expect(wrapper.find(".ft-call__peer").isVisible()).toBe(true);
   });
 
+  // The tool hears `ft.onClose` and has its say before it goes, as in a chat (ChatThread).
+  it("lets the tool say goodbye when the presentation stops, out of sight, and only then takes it down", async () => {
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open(true);
+    const close = goodbye(wrapper, true);
+    call.presenting = null;
+    await flushPromises();
+    expect(close).toHaveBeenCalledTimes(1);
+    const sheet = wrapper.findComponent(PluginSheet);
+    expect(sheet.exists()).toBe(true);
+    expect(wrapper.find("[data-test='present-area']").isVisible()).toBe(false);
+    expect(wrapper.find(".ft-call__peer").isVisible()).toBe(true);
+    sheet.vm.$emit("closed");
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+    expect(wrapper.find("[data-test='present-area']").exists()).toBe(false);
+  });
+
+  it("lets the tool say goodbye when the call ends", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    const close = goodbye(wrapper, true);
+    call.phase = "ended";
+    await flushPromises();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens their next presentation once the last tool has said goodbye", async () => {
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    const close = goodbye(wrapper, true);
+    const first = wrapper.findComponent(PluginSheet);
+    call.presenting = { plugin: PDF, by: "them" };
+    await flushPromises();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(wrapper.findAllComponents(PluginSheet)).toHaveLength(1);
+    first.vm.$emit("closed");
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props("plugin")).toMatchObject({ id: PDF });
+  });
+
   it("stops presenting when the presenter's tool asks to close; a follower's only closes it here", async () => {
     active({ presenting: { plugin: BOARD, by: "me" } });
-    (await open()).findComponent(PluginSheet).vm.$emit("done");
+    const lead = await open();
+    goodbye(lead);
+    lead.findComponent(PluginSheet).vm.$emit("done");
     expect(actions.stopPresenting).toHaveBeenCalledWith("x");
     actions.stopPresenting.mockReset();
     active({ presenting: { plugin: BOARD, by: "them" } });
