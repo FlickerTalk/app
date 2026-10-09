@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Animation } from "@ionic/vue";
 
 // Felt on the iPhone (2026-10-09): entering a chat and going back was slow, and the back button
@@ -98,5 +98,56 @@ describe("the app's page transition", () => {
     animation.progressStart(true, 0);
     expect(enteringEl.classList.contains("ion-page-invisible")).toBe(false);
     animation.destroy();
+  });
+});
+
+const settled = async (promise: Promise<void>) => {
+  let done = false;
+  void promise.then(() => (done = true));
+  for (let at = 0; at < 5; at += 1) await Promise.resolve();
+  return done;
+};
+
+// 2026-10-09: going back while a page was still coming in (the call shown again as a page opened
+// over its screen) left the call screen hidden: Ionic hid it when the push's transition ended.
+describe("pages moving", () => {
+  /** The module afresh: the transitions built by the tests above are none of these. */
+  async function fresh() {
+    vi.resetModules();
+    const module = await import("./page-transition");
+    const start = (direction: "forward" | "back") => {
+      const { baseEl, enteringEl, leavingEl } = outlet();
+      return module.pageTransition(baseEl, { enteringEl, leavingEl, direction, mode: "ios" } as Opts);
+    };
+    return { start, done: module.pageTransitionsDone };
+  }
+
+  it("are done at once when no page moves", async () => {
+    const { done } = await fresh();
+    expect(await settled(done())).toBe(true);
+  });
+
+  it("are done only once the transition under way has finished", async () => {
+    const { start, done } = await fresh();
+    const animation = start("forward");
+    const waiting = done();
+    expect(await settled(waiting)).toBe(false);
+    await animation.play();
+    expect(await settled(waiting)).toBe(true);
+    expect(await settled(done())).toBe(true);
+  });
+
+  it("are not waited for past a transition's time and some, should one never end", async () => {
+    const { start, done } = await fresh();
+    vi.useFakeTimers();
+    try {
+      start("back");
+      const waiting = done();
+      expect(await settled(waiting)).toBe(false);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await settled(waiting)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

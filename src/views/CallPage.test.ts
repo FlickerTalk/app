@@ -12,7 +12,12 @@ import source from "./CallPage.vue?raw";
 
 const route = { params: { id: "c1" }, query: {} as Record<string, string> };
 // The router the page goes back with; `afterEach` is how it knows it got there (`goBack`).
-const nav = { back: vi.fn(), replace: vi.fn(), afterEach: vi.fn(() => () => undefined) };
+const nav = {
+  back: vi.fn(),
+  replace: vi.fn(),
+  afterEach: vi.fn(() => () => undefined),
+  currentRoute: { value: { path: "/call/c1" } },
+};
 vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => nav }));
 vi.mock("../calls", async () => (await import("../__tests__/calls-mock")).callsMock());
 // Android's back button (src/back.ts): the handler the call screen takes it over with.
