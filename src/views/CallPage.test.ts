@@ -968,16 +968,107 @@ describe("CallPage presenting", () => {
     expect(wrapper.findComponent(GamePermissions).props("open")).toBe(true);
   });
 
-  it("says the tool is missing when the app does not carry it either, and adds nothing", async () => {
+  it("says the tool is missing when nothing offers it, and adds nothing", async () => {
     active();
     tools = [];
-    hooks.core_catalogue = () => [{ ...carried(BOARD, "Board"), carried: false }];
+    hooks.core_catalogue = () => [carried(PDF, "PDF viewer")];
     const wrapper = await open();
     await wrapper.find("[data-test='present']").trigger("click");
     (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
     await flushPromises();
     expect(sent("core_plugin_add")).toEqual([]);
     expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Add it in Apps") }));
+  });
+
+  // Fix round 1: once the catalogue has a newer version than the one the app carries, its entry
+  // replaces the seed's (`carried: false`); the core still picks seed or download, as in Apps.
+  it("adds the tool to present with when the catalogue offers a newer version than the app carries", async () => {
+    active();
+    tools = [];
+    hooks.core_catalogue = () => [{ ...carried(BOARD, "Board"), version: "1.1.1", carried: false }];
+    hooks.core_plugin_add = () => {
+      tools = [tool(BOARD, "Board", false)];
+    };
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(sent("core_plugin_add")).toEqual([{ plugin: BOARD }]);
+    expect(toast.create).not.toHaveBeenCalled();
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(true);
+  });
+
+  it("says presenting failed, not that the tool is missing, when adding it fails", async () => {
+    active();
+    tools = [];
+    hooks.core_catalogue = () => [carried(BOARD, "Board")];
+    hooks.core_plugin_add = () => Promise.reject("no room");
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(toast.create).toHaveBeenCalledTimes(1);
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "The presentation couldn't start" }));
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+  });
+
+  // Adding a tool can take seconds (the catalogue, a download): theirs may start meanwhile.
+  it("opens no sheet of its own when their presentation started while the tool was being added", async () => {
+    active();
+    tools = [];
+    hooks.core_catalogue = () => [carried(BOARD, "Board")];
+    // Both sides may be adding it (mine, then theirs to follow): every add waits for this.
+    const adds: Array<() => void> = [];
+    const added = () => {
+      tools = [tool(BOARD, "Board", false)];
+      adds.splice(0).forEach((done) => done());
+    };
+    hooks.core_plugin_add = () => new Promise<void>((done) => adds.push(done));
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    added();
+    await flushPromises();
+    expect(actions.presentInCall).not.toHaveBeenCalled();
+    expect(toast.create).not.toHaveBeenCalled();
+    const ask = wrapper.findComponent(GamePermissions);
+    expect(ask.props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
+  });
+
+  it("adds the tool to follow with when the catalogue offers a newer version than the app carries", async () => {
+    tools = [];
+    hooks.core_catalogue = () => [{ ...carried(BOARD, "Board"), version: "1.1.1", carried: false }];
+    hooks.core_plugin_add = () => {
+      tools = [tool(BOARD, "Board", false)];
+    };
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(sent("core_plugin_add")).toEqual([{ plugin: BOARD }]);
+    expect(wrapper.find("[data-test='present-missing']").exists()).toBe(false);
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(true);
+  });
+
+  it("says their presentation could not start, not that the tool is missing, when adding it fails", async () => {
+    tools = [];
+    hooks.core_catalogue = () => [carried(BOARD, "Board")];
+    hooks.core_plugin_add = () => Promise.reject("no room");
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(sent("core_plugin_add")).toEqual([{ plugin: BOARD }]);
+    expect(wrapper.find("[data-test='present-missing']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='present-failed']").exists()).toBe(true);
+  });
+
+  it("says the tool to follow with is missing when nothing offers it", async () => {
+    tools = [];
+    hooks.core_catalogue = () => [];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(sent("core_plugin_add")).toEqual([]);
+    expect(wrapper.find("[data-test='present-missing']").exists()).toBe(true);
   });
 
   it("adds the tool the app carries to follow their presentation, waiting meanwhile, then asks", async () => {
