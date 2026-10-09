@@ -114,10 +114,11 @@ pub fn icon(name: &str) -> Option<(&'static str, &'static [u8])> {
 pub const IONIC_VERSION: &str = "9.0.4";
 pub const IONICONS_VERSION: &str = "8.1.0";
 
-/// What a frame finds at `./ionic/<file>`: every component but the URL router as one module,
-/// Ionic's global styles (without normalize.css and structure.css, which would pin the frame's body
-/// and stop a frame sized by its content from growing), and the theme Ionic reads, derived from the
-/// app's colours (`frame-theme.js`).
+/// What a frame finds at `./ionic/<file>`: every component as one module, with the icons of
+/// `ICONS` and of the apps grid registered by name; Ionic's global styles (ionic.bundle.css but for
+/// the body rules of structure.css, which would pin the frame's body and stop a frame sized by its
+/// content from growing); and the theme Ionic reads, derived from the app's colours
+/// (`frame-theme.js`).
 const IONIC: &[(&str, &[u8])] = &[
     ("ionic.js", include_bytes!("../resources/ionic/ionic.js")),
     ("ionic.css", include_bytes!("../resources/ionic/ionic.css")),
@@ -140,24 +141,8 @@ pub fn ionic_size() -> usize {
 /// order, and says which Ionic it is on the root (`data-ionic`). Ionic picks `ios` or `md` from
 /// the user agent, which the frame shares with the app, as the app's own Ionic does.
 pub fn frame_html(component: &str, version: &str) -> String {
-    format!(
-        r#"<!doctype html>
-<html lang="en" data-ionic="{IONIC_VERSION}">
-<head>
-<meta charset="utf-8">
-<link rel="stylesheet" href="./ionic/ionic.css?v={IONIC_VERSION}">
-<style>html{{color-scheme:light dark}}html,body{{margin:0;padding:0;background:transparent}}</style>
-<script type="module" src="./ionic/theme.js?v={IONIC_VERSION}"></script>
-<script type="module" src="./ionic/ionic.js?v={IONIC_VERSION}"></script>
-<script type="module" src="./frame.js?v={version}"></script>
-</head>
-<body>
-<p id="fallback" style="font:13px system-ui;color:#888">loading…</p>
-<{component} id="view"></{component}>
-</body>
-</html>
-"#
-    )
+    // A page of its own (`frame.html`), which the end-to-end tests serve too.
+    include_str!("frame.html").replace("%IONIC%", IONIC_VERSION).replace("%VERSION%", version).replace("%COMPONENT%", component)
 }
 
 /// What the frame does: load the plugin, hand it the text the app sends, and say how tall it is.
@@ -375,6 +360,10 @@ mod tests {
         for banned in ["eval(", "new Function", "import(", "importScripts"] {
             assert!(!script.contains(banned), "the lent Ionic has {banned}");
         }
+        // The icons the core lends by file are drawn by name too: `<ion-icon name="…">`, no fetch.
+        for (name, _) in ICONS {
+            assert!(script.contains(&format!(r#""{name}""#)), "{name} is not registered for ion-icon");
+        }
         let (kind, css) = ionic("ionic.css").expect("Ionic's global styles");
         assert_eq!(kind, "text/css; charset=utf-8");
         let css = std::str::from_utf8(css).expect("text");
@@ -413,6 +402,12 @@ mod tests {
 
     // The frame loads Ionic's styles, the theme and the components before the plugin, and says
     // which Ionic it lends (`data-ionic`), each at that version so no cache answers an old one.
+    #[test]
+    fn the_frame_of_a_tool_is_as_tall_as_its_window() {
+        // Told by the app (`fill`, `frame.js`): then the page and its body take the frame's height.
+        assert!(frame_html("ft-x", "1.0.0").contains("html[data-fill],html[data-fill] body{height:100%}"));
+    }
+
     #[test]
     fn the_frame_loads_ionic_before_the_plugin() {
         let html = frame_html("ft-x", "1.0.0");
