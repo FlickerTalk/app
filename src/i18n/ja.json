@@ -493,7 +493,9 @@
     "install": "インストール",
     "remove": "削除",
     "removeAsk": "この端末から削除しますか？",
-    "subscribe": "登録する"
+    "subscribe": "登録する",
+    "sendTo": "送信先",
+    "noContactsToSend": "送信するには連絡先を追加してください"
   },
   "feedback": {
     "title": "提案する",

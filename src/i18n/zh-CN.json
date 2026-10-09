@@ -493,7 +493,9 @@
     "install": "安装",
     "remove": "移除",
     "removeAsk": "要从这台手机移除吗？",
-    "subscribe": "订阅"
+    "subscribe": "订阅",
+    "sendTo": "发送给",
+    "noContactsToSend": "添加一个联系人才能发送"
   },
   "feedback": {
     "title": "提个建议",

@@ -493,7 +493,9 @@
     "install": "Cài đặt",
     "remove": "Gỡ",
     "removeAsk": "Gỡ khỏi điện thoại này?",
-    "subscribe": "Đăng ký"
+    "subscribe": "Đăng ký",
+    "sendTo": "Gửi đến",
+    "noContactsToSend": "Thêm một liên hệ để gửi"
   },
   "feedback": {
     "title": "Góp ý",

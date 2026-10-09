@@ -60,7 +60,7 @@ const SCREENS: Array<Screen & { file: string }> = [
   { file: "views/CallsPage.vue", name: "calls", open: (app, mode) => page(app, "/tabs/calls", mode) },
   { file: "views/AppsPage.vue", name: "apps", open: (app, mode) => page(app, "/tabs/apps", mode) },
   {
-    file: "views/AppsPage.vue",
+    file: "components/ContactPicker.vue",
     name: "apps, who to play with",
     open: async (app, mode) => {
       await page(app, "/tabs/apps?show=games", mode);

@@ -493,7 +493,9 @@
     "install": "Install",
     "remove": "Remove",
     "removeAsk": "Remove it from this phone?",
-    "subscribe": "Subscribe"
+    "subscribe": "Subscribe",
+    "sendTo": "Send to",
+    "noContactsToSend": "Add a contact to send to"
   },
   "feedback": {
     "title": "Suggest something",

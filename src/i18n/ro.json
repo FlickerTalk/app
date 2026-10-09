@@ -493,7 +493,9 @@
     "install": "Instalează",
     "remove": "Elimină",
     "removeAsk": "Îl elimini de pe acest telefon?",
-    "subscribe": "Abonează-te"
+    "subscribe": "Abonează-te",
+    "sendTo": "Trimite către",
+    "noContactsToSend": "Adaugă un contact ca să trimiți"
   },
   "feedback": {
     "title": "Propune ceva",

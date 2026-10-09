@@ -493,7 +493,9 @@
     "install": "Yükle",
     "remove": "Kaldır",
     "removeAsk": "Bu telefondan kaldırılsın mı?",
-    "subscribe": "Abone ol"
+    "subscribe": "Abone ol",
+    "sendTo": "Şuna gönder",
+    "noContactsToSend": "Göndermek için bir kişi ekleyin"
   },
   "feedback": {
     "title": "Bir şey önerin",

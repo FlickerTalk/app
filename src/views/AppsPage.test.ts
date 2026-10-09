@@ -460,6 +460,6 @@ describe("AppsPage", () => {
   // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
   // Ionic's transitions look for them, with nothing of ours in between.
   it("is an Ionic page: a header with the title and the segment, then the grid", () => {
-    expect(pageShape(mount(AppsPage, { shallow: true }), ["app-sheet", "game-permissions"])).toEqual(["ion-header", "ion-content"]);
+    expect(pageShape(mount(AppsPage, { shallow: true }), ["app-sheet", "game-permissions", "contact-picker"])).toEqual(["ion-header", "ion-content"]);
   });
 });
