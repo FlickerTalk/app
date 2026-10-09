@@ -59,7 +59,11 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// that the Apps tab shows.
 /// 1.5.1 (2026-10-09): no new call; the Location tool travels as a seed; a tool asks for a missing
 /// permission on the spot.
-pub const CORE_VERSION: &str = "1.5.1";
+/// 1.6.0 (2026-10-09): Ionic 9.0.4 lent to every plugin frame (`ionic/*`, `onOpen.ionic`),
+/// full-height tool windows, a tool opened on its own sends to a picked contact;
+/// `onOpen.presenting: "lead" | "follow"` when the app opens a plugin inside a call (a follower with
+/// the tools closed may still open the presented tool).
+pub const CORE_VERSION: &str = "1.6.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 /// What the key of a plugin's chat ids is derived for, from the storage key (2026-10-02).
