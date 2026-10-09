@@ -493,7 +493,9 @@
     "install": "설치",
     "remove": "삭제",
     "removeAsk": "이 휴대폰에서 삭제할까요?",
-    "subscribe": "구독하기"
+    "subscribe": "구독하기",
+    "sendTo": "보낼 상대",
+    "noContactsToSend": "보내려면 연락처를 추가하세요"
   },
   "feedback": {
     "title": "제안하기",

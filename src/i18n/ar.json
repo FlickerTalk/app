@@ -493,7 +493,9 @@
     "install": "تثبيت",
     "remove": "إزالة",
     "removeAsk": "إزالته من هذا الهاتف؟",
-    "subscribe": "اشترك"
+    "subscribe": "اشترك",
+    "sendTo": "إرسال إلى",
+    "noContactsToSend": "أضف جهة اتصال لترسل إليها"
   },
   "feedback": {
     "title": "اقترح شيئًا",

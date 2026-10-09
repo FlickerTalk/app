@@ -4,11 +4,7 @@ import {
   IonContent,
   IonHeader,
   IonIcon,
-  IonItem,
   IonLabel,
-  IonList,
-  IonListHeader,
-  IonModal,
   IonPage,
   IonSegment,
   IonSegmentButton,
@@ -19,11 +15,11 @@ import {
   onIonViewWillEnter,
   onIonViewWillLeave,
 } from "@ionic/vue";
-import { constructOutline, gameControllerOutline, lockClosedOutline, personAddOutline } from "ionicons/icons";
+import { constructOutline, gameControllerOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import AppSheet from "../components/AppSheet.vue";
 import AppTile from "../components/AppTile.vue";
-import Avatar from "../components/Avatar.vue";
+import ContactPicker from "../components/ContactPicker.vue";
 import GamePermissions from "../components/GamePermissions.vue";
 import {
   formatSize,
@@ -32,7 +28,6 @@ import {
   needsSubscription,
   PREMIUM_PAGE,
   removePlugin,
-  store,
   type OfferedPlugin,
   type PluginView,
 } from "../core";
@@ -230,19 +225,6 @@ async function allow() {
   picking.value = game.id;
 }
 
-/**
- * Who a game can be played with: the contacts of the main list and of each open hidden session
- * (§108), never a blocked one. Strangers who wrote first are not contacts yet.
- */
-const places = computed(() =>
-  [
-    { id: "", chats: store.chats },
-    ...store.sessions.filter((session) => session.id).map((session) => ({ id: session.id, chats: session.chats })),
-  ]
-    .map((place) => ({ id: place.id, chats: place.chats.filter((chat) => !chat.blocked) }))
-    .filter((place) => place.chats.length),
-);
-
 function addContact() {
   picking.value = "";
   void router.push("/add-contact");
@@ -353,40 +335,14 @@ function playWith(contact: string) {
     />
 
     <!-- Plan 10.4: a game is played in a conversation; this is who with. -->
-    <ion-modal
-      :is-open="Boolean(picking)"
+    <ContactPicker
       class="ft-apps__picker ft-sheet--tab"
-      :breakpoints="[0, 0.5, 1]"
-      :initial-breakpoint="0.5"
-      :expand-to-scroll="false"
-      :aria-label="$t('games.pickContact')"
-      @did-dismiss="picking = ''"
-    >
-      <ion-header>
-        <ion-toolbar>
-          <ion-title><span class="ft-title">{{ $t("games.pickContact") }}</span></ion-title>
-        </ion-toolbar>
-      </ion-header>
-      <ion-content class="ft-apps__picker-content" data-test="contact-picker">
-        <!-- Nobody to play with yet: the way to add someone (device review of app#121). -->
-        <ion-list v-if="!places.length">
-          <ion-item button :detail="false" lines="none" data-test="picker-add-contact" @click="addContact">
-            <ion-icon slot="start" :icon="personAddOutline" color="primary" aria-hidden="true" />
-            <ion-label color="primary">{{ $t("games.noContacts") }}</ion-label>
-          </ion-item>
-        </ion-list>
-        <ion-list v-for="place in places" :key="place.id">
-          <!-- A hidden session's contacts, under their own heading. -->
-          <ion-list-header v-if="place.id">
-            <ion-icon :icon="lockClosedOutline" aria-hidden="true" />
-          </ion-list-header>
-          <ion-item v-for="chat in place.chats" :key="chat.id" button :detail="false" :data-test="`play-with-${chat.id}`" @click="playWith(chat.id)">
-            <Avatar slot="start" :name="chat.name" :hue="chat.hue" :size="36" />
-            <ion-label class="ion-text-nowrap" dir="auto">{{ chat.name }}</ion-label>
-          </ion-item>
-        </ion-list>
-      </ion-content>
-    </ion-modal>
+      :open="Boolean(picking)"
+      purpose="play"
+      @pick="playWith"
+      @add="addContact"
+      @dismiss="picking = ''"
+    />
   </ion-page>
 </template>
 
@@ -434,9 +390,5 @@ function playWith(contact: string) {
   color: var(--ion-color-medium);
   font-size: 14px;
   line-height: 1.4;
-}
-/* The picker's list scrolls to its last contact above Android's navigation bar (edge to edge). */
-.ft-apps__picker-content {
-  --padding-bottom: var(--ion-safe-area-bottom, 0px);
 }
 </style>

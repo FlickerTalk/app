@@ -13,6 +13,7 @@ import { offered, pluginImage, refreshPlugins, premiumLocked } from "../plugins"
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
 import { setLocale } from "../i18n";
+import { offerSend, takeSend } from "../pending-send";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -543,6 +544,42 @@ describe("ChatThread", () => {
     await flushPromises();
     expect(calls).toContainEqual(["core_send_picked", { contact: "c1", file: staged }]);
     expect(wrapper.find("[data-test='staged']").exists()).toBe(false);
+  });
+
+  // Ioan, 2026-10-09: a tool opened on its own proposes something and the user picks this contact;
+  // the proposal waits in the composer when the conversation is on screen, never sent by itself.
+  describe("a proposal from a tool opened on its own", () => {
+    it("puts a text in the composer once the conversation is on screen, once", async () => {
+      offerSend("c1", { kind: "text", text: "# Title" });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", active: false }, shallow: false, global: { stubs } });
+      await flushPromises();
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
+      await wrapper.setProps({ active: true });
+      await flushPromises();
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("# Title");
+      expect(takeSend("c1")).toBeNull();
+      expect(calls.some(([command]) => command === "core_send")).toBe(false);
+    });
+
+    it("stages a file for the user to send", async () => {
+      const staged = { path: "/data/files/outgoing/1-notes.md", name: "notes.md", mime: "text/markdown", size: 4 };
+      offerSend("c1", { kind: "file", file: staged });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      expect(wrapper.find("[data-test='staged']").text()).toContain("notes.md");
+      expect(calls.some(([command]) => command === "core_send_picked")).toBe(false);
+      await wrapper.find("[data-test='staged-send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_send_picked", { contact: "c1", file: staged }]);
+    });
+
+    it("leaves a proposal for another conversation where it is", async () => {
+      offerSend("c2", { kind: "text", text: "for Alex" });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
+      expect(takeSend("c2")).toEqual({ kind: "text", text: "for Alex" });
+    });
   });
 
   it("throws away what a plugin made if the user does not want it", async () => {

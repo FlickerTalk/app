@@ -493,7 +493,9 @@
     "install": "Pasang",
     "remove": "Hapus",
     "removeAsk": "Hapus dari ponsel ini?",
-    "subscribe": "Berlangganan"
+    "subscribe": "Berlangganan",
+    "sendTo": "Kirim ke",
+    "noContactsToSend": "Tambahkan kontak untuk mengirim"
   },
   "feedback": {
     "title": "Usulkan sesuatu",

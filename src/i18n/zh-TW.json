@@ -493,7 +493,9 @@
     "install": "安裝",
     "remove": "移除",
     "removeAsk": "要從這支手機移除嗎？",
-    "subscribe": "訂閱"
+    "subscribe": "訂閱",
+    "sendTo": "傳送給",
+    "noContactsToSend": "新增一位聯絡人才能傳送"
   },
   "feedback": {
     "title": "提出建議",

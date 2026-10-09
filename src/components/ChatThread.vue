@@ -128,6 +128,7 @@ import { cancelRecording, recording, startRecording, stopRecording } from "../re
 import { closeOnBack, closeOnBackWhile } from "../back";
 import type { PermissionNeed } from "../permissions";
 import { firstDayOfWeek, i18n, t } from "../i18n";
+import { takeSend } from "../pending-send";
 import { dayLabels } from "../days";
 import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
 
@@ -957,6 +958,17 @@ async function sendStaged() {
   staged.value = null;
   await sendPicked(props.chatId, file);
 }
+
+// 2026-10-09: what a tool opened on its own proposed for this conversation waits in the composer.
+watch(
+  () => props.active && props.chatId,
+  (here) => {
+    const proposal = here ? takeSend(here) : null;
+    if (proposal?.kind === "text") draft.value = proposal.text;
+    else if (proposal) staged.value = proposal.file;
+  },
+  { immediate: true },
+);
 
 /** A4: a file that waited for the user is asked for. */
 async function download(id: string) {

@@ -9,7 +9,7 @@
 // is the user's data; neither is in the catalogue.
 import { readFileSync, readdirSync } from "node:fs";
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "./helpers";
+import { expect, frameSays, test } from "./helpers";
 
 /** Every language the app ships: one catalogue each in `src/i18n`. */
 const LOCALES = readdirSync(new URL("../src/i18n", import.meta.url))
@@ -33,6 +33,7 @@ const WIDTHS = [360, 384];
 
 const BOB = "ft_bob123456789";
 const TICTACTOE = "com.flickertalk.game.tictactoe";
+const MARKDOWN = "com.flickertalk.markdown";
 
 /**
  * Screenshots for review, only when asked for: `FT_SHOTS=<dir> npx playwright test
@@ -60,7 +61,7 @@ const SCREENS: Array<Screen & { file: string }> = [
   { file: "views/CallsPage.vue", name: "calls", open: (app, mode) => page(app, "/tabs/calls", mode) },
   { file: "views/AppsPage.vue", name: "apps", open: (app, mode) => page(app, "/tabs/apps", mode) },
   {
-    file: "views/AppsPage.vue",
+    file: "components/ContactPicker.vue",
     name: "apps, who to play with",
     open: async (app, mode) => {
       await page(app, "/tabs/apps?show=games", mode);
@@ -68,6 +69,17 @@ const SCREENS: Array<Screen & { file: string }> = [
       await app.getByTestId("game-allow").click();
       await expect(app.getByTestId(`play-with-${BOB}`)).toBeVisible();
       return app.locator("ion-modal").filter({ has: app.getByTestId("contact-picker") });
+    },
+  },
+  {
+    file: "components/ContactPicker.vue",
+    name: "a tool on its own, who to send to",
+    open: async (app, mode) => {
+      await page(app, `/plugin/${MARKDOWN}`, mode);
+      await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+      await frameSays(app, { type: "ft.text", text: "# Title" });
+      await expect(app.getByTestId(`send-to-${BOB}`)).toBeVisible();
+      return app.locator("ion-modal").filter({ has: app.getByTestId(`send-to-${BOB}`) });
     },
   },
   { file: "views/SettingsPage.vue", name: "settings", open: (app, mode) => page(app, "/tabs/settings", mode) },

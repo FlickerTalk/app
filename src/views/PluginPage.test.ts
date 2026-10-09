@@ -3,7 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, h, reactive } from "vue";
 import { setLocale } from "../i18n";
 
-const nav = vi.hoisted(() => ({ push: vi.fn(), back: vi.fn() }));
+const nav = vi.hoisted(() => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }));
 const route = vi.hoisted(() => ({ value: null as unknown as { params: Record<string, string>; query: Record<string, string> } }));
 vi.mock("vue-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("vue-router")>()),
@@ -21,6 +21,8 @@ import { pageShape } from "../__tests__/page-shape";
 import { installed, premiumLocked } from "../plugins";
 import PluginSheet from "../components/PluginSheet.vue";
 import PermissionAsk from "../components/PermissionAsk.vue";
+import ContactPicker from "../components/ContactPicker.vue";
+import { takeSend, type ContactAsk } from "../pending-send";
 
 describe("PluginPage", () => {
   // Found on a real phone (2026-09-27): a reminder tapped while its plugin is on screen only
@@ -198,9 +200,109 @@ describe("PluginPage", () => {
     });
   });
 
+  // Ioan, 2026-10-09: a tool on its own page has no chat behind it. What it proposes to send asks
+  // who it is for, in the same sheet the games use; the contact picked gets its conversation, with
+  // the proposal waiting in the composer. The tool's window goes with the page.
+  describe("sending from outside a chat", () => {
+    const Sheet = defineComponent({
+      name: "PluginSheet",
+      props: ["plugin", "contact", "reminder", "session", "sending"],
+      emits: ["done", "closed", "openChat", "needs", "pick", "sendTo"],
+      setup(_, { expose }) {
+        expose({ close: async () => {} });
+        return () => h("div");
+      },
+    });
+    const ask = (): ContactAsk => ({ answer: vi.fn() });
+    const hooks = (wrapper: { vm: unknown }, name: string) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+    async function page() {
+      nav.push.mockClear();
+      nav.replace.mockClear();
+      nav.back.mockClear();
+      route.value = reactive({ params: { id: "com.flickertalk.notes" }, query: {} });
+      const wrapper = mount(PluginPage, { shallow: true, global: { stubs: { PluginSheet: Sheet } } });
+      await flushPromises();
+      hooks(wrapper, "onIonViewWillEnter");
+      return wrapper;
+    }
+    const picker = (wrapper: Awaited<ReturnType<typeof page>>) => wrapper.findComponent(ContactPicker);
+
+    it("hands the sheet what the plugin was granted for the chat", async () => {
+      installed.value = [{ id: "com.flickertalk.notes", name: "Notes", granted: { send: "propose" } } as never];
+      try {
+        const wrapper = await page();
+        expect(wrapper.findComponent(Sheet).props("sending")).toBe("propose");
+      } finally {
+        installed.value = [{ id: "com.flickertalk.notes", name: "Notes", locales: { es: { name: "Notas" } } } as never];
+      }
+      const wrapper = await page();
+      expect(wrapper.findComponent(Sheet).props("sending")).toBe("nothing");
+    });
+
+    it("asks who for with the contact picker, and opens that chat with the proposal waiting", async () => {
+      const wrapper = await page();
+      expect(picker(wrapper).props("open")).toBe(false);
+      expect(picker(wrapper).props("purpose")).toBe("send");
+      const asked = ask();
+      wrapper.findComponent(Sheet).vm.$emit("pick", asked);
+      await flushPromises();
+      expect(picker(wrapper).props("open")).toBe(true);
+      picker(wrapper).vm.$emit("pick", "c2");
+      await flushPromises();
+      expect(asked.answer).toHaveBeenCalledWith("c2");
+      expect(picker(wrapper).props("open")).toBe(false);
+
+      wrapper.findComponent(Sheet).vm.$emit("sendTo", "c2", { kind: "text", text: "# Title" });
+      await flushPromises();
+      expect(nav.replace).toHaveBeenCalledWith("/chat/c2");
+      expect(nav.back).not.toHaveBeenCalled();
+      expect(takeSend("c2")).toEqual({ kind: "text", text: "# Title" });
+    });
+
+    it("opens the chat picked with nothing waiting when the plugin sent it by itself", async () => {
+      const wrapper = await page();
+      wrapper.findComponent(Sheet).vm.$emit("sendTo", "c2", null);
+      await flushPromises();
+      expect(nav.replace).toHaveBeenCalledWith("/chat/c2");
+      expect(takeSend("c2")).toBeNull();
+    });
+
+    it("answers nobody when the picker is dismissed, and when the page is left", async () => {
+      const wrapper = await page();
+      const first = ask();
+      wrapper.findComponent(Sheet).vm.$emit("pick", first);
+      await flushPromises();
+      picker(wrapper).vm.$emit("dismiss");
+      await flushPromises();
+      expect(first.answer).toHaveBeenCalledWith(null);
+      expect(picker(wrapper).props("open")).toBe(false);
+
+      const second = ask();
+      wrapper.findComponent(Sheet).vm.$emit("pick", second);
+      await flushPromises();
+      hooks(wrapper, "onIonViewWillLeave");
+      await flushPromises();
+      expect(second.answer).toHaveBeenCalledWith(null);
+      expect(picker(wrapper).props("open")).toBe(false);
+      expect(nav.replace).not.toHaveBeenCalled();
+    });
+
+    it("leads to adding a contact when there is nobody to send to", async () => {
+      const wrapper = await page();
+      const asked = ask();
+      wrapper.findComponent(Sheet).vm.$emit("pick", asked);
+      await flushPromises();
+      picker(wrapper).vm.$emit("add");
+      await flushPromises();
+      expect(asked.answer).toHaveBeenCalledWith(null);
+      expect(nav.push).toHaveBeenCalledWith("/add-contact");
+    });
+  });
+
   // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
   // Ionic's transitions look for them, with nothing of ours in between.
   it("is an Ionic page: a header with its back button and the plugin's name, then the plugin", () => {
-    expect(pageShape(mount(PluginPage, { shallow: true }), ["permission-ask"])).toEqual(["ion-header", "ion-content"]);
+    expect(pageShape(mount(PluginPage, { shallow: true }), ["permission-ask", "contact-picker"])).toEqual(["ion-header", "ion-content"]);
   });
 });

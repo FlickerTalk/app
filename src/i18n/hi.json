@@ -493,7 +493,9 @@
     "install": "इंस्टॉल करें",
     "remove": "हटाएँ",
     "removeAsk": "इस फ़ोन से हटाएँ?",
-    "subscribe": "सदस्यता लें"
+    "subscribe": "सदस्यता लें",
+    "sendTo": "किसे भेजें",
+    "noContactsToSend": "भेजने के लिए कोई संपर्क जोड़ें"
   },
   "feedback": {
     "title": "कुछ सुझाएँ",
