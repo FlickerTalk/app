@@ -58,7 +58,10 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// 1.4.2 (2026-10-07): none (billing fixes only; the Plugin API gains nothing new).
 /// 1.5.0 (2026-10-08): no new call in the Plugin API; a package may carry an `icon` (`icon.svg`)
 /// that the Apps tab shows.
-pub const CORE_VERSION: &str = "1.5.0";
+/// 1.6.0 (2026-10-09): `onOpen.presenting` ("lead" | "follow") when the app opens a plugin inside
+/// a call (presenting a whiteboard or a PDF); a follower with the tools closed may still open the
+/// tool being presented to it.
+pub const CORE_VERSION: &str = "1.6.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 /// What the key of a plugin's chat ids is derived for, from the storage key (2026-10-02).
