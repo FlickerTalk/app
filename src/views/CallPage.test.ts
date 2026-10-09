@@ -5,9 +5,10 @@ import { IonActionSheet, IonIcon } from "@ionic/vue";
 import { seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
-import { chat } from "../core";
+import { chat, loadMessages } from "../core";
 import { setLocale } from "../i18n";
 import GamePermissions from "../components/GamePermissions.vue";
+import PluginSheet from "../components/PluginSheet.vue";
 import CallPage from "./CallPage.vue";
 import source from "./CallPage.vue?raw";
 
@@ -31,9 +32,10 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
   toastController: { create: toast.create },
 }));
 
+// Every screen mounted here watches the same call: one left mounted would react to the next test.
+enableAutoUnmount(afterEach);
+
 describe("CallPage", () => {
-  // Every screen mounted here watches the same call: one left mounted would react to the next test.
-  enableAutoUnmount(afterEach);
   beforeEach(() => {
     seed();
     resetCalls();
@@ -578,6 +580,10 @@ describe("CallPage presenting", () => {
     asks: { network: [], messages: false, send: "nothing", live: true },
     granted: { network: [], messages: false, send: "nothing", live },
   });
+  const pdfView = (id: string, state: string, outgoing = false) => ({
+    id, outgoing, text: "", sentAt: 1, state: "delivered",
+    file: { name: "class.pdf", size: 15_000_000, mime: "application/pdf", progress: state === "done" ? 1 : 0, state, path: "/data/files/class.pdf" },
+  });
   let tools: unknown[] = [];
   let messages: unknown[] = [];
   let planState = "trial";
@@ -616,6 +622,7 @@ describe("CallPage presenting", () => {
       if (command === "core_plan") return { state: planState, until: 0 };
       if (command === "core_pick_files") return [picked];
       if (command === "core_read_message_file") return { name: "class.pdf", mime: "application/pdf", data: "JVBERi0=" };
+      if (command === "core_file_belongs_to") return true;
       if (command === "core_conversations" || command === "core_requests") return [];
       return undefined;
     });
@@ -779,5 +786,169 @@ describe("CallPage presenting", () => {
     expect(stop.attributes("aria-label")).toBe("Stop presenting");
     await stop.trigger("click");
     expect(actions.stopPresenting).toHaveBeenCalledWith("x");
+  });
+
+  it("opens the presenter's tool over the call, leading", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const sheet = (await open()).findComponent(PluginSheet);
+    expect(sheet.props()).toMatchObject({ plugin: { id: BOARD, name: "Board" }, contact: "c1", live: true, presenting: "lead" });
+    expect(sheet.props("file")).toBeUndefined();
+  });
+
+  it("follows their presentation with the PDF of the chat, and says who presents", async () => {
+    messages = [pdfView("m1", "done")];
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const wrapper = await open();
+    expect(sent("core_file_belongs_to")).toEqual([{ file: "m1", contact: "c1" }]);
+    expect(sent("core_read_message_file")).toEqual([{ message: "m1" }]);
+    expect(wrapper.findComponent(PluginSheet).props()).toMatchObject({ presenting: "follow", file: { name: "class.pdf", mime: "application/pdf", data: "JVBERi0=" } });
+    expect(wrapper.find("[data-test='presenter']").text()).toBe("Maria López is presenting");
+  });
+
+  // A file of another chat (its message came after the presentation did): never read, never shown.
+  it("reads no file the core says is not of this chat, and says the presentation could not start", async () => {
+    messages = [pdfView("m1", "done")];
+    hooks.core_file_belongs_to = () => false;
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const wrapper = await open();
+    expect(sent("core_read_message_file")).toEqual([]);
+    expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+    expect(wrapper.find("[data-test='present-failed']").text()).toBe("The presentation couldn't start");
+  });
+
+  it("asks to accept a PDF over the automatic download, and opens it once it is here", async () => {
+    messages = [pdfView("m1", "waiting")];
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+    const accept = wrapper.find("[data-test='present-accept']");
+    expect(accept.text()).toContain("Accept the file to see the presentation");
+    await accept.trigger("click");
+    expect(sent("core_accept_file")).toEqual([{ message: "m1" }]);
+    messages = [pdfView("m1", "done")];
+    await loadMessages("c1");
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props("presenting")).toBe("follow");
+  });
+
+  it("waits for a PDF still on its way with a spinner that takes no room", async () => {
+    messages = [pdfView("m1", "transferring")];
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.find("[data-test='present-loading']").exists()).toBe(true);
+    expect(sent("core_read_message_file")).toEqual([]);
+    const rule = source.slice(source.indexOf(".ft-call__present-wait {"));
+    expect(rule.slice(0, rule.indexOf("}"))).toMatch(/position:\s*absolute/);
+  });
+
+  it("asks once before following with a tool not yet allowed; the call stays as it was until then", async () => {
+    tools = [tool(BOARD, "Board", false), tool(PDF, "PDF viewer", false)];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    const ask = wrapper.findComponent(GamePermissions);
+    expect(ask.props()).toMatchObject({ open: true, name: "Board", body: "Maria López wants to present with Board", allowLabel: "Allow" });
+    expect(wrapper.find("[data-test='present-area']").exists()).toBe(false);
+    hooks.core_plugin_grant = () => {
+      tools = [tool(BOARD, "Board", true), tool(PDF, "PDF viewer", false)];
+    };
+    ask.vm.$emit("allow");
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props("presenting")).toBe("follow");
+  });
+
+  it("does not ask again about a presentation the user said no to", async () => {
+    tools = [tool(BOARD, "Board", false)];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    wrapper.findComponent(GamePermissions).vm.$emit("cancel");
+    await flushPromises();
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+    expect(wrapper.find("[data-test='present-area']").exists()).toBe(false);
+  });
+
+  it("says when this phone lacks the tool, and the call goes on", async () => {
+    tools = [];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const missing = await open();
+    expect(missing.find("[data-test='present-missing']").text()).toContain("Add it in Apps");
+    expect(missing.find("[aria-label='Hang up']").exists()).toBe(true);
+  });
+
+  // Ioan, 2026-10-08: watching a presentation is free; the core opens a follower's tool even locked.
+  it("follows a presentation with the tools locked, with no lock in sight", async () => {
+    planState = "limited";
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.findComponent(PluginSheet).props("presenting")).toBe("follow");
+    expect(wrapper.text()).not.toContain("Subscribe to use the tools");
+  });
+
+  it("says the presentation could not start when the core refuses to open the tool", async () => {
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    wrapper.findComponent(PluginSheet).vm.$emit("refused");
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+    expect(wrapper.find("[data-test='present-failed']").text()).toBe("The presentation couldn't start");
+    expect(wrapper.find("[aria-label='Hang up']").exists()).toBe(true);
+  });
+
+  // A lost link said again (plan A): the same presentation keeps its tool as it is.
+  it("keeps the tool open when the same presentation is said again", async () => {
+    messages = [pdfView("m1", "done")];
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const wrapper = await open();
+    const before = wrapper.findComponent(PluginSheet).element;
+    call.presenting = { plugin: PDF, file: "m1", by: "them" };
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).element).toBe(before);
+    expect(sent("core_read_message_file")).toHaveLength(1);
+  });
+
+  it("shows no presentation until the call is connected", async () => {
+    active({ phase: "connecting", presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.find("[data-test='present-area']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='presenter']").exists()).toBe(false);
+  });
+
+  // A spinner that never ends would say the file is still coming: it is not.
+  it("says the presentation could not start when their PDF fails to arrive", async () => {
+    messages = [pdfView("m1", "failed")];
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.find("[data-test='present-loading']").exists()).toBe(false);
+    expect(sent("core_read_message_file")).toEqual([]);
+    expect(wrapper.find("[data-test='present-failed']").text()).toBe("The presentation couldn't start");
+  });
+
+  // Nothing moves on screen: the notices and the controls stay where they were.
+  it("hides who is called without taking them out of the layout while presenting", async () => {
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const peer = (await open()).find(".ft-call__peer").element as HTMLElement;
+    expect(peer.style.display).not.toBe("none");
+    expect(peer.style.visibility).toBe("hidden");
+  });
+
+  it("goes back to the call as it was when the presentation stops", async () => {
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    // In the document: happy-dom computes no style for a detached element, so `isVisible` would not see it.
+    const wrapper = mount(CallPage, { shallow: true, attachTo: document.body });
+    await flushPromises();
+    expect(wrapper.find(".ft-call__peer").isVisible()).toBe(false);
+    call.presenting = null;
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+    expect(wrapper.find(".ft-call__peer").isVisible()).toBe(true);
+  });
+
+  it("stops presenting when the presenter's tool asks to close; a follower's only closes it here", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    (await open()).findComponent(PluginSheet).vm.$emit("done");
+    expect(actions.stopPresenting).toHaveBeenCalledWith("x");
+    actions.stopPresenting.mockReset();
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    (await open()).findComponent(PluginSheet).vm.$emit("done");
+    expect(actions.stopPresenting).not.toHaveBeenCalled();
   });
 });
