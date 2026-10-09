@@ -13,7 +13,15 @@ onIonViewDidEnter(() => (onScreen.value = true));
 </script>
 
 <template>
-  <ion-page>
+  <ion-page class="ft-thread">
+    <!-- The circle's header, content and footer are this page's own children (Ionic's shape). -->
     <CircleThread :circle-id="circleId" :show-back="true" :active="onScreen" />
   </ion-page>
 </template>
+
+<style scoped>
+/* Ionic's page already lays out the circle's header, content and footer in a column. */
+.ft-thread {
+  background: var(--ft-bg);
+}
+</style>

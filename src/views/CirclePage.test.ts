@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import CirclePage from "./CirclePage.vue";
 import CircleThread from "../components/CircleThread.vue";
+import { pageShape } from "../__tests__/page-shape";
+import { seed } from "../__tests__/seed";
+import { store } from "../core";
 
 vi.mock("vue-router", () => ({ useRoute: () => ({ params: { id: "circle1" } }), useRouter: () => ({ push: vi.fn() }) }));
 
@@ -27,5 +30,31 @@ describe("CirclePage", () => {
     hooks(wrapper, "onIonViewDidEnter");
     await wrapper.vm.$nextTick();
     expect(wrapper.findComponent(CircleThread).props("active")).toBe(true);
+  });
+
+  // Ionic's own shape (2026-10-09), as the chat's page: the circle's header, content and footer are
+  // the page's own children, where Ionic's transitions look for them, with no frame of ours between.
+  it("is an Ionic page: the circle's header, content and footer are the page's own children", () => {
+    seed();
+    store.circles = [
+      {
+        id: "circle1",
+        name: "Friends",
+        hue: 120,
+        members: [{ id: "ft_me", name: "Me", admin: true, me: true }],
+        admin: true,
+        adminsOnly: false,
+        left: false,
+        unread: 0,
+        time: "10:02",
+        preview: "",
+        lastMine: false,
+        lastSender: "",
+        status: "delivered",
+        messages: [],
+      },
+    ];
+    const wrapper = mount(CirclePage, { shallow: true, global: { stubs: { CircleThread: false } } });
+    expect(pageShape(wrapper)).toEqual(["ion-header", "ion-content", "ion-footer"]);
   });
 });

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { IonAlert } from "@ionic/vue";
 import AddContactPage from "./AddContactPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import QrCode from "../components/QrCode.vue";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
@@ -219,5 +220,11 @@ describe("AddContactPage", () => {
     mount(AddContactPage, { shallow: true });
     await flushPromises();
     expect(calls).toContainEqual(["core_card", { session: "s1" }]);
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button and title, then its content", () => {
+    expect(pageShape(mount(AddContactPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

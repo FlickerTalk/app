@@ -4,6 +4,7 @@ import { linkOpens } from "../__tests__/opened";
 import { clearOnboarded } from "../preferences";
 import { actions, move, resetMoving } from "../__tests__/moving-mock";
 import MovePage from "./MovePage.vue";
+import { pageShape } from "../__tests__/page-shape";
 
 const route = { query: { role: "new" } as Record<string, string> };
 vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => ({ back: vi.fn(), replace: vi.fn() }) }));
@@ -70,5 +71,11 @@ describe("MovePage", () => {
     route.query = { role: "old" };
     Object.assign(move, { phase: "failed", error: "the new phone cannot be reached directly" });
     expect(mount(MovePage, { shallow: true }).text()).toContain("the new phone cannot be reached directly");
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button and title, then its content", () => {
+    expect(pageShape(mount(MovePage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

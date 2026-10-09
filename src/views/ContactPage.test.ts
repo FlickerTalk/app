@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
 import ContactPage from "./ContactPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { store } from "../core";
 import { showInPane, takeSearch } from "../pending-search";
@@ -214,5 +215,11 @@ describe("ContactPage", () => {
     toggle("typing").vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
     await flushPromises();
     expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: false, receipts: true, typing: false } }]);
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button, then the contact's page", () => {
+    expect(pageShape(mount(ContactPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

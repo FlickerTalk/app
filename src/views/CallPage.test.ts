@@ -6,6 +6,7 @@ import { seed } from "../__tests__/seed";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import { setLocale } from "../i18n";
 import CallPage from "./CallPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import source from "./CallPage.vue?raw";
 
 const route = { params: { id: "c1" }, query: {} as Record<string, string> };
@@ -557,5 +558,11 @@ describe("CallPage with native video", () => {
     expect(styles).not.toMatch(/(^|[\s;{-])(left|right)\s*:/m);
     expect(styles).not.toMatch(/(margin|padding|border)-(left|right)/);
     expect(styles).not.toMatch(/text-align:\s*(left|right)/);
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: the call fills its content, with no header", () => {
+    expect(pageShape(mount(CallPage, { shallow: true }))).toEqual(["ion-content"]);
   });
 });

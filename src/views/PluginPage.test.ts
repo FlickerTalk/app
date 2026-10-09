@@ -17,6 +17,7 @@ vi.mock("../plugins", async (importOriginal) => {
 });
 
 import PluginPage from "./PluginPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { installed, premiumLocked } from "../plugins";
 import PluginSheet from "../components/PluginSheet.vue";
 import PermissionAsk from "../components/PermissionAsk.vue";
@@ -195,5 +196,11 @@ describe("PluginPage", () => {
       expect(second.answer).toHaveBeenCalledWith(false);
       expect(ask().props("open")).toBe(false);
     });
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button and the plugin's name, then the plugin", () => {
+    expect(pageShape(mount(PluginPage, { shallow: true }), ["permission-ask"])).toEqual(["ion-header", "ion-content"]);
   });
 });

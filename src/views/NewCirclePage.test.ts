@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import NewCirclePage from "./NewCirclePage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
@@ -67,5 +68,11 @@ describe("NewCirclePage", () => {
     await wrapper.find("[data-test='circle-create']").trigger("click");
     await flushPromises();
     expect(calls).toContainEqual(["core_circle_create", { name: "Poker", members: ["ft_pablo"], session: "s1" }]);
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button and title, then the form", () => {
+    expect(pageShape(mount(NewCirclePage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

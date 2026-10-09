@@ -222,10 +222,10 @@ ion-modal.modal-sheet > .ion-page {
   }
 }
 /* The list beside the chat reaches no edge at its inline end either. */
-html:not([dir="rtl"]) .ft-chats.is-wide > .ft-chats__list {
+html:not([dir="rtl"]) .ft-chats.is-wide > :is(.ft-chats__head, .ft-chats__list) {
   --ion-safe-area-right: 0px;
 }
-html[dir="rtl"] .ft-chats.is-wide > .ft-chats__list {
+html[dir="rtl"] .ft-chats.is-wide > :is(.ft-chats__head, .ft-chats__list) {
   --ion-safe-area-left: 0px;
 }
 

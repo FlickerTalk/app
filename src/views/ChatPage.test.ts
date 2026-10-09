@@ -3,6 +3,8 @@ import { mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
 import ChatPage from "./ChatPage.vue";
 import ChatThread from "../components/ChatThread.vue";
+import { pageShape } from "../__tests__/page-shape";
+import { seed } from "../__tests__/seed";
 import { askSearch, takeSearch } from "../pending-search";
 
 // The address, reactive as vue-router's is.
@@ -185,5 +187,15 @@ describe("ChatPage", () => {
       hooks(wrapper, "onIonViewWillLeave");
       expect(leave).not.toHaveBeenCalled();
     });
+  });
+
+  // Ionic's own shape (2026-10-09): the conversation's header, content and footer are the page's own
+  // children, where Ionic's transitions look for them; the thread draws no frame of its own.
+  it("is an Ionic page: the conversation's header, content and footer are the page's own children", () => {
+    seed();
+    routing.route.params = { id: "c1" };
+    const wrapper = mount(ChatPage, { shallow: true, global: { stubs: { ChatThread: false } } });
+    // The two permission sheets are overlays: Ionic presents them over the page.
+    expect(pageShape(wrapper, ["permission-ask", "game-permissions"])).toEqual(["ion-header", "ion-content", "ion-footer"]);
   });
 });

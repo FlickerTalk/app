@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import SessionPage from "./SessionPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { premiumLocked } from "../plugins";
@@ -85,5 +86,11 @@ describe("SessionPage", () => {
     await flushPromises();
     expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
     expect(push).not.toHaveBeenCalledWith("/tabs/chats");
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with its back button, then the keypad", () => {
+    expect(pageShape(mount(SessionPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
   });
 });

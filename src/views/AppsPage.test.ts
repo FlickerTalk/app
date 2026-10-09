@@ -4,6 +4,7 @@ import { IonIcon, IonItem, IonSegment, IonSegmentButton, IonTitle, IonToast, Ion
 import { constructOutline, extensionPuzzleOutline, gameControllerOutline, gridOutline, imageOutline } from "ionicons/icons";
 import GamePermissions from "../components/GamePermissions.vue";
 import AppsPage from "./AppsPage.vue";
+import { pageShape } from "../__tests__/page-shape";
 import AppTile from "../components/AppTile.vue";
 import AppSheet from "../components/AppSheet.vue";
 import { calls, seed } from "../__tests__/seed";
@@ -454,5 +455,11 @@ describe("AppsPage", () => {
       expect(names(wrapper, "[data-test='apps-more']")).toEqual(["Dibujo"]);
       expect(wrapper.find("[data-test='apps-more-title']").text()).toBe("Más herramientas");
     });
+  });
+
+  // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
+  // Ionic's transitions look for them, with nothing of ours in between.
+  it("is an Ionic page: a header with the title and the segment, then the grid", () => {
+    expect(pageShape(mount(AppsPage, { shallow: true }), ["app-sheet", "game-permissions"])).toEqual(["ion-header", "ion-content"]);
   });
 });
