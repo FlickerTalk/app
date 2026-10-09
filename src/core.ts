@@ -19,6 +19,8 @@ export type FileState = "sending" | "receiving" | "paused" | "waiting" | "done" 
 export interface ChatFile {
   name: string;
   size: string;
+  /** The size in bytes, for the limits (none on a file this app drew up itself before the core had it). */
+  bytes?: number;
   mime: string;
   progress: number;
   state: FileState;
@@ -361,6 +363,7 @@ function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
   return {
     name: view.name,
     size: formatSize(view.size),
+    bytes: view.size,
     mime: view.mime,
     progress: view.progress,
     state,
