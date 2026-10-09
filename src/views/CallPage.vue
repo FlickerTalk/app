@@ -740,6 +740,7 @@ watch(
             :file="onSheet.file"
             :session="sessionOf(id)"
             :presenting="onSheet.lead ? 'lead' : 'follow'"
+            fill
             @done="presentDone"
             @refused="presentRefused"
             @closed="sheetClosed"

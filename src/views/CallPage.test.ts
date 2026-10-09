@@ -863,6 +863,18 @@ describe("CallPage presenting", () => {
     expect(wrapper.findComponent(PluginSheet).props()).toMatchObject({ plugin: { id: BOARD }, presenting: "lead" });
   });
 
+  // The retest (2026-10-09): the PDF viewer's pages never scrolled, the whole frame did. A presented
+  // tool fills its area as a tool window does (app#133): the frame is as tall as the area, it tells
+  // the plugin so, and the plugin scrolls inside it.
+  it("gives the presented tool its area to fill, on both sides", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const mine = await open();
+    expect(mine.findComponent(PluginSheet).props("fill")).toBe(true);
+    mine.unmount();
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    expect((await open()).findComponent(PluginSheet).props("fill")).toBe(true);
+  });
+
   it("opens the presenter's tool over the call, leading", async () => {
     active({ presenting: { plugin: BOARD, by: "me" } });
     const sheet = (await open()).findComponent(PluginSheet);
