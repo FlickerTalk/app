@@ -854,13 +854,13 @@ impl Core {
         self.registration.send_modify(|generation| *generation += 1);
     }
 
-    /// What a registration that failed waits on besides its timer: the router is back.
+    /// What a registration that failed waits on besides its timer: the router is back, or the app.
     pub fn registration_retry(&self) -> Arc<tokio::sync::Notify> {
         self.registration_retry.clone()
     }
 
-    /// The router can be reached again (its socket connected): a registration waiting to be
-    /// retried goes now.
+    /// The router can be reached again (its socket connected), or the app is back in front: worth
+    /// trying now. A registration waiting to be retried goes at once.
     pub fn router_reachable(&self) {
         self.registration_retry.notify_one();
     }
