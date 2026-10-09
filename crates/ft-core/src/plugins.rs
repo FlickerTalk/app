@@ -15,6 +15,7 @@ use vodozemac::Ed25519PublicKey;
 use ft_protocol::{Body, Packet};
 use ft_storage::{Contact, PluginRef, Reminder};
 
+use crate::native_calls::{BOARD, VIEWER};
 use crate::web::{host_of, Fetch, WebAnswer, WebRequest};
 use crate::{Core, Event};
 
@@ -508,11 +509,15 @@ impl Core {
 
     /// Whether this plugin may be opened, and served to the WebView, now: what `may_use` says of
     /// its kind or, with the tools closed, the plugin the other side presents in the call going on
-    /// (watching a class is free, Ioan 2026-10-08) if it asks for the live channel, the only way
-    /// a plugin can follow anything. The core decides it from its own call.
+    /// (watching a class is free, Ioan 2026-10-08) if it is one of the two presenting tools and
+    /// asks for the live channel, the only way a plugin can follow anything. The core decides it
+    /// from its own call.
     pub async fn may_use_plugin(&self, id: &str, kind: ft_plugins::Kind) -> Result<bool> {
         if self.may_use(kind).await? {
             return Ok(true);
+        }
+        if ![BOARD, VIEWER].contains(&id) {
+            return Ok(false);
         }
         Ok(self.following(id).await? && self.plugin_manifest(id).is_ok_and(|manifest| manifest.permissions.live))
     }
