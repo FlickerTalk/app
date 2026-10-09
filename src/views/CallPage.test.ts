@@ -1093,4 +1093,86 @@ describe("CallPage presenting", () => {
     (await open()).findComponent(PluginSheet).vm.$emit("done");
     expect(actions.stopPresenting).not.toHaveBeenCalled();
   });
+
+  // Their picture over a presentation (2026-10-08): a small corner the presentation leaves a hole
+  // for, since the native picture sits under the WebView; mine hides meanwhile.
+  const lastMeasure = () => actions.layoutVideo.mock.calls.at(-1)?.[0] as () => Record<string, unknown>;
+  const place = (element: Element, rect: { x: number; y: number; width: number; height: number }) =>
+    (element.getBoundingClientRect = () => ({ ...rect, top: rect.y, left: rect.x, right: rect.x + rect.width, bottom: rect.y + rect.height, toJSON: () => rect }) as DOMRect);
+
+  it("shrinks their picture to a corner while presenting, hides mine, and tells the core", async () => {
+    active({ view: view({ remote: true, camera: true }), presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    const remote = wrapper.find("[data-test='remote-slot']");
+    expect(remote.classes()).toContain("is-thumb");
+    expect(wrapper.find("[data-test='local-slot']").exists()).toBe(false);
+    place(remote.element, { x: 280, y: 520, width: 96, height: 140 });
+    expect(lastMeasure()()).toMatchObject({ remote: { x: 280, y: 520, width: 96, height: 140 }, local: null, localRadius: 0 });
+  });
+
+  it("leaves a hole in the presentation where their picture shows through", async () => {
+    active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    place(wrapper.find("[data-test='present-area']").element, { x: 0, y: 60, width: 400, height: 600 });
+    place(wrapper.find("[data-test='remote-slot']").element, { x: 290, y: 500, width: 96, height: 140 });
+    window.dispatchEvent(new Event("resize"));
+    await nextTick();
+    expect(wrapper.find("[data-test='present-area']").attributes("style")).toContain("polygon(evenodd");
+  });
+
+  it("drags their picture while presenting", async () => {
+    active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    const thumb = wrapper.find("[data-test='remote-slot']");
+    actions.layoutVideo.mockClear();
+    await thumb.trigger("pointerdown", { clientX: 300, clientY: 600, pointerId: 1 });
+    await thumb.trigger("pointermove", { clientX: 200, clientY: 500, pointerId: 1 });
+    await thumb.trigger("pointerup", { clientX: 200, clientY: 500, pointerId: 1 });
+    expect(thumb.attributes("style")).toContain("translate(-100px, -100px)");
+    expect(actions.layoutVideo).toHaveBeenCalled();
+  });
+
+  // The hole follows the picture once it has moved on screen, not where it was a step before.
+  it("moves the hole with their picture as it is dragged", async () => {
+    active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    place(wrapper.find("[data-test='present-area']").element, { x: 0, y: 60, width: 400, height: 600 });
+    const thumb = wrapper.find("[data-test='remote-slot']");
+    const element = thumb.element as HTMLElement;
+    element.getBoundingClientRect = () => {
+      const [, dx = "0", dy = "0"] = /translate\((-?\d+)px, (-?\d+)px\)/.exec(element.style.transform) ?? [];
+      const rect = { x: 290 + Number(dx), y: 500 + Number(dy), width: 96, height: 140 };
+      return { ...rect, top: rect.y, left: rect.x, right: rect.x + rect.width, bottom: rect.y + rect.height, toJSON: () => rect } as DOMRect;
+    };
+    await thumb.trigger("pointerdown", { clientX: 300, clientY: 600, pointerId: 1 });
+    await thumb.trigger("pointermove", { clientX: 200, clientY: 500, pointerId: 1 });
+    await nextTick();
+    expect(wrapper.find("[data-test='present-area']").attributes("style")).toContain("190px 340px, 286px 340px");
+  });
+
+  // Both slots take the thumb now: only the small one moves, never from a press on the big one.
+  it("moves my thumbnail only when it is the one dragged", async () => {
+    active({ view: view({ remote: true, camera: true }) });
+    const wrapper = await open();
+    const full = wrapper.find("[data-test='remote-slot']");
+    await full.trigger("pointerdown", { clientX: 300, clientY: 600, pointerId: 1 });
+    await full.trigger("pointermove", { clientX: 200, clientY: 500, pointerId: 1 });
+    await full.trigger("pointerup", { clientX: 200, clientY: 500, pointerId: 1 });
+    expect(wrapper.find("[data-test='local-slot']").attributes("style")).toBeUndefined();
+    expect(full.attributes("style")).toBeUndefined();
+  });
+
+  it("puts my picture back, full or as a thumbnail, when the presentation stops", async () => {
+    active({ view: view({ remote: true, camera: true }), presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    goodbye(wrapper);
+    actions.layoutVideo.mockClear();
+    call.presenting = null;
+    await flushPromises();
+    expect(wrapper.find("[data-test='local-slot']").classes()).toContain("is-thumb");
+    expect(wrapper.find("[data-test='remote-slot']").classes()).not.toContain("is-thumb");
+    expect(actions.layoutVideo).toHaveBeenCalled();
+    expect(lastMeasure()()).toMatchObject({ local: { x: 0, y: 0, width: 0, height: 0 }, localRadius: 16 });
+    expect(wrapper.find("[data-test='present-area']").exists()).toBe(false);
+  });
 });
