@@ -1257,6 +1257,11 @@ export async function readMessageFile(message: string): Promise<{ name: string; 
   return invoke("core_read_message_file", { message });
 }
 
+/** Whether a presented file is a file of the chat with `contact`; false when the core cannot say. */
+export async function fileBelongsTo(file: string, contact: string): Promise<boolean> {
+  return invoke<boolean>("core_file_belongs_to", { file, contact }).catch(() => false);
+}
+
 /** UTF-8 text as base64, for the bytes the core keeps for a plugin. */
 export function toBase64Text(text: string): string {
   const bytes = new TextEncoder().encode(text);
