@@ -419,8 +419,48 @@ async fn both_presenting_at_once_end_up_showing_the_same() {
     alice.core.end_call(&call, false).await.unwrap();
 }
 
+/// The last presentation `events` said of `call` until it has been quiet for a while: what a
+/// screen that follows only the core's events shows.
+async fn last_heard(events: &mut broadcast::Receiver<Event>, call: &str) -> Option<Option<Presenting>> {
+    let mut last = None;
+    loop {
+        let next = tokio::time::timeout(Duration::from_millis(1500), events.recv()).await;
+        match next {
+            Ok(Ok(Event::Call { call: id, update: CallUpdate::Presenting { plugin, file, by }, .. })) if id == call => {
+                last = Some(plugin.zip(by).map(|(plugin, by)| Presenting { plugin, file, by }));
+            }
+            Ok(Ok(_)) => {}
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => panic!("events lost"),
+            Ok(Err(_)) | Err(_) => return last,
+        }
+    }
+}
+
+// Both press Present at once, again and again (defect H, 2026-10-09): whatever each side's screen
+// heard last is what its core keeps, so a screen led only by events never shows a stale one. The
+// loser hears its own presentation and then the winner's.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_clash_the_last_word_each_screen_hears_is_what_its_core_keeps() {
+    let (alice, bob) = two_phones().await;
+    let call = connected_call(&alice, &bob).await;
+    for round in 0..6 {
+        let (mut alice_events, mut bob_events) = (alice.core.events(), bob.core.events());
+        let (by_alice, by_bob) = tokio::join!(alice.core.present_in_call(&call, BOARD, None), bob.core.present_in_call(&call, BOARD, None));
+        assert!(by_alice.is_ok() || by_bob.is_ok(), "round {round}: someone presents");
+        until("both show the same presentation", || agree(&alice, &bob)).await;
+        let (alice_heard, bob_heard) = tokio::join!(last_heard(&mut alice_events, &call), last_heard(&mut bob_events, &call));
+        assert_eq!(alice_heard, Some(presenting(&alice).await), "round {round}: alice's screen");
+        assert_eq!(bob_heard, Some(presenting(&bob).await), "round {round}: bob's screen");
+        for phone in [&alice, &bob] {
+            phone.core.stop_presenting(&call).await.expect("stops");
+        }
+        until("nothing presented", || async { presenting(&alice).await.is_none() && presenting(&bob).await.is_none() }).await;
+    }
+    alice.core.end_call(&call, false).await.unwrap();
+}
+
+/// A tool that talks to its twin but is not one of the two that present.
 const TOOL: &str = "com.example.board";
-const OTHER_TOOL: &str = "com.example.notes";
 const DAY: i64 = 24 * 60 * 60 * 1000;
 
 /// The phone's own clock, in ms, as the core counts it.
@@ -475,25 +515,25 @@ async fn plan_changed(events: &mut broadcast::Receiver<Event>) -> bool {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_student_with_locked_tools_may_follow_a_presentation() {
     let (alice, bob) = two_phones().await;
-    install_tools(&alice, &[TOOL]).await;
-    install_tools(&bob, &[TOOL, OTHER_TOOL]).await;
+    install_tools(&alice, &[BOARD]).await;
+    install_tools(&bob, &[BOARD, VIEWER]).await;
     lock_tools(&bob).await;
     let call = connected_call(&alice, &bob).await;
-    assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("closed").to_string(), NEEDS_SUBSCRIPTION);
+    assert_eq!(bob.core.open_plugin(BOARD).await.expect_err("closed").to_string(), NEEDS_SUBSCRIPTION);
 
     let mut bob_events = bob.core.events();
-    alice.core.present_in_call(&call, TOOL, None).await.expect("alice, in her free days, presents");
+    alice.core.present_in_call(&call, BOARD, None).await.expect("alice, in her free days, presents");
     assert!(plan_changed(&mut bob_events).await, "the WebView serves the tool again");
     next_presenting(&mut bob_events, &call).await;
-    bob.core.open_plugin(TOOL).await.expect("bob follows it");
-    assert!(bob.core.may_use_plugin(TOOL, Kind::Tool).await.unwrap());
-    let refused = bob.core.open_plugin(OTHER_TOOL).await.expect_err("only the one presented");
+    bob.core.open_plugin(BOARD).await.expect("bob follows it");
+    assert!(bob.core.may_use_plugin(BOARD, Kind::Tool).await.unwrap());
+    let refused = bob.core.open_plugin(VIEWER).await.expect_err("only the one presented");
     assert_eq!(refused.to_string(), NEEDS_SUBSCRIPTION);
 
     alice.core.stop_presenting(&call).await.expect("she stops");
     next_presenting(&mut bob_events, &call).await;
     assert!(plan_changed(&mut bob_events).await, "and stops serving it");
-    assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("closed again").to_string(), NEEDS_SUBSCRIPTION);
+    assert_eq!(bob.core.open_plugin(BOARD).await.expect_err("closed again").to_string(), NEEDS_SUBSCRIPTION);
     alice.core.end_call(&call, false).await.unwrap();
 }
 
@@ -518,39 +558,43 @@ async fn a_teacher_with_locked_tools_may_not_present() {
 #[tokio::test(flavor = "multi_thread")]
 async fn following_does_not_unlock_the_tool_outside_the_call() {
     let (alice, bob) = two_phones().await;
-    install_tools(&alice, &[TOOL]).await;
-    install_tools(&bob, &[TOOL]).await;
+    install_tools(&alice, &[BOARD]).await;
+    install_tools(&bob, &[BOARD]).await;
     lock_tools(&bob).await;
     let call = connected_call(&alice, &bob).await;
     let mut bob_events = bob.core.events();
-    alice.core.present_in_call(&call, TOOL, None).await.expect("alice presents");
+    alice.core.present_in_call(&call, BOARD, None).await.expect("alice presents");
     assert!(plan_changed(&mut bob_events).await, "the WebView serves the tool");
     next_presenting(&mut bob_events, &call).await;
-    bob.core.open_plugin(TOOL).await.expect("bob follows it");
+    bob.core.open_plugin(BOARD).await.expect("bob follows it");
 
     bob.core.end_call(&call, false).await.expect("bob hangs up");
     assert!(plan_changed(&mut bob_events).await, "the WebView stops serving it");
-    assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("closed again").to_string(), NEEDS_SUBSCRIPTION);
-    assert!(!bob.core.may_use_plugin(TOOL, Kind::Tool).await.unwrap());
+    assert_eq!(bob.core.open_plugin(BOARD).await.expect_err("closed again").to_string(), NEEDS_SUBSCRIPTION);
+    assert!(!bob.core.may_use_plugin(BOARD, Kind::Tool).await.unwrap());
 }
 
-// Only a tool that asks for the live channel can follow anything (2026-10-08): a presentation
-// naming one that does not ask for it unlocks nothing.
+// Only the two presenting tools can be followed, and only a version that asks for the live
+// channel (2026-10-08): a presentation naming an older board, or any other tool even one that
+// talks to its twin (a list, a poll, a live game), unlocks nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_presentation_of_a_tool_that_cannot_follow_unlocks_nothing() {
     let (alice, bob) = two_phones().await;
-    install_tools_asking(&bob, &[(TOOL, true), (DEAF_TOOL, false)]).await;
+    install_tools_asking(&bob, &[(BOARD, false), (TOOL, true)]).await;
     lock_tools(&bob).await;
     let call = connected_call(&alice, &bob).await;
     let mut bob_events = bob.core.events();
-    alice.core.present_in_call(&call, DEAF_TOOL, None).await.expect("alice presents a tool without the live channel");
-    assert_eq!(next_presenting(&mut bob_events, &call).await.0, Some(DEAF_TOOL.to_owned()));
-    assert_eq!(bob.core.open_plugin(DEAF_TOOL).await.expect_err("still closed").to_string(), NEEDS_SUBSCRIPTION);
-    assert!(!bob.core.may_use_plugin(DEAF_TOOL, Kind::Tool).await.unwrap());
+    alice.core.present_in_call(&call, BOARD, None).await.expect("alice presents a board without the live channel");
+    assert_eq!(next_presenting(&mut bob_events, &call).await.0, Some(BOARD.to_owned()));
+    assert_eq!(bob.core.open_plugin(BOARD).await.expect_err("still closed").to_string(), NEEDS_SUBSCRIPTION);
+    assert!(!bob.core.may_use_plugin(BOARD, Kind::Tool).await.unwrap());
+
+    alice.core.present_in_call(&call, TOOL, None).await.expect("alice presents a live tool that does not present");
+    assert_eq!(next_presenting(&mut bob_events, &call).await.0, Some(TOOL.to_owned()));
+    assert_eq!(bob.core.open_plugin(TOOL).await.expect_err("not a presenting tool").to_string(), NEEDS_SUBSCRIPTION);
+    assert!(!bob.core.may_use_plugin(TOOL, Kind::Tool).await.unwrap());
     alice.core.end_call(&call, false).await.unwrap();
 }
-
-const DEAF_TOOL: &str = "com.example.clock";
 
 /// Which comes first on this phone: what may open changing, or what is presented in `call`.
 #[derive(Debug, PartialEq, Eq)]

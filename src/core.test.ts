@@ -168,6 +168,8 @@ describe("core bridge", () => {
     const [receiving, received, sending] = core.chat("ft_bob")?.messages ?? [];
     expect(receiving).toMatchObject({ kind: "file", file: { name: "photo.jpg", size: "1.2 MB", progress: 0.5, state: "receiving" } });
     expect(receiving.file?.url).toBeUndefined();
+    // The size as a number too, for the limits (a PDF too big to present, 2026-10-09).
+    expect(receiving.file?.bytes).toBe(1_200_000);
     expect(received.file).toMatchObject({ state: "done", url: "asset://localhost/files/f2/photo.jpg" });
     expect(sending.file).toMatchObject({ state: "sending", url: "asset://localhost/files/f3/photo.jpg" });
   });
@@ -813,5 +815,24 @@ describe("the plan", () => {
     expect(core.needsSubscription(new Error("needs_subscription"))).toBe(true);
     expect(core.needsSubscription("that tool is not offered here")).toBe(false);
     expect(core.needsSubscription(undefined)).toBe(false);
+  });
+});
+
+// 2026-10-09: the follow side reads a presented file only once the core says it is of that chat.
+describe("a presented file", () => {
+  beforeEach(() => tauri.invoke.mockReset());
+
+  it("asks the core whether it belongs to the contact's chat", async () => {
+    tauri.invoke.mockResolvedValueOnce(true);
+    expect(await core.fileBelongsTo("m1", "ft_bob")).toBe(true);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_file_belongs_to", { file: "m1", contact: "ft_bob" });
+    tauri.invoke.mockResolvedValueOnce(false);
+    expect(await core.fileBelongsTo("m1", "ft_bob")).toBe(false);
+  });
+
+  // A core that cannot say is no proof: the file is not shown.
+  it("belongs to nobody when the core cannot say", async () => {
+    tauri.invoke.mockRejectedValueOnce("no core yet");
+    expect(await core.fileBelongsTo("m1", "ft_bob")).toBe(false);
   });
 });

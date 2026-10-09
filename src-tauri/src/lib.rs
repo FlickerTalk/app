@@ -212,6 +212,7 @@ pub fn run() {
             client::core_call_mute,
             client::core_call_present,
             client::core_call_present_stop,
+            client::core_file_belongs_to,
             client::core_call_set_video,
             client::core_call_switch_camera,
             client::core_call_video_layout,

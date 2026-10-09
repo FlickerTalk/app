@@ -19,6 +19,8 @@ export type FileState = "sending" | "receiving" | "paused" | "waiting" | "done" 
 export interface ChatFile {
   name: string;
   size: string;
+  /** The size in bytes, for the limits (none on a file this app drew up itself before the core had it). */
+  bytes?: number;
   mime: string;
   progress: number;
   state: FileState;
@@ -361,6 +363,7 @@ function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
   return {
     name: view.name,
     size: formatSize(view.size),
+    bytes: view.size,
     mime: view.mime,
     progress: view.progress,
     state,
@@ -1255,6 +1258,11 @@ export async function pluginLiveSend(plugin: string, contact: string, data: stri
 /** The file of a message, for a plugin to open it: name, kind and bytes as base64. */
 export async function readMessageFile(message: string): Promise<{ name: string; mime: string; data: string }> {
   return invoke("core_read_message_file", { message });
+}
+
+/** Whether a presented file is a file of the chat with `contact`; false when the core cannot say. */
+export async function fileBelongsTo(file: string, contact: string): Promise<boolean> {
+  return invoke<boolean>("core_file_belongs_to", { file, contact }).catch(() => false);
 }
 
 /** UTF-8 text as base64, for the bytes the core keeps for a plugin. */

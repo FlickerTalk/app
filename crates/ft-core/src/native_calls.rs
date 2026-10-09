@@ -252,6 +252,11 @@ const CAMERA_RETRY: Duration = Duration::from_secs(2);
 /// Between attempts to tell the other side what we present, while the call lasts.
 const PRESENT_RETRY: Duration = Duration::from_secs(2);
 
+/// The whiteboard and the PDF viewer: the only tools a presentation opens on the other phone
+/// (`src/present.ts`), so the only ones a follower is let into with the tools closed.
+pub(crate) const BOARD: &str = "com.flickertalk.board";
+pub(crate) const VIEWER: &str = "com.flickertalk.pdfviewer";
+
 /// Settings key: the call routing, as Settings writes it (`direct`, `auto`, `always`).
 const CALL_ROUTING: &str = "call_routing";
 

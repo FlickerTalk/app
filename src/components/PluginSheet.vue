@@ -89,6 +89,7 @@ import type { ContactAsk, Proposal } from "../pending-send";
 // plugin scrolls inside it, so Ionic's overlays (alert, toast, action sheet, modal), which are
 // placed in the frame, are on the screen. Without it the frame is as tall as its content (the game
 // room).
+// 2026-10-08: opened by the call screen to present, it is told whether it leads or follows.
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -101,6 +102,7 @@ const props = withDefaults(
     live?: boolean;
     session?: string;
     fill?: boolean;
+    presenting?: "lead" | "follow";
   }>(),
   {
     text: undefined,
@@ -111,10 +113,11 @@ const props = withDefaults(
     live: false,
     session: undefined,
     fill: false,
+    presenting: undefined,
   },
 );
 // `done`: the plugin is finished or asked to be closed; whoever shows it decides, and closes it with
-// `close()`. `closed`: it has said goodbye and can go.
+// `close()`. `closed`: it has said goodbye and can go. `refused`: the core would not open it.
 // `needs` (2026-10-08): the plugin asked for something it lacks the permission for; whoever shows
 // it asks the user and answers through the need.
 const emit = defineEmits<{
@@ -126,6 +129,7 @@ const emit = defineEmits<{
   openChat: [contact: string];
   closed: [];
   needs: [need: PermissionNeed];
+  refused: [];
 }>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
@@ -340,6 +344,8 @@ function opening() {
     ref: props.reference ?? null,
     reminder: props.reminder ?? null,
     live: Boolean(props.live && props.contact),
+    // Only inside a call (API 1.6.0); a chat or a page never says it.
+    ...(props.presenting ? { presenting: props.presenting } : {}),
   };
 }
 
@@ -676,7 +682,8 @@ watch(
 );
 
 onMounted(async () => {
-  reportOpen(props.plugin.id, true);
+  // Refused by the core (a locked tool, say): whoever shows it decides what to tell the user.
+  void pluginOpen(props.plugin.id, true).catch(() => emit("refused"));
   lastTheme = JSON.stringify(look());
   looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction", "dir"] });
   window.addEventListener("message", onMessage);
@@ -705,7 +712,8 @@ watch(
 </script>
 
 <template>
-  <section ref="pane" class="ft-plugin" :class="{ 'ft-plugin--fill': fill }">
+  <!-- Presenting in a call, the tool fills the area the call screen gives it (defect J). -->
+  <section ref="pane" class="ft-plugin" :class="{ 'ft-plugin--fill': fill, 'is-presenting': presenting }">
     <!-- The name and the way out are the window's job; here only what the tool is doing. It floats
          over the frame's top edge: the plugin never moves when it shows or goes (2026-10-06). -->
     <span v-if="working" class="ft-plugin__working" role="status">…</span>
@@ -715,7 +723,7 @@ watch(
       ref="frame"
       class="ft-plugin__frame"
       :src="frameUrl(plugin.id)"
-      :style="fill ? undefined : { height: `${height}px` }"
+      :style="fill || presenting ? undefined : { height: `${height}px` }"
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
       :title="pluginName(plugin)"
@@ -762,5 +770,13 @@ watch(
   width: 100%;
   border: 0;
   background: transparent;
+}
+/* Presenting in a call: as tall as the area it is in, never taller (its own bottom stays in sight). */
+.ft-plugin.is-presenting {
+  height: 100%;
+  padding-block-end: 0;
+}
+.is-presenting .ft-plugin__frame {
+  height: 100%;
 }
 </style>
