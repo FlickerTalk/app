@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import ChatsPage from "./ChatsPage.vue";
 import ChatThread from "../components/ChatThread.vue";
+import { childTags, pageShape } from "../__tests__/page-shape";
 import { fixture, seed } from "../__tests__/seed";
 import { calls } from "../__tests__/seed";
 import { store, type Circle } from "../core";
@@ -199,6 +200,18 @@ describe("ChatsPage", () => {
 
     // app#80 (2026-10-03): on another tab, the emoji the circle beside the list left open let go
     // of Android's back button; back on Chats they take it again.
+    // Ionic's own shape (2026-10-09): beside the list, the circle draws no frame of its own; the pane
+    // holds its header, content and footer in a column, as its own page does.
+    it("holds the circle beside the list in the pane's thread frame", async () => {
+      screen(true);
+      const wide = mount(ChatsPage, { shallow: true, global: { stubs: { CircleThread: false } } });
+      await wide.find("[data-test='circle-row']").trigger("click");
+      const pane = wide.find(".ft-chats__detail");
+      expect(childTags(pane.element)).toEqual(["div"]);
+      expect(pane.find(".ft-thread").exists()).toBe(true);
+      expect(childTags(pane.find(".ft-thread").element)).toEqual(["ion-header", "ion-content", "ion-footer"]);
+    });
+
     it("tells the circle beside the list whether Chats is on screen", async () => {
       screen(true);
       const wide = mount(ChatsPage, { shallow: true });
@@ -402,5 +415,19 @@ describe("ChatsPage", () => {
       expect(wrapper.find("[data-test='empty']").exists()).toBe(false);
       expect(wrapper.find("[data-test='requests']").exists()).toBe(true);
     });
+  });
+
+  // Ionic's own shape (2026-10-09): the list's header and content are the page's own children, where
+  // Ionic's transitions look for them, with no frame of ours in between. On a wide screen the pane
+  // with the conversation sits beside them, and only the pane has a frame.
+  it("is an Ionic page: the list's header and content, and the pane beside them on wide screens", () => {
+    screen(false);
+    expect(pageShape(mount(ChatsPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
+
+    screen(true);
+    const wide = mount(ChatsPage, { shallow: true });
+    expect(pageShape(wide)).toEqual(["ion-header", "ion-content", "section"]);
+    const pane = wide.find(".ft-chats__detail");
+    expect(childTags(pane.find(".ft-thread").element)).toEqual(["chat-thread"]);
   });
 });

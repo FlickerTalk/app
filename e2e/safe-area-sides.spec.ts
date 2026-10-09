@@ -94,7 +94,7 @@ for (const locale of ["en", "ar"]) {
       // Nor does the list, between the rail and the chat: its toolbar's buttons end where Ionic
       // ends them, not an inset away from the chat pane.
       const list = (await app.locator(".ft-chats__list").boundingBox())!;
-      const buttons = (await app.locator(".ft-chats__list ion-header ion-buttons").first().boundingBox())!;
+      const buttons = (await app.locator(".ft-chats__head ion-buttons").first().boundingBox())!;
       if (locale === "ar") expect(buttons.x - list.x, "no inset beside the chat pane").toBeLessThan(SIDE);
       else expect(list.x + list.width - (buttons.x + buttons.width), "no inset beside the chat pane").toBeLessThan(SIDE);
 
