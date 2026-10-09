@@ -1601,10 +1601,12 @@ impl Core {
                 let _ = self.events.send(Event::Typing { contact: id.to_string() });
             }
             // Their emoji on a message of this conversation (2026-10-05); on anything else, nothing.
-            // One made before the one already here changes nothing (2026-10-06).
+            // One made before the one already here changes nothing (2026-10-06). A stranger still
+            // in the requests has their words kept, so what they change of them is kept too: it
+            // is acknowledged, and the sender shows it as arrived (1.5.1, §84).
             Body::Reaction { to, emoji } => {
                 let to = to.to_string();
-                if contact.rules.accepts_chat && contact.accepted && self.store.message(&to).await?.is_some_and(|message| message.contact == id) {
+                if contact.rules.accepts_chat && self.store.message(&to).await?.is_some_and(|message| message.contact == id) {
                     let emoji = emoji.trim();
                     let emoji = (!emoji.is_empty() && is_reaction(emoji)).then_some(emoji);
                     self.store.set_reaction(&to, false, emoji, packet.sent_at as i64).await?;
@@ -1622,7 +1624,6 @@ impl Core {
                 let of = of.to_string();
                 let text = text.trim();
                 let theirs = contact.rules.accepts_chat
-                    && contact.accepted
                     && self.store.message(&of).await?.is_some_and(|message| {
                         message.contact == id && !message.outgoing && packet.sent_at as i64 - message.sent_at <= EDIT_WINDOW_MS
                     });
@@ -1640,7 +1641,6 @@ impl Core {
             Body::Delete { of } => {
                 let of = of.to_string();
                 let theirs = contact.rules.accepts_chat
-                    && contact.accepted
                     && self.store.message(&of).await?.is_some_and(|message| message.contact == id && !message.outgoing);
                 if theirs {
                     let file = self.store.file(&of).await?;
