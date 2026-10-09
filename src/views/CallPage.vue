@@ -37,7 +37,19 @@ import {
   sessionOf,
 } from "../core";
 import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock, type HandedFile } from "../plugins";
-import { PRESENT_BOARD, PRESENT_DOCUMENT, PRESENT_FILE_LIMIT, SEND_WAIT, canPresentWith, holeClip, needsPresentGrant, presentGrant, sentFile, waitFor } from "../present";
+import {
+  PRESENT_BOARD,
+  PRESENT_DOCUMENT,
+  PRESENT_FILE_LIMIT,
+  SEND_WAIT,
+  canPresentWith,
+  holeClip,
+  installCarried,
+  needsPresentGrant,
+  presentGrant,
+  sentFile,
+  waitFor,
+} from "../present";
 import {
   call,
   cannotPresent,
@@ -154,6 +166,8 @@ function present(tool: string) {
   if (call.presenting) return;
   return once(async () => {
     await Promise.all([refreshPlugins(), refreshPremiumLock()]);
+    // Not added yet but carried by the app: added here (§56), not in Apps.
+    await installCarried(tool).catch(() => false);
     const plugin = installed.value.find((one) => one.id === tool);
     if (!canPresentWith(plugin)) return say("calls.presentMissing");
     if (isLocked(plugin)) return void router.push(PREMIUM_PAGE);
@@ -229,11 +243,22 @@ async function readPlugins() {
   await refreshPlugins().catch(() => undefined);
   pluginsRead.value = true;
 }
+/** Their presentation whose tool is being added from what the app carries: awaited, not missing. */
+const seeding = ref("");
+async function followWith(key: string, tool: string) {
+  seeding.value = key;
+  try {
+    await readPlugins();
+    await installCarried(tool).catch(() => false);
+  } finally {
+    if (seeding.value === key) seeding.value = "";
+  }
+}
 const presentState = computed<PresentState>(() => {
   const now = presenting.value;
   if (!now) return "none";
   const plugin = presentPlugin.value;
-  if (!canPresentWith(plugin)) return pluginsRead.value ? "missing" : "loading";
+  if (!canPresentWith(plugin)) return pluginsRead.value && seeding.value !== presentKey.value ? "missing" : "loading";
   // Before the grant: a grant that failed is not asked about again.
   if (presentBroken.value) return "failed";
   // No lock here (Ioan, 2026-10-08): following is free, the core decides; presenting checks it first.
@@ -316,7 +341,10 @@ watch(
     presentBroken.value = false;
     declined.value = "";
     if (!key) return;
-    void readPlugins();
+    const tool = presenting.value?.plugin;
+    // Theirs, with one of the two tools that present: added first if the app carries it (§56).
+    if (presenting.value?.by === "them" && (tool === PRESENT_BOARD || tool === PRESENT_DOCUMENT)) void followWith(key, tool);
+    else void readPlugins();
     if (presenting.value?.file) void loadMessages(id.value).catch(() => undefined);
   },
   { immediate: true },

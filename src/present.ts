@@ -6,7 +6,8 @@
  */
 import { watch } from "vue";
 import type { VideoRect } from "./calls";
-import type { ChatMessage, PluginPermissions, PluginView } from "./core";
+import { installPlugin, type ChatMessage, type PluginPermissions, type PluginView } from "./core";
+import { installed, offered, refreshOffered, refreshPlugins } from "./plugins";
 
 export const PRESENT_BOARD = "com.flickertalk.board";
 export const PRESENT_DOCUMENT = "com.flickertalk.pdfviewer";
@@ -65,4 +66,18 @@ export function holeClip(area: VideoRect | null, hole: VideoRect | null): string
   const x2 = x1 + Math.round(hole.width);
   const y2 = y1 + Math.round(hole.height);
   return `polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px)`;
+}
+
+/**
+ * Adds a tool the app carries and this phone has not added (2026-10-09, §56: ours arrive
+ * installed): presenting or following never sends anyone to Apps for it. Granting nothing, as any
+ * install (§53). Whether it added it; never for a tool the app does not carry, or one already here.
+ */
+export async function installCarried(tool: string): Promise<boolean> {
+  if (installed.value.some((one) => one.id === tool)) return false;
+  const offer = await refreshOffered().catch(() => offered.value);
+  if (!(offer ?? []).some((one) => one.id === tool && one.carried)) return false;
+  await installPlugin(tool);
+  await refreshPlugins();
+  return installed.value.some((one) => one.id === tool);
 }
