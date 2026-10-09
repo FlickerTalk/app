@@ -48,6 +48,11 @@ pub fn run() {
                         let (kind, svg) = plugins::icon(name)?;
                         return Some((svg.to_vec(), kind, one.policy));
                     }
+                    // And its Ionic, the same for every plugin: `./ionic/<file>` (2026-10-09).
+                    if let Some(name) = file.strip_prefix("ionic/") {
+                        let (kind, bytes) = plugins::ionic(name)?;
+                        return Some((bytes.to_vec(), kind, one.policy));
+                    }
                     let (body, kind) = if file == "frame.html" {
                         (plugins::frame_html(&one.component, &one.version).into_bytes(), plugins::content_type("frame.html"))
                     } else if file == "frame.js" {
