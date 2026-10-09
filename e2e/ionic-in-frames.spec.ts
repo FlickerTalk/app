@@ -118,3 +118,30 @@ test("a plugin opened on its own page is as tall as the page under its bar", asy
   expect(tall.height).toBeGreaterThan(page.height * 0.9);
   expect(tall.y + tall.height).toBeLessThanOrEqual(page.y + page.height + 1);
 });
+
+// D1 of the 1.6.0 QA (iPhone 13 mini): inside a frame, iOS still reports the screen's insets
+// (`env(safe-area-inset-*)`), though the frame sits under the app's bar and above what the app
+// keeps at the bottom. The plugin's header padded itself by the status bar a second time: an empty
+// band of 50 pt under the app's bar. Ionic reads the inset from `--safe-area-inset-*` before
+// `env()`, so setting those in the frame is the inset the iPhone reported there.
+test("a plugin's header is not pushed down by the screen's insets inside its frame", async ({ app }) => {
+  await serveRealPluginFrames(app, PROBE);
+  await app.goto("/plugin/com.flickertalk.markdown");
+  await expect(app.frameLocator("iframe.ft-plugin__frame").locator("#save")).toBeAttached();
+  const frame = app.frames().find((one) => one !== app.mainFrame())!;
+  const header = () => frame.evaluate(() => document.querySelector("ion-header")!.getBoundingClientRect().height);
+  await expect.poll(header).toBeGreaterThan(0);
+  const before = await header();
+
+  await frame.evaluate(() => {
+    document.documentElement.style.setProperty("--safe-area-inset-top", "50px");
+    document.documentElement.style.setProperty("--safe-area-inset-bottom", "34px");
+  });
+
+  await expect.poll(header).toBe(before);
+  const insets = await frame.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return [style.getPropertyValue("--ion-safe-area-top").trim(), style.getPropertyValue("--ion-safe-area-bottom").trim()];
+  });
+  expect(insets).toEqual(["0px", "0px"]);
+});
