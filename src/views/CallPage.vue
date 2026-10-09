@@ -149,6 +149,8 @@ async function grantLive(tool: string): Promise<boolean> {
 /** Present, from the sheet: the tool must be here, unlocked and allowed to talk to its twin. */
 function present(tool: string) {
   choosing.value = false;
+  // A sheet tapped after the other side started presenting (both pressed at once): theirs shows.
+  if (call.presenting) return;
   return once(async () => {
     await Promise.all([refreshPlugins(), refreshPremiumLock()]);
     const plugin = installed.value.find((one) => one.id === tool);
@@ -163,6 +165,7 @@ function present(tool: string) {
       image: pluginImage(plugin),
       allow: () =>
         once(async () => {
+          if (call.presenting) return;
           if (await grantLive(tool)) await begin(tool);
           else await say("calls.presentFailed");
         }),
@@ -175,8 +178,9 @@ async function begin(tool: string) {
   try {
     if (tool !== PRESENT_DOCUMENT) return await presentInCall(call.id, tool);
     const [file] = await pickFiles("application/pdf");
-    // The picker can stay open past the call's end: nothing goes to the chat then.
-    if (!file || call.phase !== "active") return;
+    // The picker can stay open past the call's end, or past the start of theirs: nothing goes
+    // to the chat then.
+    if (!file || call.phase !== "active" || call.presenting) return;
     if (file.size > PRESENT_FILE_LIMIT) return await say("calls.presentTooBig");
     await loadMessages(id.value);
     const before = new Set((chat(id.value)?.messages ?? []).map((one) => one.id));
@@ -187,6 +191,8 @@ async function begin(tool: string) {
   } catch (error) {
     // The plan can change after the check above: the core's refusal has the last word.
     if (needsSubscription(error)) return void router.push(PREMIUM_PAGE);
+    // Theirs started first (both pressed at once): it is on the screen, which says enough.
+    if (call.presenting?.by === "them") return;
     // The core said their app is too old (plan A); anything else is a plain failure (§84).
     await say(cannotPresent(error) ? "calls.cannotPresentOld" : "calls.presentFailed");
   }
@@ -247,6 +253,17 @@ const presentArea = computed(() => ["sheet", "accept", "loading", "failed", "too
 const presentClip = ref<string | undefined>();
 /** The presentation's box, measured for that hole: it must have no CSS transform. */
 const presentBox = ref<HTMLElement | null>(null);
+
+// Someone presents now (theirs may have won a press at the same moment, defect H): Present's
+// sheet and my own permission sheet go; a question about theirs may follow.
+watch(
+  () => Boolean(call.presenting),
+  (now) => {
+    if (!now) return;
+    choosing.value = false;
+    if (asking.value && !asking.value.them) asking.value = null;
+  },
+);
 
 /** Their presentation whose permission is being given: not asked about meanwhile. */
 const granting = ref("");
