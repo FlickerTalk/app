@@ -11,9 +11,9 @@ const tool = (asks: Partial<PluginView["asks"]>, granted: Partial<PluginView["gr
   granted: { network: [], messages: false, send: "nothing", ...granted },
   installedAt: 1,
 });
-const file = (id: string, name: string, mine = true): ChatMessage => ({
+const file = (id: string, name: string, mine = true, bytes = 1_000_000): ChatMessage => ({
   id, mine, text: "", time: "", sentAt: 1, kind: "file",
-  file: { name, size: "1 MB", mime: "application/pdf", progress: 0, state: "sending" },
+  file: { name, size: "1 MB", bytes, mime: "application/pdf", progress: 0, state: "sending" },
 });
 
 describe("presenting in a call", () => {
@@ -39,11 +39,23 @@ describe("presenting in a call", () => {
     expect(presentGrant(board)).toEqual({ network: [], messages: false, send: "propose", storage: "large", location: true, live: true });
   });
 
-  it("finds the file I just sent by its name, among the messages that were not there before", () => {
+  it("finds the file I just sent by its size, among the messages that were not there before", () => {
     const before = new Set(["old"]);
     const messages = [file("old", "class.pdf"), file("theirs", "class.pdf", false), file("new", "class.pdf")];
-    expect(sentFile(messages, before, "class.pdf")).toBe("new");
-    expect(sentFile(messages, before, "other.pdf")).toBeUndefined();
+    expect(sentFile(messages, before, 1_000_000)).toBe("new");
+    expect(sentFile(messages, before, 2_000_000)).toBeUndefined();
+  });
+
+  // The core cleans the name it keeps (`safe_file_name`): "Tema 1: Fracciones.pdf" is stored as
+  // "Tema 1_ Fracciones.pdf", so the name the picker gave is no way to find it.
+  it("finds the file I just sent whatever name the core kept for it", () => {
+    const messages = [file("new", "Tema 1_ Fracciones.pdf")];
+    expect(sentFile(messages, new Set(), 1_000_000)).toBe("new");
+  });
+
+  it("takes the new one of two files of the same size", () => {
+    const messages = [file("old", "class.pdf"), file("text", "notes.pdf", true, 5), file("new", "other.pdf")];
+    expect(sentFile(messages, new Set(["old"]), 1_000_000)).toBe("new");
   });
 
   it("waits for a value to show up, and gives up after the limit", async () => {

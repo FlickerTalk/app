@@ -6,7 +6,7 @@ import { seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
 import { chat, loadMessages } from "../core";
-import { refreshPlugins } from "../plugins";
+import { installed, refreshPlugins } from "../plugins";
 import { setLocale } from "../i18n";
 import GamePermissions from "../components/GamePermissions.vue";
 import PluginSheet from "../components/PluginSheet.vue";
@@ -26,6 +26,12 @@ vi.mock("@tauri-apps/api/app", () => ({
     return { unregister: async () => (back.handler === handler ? (back.handler = null) : undefined) };
   },
 }));
+// The real list of plugins, whose read can be made to fail.
+const reading = vi.hoisted(() => ({ fails: false }));
+vi.mock("../plugins", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../plugins")>();
+  return { ...real, refreshPlugins: () => (reading.fails ? Promise.reject(new Error("unreadable")) : real.refreshPlugins()) };
+});
 // Ionic's toasts are overlays of the real app; here, what the screen asks of them.
 const toast = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@ionic/vue", async (importOriginal) => ({
@@ -626,6 +632,7 @@ describe("CallPage presenting", () => {
     picked = { path: "/data/uploads/class.pdf", name: "class.pdf", mime: "application/pdf", size: 1_000_000 };
     for (const key of Object.keys(hooks)) delete hooks[key];
     invoked.length = 0;
+    reading.fails = false;
     installTauri((command, args) => {
       invoked.push([command, args]);
       if (hooks[command]) return hooks[command]();
@@ -664,10 +671,13 @@ describe("CallPage presenting", () => {
     expect(actions.presentInCall).toHaveBeenCalledWith("x", BOARD);
   });
 
+  // The core keeps a cleaned name ("Tema 1: Fracciones.pdf" → "Tema 1_ Fracciones.pdf"): the
+  // message is found by its size, never by the name the picker gave.
   it("sends the chosen PDF as a file of the chat, then presents that message", async () => {
     active();
+    picked = { ...picked, name: "Tema 1: Fracciones.pdf" };
     hooks.core_send_picked = () => {
-      chat("c1")!.messages.push({ id: "m-pdf", mine: true, text: "", time: "", sentAt: 2, kind: "file", file: { name: "class.pdf", size: "1 MB", mime: "application/pdf", progress: 0, state: "sending" } });
+      chat("c1")!.messages.push({ id: "m-pdf", mine: true, text: "", time: "", sentAt: 2, kind: "file", file: { name: "Tema 1_ Fracciones.pdf", size: "1 MB", bytes: 1_000_000, mime: "application/pdf", progress: 0, state: "sending" } });
     };
     const wrapper = await open();
     await wrapper.find("[data-test='present']").trigger("click");
@@ -754,7 +764,7 @@ describe("CallPage presenting", () => {
     hooks.core_send_picked = () =>
       new Promise<void>((done) => {
         arrive = () => {
-          chat("c1")!.messages.push({ id: "m-pdf", mine: true, text: "", time: "", sentAt: 2, kind: "file", file: { name: "class.pdf", size: "1 MB", mime: "application/pdf", progress: 0, state: "sending" } });
+          chat("c1")!.messages.push({ id: "m-pdf", mine: true, text: "", time: "", sentAt: 2, kind: "file", file: { name: "class.pdf", size: "1 MB", bytes: 1_000_000, mime: "application/pdf", progress: 0, state: "sending" } });
           done();
         };
       });
@@ -1147,5 +1157,172 @@ describe("CallPage presenting", () => {
     expect(actions.layoutVideo).toHaveBeenCalled();
     expect(lastMeasure()()).toMatchObject({ local: { x: 0, y: 0, width: 0, height: 0 }, localRadius: 16 });
     expect(wrapper.find("[data-test='present-area']").exists()).toBe(false);
+  });
+
+  // Only the board and the PDF viewer present (2026-10-09): a tool that talks to its twin but does
+  // not present (a list, a poll, a live game) is never opened, nor asked about, by a presentation.
+  it("opens no tool but the two that present, whatever the presentation names", async () => {
+    const LIST = "com.flickertalk.list";
+    tools = [tool(BOARD, "Board", true), tool(LIST, "List", true)];
+    active({ presenting: { plugin: LIST, by: "them" } });
+    const granted = await open();
+    expect(granted.findComponent(PluginSheet).exists()).toBe(false);
+    expect(granted.find("[data-test='present-missing']").exists()).toBe(true);
+    tools = [tool(BOARD, "Board", true), tool(LIST, "List", false)];
+    const asking = await open();
+    expect(asking.findComponent(GamePermissions).props("open")).toBe(false);
+    expect(asking.find("[data-test='present-missing']").exists()).toBe(true);
+  });
+
+  // A student who said no can change their mind: who presents becomes a button that asks again.
+  it("asks again when the user, having said no, taps who presents", async () => {
+    tools = [tool(BOARD, "Board", false)];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(wrapper.find("[data-test='presenter-ask']").exists()).toBe(false);
+    wrapper.findComponent(GamePermissions).vm.$emit("cancel");
+    await flushPromises();
+    const again = wrapper.find("[data-test='presenter-ask']");
+    expect(again.attributes()).toMatchObject({ fill: "clear", "aria-label": "Maria López wants to present with Board" });
+    expect(again.text()).toBe("Maria López is presenting");
+    await again.trigger("click");
+    await flushPromises();
+    expect(wrapper.findComponent(GamePermissions).props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
+  });
+
+  it("says presenting failed when the permission to present could not be given", async () => {
+    active();
+    tools = [tool(BOARD, "Board", false), tool(PDF, "PDF viewer", false)];
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    wrapper.findComponent(GamePermissions).vm.$emit("allow");
+    await flushPromises();
+    expect(sent("core_plugin_grant")).toHaveLength(1);
+    expect(actions.presentInCall).not.toHaveBeenCalled();
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "The presentation couldn't start" }));
+  });
+
+  // 96 px wide: the words do not fit the corner, the icon says it, named for screen readers.
+  it("says their camera is paused with the icon alone while their picture is the small corner", async () => {
+    active({ view: view({ remote: true, remotePaused: true }), presenting: { plugin: BOARD, by: "me" } });
+    const paused = (await open()).find("[data-test='remote-paused']");
+    expect(paused.attributes()).toMatchObject({ role: "img", "aria-label": "Camera paused" });
+    expect(paused.text()).toBe("");
+  });
+
+  // The closing tool can still refuse on its way out: that is not the next presentation failing.
+  it("lets a tool on its way out not fail the next presentation", async () => {
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    goodbye(wrapper, true);
+    const first = wrapper.findComponent(PluginSheet);
+    call.presenting = { plugin: PDF, by: "them" };
+    await flushPromises();
+    first.vm.$emit("refused");
+    first.vm.$emit("closed");
+    await flushPromises();
+    expect(wrapper.find("[data-test='present-failed']").exists()).toBe(false);
+    expect(wrapper.findComponent(PluginSheet).props("plugin")).toMatchObject({ id: PDF });
+  });
+
+  // Their picture went mid-drag (their camera off): when it comes back, a move of that finger is no drag.
+  it("forgets a drag cut short when the small picture goes", async () => {
+    active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    await wrapper.find("[data-test='remote-slot']").trigger("pointerdown", { clientX: 300, clientY: 600, pointerId: 1 });
+    call.view = view();
+    await flushPromises();
+    call.view = view({ remote: true });
+    await flushPromises();
+    const thumb = wrapper.find("[data-test='remote-slot']");
+    expect(thumb.classes()).toContain("is-thumb");
+    await thumb.trigger("pointermove", { clientX: 200, clientY: 500, pointerId: 1 });
+    expect(thumb.attributes("style")).toBeUndefined();
+  });
+
+  it("says their presentation could not start when the plugins could not be read after the permission", async () => {
+    tools = [tool(BOARD, "Board", false)];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    reading.fails = true;
+    wrapper.findComponent(GamePermissions).vm.$emit("allow");
+    await flushPromises();
+    reading.fails = false;
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+    expect(wrapper.find("[data-test='present-failed']").text()).toBe("The presentation couldn't start");
+  });
+
+  it("sends no PDF picked after the call ended", async () => {
+    active();
+    hooks.core_pick_files = () => {
+      call.phase = "ended";
+      return [picked];
+    };
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[1].handler?.();
+    await flushPromises();
+    expect(sent("core_send_picked")).toEqual([]);
+    expect(actions.presentInCall).not.toHaveBeenCalled();
+  });
+
+  it("closes the sheets of presenting when the call ends", async () => {
+    active();
+    tools = [tool(BOARD, "Board", false), tool(PDF, "PDF viewer", false)];
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    expect(wrapper.findComponent(IonActionSheet).props("isOpen")).toBe(true);
+    call.phase = "ended";
+    await flushPromises();
+    expect(wrapper.findComponent(IonActionSheet).props("isOpen")).toBe(false);
+    call.phase = "active";
+    await flushPromises();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(true);
+    call.phase = "ended";
+    await flushPromises();
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(false);
+  });
+
+  it("says so, and rejects nothing unheard, when the presenter's tool closes and stopping fails", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    actions.stopPresenting.mockRejectedValueOnce(new Error("busy"));
+    const wrapper = await open();
+    goodbye(wrapper);
+    wrapper.findComponent(PluginSheet).vm.$emit("done");
+    await flushPromises();
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "The presentation couldn't start" }));
+  });
+
+  it("does not cover the presentation with the invitation to turn the camera on", async () => {
+    active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
+    expect((await open()).text()).not.toContain("Turn on your camera");
+  });
+
+  it("tells screen readers what the presentation waits for", async () => {
+    messages = [pdfView("m1", "transferring")];
+    active({ presenting: { plugin: PDF, file: "m1", by: "them" } });
+    const spinner = (await open()).find("[data-test='present-loading']");
+    expect(spinner.attributes()).toMatchObject({ role: "status", "aria-label": "Maria López is presenting" });
+    expect(spinner.attributes("aria-hidden")).toBeUndefined();
+  });
+
+  // Opened cold (from CallKit, say), the list of plugins is not read yet: no "missing" flashes.
+  it("waits, rather than say the tool is missing, until this phone's plugins are read", async () => {
+    const answers: Array<(value: unknown) => void> = [];
+    hooks.core_plugins = () => new Promise((done) => answers.push(done));
+    installed.value = [];
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = mount(CallPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[data-test='present-missing']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='present-loading']").exists()).toBe(true);
+    for (const answer of answers) answer(tools);
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props("presenting")).toBe("follow");
   });
 });
