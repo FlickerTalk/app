@@ -3482,6 +3482,19 @@ fn presented_file(file: Option<String>) -> Result<Option<ft_core::MessageId>, St
     file.map(|file| ft_core::MessageId::parse(&file).map_err(failed)).transpose()
 }
 
+/// Whether a presented file is a file of the chat with `contact` (2026-10-09): the follow sheet
+/// asks before it reads one, since its message may have come after the presentation did.
+#[tauri::command]
+pub async fn core_file_belongs_to(file: String, contact: String, client: State<'_, Client>) -> Result<bool, String> {
+    let Some(file) = presented_message(&file) else { return Ok(false) };
+    client.core().await?.file_belongs_to(&file, &contact).await.map_err(failed)
+}
+
+/// The message a presented file names; none for what is not a message id, which is of no chat.
+fn presented_message(file: &str) -> Option<ft_core::MessageId> {
+    ft_core::MessageId::parse(file).ok()
+}
+
 /// The routing chosen in Settings, kept in the core for calls answered with no WebView (§17).
 #[tauri::command]
 pub async fn core_set_call_routing(routing: String, client: State<'_, Client>) -> Result<(), String> {
@@ -4933,6 +4946,15 @@ mod tests {
         let file = ft_core::MessageId::new();
         assert_eq!(presented_file(Some(file.to_string())), Ok(Some(file)));
         assert!(presented_file(Some("not an id".to_owned())).is_err());
+    }
+
+    // 2026-10-09: the follow sheet asks whether a presented file is of the call's chat before it
+    // reads it; an id that is not a message's belongs to no chat, and that is a plain "no".
+    #[test]
+    fn a_presented_file_that_is_not_a_message_id_belongs_to_no_chat() {
+        let file = ft_core::MessageId::new();
+        assert_eq!(presented_message(&file.to_string()), Some(file));
+        assert_eq!(presented_message("not an id"), None);
     }
 
     // The phone's own call screen (CallKit, the ongoing call notification) follows the call.

@@ -815,3 +815,22 @@ describe("the plan", () => {
     expect(core.needsSubscription(undefined)).toBe(false);
   });
 });
+
+// 2026-10-09: the follow side reads a presented file only once the core says it is of that chat.
+describe("a presented file", () => {
+  beforeEach(() => tauri.invoke.mockReset());
+
+  it("asks the core whether it belongs to the contact's chat", async () => {
+    tauri.invoke.mockResolvedValueOnce(true);
+    expect(await core.fileBelongsTo("m1", "ft_bob")).toBe(true);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_file_belongs_to", { file: "m1", contact: "ft_bob" });
+    tauri.invoke.mockResolvedValueOnce(false);
+    expect(await core.fileBelongsTo("m1", "ft_bob")).toBe(false);
+  });
+
+  // A core that cannot say is no proof: the file is not shown.
+  it("belongs to nobody when the core cannot say", async () => {
+    tauri.invoke.mockRejectedValueOnce("no core yet");
+    expect(await core.fileBelongsTo("m1", "ft_bob")).toBe(false);
+  });
+});
