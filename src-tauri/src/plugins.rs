@@ -141,7 +141,10 @@ pub fn ionic_size() -> usize {
 /// script for the plugin's code, at that version (2026-10-03, updates). Before the plugin, the
 /// frame loads the lent Ionic (2026-10-09): its styles, the theme and the components, in that
 /// order, and says which Ionic it is on the root (`data-ionic`). Ionic picks `ios` or `md` from
-/// the user agent, which the frame shares with the app, as the app's own Ionic does.
+/// the user agent, which the frame shares with the app, as the app's own Ionic does. The top and
+/// bottom insets of the screen are 0 inside the frame (D1, 2026-10-09): every host keeps them
+/// itself (its bar above the frame, its own padding or controls below), but iOS reports them in
+/// the frame too, and the plugin's header took the status bar's height a second time.
 pub fn frame_html(component: &str, version: &str) -> String {
     // A page of its own (`frame.html`), which the end-to-end tests serve too.
     include_str!("frame.html").replace("%IONIC%", IONIC_VERSION).replace("%VERSION%", version).replace("%COMPONENT%", component)
@@ -408,6 +411,15 @@ mod tests {
     fn the_frame_of_a_tool_is_as_tall_as_its_window() {
         // Told by the app (`fill`, `frame.js`): then the page and its body take the frame's height.
         assert!(frame_html("ft-x", "1.0.0").contains("html[data-fill],html[data-fill] body{height:100%}"));
+    }
+
+    // D1 (1.6.0 QA, iPhone): every host puts the frame under a bar of the app's and above what the
+    // app keeps at the bottom, so the screen's top and bottom insets are the app's, never the
+    // frame's. iOS reports them inside the frame too, and the plugin's header padded itself twice.
+    #[test]
+    fn the_frame_leaves_the_top_and_bottom_insets_to_the_app() {
+        let html = frame_html("ft-x", "1.0.0");
+        assert!(html.contains("html{--ion-safe-area-top:0px;--ion-safe-area-bottom:0px}"), "{html}");
     }
 
     #[test]
