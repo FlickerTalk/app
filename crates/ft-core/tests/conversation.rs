@@ -1901,6 +1901,47 @@ async fn a_reaction_reaches_the_other_phone_and_can_be_taken_back() {
     assert!(bob.react(&id(&carol), &message, Some("👍")).await.is_err(), "another conversation's message");
 }
 
+// Found twice on the phones (1.5.0, 1.5.1): Alice adds Bob by his link, writes, then edits her
+// text and reacts to it while she still waits in Bob's requests. Bob's phone took the text but
+// dropped the edit and the reaction and acknowledged them anyway, so Alice saw them as arrived
+// while Bob, once he said yes, had the first words and no emoji (§84). A stranger's words already
+// stay in the requests; what they change of them stays too. A stranger who was declined (blocked)
+// still reaches nothing and hears nothing back.
+#[tokio::test(flavor = "multi_thread")]
+async fn edits_and_reactions_made_while_in_the_requests_arrive() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    alice.add_contact(&bob.my_card().await.expect("card").to_link(), None).await.expect("alice adds bob");
+    let message = alice.send_text(&id(&bob), "dinner at 7").await.expect("sends");
+    until("bob has it, in his requests", || async { texts(&bob, &id(&alice)).await == ["dinner at 7"] }).await;
+    assert!(!bob.store().contact(&id(&alice)).await.unwrap().unwrap().accepted, "alice is still a request");
+
+    alice.edit_message(&message, "dinner at 8").await.expect("edits");
+    alice.react(&id(&bob), &message, Some("👍")).await.expect("reacts");
+    until("their receipts empty alice's queue", || async { alice.store().update_outbox().await.unwrap().is_empty() }).await;
+    // Alice's phone now shows both as arrived: Bob's has to have them.
+    assert_eq!(bob.store().message(&message).await.unwrap().unwrap().body, "dinner at 8", "the edit was kept");
+    assert_eq!(bob.store().reactions(&id(&alice)).await.unwrap().get(&message).and_then(|r| r.theirs.clone()).as_deref(), Some("👍"));
+
+    bob.accept_contact(&id(&alice)).await.expect("bob accepts alice");
+    assert_eq!(bob.store().message(&message).await.unwrap().unwrap().body, "dinner at 8");
+    assert!(bob.store().edited(&id(&alice)).await.unwrap().contains(&message), "marked as edited");
+    assert_eq!(bob.store().reactions(&id(&alice)).await.unwrap()[&message].theirs.as_deref(), Some("👍"));
+
+    // Declined: nothing more of hers is taken, and nothing is acknowledged.
+    let carol = device(&net, "Carol").await;
+    carol.add_contact(&bob.my_card().await.expect("card").to_link(), None).await.expect("carol adds bob");
+    let carols = carol.send_text(&id(&bob), "hi").await.expect("sends");
+    until("bob has carol's request", || async { texts(&bob, &id(&carol)).await == ["hi"] }).await;
+    bob.decline_contact(&id(&carol)).await.expect("declines");
+    carol.edit_message(&carols, "hello").await.expect("edits");
+    carol.react(&id(&bob), &carols, Some("👍")).await.expect("reacts");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(bob.store().message(&carols).await.unwrap().unwrap().body, "hi", "a declined stranger changes nothing");
+    assert!(bob.store().reactions(&id(&carol)).await.unwrap().get(&carols).is_none_or(|r| r.theirs.is_none()));
+    assert_eq!(carol.store().update_outbox().await.unwrap().len(), 2, "and is never told they arrived");
+}
+
 // 2026-10-05: an answer carries the id of the message it answers; the other phone keeps the link,
 // and a message that answers nothing travels exactly as before.
 #[tokio::test(flavor = "multi_thread")]
