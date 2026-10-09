@@ -36,7 +36,7 @@ import {
   sessionOf,
 } from "../core";
 import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock, type HandedFile } from "../plugins";
-import { PRESENT_BOARD, PRESENT_DOCUMENT, PRESENT_FILE_LIMIT, SEND_WAIT, canPresentWith, needsPresentGrant, presentGrant, sentFile, waitFor } from "../present";
+import { PRESENT_BOARD, PRESENT_DOCUMENT, PRESENT_FILE_LIMIT, SEND_WAIT, canPresentWith, holeClip, needsPresentGrant, presentGrant, sentFile, waitFor } from "../present";
 import {
   call,
   cannotPresent,
@@ -227,8 +227,10 @@ const presentState = computed<PresentState>(() => {
 });
 /** The presentation takes the screen (the tool, or what it waits for); a refusal or a lack does not. */
 const presentArea = computed(() => ["sheet", "accept", "loading", "failed", "tooBig"].includes(presentState.value));
-/** The hole the presentation leaves for their picture (Task 12 draws it). */
+/** The hole the presentation leaves for their picture, which sits under the WebView. */
 const presentClip = ref<string | undefined>();
+/** The presentation's box, measured for that hole: it must have no CSS transform. */
+const presentBox = ref<HTMLElement | null>(null);
 
 /** Their presentation whose permission is being given: not asked about meanwhile. */
 const granting = ref("");
@@ -347,7 +349,11 @@ const cameraReady = computed(() => live.value && call.view.available);
 const cameraRunning = computed(() => cameraReady.value && call.view.camera);
 const stage = computed(() => native.value && live.value && (cameraRunning.value || call.view.remote));
 const showRemote = computed(() => stage.value && call.view.remote);
-const showLocal = computed(() => stage.value && cameraRunning.value);
+// Over a presentation only their picture shows, small: mine would sit over theirs (native views).
+const showLocal = computed(() => stage.value && cameraRunning.value && !presentArea.value);
+/** Whose picture is the small one: mine over theirs, or theirs over a presentation (2026-10-08). */
+const localThumb = computed(() => Boolean(showRemote.value && showLocal.value));
+const remoteThumb = computed(() => Boolean(showRemote.value && presentArea.value));
 const invite = computed(() => native.value && cameraReady.value && call.view.remote && !call.view.camera);
 // A video call with no pictures to show sits on a dark call background, not the page's (white in
 // the light theme); see-through, the native views paint it black.
@@ -383,7 +389,7 @@ function measure(): VideoLayout {
     local: rectOf(localSlot.value),
     mirrorLocal: call.view.facing === "front",
     // A thumbnail over their picture has round corners; mine alone fills the screen.
-    localRadius: showRemote.value ? 16 : 0,
+    localRadius: localThumb.value ? 16 : 0,
   };
 }
 /** On this screen: the core is told where the pictures go (nowhere, on a voice call). */
@@ -394,6 +400,8 @@ const onScreen = ref(true);
 closeOnBackWhile(() => onScreen.value && choosing.value, () => (choosing.value = false));
 closeOnBackWhile(() => onScreen.value && Boolean(asking.value), () => answerAsk(false));
 function relayout() {
+  // Their picture is under the WebView: the presentation leaves it a hole to show through.
+  presentClip.value = remoteThumb.value ? holeClip(rectOf(presentBox.value), rectOf(remoteSlot.value)) : undefined;
   if (shown && native.value) layoutVideo(measure);
 }
 function hide() {
@@ -407,9 +415,9 @@ watchEffect(() => document.documentElement.classList.toggle("ft-call-video", Boo
 // A dark screen whatever the appearance: the system bars' icons turn light over it (2026-10-02).
 watchEffect(() => darkScreen("call", onScreen.value && Boolean(stage.value || dark.value)));
 
-watch([native, stage, showRemote, showLocal, () => call.view.facing], relayout, { flush: "post" });
+watch([native, stage, showRemote, showLocal, remoteThumb, presentArea, () => call.view.facing], relayout, { flush: "post" });
 const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(relayout);
-watch([body, remoteSlot, localSlot], (elements) => {
+watch([body, remoteSlot, localSlot, presentBox], (elements) => {
   sized?.disconnect();
   for (const element of elements) if (element) sized?.observe(element);
 });
@@ -426,13 +434,18 @@ onIonViewWillLeave(() => {
   seeThrough.value = false;
 });
 
-// My thumbnail moves where the thumb drags it, and stays inside the screen.
+// The small picture moves where the thumb drags it, and stays inside the screen.
 const drag = reactive({ x: 0, y: 0 });
 let grab: { id: number; x: number; y: number; fromX: number; fromY: number } | null = null;
-const thumbStyle = computed(() => (showRemote.value && (drag.x || drag.y) ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined));
-watch(showRemote, () => Object.assign(drag, { x: 0, y: 0 }));
+const thumbStyle = computed(() => ((localThumb.value || remoteThumb.value) && (drag.x || drag.y) ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined));
+watch([localThumb, remoteThumb], () => Object.assign(drag, { x: 0, y: 0 }));
+// The hole is measured once the drag is on screen, not where the picture was a step before.
+watch(thumbStyle, relayout, { flush: "post" });
+/** The slot that is the small picture now, if one is. */
+const thumbSlot = () => (remoteThumb.value ? remoteSlot.value : localThumb.value ? localSlot.value : null);
 function grabThumb(event: PointerEvent) {
-  if (!showRemote.value) return;
+  // Both slots listen: a press on the big picture moves nothing.
+  if (!thumbSlot() || event.currentTarget !== thumbSlot()) return;
   grab = { id: event.pointerId, x: event.clientX, y: event.clientY, fromX: drag.x, fromY: drag.y };
   (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
 }
@@ -445,7 +458,7 @@ function moveThumb(event: PointerEvent) {
 function dropThumb(event: PointerEvent) {
   if (!grab || event.pointerId !== grab.id) return;
   grab = null;
-  const box = localSlot.value?.getBoundingClientRect();
+  const box = thumbSlot()?.getBoundingClientRect();
   const area = body.value?.getBoundingClientRect();
   if (box && area) {
     if (box.left < area.left) drag.x += area.left - box.left;
@@ -565,6 +578,7 @@ watch(
         <section
           v-if="presentArea || onSheet"
           v-show="presentArea"
+          ref="presentBox"
           class="ft-call__present"
           :style="presentClip ? { clipPath: presentClip } : undefined"
           data-test="present-area"
@@ -595,7 +609,18 @@ watch(
           </div>
         </section>
         <div v-if="native" class="ft-call__stage" :data-test="stage ? 'video' : undefined">
-          <div v-if="showRemote" ref="remoteSlot" class="ft-call__slot ft-call__slot--remote" data-test="remote-slot">
+          <div
+            v-if="showRemote"
+            ref="remoteSlot"
+            class="ft-call__slot ft-call__slot--remote"
+            :class="{ 'is-thumb': remoteThumb }"
+            :style="remoteThumb ? thumbStyle : undefined"
+            data-test="remote-slot"
+            @pointerdown="grabThumb"
+            @pointermove="moveThumb"
+            @pointerup="dropThumb"
+            @pointercancel="dropThumb"
+          >
             <p v-if="call.view.remotePaused" class="ft-call__paused" data-test="remote-paused">
               <ion-icon :icon="pauseCircleOutline" aria-hidden="true" />
               {{ $t("calls.cameraPaused") }}
@@ -605,8 +630,8 @@ watch(
             v-if="showLocal"
             ref="localSlot"
             class="ft-call__slot ft-call__slot--local"
-            :class="{ 'is-thumb': showRemote }"
-            :style="thumbStyle"
+            :class="{ 'is-thumb': localThumb }"
+            :style="localThumb ? thumbStyle : undefined"
             data-test="local-slot"
             @pointerdown="grabThumb"
             @pointermove="moveThumb"
@@ -932,7 +957,9 @@ watch(
 .ft-call__slot--local {
   inset: 0;
 }
-.ft-call__slot--local.is-thumb {
+/* The small picture, mine over theirs or theirs over a presentation: the same draggable corner.
+   Its native view is square on Android (a SurfaceView is never rounded). */
+.ft-call__slot.is-thumb {
   inset: auto;
   inset-inline-end: var(--ft-space-4);
   bottom: calc(var(--ion-safe-area-bottom, 0px) + 110px);
