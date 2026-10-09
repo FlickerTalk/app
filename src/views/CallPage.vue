@@ -703,7 +703,6 @@ watch(
         >
           <ion-icon slot="icon-only" :icon="stopCircleOutline" aria-hidden="true" />
         </ion-button>
-        <ion-action-sheet :is-open="choosing" :header="$t('calls.present')" :buttons="presentButtons" @did-dismiss="choosing = false" />
         <p v-if="presenting?.by === 'them'" class="ft-call__presenter" data-test="presenter" dir="auto">
           <!-- Said no: tapping who presents asks again. -->
           <ion-button
@@ -904,6 +903,11 @@ watch(
           </button>
         </div>
       </div>
+      <!-- The sheets sit here, after everything that comes and goes: Ionic takes an open sheet to the
+           app's root, and Vue must never need it as the place to put a node before (defect 1 of the
+           retest, 2026-10-09: Stop went before Present's sheet while it was away, the patch threw
+           and the screen stopped redrawing). -->
+      <ion-action-sheet :is-open="choosing" :header="$t('calls.present')" :buttons="presentButtons" @did-dismiss="choosing = false" />
       <GamePermissions
         :open="Boolean(asking)"
         :name="asking?.name ?? ''"

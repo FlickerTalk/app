@@ -790,6 +790,33 @@ describe("CallPage presenting", () => {
     expect(wrapper.find("[data-test='present']").attributes("disabled")).toBe("false");
   });
 
+  // Defect 1 of the retest (2026-10-09): Ionic takes an open inline sheet to the app's root and
+  // leaves a comment where it was. The presentation started before the sheet came back, Present
+  // turned into Stop right before the sheet, and Vue put Stop before the sheet's element, which
+  // was no longer there: the patch threw ("insertBefore") and the screen never redrew again.
+  it("keeps redrawing when the presentation starts while Ionic still holds Present's sheet", async () => {
+    active();
+    const wrapper = await open(true);
+    await wrapper.find("[data-test='present']").trigger("click");
+    const sheet = wrapper.findComponent(IonActionSheet).element;
+    // What Ionic's delegate does with an inline overlay it presents (framework-delegate.js).
+    sheet.parentNode!.insertBefore(document.createComment("ionic teleport"), sheet);
+    document.body.appendChild(sheet);
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    call.presenting = { plugin: BOARD, by: "me" };
+    await flushPromises();
+    expect(wrapper.find("[data-test='stop-presenting']").exists()).toBe(true);
+    call.muted = true;
+    await flushPromises();
+    expect(wrapper.find("[aria-label='Mute']").attributes("aria-pressed")).toBe("true");
+    goodbye(wrapper);
+    call.presenting = null;
+    await flushPromises();
+    expect(wrapper.find("[data-test='stop-presenting']").exists()).toBe(false);
+    expect(wrapper.findComponent(PluginSheet).exists()).toBe(false);
+  });
+
   it("says so when stopping fails", async () => {
     active({ presenting: { plugin: BOARD, by: "me" } });
     actions.stopPresenting.mockRejectedValueOnce(new Error("busy"));
