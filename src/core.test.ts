@@ -168,6 +168,8 @@ describe("core bridge", () => {
     const [receiving, received, sending] = core.chat("ft_bob")?.messages ?? [];
     expect(receiving).toMatchObject({ kind: "file", file: { name: "photo.jpg", size: "1.2 MB", progress: 0.5, state: "receiving" } });
     expect(receiving.file?.url).toBeUndefined();
+    // The size as a number too, for the limits (a PDF too big to present, 2026-10-09).
+    expect(receiving.file?.bytes).toBe(1_200_000);
     expect(received.file).toMatchObject({ state: "done", url: "asset://localhost/files/f2/photo.jpg" });
     expect(sending.file).toMatchObject({ state: "sending", url: "asset://localhost/files/f3/photo.jpg" });
   });
