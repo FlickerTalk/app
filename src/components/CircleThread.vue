@@ -103,7 +103,10 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
 </script>
 
 <template>
-  <div v-if="circle" class="ft-thread">
+  <!-- Ionic's own shape (2026-10-09), as ChatThread: header, content and footer are the page's own
+       children, so its transitions find them; the page (CirclePage) or the pane (ChatsPage) is the
+       `.ft-thread`. -->
+  <template v-if="circle">
     <ion-header class="ion-no-border">
       <ion-toolbar class="ft-thread__bar">
         <ion-buttons v-if="showBack" slot="start">
@@ -171,17 +174,10 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
       </div>
       <emoji-picker v-if="emoji && mayWrite" @pick="draft += $event" />
     </ion-footer>
-  </div>
+  </template>
 </template>
 
 <style scoped>
-.ft-thread {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--ft-bg);
-}
 .ft-thread__bar {
   --min-height: 60px;
   --padding-start: 8px;

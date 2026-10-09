@@ -53,8 +53,9 @@ onIonViewWillLeave(() => {
 </script>
 
 <template>
-  <!-- The thread's header, content and footer are this page's own children (Ionic's shape). -->
   <ion-page class="ft-thread">
+    <!-- The thread's header, content and footer are this page's own children (Ionic's shape). A
+         comment before the page would make the component's root a fragment. -->
     <ChatThread ref="thread" :chat-id="chatId" :show-back="true" :play="play" :search="search" :active="onScreen" />
   </ion-page>
 </template>
