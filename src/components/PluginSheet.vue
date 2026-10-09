@@ -712,7 +712,8 @@ watch(
 </script>
 
 <template>
-  <section ref="pane" class="ft-plugin" :class="{ 'ft-plugin--fill': fill }">
+  <!-- Presenting in a call, the tool fills the area the call screen gives it (defect J). -->
+  <section ref="pane" class="ft-plugin" :class="{ 'ft-plugin--fill': fill, 'is-presenting': presenting }">
     <!-- The name and the way out are the window's job; here only what the tool is doing. It floats
          over the frame's top edge: the plugin never moves when it shows or goes (2026-10-06). -->
     <span v-if="working" class="ft-plugin__working" role="status">…</span>
@@ -722,7 +723,7 @@ watch(
       ref="frame"
       class="ft-plugin__frame"
       :src="frameUrl(plugin.id)"
-      :style="fill ? undefined : { height: `${height}px` }"
+      :style="fill || presenting ? undefined : { height: `${height}px` }"
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
       :title="pluginName(plugin)"
@@ -769,5 +770,13 @@ watch(
   width: 100%;
   border: 0;
   background: transparent;
+}
+/* Presenting in a call: as tall as the area it is in, never taller (its own bottom stays in sight). */
+.ft-plugin.is-presenting {
+  height: 100%;
+  padding-block-end: 0;
+}
+.is-presenting .ft-plugin__frame {
+  height: 100%;
 }
 </style>

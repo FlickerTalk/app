@@ -254,6 +254,16 @@ const presentArea = computed(() => ["sheet", "accept", "loading", "failed", "too
 const presentClip = ref<string | undefined>();
 /** The presentation's box, measured for that hole: it must have no CSS transform. */
 const presentBox = ref<HTMLElement | null>(null);
+/** The call's buttons, whose top is where the presentation ends (defect J, 2026-10-09). */
+const controls = ref<HTMLElement | null>(null);
+/** How far above the screen's bottom the presentation ends, in CSS pixels, once measured. */
+const presentBottom = ref<number | undefined>();
+const presentStyle = computed(() => {
+  const style: Record<string, string> = {};
+  if (presentClip.value) style.clipPath = presentClip.value;
+  if (presentBottom.value !== undefined) style.bottom = `${presentBottom.value}px`;
+  return Object.keys(style).length ? style : undefined;
+});
 
 // Someone presents now (theirs may have won a press at the same moment, defect H): Present's
 // sheet and my own permission sheet go; a question about theirs may follow.
@@ -441,7 +451,16 @@ const onScreen = ref(true);
 // Android's back button closes the presenting sheets first, the last one opened first.
 closeOnBackWhile(() => onScreen.value && choosing.value, () => (choosing.value = false));
 closeOnBackWhile(() => onScreen.value && Boolean(asking.value), () => answerAsk(false));
+/** The presentation ends at the top of the call's buttons: measured here, before any presentation
+ *  shows (at mount, on turning or resizing), so it never moves once on screen. */
+function measureControls() {
+  const screen = rectOf(body.value);
+  const buttons = rectOf(controls.value);
+  if (!screen || !buttons || screen.height <= 0 || buttons.height <= 0) return;
+  presentBottom.value = Math.max(0, Math.round(screen.y + screen.height - buttons.y));
+}
 function relayout() {
+  measureControls();
   // Their picture is under the WebView: the presentation leaves it a hole to show through.
   presentClip.value = remoteThumb.value ? holeClip(rectOf(presentBox.value), rectOf(remoteSlot.value)) : undefined;
   if (shown && native.value) layoutVideo(measure);
@@ -648,7 +667,7 @@ watch(
           v-show="presentArea"
           ref="presentBox"
           class="ft-call__present"
-          :style="presentClip ? { clipPath: presentClip } : undefined"
+          :style="presentStyle"
           data-test="present-area"
         >
           <PluginSheet
@@ -751,7 +770,7 @@ watch(
           </p>
         </div>
 
-        <div class="ft-call__controls">
+        <div ref="controls" class="ft-call__controls">
           <button
             type="button"
             class="ft-round ft-round--ghost"
@@ -905,7 +924,8 @@ watch(
   color: var(--ion-color-medium);
   font-size: 14px;
 }
-/* The presentation: from under the top buttons to over the controls; absolute, so nothing moves. */
+/* The presentation: from under the top buttons to over the controls; absolute, so nothing moves.
+   The bottom here is only until the controls are measured (`presentBottom`). */
 .ft-call__present {
   position: absolute;
   z-index: 1;

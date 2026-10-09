@@ -263,6 +263,26 @@ describe("PluginSheet", () => {
     expect(opened).not.toHaveProperty("presenting");
   });
 
+  // Defect J (2026-10-09): in a call the tool was as tall as it asked, and its bottom (the
+  // board's zoom buttons, the end of a page) sat under the call's buttons. Presenting, it fills
+  // the area the call screen gives it, whatever height it asks for.
+  it("fills the area it is given while presenting, whatever height the plugin asks", async () => {
+    const shown = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: true, presenting: "lead" }, shallow: true });
+    await flushPromises();
+    framed(shown).says({ type: "ft.height", height: 900 });
+    await flushPromises();
+    expect(shown.find("section").classes()).toContain("is-presenting");
+    expect(shown.find("iframe").attributes("style") ?? "").not.toContain("height");
+    expect(source).toMatch(/\.ft-plugin\.is-presenting\s*\{[^}]*height:\s*100%/);
+    expect(source).toMatch(/\.is-presenting\s+\.ft-plugin__frame\s*\{[^}]*height:\s*100%/);
+
+    const plain = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    framed(plain).says({ type: "ft.height", height: 900 });
+    await flushPromises();
+    expect(plain.find("iframe").attributes("style")).toContain("height: 900px");
+  });
+
   // Whoever shows the plugin learns when the core will not open it (the call screen says so).
   it("says when the core refuses to open the plugin", async () => {
     tauri.invoke.mockImplementation(async (command: string) => {
