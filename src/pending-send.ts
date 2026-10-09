@@ -22,3 +22,11 @@ export function takeSend(contact: string): Proposal | null {
   offered = null;
   return proposal;
 }
+
+/**
+ * A tool on its own asks the user who its proposal is for (2026-10-09): whoever shows it answers
+ * with the contact picked, or `null` when the user picked nobody.
+ */
+export interface ContactAsk {
+  answer: (contact: string | null) => void;
+}

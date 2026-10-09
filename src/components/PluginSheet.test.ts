@@ -19,8 +19,9 @@ import PluginSheet from "./PluginSheet.vue";
 import source from "./PluginSheet.vue?raw";
 import { setLocale } from "../i18n";
 import { CLOSING_WAIT, NOTICE_DURATION, installed } from "../plugins";
-import type { PluginView } from "../core";
+import type { PluginView, Sending } from "../core";
 import type { PermissionNeed } from "../permissions";
+import type { ContactAsk } from "../pending-send";
 
 const plugin = { id: "com.flickertalk.markdown", name: "Markdown" };
 
@@ -718,6 +719,127 @@ describe("PluginSheet", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_send", expect.anything());
   });
 
+  // Ioan, 2026-10-09: a tool opened on its own (from Apps, from a reminder) has no chat behind it.
+  // What it proposes asks the user who it is for; the sheet hands it over with the contact picked
+  // (`sendTo`) and whoever shows it opens that conversation with it in the composer (§53). No pick,
+  // nothing: the window stays and the plugin hears what it hears today.
+  describe("outside a conversation", () => {
+    const staged = { path: "/data/files/outgoing/1-clean.jpg", name: "clean.jpg", mime: "image/jpeg", size: 3 };
+    const down = { path: "/data/files/drive/x1/tax.pdf", name: "tax.pdf", mime: "application/pdf", size: 9 };
+
+    async function alone(sending: Sending, answers: Record<string, unknown> = {}) {
+      tauri.invoke.mockImplementation((command: string) => Promise.resolve(answers[command]));
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "", sending }, shallow: true });
+      await flushPromises();
+      const frame = framed(wrapper);
+      frame.says({ type: "ft.ready" });
+      await flushPromises();
+      return { wrapper, ...frame };
+    }
+    const picks = (wrapper: ReturnType<typeof mount>) => (wrapper.emitted("pick") ?? []).map(([ask]) => ask as ContactAsk);
+    const invoked = (command: string) => tauri.invoke.mock.calls.filter(([one]) => one === command);
+
+    it("asks who a proposed text is for, and hands it over without sending it", async () => {
+      const { wrapper, says } = await alone("propose");
+      says({ type: "ft.text", text: "# Title" });
+      await flushPromises();
+      expect(picks(wrapper)).toHaveLength(1);
+      expect(wrapper.emitted("sendTo")).toBeUndefined();
+      picks(wrapper)[0].answer("ft_bob");
+      await flushPromises();
+      expect(wrapper.emitted("sendTo")).toEqual([["ft_bob", { kind: "text", text: "# Title" }]]);
+      expect(wrapper.emitted("text")).toBeUndefined();
+      expect(wrapper.emitted("done")).toBeUndefined();
+      expect(invoked("core_send")).toHaveLength(0);
+    });
+
+    it("stages a file it made once the contact is picked, and hands it over", async () => {
+      const { wrapper, says } = await alone("propose", { core_plugin_made: { sent: false, staged } });
+      says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+      await flushPromises();
+      // Nothing is written before the user says who it is for.
+      expect(invoked("core_plugin_made")).toHaveLength(0);
+      picks(wrapper)[0].answer("ft_bob");
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", { plugin: plugin.id, contact: "ft_bob", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+      expect(wrapper.emitted("sendTo")).toEqual([["ft_bob", { kind: "file", file: staged }]]);
+      expect(wrapper.emitted("attach")).toBeUndefined();
+      expect(wrapper.emitted("done")).toBeUndefined();
+      expect(invoked("core_send_picked")).toHaveLength(0);
+    });
+
+    it("keeps the window and sends nothing when no contact is picked", async () => {
+      const { wrapper, says } = await alone("propose", { core_plugin_made: { sent: false, staged } });
+      says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+      await flushPromises();
+      picks(wrapper)[0].answer(null);
+      says({ type: "ft.text", text: "# Title" });
+      await flushPromises();
+      picks(wrapper)[1].answer(null);
+      await flushPromises();
+      expect(invoked("core_plugin_made")).toHaveLength(0);
+      expect(wrapper.emitted("sendTo")).toBeUndefined();
+      expect(wrapper.emitted("done")).toBeUndefined();
+    });
+
+    // A plugin that writes by itself (`auto`) does so in the conversation picked, as it would there.
+    it("lets a plugin with the auto permission send to the contact picked, as in that chat", async () => {
+      const { wrapper, says } = await alone("auto", { core_plugin_made: { sent: true } });
+      says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+      await flushPromises();
+      picks(wrapper)[0].answer("ft_bob");
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", expect.objectContaining({ contact: "ft_bob" }));
+      expect(wrapper.emitted("sendTo")).toEqual([["ft_bob", null]]);
+    });
+
+    it("hands over a file of the drive for the contact picked, and tells the plugin", async () => {
+      const answers = { core_plugin_may_use_drive: true, core_vault_download: down };
+      const { wrapper, post, says } = await alone("propose", answers);
+      says({ type: "ft.drive", id: "d1", op: "send", a: "x1" });
+      await flushPromises();
+      expect(invoked("core_vault_download")).toHaveLength(0);
+      picks(wrapper)[0].answer("ft_bob");
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_vault_download", { id: "x1" });
+      expect(wrapper.emitted("sendTo")).toEqual([["ft_bob", { kind: "file", file: down }]]);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d1", answer: true }, "*");
+      expect(invoked("core_send_picked")).toHaveLength(0);
+    });
+
+    it("answers the drive's send with the refusal when no contact is picked", async () => {
+      const { wrapper, post, says } = await alone("propose", { core_plugin_may_use_drive: true, core_vault_download: down });
+      says({ type: "ft.drive", id: "d1", op: "send", a: "x1" });
+      await flushPromises();
+      picks(wrapper)[0].answer(null);
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d1", answer: false }, "*");
+      expect(invoked("core_vault_download")).toHaveLength(0);
+      expect(wrapper.emitted("sendTo")).toBeUndefined();
+    });
+
+    it("takes a pick left unanswered when the plugin closes as none", async () => {
+      const { wrapper, post, says } = await alone("propose", { core_plugin_may_use_drive: true, core_vault_download: down });
+      says({ type: "ft.drive", id: "d1", op: "send", a: "x1" });
+      await flushPromises();
+      const [ask] = picks(wrapper);
+      void (wrapper.vm as unknown as { close: () => Promise<void> }).close();
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "d1", answer: false }, "*");
+      ask.answer("ft_bob");
+      await flushPromises();
+      expect(wrapper.emitted("sendTo")).toBeUndefined();
+    });
+
+    it("asks who for nothing of a plugin with no permission to write in the chat", async () => {
+      const { wrapper, says } = await alone("nothing");
+      says({ type: "ft.text", text: "# Title" });
+      says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+      await flushPromises();
+      expect(wrapper.emitted("pick")).toBeUndefined();
+    });
+  });
+
   // Issue app#4: the rest of what the core exposes. Each question is answered with its own id,
   // and every one of them goes through a command of the core, never through the frame.
   it("saves, prints and remembers for the plugin, through the core", async () => {
@@ -1227,12 +1349,18 @@ describe("PluginSheet", () => {
       expect(toast.create).not.toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("may not write") }));
     });
 
-    it("asks nothing to write in the chat from outside a conversation", async () => {
+    // Until 2026-10-09 a tool outside a conversation had no chat to write in, so nothing was asked.
+    // Now the user picks who it is for (Ioan), so it asks to write in the chat first, then who to.
+    it("asks to write in the chat from outside a conversation too, then who it is for", async () => {
       core();
       const { wrapper, says } = await open({ contact: "", sending: "nothing" });
       says({ type: "ft.text", text: "# Title" });
       await flushPromises();
-      expect(needs(wrapper)).toHaveLength(0);
+      expect(needs(wrapper).map((one) => one.key)).toEqual(["send"]);
+      expect(wrapper.emitted("pick")).toBeUndefined();
+      needs(wrapper)[0].answer(true);
+      await flushPromises();
+      expect(wrapper.emitted("pick")).toHaveLength(1);
       expect(wrapper.emitted("text")).toBeUndefined();
     });
 

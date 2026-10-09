@@ -65,6 +65,7 @@ import {
 } from "../plugins";
 import { hostOf, missingPermission, permissionsOf, withPermission, type PermissionNeed } from "../permissions";
 import { pluginTheme } from "../theme";
+import type { ContactAsk, Proposal } from "../pending-send";
 
 // Plan §53, §58: the plugin lives in its own frame, served from its own scheme with the policy its
 // permissions allow. It never sees the app's window, the chat or the keys. It can be handed a text,
@@ -81,6 +82,9 @@ import { pluginTheme } from "../theme";
 // that place; the core keeps each place apart and the plugin never hears of sessions.
 // 2026-10-02: opened in a conversation, it learns the core's opaque id of it (`chat`), its own
 // for this plugin, never who it is with.
+// 2026-10-09 (Ioan): opened outside a conversation, what it proposes to send asks the user who it
+// is for (`pick`); with a contact picked it is handed over (`sendTo`, a text or a staged file, or
+// nothing when it went by itself with `auto`) for that conversation's composer. No pick, nothing.
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -110,6 +114,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   text: [text: string];
   attach: [file: PickedFile];
+  pick: [ask: ContactAsk];
+  sendTo: [contact: string, proposal: Proposal | null];
   done: [];
   openChat: [contact: string];
   closed: [];
@@ -167,9 +173,12 @@ async function onMessage(event: MessageEvent) {
   } else if (said.type === "ft.made") {
     // Nothing leaves without the permission: the core checks it again on its side (A2).
     if (!(await mayWrite())) return;
+    const contact = props.contact || (await pickContact());
+    if (!contact) return;
     await busy(async () => {
       try {
-        const made = await pluginMade(props.plugin.id, props.contact, said.name, said.mime, said.data);
+        const made = await pluginMade(props.plugin.id, contact, said.name, said.mime, said.data);
+        if (!props.contact) return emit("sendTo", contact, made.staged ? { kind: "file", file: made.staged } : null);
         if (made.staged) emit("attach", made.staged);
         emit("done");
       } catch {
@@ -177,7 +186,10 @@ async function onMessage(event: MessageEvent) {
       }
     });
   } else if (said.type === "ft.text") {
-    if (await mayWrite()) emit("text", said.text);
+    if (!(await mayWrite())) return;
+    if (props.contact) return emit("text", said.text);
+    const contact = await pickContact();
+    if (contact) emit("sendTo", contact, { kind: "text", text: said.text });
   } else if (said.type === "ft.notify") {
     // No permission: the text never leaves the phone and never reaches the chat; only the user
     // sees it, for a moment, in the app's own toast (2026-10-06).
@@ -198,7 +210,7 @@ async function onMessage(event: MessageEvent) {
  */
 async function mayWrite(): Promise<boolean> {
   if (sending.value !== "nothing") return true;
-  if (props.contact && lacks("send")) return obtain("send");
+  if (lacks("send")) return obtain("send");
   void mayNotWrite();
   return false;
 }
@@ -422,7 +434,7 @@ async function needed(said: Extract<FrameMessage, { id: string }>): Promise<stri
     case "ft.drive":
       // The phrase is never typed in a plugin: nothing to ask for that.
       if (said.op === "setup" || said.op === "unlock") return [];
-      return said.op === "send" && props.contact && sending.value === "nothing" ? ["drive", "send"] : ["drive"];
+      return said.op === "send" && sending.value === "nothing" ? ["drive", "send"] : ["drive"];
     case "ft.recordSet":
       return lacks("storage") && !(await fits(said.key, said.value)) ? ["storage"] : [];
     default:
@@ -441,6 +453,28 @@ async function fits(key: string, value: string): Promise<boolean> {
   } catch {
     return true;
   }
+}
+
+/**
+ * Who a proposal is for, outside a conversation (2026-10-09): the user picks a contact, or nobody
+ * (`null`). Closing the plugin, or another proposal meanwhile, is nobody.
+ */
+let picking: ((contact: string | null) => void) | undefined;
+function pickContact(): Promise<string | null> {
+  picking?.(null);
+  if (closing || gone) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const answer = (contact: string | null) => {
+      if (picking !== answer) return;
+      picking = undefined;
+      unanswered.delete(refuse);
+      resolve(closing || gone ? null : contact);
+    };
+    const refuse = () => answer(null);
+    picking = answer;
+    unanswered.add(refuse);
+    emit("pick", { answer });
+  });
 }
 
 /** One question on screen at a time; the same permission asked twice meanwhile is one question. */
@@ -547,11 +581,16 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
       return true;
     case "send": {
       // As any file a plugin makes (A2): sent with `auto`, staged for the user with `propose`.
-      if (sending.value === "nothing" || !props.contact) return false;
+      if (sending.value === "nothing") return false;
+      const contact = props.contact || (await pickContact());
+      if (!contact) return false;
       const file = await vaultDownload(said.a);
-      if (sending.value === "auto") await sendPicked(props.contact, file);
-      else emit("attach", file);
-      emit("done");
+      if (sending.value === "auto") await sendPicked(contact, file);
+      if (!props.contact) emit("sendTo", contact, sending.value === "auto" ? null : { kind: "file", file });
+      else {
+        if (sending.value !== "auto") emit("attach", file);
+        emit("done");
+      }
       return true;
     }
     case "retry":
