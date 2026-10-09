@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from "vue";
-import { IonActionSheet, IonButton, IonContent, IonIcon, IonPage, onIonViewDidEnter, onIonViewWillLeave, toastController } from "@ionic/vue";
+import { IonActionSheet, IonButton, IonContent, IonIcon, IonPage, IonSpinner, onIonViewDidEnter, onIonViewWillLeave, toastController } from "@ionic/vue";
 import {
   callOutline,
   cameraReverseOutline,
   chevronDown,
   documentOutline,
+  downloadOutline,
   easelOutline,
   micOffOutline,
   micOutline,
@@ -19,10 +20,23 @@ import {
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import GamePermissions from "../components/GamePermissions.vue";
+import PluginSheet from "../components/PluginSheet.vue";
 import { closeOnBackWhile, goBack } from "../back";
 import { callScreenMounted } from "../call-screen";
-import { PREMIUM_PAGE, chat, grantPlugin, loadMessages, needsSubscription, pickFiles, sendPicked } from "../core";
-import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
+import {
+  PREMIUM_PAGE,
+  acceptFile,
+  chat,
+  fileBelongsTo,
+  grantPlugin,
+  loadMessages,
+  needsSubscription,
+  pickFiles,
+  readMessageFile,
+  sendPicked,
+  sessionOf,
+} from "../core";
+import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock, type HandedFile } from "../plugins";
 import { PRESENT_BOARD, PRESENT_DOCUMENT, PRESENT_FILE_LIMIT, SEND_WAIT, canPresentWith, needsPresentGrant, presentGrant, sentFile, waitFor } from "../present";
 import {
   call,
@@ -76,7 +90,9 @@ const state = computed(() => {
 // (`call.presenting`), the app opens the tool. A tool talks to its twin only with `live`, asked
 // once with the games' sheet.
 const presenting = computed(() => (current.value && call.phase === "active" ? call.presenting : null));
+// The tool stays as it is while this key does: a lost link says the same presentation again.
 const presentKey = computed(() => (presenting.value ? `${presenting.value.by}|${presenting.value.plugin}|${presenting.value.file ?? ""}` : ""));
+const presentPlugin = computed(() => installed.value.find((one) => one.id === presenting.value?.plugin));
 /** Present appears only when the other phone can see it (`media` ≥ 2) and nobody presents. The
  *  state comes only from the core's events: `presentInCall` itself changes nothing here. */
 const canOffer = computed(() => current.value && call.native && call.canPresent && call.phase === "active" && !call.presenting);
@@ -184,6 +200,90 @@ function answerAsk(yes: boolean) {
   if (!ask) return;
   if (yes) void ask.allow();
   else if (ask.them) declined.value = presentKey.value;
+}
+
+type PresentState = "none" | "missing" | "ask" | "declined" | "accept" | "loading" | "failed" | "sheet";
+const fileMessage = computed(() => {
+  const file = presenting.value?.file;
+  return file ? chat(id.value)?.messages.find((one) => one.id === file) : undefined;
+});
+const presentFile = ref<HandedFile | undefined>();
+const presentBroken = ref(false);
+const presentState = computed<PresentState>(() => {
+  const now = presenting.value;
+  if (!now) return "none";
+  const plugin = presentPlugin.value;
+  if (!canPresentWith(plugin)) return "missing";
+  // No lock here (Ioan, 2026-10-08): following is free, the core decides; presenting checks it first.
+  if (needsPresentGrant(plugin)) return declined.value === presentKey.value ? "declined" : "ask";
+  if (presentBroken.value) return "failed";
+  if (!now.file || presentFile.value) return "sheet";
+  if (now.by === "me") return "loading";
+  const arrived = fileMessage.value?.file?.state;
+  if (arrived === "failed") return "failed";
+  return arrived === "waiting" ? "accept" : "loading";
+});
+/** The presentation takes the screen (the tool, or what it waits for); a refusal or a lack does not. */
+const presentArea = computed(() => ["sheet", "accept", "loading", "failed"].includes(presentState.value));
+/** The hole the presentation leaves for their picture (Task 12 draws it). */
+const presentClip = ref<string | undefined>();
+
+// Their presentation came and the tool may not talk to its twin yet: ask, once.
+watch(
+  presentState,
+  (state) => {
+    const plugin = presentPlugin.value;
+    if (state === "ask" && plugin && presenting.value?.by === "them" && !asking.value) {
+      asking.value = {
+        them: true,
+        name: pluginName(plugin),
+        body: t("calls.presentAsk", { name: contact.value.name, plugin: pluginName(plugin) }),
+        icon: pluginIcon(plugin),
+        image: pluginImage(plugin),
+        allow: async () => void (await grantLive(plugin.id)),
+      };
+    }
+    if (state !== "ask" && asking.value?.them) asking.value = null;
+  },
+  { immediate: true },
+);
+
+// A new presentation: what the last one loaded goes, the plugins and the chat are read again.
+watch(
+  presentKey,
+  (key) => {
+    presentFile.value = undefined;
+    presentBroken.value = false;
+    if (!key) return;
+    void refreshPlugins();
+    if (presenting.value?.file) void loadMessages(id.value).catch(() => undefined);
+  },
+  { immediate: true },
+);
+// The PDF opens once it is here whole: mine at once, theirs when the chat says it arrived and the
+// core says it is a file of this chat (its message may have come after the presentation did).
+watch(
+  [presentKey, presentState, () => fileMessage.value?.file?.state],
+  async ([key, state, arrived]) => {
+    const now = presenting.value;
+    if (state !== "loading" || !now?.file || (now.by === "them" && arrived !== "done")) return;
+    const ours = now.by === "me" || (await fileBelongsTo(now.file, id.value));
+    const file = ours ? await readMessageFile(now.file).catch(() => undefined) : undefined;
+    if (presentKey.value !== key) return;
+    if (file) presentFile.value = file;
+    else presentBroken.value = true;
+  },
+  { immediate: true },
+);
+
+function acceptPresented() {
+  const file = presenting.value?.file;
+  if (file) void acceptFile(file).catch(() => undefined);
+}
+
+/** The tool asked to close: the presenter stops; a follower's goes when the presenter stops. */
+function presentDone() {
+  if (presenting.value?.by === "me") void stopPresenting(call.id);
 }
 
 // Native video (2026-09-29, docs/video-nativo.md): on the phones the pictures are native views
@@ -415,6 +515,36 @@ watch(
           <ion-icon slot="icon-only" :icon="stopCircleOutline" aria-hidden="true" />
         </ion-button>
         <ion-action-sheet :is-open="choosing" :header="$t('calls.present')" :buttons="presentButtons" @did-dismiss="choosing = false" />
+        <p v-if="presenting?.by === 'them'" class="ft-call__presenter" data-test="presenter" dir="auto">
+          {{ $t("calls.presenting", { name: contact.name }) }}
+        </p>
+        <section
+          v-if="presentArea"
+          class="ft-call__present"
+          :style="presentClip ? { clipPath: presentClip } : undefined"
+          data-test="present-area"
+        >
+          <PluginSheet
+            v-if="presentState === 'sheet' && presentPlugin && presenting"
+            :key="presentKey"
+            :plugin="{ id: presentPlugin.id, name: pluginName(presentPlugin) }"
+            :contact="id"
+            :live="true"
+            :file="presentFile"
+            :session="sessionOf(id)"
+            :presenting="presenting.by === 'me' ? 'lead' : 'follow'"
+            @done="presentDone"
+            @refused="presentBroken = true"
+          />
+          <div v-else class="ft-call__present-wait">
+            <ion-button v-if="presentState === 'accept'" shape="round" data-test="present-accept" @click="acceptPresented">
+              <ion-icon slot="start" :icon="downloadOutline" aria-hidden="true" />
+              {{ $t("calls.acceptToSee") }}
+            </ion-button>
+            <p v-else-if="presentState === 'failed'" class="ft-call__notice" role="alert" data-test="present-failed">{{ $t("calls.presentFailed") }}</p>
+            <ion-spinner v-else name="crescent" color="medium" data-test="present-loading" aria-hidden="true" />
+          </div>
+        </section>
         <div v-if="native" class="ft-call__stage" :data-test="stage ? 'video' : undefined">
           <div v-if="showRemote" ref="remoteSlot" class="ft-call__slot ft-call__slot--remote" data-test="remote-slot">
             <p v-if="call.view.remotePaused" class="ft-call__paused" data-test="remote-paused">
@@ -445,7 +575,8 @@ watch(
         </div>
         <audio v-else ref="remoteAudio" autoplay />
 
-        <div class="ft-call__peer">
+        <!-- Hidden, not taken out: the notices and the controls keep their place under the presentation. -->
+        <div class="ft-call__peer" :style="presentArea ? { visibility: 'hidden' } : undefined">
           <Avatar v-if="native ? !stage : !isVideo || !call.remote" :name="contact.name" :hue="contact.hue" :size="132" />
           <h1 class="ft-call__name" dir="auto">{{ contact.name }}</h1>
           <span class="ft-call__state" :class="{ 'is-live': call.phase === 'active' }">{{ state }}</span>
@@ -467,6 +598,10 @@ watch(
           <p v-if="invite" class="ft-call__notice ft-call__notice--invite">
             <ion-icon :icon="videocamOutline" aria-hidden="true" />
             {{ $t("calls.turnOnCamera") }}
+          </p>
+          <p v-if="presentState === 'missing'" class="ft-call__notice" role="status" data-test="present-missing">
+            <ion-icon :icon="easelOutline" aria-hidden="true" />
+            {{ $t("calls.presentMissing") }}
           </p>
         </div>
 
@@ -610,6 +745,38 @@ watch(
   --color: var(--ion-color-medium);
   --background: rgba(var(--ion-color-medium-rgb), 0.18);
 }
+/* Who presents, between the two corner buttons. */
+.ft-call__presenter {
+  position: absolute;
+  z-index: 2;
+  top: calc(env(safe-area-inset-top) + var(--ft-space-2));
+  inset-inline: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin: 0;
+  color: var(--ion-color-medium);
+  font-size: 14px;
+}
+/* The presentation: from under the top buttons to over the controls; absolute, so nothing moves. */
+.ft-call__present {
+  position: absolute;
+  z-index: 1;
+  inset-inline: 0;
+  top: calc(env(safe-area-inset-top) + var(--ft-space-2) * 2 + 44px);
+  bottom: calc(var(--ion-safe-area-bottom, 0px) + var(--ft-space-5) * 2 + 58px);
+  overflow-y: auto;
+  background: var(--ion-background-color);
+}
+/* What the presentation waits for floats in its middle. */
+.ft-call__present-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--ft-space-4);
+}
 
 .ft-call__video {
   position: absolute;
@@ -672,6 +839,7 @@ watch(
 
 .ft-call__controls {
   position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: var(--ft-space-3);
@@ -751,6 +919,7 @@ watch(
 
 .ft-call__notices {
   position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
