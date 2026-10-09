@@ -17,14 +17,18 @@ import { useRoute, useRouter } from "vue-router";
 import { closeOnBackWhile, goBack } from "../back";
 import PluginSheet from "../components/PluginSheet.vue";
 import PermissionAsk from "../components/PermissionAsk.vue";
+import ContactPicker from "../components/ContactPicker.vue";
+import { offerSend, type ContactAsk, type Proposal } from "../pending-send";
 import { lockClosedOutline } from "ionicons/icons";
 import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
 import type { PermissionNeed } from "../permissions";
 import { PREMIUM_PAGE } from "../core";
 
 // A plugin on its own (2026-09-27): from Settings, or from a reminder it set. There is no chat
-// behind it, so it cannot write in one nor talk to another side; it can open the conversation a
-// ref of its came from.
+// behind it, so it cannot talk to another side; it can open the conversation a ref of its came from.
+// What it proposes to send asks who it is for (Ioan, 2026-10-09): the user picks a contact in the
+// games' sheet, the tool's window goes and that conversation opens with the proposal in its
+// composer, for the user to send (§53).
 // Opened from a reminder set inside a hidden session, it is open in that session (2026-10-01,
 // §108); from Settings, in none.
 const route = useRoute();
@@ -58,6 +62,7 @@ onIonViewWillEnter(() => {
 onIonViewWillLeave(() => {
   here.value = false;
   answerNeed(false);
+  answerPick(null);
   void sheet.value?.close();
 });
 
@@ -70,6 +75,24 @@ function answerNeed(allowed: boolean) {
   need?.answer(allowed);
 }
 closeOnBackWhile(() => here.value && Boolean(needing.value), () => answerNeed(false));
+// Who a proposal is for. Nobody (the sheet dismissed, Back, the page left) is the plugin's refusal.
+const choosing = ref<ContactAsk | null>(null);
+function answerPick(contact: string | null) {
+  const ask = choosing.value;
+  choosing.value = null;
+  ask?.answer(contact);
+}
+closeOnBackWhile(() => here.value && Boolean(choosing.value), () => answerPick(null));
+function addContact() {
+  answerPick(null);
+  void router.push("/add-contact");
+}
+/** The proposal waits for the conversation picked, which takes this page's place. */
+function sendTo(contact: string, proposal: Proposal | null) {
+  if (proposal) offerSend(contact, proposal);
+  void router.replace(`/chat/${contact}`);
+}
+
 function closed() {
   if (here.value) reopen();
   else saidGoodbye = true;
@@ -114,12 +137,15 @@ closeOnBackWhile(() => here.value, leave);
         :key="opening"
         :plugin="plugin"
         contact=""
+        :sending="plugin.granted?.send ?? 'nothing'"
         :reminder="reminder"
         :session="session"
         @open-chat="(contact) => router.push(`/chat/${contact}`)"
         @done="router.back()"
         @closed="closed"
         @needs="(need) => (needing = need)"
+        @pick="(ask) => (choosing = ask)"
+        @send-to="sendTo"
       />
       <p v-else-if="ready" class="ft-plugin-page__missing">{{ $t("plugins.none") }}</p>
     </ion-content>
@@ -132,6 +158,7 @@ closeOnBackWhile(() => here.value, leave);
       @allow="answerNeed(true)"
       @cancel="answerNeed(false)"
     />
+    <ContactPicker class="ft-sheet--window" :open="Boolean(choosing)" purpose="send" @pick="answerPick" @add="addContact" @dismiss="answerPick(null)" />
   </ion-page>
 </template>
 
