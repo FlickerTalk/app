@@ -6,6 +6,10 @@
 // slowed down four times, as a phone is next to a desktop. Here, with Ionic's: 608 ms on iOS and
 // 306 ms on Android for the back button, 583 and 238 ms for the chat to go; with the app's, about
 // 60–120 ms and 320–350 ms. The bounds leave room for a slow CI machine and still fail Ionic's iOS one.
+// On CI (2026-10-09) one round on a busy runner measured 207–255 ms for the back button, with the
+// other worker running the rest of the suite at the same time: these tests are tagged `@timing`, run after
+// the rest of the suite in one worker (`npm run test:e2e`), and take the median of three rounds.
+// Ionic's own transition would still fail every round, so the median cannot hide it.
 import { devices, type Page } from "@playwright/test";
 import { expect, test } from "./helpers";
 
@@ -53,6 +57,15 @@ const CHAT_GONE = `() => {
 /** The chat's Ionic page; Ionic turns its taps off while it comes in. */
 const chatPage = (app: Page) => app.locator("div.ion-page", { has: app.getByTestId("peer") });
 
+/** The middle one of a few measurements: one slow frame on a busy machine does not decide it. */
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+/** How many times the chat is entered and left once it is warm. */
+const ROUNDS = 3;
+
 async function enterAndLeave(app: Page) {
   await app.goto("/tabs/chats");
   const row = app.locator(".ft-row", { hasText: "see you at six" }).first();
@@ -66,14 +79,19 @@ async function enterAndLeave(app: Page) {
   const cdp = await app.context().newCDPSession(app);
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
 
-  const backButton = await timeAfterTap(app, () => row.click(), BACK_BUTTON_THERE);
-  await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
-  // Ionic turns the page's taps on when the transition ends.
-  await expect(chatPage(app)).not.toHaveCSS("pointer-events", "none");
-  const gone = await timeAfterTap(app, () => app.locator(".ft-thread ion-back-button").click(), CHAT_GONE);
-  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  const backButtons: number[] = [];
+  const gones: number[] = [];
+  for (let round = 0; round < ROUNDS; round++) {
+    backButtons.push(await timeAfterTap(app, () => row.click(), BACK_BUTTON_THERE));
+    await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+    // Ionic turns the page's taps on when the transition ends.
+    await expect(chatPage(app)).not.toHaveCSS("pointer-events", "none");
+    gones.push(await timeAfterTap(app, () => app.locator(".ft-thread ion-back-button").click(), CHAT_GONE));
+    await expect(app).toHaveURL(/\/tabs\/chats$/);
+    await expect(app.locator(".ft-thread")).toHaveCount(0);
+  }
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
-  return { backButton, gone };
+  return { backButtons, gones };
 }
 
 for (const phone of [
@@ -84,13 +102,14 @@ for (const phone of [
   test.describe(`on ${phone.name}`, () => {
     test.use(phone.use);
 
-    test("the back button is there within 200 ms of tapping a chat, and the chat gone within 450 ms of tapping back", async ({ app }) => {
+    test("the back button is there within 200 ms of tapping a chat, and the chat gone within 450 ms of tapping back", { tag: "@timing" }, async ({ app }) => {
       await app.goto("/tabs/chats");
       await expect(app.locator("html")).toHaveClass(new RegExp(`\\b${phone.mode}\\b`));
-      const { backButton, gone } = await enterAndLeave(app);
-      test.info().annotations.push({ type: "measured", description: `back button there after ${backButton.toFixed(0)} ms, chat gone after ${gone.toFixed(0)} ms` });
-      expect(backButton, "ms until the back button is all there").toBeLessThan(200);
-      expect(gone, "ms until the chat is off the screen").toBeLessThan(450);
+      const { backButtons, gones } = await enterAndLeave(app);
+      const ms = (values: number[]) => values.map((value) => value.toFixed(0)).join(", ");
+      test.info().annotations.push({ type: "measured", description: `back button there after ${ms(backButtons)} ms, chat gone after ${ms(gones)} ms` });
+      expect(median(backButtons), "ms until the back button is all there (median)").toBeLessThan(200);
+      expect(median(gones), "ms until the chat is off the screen (median)").toBeLessThan(450);
     });
   });
 }
