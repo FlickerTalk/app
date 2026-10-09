@@ -39,7 +39,7 @@ use ft_billing::{Access, Plan};
 use ft_contacts::{ContactCard, RouteCapability};
 use ft_crypto::{accept_first_contact, Channel};
 use ft_identity::{DeviceId, EnvelopeKey, Identity};
-use ft_protocol::{Body, Envelope, MessageId, Packet, Sealed, ENVELOPE_VERSION};
+use ft_protocol::{Body, Envelope, Packet, Sealed, ENVELOPE_VERSION};
 use ft_storage::{Contact, ContactRules, Conversation, Message, MessageState, NewContact, OutboxEntry, Store, UpdateEntry};
 use tokio::sync::{broadcast, Mutex};
 
@@ -67,6 +67,9 @@ const PAID_UNTIL: &str = "paid_until";
 /// What the core answers when the plan closes something premium (Ioan, 2026-10-08): a key, never a
 /// sentence; the screen says it in the user's language and offers the subscription.
 pub const NEEDS_SUBSCRIPTION: &str = "needs_subscription";
+/// What the core answers when the other side's app cannot show a presentation (2026-10-08): a
+/// key, never a sentence; the call screen says it in the user's language.
+pub const PEER_CANNOT_PRESENT: &str = "peer_cannot_present";
 
 /// The premium part is free for 15 days from the install (§40–41; a year until 2026-10-08).
 pub use ft_billing::FREE_PERIOD;
@@ -150,7 +153,8 @@ pub trait Transport: Send + Sync {
 }
 
 pub use calls::CallUpdate;
-pub use native_calls::{CallPhase, CurrentCall, VideoDetach};
+pub use ft_protocol::MessageId;
+pub use native_calls::{CallPhase, CurrentCall, PresentedBy, Presenting, VideoDetach};
 pub use files::MAX_FILE_SIZE;
 pub use ft_push::{Feedback, MailboxRejected, RouterClient, TurnGrant};
 
@@ -232,6 +236,9 @@ pub struct Core {
     call_audio: RwLock<Option<ft_media::AudioPlatform>>,
     /// The media of the active call, when its voice runs here and not in the WebView.
     native_call: std::sync::Mutex<Option<Arc<native_calls::NativeCall>>>,
+    /// The highest call media version this phone says (2026-10-08): `CALL_MEDIA_VERSION`, lower
+    /// only in tests that play an older app (`set_call_media_version`).
+    call_media_ceiling: std::sync::atomic::AtomicU16,
     /// One native answer at a time: CallKit and the WebView may both answer the same call.
     native_setup: Mutex<()>,
     /// The offer of the call ringing here: (call, SDP, the caller's call media version), for a
@@ -377,6 +384,7 @@ impl Core {
             active_call: std::sync::Mutex::default(),
             call_audio: RwLock::new(ft_media::platform_audio()),
             native_call: std::sync::Mutex::default(),
+            call_media_ceiling: std::sync::atomic::AtomicU16::new(ft_protocol::CALL_MEDIA_VERSION),
             native_setup: Mutex::new(()),
             ringing_offer: std::sync::Mutex::default(),
             call_video: RwLock::new(ft_media::platform_video()),
@@ -1587,6 +1595,7 @@ impl Core {
             Body::CallOffer { call, sdp, video, media } => self.call_offered(contact, call, sdp, video, media).await?,
             Body::CallAnswer { call, sdp, media } => self.call_answered(contact, call, sdp, media).await?,
             Body::CallMedia { call, seq, video, paused } => self.call_media_received(contact, call, seq, video, paused).await?,
+            Body::CallPresent { call, seq, plugin, file } => self.call_present_received(contact, call, seq, plugin, file).await?,
             Body::CallEnd { call, reason } => self.call_ended(contact, call, reason).await?,
             Body::MoveOffer { proof, key, size, hash } => self.move_offered(contact, proof, key, size, hash).await?,
             Body::MoveRequest { from, count } => self.move_requested(contact, from, count).await?,

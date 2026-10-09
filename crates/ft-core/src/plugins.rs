@@ -512,17 +512,31 @@ impl Core {
         Ok(kind == ft_plugins::Kind::Game || self.access().await?.may(ft_billing::Doing::UseTool))
     }
 
+    /// Whether this plugin may be opened, and served to the WebView, now: what `may_use` says of
+    /// its kind or, with the tools closed, the plugin the other side presents in the call going on
+    /// (watching a class is free, Ioan 2026-10-08) if it asks for the live channel, the only way
+    /// a plugin can follow anything. The core decides it from its own call.
+    pub async fn may_use_plugin(&self, id: &str, kind: ft_plugins::Kind) -> Result<bool> {
+        if self.may_use(kind).await? {
+            return Ok(true);
+        }
+        Ok(self.following(id).await? && self.plugin_manifest(id).is_ok_and(|manifest| manifest.permissions.live))
+    }
+
     /// Refuses what the plan closes: only the tools, after the free year and without the
     /// subscription. Chat, calls, files, circles and games are never refused.
-    async fn usable(&self, kind: ft_plugins::Kind) -> Result<()> {
+    pub(crate) async fn usable(&self, kind: ft_plugins::Kind) -> Result<()> {
         ensure!(self.may_use(kind).await?, crate::NEEDS_SUBSCRIPTION);
         Ok(())
     }
 
     /// A plugin installed here is about to open: refused with `NEEDS_SUBSCRIPTION` for a tool the
-    /// plan has closed. The app asks before it shows the plugin's frame.
+    /// plan has closed, unless the other side presents it in the call going on. The app asks
+    /// before it shows the plugin's frame.
     pub async fn open_plugin(&self, id: &str) -> Result<()> {
-        self.usable(self.plugin_manifest(id)?.kind).await
+        let kind = self.plugin_manifest(id)?.kind;
+        ensure!(self.may_use_plugin(id, kind).await?, crate::NEEDS_SUBSCRIPTION);
+        Ok(())
     }
 
     /// What the user grants or takes back, at any time. Never more than the plugin asked for.
@@ -565,7 +579,7 @@ impl Core {
         Ok(())
     }
 
-    fn plugin_manifest(&self, id: &str) -> Result<Manifest> {
+    pub(crate) fn plugin_manifest(&self, id: &str) -> Result<Manifest> {
         installed(self.plugins_home()?)?
             .into_iter()
             .find(|manifest| manifest.id == id)

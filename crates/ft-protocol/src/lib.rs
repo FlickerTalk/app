@@ -19,14 +19,22 @@ use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
-/// The call media this version speaks (2026-09-29), in `CallOffer` and `CallAnswer`:
+/// The call media this version speaks, in `CallOffer` and `CallAnswer`:
 ///
 /// - 0 (absent): the WebView's calls up to app 1.2. A video line only in a video call, and no
 ///   `CallMedia`: voice and video cannot be switched during the call.
-/// - 1: both an audio and a video line in every call, whatever it starts as, and the camera's
-///   state in `CallMedia`: either side turns its camera on or off at any moment, with no new
-///   offer. Only when both sides say 1.
-pub const CALL_MEDIA_VERSION: u16 = 1;
+/// - 1 (`CALL_MEDIA_CAMERA`, 2026-09-29): both an audio and a video line in every call, whatever
+///   it starts as, and the camera's state in `CallMedia`: either side turns its camera on or off
+///   at any moment, with no new offer. Only when both sides say 1 or more.
+/// - 2 (`CALL_MEDIA_PRESENT`, 2026-10-08): also what is presented in the call (`CallPresent`).
+///   Only sent to a side that said 2 or more.
+pub const CALL_MEDIA_VERSION: u16 = 2;
+
+/// The first call media version that speaks the camera's state (`CallMedia`).
+pub const CALL_MEDIA_CAMERA: u16 = 1;
+
+/// The first call media version that shows presentations (`CallPresent`).
+pub const CALL_MEDIA_PRESENT: u16 = 2;
 
 /// Encoded packets are padded to a multiple of this (M9 of the 2026-09-24 review): whoever sees
 /// the sizes of what travels, the router included, cannot tell "ok" from a paragraph. The same
@@ -145,7 +153,8 @@ pub enum Body {
     FileFailed { file: MessageId },
     /// A voice or video call (§66). Its descriptions travel here, directly and encrypted, never
     /// through the mailbox. `video` is how the caller starts the call; `media` is the sender's
-    /// call media version (`CALL_MEDIA_VERSION`, 2026-09-29), absent (0) from older apps.
+    /// call media version (`CALL_MEDIA_VERSION`: 1 since 2026-09-29, 2 since 2026-10-08), absent
+    /// (0) from older apps.
     CallOffer {
         call: MessageId,
         sdp: String,
@@ -166,6 +175,12 @@ pub enum Body {
     /// change: the one with the highest `seq` wins, so a repeat or a late one changes nothing.
     /// An older app decodes it as `Unknown` and ignores it.
     CallMedia { call: MessageId, seq: u32, video: bool, paused: bool },
+    /// What the sender presents in a call (2026-10-08): the plugin shown on both screens, and the
+    /// chat file it shows (the `message_id` of a file of this conversation, the same on both
+    /// phones), or `plugin: None` when it stops. A state like `CallMedia`: the highest `seq` wins.
+    /// Only between two sides at media version 2 or later, only directly; the core never reads
+    /// what the plugin shows. An older app decodes it as `Unknown` and ignores it.
+    CallPresent { call: MessageId, seq: u32, plugin: Option<String>, file: Option<MessageId> },
     /// Moving to a new phone (§60), from the old phone to the new one, only directly. `proof`
     /// shows it read the new phone's QR; `key` seals the database copy that follows, of `size`
     /// bytes and BLAKE3 `hash`, pulled with `MoveRequest` like a file.
@@ -447,6 +462,9 @@ mod tests {
         round_trip(Body::CallAnswer { call, sdp: "v=0".to_owned(), media: CALL_MEDIA_VERSION });
         round_trip(Body::CallMedia { call, seq: 7, video: true, paused: false });
         round_trip(Body::CallMedia { call, seq: 8, video: true, paused: true });
+        round_trip(Body::CallPresent { call, seq: 1, plugin: Some("com.flickertalk.board".to_owned()), file: None });
+        round_trip(Body::CallPresent { call, seq: 2, plugin: Some("com.flickertalk.pdfviewer".to_owned()), file: Some(MessageId::new()) });
+        round_trip(Body::CallPresent { call, seq: 3, plugin: None, file: None });
         for reason in [EndReason::Hangup, EndReason::Declined, EndReason::Busy, EndReason::Cancelled, EndReason::Failed] {
             round_trip(Body::CallEnd { call, reason });
         }
@@ -565,6 +583,60 @@ mod tests {
         assert_eq!(read_as_older(&answer).expect("an older app reads it"), OlderBody::CallAnswer { call, sdp: "v=0".to_owned() });
         let camera = Packet::new(Body::CallMedia { call, seq: 1, video: true, paused: false });
         assert!(read_as_older(&camera).is_err(), "an older app decodes it as Unknown and ignores it");
+    }
+
+    /// A call offer as an app at media version 1 (apps 1.2 to 1.5) reads it; that app has no
+    /// `CallPresent` either.
+    #[derive(Debug, PartialEq, serde::Deserialize)]
+    #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+    enum MediaOneBody {
+        CallOffer {
+            call: MessageId,
+            sdp: String,
+            video: bool,
+            #[serde(default)]
+            media: u16,
+        },
+    }
+
+    fn read_as_media_one(packet: &Packet) -> Result<MediaOneBody, ciborium::value::Error> {
+        #[derive(serde::Deserialize)]
+        struct Raw {
+            body: ciborium::Value,
+        }
+        let raw: Raw = decode(&packet.encode()).expect("decodes");
+        raw.body.deserialized()
+    }
+
+    // §23, 2026-10-08: media version 2 adds what is presented in a call. An app at 1 still reads an
+    // offer that says 2, and takes a presentation as a packet to ignore; so does an app before.
+    #[test]
+    fn an_app_at_media_one_reads_a_media_two_offer_and_ignores_a_presentation() {
+        assert_eq!((CALL_MEDIA_CAMERA, CALL_MEDIA_PRESENT, CALL_MEDIA_VERSION), (1, 2, 2));
+        let call = MessageId::new();
+        let offer = Packet::new(Body::CallOffer { call, sdp: "v=0".to_owned(), video: false, media: CALL_MEDIA_VERSION });
+        assert_eq!(
+            read_as_media_one(&offer).expect("an app at media 1 reads it"),
+            MediaOneBody::CallOffer { call, sdp: "v=0".to_owned(), video: false, media: 2 }
+        );
+        let present = Packet::new(Body::CallPresent { call, seq: 1, plugin: Some("com.flickertalk.board".to_owned()), file: None });
+        assert!(read_as_media_one(&present).is_err(), "an app at media 1 decodes it as Unknown");
+        assert!(read_as_older(&present).is_err(), "and so does an app before");
+    }
+
+    // M9: a presentation is padded like any packet.
+    #[test]
+    fn a_presentation_is_padded_to_the_bucket() {
+        let call = MessageId::new();
+        for body in [
+            Body::CallPresent { call, seq: u32::MAX, plugin: Some("com.flickertalk.pdfviewer".to_owned()), file: Some(MessageId::new()) },
+            Body::CallPresent { call, seq: 1, plugin: None, file: None },
+        ] {
+            let packet = Packet::new(body);
+            let bytes = packet.encode();
+            assert_eq!(bytes.len() % PAD_BUCKET, 0, "{} bytes", bytes.len());
+            assert_eq!(Packet::decode(&bytes).expect("decodes"), packet);
+        }
     }
 
     // A camera state from a newer app with fields this one does not know is still read.

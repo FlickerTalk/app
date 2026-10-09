@@ -12,7 +12,7 @@ use anyhow::{bail, Result};
 use ft_protocol::{Body, EndReason, MessageId, Packet};
 use ft_storage::{CallOutcome, CallRecord, Contact};
 
-use crate::native_calls::EarlyOutcome;
+use crate::native_calls::{EarlyOutcome, PresentedBy};
 use crate::timings::CallStage;
 use crate::{now, Core, Event};
 
@@ -90,6 +90,10 @@ pub enum CallUpdate {
     /// camera as the call connected, an encoder that cannot be set up, say. The call goes on as
     /// voice; the video state that follows has the camera off.
     CameraFailed,
+    /// What is presented in the call changed (2026-10-08), by either side: the whole state, never
+    /// a change. All `None` when nothing is presented any more. Ending the call says nothing more:
+    /// `Ended` is enough.
+    Presenting { plugin: Option<String>, file: Option<MessageId>, by: Option<PresentedBy> },
 }
 
 impl Core {

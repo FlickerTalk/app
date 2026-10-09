@@ -2,8 +2,8 @@
 //! camera and display on the call's own peer connection, next to its `Voice`, with
 //! `webrtc-engine`'s `VideoCall`.
 //!
-//! Every native call negotiates an audio and a video line from the start (media version 1, see
-//! `ft_protocol::CALL_MEDIA_VERSION`), so turning a camera on or off never needs a new offer: each
+//! Every native call negotiates an audio and a video line from the start (from media version 1,
+//! `ft_protocol::CALL_MEDIA_CAMERA`), so turning a camera on or off never needs a new offer: each
 //! side runs or stops its own camera, and tells the other with a `CallMedia` packet (the core does
 //! that). The devices are made the first time the call needs video (our camera, or theirs) and
 //! kept, with their native views, until the call ends.

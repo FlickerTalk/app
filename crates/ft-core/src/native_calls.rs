@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 use ft_media::{AudioPlatform, CallRouting, LinkState, MediaSession, Video, VideoPlatform, VideoState, Voice};
 use ft_protocol::{Body, MessageId, Packet};
 
@@ -58,6 +58,27 @@ pub struct CurrentCall {
     pub connected_at: Option<i64>,
     /// The call's video, when it runs here (native video, 2026-09-29).
     pub video_state: Option<VideoState>,
+    /// What is presented in the call (2026-10-08), by either side.
+    pub presenting: Option<Presenting>,
+    /// Whether a presentation can start: the call is on and both apps speak media version 2.
+    pub can_present: bool,
+}
+
+/// Who presents in a call (2026-10-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentedBy {
+    Me,
+    Them,
+}
+
+/// What is presented in a call (2026-10-08, `docs/plan-presentar-en-llamada.md`): the plugin
+/// shown on both screens and the chat file it shows, if any. The core opens nothing and reads
+/// nothing of it: the plugin's own content travels over `ft.live`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Presenting {
+    pub plugin: String,
+    pub file: Option<MessageId>,
+    pub by: PresentedBy,
 }
 
 /// The media of a native call: its connection, its voice and its video.
@@ -88,6 +109,23 @@ pub(crate) struct NativeCall {
     remote: Mutex<RemoteCamera>,
     /// When the media connected (ms); 0 until then.
     connected_at: AtomicI64,
+    /// The call media version we say in our offer or answer (`media_version`, at most the core's
+    /// `call_media_ceiling`).
+    our_media: u16,
+    /// What is presented in the call now, by either side, and the newest word heard of it
+    /// (2026-10-08).
+    presenting: Mutex<PresentState>,
+    /// The `seq` of our latest `CallPresent`; 0 while we never said one.
+    present_seq: AtomicU32,
+}
+
+/// What is presented in a call and the highest `seq` the other side said in a `CallPresent`: one
+/// lock, so a word's `seq` and the state it makes are decided together, and the UI hears the
+/// states in the order they were made.
+#[derive(Default)]
+struct PresentState {
+    now: Option<Presenting>,
+    heard: Option<u32>,
 }
 
 impl NativeCall {
@@ -105,9 +143,25 @@ impl NativeCall {
         !self.peer_known.load(Ordering::SeqCst) || camera_allowed(self.peer_media(), self.video_call)
     }
 
-    /// The media version we say: 1 when this phone runs the call's video.
+    /// The media version we say: `CALL_MEDIA_VERSION` when this phone runs the call's video.
     fn media(&self) -> u16 {
-        media_version(self.video.is_some())
+        self.our_media
+    }
+
+    fn presenting(&self) -> Option<Presenting> {
+        self.presenting.lock().unwrap_or_else(PoisonError::into_inner).now.clone()
+    }
+
+    /// The `seq` of our next `CallPresent`. Taken while `presenting` is held, so the newest `seq`
+    /// always carries the newest state of ours.
+    fn next_present_seq(&self) -> u32 {
+        next_seq(&self.present_seq)
+    }
+
+    /// Whether a presentation can start (2026-10-08): the call is on and both sides said media
+    /// version 2 or later.
+    fn can_present(&self) -> bool {
+        self.connected_at().is_some() && self.peer_known.load(Ordering::SeqCst) && presents(self.media()) && presents(self.peer_media())
     }
 
     /// The call's video as the UI sees it: before it is ready, our camera as the user wants it
@@ -194,6 +248,9 @@ const AUDIO_RETRY: Duration = Duration::from_millis(300);
 
 /// Between attempts to tell the other side about our camera, while the call lasts.
 const CAMERA_RETRY: Duration = Duration::from_secs(2);
+
+/// Between attempts to tell the other side what we present, while the call lasts.
+const PRESENT_RETRY: Duration = Duration::from_secs(2);
 
 /// Settings key: the call routing, as Settings writes it (`direct`, `auto`, `always`).
 const CALL_ROUTING: &str = "call_routing";
@@ -634,6 +691,8 @@ impl Core {
             muted: native.as_ref().is_some_and(|native| native.voice.is_muted()),
             connected_at,
             video_state: native.as_ref().and_then(|native| native.view()),
+            presenting: native.as_ref().and_then(|native| native.presenting()),
+            can_present: native.as_ref().is_some_and(|native| native.can_present()),
             call,
             contact: record.contact,
             video: record.video,
@@ -706,6 +765,7 @@ impl Core {
         self.mark_call_stage(CallStage::ConnectionBuilt);
         let voice = Voice::for_session(&session, platform);
         let video = self.video_platform().map(|platform| Video::for_session(&session, platform));
+        let our_media = media_version(video.is_some()).min(self.call_media_ceiling.load(Ordering::SeqCst));
         let native = Arc::new(NativeCall {
             call: call.to_owned(),
             contact: record.contact,
@@ -722,6 +782,9 @@ impl Core {
             said: Mutex::new((false, false)),
             remote: Mutex::new(RemoteCamera::default()),
             connected_at: AtomicI64::new(0),
+            our_media,
+            presenting: Mutex::new(PresentState::default()),
+            present_seq: AtomicU32::new(0),
         });
         Ok(native)
     }
@@ -779,6 +842,10 @@ impl Core {
     async fn native_connected(&self, native: &Arc<NativeCall>) {
         if native.connected_at.compare_exchange(0, now(), Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return;
+        }
+        if plan_changes_on_connect(native.presenting().as_ref()) {
+            // Their presentation came before our connection: the followed tool is served now.
+            let _ = self.events.send(Event::PlanChanged);
         }
         self.mark_call_stage(CallStage::Connected);
         if native.voice.connected().await.is_err() {
@@ -901,6 +968,182 @@ impl Core {
         self.apply_remote(&native).await
     }
 
+    /// Presents `plugin` in the call going on (2026-10-08), with the chat `file` it shows, if
+    /// any: both screens show it, ours leading. Only once the call is on and both apps show
+    /// presentations (`PEER_CANNOT_PRESENT` otherwise). The core opens nothing and reads nothing:
+    /// what the plugin shows travels over `ft.live`. Never while the other side presents, and the
+    /// file must be a file message of this conversation, either way.
+    pub async fn present_in_call(&self, call: &str, plugin: &str, file: Option<MessageId>) -> Result<()> {
+        let Some(native) = self.native_of(call) else { bail!("no native call") };
+        ensure!(native.connected_at().is_some(), "the call is not on yet");
+        ensure!(native.can_present(), crate::PEER_CANNOT_PRESENT);
+        // Presenting is using the tool (Ioan, 2026-10-08): a plugin this phone does not have
+        // counts as one.
+        let kind = self.plugin_manifest(plugin).map_or(ft_plugins::Kind::Tool, |manifest| manifest.kind);
+        self.usable(kind).await?;
+        ensure!(!plugin.is_empty(), "no plugin to present");
+        if let Some(file) = file {
+            ensure!(self.file_belongs_to(&file, &native.contact).await?, "not a file of this conversation");
+        }
+        let seq = {
+            let mut state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            ensure!(state.now.as_ref().is_none_or(|now| now.by == PresentedBy::Me), "the other side is presenting");
+            state.now = Some(Presenting { plugin: plugin.to_owned(), file, by: PresentedBy::Me });
+            self.announce_presenting(&native, state.now.as_ref());
+            native.next_present_seq()
+        };
+        self.send_presenting(&native, seq, Some(plugin.to_owned()), file);
+        Ok(())
+    }
+
+    /// Whether `file` is a file message of the conversation with `contact`, sent or received
+    /// (2026-10-08): what a presentation may show. The follow sheet checks it before it reads a
+    /// presented file.
+    pub async fn file_belongs_to(&self, file: &MessageId, contact: &str) -> Result<bool> {
+        let id = file.to_string();
+        let Some(message) = self.store.message(&id).await? else { return Ok(false) };
+        Ok(message.contact == contact && self.store.file(&id).await?.is_some())
+    }
+
+    /// Says a `CallPresent` to `contact` over the direct connection with no check at all, as a
+    /// modified peer could: for the tests (`tests/native_present.rs`). `false` if it did not go.
+    #[doc(hidden)]
+    pub async fn say_call_present(&self, contact: &str, call: &str, seq: u32, plugin: Option<String>, file: Option<MessageId>) -> Result<bool> {
+        let contact = self.contact(contact).await?;
+        let packet = Packet::new(Body::CallPresent { call: MessageId::parse(call)?, seq, plugin, file });
+        self.transmit_direct(&contact, &packet).await
+    }
+
+    /// Stops our presentation in the call going on; nothing to do when we present nothing.
+    pub async fn stop_presenting(&self, call: &str) -> Result<()> {
+        let Some(native) = self.native_of(call) else { bail!("no native call") };
+        let seq = {
+            let mut state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            let ours = state.now.as_ref().is_some_and(|now| now.by == PresentedBy::Me);
+            if ours {
+                state.now = None;
+                self.announce_presenting(&native, None);
+            }
+            ours.then(|| native.next_present_seq())
+        };
+        if let Some(seq) = seq {
+            self.send_presenting(&native, seq, None, None);
+        }
+        Ok(())
+    }
+
+    /// Whether this phone follows `plugin` now: the call going on is active and the other side
+    /// presents that very plugin. Only the core's own state counts.
+    pub(crate) async fn following(&self, plugin: &str) -> Result<bool> {
+        let Some(current) = self.current_call().await? else { return Ok(false) };
+        Ok(current.phase == CallPhase::Active && followed(current.presenting.as_ref()).as_deref() == Some(plugin))
+    }
+
+    /// Tells the other side what we present, with its `seq`, in the background.
+    fn send_presenting(&self, native: &Arc<NativeCall>, seq: u32, plugin: Option<String>, file: Option<MessageId>) {
+        let Some(core) = self.this.upgrade() else { return };
+        let native = native.clone();
+        tokio::spawn(async move { core.deliver_presenting(&native, seq, plugin, file).await });
+    }
+
+    /// Like `deliver_camera_state`: until it gets through, a newer word replaces it or the call ends.
+    async fn deliver_presenting(&self, native: &NativeCall, seq: u32, plugin: Option<String>, file: Option<MessageId>) {
+        let Ok(call) = MessageId::parse(&native.call) else { return };
+        let Ok(contact) = self.contact(&native.contact).await else { return };
+        let packet = Packet::new(Body::CallPresent { call, seq, plugin, file });
+        loop {
+            if native.present_seq.load(Ordering::SeqCst) != seq || self.native_of(&native.call).is_none() {
+                return;
+            }
+            if self.transmit_direct(&contact, &packet).await.unwrap_or(false) {
+                return;
+            }
+            tokio::time::sleep(PRESENT_RETRY).await;
+        }
+    }
+
+    /// The other side says what it presents (`CallPresent`): the newest word wins. Ignored when
+    /// it is not this call's contact, when this phone said it does not show presentations, before
+    /// the call is answered, and when its file is a message here that is not a file of this
+    /// call's chat (a file not here yet is taken: its offer may come after the word).
+    pub(crate) async fn call_present_received(&self, contact: &ft_storage::Contact, call: MessageId, seq: u32, plugin: Option<String>, file: Option<MessageId>) -> Result<()> {
+        let Some(native) = self.native_of(&call.to_string()) else { return Ok(()) };
+        if native.contact != contact.device_id || !presents(native.media()) {
+            return Ok(());
+        }
+        let answered = self.store.call(&native.call).await?.is_some_and(|record| record.answered_at.is_some());
+        if !answered {
+            // A word before the answer is not part of the call.
+            return Ok(());
+        }
+        if let Some(file) = file {
+            let id = file.to_string();
+            let found = match self.store.message(&id).await? {
+                Some(message) => Some((message.contact, self.store.file(&id).await?.is_some())),
+                None => None,
+            };
+            if !presentable_file(found.as_ref().map(|(of, is_file)| (of.as_str(), *is_file)), &native.contact) {
+                return Ok(());
+            }
+        }
+        let mine_wins = mine_wins_clash(self.device_id().as_str(), &native.contact);
+        let withdrawal = {
+            let mut state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            if !newer_present(&mut state.heard, seq) {
+                return Ok(());
+            }
+            let before = followed(state.now.as_ref());
+            let (changed, withdrawal) = take_their_present(&mut state.now, &native.present_seq, plugin, file, mine_wins);
+            let after = followed(state.now.as_ref());
+            // What may open changed: the WebView serves the followed tool before the sheet that
+            // shows it mounts, and stops serving it only once the sheet is gone.
+            let serve = after != before;
+            if serve && after.is_some() {
+                let _ = self.events.send(Event::PlanChanged);
+            }
+            if changed {
+                self.announce_presenting(&native, state.now.as_ref());
+            }
+            if serve && after.is_none() {
+                let _ = self.events.send(Event::PlanChanged);
+            }
+            withdrawal
+        };
+        if let Some(seq) = withdrawal {
+            // Ours lost a clash: withdraw it, so a late copy of it never shows on their side.
+            self.send_presenting(&native, seq, None, None);
+        }
+        Ok(())
+    }
+
+    /// A data link with `contact` opened (`net.rs`): a word of ours handed to the one before may
+    /// have been lost with it, so in a call with them in which we ever said what we present, we
+    /// say it again with a newer `seq` (2026-10-08). A lost stop would leave the other side
+    /// showing our presentation until the end of the call.
+    pub(crate) fn link_opened_in_call(&self, contact: &str) {
+        let native = self.native_call.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let Some(native) = native.filter(|native| native.contact == contact) else { return };
+        let again = {
+            let state = native.presenting.lock().unwrap_or_else(PoisonError::into_inner);
+            let ever_said = native.present_seq.load(Ordering::SeqCst) > 0;
+            said_again(state.now.as_ref(), ever_said).map(|(plugin, file)| (native.next_present_seq(), plugin, file))
+        };
+        if let Some((seq, plugin, file)) = again {
+            self.send_presenting(&native, seq, plugin, file);
+        }
+    }
+
+    /// Tells the UI what is presented now, as a whole. Called with the state still held, so the
+    /// UI hears the states in the order they were made.
+    fn announce_presenting(&self, native: &NativeCall, now: Option<&Presenting>) {
+        let update = CallUpdate::Presenting {
+            plugin: now.map(|now| now.plugin.clone()),
+            file: now.and_then(|now| now.file),
+            by: now.map(|now| now.by),
+        };
+        self.announce(native, update);
+    }
+
     /// Shows the other side's camera as it last said.
     async fn apply_remote(&self, native: &NativeCall) -> Result<()> {
         let Some(video) = &native.video else { return Ok(()) };
@@ -972,6 +1215,10 @@ impl Core {
         };
         if let Some(native) = taken {
             self.shut_native(&native).await;
+            if followed(native.presenting().as_ref()).is_some() {
+                // The tool followed closes with the call.
+                let _ = self.events.send(Event::PlanChanged);
+            }
             // The follower stops with the call and would not tell it: the UI hears the video is
             // gone (nothing available, no camera) before it hears the call ended.
             if let Some(video) = &native.video {
@@ -986,6 +1233,13 @@ impl Core {
     /// calls with voice only (by default, `ft_media::platform_video()`).
     pub fn set_call_video(&self, platform: Option<VideoPlatform>) {
         *self.call_video.write().unwrap_or_else(PoisonError::into_inner) = platform;
+    }
+
+    /// Says at most this call media version in our offers and answers from the next call on: a
+    /// phone that speaks as an older app does, for the tests (`tests/native_present.rs`).
+    #[doc(hidden)]
+    pub fn set_call_media_version(&self, version: u16) {
+        self.call_media_ceiling.store(version, Ordering::SeqCst);
     }
 
     /// What the app runs right before a call's video devices go: the bridge takes the native
@@ -1093,7 +1347,8 @@ impl RemoteCamera {
     }
 }
 
-/// The call media version we say in our offer or answer: 1 when this phone runs the call's video.
+/// The call media version we say in our offer or answer: `CALL_MEDIA_VERSION` when this phone
+/// runs the call's video, 0 (an older app's word) when it does not.
 fn media_version(has_video: bool) -> u16 {
     if has_video {
         ft_protocol::CALL_MEDIA_VERSION
@@ -1102,9 +1357,85 @@ fn media_version(has_video: bool) -> u16 {
     }
 }
 
-/// Whether the other side reads our `CallMedia`: only from media version 1 on.
+/// Whether the other side reads our `CallMedia`: from media version 1 on.
 fn speaks_camera_state(peer_media: u16) -> bool {
-    peer_media >= ft_protocol::CALL_MEDIA_VERSION
+    peer_media >= ft_protocol::CALL_MEDIA_CAMERA
+}
+
+/// Whether a side at this call media version shows presentations (`CallPresent`): from 2 on.
+fn presents(media: u16) -> bool {
+    media >= ft_protocol::CALL_MEDIA_PRESENT
+}
+
+/// Takes a `CallPresent`'s `seq`: `false` when it is a repeat or older than the one kept.
+fn newer_present(kept: &mut Option<u32>, seq: u32) -> bool {
+    if kept.is_some_and(|kept| seq <= kept) {
+        return false;
+    }
+    *kept = Some(seq);
+    true
+}
+
+/// What a `CallPresent` from the other side makes of what is presented here; `None` when
+/// nothing changes. Theirs replaces anything, except ours when ours wins a clash (`mine_wins`);
+/// their stop ends only theirs.
+fn after_their_present(now: Option<&Presenting>, plugin: Option<String>, file: Option<MessageId>, mine_wins: bool) -> Option<Option<Presenting>> {
+    let ours = now.is_some_and(|now| now.by == PresentedBy::Me);
+    let theirs = now.is_some_and(|now| now.by == PresentedBy::Them);
+    match plugin {
+        Some(_) if ours && mine_wins => None,
+        Some(plugin) => Some(Some(Presenting { plugin, file, by: PresentedBy::Them })),
+        None if theirs => Some(None),
+        None => None,
+    }
+}
+
+/// Applies a `CallPresent` from the other side to what is presented here (`now`, held locked):
+/// whether it changed and, when theirs replaced ours (ours lost a clash), the `seq` of the `None`
+/// that withdraws ours, taken from `our_seq` together with the change.
+fn take_their_present(now: &mut Option<Presenting>, our_seq: &AtomicU32, plugin: Option<String>, file: Option<MessageId>, mine_wins: bool) -> (bool, Option<u32>) {
+    let Some(next) = after_their_present(now.as_ref(), plugin, file, mine_wins) else { return (false, None) };
+    let ours = now.as_ref().is_some_and(|now| now.by == PresentedBy::Me);
+    *now = next;
+    (true, ours.then(|| next_seq(our_seq)))
+}
+
+/// The next `seq` of a counter of words we send.
+fn next_seq(counter: &AtomicU32) -> u32 {
+    counter.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+}
+
+/// Both pressed Present at once and each heard the other's while showing its own: the side whose
+/// device id sorts first keeps its presentation and the other takes it, so both show the same.
+fn mine_wins_clash(me: &str, them: &str) -> bool {
+    me < them
+}
+
+/// The plugin this phone follows: the one the other side presents; none when we present.
+fn followed(now: Option<&Presenting>) -> Option<String> {
+    now.filter(|now| now.by == PresentedBy::Them).map(|now| now.plugin.clone())
+}
+
+/// Whether a presented file may be followed: `found` is its message here (its contact, and
+/// whether it is a file), `None` if not here yet.
+fn presentable_file(found: Option<(&str, bool)>, contact: &str) -> bool {
+    found.is_none_or(|(of, is_file)| of == contact && is_file)
+}
+
+/// What a side says again of its presentation once the data link is back, as (plugin, file):
+/// what it presents, or nothing; `None` (no word) if it never said one in this call.
+fn said_again(now: Option<&Presenting>, ever_said: bool) -> Option<(Option<String>, Option<MessageId>)> {
+    if !ever_said {
+        return None;
+    }
+    Some(now.filter(|now| now.by == PresentedBy::Me).map_or((None, None), |now| (Some(now.plugin.clone()), now.file)))
+}
+
+/// Whether our own connection coming up changes what may open: `following` needs the call
+/// active, and what the other side presents may have arrived before (it travels over the chat
+/// channel, not the call's media).
+fn plan_changes_on_connect(now: Option<&Presenting>) -> bool {
+    followed(now).is_some()
 }
 
 /// Whether our camera may turn on: an older app's voice call has no video line at all.
@@ -1187,6 +1518,15 @@ mod tests {
         assert!(speaks_camera_state(2), "a newer app still reads it");
     }
 
+    // 2026-10-08: presentations go only between two sides at media version 2 or later.
+    #[test]
+    fn presentations_go_only_to_a_side_at_media_version_two() {
+        assert!(!presents(0), "an older app's WebView");
+        assert!(!presents(1), "apps 1.2 to 1.5");
+        assert!(presents(2));
+        assert!(presents(3), "a newer app still shows them");
+    }
+
     // The older app's fallback (docs/video-nativo.md, the table of §1).
     #[test]
     fn an_older_app_s_voice_call_has_no_camera_and_its_video_call_has_video_from_the_start() {
@@ -1236,5 +1576,111 @@ mod tests {
         assert!(held(false, true), "the app is in the background or the phone locked");
         assert!(held(true, false), "the user left the call screen");
         assert!(held(false, false));
+    }
+
+    // 2026-10-08: what the other side presents is a state; the highest `seq` wins.
+    #[test]
+    fn the_newest_presentation_wins_and_a_repeat_or_a_late_one_changes_nothing() {
+        let mut kept = None;
+        assert!(newer_present(&mut kept, 0), "the first is taken whatever its seq");
+        assert!(!newer_present(&mut kept, 0), "a repeat");
+        assert!(newer_present(&mut kept, 3), "seq may skip");
+        assert!(!newer_present(&mut kept, 2), "a late one");
+        assert_eq!(kept, Some(3));
+    }
+
+    // Theirs replaces what is shown (ours too, unless ours wins a clash); their stop ends only theirs.
+    #[test]
+    fn theirs_replaces_what_is_shown_and_their_stop_ends_only_theirs() {
+        let board = || Some("com.flickertalk.board".to_owned());
+        let theirs = Presenting { plugin: "com.flickertalk.board".to_owned(), file: None, by: PresentedBy::Them };
+        let mine = Presenting { plugin: "com.flickertalk.pdfviewer".to_owned(), file: None, by: PresentedBy::Me };
+        assert_eq!(after_their_present(None, board(), None, false), Some(Some(theirs.clone())));
+        assert_eq!(after_their_present(None, board(), None, true), Some(Some(theirs.clone())), "nothing of ours to keep");
+        assert_eq!(after_their_present(Some(&mine), board(), None, false), Some(Some(theirs.clone())), "ours loses the clash");
+        assert_eq!(after_their_present(Some(&mine), board(), None, true), None, "ours wins the clash");
+        assert_eq!(after_their_present(Some(&theirs), None, None, false), Some(None), "their stop");
+        assert_eq!(after_their_present(Some(&mine), None, None, false), None, "their stop leaves ours");
+        assert_eq!(after_their_present(None, None, None, true), None, "nothing to stop");
+    }
+
+    // Both pressed Present at once: the side whose device id sorts first keeps its presentation.
+    #[test]
+    fn in_a_clash_the_device_id_that_sorts_first_keeps_its_presentation() {
+        assert!(mine_wins_clash("ft_a", "ft_b"));
+        assert!(!mine_wins_clash("ft_b", "ft_a"));
+    }
+
+    // The side that loses a clash withdraws its own presentation with a newer `seq`, so a late
+    // copy of it can never show on the other side once that side stops.
+    #[test]
+    fn losing_a_clash_withdraws_ours_with_a_newer_seq() {
+        let board = || Some("com.flickertalk.board".to_owned());
+        let mine = Presenting { plugin: "com.flickertalk.pdfviewer".to_owned(), file: None, by: PresentedBy::Me };
+        let theirs = Presenting { plugin: "com.flickertalk.board".to_owned(), file: None, by: PresentedBy::Them };
+        let ours_sent = AtomicU32::new(1);
+
+        let mut now = Some(mine.clone());
+        assert_eq!(take_their_present(&mut now, &ours_sent, board(), None, false), (true, Some(2)), "ours lost: withdrawn with seq 2");
+        assert_eq!(now, Some(theirs.clone()));
+
+        let mut now = Some(mine.clone());
+        assert_eq!(take_their_present(&mut now, &ours_sent, board(), None, true), (false, None), "ours won: nothing to withdraw");
+        assert_eq!(now, Some(mine.clone()));
+
+        let mut now = Some(mine.clone());
+        assert_eq!(take_their_present(&mut now, &ours_sent, None, None, false), (false, None), "their stop leaves ours");
+
+        let mut now = None;
+        assert_eq!(take_their_present(&mut now, &ours_sent, board(), None, false), (true, None), "nothing of ours to withdraw");
+        assert_eq!(take_their_present(&mut now, &ours_sent, None, None, false), (true, None), "their stop");
+        assert_eq!(ours_sent.load(Ordering::SeqCst), 2, "only the withdrawal took a seq");
+    }
+
+    // 2026-10-08: only what the other side presents is followed (and opens with the tools closed).
+    #[test]
+    fn only_what_the_other_side_presents_is_followed() {
+        let theirs = Presenting { plugin: "com.example.board".to_owned(), file: None, by: PresentedBy::Them };
+        let mine = Presenting { by: PresentedBy::Me, ..theirs.clone() };
+        assert_eq!(followed(Some(&theirs)), Some("com.example.board".to_owned()));
+        assert_eq!(followed(Some(&mine)), None, "presenting is using the tool");
+        assert_eq!(followed(None), None);
+    }
+
+    // What the other side presents may arrive before our own connection is up (it travels over
+    // the chat channel): when it comes up, what may open changes, and only then.
+    #[test]
+    fn connecting_while_the_other_side_presents_changes_what_may_open() {
+        let theirs = Presenting { plugin: "com.example.board".to_owned(), file: None, by: PresentedBy::Them };
+        let mine = Presenting { by: PresentedBy::Me, ..theirs.clone() };
+        assert!(plan_changes_on_connect(Some(&theirs)), "the followed tool is served from now on");
+        assert!(!plan_changes_on_connect(Some(&mine)), "ours changes nothing");
+        assert!(!plan_changes_on_connect(None));
+    }
+
+    // A presented file is followed only if it is a file of the call's chat. One not here yet is
+    // taken: the file's offer travels through the outbox and may come after the word.
+    #[test]
+    fn a_presented_file_must_be_a_file_of_the_call_s_chat() {
+        assert!(presentable_file(Some(("ft_alice", true)), "ft_alice"), "a file of this chat");
+        assert!(!presentable_file(Some(("ft_carol", true)), "ft_alice"), "a file of another chat");
+        assert!(!presentable_file(Some(("ft_alice", false)), "ft_alice"), "a text of this chat");
+        assert!(presentable_file(None, "ft_alice"), "not here yet");
+    }
+
+    // Once the data link is back, a side that ever said what it presents says it again: what it
+    // presents, or that it presents nothing (a lost stop). A side that never said a word says
+    // nothing.
+    #[test]
+    fn a_side_that_spoke_says_its_presentation_again() {
+        let board = || Some("com.example.board".to_owned());
+        let file = MessageId::new();
+        let mine = Presenting { plugin: "com.example.board".to_owned(), file: Some(file), by: PresentedBy::Me };
+        let theirs = Presenting { by: PresentedBy::Them, ..mine.clone() };
+        assert_eq!(said_again(Some(&mine), true), Some((board(), Some(file))), "ours");
+        assert_eq!(said_again(None, true), Some((None, None)), "our stop, maybe lost");
+        assert_eq!(said_again(Some(&theirs), true), Some((None, None)), "we present nothing");
+        assert_eq!(said_again(None, false), None, "nothing ever said");
+        assert_eq!(said_again(Some(&theirs), false), None);
     }
 }
