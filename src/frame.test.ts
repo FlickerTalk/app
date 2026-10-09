@@ -45,6 +45,7 @@ afterEach(() => {
   root.removeAttribute("style");
   root.removeAttribute("dir");
   delete root.dataset.dark;
+  delete root.dataset.fill;
 });
 
 describe("the frame", () => {
@@ -140,6 +141,20 @@ describe("the frame", () => {
     // Anything else is no direction: the last one stays.
     await says({ type: "ft.open", dark: false, theme: {}, dir: "sideways" });
     expect(root().dir).toBe("ltr");
+  });
+
+  // 2026-10-09: a tool's frame is as tall as its window; the page says so on its root, before the
+  // plugin draws, so a plugin's element of `height: 100%` fills it.
+  it("fills its window when the app says so", async () => {
+    let filled: string | undefined;
+    const { says, ran } = await frame(() => {
+      filled = root().dataset.fill;
+    });
+    await says({ type: "ft.theme", dark: false, theme: {}, fill: true });
+    await ran;
+    expect(filled).toBe("1");
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    expect(root().dataset.fill).toBeUndefined();
   });
 
   // 2026-10-09: which Ionic the app lends the frame, as the page says it (`data-ionic`).

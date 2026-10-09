@@ -1194,6 +1194,7 @@ watch(
           :file="plugin.file"
           :reference="plugin.reference"
           :session="sessionOf(plugin.contact)"
+          fill
           @text="fromPlugin"
           @attach="stage"
           @open-chat="(contact) => router.push(`/chat/${contact}`)"
@@ -1992,12 +1993,13 @@ watch(
      Samsung, 2026-10-02, when it was the padding of what scrolled). Ionic's inset, as its headers. */
   padding-top: var(--ion-safe-area-top, 0px);
 }
-/* What scrolls: the tool, under the bar; its last pixel can go above Android's navigation bar.
-   It keeps clear of the side insets (a phone held sideways); Ionic's bar does by itself. */
+/* The tool, under the bar, as tall as what is left: it scrolls inside its own frame, so Ionic's
+   overlays in it are on the screen (2026-10-09). It stops above Android's navigation bar and keeps
+   clear of the side insets (a phone held sideways); Ionic's bar does by itself. */
 .ft-app__body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   padding-bottom: var(--ion-safe-area-bottom, 0px);
   padding-left: var(--ion-safe-area-left, 0px);
   padding-right: var(--ion-safe-area-right, 0px);

@@ -431,6 +431,8 @@ describe("ChatThread", () => {
     await wrapper.find("[data-test='app-com.flickertalk.code']").trigger("click");
     await flushPromises();
     expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+    // As tall as the window, so Ionic's overlays inside it are on the screen (2026-10-09).
+    expect(wrapper.findComponent({ name: "PluginSheet" }).props("fill")).toBe(true);
     // The way out is always there, with the name of the tool next to it.
     expect(wrapper.find("[data-test='close-app']").exists()).toBe(true);
     expect(wrapper.find(".ft-app__bar .ft-title").text()).toBe("Code block");
@@ -1823,6 +1825,8 @@ describe("ChatThread", () => {
         expect(wrapper.find("[data-test='game-room']").attributes("aria-label")).toBe("Ajedrez");
         expect(wrapper.find("[data-test='game-bar']").text()).toContain("Ajedrez");
         expect(wrapper.findComponent({ name: "PluginSheet" }).props("plugin")).toMatchObject({ name: "Ajedrez" });
+        // A game in the room keeps following its content (2026-10-09).
+        expect(wrapper.findComponent({ name: "PluginSheet" }).props("fill")).toBe(false);
         await wrapper.find("[data-test='game-invite']").trigger("click");
         await flushPromises();
         const invitation = wrapper.findComponent(IonTextarea).props("modelValue") as string;

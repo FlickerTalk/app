@@ -174,6 +174,9 @@ const paint = (said) => {
   root.style.colorScheme = said.dark ? "dark" : "light";
   // The app's text direction (2026-10-09): Ionic's components and overlays read it from the root.
   if (said.dir === "rtl" || said.dir === "ltr") root.dir = said.dir;
+  // A tool's frame is as tall as its window (2026-10-09): the page and its body take that height.
+  if (said.fill === true) root.dataset.fill = "1";
+  else delete root.dataset.fill;
 };
 
 // Which Ionic the app lends this frame (2026-10-09), as its page says: `globalThis.ftIonic`.

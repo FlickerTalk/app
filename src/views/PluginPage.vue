@@ -125,7 +125,8 @@ closeOnBackWhile(() => here.value, leave);
         <ion-title><span class="ft-title">{{ plugin ? pluginName(plugin) : "" }}</span></ion-title>
       </ion-toolbar>
     </ion-header>
-    <ion-content class="ft-plugin-page">
+    <!-- The plugin scrolls inside its frame, as tall as the page (2026-10-09): not the page. -->
+    <ion-content class="ft-plugin-page" :scroll-y="false">
       <div v-if="ready && plugin && locked" class="ft-plugin-page__missing" data-test="locked">
         <ion-icon :icon="lockClosedOutline" class="ft-plugin-page__lock" aria-hidden="true" />
         <p>{{ $t("plugins.lockedHint") }}</p>
@@ -140,6 +141,7 @@ closeOnBackWhile(() => here.value, leave);
         :sending="plugin.granted?.send ?? 'nothing'"
         :reminder="reminder"
         :session="session"
+        fill
         @open-chat="(contact) => router.push(`/chat/${contact}`)"
         @done="router.back()"
         @closed="closed"
