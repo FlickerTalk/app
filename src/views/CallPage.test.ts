@@ -1087,6 +1087,18 @@ describe("CallPage presenting", () => {
     expect(wrapper.find("[data-test='present-area']").attributes("style")).toContain("polygon(evenodd");
   });
 
+  // Defect J (2026-10-09): the presentation ends where the call's buttons start, measured, so
+  // nothing of the tool sits under them on any phone.
+  it("ends the presentation where the call's buttons start", async () => {
+    active({ presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open();
+    place(wrapper.find(".ft-call__body").element, { x: 0, y: 0, width: 400, height: 800 });
+    place(wrapper.find(".ft-call__controls").element, { x: 40, y: 703, width: 320, height: 58 });
+    window.dispatchEvent(new Event("resize"));
+    await nextTick();
+    expect(wrapper.find("[data-test='present-area']").attributes("style")).toContain("bottom: 97px");
+  });
+
   it("drags their picture while presenting", async () => {
     active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
     const wrapper = await open();
