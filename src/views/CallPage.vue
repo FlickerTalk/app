@@ -496,11 +496,13 @@ onIonViewWillLeave(() => {
 
 // The small picture moves where the thumb drags it, and stays inside the screen.
 const drag = reactive({ x: 0, y: 0 });
-let grab: { id: number; x: number; y: number; fromX: number; fromY: number } | null = null;
+let grab: { id: number; x: number; y: number; fromX: number; fromY: number; slot: Element } | null = null;
+/** A drag is on: the presentation (and its frame) takes no touch meanwhile (defect I, 2026-10-09). */
+const dragging = ref(false);
 const thumbStyle = computed(() => ((localThumb.value || remoteThumb.value) && (drag.x || drag.y) ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined));
 // A new small picture starts in its corner, and a drag cut short (the picture went) is forgotten.
 watch([localThumb, remoteThumb], () => {
-  grab = null;
+  endDrag();
   Object.assign(drag, { x: 0, y: 0 });
 });
 // The hole is measured once the drag is on screen, not where the picture was a step before.
@@ -510,8 +512,31 @@ const thumbSlot = () => (remoteThumb.value ? remoteSlot.value : localThumb.value
 function grabThumb(event: PointerEvent) {
   // Both slots listen: a press on the big picture moves nothing.
   if (!thumbSlot() || event.currentTarget !== thumbSlot()) return;
-  grab = { id: event.pointerId, x: event.clientX, y: event.clientY, fromX: drag.x, fromY: drag.y };
-  (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
+  const slot = event.currentTarget as Element;
+  endDrag();
+  grab = { id: event.pointerId, x: event.clientX, y: event.clientY, fromX: drag.x, fromY: drag.y, slot };
+  dragging.value = true;
+  slot.setPointerCapture?.(event.pointerId);
+  // The finger leaves the small picture for the presentation around it: the drag goes on
+  // wherever it is (on the iPhone the slot stopped hearing it after a few points).
+  window.addEventListener("pointermove", moveThumb);
+  window.addEventListener("pointerup", dropThumb);
+  window.addEventListener("pointercancel", dropThumb);
+}
+/** The drag is over, or cut short: the capture and the listeners go. */
+function endDrag() {
+  window.removeEventListener("pointermove", moveThumb);
+  window.removeEventListener("pointerup", dropThumb);
+  window.removeEventListener("pointercancel", dropThumb);
+  dragging.value = false;
+  if (!grab) return;
+  const { slot, id } = grab;
+  grab = null;
+  try {
+    slot.releasePointerCapture?.(id);
+  } catch {
+    // The pointer is gone already (a cancelled touch): nothing to let go.
+  }
 }
 function moveThumb(event: PointerEvent) {
   if (!grab || event.pointerId !== grab.id) return;
@@ -521,7 +546,7 @@ function moveThumb(event: PointerEvent) {
 }
 function dropThumb(event: PointerEvent) {
   if (!grab || event.pointerId !== grab.id) return;
-  grab = null;
+  endDrag();
   const box = thumbSlot()?.getBoundingClientRect();
   const area = body.value?.getBoundingClientRect();
   if (box && area) {
@@ -578,6 +603,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", relayout);
   window.removeEventListener("orientationchange", relayout);
   sized?.disconnect();
+  endDrag();
   hide();
   seeThrough.value = false;
   document.documentElement.classList.remove("ft-call-video");
@@ -661,6 +687,7 @@ watch(
           v-show="presentArea"
           ref="presentBox"
           class="ft-call__present"
+          :class="{ 'is-dragging': dragging }"
           :style="presentStyle"
           data-test="present-area"
         >
@@ -928,6 +955,10 @@ watch(
   bottom: calc(var(--ion-safe-area-bottom, 0px) + var(--ft-space-5) * 2 + 58px);
   overflow-y: auto;
   background: var(--ion-background-color);
+}
+/* While the small picture is dragged, the presentation and its frame take no touch. */
+.ft-call__present.is-dragging {
+  pointer-events: none;
 }
 /* What the presentation waits for floats in its middle. */
 .ft-call__present-wait {
