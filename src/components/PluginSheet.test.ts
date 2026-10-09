@@ -76,13 +76,45 @@ describe("PluginSheet", () => {
     says({ type: "ft.ready" });
     await flushPromises();
     expect(post).toHaveBeenCalledWith(
-      { type: "ft.open", text: "hello", dark: false, theme: {}, lang: "en", file: null, ref: null, reminder: null, live: false },
+      { type: "ft.open", text: "hello", dark: false, dir: "ltr", fill: false, theme: {}, lang: "en", file: null, ref: null, reminder: null, live: false },
       "*",
     );
   });
 
   // 2026-10-02 (Ioan): the plugin is handed the app's colours and whether it is dark, before it
   // loads (`ft.hello`), when it opens, and again whenever the app's look changes while it is open.
+  // 2026-10-09 (Ioan, Ionic in the plugins): an overlay of Ionic is placed in the frame, so a frame
+  // as tall as its content dropped a toast or an action sheet off the screen. In the tool window the
+  // frame is as tall as the window and the plugin scrolls inside; elsewhere (the game room) it
+  // still follows its content.
+  describe("its height", () => {
+    it("follows the content by default", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
+      await flushPromises();
+      framed(wrapper).says({ type: "ft.height", height: 900 });
+      await flushPromises();
+      expect(wrapper.find("iframe").attributes("style")).toContain("height: 900px");
+      expect(wrapper.find("section").classes()).not.toContain("ft-plugin--fill");
+    });
+
+    it("fills what it is given when asked to, whatever the content says", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "", fill: true }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      // The frame hears it before the plugin draws, and again when it is opened.
+      says({ type: "ft.hello" });
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.theme", fill: true }), "*");
+      says({ type: "ft.ready" });
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", fill: true }), "*");
+      says({ type: "ft.height", height: 900 });
+      await flushPromises();
+      expect(wrapper.find("iframe").attributes("style") ?? "").not.toContain("px");
+      expect(wrapper.find("section").classes()).toContain("ft-plugin--fill");
+    });
+  });
+
   describe("the app's colours", () => {
     const html = document.documentElement;
     afterEach(() => {
@@ -101,7 +133,7 @@ describe("PluginSheet", () => {
       says({ type: "ft.hello" });
       await flushPromises();
       expect(post).toHaveBeenCalledWith(
-        { type: "ft.theme", dark: true, theme: { "--ion-text-color": "#f5f5f5", "--ion-background-color": "#000000" } },
+        { type: "ft.theme", dark: true, dir: "ltr", fill: false, theme: { "--ion-text-color": "#f5f5f5", "--ion-background-color": "#000000" } },
         "*",
       );
       says({ type: "ft.ready" });
@@ -124,13 +156,20 @@ describe("PluginSheet", () => {
       html.classList.remove("ft-dark");
       await flushPromises();
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, theme: { "--ion-text-color": "#0a0a0a" } }, "*");
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, dir: "ltr", fill: false, theme: { "--ion-text-color": "#0a0a0a" } }, "*");
 
       // Another colour direction, same mode.
       document.body.style.setProperty("--ion-text-color", "#121821");
       html.dataset.direction = "aurora";
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, theme: { "--ion-text-color": "#121821" } }, "*");
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, dir: "ltr", fill: false, theme: { "--ion-text-color": "#121821" } }, "*");
+
+      // The language turns the text right to left (2026-10-09): the frame hears it.
+      html.dir = "rtl";
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(post).toHaveBeenLastCalledWith({ type: "ft.theme", dark: false, dir: "rtl", fill: false, theme: { "--ion-text-color": "#121821" } }, "*");
+      html.removeAttribute("dir");
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // A class that changes nothing of the look says nothing.
       const before = post.mock.calls.length;

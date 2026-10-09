@@ -106,24 +106,45 @@ pub fn icon(name: &str) -> Option<(&'static str, &'static [u8])> {
     ICONS.iter().find(|(known, _)| *known == name).map(|(_, svg)| ("image/svg+xml", *svg))
 }
 
+/// The Ionic the app lends to every plugin and game frame (2026-10-09, Ioan; route B of the Ionic
+/// plan): the app's own `@ionic/core` and `ionicons`, so a plugin is drawn with the components the
+/// app is drawn with and carries none of them. A plugin targets the major version. Updating Ionic
+/// in the app means `node scripts/build-frame-ionic.mjs` and these two; a test checks them against
+/// `package-lock.json`.
+pub const IONIC_VERSION: &str = "9.0.4";
+#[cfg(test)]
+pub const IONICONS_VERSION: &str = "8.1.0";
+
+/// What a frame finds at `./ionic/<file>`: every component as one module, with the icons of
+/// `ICONS` and of the apps grid registered by name; Ionic's global styles (ionic.bundle.css but for
+/// the body rules of structure.css, which would pin the frame's body and stop a frame sized by its
+/// content from growing); and the theme Ionic reads, derived from the app's colours
+/// (`frame-theme.js`).
+const IONIC: &[(&str, &[u8])] = &[
+    ("ionic.js", include_bytes!("../resources/ionic/ionic.js")),
+    ("ionic.css", include_bytes!("../resources/ionic/ionic.css")),
+    ("theme.js", include_bytes!("frame-theme.js")),
+];
+
+/// A file of the lent Ionic by name, or nothing: a name, never a path.
+pub fn ionic(file: &str) -> Option<(&'static str, &'static [u8])> {
+    IONIC.iter().find(|(known, _)| *known == file).map(|(name, bytes)| (content_type(name), *bytes))
+}
+
+/// What the lent Ionic adds to the app, in bytes.
+#[cfg(test)]
+pub fn ionic_size() -> usize {
+    IONIC.iter().map(|(_, bytes)| bytes.len()).sum()
+}
+
 /// `version` is the installed one's (a checked `x.y.z`): the frame asks for its script, and the
-/// script for the plugin's code, at that version (2026-10-03, updates).
+/// script for the plugin's code, at that version (2026-10-03, updates). Before the plugin, the
+/// frame loads the lent Ionic (2026-10-09): its styles, the theme and the components, in that
+/// order, and says which Ionic it is on the root (`data-ionic`). Ionic picks `ios` or `md` from
+/// the user agent, which the frame shares with the app, as the app's own Ionic does.
 pub fn frame_html(component: &str, version: &str) -> String {
-    format!(
-        r#"<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<style>html{{color-scheme:light dark}}html,body{{margin:0;padding:0;background:transparent}}</style>
-<script type="module" src="./frame.js?v={version}"></script>
-</head>
-<body>
-<p id="fallback" style="font:13px system-ui;color:#888">loading…</p>
-<{component} id="view"></{component}>
-</body>
-</html>
-"#
-    )
+    // A page of its own (`frame.html`), which the end-to-end tests serve too.
+    include_str!("frame.html").replace("%IONIC%", IONIC_VERSION).replace("%VERSION%", version).replace("%COMPONENT%", component)
 }
 
 /// What the frame does: load the plugin, hand it the text the app sends, and say how tall it is.
@@ -325,6 +346,82 @@ mod tests {
     #[test]
     fn an_icon_is_served_from_the_plugin_scheme() {
         assert_eq!(route("/com.example.x/icon/pencil-outline.svg"), Some(("com.example.x".into(), "icon/pencil-outline.svg".into())));
+    }
+
+    // 2026-10-09 (Ioan, route B of the Ionic plan): the app lends its own Ionic to every frame,
+    // so a plugin or a game is drawn with the components the app is drawn with, and carries none.
+    #[test]
+    fn the_core_lends_its_ionic_to_every_plugin() {
+        let (kind, script) = ionic("ionic.js").expect("the components");
+        assert_eq!(kind, "text/javascript; charset=utf-8");
+        let script = std::str::from_utf8(script).expect("text");
+        assert!(script.starts_with(&format!("/*! @ionic/core {IONIC_VERSION}, ionicons {IONICONS_VERSION}")), "it says what it is");
+        assert!(script.contains("globalThis.ftIonic"), "the controllers are handed to the plugin");
+        assert!(script.contains("ion-button") && script.contains("ion-toast") && script.contains("ion-modal"));
+        // Under the frame's policy: no code made from text, and nothing loaded later by address.
+        for banned in ["eval(", "new Function", "import(", "importScripts"] {
+            assert!(!script.contains(banned), "the lent Ionic has {banned}");
+        }
+        // The icons the core lends by file are drawn by name too: `<ion-icon name="…">`, no fetch.
+        for (name, _) in ICONS {
+            assert!(script.contains(&format!(r#""{name}""#)), "{name} is not registered for ion-icon");
+        }
+        let (kind, css) = ionic("ionic.css").expect("Ionic's global styles");
+        assert_eq!(kind, "text/css; charset=utf-8");
+        let css = std::str::from_utf8(css).expect("text");
+        assert!(css.contains(".ion-color-primary"), "the colour classes are there");
+        // Ionic's structure.css fixes the body to the frame: a frame sized by its content (the game
+        // room) would never grow, and an old plugin in a tall frame would never scroll.
+        assert!(!css.contains("position:fixed;width:100%;max-width:100%;height:100%"), "structure.css is not lent");
+        let (kind, theme) = ionic("theme.js").expect("the theme Ionic reads, from the app's colours");
+        assert_eq!(kind, "text/javascript; charset=utf-8");
+        assert!(std::str::from_utf8(theme).expect("text").contains("--ion-text-color-rgb"));
+        assert!(ionic("../plugins.rs").is_none(), "a file is a name, never a path");
+        assert!(ionic("ionic.bundle.css").is_none());
+    }
+
+    #[test]
+    fn the_lent_ionic_is_the_one_the_app_is_built_with() {
+        let lock: serde_json::Value = serde_json::from_str(include_str!("../../package-lock.json")).expect("the app's lock file");
+        let version = |package: &str| lock["packages"][format!("node_modules/{package}")]["version"].as_str().map(str::to_owned);
+        assert_eq!(version("@ionic/core").as_deref(), Some(IONIC_VERSION), "rebuild it: node scripts/build-frame-ionic.mjs");
+        assert_eq!(version("ionicons").as_deref(), Some(IONICONS_VERSION), "rebuild it: node scripts/build-frame-ionic.mjs");
+    }
+
+    // What the app carries for it, said aloud and kept in check: it is in every build of the app.
+    #[test]
+    fn what_the_lent_ionic_weighs() {
+        let total = ionic_size();
+        println!("Ionic lent to the frames: {total} bytes");
+        assert!(total > 500_000, "{total}: the components are missing");
+        assert!(total < 1_600_000, "{total}: more than the app meant to carry for its plugins");
+    }
+
+    #[test]
+    fn ionic_is_served_from_the_plugin_scheme() {
+        assert_eq!(route("/com.example.x/ionic/ionic.js"), Some(("com.example.x".into(), "ionic/ionic.js".into())));
+    }
+
+    // The frame loads Ionic's styles, the theme and the components before the plugin, and says
+    // which Ionic it lends (`data-ionic`), each at that version so no cache answers an old one.
+    #[test]
+    fn the_frame_of_a_tool_is_as_tall_as_its_window() {
+        // Told by the app (`fill`, `frame.js`): then the page and its body take the frame's height.
+        assert!(frame_html("ft-x", "1.0.0").contains("html[data-fill],html[data-fill] body{height:100%}"));
+    }
+
+    #[test]
+    fn the_frame_loads_ionic_before_the_plugin() {
+        let html = frame_html("ft-x", "1.0.0");
+        assert!(html.contains(&format!(r#"<html lang="en" data-ionic="{IONIC_VERSION}">"#)), "{html}");
+        let at = |needle: &str| html.find(needle).unwrap_or_else(|| panic!("{needle} is missing from {html}"));
+        let css = at(&format!(r#"<link rel="stylesheet" href="./ionic/ionic.css?v={IONIC_VERSION}">"#));
+        let own = at("<style>");
+        let theme = at(&format!(r#"<script type="module" src="./ionic/theme.js?v={IONIC_VERSION}"></script>"#));
+        let components = at(&format!(r#"<script type="module" src="./ionic/ionic.js?v={IONIC_VERSION}"></script>"#));
+        let frame = at(r#"<script type="module" src="./frame.js?v=1.0.0"></script>"#);
+        // The frame's own style after Ionic's: its see-through page wins over Ionic's painted body.
+        assert!(css < own && own < theme && theme < components && components < frame, "{html}");
     }
 
     #[test]

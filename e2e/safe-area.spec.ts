@@ -120,7 +120,8 @@ test.describe("with many plugins and games", () => {
 
 // Found on the Samsung (2026-10-02): a tool on its own screen ended under the bar (Clean's
 // "Clean" button, Poll's "Close the poll") and could not be scrolled higher. A tool taller than
-// the screen, scrolled to its end, ends above the bar.
+// the screen, scrolled to its end, ends above the bar. Since 2026-10-09 its frame is as tall as the
+// window and the tool scrolls inside it: the frame's bottom edge is the tool's last pixel.
 test.describe("a tool taller than the screen", () => {
   /** Scrolls the tool's window, whichever of its parts scrolls, to its middle or its end. */
   async function scrollTool(app: Page, to: "half" | "end") {
@@ -130,10 +131,19 @@ test.describe("a tool taller than the screen", () => {
     }, to);
   }
 
-  /** The frame's bottom edge, once the frame stands still. */
+  /** The frame, once it stands still: as tall as its window, whatever the tool says. */
   async function frameEnd(app: Page) {
     const frame = app.locator("iframe.ft-plugin__frame");
-    await expect.poll(async () => (await frame.boundingBox())?.height).toBe(1400);
+    const height = async () => Math.round((await frame.boundingBox())?.height ?? 0);
+    await expect.poll(height).toBeGreaterThan(300);
+    let before = -1;
+    await expect.poll(async () => {
+      const now = await height();
+      const still = now === before;
+      before = now;
+      return still;
+    }).toBe(true);
+    expect(await height()).toBeLessThan(1400);
     return frame;
   }
 

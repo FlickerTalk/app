@@ -10,8 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "test:e2e": "playwright test",
-    "typecheck": "vue-tsc --noEmit"
+    "test:e2e": "playwright test --project=chromium && playwright test --project=timing",
+    "typecheck": "vue-tsc --noEmit",
+    "build:frame-ionic": "node scripts/build-frame-ionic.mjs"
   },
   "dependencies": {
     "@ionic/vue": "^9.0.4",

@@ -32,6 +32,8 @@ describe("PluginPage", () => {
     const wrapper = mount(PluginPage, { shallow: true });
     await flushPromises();
     expect(wrapper.findComponent(PluginSheet).props("reminder")).toBe("r1");
+    // The page is the plugin's window: it fills it and scrolls inside (2026-10-09).
+    expect(wrapper.findComponent(PluginSheet).props("fill")).toBe(true);
 
     route.value.query = { reminder: "r2" };
     await flushPromises();

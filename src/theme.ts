@@ -108,8 +108,11 @@ export const PLUGIN_COLOURS = [
 /** Where the app keeps a colour a plugin gets under another name: a row of the app is see-through, a plugin's is the surface of a card. */
 const PLUGIN_SOURCES: Record<string, string> = { "--ion-item-background": "--ion-card-background" };
 
-/** Whether the app is dark, and the colours it shows right now, as the plugin gets them. */
-export function pluginTheme(): { dark: boolean; theme: Record<string, string> } {
+/**
+ * Whether the app is dark, which way its text runs (2026-10-09, for Ionic inside the frame) and the
+ * colours it shows right now, as the plugin gets them.
+ */
+export function pluginTheme(): { dark: boolean; dir: "rtl" | "ltr"; theme: Record<string, string> } {
   // Ionic's variables are set on the body (variables.css), so that is where they are read.
   const computed = getComputedStyle(document.body);
   const theme: Record<string, string> = {};
@@ -117,5 +120,5 @@ export function pluginTheme(): { dark: boolean; theme: Record<string, string> } 
     const value = computed.getPropertyValue(PLUGIN_SOURCES[name] ?? name).trim();
     if (value) theme[name] = value;
   }
-  return { dark: root().classList.contains("ft-dark"), theme };
+  return { dark: root().classList.contains("ft-dark"), dir: root().dir === "rtl" ? "rtl" : "ltr", theme };
 }

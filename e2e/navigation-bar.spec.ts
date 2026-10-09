@@ -241,12 +241,10 @@ for (const [name, size, inset] of [
       await app.getByTestId("apps-tab-tools").click();
       await app.getByTestId("app-com.flickertalk.markdown").click();
       await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+      // However tall the tool says it is, its frame is as tall as the window (2026-10-09) and the
+      // tool scrolls inside it.
       await frameSays(app, { type: "ft.height", height: 1400 });
-      await expect.poll(async () => (await app.locator("iframe.ft-plugin__frame").boundingBox())?.height).toBe(1400);
-      await app.evaluate(() => {
-        const scroller = document.querySelector(".ft-app__body");
-        if (scroller) scroller.scrollTop = scroller.scrollHeight;
-      });
+      await expect.poll(async () => (await app.locator("iframe.ft-plugin__frame").boundingBox())?.height).toBeGreaterThan(300);
       await stripIsClear(app, inset);
       const frame = (await app.locator("iframe.ft-plugin__frame").boundingBox())!;
       expect(frame.y + frame.height).toBeLessThanOrEqual(size.height - inset + 0.5);

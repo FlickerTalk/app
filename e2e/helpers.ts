@@ -1,4 +1,6 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { installFakeCore } from "./fake-core";
 
 /** Every command the UI sent to the (fake) core so far, oldest first. */
@@ -77,3 +79,41 @@ export const test = base.extend<{ app: Page }>({
 });
 
 export { expect };
+
+/**
+ * Serves every plugin the frame the app really serves (2026-10-09): its page (`frame.html`), its
+ * script, the Ionic it lends at `./ionic/` and the theme, under the policy of a plugin without
+ * network (the frame's ancestor is the dev server here). `plugin` is the plugin's `dist/index.js`;
+ * its element is `<ft-probe>`.
+ */
+export async function serveRealPluginFrames(page: Page, plugin: string): Promise<void> {
+  const app = fileURLToPath(new URL("..", import.meta.url));
+  const read = (path: string) => readFileSync(`${app}${path}`);
+  const ionic = /pub const IONIC_VERSION: &str = "([^"]+)";/.exec(read("src-tauri/src/plugins.rs").toString())![1];
+  const origins = "http://ftplugin.localhost https://ftplugin.localhost ftplugin://localhost";
+  const policy =
+    `default-src 'none'; script-src ${origins}; style-src ${origins} 'unsafe-inline'; img-src ${origins} data: blob:; ` +
+    `font-src ${origins}; connect-src 'none'; base-uri 'none'; form-action 'none'; child-src 'none'; frame-ancestors http://localhost:1420`;
+  const files: Record<string, () => [string, string | Buffer]> = {
+    "frame.html": () => [
+      "text/html; charset=utf-8",
+      read("src-tauri/src/frame.html").toString().replaceAll("%IONIC%", ionic).replaceAll("%VERSION%", "1.0.0").replaceAll("%COMPONENT%", "ft-probe"),
+    ],
+    "frame.js": () => ["text/javascript", read("src-tauri/src/frame.js")],
+    "ionic/ionic.js": () => ["text/javascript", read("src-tauri/resources/ionic/ionic.js")],
+    "ionic/ionic.css": () => ["text/css", read("src-tauri/resources/ionic/ionic.css")],
+    "ionic/theme.js": () => ["text/javascript", read("src-tauri/src/frame-theme.js")],
+    "dist/index.js": () => ["text/javascript", plugin],
+  };
+  await page.route("http://ftplugin.localhost/**", (route) => {
+    const file = new URL(route.request().url()).pathname.split("/").slice(2).join("/");
+    const serve = files[file];
+    if (!serve) return route.fulfill({ status: 404, body: "" });
+    const [contentType, body] = serve();
+    return route.fulfill({
+      contentType,
+      body,
+      headers: { "Content-Security-Policy": policy, "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+    });
+  });
+}

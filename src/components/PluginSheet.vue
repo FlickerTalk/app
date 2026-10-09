@@ -85,6 +85,10 @@ import type { ContactAsk, Proposal } from "../pending-send";
 // 2026-10-09 (Ioan): opened outside a conversation, what it proposes to send asks the user who it
 // is for (`pick`); with a contact picked it is handed over (`sendTo`, a text or a staged file, or
 // nothing when it went by itself with `auto`) for that conversation's composer. No pick, nothing.
+// 2026-10-09 (Ionic in the plugins): `fill` makes the frame as tall as what it is shown in, and the
+// plugin scrolls inside it, so Ionic's overlays (alert, toast, action sheet, modal), which are
+// placed in the frame, are on the screen. Without it the frame is as tall as its content (the game
+// room).
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -96,6 +100,7 @@ const props = withDefaults(
     reminder?: string;
     live?: boolean;
     session?: string;
+    fill?: boolean;
   }>(),
   {
     text: undefined,
@@ -105,6 +110,7 @@ const props = withDefaults(
     reminder: undefined,
     live: false,
     session: undefined,
+    fill: false,
   },
 );
 // `done`: the plugin is finished or asked to be closed; whoever shows it decides, and closes it with
@@ -142,7 +148,7 @@ async function onMessage(event: MessageEvent) {
   if (closing && SILENT_WHILE_CLOSING.has(said.type)) return;
 
   if (said.type === "ft.hello") {
-    tell({ type: "ft.theme", ...pluginTheme() });
+    tell({ type: "ft.theme", ...look() });
   } else if (said.type === "ft.ready") {
     ready = true;
     tell({ ...opening(), ...(await chatOf()) });
@@ -316,13 +322,18 @@ function close(): Promise<void> {
 }
 defineExpose({ close });
 
+/** The app's look as the frame puts it on its root, and whether the frame fills its window. */
+function look() {
+  return { ...pluginTheme(), fill: props.fill };
+}
+
 /** What the plugin is opened with: the text, the file, the way back, the language, the colours. */
 function opening() {
   return {
     type: "ft.open",
     text: props.text ?? "",
     // Whether the app is dark and its colours (2026-10-02), as the frame puts them on its root.
-    ...pluginTheme(),
+    ...look(),
     lang: i18n.global.locale.value,
     // A plain copy: the prop may be reactive state, and postMessage cannot clone a proxy.
     file: props.file ? { name: props.file.name, mime: props.file.mime, data: props.file.data } : null,
@@ -641,11 +652,12 @@ async function busy(work: () => Promise<void>) {
 /**
  * The app's look, followed while the plugin is open (2026-10-02): the root's class (`ft-dark`) and
  * `data-direction` are what the stylesheet reads, whoever changes them (Settings, or the system's
- * dark mode in `theme.ts`). The frame hears the colours again only when they really changed.
+ * dark mode in `theme.ts`), and `dir` which way the text runs (2026-10-09). The frame hears them
+ * again only when they really changed.
  */
 let lastTheme = "";
 const looks = new MutationObserver(() => {
-  const now = pluginTheme();
+  const now = look();
   const said = JSON.stringify(now);
   if (said === lastTheme) return;
   lastTheme = said;
@@ -665,8 +677,8 @@ watch(
 
 onMounted(async () => {
   reportOpen(props.plugin.id, true);
-  lastTheme = JSON.stringify(pluginTheme());
-  looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction"] });
+  lastTheme = JSON.stringify(look());
+  looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction", "dir"] });
   window.addEventListener("message", onMessage);
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });
@@ -693,7 +705,7 @@ watch(
 </script>
 
 <template>
-  <section ref="pane" class="ft-plugin">
+  <section ref="pane" class="ft-plugin" :class="{ 'ft-plugin--fill': fill }">
     <!-- The name and the way out are the window's job; here only what the tool is doing. It floats
          over the frame's top edge: the plugin never moves when it shows or goes (2026-10-06). -->
     <span v-if="working" class="ft-plugin__working" role="status">…</span>
@@ -703,7 +715,7 @@ watch(
       ref="frame"
       class="ft-plugin__frame"
       :src="frameUrl(plugin.id)"
-      :style="{ height: `${height}px` }"
+      :style="fill ? undefined : { height: `${height}px` }"
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
       :title="pluginName(plugin)"
@@ -715,6 +727,18 @@ watch(
 .ft-plugin {
   position: relative;
   padding: 0 var(--ft-space-4) var(--ft-space-4);
+}
+/* As tall as the window it is in (2026-10-09): the plugin scrolls inside its frame, and nothing
+   of the frame is left under the window's bottom edge. */
+.ft-plugin--fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-bottom: 0;
+}
+.ft-plugin--fill .ft-plugin__frame {
+  flex: 1;
+  min-height: 0;
 }
 .ft-plugin__working {
   position: absolute;
