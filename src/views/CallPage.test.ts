@@ -1138,6 +1138,30 @@ describe("CallPage presenting", () => {
     expect(actions.layoutVideo).toHaveBeenCalled();
   });
 
+  // Defect I (2026-10-09): on the iPhone the picture moved 7–10 pt and stopped, once the finger
+  // left it for the presentation (and its frame) around it. The drag follows the finger anywhere,
+  // the frame takes no touch meanwhile, and the capture is let go at the end.
+  it("keeps dragging their picture when the finger leaves it for the presentation", async () => {
+    active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
+    const wrapper = await open(true);
+    const thumb = wrapper.find("[data-test='remote-slot']");
+    const element = thumb.element as HTMLElement;
+    const capture = vi.fn();
+    const release = vi.fn();
+    Object.assign(element, { setPointerCapture: capture, releasePointerCapture: release });
+    await thumb.trigger("pointerdown", { clientX: 300, clientY: 600, pointerId: 7 });
+    expect(capture).toHaveBeenCalledWith(7);
+    expect(wrapper.find("[data-test='present-area']").classes()).toContain("is-dragging");
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 60, clientY: 200, pointerId: 7 }));
+    await nextTick();
+    expect(thumb.attributes("style")).toContain("translate(-240px, -400px)");
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: 60, clientY: 200, pointerId: 7 }));
+    await nextTick();
+    expect(release).toHaveBeenCalledWith(7);
+    expect(wrapper.find("[data-test='present-area']").classes()).not.toContain("is-dragging");
+    expect(source).toMatch(/\.ft-call__present\.is-dragging\s*\{[^}]*pointer-events:\s*none/);
+  });
+
   // The hole follows the picture once it has moved on screen, not where it was a step before.
   it("moves the hole with their picture as it is dragged", async () => {
     active({ view: view({ remote: true }), presenting: { plugin: BOARD, by: "me" } });
