@@ -947,6 +947,62 @@ describe("CallPage presenting", () => {
     expect(missing.find("[aria-label='Hang up']").exists()).toBe(true);
   });
 
+  // Product gap found on the phones (2026-10-09, §56): a fresh install offers the board and the
+  // PDF viewer to present, and the app carries both, so a missing one is added from what the app
+  // carries right there, never with a trip to Apps; only a tool it does not carry is "missing".
+  const carried = (id: string, name: string) => ({ id, name, version: "1.1.0", summary: "", size: 1000, installed: false, carried: true });
+
+  it("adds the tool the app carries before presenting with it, then asks for the live channel", async () => {
+    active();
+    tools = [];
+    hooks.core_catalogue = () => [carried(BOARD, "Board"), carried(PDF, "PDF viewer")];
+    hooks.core_plugin_add = () => {
+      tools = [tool(BOARD, "Board", false)];
+    };
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(sent("core_plugin_add")).toEqual([{ plugin: BOARD }]);
+    expect(toast.create).not.toHaveBeenCalled();
+    expect(wrapper.findComponent(GamePermissions).props("open")).toBe(true);
+  });
+
+  it("says the tool is missing when the app does not carry it either, and adds nothing", async () => {
+    active();
+    tools = [];
+    hooks.core_catalogue = () => [{ ...carried(BOARD, "Board"), carried: false }];
+    const wrapper = await open();
+    await wrapper.find("[data-test='present']").trigger("click");
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    expect(sent("core_plugin_add")).toEqual([]);
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Add it in Apps") }));
+  });
+
+  it("adds the tool the app carries to follow their presentation, waiting meanwhile, then asks", async () => {
+    tools = [];
+    hooks.core_catalogue = () => [carried(BOARD, "Board")];
+    let added: () => void = () => undefined;
+    hooks.core_plugin_add = () =>
+      new Promise<void>((done) => {
+        added = () => {
+          tools = [tool(BOARD, "Board", false)];
+          done();
+        };
+      });
+    active({ presenting: { plugin: BOARD, by: "them" } });
+    const wrapper = await open();
+    expect(sent("core_plugin_add")).toEqual([{ plugin: BOARD }]);
+    expect(wrapper.find("[data-test='present-missing']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='present-loading']").exists()).toBe(true);
+    added();
+    await flushPromises();
+    expect(wrapper.find("[data-test='present-missing']").exists()).toBe(false);
+    const ask = wrapper.findComponent(GamePermissions);
+    expect(ask.props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
+  });
+
   // Ioan, 2026-10-08: watching a presentation is free; the core opens a follower's tool even locked.
   it("follows a presentation with the tools locked, with no lock in sight", async () => {
     planState = "limited";
