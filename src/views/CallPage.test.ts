@@ -607,6 +607,13 @@ describe("CallPage presenting", () => {
     Object.assign(sheet.vm, { close });
     return close;
   };
+  /** What Ionic's delegate does with an inline overlay it presents (framework-delegate.js): it
+   *  takes it to the app's root and leaves a comment where it was, until it is dismissed. */
+  const sheetAtTheRoot = (wrapper: VueWrapper) => {
+    const sheet = wrapper.findComponent(IonActionSheet).element;
+    sheet.parentNode!.insertBefore(document.createComment("ionic teleport"), sheet);
+    document.body.appendChild(sheet);
+  };
   let tools: unknown[] = [];
   let messages: unknown[] = [];
   let planState = "trial";
@@ -800,10 +807,7 @@ describe("CallPage presenting", () => {
     active();
     const wrapper = await open(true);
     await wrapper.find("[data-test='present']").trigger("click");
-    const sheet = wrapper.findComponent(IonActionSheet).element;
-    // What Ionic's delegate does with an inline overlay it presents (framework-delegate.js).
-    sheet.parentNode!.insertBefore(document.createComment("ionic teleport"), sheet);
-    document.body.appendChild(sheet);
+    sheetAtTheRoot(wrapper);
     (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
     await flushPromises();
     call.presenting = { plugin: BOARD, by: "me" };
@@ -1566,6 +1570,26 @@ describe("CallPage presenting", () => {
     const theirs = wrapper.findComponent(PluginSheet);
     expect(theirs.props()).toMatchObject({ plugin: { id: BOARD }, presenting: "follow" });
     expect(wrapper.find("[data-test='presenter']").exists()).toBe(true);
+  });
+
+  // The retest of H (2026-10-09): the loser showed its own board list, leading, with no Stop and no
+  // "is presenting", until it left the screen and came back. Its own start had come while Ionic
+  // still held Present's sheet away, and the screen froze there (defect 1).
+  it("follows the winner when its own start came while Ionic still held Present's sheet", async () => {
+    active();
+    const wrapper = await open(true);
+    await wrapper.find("[data-test='present']").trigger("click");
+    sheetAtTheRoot(wrapper);
+    (wrapper.findComponent(IonActionSheet).props("buttons") as Array<{ handler?: () => void }>)[0].handler?.();
+    await flushPromises();
+    call.presenting = { plugin: BOARD, by: "me" };
+    await flushPromises();
+    goodbye(wrapper);
+    call.presenting = { plugin: BOARD, by: "them" };
+    await flushPromises();
+    expect(wrapper.findComponent(PluginSheet).props()).toMatchObject({ plugin: { id: BOARD }, presenting: "follow" });
+    expect(wrapper.find("[data-test='presenter']").exists()).toBe(true);
+    expect(wrapper.find("[data-test='stop-presenting']").exists()).toBe(false);
   });
 
   it("presents nothing, and says nothing, when their presentation came while mine was on its way", async () => {
