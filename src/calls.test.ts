@@ -1022,6 +1022,43 @@ describe("presenting in a call", () => {
     expect(calls.call.presenting).toBeNull();
   });
 
+  // Defect H (2026-10-09): both pressed Present at once; the loser's core says its own and then
+  // the winner's, and the screen must end on the winner's.
+  it("takes their presentation after mine, as the loser of a clash hears it", async () => {
+    await live();
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "me" });
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "them" });
+    await flushPromises();
+    expect(calls.call.presenting).toEqual({ plugin: "com.flickertalk.board", by: "them" });
+  });
+
+  // A read of the core answered before an event but heard after it is older than the event.
+  it("never lets a read of the core taken before a presenting event undo it", async () => {
+    await live();
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "me" });
+    let answer: (value: unknown) => void = () => undefined;
+    tauri.invoke.mockImplementation((command: string) =>
+      command === "core_current_call" ? new Promise((resolve) => (answer = resolve)) : answers(command),
+    );
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    event({ kind: "presenting", plugin: "com.flickertalk.board", by: "them" });
+    answer({ call: "call-1", contact: "ft_bob", video: false, outgoing: true, phase: "active", native: true, muted: false, canPresent: true, presenting: { plugin: "com.flickertalk.board", by: "me" } });
+    await flushPromises();
+    expect(calls.call.presenting).toEqual({ plugin: "com.flickertalk.board", by: "them" });
+  });
+
+  // Whatever the screen heard, once Present returns it shows what the core keeps: a press that
+  // lost to theirs shows theirs.
+  it("reads what is presented once a press of Present returns, refused or not", async () => {
+    await live();
+    current = { call: "call-1", contact: "ft_bob", video: false, outgoing: true, phase: "active", native: true, muted: false, canPresent: true, presenting: { plugin: "com.flickertalk.board", by: "them" } };
+    refusal = "the other side is presenting";
+    await calls.presentInCall("call-1", "com.flickertalk.board").catch(() => undefined);
+    await flushPromises();
+    expect(calls.call.presenting).toEqual({ plugin: "com.flickertalk.board", by: "them" });
+  });
+
   it("ignores a presentation in another call", async () => {
     await live();
     event({ call: "call-2", kind: "presenting", plugin: "com.flickertalk.board", by: "them" });

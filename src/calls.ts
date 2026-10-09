@@ -220,6 +220,9 @@ let listening = false;
 let nativeCalls = false;
 /** Whether the current call's media is the core's. */
 let nativeCall = false;
+/** How many presenting events the WebView has heard: a read of the core taken before the last
+ *  one is older than it, and says nothing of what is presented (defect H, 2026-10-09). */
+let presentingHeard = 0;
 
 function setNative(native: boolean) {
   nativeCall = native;
@@ -499,7 +502,13 @@ function presentingOf(said: { plugin?: string | null; file?: string | null; by?:
  * `CANNOT_PRESENT` when the other app cannot show it.
  */
 export async function presentInCall(callId: string, plugin: string, file?: string): Promise<void> {
-  await invoke("core_call_present", { call: callId, plugin, file: file ?? null });
+  try {
+    await invoke("core_call_present", { call: callId, plugin, file: file ?? null });
+  } finally {
+    // Both pressed at once (defect H, 2026-10-09): whatever was heard on the way, the screen
+    // ends on what the core keeps, the winner's.
+    await followCore();
+  }
 }
 
 /** Stops our presentation; the core tells the other side. */
@@ -538,13 +547,15 @@ function applyVideo(update: Partial<CallVideo>) {
 async function followCore(): Promise<void> {
   const id = call.id;
   if (!id || !busy()) return;
+  const heard = presentingHeard;
   const current = await invoke<CurrentCall | null>("core_current_call").catch(() => null);
   if (!current || current.call !== id || call.id !== id) return;
   const live = current.phase === "connecting" || current.phase === "active";
   if (call.phase === "ringing" && live) await answeredByTheCore();
   if (typeof current.video === "object" && current.video) applyVideo(current.video);
   call.canPresent = Boolean(current.canPresent);
-  call.presenting = presentingOf(current.presenting);
+  // A presenting event heard meanwhile is newer than this read.
+  if (heard === presentingHeard) call.presenting = presentingOf(current.presenting);
 }
 
 /** A video's place on the screen, in CSS pixels. */
@@ -626,6 +637,7 @@ async function onEvent(event: CallEvent) {
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
   } else if (event.call === call.id && event.kind === "presenting" && !late) {
+    presentingHeard += 1;
     call.presenting = presentingOf(event);
   } else if (event.call === call.id && event.kind === "ended") {
     if (call.phase !== "ended") finish();
