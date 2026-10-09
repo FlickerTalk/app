@@ -63,7 +63,7 @@ pub async fn keep_registered(core: std::sync::Weak<Core>, router: Arc<dyn Regist
                 }
             }
             // Tried again on a timer, at once if something changed meanwhile, and as soon as the
-            // router can be reached again.
+            // router can be reached again or the app is back in front.
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
                 changed = changes.changed() => if changed.is_err() { return },
@@ -226,10 +226,18 @@ impl Lifecycle {
     }
 
     /// The platform says the app is in the foreground or not (2026-10-01). Returns once done, so
-    /// that a phone about to be suspended has let go: `true` if the connection came back.
+    /// that a phone about to be suspended has let go: `true` if the connection came back. Back in
+    /// front, a registration waiting to be retried goes at once, whether or not the socket dropped:
+    /// a leave-and-return faster than the socket loop is polled leaves it open, with no new welcome.
     pub async fn set_foreground(&self, foreground: bool) -> bool {
         self.presence().set_foreground(foreground);
-        self.settle().await
+        let back = self.settle().await;
+        if foreground {
+            if let Some(core) = self.core.upgrade() {
+                core.router_reachable();
+            }
+        }
+        back
     }
 
     /// A push came (a call's, or a wake): out of the foreground, the connection comes back for what
