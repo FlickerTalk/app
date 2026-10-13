@@ -2258,9 +2258,9 @@ describe("ChatThread", () => {
         expect(closings()).toBe(0);
       });
 
-      // A chat page under another reads the address of the page on top (another conversation pushed
-      // over it, say): its `chatId` changes for a while without anyone leaving it. Its plugin stays,
-      // and still belongs to its own conversation.
+      // A chat page under another reads the address of the page on top (`ft.openChat` to another
+      // conversation, say): its `chatId` changes for a while without anyone leaving it. Its plugin
+      // stays, and still belongs to its own conversation.
       // The address changes before Ionic says the page is leaving: `active` is still true then.
       it("keeps a plugin whose page is under another when that page's chatId follows the address", async () => {
         const { wrapper, says, closings } = await withGame();
@@ -2441,20 +2441,16 @@ describe("ChatThread", () => {
         expect(push).not.toHaveBeenCalled();
       });
 
-      // Another conversation: the window closes first, through the plugin, and then that
-      // conversation opens. Back from it finds this one with nothing open over it.
-      it("closes the window and then opens the other conversation the plugin asks for", async () => {
+      // Another conversation: it opens over this one, and the window stays here for when Back
+      // returns (e2e `back-hidden-pages`: "after a plugin opens another chat, Back acts on that chat").
+      it("opens the other conversation the plugin asks for and keeps its window here", async () => {
         const { wrapper, says, closings } = await withTool({ opensChat: "c2" });
-        let closingsWhenPushed: number | undefined;
-        push.mockImplementationOnce(async () => void (closingsWhenPushed = closings()));
         await says({ type: "ft.openChat", id: "q1", ref: "ref_1" });
         expect(push).toHaveBeenCalledTimes(1);
         expect(push).toHaveBeenCalledWith("/chat/c2");
-        expect(closingsWhenPushed).toBe(1);
-        expect(hidden(wrapper.find(".ft-app"))).toBe(true);
-
-        await says({ type: "ft.closed" });
-        expect(sheets(wrapper)).toHaveLength(0);
+        expect(closings()).toBe(0);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(false);
+        expect(sheets(wrapper)).toHaveLength(1);
       });
 
       // The split view shows another conversation: the plugin says goodbye to the one it was opened

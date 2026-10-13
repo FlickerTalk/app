@@ -725,11 +725,12 @@ function pluginDone() {
 
 // Seen on the Samsung (2026-10-13, Reminders and Notes opened with "open with"): a plugin asking to
 // open the conversation it was opened in (`ft.openChat`) pushed the address already on screen, so
-// nothing happened and its window stayed over the chat. Its window closes, as with ✕, and only
-// another conversation is pushed: this one is already on screen, beside the list on a tablet too.
+// nothing happened and its window stayed over the chat. That conversation is already here (beside
+// the list on a tablet too), so its window closes instead, as with ✕. Another conversation opens
+// over this one as before, with the window still here for when Back returns.
 function openChatFromPlugin(contact: string) {
-  closePlugin();
-  if (contact !== props.chatId) void router.push(`/chat/${contact}`);
+  if (contact === props.chatId) closePlugin();
+  else void router.push(`/chat/${contact}`);
 }
 
 // Ioan, 2026-10-08: a plugin asking for something it lacks the permission for (the tool window or
