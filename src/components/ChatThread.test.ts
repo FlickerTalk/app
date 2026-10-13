@@ -1539,12 +1539,22 @@ describe("ChatThread", () => {
     const GO = { id: "com.flickertalk.game.go", name: "Go", version: "1.0.0", summary: "Play go.", size: 1_200_000, installed: false, carried: false, kind: "game" };
     const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 
-    /** The bridge: what is installed, what the catalogue offers, and the messages of the chat. */
-    function bridge({ installed = [] as unknown[], catalogue = [] as unknown[], messages = [] as unknown[], addFails = false } = {}) {
+    /**
+     * The bridge: what is installed, what the catalogue offers, and the messages of the chat.
+     * `opensChat`: the conversation the core finds for a message a plugin asks to open (`ft.openChat`).
+     */
+    function bridge({
+      installed = [] as unknown[],
+      catalogue = [] as unknown[],
+      messages = [] as unknown[],
+      addFails = false,
+      opensChat = null as string | null,
+    } = {}) {
       let list = installed as Array<Record<string, unknown>>;
       installTauri((command, args) => {
         calls.push([command, args]);
         if (command === "core_plugins") return list;
+        if (command === "core_plugin_open_chat") return opensChat ? { contact: opensChat, message: "m1" } : null;
         if (command === "core_catalogue") return catalogue;
         if (command === "core_messages") return messages;
         if (command === "core_plugin_add") {
@@ -2139,8 +2149,8 @@ describe("ChatThread", () => {
         await flushPromises();
       }
 
-      async function withTool() {
-        bridge({ installed: [CODE, CHESS] });
+      async function withTool(options: Parameters<typeof bridge>[0] = {}) {
+        bridge({ installed: [CODE, CHESS], ...options });
         const wrapper = await thread();
         await openTool(wrapper);
         return { wrapper, ...(await up(wrapper)) };
@@ -2248,9 +2258,9 @@ describe("ChatThread", () => {
         expect(closings()).toBe(0);
       });
 
-      // A chat page under another reads the address of the page on top (`ft.openChat` to another
-      // conversation, say): its `chatId` changes for a while without anyone leaving it. Its plugin
-      // stays, and still belongs to its own conversation.
+      // A chat page under another reads the address of the page on top (another conversation pushed
+      // over it, say): its `chatId` changes for a while without anyone leaving it. Its plugin stays,
+      // and still belongs to its own conversation.
       // The address changes before Ionic says the page is leaving: `active` is still true then.
       it("keeps a plugin whose page is under another when that page's chatId follows the address", async () => {
         const { wrapper, says, closings } = await withGame();
@@ -2412,6 +2422,39 @@ describe("ChatThread", () => {
         await says({ type: "ft.closed" });
         expect(sheets(wrapper)).toHaveLength(1);
         expect(sheets(wrapper)[0].props("plugin")).toMatchObject({ id: CODE.id });
+      });
+
+      // Seen on the Samsung (2026-10-13, Reminders and Notes opened with "open with"): a plugin asking
+      // to open the conversation it was opened in (`ft.openChat`) pushed the address already on
+      // screen, so nothing happened and its window stayed over the chat. The window closes, through
+      // the plugin, and the conversation is what is left on screen: no page is pushed for it.
+      it("closes the window when the plugin opens the conversation it is in, and pushes no page", async () => {
+        const { wrapper, says, closings } = await withTool({ opensChat: "c1" });
+        await says({ type: "ft.openChat", id: "q1", ref: "ref_1" });
+        expect(calls.some(([command]) => command === "core_plugin_open_chat")).toBe(true);
+        expect(closings()).toBe(1);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(true);
+        expect(push).not.toHaveBeenCalled();
+
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
+        expect(push).not.toHaveBeenCalled();
+      });
+
+      // Another conversation: the window closes first, through the plugin, and then that
+      // conversation opens. Back from it finds this one with nothing open over it.
+      it("closes the window and then opens the other conversation the plugin asks for", async () => {
+        const { wrapper, says, closings } = await withTool({ opensChat: "c2" });
+        let closingsWhenPushed: number | undefined;
+        push.mockImplementationOnce(async () => void (closingsWhenPushed = closings()));
+        await says({ type: "ft.openChat", id: "q1", ref: "ref_1" });
+        expect(push).toHaveBeenCalledTimes(1);
+        expect(push).toHaveBeenCalledWith("/chat/c2");
+        expect(closingsWhenPushed).toBe(1);
+        expect(hidden(wrapper.find(".ft-app"))).toBe(true);
+
+        await says({ type: "ft.closed" });
+        expect(sheets(wrapper)).toHaveLength(0);
       });
 
       // The split view shows another conversation: the plugin says goodbye to the one it was opened
