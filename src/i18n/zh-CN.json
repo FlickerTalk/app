@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "高级功能",
-    "trialNote": "聊天、通话、文件和游戏：永久免费。工具和带 PIN 的会话：试用 15 天，之后每年 {price}。",
-    "trialNoteYearly": "聊天、通话、文件和游戏：永久免费。工具和带 PIN 的会话：试用 15 天，之后需按年订阅。",
+    "trialNote": "聊天、通话、文件和游戏免费。工具和带 PIN 的会话属于高级功能：试用 15 天，之后每年 {price}。",
+    "trialNoteYearly": "聊天、通话、文件和游戏免费。工具和带 PIN 的会话属于高级功能：试用 15 天，之后需按年订阅。",
     "limitedNote": "工具和带 PIN 的会话每年 {price}。聊天、通话、文件和游戏仍然免费。",
     "limitedNoteYearly": "工具和带 PIN 的会话需按年订阅。聊天、通话、文件和游戏仍然免费。",
     "subscribe": "订阅 · 每年 {price}",

@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, calls, files and games: free forever. Tools and sessions with PIN: 15-day trial, then {price} a year.",
-    "trialNoteYearly": "Chat, calls, files and games: free forever. Tools and sessions with PIN: 15-day trial, then a yearly subscription.",
+    "trialNote": "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 15-day trial, then {price} a year.",
+    "trialNoteYearly": "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 15-day trial, then a yearly subscription.",
     "limitedNote": "Tools and sessions with PIN for {price} a year. Chat, calls, files and games stay free.",
     "limitedNoteYearly": "Tools and sessions with PIN with a yearly subscription. Chat, calls, files and games stay free.",
     "subscribe": "Subscribe · {price} a year",

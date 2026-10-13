@@ -38,7 +38,12 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
   toastController: { create: toast.create },
 }));
 
-const catalogues = import.meta.glob<{ plan: Record<string, unknown>; premium: Record<string, unknown> }>("../i18n/*.json", {
+const catalogues = import.meta.glob<{
+  plan: Record<string, unknown>;
+  premium: Record<string, unknown>;
+  session: Record<string, unknown>;
+  plugins: Record<string, unknown>;
+}>("../i18n/*.json", {
   eager: true,
   import: "default",
 });
@@ -396,7 +401,7 @@ describe("SettingsPage", () => {
     });
 
     describe("in the 15 free days", () => {
-      it("says what is free forever and what the trial is, with the Store's price", async () => {
+      it("says what is free and what the trial is, with the Store's price", async () => {
         planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
         const wrapper = await settings();
         expect(note(wrapper).text()).toBe(en.premium.trialNote.replace("{price}", "0,99 €"));
@@ -708,6 +713,17 @@ describe("SettingsPage", () => {
       }
       for (const key of ["young", "iAmYoung", "iAmOlder"]) expect(catalogue.plan, path).not.toHaveProperty(key);
       for (const key of ["subscribe", "trialNote", "limitedNote"]) expect(String(catalogue.premium[key]), `${path} ${key}`).toContain("{price}");
+    }
+  });
+
+  // Ioan (2026-10-13): no "free forever" in the app, in any language; he does not like how it
+  // sounds. The texts say what is free and what the subscription is for, without promising "forever".
+  it("never says 'forever' in the Premium, Plan, session and tools texts of any language", () => {
+    const forever =
+      /\bforever\b|para siempre|para sempre|per sempre|pour toujours|für immer|pentru totdeauna|na zawsze|навсегда|назавжди|sonsuza|selamanya|mãi mãi|ตลอดไป|للأبد|हमेशा के लिए|চিরকাল|ずっと|영원히|永久/i;
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      const said = [catalogue.plan, catalogue.premium, catalogue.session, catalogue.plugins].flatMap(texts);
+      for (const text of said) expect(text, path).not.toMatch(forever);
     }
   });
 

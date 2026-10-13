@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Czat, połączenia, pliki i gry: za darmo na zawsze. Narzędzia i sesje z PIN-em: 15 dni próbnych, potem {price} rocznie.",
-    "trialNoteYearly": "Czat, połączenia, pliki i gry: za darmo na zawsze. Narzędzia i sesje z PIN-em: 15 dni próbnych, potem w ramach subskrypcji rocznej.",
+    "trialNote": "Czat, połączenia, pliki i gry są darmowe. Narzędzia i sesje z PIN-em to Premium: 15 dni próbnych, potem {price} rocznie.",
+    "trialNoteYearly": "Czat, połączenia, pliki i gry są darmowe. Narzędzia i sesje z PIN-em to Premium: 15 dni próbnych, potem w ramach subskrypcji rocznej.",
     "limitedNote": "Narzędzia i sesje z PIN-em za {price} rocznie. Czat, połączenia, pliki i gry pozostają darmowe.",
     "limitedNoteYearly": "Narzędzia i sesje z PIN-em w ramach subskrypcji rocznej. Czat, połączenia, pliki i gry pozostają darmowe.",
     "subscribe": "Subskrybuj · {price} rocznie",

@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, apeluri, fișiere și jocuri: gratuite pentru totdeauna. Instrumente și sesiuni cu PIN: 15 zile de probă, apoi {price} pe an.",
-    "trialNoteYearly": "Chat, apeluri, fișiere și jocuri: gratuite pentru totdeauna. Instrumente și sesiuni cu PIN: 15 zile de probă, apoi un abonament anual.",
+    "trialNote": "Chatul, apelurile, fișierele și jocurile sunt gratuite. Instrumentele și sesiunile cu PIN sunt Premium: 15 zile de probă, apoi {price} pe an.",
+    "trialNoteYearly": "Chatul, apelurile, fișierele și jocurile sunt gratuite. Instrumentele și sesiunile cu PIN sunt Premium: 15 zile de probă, apoi un abonament anual.",
     "limitedNote": "Instrumente și sesiuni cu PIN pentru {price} pe an. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
     "limitedNoteYearly": "Instrumente și sesiuni cu PIN cu un abonament anual. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
     "subscribe": "Abonează-te · {price} pe an",
