@@ -358,7 +358,8 @@ function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
   if (view.state === "done" || view.state === "failed" || view.state === "waiting") state = view.state;
   else if (!connected) state = "paused";
   else state = mine ? "sending" : "receiving";
-  const playable = view.mime.startsWith("image/") || view.mime.startsWith("audio/");
+  // What the bubble shows or plays itself: a photo, a voice message or a video.
+  const playable = ["image/", "audio/", "video/"].some((kind) => view.mime.startsWith(kind));
   const showable = playable && (mine || view.state === "done");
   return {
     name: view.name,

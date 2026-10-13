@@ -292,8 +292,10 @@ function open() {
       <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
       <span v-else-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
-        <!-- A video that arrived plays here, from the app's own files (§62). -->
-        <video v-else-if="file.url && isVideo" class="ft-video" :src="file.url" controls playsinline preload="metadata" @click.stop />
+        <!-- A video that arrived plays here, from the app's own files (§62). The time in the
+             address asks the browser for its first frame: without it Android's WebView stays black
+             until the video is played (2026-10-13). -->
+        <video v-else-if="file.url && isVideo" class="ft-video" :src="`${file.url}#t=0.001`" controls playsinline preload="metadata" @click.stop />
         <span v-else class="ft-media__blank" aria-hidden="true" />
         <span v-if="moving" class="ft-media__veil">
           <span

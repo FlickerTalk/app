@@ -174,6 +174,41 @@ describe("core bridge", () => {
     expect(sending.file).toMatchObject({ state: "sending", url: "asset://localhost/files/f3/photo.jpg" });
   });
 
+  // 1.6.0 rehearsal (2026-10-13): a received .mp4 was a dark box with no picture and no play
+  // button, because only images and audio got a url. A video plays in the bubble too.
+  it("gives a video its url, like an image or a voice message", async () => {
+    const video = (id: string, outgoing: boolean, state: string, name: string, mime: string) => ({
+      id,
+      outgoing,
+      text: name,
+      sentAt: at(9, 50),
+      state: "delivered",
+      file: { name, size: 1_600_000, mime, progress: state === "done" ? 1 : 0.5, state, path: `/files/${id}/${name}` },
+    });
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [
+              video("v1", false, "done", "trail.mp4", "video/mp4"),
+              video("v2", false, "done", "clip.webm", "video/webm"),
+              video("v3", false, "done", "IMG_0001.MOV", "video/quicktime"),
+              video("v4", true, "transferring", "mine.mp4", "video/mp4"),
+              video("v5", false, "transferring", "half.mp4", "video/mp4"),
+            ]
+          : answers[command],
+      ),
+    );
+    await core.start();
+    await core.loadMessages("ft_bob");
+    const [mp4, webm, mov, sending, receiving] = core.chat("ft_bob")?.messages ?? [];
+    expect(mp4.file).toMatchObject({ state: "done", url: "asset://localhost/files/v1/trail.mp4" });
+    expect(webm.file).toMatchObject({ state: "done", url: "asset://localhost/files/v2/clip.webm" });
+    expect(mov.file).toMatchObject({ state: "done", url: "asset://localhost/files/v3/IMG_0001.MOV" });
+    // Ours is always here; theirs only once it has arrived whole.
+    expect(sending.file).toMatchObject({ state: "sending", url: "asset://localhost/files/v4/mine.mp4" });
+    expect(receiving.file?.url).toBeUndefined();
+  });
+
   // 2026-10-06: an edit or a taking back still waiting for the contact's receipt is on the
   // message, next to the state the message itself reached; absent, nothing.
   it("says which messages have a change still waiting", async () => {
