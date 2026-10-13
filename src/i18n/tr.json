@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Sohbet, aramalar, dosyalar ve oyunlar: sonsuza kadar ücretsiz. Araçlar ve PIN'li oturumlar: 15 gün deneme, sonra yıllık {price}.",
-    "trialNoteYearly": "Sohbet, aramalar, dosyalar ve oyunlar: sonsuza kadar ücretsiz. Araçlar ve PIN'li oturumlar: 15 gün deneme, sonra yıllık abonelikle.",
+    "trialNote": "Sohbet, aramalar, dosyalar ve oyunlar ücretsiz. Araçlar ve PIN'li oturumlar Premium kapsamında: 15 gün deneme, sonra yıllık {price}.",
+    "trialNoteYearly": "Sohbet, aramalar, dosyalar ve oyunlar ücretsiz. Araçlar ve PIN'li oturumlar Premium kapsamında: 15 gün deneme, sonra yıllık abonelikle.",
     "limitedNote": "Araçlar ve PIN'li oturumlar yıllık {price}. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
     "limitedNoteYearly": "Araçlar ve PIN'li oturumlar yıllık abonelikle. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
     "subscribe": "Abone ol · yıllık {price}",

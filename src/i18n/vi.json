@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Trò chuyện, cuộc gọi, tệp và trò chơi: miễn phí mãi mãi. Công cụ và phiên có PIN: dùng thử 15 ngày, sau đó {price} mỗi năm.",
-    "trialNoteYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi: miễn phí mãi mãi. Công cụ và phiên có PIN: dùng thử 15 ngày, sau đó dùng gói đăng ký năm.",
+    "trialNote": "Trò chuyện, cuộc gọi, tệp và trò chơi đều miễn phí. Công cụ và phiên có PIN thuộc gói Premium: dùng thử 15 ngày, sau đó {price} mỗi năm.",
+    "trialNoteYearly": "Trò chuyện, cuộc gọi, tệp và trò chơi đều miễn phí. Công cụ và phiên có PIN thuộc gói Premium: dùng thử 15 ngày, sau đó dùng gói đăng ký năm.",
     "limitedNote": "Công cụ và phiên có PIN với giá {price} mỗi năm. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
     "limitedNoteYearly": "Công cụ và phiên có PIN với gói đăng ký năm. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
     "subscribe": "Đăng ký · {price} mỗi năm",

@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "프리미엄",
-    "trialNote": "채팅, 통화, 파일, 게임: 영원히 무료. 도구와 PIN 세션: 15일 체험 후 연 {price}.",
-    "trialNoteYearly": "채팅, 통화, 파일, 게임: 영원히 무료. 도구와 PIN 세션: 15일 체험 후 연간 구독.",
+    "trialNote": "채팅, 통화, 파일, 게임은 무료예요. 도구와 PIN 세션은 프리미엄이에요: 15일 체험 후 연 {price}.",
+    "trialNoteYearly": "채팅, 통화, 파일, 게임은 무료예요. 도구와 PIN 세션은 프리미엄이에요: 15일 체험 후 연간 구독.",
     "limitedNote": "도구와 PIN 세션은 연 {price}. 채팅, 통화, 파일, 게임은 계속 무료예요.",
     "limitedNoteYearly": "도구와 PIN 세션은 연간 구독. 채팅, 통화, 파일, 게임은 계속 무료예요.",
     "subscribe": "구독하기 · 연 {price}",

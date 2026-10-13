@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, Anrufe, Dateien und Spiele: für immer kostenlos. Werkzeuge und Sitzungen mit PIN: 15 Tage zum Testen, danach {price} pro Jahr.",
-    "trialNoteYearly": "Chat, Anrufe, Dateien und Spiele: für immer kostenlos. Werkzeuge und Sitzungen mit PIN: 15 Tage zum Testen, danach mit einem Jahresabo.",
+    "trialNote": "Chat, Anrufe, Dateien und Spiele sind kostenlos. Werkzeuge und Sitzungen mit PIN sind Premium: 15 Tage zum Testen, danach {price} pro Jahr.",
+    "trialNoteYearly": "Chat, Anrufe, Dateien und Spiele sind kostenlos. Werkzeuge und Sitzungen mit PIN sind Premium: 15 Tage zum Testen, danach mit einem Jahresabo.",
     "limitedNote": "Werkzeuge und Sitzungen mit PIN für {price} pro Jahr. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
     "limitedNoteYearly": "Werkzeuge und Sitzungen mit PIN mit einem Jahresabo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
     "subscribe": "Abonnieren · {price} pro Jahr",

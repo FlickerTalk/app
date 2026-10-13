@@ -364,8 +364,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, panggilan, file, dan game: gratis selamanya. Alat dan sesi dengan PIN: uji coba 15 hari, lalu {price} per tahun.",
-    "trialNoteYearly": "Chat, panggilan, file, dan game: gratis selamanya. Alat dan sesi dengan PIN: uji coba 15 hari, lalu dengan langganan tahunan.",
+    "trialNote": "Chat, panggilan, file, dan game gratis. Alat dan sesi dengan PIN termasuk Premium: uji coba 15 hari, lalu {price} per tahun.",
+    "trialNoteYearly": "Chat, panggilan, file, dan game gratis. Alat dan sesi dengan PIN termasuk Premium: uji coba 15 hari, lalu dengan langganan tahunan.",
     "limitedNote": "Alat dan sesi dengan PIN seharga {price} per tahun. Chat, panggilan, file, dan game tetap gratis.",
     "limitedNoteYearly": "Alat dan sesi dengan PIN dengan langganan tahunan. Chat, panggilan, file, dan game tetap gratis.",
     "subscribe": "Berlangganan · {price} per tahun",
