@@ -31,6 +31,7 @@ import {
   type OfferedPlugin,
   type PluginView,
 } from "../core";
+import { offerExactAlarms } from "../exact-alarms";
 import { gameGrant, isGame, needsGameGrant } from "../games";
 import { permissionsOf, withPermission } from "../permissions";
 import {
@@ -202,6 +203,8 @@ function toggle(key: string, event: CustomEvent<{ checked: boolean }>): Promise<
     const now = (await refreshPlugins()).find((one) => one.id === id);
     const real = now && permissionsOf(now).find((permission) => permission.key === key)?.on;
     if (field && real !== undefined) field.checked = real;
+    // Reminders turned on that would ring late (2026-10-13): said once, on this grant.
+    if (key === "remind" && on && real) await offerExactAlarms();
   });
   return changes;
 }

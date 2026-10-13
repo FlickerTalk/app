@@ -328,6 +328,11 @@
     "none": "Brak wtyczek",
     "live": "Rozmawiać z tą samą wtyczką po drugiej stronie czatu",
     "remind": "Ustawiać przypomnienia na tym telefonie",
+    "exactAlarms": {
+      "message": "Przypomnienia dzwonią punktualnie tylko wtedy, gdy FlickerTalk może ustawiać dokładne alarmy na tym telefonie.",
+      "notNow": "Nie teraz",
+      "openSettings": "Otwórz Ustawienia"
+    },
     "drive": "Przechowywać pliki w twojej własnej chmurze",
     "storageLarge": "Przechowywać dużo danych na tym telefonie (do 256 MB)",
     "location": "Twoja lokalizacja, tylko gdy o nią poprosisz",

@@ -328,6 +328,11 @@
     "none": "Chưa có plugin nào",
     "live": "Trò chuyện với cùng plugin ở phía bên kia cuộc trò chuyện",
     "remind": "Đặt lời nhắc trên điện thoại này",
+    "exactAlarms": {
+      "message": "Lời nhắc chỉ reo đúng giờ nếu FlickerTalk được phép đặt báo thức chính xác trên điện thoại này.",
+      "notNow": "Để sau",
+      "openSettings": "Mở Cài đặt"
+    },
     "drive": "Giữ tệp trong đám mây của riêng bạn",
     "storageLarge": "Giữ nhiều dữ liệu trên điện thoại này (tối đa 256 MB)",
     "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",

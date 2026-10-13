@@ -328,6 +328,11 @@
     "none": "Niciun plugin încă",
     "live": "Să vorbească cu același plugin de cealaltă parte a conversației",
     "remind": "Să seteze mementouri pe acest telefon",
+    "exactAlarms": {
+      "message": "Mementourile sună la timp doar dacă FlickerTalk poate seta alarme exacte pe acest telefon.",
+      "notNow": "Nu acum",
+      "openSettings": "Deschide Setările"
+    },
     "drive": "Să păstreze fișiere în propriul tău cloud",
     "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
     "location": "Locația ta, doar când o ceri",

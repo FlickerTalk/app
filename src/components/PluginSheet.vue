@@ -64,6 +64,7 @@ import {
   type HandedFile,
 } from "../plugins";
 import { hostOf, missingPermission, permissionsOf, withPermission, type PermissionNeed } from "../permissions";
+import { offerExactAlarms } from "../exact-alarms";
 import { pluginTheme } from "../theme";
 import type { ContactAsk, Proposal } from "../pending-send";
 
@@ -540,6 +541,8 @@ async function ask(key: string): Promise<boolean> {
   if (lacks(key)) return false;
   if (key === "send") sending.value = installed.value.find((one) => one.id === id)?.granted.send ?? "nothing";
   if (key === "live") live.value = true;
+  // Reminders that would ring late (2026-10-13): said once, on this grant, before the next question.
+  if (key === "remind") await offerExactAlarms();
   return true;
 }
 

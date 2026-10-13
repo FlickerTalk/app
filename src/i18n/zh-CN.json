@@ -328,6 +328,11 @@
     "none": "还没有插件",
     "live": "与对话另一端的同一插件通信",
     "remind": "在这部手机上设置提醒",
+    "exactAlarms": {
+      "message": "只有允许 FlickerTalk 在这部手机上设置精确闹钟，提醒才会准时响起。",
+      "notNow": "以后再说",
+      "openSettings": "打开设置"
+    },
     "drive": "把文件保存在你自己的云端",
     "storageLarge": "在这部手机上保存大量数据（最多 256 MB）",
     "location": "你的位置，仅在你请求时",
