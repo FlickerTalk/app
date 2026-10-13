@@ -723,6 +723,16 @@ function pluginDone() {
   closePlugin();
 }
 
+// Seen on the Samsung (2026-10-13, Reminders and Notes opened with "open with"): a plugin asking to
+// open the conversation it was opened in (`ft.openChat`) pushed the address already on screen, so
+// nothing happened and its window stayed over the chat. That conversation is already here (beside
+// the list on a tablet too), so its window closes instead, as with ✕. Another conversation opens
+// over this one as before, with the window still here for when Back returns.
+function openChatFromPlugin(contact: string) {
+  if (contact === props.chatId) closePlugin();
+  else void router.push(`/chat/${contact}`);
+}
+
 // Ioan, 2026-10-08: a plugin asking for something it lacks the permission for (the tool window or
 // the game room) asks the user here, for that one permission; the sheet grants it on a yes.
 const needing = ref<PermissionNeed | null>(null);
@@ -1162,7 +1172,7 @@ watch(
           :session="sessionOf(plugin.contact)"
           @text="fromPlugin"
           @attach="stage"
-          @open-chat="(contact) => router.push(`/chat/${contact}`)"
+          @open-chat="openChatFromPlugin"
           @done="pluginDone"
           @closed="pluginClosed"
           @needs="(need) => (needing = need)"
@@ -1197,7 +1207,7 @@ watch(
           fill
           @text="fromPlugin"
           @attach="stage"
-          @open-chat="(contact) => router.push(`/chat/${contact}`)"
+          @open-chat="openChatFromPlugin"
           @done="pluginDone"
           @closed="pluginClosed"
           @needs="(need) => (needing = need)"
