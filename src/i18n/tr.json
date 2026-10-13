@@ -328,6 +328,11 @@
     "none": "Henüz eklenti yok",
     "live": "Sohbetin öbür ucundaki aynı eklentiyle konuşmak",
     "remind": "Bu telefonda hatırlatıcı kurmak",
+    "exactAlarms": {
+      "message": "Hatırlatıcılar yalnızca FlickerTalk bu telefonda tam zamanında çalan alarmlar kurabiliyorsa zamanında çalar.",
+      "notNow": "Şimdi değil",
+      "openSettings": "Ayarlar'ı aç"
+    },
     "drive": "Dosyaları kendi bulutunda saklamak",
     "storageLarge": "Bu telefonda çok veri saklamak (256 MB'a kadar)",
     "location": "Konumunuz, yalnızca siz istediğinizde",

@@ -328,6 +328,11 @@
     "none": "Aún no hay plugins",
     "live": "Hablar con el mismo plugin al otro lado del chat",
     "remind": "Poner avisos en este teléfono",
+    "exactAlarms": {
+      "message": "Los avisos suenan a su hora solo si FlickerTalk puede poner alarmas exactas en este teléfono.",
+      "notNow": "Ahora no",
+      "openSettings": "Abrir Ajustes"
+    },
     "drive": "Guardar ficheros en tu propia nube",
     "storageLarge": "Guardar muchos datos en este teléfono (hasta 256 MB)",
     "location": "Tu ubicación, solo cuando la pides",

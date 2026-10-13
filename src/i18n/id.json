@@ -328,6 +328,11 @@
     "none": "Belum ada plugin",
     "live": "Berbicara dengan plugin yang sama di sisi lain obrolan",
     "remind": "Memasang pengingat di ponsel ini",
+    "exactAlarms": {
+      "message": "Pengingat berbunyi tepat waktu hanya jika FlickerTalk boleh memasang alarm tepat di ponsel ini.",
+      "notNow": "Jangan sekarang",
+      "openSettings": "Buka Pengaturan"
+    },
     "drive": "Menyimpan berkas di cloud milikmu sendiri",
     "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
     "location": "Lokasi Anda, hanya saat Anda memintanya",

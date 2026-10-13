@@ -3455,6 +3455,20 @@ pub async fn core_system_bars(dark: bool, app: AppHandle) -> Result<(), String> 
     tauri::async_runtime::spawn_blocking(move || app.platform().set_system_bars(dark)).await.map_err(failed)?.map_err(failed)
 }
 
+/// Whether a plugin's reminders ring on time (2026-10-13): Android 12 and up ask the user to allow
+/// exact alarms; iOS and a desktop say yes. Off the main thread: Kotlin answers from it.
+#[tauri::command]
+pub async fn core_exact_alarms(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || app.platform().exact_alarms()).await.map_err(failed)?.map_err(failed)
+}
+
+/// Opens the system screen where the user allows exact alarms, when they are not allowed, and
+/// says whether they are now.
+#[tauri::command]
+pub async fn core_request_exact_alarms(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || app.platform().request_exact_alarms()).await.map_err(failed)?.map_err(failed)
+}
+
 /// The call's voice on the speaker or the receiver (2026-09-28).
 #[tauri::command]
 pub async fn core_call_speaker(on: bool, app: AppHandle) -> Result<(), String> {

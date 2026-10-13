@@ -8,11 +8,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
-// Ionic's toasts are overlays of the real app; here, what the sheet asks of them.
+// Ionic's toasts and alerts are overlays of the real app; here, what the sheet asks of them.
 const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+const alert = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
 vi.mock("@ionic/vue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@ionic/vue")>()),
   toastController: { create: toast.create },
+  alertController: { create: alert.create },
 }));
 
 import PluginSheet from "./PluginSheet.vue";
@@ -43,6 +45,8 @@ describe("PluginSheet", () => {
     toast.create
       .mockReset()
       .mockImplementation(async () => Object.assign(document.createElement("div"), { present: toast.present, dismiss: () => Promise.resolve(true) }));
+    // An alert shows, and the user answers it at once.
+    alert.create.mockReset().mockImplementation(async () => ({ present: alert.present, onDidDismiss: () => Promise.resolve({}) }));
   });
 
   // 2026-10-02 (plan of the catalogue's translations): a screen reader names the frame as the
@@ -1510,6 +1514,69 @@ describe("PluginSheet", () => {
       expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_grant", { plugin: plugin.id, granted: expect.objectContaining({ network: ["api.example.com"] }) });
       expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "f1", answer: { status: 200, body: "" } }, "*");
       expect(kept.granted()).toMatchObject({ remind: true, drive: true, network: ["api.example.com"], location: false });
+    });
+
+    // 2026-10-13: a reminder for Friday at 10:00 must ring at 10:00. Right after the user grants
+    // reminders, if the phone would ring them late (Android 12 and up without exact alarms), the
+    // app says so once and offers the phone's settings; never on each reminder.
+    describe("reminders on time", () => {
+      interface Button {
+        text: string;
+        handler?: () => unknown;
+      }
+      const alerts = () => alert.create.mock.calls.map(([options]) => options as { message: string; buttons: Button[] });
+      const remind = async (exact: boolean) => {
+        core({ core_exact_alarms: exact, core_remind_set: true });
+        const opened = await open();
+        opened.says({ type: "ft.remindSet", id: "r1", reminder: "milk", at: 5, text: "milk" });
+        await flushPromises();
+        needs(opened.wrapper)[0].answer(true);
+        await flushPromises();
+        return opened;
+      };
+
+      it("offers the phone's settings after a yes when exact alarms are not allowed", async () => {
+        const { post } = await remind(false);
+        expect(alerts()).toHaveLength(1);
+        expect(alerts()[0].message).toBe("Reminders ring on time only if FlickerTalk may set exact alarms on this phone.");
+        expect(invoked("core_request_exact_alarms")).toHaveLength(0);
+        alerts()[0].buttons.find((button) => button.text === "Open Settings")?.handler?.();
+        await flushPromises();
+        expect(tauri.invoke).toHaveBeenCalledWith("core_request_exact_alarms");
+        // The reminder is set all the same: it becomes exact once the user allows it.
+        expect(invoked("core_remind_set")).toHaveLength(1);
+        expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "r1", answer: true }, "*");
+      });
+
+      it("says nothing more when the phone rings reminders on time", async () => {
+        const { post } = await remind(true);
+        expect(invoked("core_exact_alarms")).toHaveLength(1);
+        expect(alert.create).not.toHaveBeenCalled();
+        expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "r1", answer: true }, "*");
+      });
+
+      it("asks once, when reminders are granted, not on each reminder", async () => {
+        const { says } = await remind(false);
+        says({ type: "ft.remindSet", id: "r2", reminder: "eggs", at: 6, text: "eggs" });
+        await flushPromises();
+        expect(alert.create).toHaveBeenCalledTimes(1);
+        expect(invoked("core_remind_set")).toHaveLength(2);
+      });
+
+      it("says nothing of exact alarms after a no, nor for another permission", async () => {
+        core({ core_exact_alarms: false, core_plugin_location: FIX });
+        const { wrapper, says } = await open();
+        says({ type: "ft.remindSet", id: "r1", reminder: "milk", at: 5, text: "milk" });
+        await flushPromises();
+        needs(wrapper)[0].answer(false);
+        await flushPromises();
+        says({ type: "ft.location", id: "l1" });
+        await flushPromises();
+        needs(wrapper)[1].answer(true);
+        await flushPromises();
+        expect(invoked("core_exact_alarms")).toHaveLength(0);
+        expect(alert.create).not.toHaveBeenCalled();
+      });
     });
 
     it("never asks for the drive to set it up or open it", async () => {

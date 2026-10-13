@@ -328,6 +328,11 @@
     "none": "Ancora nessun plugin",
     "live": "Parlare con lo stesso plugin dall'altra parte della chat",
     "remind": "Impostare promemoria su questo telefono",
+    "exactAlarms": {
+      "message": "I promemoria suonano puntuali solo se FlickerTalk può impostare sveglie esatte su questo telefono.",
+      "notNow": "Non ora",
+      "openSettings": "Apri Impostazioni"
+    },
     "drive": "Conservare file nel tuo cloud",
     "storageLarge": "Conservare molti dati su questo telefono (fino a 256 MB)",
     "location": "La tua posizione, solo quando la chiedi",

@@ -14,6 +14,13 @@ import { store } from "../core";
 import { setLocale } from "../i18n";
 import { installed as installedList, pluginImage, premiumLocked } from "../plugins";
 
+// Ionic's alerts are overlays of the real app; here, what the page asks of them.
+const alert = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+vi.mock("@ionic/vue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@ionic/vue")>()),
+  alertController: { create: alert.create },
+}));
+
 const nav = vi.hoisted(() => ({ push: vi.fn(), route: { query: {} as Record<string, string> } }));
 vi.mock("vue-router", async () => {
   const { reactive } = await import("vue");
@@ -109,6 +116,8 @@ describe("AppsPage", () => {
     nav.push.mockClear();
     nav.route.query = {};
     answering();
+    // An alert shows, and the user answers it at once.
+    alert.create.mockReset().mockImplementation(async () => ({ present: alert.present, onDidDismiss: () => Promise.resolve({}) }));
   });
   afterEach(() => {
     premiumLocked.value = false;
@@ -356,6 +365,59 @@ describe("AppsPage", () => {
       Object.defineProperty(event, "target", { value: field });
       wrapper.findAllComponents(IonToggle)[0].vm.$emit("ionChange", event);
       await vi.waitFor(() => expect(field.checked).toBe(false));
+    });
+
+    // 2026-10-13: turning reminders on for a tool grants them too. If the phone would ring them late
+    // (Android 12 and up without exact alarms), the app says so once and offers its settings.
+    describe("reminders on time", () => {
+      const NOTES = {
+        id: "com.flickertalk.notes",
+        name: "Notes",
+        version: "1.0.0",
+        asks: { network: [], messages: false, send: "nothing", remind: true },
+        granted: { network: [], messages: false, send: "nothing", remind: false },
+        installedAt: 4,
+      };
+      interface Button {
+        text: string;
+        handler?: () => unknown;
+      }
+      const alerts = () => alert.create.mock.calls.map(([options]) => options as { message: string; buttons: Button[] });
+      const asked = (command: string) => calls.filter(([one]) => one === command);
+      /** Turns the reminders switch of Notes on (or off) on a phone that does (or not) ring on time. */
+      async function turnReminders(on: boolean, { exact, granted = !on }: { exact: boolean; granted?: boolean }) {
+        const notes = { ...NOTES, granted: { ...NOTES.granted, remind: granted } };
+        answering({ installed: [notes], also: (command) => (command === "core_exact_alarms" ? exact : undefined) });
+        const wrapper = await page();
+        tile(wrapper, `app-${NOTES.id}`)!.vm.$emit("hold");
+        await flushPromises();
+        wrapper.findAllComponents(IonToggle)[0].vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: on } }));
+        await vi.waitFor(() => expect(asked("core_plugin_grant")).toHaveLength(1));
+        await flushPromises();
+        return wrapper;
+      }
+
+      it("offers the phone's settings when reminders are turned on and would ring late", async () => {
+        await turnReminders(true, { exact: false });
+        expect(alerts()).toHaveLength(1);
+        expect(alerts()[0].message).toBe("Reminders ring on time only if FlickerTalk may set exact alarms on this phone.");
+        expect(asked("core_request_exact_alarms")).toHaveLength(0);
+        alerts()[0].buttons.find((button) => button.text === "Open Settings")?.handler?.();
+        await flushPromises();
+        expect(asked("core_request_exact_alarms")).toHaveLength(1);
+      });
+
+      it("says nothing when the phone rings reminders on time", async () => {
+        await turnReminders(true, { exact: true });
+        expect(asked("core_exact_alarms")).toHaveLength(1);
+        expect(alert.create).not.toHaveBeenCalled();
+      });
+
+      it("says nothing when reminders are turned off", async () => {
+        await turnReminders(false, { exact: false });
+        expect(asked("core_exact_alarms")).toHaveLength(0);
+        expect(alert.create).not.toHaveBeenCalled();
+      });
     });
 
     it("removes an app after asking, and closes", async () => {

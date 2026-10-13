@@ -531,6 +531,44 @@ class PlatformPluginTest {
         assertTrue(exactAlarmsAllowed(34) { true })
     }
 
+    // 2026-10-13: a reminder for Friday at 10:00 rings at 10:00 only with an exact alarm. When a
+    // plugin is granted reminders and the phone does not allow exact alarms, the app offers the
+    // system screen where the user allows them; it exists from Android 12, the first that asks.
+    @Test
+    fun theExactAlarmScreenOpensOnlyWhereTheyAreNotAllowed() {
+        assertFalse(opensExactAlarmSettings(30, allowed = false))
+        assertTrue(opensExactAlarmSettings(31, allowed = false))
+        assertFalse(opensExactAlarmSettings(31, allowed = true))
+        assertTrue(opensExactAlarmSettings(34, allowed = false))
+    }
+
+    // The reminders kept in preferences are set again after a reboot and when the user allows
+    // exact alarms: those set before then were inexact and become exact.
+    @Test
+    fun remindersAreSetAgainAfterABootAndOnceExactAlarmsAreAllowed() {
+        assertTrue(setsRemindersAgain("android.intent.action.BOOT_COMPLETED"))
+        assertTrue(setsRemindersAgain("android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"))
+        assertFalse(setsRemindersAgain("android.intent.action.MY_PACKAGE_REPLACED"))
+        assertFalse(setsRemindersAgain(null))
+    }
+
+    // The receiver that sets them again hears both. The user grants SCHEDULE_EXACT_ALARM; the app
+    // never holds USE_EXACT_ALARM, which Play keeps for alarm-clock apps.
+    @Test
+    fun theManifestSetsRemindersAgainOnceExactAlarmsAreAllowed() {
+        val manifest = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(File("src/main/AndroidManifest.xml"))
+        fun elements(tag: String) = manifest.getElementsByTagName(tag).let { nodes -> (0 until nodes.length).map { nodes.item(it) as Element } }
+        val permissions = elements("uses-permission").map { it.getAttribute("android:name") }
+        assertTrue(permissions.contains("android.permission.SCHEDULE_EXACT_ALARM"))
+        assertFalse(permissions.contains("android.permission.USE_EXACT_ALARM"))
+        val receiver = elements("receiver").single { it.getAttribute("android:name") == "com.flickertalk.platform.BootReceiver" }
+        val actions = receiver.getElementsByTagName("action").let { nodes -> (0 until nodes.length).map { (nodes.item(it) as Element).getAttribute("android:name") } }
+        assertEquals(
+            listOf("android.intent.action.BOOT_COMPLETED", "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"),
+            actions,
+        )
+    }
+
     // A login's redirect is only the one with our scheme; any other link is not an answer.
     @Test
     fun onlyOurSchemeEndsALogin() {
