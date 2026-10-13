@@ -13,6 +13,8 @@
 //!   about the call; `request_microphone` asks for the microphone first.
 //! - `push_token`, `request_notifications`: the FCM token the router wakes this device with, and
 //!   Android 13's permission to show the notification a wake-up brings (M4).
+//! - `exact_alarms`, `request_exact_alarms`: whether a plugin's reminder rings on time, and the
+//!   system screen where the user allows exact alarms (Android 12 and up, 2026-10-13).
 //! - `seal_key` / `open_key`: the storage key, sealed by Android Keystore (an AES key that never
 //!   leaves it) or kept in the iOS Keychain (this device only), §94.
 //! - `pick_files`: the system file picker, copying what was picked into the app's folder.
@@ -396,6 +398,13 @@ impl Located {
     fn location(self) -> Option<Location> {
         self.found.then_some(Location { lat: self.lat, lon: self.lon, accuracy: self.accuracy, at: self.at as i64 })
     }
+}
+
+/// What Kotlin's `exactAlarms` and `requestExactAlarms` resolve with.
+#[derive(Deserialize)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+struct ExactAlarms {
+    allowed: bool,
 }
 
 /// What Kotlin's `canShowFullScreen` resolves with.
@@ -901,6 +910,34 @@ impl<R: Runtime> Platform<R> {
         self.run("askFullScreen", ())
     }
 
+    /// Whether a reminder rings on time (2026-10-13): Android 12 and up ask the user to allow
+    /// exact alarms (14 denies them by default); without them Android may ring it minutes late.
+    /// iOS and a desktop never ask: `true`.
+    pub fn exact_alarms(&self) -> Result<bool> {
+        #[cfg(target_os = "android")]
+        {
+            Ok(self.handle.run_mobile_plugin::<ExactAlarms>("exactAlarms", ())?.allowed)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Ok(true)
+        }
+    }
+
+    /// Opens the system screen with the app's "Alarms & reminders" switch when exact alarms are
+    /// not allowed, and says whether they are now (the user answers there, after this returns).
+    /// Once allowed, the native side sets the kept reminders again as exact. Elsewhere, `true`.
+    pub fn request_exact_alarms(&self) -> Result<bool> {
+        #[cfg(target_os = "android")]
+        {
+            Ok(self.handle.run_mobile_plugin::<ExactAlarms>("requestExactAlarms", ())?.allowed)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Ok(true)
+        }
+    }
+
     pub fn request_notifications(&self) -> Result<()> {
         self.run("requestNotifications", ())
     }
@@ -1098,6 +1135,26 @@ mod tests {
     fn a_desktop_has_no_opened_link() {
         let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
         assert_eq!(platform.opened_link().ok(), Some(None));
+    }
+
+    // 2026-10-13: whether reminders ring on time. Kotlin's `exactAlarms` and `requestExactAlarms`
+    // resolve with `allowed`.
+    #[test]
+    fn whether_exact_alarms_are_allowed_comes_back_as_kotlin_resolves_it() {
+        let allowed: ExactAlarms = serde_json::from_value(serde_json::json!({ "allowed": true })).unwrap();
+        assert!(allowed.allowed);
+        let refused: ExactAlarms = serde_json::from_value(serde_json::json!({ "allowed": false })).unwrap();
+        assert!(!refused.allowed);
+    }
+
+    // Only Android asks the user for exact alarms: elsewhere a reminder rings on time, so the app
+    // never asks, and nothing opens.
+    #[cfg(not(mobile))]
+    #[test]
+    fn a_desktop_rings_reminders_on_time_without_asking() {
+        let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
+        assert_eq!(platform.exact_alarms().ok(), Some(true));
+        assert_eq!(platform.request_exact_alarms().ok(), Some(true));
     }
 
     // A desktop has no store: no price, and no error either.

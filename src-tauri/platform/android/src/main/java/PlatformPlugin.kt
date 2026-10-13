@@ -913,6 +913,25 @@ fun exactAlarmsAllowed(sdk: Int, canSchedule: () -> Boolean): Boolean =
 fun isAuthRedirect(uri: String?, scheme: String): Boolean =
     uri != null && scheme.isNotEmpty() && uri.startsWith("$scheme:")
 
+/**
+ * Whether to open the system screen where the user allows exact alarms (2026-10-13): only where
+ * they are not allowed, and that screen exists from Android 12, the first that asks.
+ */
+fun opensExactAlarmSettings(sdk: Int, allowed: Boolean): Boolean = sdk >= Build.VERSION_CODES.S && !allowed
+
+/**
+ * Whether a broadcast sets the kept reminders again: after a reboot (alarms do not survive it) and
+ * once the user allows exact alarms, so the reminders set before then become exact (2026-10-13).
+ */
+fun setsRemindersAgain(action: String?): Boolean =
+    action == Intent.ACTION_BOOT_COMPLETED || action == AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
+
+/** Whether this phone lets the app set exact alarms now. */
+fun exactAlarmsAllowed(context: Context): Boolean = exactAlarmsAllowed(Build.VERSION.SDK_INT) {
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+        context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() == true
+}
+
 /** Reminders whose time has not passed: the boot receiver schedules only these. */
 fun remindersStillDue(entries: List<ReminderEntry>, now: Long): List<ReminderEntry> = entries.filter { it.at > now }
 
@@ -944,9 +963,7 @@ fun scheduleReminders(context: Context, entries: List<ReminderEntry>) {
     for (old in parseReminders(preferences.getString(REMINDERS, "[]") ?: "[]")) {
         alarms.cancel(reminderIntent(context, old))
     }
-    val exact = exactAlarmsAllowed(Build.VERSION.SDK_INT) {
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms()
-    }
+    val exact = exactAlarmsAllowed(context)
     val now = System.currentTimeMillis()
     for (entry in remindersStillDue(entries, now)) {
         val intent = reminderIntent(context, entry)
@@ -994,10 +1011,13 @@ fun showReminder(context: Context, plugin: String, id: String, text: String) {
     }
 }
 
-/** Alarms do not survive a reboot: they are set again from the copy in preferences. */
+/**
+ * Alarms do not survive a reboot: they are set again from the copy in preferences. They are also
+ * set again once the user allows exact alarms (2026-10-13), so those set before then become exact.
+ */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        if (!setsRemindersAgain(intent.action)) return
         val kept = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(REMINDERS, "[]") ?: "[]"
         scheduleReminders(context, parseReminders(kept))
     }
@@ -1468,6 +1488,32 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (error: Exception) {
             invoke.reject(error.message ?: "cannot set the reminders")
+        }
+    }
+
+    /** Whether reminders ring on time: exact alarms allowed (always before Android 12). */
+    @Command
+    fun exactAlarms(invoke: Invoke) {
+        invoke.resolve(JSObject().apply { put("allowed", exactAlarmsAllowed(activity)) })
+    }
+
+    /**
+     * Opens the system screen with the app's "Alarms & reminders" switch when exact alarms are not
+     * allowed (2026-10-13), and says whether they are now. Once the user allows them, `BootReceiver`
+     * sets the kept reminders again as exact.
+     */
+    @Command
+    fun requestExactAlarms(invoke: Invoke) {
+        val allowed = exactAlarmsAllowed(activity)
+        try {
+            if (opensExactAlarmSettings(Build.VERSION.SDK_INT, allowed)) {
+                activity.startActivity(
+                    Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:" + activity.packageName))
+                )
+            }
+            invoke.resolve(JSObject().apply { put("allowed", allowed) })
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot open the setting")
         }
     }
 
