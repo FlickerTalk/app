@@ -468,8 +468,12 @@ describe("MessageBubble", () => {
     const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
     const video = wrapper.find("video");
     expect(video.exists()).toBe(true);
-    expect(video.attributes("src")).toBe("asset://localhost/files/clip.mp4");
+    // From its first moment (2026-10-13): Android's WebView left the bubble black until it was
+    // played; asked for a time, the browser draws that frame. It never plays on its own.
+    expect(video.attributes("src")).toBe("asset://localhost/files/clip.mp4#t=0.001");
     expect(video.attributes("controls")).toBeDefined();
+    expect(video.attributes("playsinline")).toBeDefined();
+    expect(video.attributes("autoplay")).toBeUndefined();
   });
 
   // Addresses are marked so they can be opened, and nothing is ever fetched to preview them.

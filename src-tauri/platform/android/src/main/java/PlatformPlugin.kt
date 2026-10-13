@@ -1402,6 +1402,9 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     override fun load(webView: WebView) {
         super.load(webView)
         this.webView = webView
+        // Videos and voice messages play by byte ranges, which the WebView gets wrong from Tauri
+        // alone (2026-10-13, AssetRanges.kt). wry has already given the WebView its client.
+        activity.runOnUiThread { serveAssetRanges(webView, activity.filesDir) }
         InCall.appVisible = true
         activity.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION)
         // Opened while a push's call rings (2026-10-01): the core a push started told the
