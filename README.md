@@ -1,26 +1,61 @@
 # FlickerTalk
 
-Private messages, phone to phone. Text, files, voice and video calls between two people, with the
-history living only on the phones — never on a server. [flickertalk.com](https://flickertalk.com)
+FlickerTalk is a private messenger: texts, photos and files, voice messages, and voice and video
+calls. No account. No phone number required. No activity logs. Your chat history stays on your
+phone, not on our servers. [flickertalk.com](https://flickertalk.com)
+
+- **Android:** [Google Play](https://play.google.com/store/apps/details?id=com.flickertalk.app)
+- **iPhone:** coming soon on the App Store.
+- **Video:** [the trailer](https://youtu.be/QNMZLA05s7c) (1 min) and
+  [the full manual](https://youtu.be/rQNRywOx_P8) (24 min).
+
+<p>
+  <img src="docs/readme/chat.png" width="240" alt="A chat with a video, a PDF, two voice messages and a quoted reply, all delivered">
+  <img src="docs/readme/chats.png" width="240" alt="The chat list: a circle, two contacts and, below them, a session with its own contact">
+  <img src="docs/readme/apps.png" width="240" alt="The Apps tab: the tools in a grid">
+</p>
+
+## What it does
 
 - **No account:** no phone number, no email, no password. Your identity is a key made on your
-  phone; you add people by scanning their code or opening their link.
-- **Phone to phone:** messages travel over an encrypted WebRTC connection straight to the other
-  phone, end-to-end encrypted with Olm (vodozemac).
-- **Delivered, not stored:** when the other phone is off, the message waits in a mailbox on our
-  server, encrypted so that we cannot read it, until it is picked up or 7 days pass. Either side
-  can turn the mailbox off.
-- **Files and calls** are one to one and never go through the mailbox.
-- **Hidden sessions:** a 6-digit PIN opens a space with its own contacts that nobody else can tell
-  exists; while closed it receives in silence.
+  phone; you add people by scanning their code or opening their link. We have no directory of
+  users and never see your address book.
+- **Phone to phone:** messages travel directly between phones when possible, over an encrypted
+  WebRTC connection, end-to-end encrypted with Olm (vodozemac). Encrypted relays help when a
+  direct connection is unavailable.
+- **Optional mailbox:** if the other phone is offline, an optional mailbox holds your message
+  end-to-end encrypted. It is deleted when picked up, or after 7 days at the latest. We cannot
+  read it. If either of you turns the mailbox off, the message waits on the sender's phone until a
+  direct connection is possible.
+- **Files and calls** are one to one and never go through the mailbox. During a call you can
+  present a whiteboard or a PDF, page by page.
+- **Circles:** a small, closed group of your contacts, up to 32 members, for text messages. Our
+  server keeps no record of circles.
+- **Sessions with a PIN:** a separate space, with its own contacts and PIN.
 - **Per-contact rules:** mute, accept only messages or only calls, turn receipts off, keep history
   for a while or delete after reading; weekly quiet hours.
-- **Plugins:** small tools you install from a signed catalogue, isolated, with permissions you grant.
+- **Tools and games:** 17 tools and 13 games are in the Apps tab, from a signed catalogue: install
+  only the ones you want. Each one runs in isolation and gets only what you allow it, never your
+  chat history, your contacts or your keys.
+- No advertising. No analytics. No tracking profiles.
 
-Everything the app does today, screen by screen (in Spanish): [docs/funcionalidades.md](docs/funcionalidades.md).
+The app is free to use; the tools and extra PIN-protected sessions are an optional Premium
+subscription, with a 15-day trial.
+
+## What it does not protect
+
+- During a direct connection, the other phone can see your public IP address. In Settings you can
+  make calls always go through our relay, which hides it from the other person during calls.
+- Google or Apple deliver the wake-up notification, so they see that your phone got one and when.
+  The notification never contains a message or who sent it.
+- No app can protect you from a phone that is compromised or unlocked in someone else's hands,
+  from malware, from screenshots, or from the people you write to copying what you send.
+- FlickerTalk itself has not been audited. The encryption library it uses, vodozemac, has.
 
 What our server keeps, who can see what, and the limits of the model: see
 [how it works](https://flickertalk.com/how-it-works/).
+
+Everything the app does today, screen by screen (in Spanish): [docs/funcionalidades.md](docs/funcionalidades.md).
 
 ## This repository
 
