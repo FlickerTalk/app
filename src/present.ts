@@ -1,5 +1,5 @@
 /**
- * Presenting in a call (docs/plan-presentar-en-llamada.md, 2026-10-08): a whiteboard or a PDF the
+ * Presenting in a call (2026-10-08): a whiteboard or a PDF the
  * other person sees while they hear you. What the call screen needs that is not on the screen:
  * which tools present, the permission they need (`live`, asked once, like a game's), the file just
  * sent to the chat, and the hole the presentation leaves for the other person's picture.

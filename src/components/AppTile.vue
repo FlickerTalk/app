@@ -4,7 +4,7 @@ import { IonIcon, IonRippleEffect, IonSpinner } from "@ionic/vue";
 import { addOutline, downloadOutline, lockClosedOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
-// 2026-10-08 (plan of the apps grid, docs/mockups/apps-grid.html): an app as a home-screen icon,
+// Apps grid (2026-10-08): an app as a home-screen icon,
 // its name under it. A tap opens it (or installs it); touching and holding shows what it is.
 const props = defineProps<{
   name: string;

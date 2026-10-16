@@ -608,7 +608,7 @@ describe("CallPage with native video", () => {
   });
 });
 
-// Presenting in a call (docs/plan-presentar-en-llamada.md, 2026-10-08).
+// Presenting in a call (2026-10-08).
 describe("CallPage presenting", () => {
   const BOARD = "com.flickertalk.board";
   const PDF = "com.flickertalk.pdfviewer";

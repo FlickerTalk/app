@@ -71,7 +71,7 @@ pub enum PresentedBy {
     Them,
 }
 
-/// What is presented in a call (2026-10-08, `docs/plan-presentar-en-llamada.md`): the plugin
+/// What is presented in a call (2026-10-08): the plugin
 /// shown on both screens and the chat file it shows, if any. The core opens nothing and reads
 /// nothing of it: the plugin's own content travels over `ft.live`.
 #[derive(Debug, Clone, PartialEq, Eq)]

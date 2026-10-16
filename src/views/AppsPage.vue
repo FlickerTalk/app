@@ -50,7 +50,7 @@ import {
 } from "../plugins";
 import { closeOnBackWhile } from "../back";
 
-// 2026-10-08 (plan of the apps grid, docs/mockups/apps-grid.html): the tools and the games of this
+// Apps grid (2026-10-08): the tools and the games of this
 // phone as a grid of icons, and under them what the app carries or the catalogue offers. A tap
 // opens (a tool), asks who to play with (a game) or installs; a hold shows what the app is.
 // Installing grants nothing (§53): its permissions are switches on its sheet.
