@@ -31,6 +31,38 @@ dist-ssr
 test-results
 playwright-report
 
-# Rust workspace build output
-/target/
-src-tauri/platform/android/.gradle/
+# Kotlin 2 and JVM leftovers
+.kotlin/
+*.hprof
+
+# Signing material and service configs: the real ones live outside the repo
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pem
+*.mobileprovision
+keystore.properties
+key.properties
+local.properties
+google-services.json
+GoogleService-Info.plist
+.env.*
+
+# Build output, wherever it lands
+target/
+build/
+.gradle/
+xcuserdata/
+DerivedData/
+coverage/
+
+# Local databases and packaged apps
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.apk
+*.aab
+*.ipa
