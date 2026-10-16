@@ -1,7 +1,7 @@
 # Every night, on main: the whole suite again (a test that fails only now and then, or a
 # dependency that moved, shows up here before a release does) and the tests against the real
 # network, which pull requests skip: two cores chatting through api.flickertalk.com, the live
-# router, and WebRTC through the cluster's STUN (and TURN, when its secrets are set).
+# router, and WebRTC through a public STUN server (and through TURN, when its secrets are set).
 #
 # It also checks that the last push run of `app` on main succeeded: that run publishes the canary,
 # and one that fails or never ends (on 2026-10-06 one stuck on the release environment held main's
@@ -83,7 +83,7 @@ jobs:
         run: cargo test --locked -p ft-core --test live two_phones_chat_through_the_live_cluster -- --ignored --nocapture
       - name: Two devices meet on the live router
         run: cargo test --locked -p ft-push --test client -- --ignored --nocapture
-      - name: WebRTC through the cluster's STUN
+      - name: WebRTC through a public STUN server
         run: cargo test --locked -p ft-webrtc --test handshake two_peers_connect_through_stun_on_the_real_network -- --ignored --nocapture
       - name: WebRTC through TURN alone
         env:
