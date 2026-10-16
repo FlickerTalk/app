@@ -76,8 +76,8 @@ test("the permissions sheet opened from a chat stays above the navigation bar", 
   await aboveTheBar(app, app.getByTestId("game-allow"));
 });
 
-// Ioan, 2026-10-02: "asegúrate que tenga scroll". With more plugins or games than fit, the sheet's
-// list scrolls, and its last item can be brought above the bar and tapped.
+// Decision of 2026-10-02: the apps sheet always scrolls. With more plugins or games than fit, the
+// sheet's list scrolls, and its last item can be brought above the bar and tapped.
 test.describe("with many plugins and games", () => {
   test.use({ viewport: { width: 360, height: 740 } });
   test.beforeEach(async ({ app }) => {

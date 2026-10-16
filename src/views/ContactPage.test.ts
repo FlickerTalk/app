@@ -24,8 +24,8 @@ describe("ContactPage", () => {
     showInPane("");
   });
 
-  // Ioan, 2026-10-06: as Messenger and WhatsApp do it, the chat header keeps few icons and the
-  // contact page has a row of quick actions under the name: call, video and search.
+  // Decision of 2026-10-06: as Messenger and WhatsApp do it, the chat header keeps few icons and
+  // the contact page has a row of quick actions under the name: call, video and search.
   describe("quick actions", () => {
     const action = (wrapper: ReturnType<typeof mount>, name: string) => wrapper.find(`[data-test='quick-${name}']`);
 
@@ -57,8 +57,8 @@ describe("ContactPage", () => {
       expect(routing.back).not.toHaveBeenCalled();
     });
 
-    // As in WhatsApp (Ioan, 2026-10-06): reached from the conversation, it goes back to it and the
-    // conversation searches, so the next back goes to the list, not here again.
+    // As in WhatsApp (decision of 2026-10-06): reached from the conversation, it goes back to it
+    // and the conversation searches, so the next back goes to the list, not here again.
     it("goes back to the conversation it came from to search there", async () => {
       routing.state = { back: "/chat/c1" };
       const wrapper = mount(ContactPage, { shallow: true });

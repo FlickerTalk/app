@@ -2039,9 +2039,9 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         startActivityForResult(invoke, intent, "picked")
     }
 
-    /** The camera app takes a photo straight into the app's folder (Ioan, 2026-09-23). Without
-     *  the camera permission (the app declares it for calls) the capture intent is refused, so
-     *  it is asked for first and nothing is taken this time. */
+    /** The camera app takes a photo straight into the app's folder (decision of 2026-09-23).
+     *  Without the camera permission (the app declares it for calls) the capture intent is
+     *  refused, so it is asked for first and nothing is taken this time. */
     @Command
     fun takePhoto(invoke: Invoke) {
         if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {

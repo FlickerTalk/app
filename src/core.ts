@@ -963,7 +963,7 @@ export async function installPlugin(plugin: string): Promise<void> {
 
 /** Where this phone stands with the plan (§40–§47); all of it decided on the phone. */
 export interface PlanView {
-  /** Ioan, 2026-10-08: `limited` locks the tools, and only them; nothing else is ever limited. */
+  /** Decision of 2026-10-08: `limited` locks the tools, and only them; nothing else is limited. */
   state: "trial" | "subscribed" | "limited";
   /** When the free days end, or when the subscription runs out (ms); 0 when neither applies. */
   until: number;

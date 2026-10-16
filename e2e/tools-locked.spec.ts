@@ -1,7 +1,7 @@
-// Ioan, 2026-10-08: after the 15 free days, without the subscription, only the premium part is
-// locked: the tools and the extra sessions with a PIN. Each shows a lock and leads to the Premium
-// section of Settings (the Plan screen is gone, mockup of 2026-10-08); games, chat, calls and
-// files never ask.
+// Decision of 2026-10-08: after the 15 free days, without the subscription, only the premium part
+// is locked: the tools and the extra sessions with a PIN. Each shows a lock and leads to the
+// Premium section of Settings (the Plan screen is gone, mockup of 2026-10-08); games, chat, calls
+// and files never ask.
 import type { Page } from "@playwright/test";
 import { callsTo, expect, test } from "./helpers";
 

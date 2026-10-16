@@ -242,7 +242,7 @@ test.describe("on an iPhone, going back to the chats", () => {
   });
 });
 
-// Ioan (2026-10-09): «¿respetas toda la estructura tal como tiene que ser?». Ionic's transitions
+// Decision of 2026-10-09: every page keeps the structure Ionic expects. Ionic's transitions
 // find what to move among a page's own children: `ion-header`, `ion-content` and `ion-footer` in a
 // page, `ion-tabs` in the tabs' page. Wrapped in a box of the app's own, they were not found.
 test.describe("on a phone, the pages are Ionic's own shape", () => {

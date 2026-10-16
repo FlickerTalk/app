@@ -280,7 +280,7 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).not.toContain("voice-20260922");
   });
 
-  // Media bubbles carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size.
+  // Media bubbles carry nothing but the medium (decision of 2026-09-23): no card, no name, no size.
   it("shows an image with nothing but the picture", () => {
     const message = {
       ...base,
@@ -349,7 +349,7 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).toContain("1:03");
   });
 
-  // The player draws a waveform (the sketch Ioan approved, 2026-09-23): the bars up to where the
+  // The player draws a waveform (the approved sketch, 2026-09-23): the bars up to where the
   // message has played are lit. The bars come from the message itself, the same every time.
   it("lights the bars of a voice message as far as it has played", async () => {
     const wrapper = mount(MessageBubble, { props: { message: voice }, shallow: true });
@@ -367,7 +367,7 @@ describe("MessageBubble", () => {
   });
 
   // A waveform, not noise: two bars next to each other never jump the whole height, so the shape
-  // reads as a voice and not as static (Ioan, 2026-09-23).
+  // reads as a voice and not as static (decision of 2026-09-23).
   // Every message, not just a lucky one: the ids the app really makes are UUIDv7.
   it.each(["m1", "01a0cf49-a448-71fe-87a4-f43f3344df08", "01a0cf8b-1395-7263-b947-d600372d4113", "01a0cf69-f758-745e-91b4-7a59978b9e12"])(
     "draws a waveform that rises and falls gently for %s",
@@ -558,7 +558,7 @@ describe("MessageBubble", () => {
     expect(broken.text()).toContain("geo:91.0,10.0");
   });
 
-  // A long press is how a message is acted on (Ioan, 2026-09-23); a tap is not.
+  // A long press is how a message is acted on (decision of 2026-09-23); a tap is not.
   it("asks for the actions of a message after a long press, not a tap", async () => {
     vi.useFakeTimers();
     const wrapper = mount(MessageBubble, { props: { message: base }, shallow: true });
@@ -625,7 +625,7 @@ describe("MessageBubble", () => {
       const play = wrapper.find("[data-test='play-game']");
       expect(play.text()).toContain("Play");
       expect(play.text()).not.toContain("MB");
-      // Ioan, 2026-10-02: Ionic's own button, and an icon, never an emoji, for the interface.
+      // Decision of 2026-10-02: Ionic's own button, and an icon, never an emoji, for the interface.
       const button = wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === "play-game");
       expect(button?.findComponent(IonIcon).exists()).toBe(true);
       expect(play.html()).not.toContain("🎮");
@@ -748,7 +748,7 @@ describe("MessageBubble", () => {
     expect(body(mine ? ".is-mine .ft-msg__column" : ".ft-msg__column")).toMatch(new RegExp(`align-items:\\s*${corner}`));
     expect(body(".ft-reactions")).not.toMatch(/align-self:\s*stretch|height:\s*100%/);
   });
-  // Ioan, 2026-10-06: the emoji on a message stand alone, no chip around them.
+  // Decision of 2026-10-06: the emoji on a message stand alone, no chip around them.
   it("shows the emoji of a reaction alone, without a background or a border", () => {
     const styles = source.slice(source.indexOf("<style"));
     const rules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]

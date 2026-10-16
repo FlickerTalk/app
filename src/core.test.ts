@@ -836,7 +836,8 @@ describe("a suggestion", () => {
   });
 });
 
-// Ioan, 2026-10-08: only the tools ask for the subscription, and there is no age rule any more.
+// Decision of 2026-10-08: only the tools ask for the subscription, and there is no age rule any
+// more.
 describe("the plan", () => {
   beforeEach(() => tauri.invoke.mockReset());
 

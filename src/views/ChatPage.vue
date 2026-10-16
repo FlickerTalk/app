@@ -18,7 +18,7 @@ const play = computed(() => {
   const asked = route.query?.play;
   return forThisChat() && typeof asked === "string" && asked ? asked : undefined;
 });
-// Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`.
+// Decision of 2026-10-06: the contact page's search opens the conversation with `?search=1`.
 const search = computed(() => forThisChat() && route.query?.search === "1");
 // Under another page, what the conversation left open lets go of Android's back button.
 const onScreen = useOnScreen();

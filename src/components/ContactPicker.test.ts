@@ -6,9 +6,9 @@ import { seed } from "../__tests__/seed";
 import { IonModalStub } from "../__tests__/ionic";
 import { store } from "../core";
 
-// Plan 10.4 and Ioan, 2026-10-09: who a game is played with, or who a tool opened on its own sends
-// to. The contacts of the main list and of each open hidden session (§108), never a blocked one;
-// strangers who wrote first are not contacts yet.
+// Plan 10.4 and the decision of 2026-10-09: who a game is played with, or who a tool opened on its
+// own sends to. The contacts of the main list and of each open hidden session (§108), never a
+// blocked one; strangers who wrote first are not contacts yet.
 function picker(props: Record<string, unknown> = {}) {
   return mount(ContactPicker, { props: { open: true, purpose: "play", ...props }, global: { stubs: { IonModal: IonModalStub } } });
 }

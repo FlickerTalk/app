@@ -74,10 +74,10 @@ export async function followPluginChanges(): Promise<() => void> {
 }
 
 /**
- * Whether the premium part is locked now (Ioan, 2026-10-08): the tools and the extra sessions with
- * a PIN, once the 15 free days are over without a subscription. Chat, calls, files and games never
- * are. The core refuses them by itself; this only lets the screens show the lock and offer the
- * subscription instead.
+ * Whether the premium part is locked now (decision of 2026-10-08): the tools and the extra sessions
+ * with a PIN, once the 15 free days are over without a subscription. Chat, calls, files and games
+ * never are. The core refuses them by itself; this only lets the screens show the lock and offer
+ * the subscription instead.
  */
 export const premiumLocked = shallowRef(false);
 

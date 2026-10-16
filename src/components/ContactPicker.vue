@@ -6,9 +6,10 @@ import Avatar from "./Avatar.vue";
 import { store } from "../core";
 import { t } from "../i18n";
 
-// Plan 10.4: who a game is played with (the Apps tab). Ioan, 2026-10-09: also who a tool opened on
-// its own sends what it proposes to. A sheet over the page, half the height first; whoever shows it
-// says where it sits on a wide screen (`ft-sheet--tab`, `ft-sheet--window`) by its class.
+// Plan 10.4: who a game is played with (the Apps tab). Decision of 2026-10-09: also who a tool
+// opened on its own sends what it proposes to. A sheet over the page, half the height first;
+// whoever shows it says where it sits on a wide screen (`ft-sheet--tab`, `ft-sheet--window`) by its
+// class.
 const props = defineProps<{ open: boolean; purpose: "play" | "send" }>();
 const emit = defineEmits<{ pick: [contact: string]; add: []; dismiss: [] }>();
 

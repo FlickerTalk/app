@@ -28,8 +28,8 @@ class PlatformPluginTest {
     }
 
     // Asking for pictures opens the photo picker, which is a sheet over the app and closes with
-    // a swipe: the user is never taken out of FlickerTalk (Ioan, 2026-09-23). Anything else is a
-    // document, and that is the system's own picker.
+    // a swipe: the user is never taken out of FlickerTalk (decision of 2026-09-23). Anything else
+    // is a document, and that is the system's own picker.
     @Test
     fun picturesUseThePhotoPickerWhereThereIsOne() {
         assertEquals(true, usesPhotoPicker("image/*", 33))
@@ -51,7 +51,7 @@ class PlatformPluginTest {
     }
 
     // A photo taken with the camera is named like a voice note, by when it was taken; one the
-    // user backed out of, or that came out empty, is not kept (Ioan, 2026-09-23).
+    // user backed out of, or that came out empty, is not kept (decision of 2026-09-23).
     @Test
     fun aPhotoIsNamedByWhenItWasTakenAndKeptOnlyWhenItCameOut() {
         assertEquals("photo-20260923-190501.jpg", photoName(1790183101670L, java.util.TimeZone.getTimeZone("Europe/Madrid")))

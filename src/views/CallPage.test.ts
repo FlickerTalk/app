@@ -1390,7 +1390,8 @@ describe("CallPage presenting", () => {
     expect(ask.props()).toMatchObject({ open: true, body: "Maria López wants to present with Board" });
   });
 
-  // Ioan, 2026-10-08: watching a presentation is free; the core opens a follower's tool even locked.
+  // Decision of 2026-10-08: watching a presentation is free; the core opens a follower's tool even
+  // locked.
   it("follows a presentation with the tools locked, with no lock in sight", async () => {
     planState = "limited";
     active({ presenting: { plugin: BOARD, by: "them" } });
