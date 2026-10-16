@@ -1,5 +1,5 @@
-// Ioan, 2026-10-06: as in WhatsApp, the contact page's search goes back to the conversation it
-// came from, and the conversation opens its search once it is on screen again. Only the latest
+// Decision of 2026-10-06: as in WhatsApp, the contact page's search goes back to the conversation
+// it came from, and the conversation opens its search once it is on screen again. Only the latest
 // request counts, and it is taken once.
 let asked: string | null = null;
 

@@ -377,7 +377,7 @@ watch(query, (now) => {
   }, 250);
 });
 watch(() => props.chatId, closeSearch);
-// Ioan, 2026-10-06: the search opens from the contact page (`?search=1`), as in Messenger and
+// Decision of 2026-10-06: the search opens from the contact page (`?search=1`), as in Messenger and
 // WhatsApp; the header keeps three buttons.
 watch(
   () => props.search,
@@ -471,10 +471,10 @@ async function attach(event: Event) {
 }
 
 /**
- * The phone's own picker where there is one (§62). The «+» unfolds two (Ioan, 2026-09-23): a photo
- * or video comes through the system's sheet over the chat, which closes with a swipe; any other
- * file through the document picker. Never the WebView's own file input, which takes the user out
- * of the app with no way back unless they pick something. On a desktop there is no such picker,
+ * The phone's own picker where there is one (§62). The «+» unfolds two (decision of 2026-09-23): a
+ * photo or video comes through the system's sheet over the chat, which closes with a swipe; any
+ * other file through the document picker. Never the WebView's own file input, which takes the user
+ * out of the app with no way back unless they pick something. On a desktop there is no such picker,
  * so the hidden input is used.
  */
 const attaching = ref(false);
@@ -547,8 +547,8 @@ onUnmounted(() => {
 
 const saved = reactive(new Set<string>());
 
-// A long press asks what to do with a message (Ioan, 2026-09-23): fold it, send it on, hand it to
-// another app, or erase it here. Erasing is for good, so it asks once.
+// A long press asks what to do with a message (decision of 2026-09-23): fold it, send it on, hand
+// it to another app, or erase it here. Erasing is for good, so it asks once.
 const acting = ref("");
 const folded = reactive(new Set<string>());
 const forwarding = ref(false);
@@ -672,8 +672,8 @@ watch(holding, (now) => {
 });
 onUnmounted(() => releaseHold?.());
 
-// Ioan, 2026-10-02 (option A): a game is played inside the conversation, so the two can write to
-// each other while they play. It takes the place of the messages, which stay mounted underneath;
+// Decision of 2026-10-02 (option A): a game is played inside the conversation, so the two can write
+// to each other while they play. It takes the place of the messages, which stay mounted underneath;
 // the header (with the voice call) and the composer stay. No video and no files while playing.
 const playing = computed(() => Boolean(plugin.value?.game) && !leaving.value);
 /** The thread shown for a moment, with the game still running behind it. */
@@ -733,8 +733,9 @@ function openChatFromPlugin(contact: string) {
   else void router.push(`/chat/${contact}`);
 }
 
-// Ioan, 2026-10-08: a plugin asking for something it lacks the permission for (the tool window or
-// the game room) asks the user here, for that one permission; the sheet grants it on a yes.
+// Decision of 2026-10-08: a plugin asking for something it lacks the permission for (the tool
+// window or the game room) asks the user here, for that one permission; the sheet grants it on a
+// yes.
 const needing = ref<PermissionNeed | null>(null);
 const openView = computed(() => installed.value.find((one) => one.id === plugin.value?.id));
 function answerNeed(allowed: boolean) {
@@ -752,8 +753,8 @@ closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, 
 closeOnBackWhile(() => props.active && Boolean(needing.value), () => answerNeed(false));
 
 /**
- * Ioan, 2026-10-08: after the 15 free days, without the subscription, the tools are locked: a tap on
- * one goes to the Premium section of Settings, where the subscription is. Games never are.
+ * Decision of 2026-10-08: after the 15 free days, without the subscription, the tools are locked: a
+ * tap on one goes to the Premium section of Settings, where the subscription is. Games never are.
  */
 function toPremium() {
   void router.push(PREMIUM_PAGE);
@@ -767,8 +768,8 @@ function useApp(id: string) {
   openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) });
 }
 
-// Plan 10 (app 1.3.0): games, on every phone, since the app carries them (2026-10-03). Ioan,
-// 2026-10-02: they are a tab of the apps sheet, not a button of their own, so the header keeps
+// Plan 10 (app 1.3.0): games, on every phone, since the app carries them (2026-10-03). Decided
+// on 2026-10-02: they are a tab of the apps sheet, not a button of their own, so the header keeps
 // three buttons and a name has room on a small phone. The apps button is always there, so the
 // games can be found with nothing installed. A game is opened here, in this conversation, with
 // the live channel to the same game on the other phone.
@@ -1099,7 +1100,7 @@ watch(
           <ion-button :aria-label="$t('chat.voiceCall')" @click="router.push(`/call/${chat.id}`)">
             <ion-icon slot="icon-only" :icon="callOutline" aria-hidden="true" />
           </ion-button>
-          <!-- Ioan, 2026-10-02: no video while playing. -->
+          <!-- Decision of 2026-10-02: no video while playing. -->
           <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
@@ -1145,8 +1146,8 @@ watch(
       <span v-if="pinned.length > 1" class="ft-pinned__count">{{ (pinnedAt % pinned.length) + 1 }}/{{ pinned.length }}</span>
     </button>
 
-    <!-- The game room (Ioan, 2026-10-02): the game where the messages are, with a bar of its own:
-         a way out, its name and the invitation. The thread stays mounted under it. -->
+    <!-- The game room (decision of 2026-10-02): the game where the messages are, with a bar of its
+         own: a way out, its name and the invitation. The thread stays mounted under it. -->
     <section v-if="plugin && plugin.game" v-show="!leaving" class="ft-room" data-test="game-room" :aria-label="plugin.name">
       <ion-toolbar class="ft-room__bar" data-test="game-bar">
         <ion-buttons slot="start">
@@ -1182,7 +1183,8 @@ watch(
 
     <!-- Issue app#3: each tool does its thing inside its own window. -->
     <div v-if="plugin && !plugin.game" v-show="!leaving" class="ft-app" role="dialog" :aria-label="plugin.name">
-      <!-- Ionic's own bar and button (Ioan, 2026-10-08), as the game room's: the way out and the name. -->
+      <!-- Ionic's own bar and button (decision of 2026-10-08), as the game room's: the way out and
+           the name. -->
       <ion-toolbar class="ft-app__bar" data-test="app-bar">
         <ion-buttons slot="start">
           <ion-button data-test="close-app" :aria-label="$t('common.back')" @click="closePlugin">
@@ -1216,9 +1218,9 @@ watch(
     </div>
 
     <!-- The apps of this phone, in Ionic's sheet modal: it rises from the bottom as the apps
-         themselves open (Ioan, 2026-10-02). Where there are games, a segment has them. The content
-         scrolls at every height (`expand-to-scroll` off): the sheet grows or goes only by its
-         handle or its header, so a long list is never stuck. -->
+         themselves open (decision of 2026-10-02). Where there are games, a segment has them. The
+         content scrolls at every height (`expand-to-scroll` off): the sheet grows or goes only by
+         its handle or its header, so a long list is never stuck. -->
     <ion-modal
       :is-open="showApps"
       class="ft-apps-sheet"

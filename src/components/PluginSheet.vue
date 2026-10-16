@@ -83,7 +83,7 @@ import type { ContactAsk, Proposal } from "../pending-send";
 // that place; the core keeps each place apart and the plugin never hears of sessions.
 // 2026-10-02: opened in a conversation, it learns the core's opaque id of it (`chat`), its own
 // for this plugin, never who it is with.
-// 2026-10-09 (Ioan): opened outside a conversation, what it proposes to send asks the user who it
+// 2026-10-09: opened outside a conversation, what it proposes to send asks the user who it
 // is for (`pick`); with a contact picked it is handed over (`sendTo`, a text or a staged file, or
 // nothing when it went by itself with `auto`) for that conversation's composer. No pick, nothing.
 // 2026-10-09 (Ionic in the plugins): `fill` makes the frame as tall as what it is shown in, and the
@@ -237,7 +237,7 @@ async function mayNotWrite() {
 }
 
 /**
- * The plugin's notices (Ioan, 2026-10-06): the app owns the toast and a plugin or a game only
+ * The plugin's notices (decision of 2026-10-06): the app owns the toast and a plugin or a game only
  * hands it the text. There is only ever one, at the top, floating over the content: each notice
  * takes the place of the one before, and an empty text just takes it away. Without a duration it
  * stays until the next notice. One after another, so two quick notices never show together.
@@ -409,7 +409,7 @@ function refusal(said: { type: string }): null | false {
   return said.type === "ft.location" ? null : false;
 }
 
-// ---- Asking for a permission on the spot (Ioan, 2026-10-08) ----
+// ---- Asking for a permission on the spot (decision of 2026-10-08) ----
 //
 // Installing grants nothing (§53), so a tool asking for something it was not granted (where the
 // phone is, writing in the chat, its twin on the other side…) used to get a plain no, and nothing

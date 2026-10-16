@@ -45,8 +45,8 @@ const sends = () => calls.filter(([command]) => command === "core_send_feedback"
 const outcome = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='outcome']");
 
 // 2026-10-02: an anonymous suggestion, mailed on by the router. The modal says "sent" only when the
-// router took it, and never loses what was written when it did not. Ioan (2026-10-02): an Ionic
-// modal over Settings, built with Ionic's own components.
+// router took it, and never loses what was written when it did not. Decision of 2026-10-02: an
+// Ionic modal over Settings, built with Ionic's own components.
 describe("FeedbackModal", () => {
   beforeEach(() => seed());
 

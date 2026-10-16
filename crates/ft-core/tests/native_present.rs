@@ -510,7 +510,7 @@ async fn plan_changed(events: &mut broadcast::Receiver<Event>) -> bool {
     tokio::time::timeout(Duration::from_secs(5), heard).await.is_ok()
 }
 
-// Ioan, 2026-10-08: watching a class is free. With his tools closed, Bob still opens the one
+// Decision of 2026-10-08: watching a class is free. With his tools closed, Bob still opens the one
 // Alice presents while she presents it, and only that one; when she stops, it closes again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_student_with_locked_tools_may_follow_a_presentation() {

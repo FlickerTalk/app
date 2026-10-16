@@ -100,7 +100,7 @@ html.ft-dark[data-direction="aurora"] {
   --ft-glow: rgba(61, 219, 196, 0.45);
 }
 
-/* ---------- Mono: black and white, and nothing else. The default (Ioan, 2026-09-22) ---------- */
+/* ---------- Mono: black and white, and nothing else. The default (decision of 2026-09-22) ---------- */
 html[data-direction="mono"] {
   --ft-bg: #ffffff;
   --ft-surface: #ffffff;
@@ -137,7 +137,7 @@ html[data-direction="mono"] .ft-avatar {
   filter: grayscale(1);
 }
 
-/* ---------- Lime: the first Mono, black with an electric lime, back as a choice (Ioan, 2026-10-02) ---------- */
+/* ---------- Lime: the first Mono, black with an electric lime, back as a choice (decision of 2026-10-02) ---------- */
 /* In the light the lime is darkened, same hue, so white reads on it and it reads on white (WCAG AA). */
 html[data-direction="lime"] {
   --ft-bg: #ffffff;

@@ -1,9 +1,9 @@
 import type { PickedFile } from "./core";
 
-// Ioan, 2026-10-09: a tool opened on its own (from Apps, from a reminder) has no chat behind it, so
-// what it proposes to send asks the user who it is for. The proposal waits here for the conversation
-// picked, which puts it in its composer once it is on screen: the user sends it, never the tool
-// (§53). Only the latest proposal counts, and it is taken once.
+// Decision of 2026-10-09: a tool opened on its own (from Apps, from a reminder) has no chat behind
+// it, so what it proposes to send asks the user who it is for. The proposal waits here for the
+// conversation picked, which puts it in its composer once it is on screen: the user sends it, never
+// the tool (§53). Only the latest proposal counts, and it is taken once.
 
 /** What a tool proposes: a text for the composer, or a file staged as an attachment. */
 export type Proposal = { kind: "text"; text: string } | { kind: "file"; file: PickedFile };

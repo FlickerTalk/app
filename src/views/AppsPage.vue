@@ -127,7 +127,10 @@ async function refresh() {
   offeredRead.value = true;
 }
 
-/** Ioan, 2026-10-08: a locked tool goes to the Premium section of Settings, where the subscription is. */
+/**
+ * Decision of 2026-10-08: a locked tool goes to the Premium section of Settings, where the
+ * subscription is.
+ */
 function subscribe() {
   void router.push(PREMIUM_PAGE);
 }

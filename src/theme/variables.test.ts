@@ -48,8 +48,9 @@ describe("theme variables", () => {
   });
 });
 
-// The first Mono (black with an electric lime) came back as a fourth theme (Ioan, 2026-10-02): the
-// dark palette exactly as it was; in the light one the lime is darkened, same hue, to read on white.
+// The first Mono (black with an electric lime) came back as a fourth theme (decision of
+// 2026-10-02): the dark palette exactly as it was; in the light one the lime is darkened, same hue,
+// to read on white.
 describe("the lime palette", () => {
   const [light] = blocks('html[data-direction="lime"');
   const [dark] = blocks('html.ft-dark[data-direction="lime"');

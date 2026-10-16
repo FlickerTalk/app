@@ -15,7 +15,7 @@ const router = useRouter();
 const pin = ref("");
 const busy = ref(false);
 
-// Ioan, 2026-10-08 (§108): extra sessions are premium. After the free days, without the
+// Decision of 2026-10-08 (§108): extra sessions are premium. After the free days, without the
 // subscription, the lock stands in front of the pad: no PIN is typed, so nothing can tell whether a
 // session exists. The core refuses every PIN alike all the same.
 onMounted(() => void refreshPremiumLock());

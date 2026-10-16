@@ -73,7 +73,7 @@ describe("the app's page transition", () => {
     expect(framesOf(back.animation, back.leavingEl).transform).toEqual(["translateX(0%)", "translateX(-100%)"]);
   });
 
-  // Ioan: «la app tiene que ser la misma en las dos».
+  // Project rule: the app is the same on both platforms.
   it("is the same in Android's Material mode", () => {
     const ios = build("forward", "ios");
     const iosFrames = [framesOf(ios.animation, ios.enteringEl), framesOf(ios.animation, ios.leavingEl)];

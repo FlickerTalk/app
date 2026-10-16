@@ -282,7 +282,8 @@ const presentState = computed<PresentState>(() => {
   }
   // Before the grant: a grant that failed is not asked about again.
   if (presentBroken.value) return "failed";
-  // No lock here (Ioan, 2026-10-08): following is free, the core decides; presenting checks it first.
+  // No lock here (decision of 2026-10-08): following is free, the core decides; presenting checks
+  // it first.
   if (needsPresentGrant(plugin)) return declined.value === presentKey.value ? "declined" : "ask";
   if (!now.file || presentFile.value) return "sheet";
   if (now.by === "me") return "loading";

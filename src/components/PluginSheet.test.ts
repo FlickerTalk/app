@@ -85,9 +85,9 @@ describe("PluginSheet", () => {
     );
   });
 
-  // 2026-10-02 (Ioan): the plugin is handed the app's colours and whether it is dark, before it
+  // 2026-10-02: the plugin is handed the app's colours and whether it is dark, before it
   // loads (`ft.hello`), when it opens, and again whenever the app's look changes while it is open.
-  // 2026-10-09 (Ioan, Ionic in the plugins): an overlay of Ionic is placed in the frame, so a frame
+  // 2026-10-09 (Ionic in the plugins): an overlay of Ionic is placed in the frame, so a frame
   // as tall as its content dropped a toast or an action sheet off the screen. In the tool window the
   // frame is as tall as the window and the plugin scrolls inside; elsewhere (the game room) it
   // still follows its content.
@@ -692,7 +692,7 @@ describe("PluginSheet", () => {
       return { wrapper, ...frame };
     }
 
-    // 2026-10-06 (Ioan): the app owns the toast; a plugin or a game only hands it the text. One
+    // 2026-10-06: the app owns the toast; a plugin or a game only hands it the text. One
     // toast, at the top, floating over the content; no permission, it never leaves the phone.
     it("shows a plugin's notice as one toast at the top", async () => {
       const { says } = await sheet({ sending: "nothing" });
@@ -814,10 +814,10 @@ describe("PluginSheet", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_send", expect.anything());
   });
 
-  // Ioan, 2026-10-09: a tool opened on its own (from Apps, from a reminder) has no chat behind it.
-  // What it proposes asks the user who it is for; the sheet hands it over with the contact picked
-  // (`sendTo`) and whoever shows it opens that conversation with it in the composer (§53). No pick,
-  // nothing: the window stays and the plugin hears what it hears today.
+  // Decision of 2026-10-09: a tool opened on its own (from Apps, from a reminder) has no chat
+  // behind it. What it proposes asks the user who it is for; the sheet hands it over with the
+  // contact picked (`sendTo`) and whoever shows it opens that conversation with it in the composer
+  // (§53). No pick, nothing: the window stays and the plugin hears what it hears today.
   describe("outside a conversation", () => {
     const staged = { path: "/data/files/outgoing/1-clean.jpg", name: "clean.jpg", mime: "image/jpeg", size: 3 };
     const down = { path: "/data/files/drive/x1/tax.pdf", name: "tax.pdf", mime: "application/pdf", size: 9 };
@@ -1218,7 +1218,7 @@ describe("PluginSheet", () => {
     });
   });
   // 2026-10-06 (measured on real phones): the working indicator sat above the frame, in the flow,
-  // and every Plugin API request pushed the plugin down ~30 px and back. Ioan's rule: a waiting
+  // and every Plugin API request pushed the plugin down ~30 px and back. Project rule: a waiting
   // indicator floats over the content or reserves its space from the first frame; nothing moves the
   // content after the first paint. It also shows only for a request still pending after 400 ms.
   describe("the working indicator", () => {
@@ -1291,10 +1291,10 @@ describe("PluginSheet", () => {
     });
   });
 
-  // Ioan, 2026-10-08: «si no tiene permiso se debería pedir siempre». Installing grants nothing
-  // (§53), so a tool that asks for something it was not granted asks the user there and then: the
-  // sheet holds the request, says which permission it needs (`needs`), and once the user allows it
-  // grants it and asks the core again; the plugin only ever sees the real answer.
+  // Decision of 2026-10-08: a missing permission is always asked for on the spot. Installing grants
+  // nothing (§53), so a tool that asks for something it was not granted asks the user there and
+  // then: the sheet holds the request, says which permission it needs (`needs`), and once the user
+  // allows it grants it and asks the core again; the plugin only ever sees the real answer.
   describe("asking for a permission on the spot", () => {
     const NOTHING = { network: [], messages: false, send: "nothing", live: false, remind: false, drive: false, location: false, storage: "small" } as const;
     const TOOL: PluginView = {
@@ -1445,7 +1445,7 @@ describe("PluginSheet", () => {
     });
 
     // Until 2026-10-09 a tool outside a conversation had no chat to write in, so nothing was asked.
-    // Now the user picks who it is for (Ioan), so it asks to write in the chat first, then who to.
+    // Now the user picks who it is for, so it asks to write in the chat first, then who to.
     it("asks to write in the chat from outside a conversation too, then who it is for", async () => {
       core();
       const { wrapper, says } = await open({ contact: "", sending: "nothing" });

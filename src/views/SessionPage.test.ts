@@ -59,8 +59,9 @@ describe("SessionPage", () => {
     expect(wrapper.find("[data-test='session-new']").exists()).toBe(false);
   });
 
-  // Ioan, 2026-10-08 (§108): after the free days, without the subscription, the pad is not shown at
-  // all: the lock and Subscribe stand in front of it, so no PIN is typed and nothing is told.
+  // Decision of 2026-10-08 (§108): after the free days, without the subscription, the pad is not
+  // shown at all: the lock and Subscribe stand in front of it, so no PIN is typed and nothing is
+  // told.
   it("shows the lock instead of the pad once the free days are over", async () => {
     installTauri((command) => (command === "core_plan" ? { state: "limited", until: 0 } : undefined));
     const wrapper = mount(SessionPage, { shallow: true });

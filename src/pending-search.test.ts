@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { askSearch, inPane, showInPane, takeSearch } from "./pending-search";
 
-// Ioan, 2026-10-06: the contact page's search goes back to the conversation it came from, and the
-// conversation opens its search when it is on screen again. The request is taken once.
+// Decision of 2026-10-06: the contact page's search goes back to the conversation it came from, and
+// the conversation opens its search when it is on screen again. The request is taken once.
 describe("pending search", () => {
   it("is taken once, and only by the conversation it is for", () => {
     askSearch("c1");
