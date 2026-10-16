@@ -6,3 +6,4 @@
 /tauri.properties
 # Firebase config for this app: kept out of the public repo; CI writes it from a secret.
 /google-services.json
+/src/main/assets/resources/
