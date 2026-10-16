@@ -1,5 +1,7 @@
 # FlickerTalk
 
+[![app](https://github.com/FlickerTalk/app/actions/workflows/app.yml/badge.svg?branch=main)](https://github.com/FlickerTalk/app/actions/workflows/app.yml)
+
 FlickerTalk is a private messenger: texts, photos and files, voice messages, and voice and video
 calls. No account. No phone number required. No activity logs. Your chat history stays on your
 phone, not on our servers. [flickertalk.com](https://flickertalk.com)
@@ -230,9 +232,30 @@ FlickerTalk/server and points the app at it with `ROUTER` in
 [`src-tauri/src/client.rs`](src-tauri/src/client.rs). To wake phones, it needs its own Firebase
 project (`google-services.json`) and, for iPhone, its own APNs key.
 
+## Reporting a security problem
+
+Please do not open a public issue. Use **Report a vulnerability** under this repository's
+*Security* tab, or write to [info@flickertalk.com](mailto:info@flickertalk.com). See
+[SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Licence
 
-[AGPL-3.0](LICENSE). Security issues: see [SECURITY.md](SECURITY.md).
+[AGPL-3.0](LICENSE). The FlickerTalk name and logo are not licensed under the AGPL (section 7(e)):
+forks are welcome, but must use their own name and icon.
 
-The FlickerTalk name and logo are not licensed under the AGPL (section 7(e)): forks are welcome,
-but must use their own name and icon.
+Third-party code bundled or patched here:
+
+- `src-tauri/resources/ionic`: Ionic and Ionicons (MIT), built from the app's own npm packages;
+  the notice is at the top of each file.
+- `src-tauri/resources/icons`: Ionicons (MIT), with its
+  [LICENSE](src-tauri/resources/icons/LICENSE).
+- `src-tauri/resources/plugins`: our tools and games, as signed packages. Each is built from its
+  own repository in the [FlickerTalk organization](https://github.com/FlickerTalk), with its source
+  and licence (MIT).
+- `swift-rs` (MIT OR Apache-2.0), patched from our copy,
+  [FlickerTalk/swift-rs](https://github.com/FlickerTalk/swift-rs): see `[patch.crates-io]` in
+  `Cargo.toml`.
