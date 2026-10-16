@@ -4,7 +4,9 @@ FlickerTalk is a private messenger: texts, photos and files, voice messages, and
 calls. No account. No phone number required. No activity logs. Your chat history stays on your
 phone, not on our servers. [flickertalk.com](https://flickertalk.com)
 
-- **Android:** [Google Play](https://play.google.com/store/apps/details?id=com.flickertalk.app)
+- **Android:** [Google Play](https://play.google.com/store/apps/details?id=com.flickertalk.app),
+  or the APK from [GitHub Releases](https://github.com/FlickerTalk/app/releases)
+  (see [Verifying an APK](#verifying-an-apk)).
 - **iPhone:** coming soon on the App Store.
 - **Video:** [the trailer](https://youtu.be/QNMZLA05s7c) (1 min) and
   [the full manual](https://youtu.be/rQNRywOx_P8) (24 min).
@@ -130,20 +132,51 @@ Who can see what, party by party: [how it works](https://flickertalk.com/how-it-
   your contact's identity: the server that relays them cannot put itself in the middle.
 - No cryptography of our own: we use these libraries as they are.
 
-## This repository
+## Build and test
 
-The whole client: the Tauri 2 app (Vue 3 + Ionic in `src/`, Rust in `src-tauri/`) and the Rust
-core in `crates/ft-*`, which holds the business logic. Android and iOS are the target platforms;
-desktop builds but is not published.
+This repository is the whole client: the Tauri 2 app (Vue 3 + Ionic in `src/`, Rust in
+`src-tauri/`) and the Rust core in `crates/ft-*`, which holds the business logic. Android and iOS
+are the target platforms; desktop builds but is not published.
+
+What CI uses; other versions may work:
+
+- Node.js 22 and npm.
+- Rust stable, with `clippy` (release 1.6.0 was built with Rust 1.99.0).
+- On Linux, for the Rust tests:
+  `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev`.
+- Android: JDK 17, the Android SDK (API 36) and an Android NDK, with `ANDROID_HOME` and `NDK_HOME`
+  set, and the Rust targets
+  `aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`.
+- iOS: macOS with Xcode 27, `rustup component add llvm-tools` (see below) and your own Apple team.
 
 ```sh
-npm install
-npm test            # frontend tests (Vitest)
-npm run test:e2e    # end-to-end tests of the UI (Playwright; `npx playwright install chromium` once)
+npm ci
 npm run typecheck
-cargo test --workspace   # Rust tests, no network
-npm run tauri android dev
+npm test                          # frontend tests (Vitest)
+npx playwright install chromium   # once
+npm run test:e2e                  # the real UI against a fake core (Playwright)
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked   # Rust tests, no network
 ```
+
+Android:
+
+```sh
+npm run tauri android dev               # on a phone or an emulator
+npm run tauri android build -- --apk    # release APK (see the Google client ids below)
+# Kotlin tests of the bridge, after one `tauri android dev` or `build`:
+(cd src-tauri/gen/android && ./gradlew :tauri-plugin-ft-platform:testDebugUnitTest)
+```
+
+A release build is signed when `src-tauri/gen/android/keystore.properties` exists or
+`ANDROID_UPLOAD_KEYSTORE_FILE`, `ANDROID_UPLOAD_KEY_ALIAS` and `ANDROID_UPLOAD_PASSWORD` are set;
+otherwise it is unsigned. Without `src-tauri/gen/android/app/google-services.json` from your own
+Firebase project, the app builds, but it cannot be woken while it is closed.
+
+iOS: `APPLE_DEVELOPMENT_TEAM=<your team> scripts/ios-build.sh [device-udid]` builds a debug app
+and installs it on a connected iPhone. The bridge's Swift tests run on a simulator from
+`src-tauri/platform/ios`, after one iOS build:
+`xcodebuild test -scheme tauri-plugin-ft-platform -destination 'platform=iOS Simulator,name=<simulator>'`.
 
 iOS release builds with Xcode 27 also need `rustup component add llvm-tools`: the patched
 `swift-rs` in `Cargo.toml` uses its `llvm-objcopy` to export the Swift entry points that Xcode 27
@@ -157,14 +190,49 @@ warns and cannot sign in. A release that is never published can build without it
 so for iOS export the id as `TAURI_FT_GOOGLE_IOS_CLIENT_ID` (also read; the plain name wins).
 
 Builds are signed and published by GitHub Actions: every push to `main` produces a `canary`
-prerelease, and every `vX.Y.Z` tag a release.
+prerelease, and every `vX.Y.Z` tag a release with the APK and the AAB.
+
+### Reproducible builds
+
+Not yet. The Rust toolchain and the Android NDK are not pinned, and the published APK contains
+configuration values that are not in this repository (the Firebase project and the Google sign-in
+client id), so you cannot yet check that our APK matches this source byte for byte.
+
+### Verifying an APK
+
+The APK on [GitHub Releases](https://github.com/FlickerTalk/app/releases) is signed with our upload
+key. Google Play signs the app it installs with its own key. Package `com.flickertalk.app`:
+
+| Source | Certificate SHA-256 |
+| --- | --- |
+| GitHub Releases | `97:C2:84:62:4C:46:71:05:81:FB:63:E5:1F:E0:2C:CB:42:AF:06:EA:73:35:C5:20:98:29:51:CA:E9:7E:0F:6B` |
+| Google Play | `D2:08:CB:64:1F:C6:26:B1:49:9F:8A:85:9E:33:65:2B:DD:36:94:A3:63:49:38:EE:9B:1C:D7:40:2A:29:E0:5B` |
+
+Both are also in [assetlinks.json](https://flickertalk.com/.well-known/assetlinks.json). Check an
+APK with `apksigner verify --print-certs FlickerTalk-X.Y.Z.apk` (it prints the digest in lower
+case, without colons). Because the keys differ, Android will not update an install from one source
+with the other: switching means uninstalling, which erases FlickerTalk's data on that phone.
+
+## The server
+
+The router is in [FlickerTalk/server](https://github.com/FlickerTalk/server) (Rust, Axum,
+PostgreSQL). That repository's CI publishes the image `ghcr.io/flickertalk/ft-router` and, on each
+version tag, deploys it to `api.flickertalk.com`;
+[`https://api.flickertalk.com/version`](https://api.flickertalk.com/version) answers the version
+it runs. STUN and TURN run on our own servers (coturn) with logging off; the router hands out
+short-lived TURN credentials with random user names.
+
+You cannot check from outside which code our server runs. That is why messages are encrypted on
+the phone before they reach it, and why this README lists what the server keeps and what it sees.
+
+The public router serves the official FlickerTalk apps only. A fork runs its own router from
+FlickerTalk/server and points the app at it with `ROUTER` in
+[`src-tauri/src/client.rs`](src-tauri/src/client.rs). To wake phones, it needs its own Firebase
+project (`google-services.json`) and, for iPhone, its own APNs key.
 
 ## Licence
 
-[AGPL-3.0](LICENSE). The server is in [FlickerTalk/server](https://github.com/FlickerTalk/server).
-Security issues: see [SECURITY.md](SECURITY.md).
+[AGPL-3.0](LICENSE). Security issues: see [SECURITY.md](SECURITY.md).
 
 The FlickerTalk name and logo are not licensed under the AGPL (section 7(e)): forks are welcome,
-but must use their own name and icon. The public router at `api.flickertalk.com` serves the
-official FlickerTalk apps only; a fork should run its own router from
-[FlickerTalk/server](https://github.com/FlickerTalk/server).
+but must use their own name and icon.
