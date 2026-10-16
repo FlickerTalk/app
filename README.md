@@ -143,13 +143,15 @@ are the target platforms; desktop builds but is not published.
 What CI uses; other versions may work:
 
 - Node.js 22 and npm.
-- Rust stable, with `clippy` (release 1.6.0 was built with Rust 1.99.0).
+- Rust 1.99.0, pinned in `rust-toolchain.toml`: rustup installs it on first use, with clippy and
+  the Android targets.
 - On Linux, for the Rust tests:
   `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev`.
-- Android: JDK 17, the Android SDK (API 36) and an Android NDK, with `ANDROID_HOME` and `NDK_HOME`
-  set, and the Rust targets
-  `aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`.
-- iOS: macOS with Xcode 27, `rustup component add llvm-tools` (see below) and your own Apple team.
+- Android: JDK 17, the Android SDK (API 36) and the Android NDK, with `ANDROID_HOME` and `NDK_HOME`
+  set. CI uses NDK 30.0.16248370; other versions may work locally.
+- iOS: macOS with Xcode 27 and your own Apple team. Run once in the repository:
+  `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`
+  (and `rustup component add llvm-tools`, below).
 
 ```sh
 npm ci
@@ -198,11 +200,15 @@ so for iOS export the id as `TAURI_FT_GOOGLE_IOS_CLIENT_ID` (also read; the plai
 Builds are signed and published by GitHub Actions: every push to `main` produces a `canary`
 prerelease, and every `vX.Y.Z` tag a release with the APK and the AAB.
 
+Each release also carries `BUILDINFO.txt` (the runner image, the rustc, cargo, Node, Java and NDK
+versions, the commit, and the SHA-256 of the APK and the AAB) and a `SHA256SUMS` file.
+
 ### Reproducible builds
 
-Not yet. The Rust toolchain and the Android NDK are not pinned, and the published APK contains
+Not yet. CI pins the Rust toolchain and the Android NDK, but the published APK contains
 configuration values that are not in this repository (the Firebase project and the Google sign-in
-client id), so you cannot yet check that our APK matches this source byte for byte.
+client id), build paths end up in the binaries, and nobody has yet compared two builds of the same
+commit. So you cannot yet check that our APK matches this source byte for byte.
 
 ### Verifying an APK
 
