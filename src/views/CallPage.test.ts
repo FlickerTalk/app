@@ -592,7 +592,8 @@ describe("CallPage with native video", () => {
     expect(body).toMatch(/min-height:\s*44px/);
   });
 
-  // Arabic reads right to left: no physical sides in the layout (src/CLAUDE.md).
+  // Arabic reads right to left: no physical sides in the layout, only logical ones
+  // (inline-start/inline-end).
   it("uses no left or right in its styles", () => {
     const styles = source.slice(source.indexOf("<style"));
     expect(styles).not.toMatch(/(^|[\s;{-])(left|right)\s*:/m);

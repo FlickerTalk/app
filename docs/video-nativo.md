@@ -571,8 +571,7 @@ no hacen nada, y `request_camera` devuelve `true`.
 ## Reparto: cuatro trabajos en paralelo
 
 Todos parten del commit de contrato de `native-video`. Cada uno trabaja en su rama y su *worktree*
-y solo toca sus ficheros. Los `CLAUDE.md` de cada carpeta se ponen al día en local (no se
-versionan).
+y solo toca sus ficheros. La documentación de cada carpeta se pone al día en el mismo cambio.
 
 ### Trabajo 1: `ft-media` (vídeo en Rust)
 
