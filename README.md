@@ -21,8 +21,8 @@ phone, not on our servers. [flickertalk.com](https://flickertalk.com)
   phone; you add people by scanning their code or opening their link. We have no directory of
   users and never see your address book.
 - **Phone to phone:** messages travel directly between phones when possible, over an encrypted
-  WebRTC connection, end-to-end encrypted with Olm (vodozemac). Encrypted relays help when a
-  direct connection is unavailable.
+  WebRTC connection, end-to-end encrypted with Olm (vodozemac). When a direct path is impossible,
+  our relay carries the same encrypted traffic.
 - **Optional mailbox:** if the other phone is offline, an optional mailbox holds your message
   end-to-end encrypted. It is deleted when picked up, or after 7 days at the latest. We cannot
   read it. If either of you turns the mailbox off, the message waits on the sender's phone until a
@@ -42,6 +42,46 @@ phone, not on our servers. [flickertalk.com](https://flickertalk.com)
 The app is free to use; the tools and extra PIN-protected sessions are an optional Premium
 subscription, with a 15-day trial.
 
+## What our server knows, and what it does not
+
+Our server is a small router ([FlickerTalk/server](https://github.com/FlickerTalk/server)). It is
+not a chat server: it wakes phones, passes connection offers between them, and holds messages that
+could not be delivered yet, end-to-end encrypted. For each phone it keeps:
+
+| Data | Why | For how long |
+| --- | --- | --- |
+| Device ID (`ft_` + base58 of the BLAKE3 hash of the public key) and the Ed25519 public key | To check that a request is signed by that phone | Until you erase the phone in the app |
+| BLAKE3 hashes of the phone's eight routing codes, one per space: the main list and up to seven sessions with a PIN. All eight are registered, used or not | Only someone with a routing code, which travels in your contact card, can wake you or leave you a message | Same |
+| Push provider (Google or Apple) and push token, encrypted with a key kept outside the database | To wake the phone | Same, or until Google or Apple report the token invalid |
+| Eight bits (`silent_slots`), one per space, marking the sessions you have left | So that a session you have left gets no wake-ups or calls. We can see when a bit changes, not who is in a session | Replaced at every registration |
+| Time of the last registration or push token change (`updated_at`) | Written with the record; nothing uses it yet | Same as the device ID |
+| Messages that could not be delivered: end-to-end encrypted, sealed again for the recipient, without sender. Each has an ID that contains the time it was left, an expiry time and the number (0–7) of the space it came through | To deliver them later | Until the recipient's phone confirms it has them, at most 7 days |
+
+The mailbox is an `UNLOGGED` PostgreSQL table: it never reaches the write-ahead log or a backup.
+The device records are in our database backups, which are encrypted before they leave the server.
+
+Held in memory only, never written to disk:
+
+- connection offers and answers for a phone that is not connected, end-to-end encrypted: at most
+  55 seconds;
+- which phones are connected right now;
+- the nonces of recent signed requests, for a few minutes, to refuse replays;
+- rate-limit counters, for one minute, per device, per recipient and per connection address
+  hashed with a salt made at start;
+- how many suggestions each device sent in the last 24 hours.
+
+Nothing else: no contacts or address books, no circles or their members, no conversations, no call
+history, no names, phone numbers or email addresses, no access logs and no history of IP addresses.
+The whole API is in
+[`ft-router/src/v1.rs`](https://github.com/FlickerTalk/server/blob/main/ft-router/src/v1.rs):
+register, erase, set or clear the push token, connect (WebSocket), signal, leave a message, collect
+and acknowledge messages, get TURN credentials, and send a suggestion (forwarded by email, not
+stored). There is no endpoint for messages, conversations, users, profiles, history or attachments.
+
+While a request or a connection is open, the server sees its IP address and, if it is signed,
+which phone made it. Mailbox messages and connection offers are not signed by the sender: they
+need only the recipient's routing code.
+
 ## What it does not protect
 
 - During a direct connection, the other phone can see your public IP address. In Settings you can
@@ -52,10 +92,7 @@ subscription, with a 15-day trial.
   from malware, from screenshots, or from the people you write to copying what you send.
 - FlickerTalk itself has not been audited. The encryption library it uses, vodozemac, has.
 
-What our server keeps, who can see what, and the limits of the model: see
-[how it works](https://flickertalk.com/how-it-works/).
-
-Everything the app does today, screen by screen (in Spanish): [docs/funcionalidades.md](docs/funcionalidades.md).
+Who can see what, party by party: [how it works](https://flickertalk.com/how-it-works/).
 
 ## This repository
 
