@@ -490,8 +490,8 @@ describe("plugins in the app", () => {
     });
   });
 
-  // Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked; games,
-  // chat, calls and files never are. The core says where the phone stands.
+  // Decision of 2026-10-08: after the free year, without the subscription, the tools are locked;
+  // games, chat, calls and files never are. The core says where the phone stands.
   describe("the tools' lock", () => {
     const GAME = { ...CODE, id: "game.flickertalk.chess", kind: "game" as const };
 

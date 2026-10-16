@@ -47,8 +47,8 @@ describe("App", () => {
     expect(push).toHaveBeenCalledWith("/plugin/com.flickertalk.notes?reminder=r1");
   });
 
-  // Ioan, 2026-10-08: the tools' lock follows the plan from the start, and again when the app comes
-  // back to the screen (the free year may have ended while it was away).
+  // Decision of 2026-10-08: the tools' lock follows the plan from the start, and again when the app
+  // comes back to the screen (the free year may have ended while it was away).
   it("knows whether the tools are locked, at start and back on the screen", async () => {
     let state = "trial";
     installTauri((command) => (command === "core_plan" ? { state, until: 0 } : undefined));

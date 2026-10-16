@@ -1068,8 +1068,8 @@ mod tests {
         assert_eq!(login["scheme"], "com.flickertalk.app");
         let back: Authorized = serde_json::from_value(serde_json::json!({ "url": "com.flickertalk.app:/oauth?code=1" })).unwrap();
         assert!(back.url.starts_with("com.flickertalk.app:"));
-        let ring = serde_json::to_value(Ringing { caller: "Ioan", video: true, muted: true }).unwrap();
-        assert_eq!(ring, serde_json::json!({ "caller": "Ioan", "video": true, "muted": true }));
+        let ring = serde_json::to_value(Ringing { caller: "Alice", video: true, muted: true }).unwrap();
+        assert_eq!(ring, serde_json::json!({ "caller": "Alice", "video": true, "muted": true }));
         let slots = serde_json::to_value(OpenSlots { slots: &[1, 3] }).unwrap();
         assert_eq!(slots, serde_json::json!({ "slots": [1, 3] }));
         let hours = serde_json::to_value(QuietHours { week: "all;all;all;all;all;none;none" }).unwrap();
@@ -1187,8 +1187,8 @@ mod tests {
     fn a_decline_and_an_answered_call_travel_as_the_native_side_says_them() {
         let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
         assert_eq!(read(r#"{"event":"decline"}"#), Some(NativeCallEvent::Decline));
-        let answering = serde_json::to_value(Answering { caller: "Ioan", video: true }).unwrap();
-        assert_eq!(answering, serde_json::json!({ "caller": "Ioan", "video": true }));
+        let answering = serde_json::to_value(Answering { caller: "Alice", video: true }).unwrap();
+        assert_eq!(answering, serde_json::json!({ "caller": "Alice", "video": true }));
     }
 
     // 2026-10-01: a core a call push started on Android, before the app, hears the notification's
@@ -1307,7 +1307,7 @@ mod tests {
 
     #[test]
     fn an_outgoing_call_names_the_contact() {
-        let outgoing = serde_json::to_value(Outgoing { name: "Ioan", video: false }).unwrap();
-        assert_eq!(outgoing, serde_json::json!({ "name": "Ioan", "video": false }));
+        let outgoing = serde_json::to_value(Outgoing { name: "Alice", video: false }).unwrap();
+        assert_eq!(outgoing, serde_json::json!({ "name": "Alice", "video": false }));
     }
 }

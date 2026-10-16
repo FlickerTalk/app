@@ -143,7 +143,7 @@ describe("SettingsPage", () => {
     expect(push).toHaveBeenCalledWith("/blocked");
   });
 
-  // 2026-10-02: an anonymous suggestion. Ioan: an Ionic modal over Settings, not a page of its own.
+  // 2026-10-02: an anonymous suggestion. It is an Ionic modal over Settings, not a page of its own.
   it("opens the suggestion modal over Settings, without leaving them", async () => {
     push.mockClear();
     const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
@@ -338,9 +338,9 @@ describe("SettingsPage", () => {
     await mount(SettingsPage, { shallow: true }).find("[data-test='hours']").trigger("click");
     expect(push).toHaveBeenCalledWith("/hours");
   });
-  // Ioan, 2026-10-08 (mockup settings-premium.html): the Plan screen is gone. Settings has a
-  // Premium section between the appearance and the move/backup groups: a note, the tools and the
-  // sessions with a PIN, and, once the 15 days are over without paying, the subscription itself.
+  // Decision of 2026-10-08: the Plan screen is gone. Settings has a Premium section between the
+  // appearance and the move/backup groups: a note, the tools and the sessions with a PIN, and, once
+  // the 15 days are over without paying, the subscription itself.
   describe("the Premium section", () => {
     const DAY = 24 * 60 * 60 * 1000;
     const section = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='premium']");
@@ -658,7 +658,7 @@ describe("SettingsPage", () => {
       expect(events.unlisten).toHaveBeenCalled();
     });
 
-    // Ioan, 2026-10-08: no age rule; nothing in the section asks it or speaks of it.
+    // Decision of 2026-10-08: no age rule; nothing in the section asks it or speaks of it.
     it("never speaks of an age", async () => {
       for (const state of ["trial", "limited", "subscribed"]) {
         planning({ state, until: Date.now() + 15 * DAY });
@@ -716,8 +716,8 @@ describe("SettingsPage", () => {
     }
   });
 
-  // Ioan (2026-10-13): no "free forever" in the app, in any language; he does not like how it
-  // sounds. The texts say what is free and what the subscription is for, without promising "forever".
+  // Decision of 2026-10-13: no "free forever" in the app, in any language. The texts say what is
+  // free and what the subscription is for, without promising "forever".
   it("never says 'forever' in the Premium, Plan, session and tools texts of any language", () => {
     const forever =
       /\bforever\b|para siempre|para sempre|per sempre|pour toujours|für immer|pentru totdeauna|na zawsze|навсегда|назавжди|sonsuza|selamanya|mãi mãi|ตลอดไป|للأبد|हमेशा के लिए|চিরকাল|ずっと|영원히|永久/i;

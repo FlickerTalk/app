@@ -378,9 +378,9 @@ describe("ChatThread", () => {
     expect(wrapper.find("[aria-label='Record voice message']").exists()).toBe(false);
   });
 
-  // The «+» unfolds two ways to attach (Ioan, 2026-09-23): a photo or video, through the system's
-  // sheet over the chat, or any other file, through the document picker. Neither goes through the
-  // WebView's own file input.
+  // The «+» unfolds two ways to attach (decision of 2026-09-23): a photo or video, through the
+  // system's sheet over the chat, or any other file, through the document picker. Neither goes
+  // through the WebView's own file input.
   it("unfolds photo-or-video and file from the attach button", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     await wrapper.find("[aria-label='Attach photo or video']").trigger("click");
@@ -391,8 +391,8 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_pick_files", { accept: "" }]);
   });
 
-  // The third thing the «+» unfolds (Ioan, 2026-09-23): a photo taken right now with the phone's
-  // camera app, sent like any picked file.
+  // The third thing the «+» unfolds (decision of 2026-09-23): a photo taken right now with the
+  // phone's camera app, sent like any picked file.
   it("takes a photo with the camera from the attach button", async () => {
     const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     await wrapper.find("[aria-label='Take a photo']").trigger("click");
@@ -436,7 +436,8 @@ describe("ChatThread", () => {
     // The way out is always there, with the name of the tool next to it.
     expect(wrapper.find("[data-test='close-app']").exists()).toBe(true);
     expect(wrapper.find(".ft-app__bar .ft-title").text()).toBe("Code block");
-    // Ioan, 2026-10-08: Ionic's own bar and button, as the game room's, never a hand-made one.
+    // Decision of 2026-10-08: Ionic's own bar and button, as the game room's, never a hand-made
+    // one.
     const close = wrapper.find("[data-test='close-app']");
     expect(close.element.tagName).toBe("ION-BUTTON");
     expect(close.element.closest("ion-toolbar")?.getAttribute("data-test")).toBe("app-bar");
@@ -548,8 +549,9 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='staged']").exists()).toBe(false);
   });
 
-  // Ioan, 2026-10-09: a tool opened on its own proposes something and the user picks this contact;
-  // the proposal waits in the composer when the conversation is on screen, never sent by itself.
+  // Decision of 2026-10-09: a tool opened on its own proposes something and the user picks this
+  // contact; the proposal waits in the composer when the conversation is on screen, never sent by
+  // itself.
   describe("a proposal from a tool opened on its own", () => {
     it("puts a text in the composer once the conversation is on screen, once", async () => {
       offerSend("c1", { kind: "text", text: "# Title" });
@@ -634,8 +636,8 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_send", { contact: "c1", text: "🎉" }]);
   });
 
-  // A long press on a message opens what can be done with it (Ioan, 2026-09-23): fold it, send it
-  // on, hand it to another app, or erase it here.
+  // A long press on a message opens what can be done with it (decision of 2026-09-23): fold it,
+  // send it on, hand it to another app, or erase it here.
   // Real time, not fake: Vue stamps its listeners with the clock, and a handler attached under a
   // fake clock ignores a click that comes after (its own guard against events from a past patch).
   async function pressed(wrapper: ReturnType<typeof mount>) {
@@ -809,9 +811,10 @@ describe("ChatThread", () => {
     expect(calls).toContainEqual(["core_open_file", { message: "m4" }]);
   });
 
-  // Ioan, 2026-10-08: after the free year, without the subscription, the tools are locked. In the
-  // apps sheet each shows a lock and leads to the Premium section of Settings; a file goes to another app instead
-  // of a locked viewer; "open with" leads to the Premium section of Settings too.
+  // Decision of 2026-10-08: after the free year, without the subscription, the tools are locked. In
+  // the apps sheet each shows a lock and leads to the Premium section of Settings; a file goes to
+  // another app instead of a locked viewer; "open with" leads to the Premium section of Settings
+  // too.
   describe("with the tools locked", () => {
     const limited = (plugins: unknown[], answers: Record<string, unknown> = {}) => withPlugins(plugins, { core_plan: { state: "limited", until: 0 }, ...answers });
     afterEach(() => (premiumLocked.value = false));
@@ -1590,15 +1593,15 @@ describe("ChatThread", () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    // Ioan, 2026-10-02: one button, the apps, in the header (three buttons, so a name has room on
-    // a small phone). It opens an Ionic sheet modal, as the apps themselves open, with a segment for
-    // the tools and one for the games. 2026-10-08 (plan of the apps grid, screen 4): each is a grid
-    // of the same tiles as the Apps tab, installed ones only.
+    // Decision of 2026-10-02: one button, the apps, in the header (three buttons, so a name has
+    // room on a small phone). It opens an Ionic sheet modal, as the apps themselves open, with a
+    // segment for the tools and one for the games. 2026-10-08 (plan of the apps grid, screen 4):
+    // each is a grid of the same tiles as the Apps tab, installed ones only.
     it("opens a sheet with a segment for the tools and one for the games", async () => {
       bridge({ installed: [CODE, CHESS] });
       const wrapper = await thread();
       expect(wrapper.find("[data-test='games']").exists()).toBe(false);
-      // Voice, video and the apps; the search lives on the contact page (Ioan, 2026-10-06).
+      // Voice, video and the apps; the search lives on the contact page (decision of 2026-10-06).
       expect(endButtons(wrapper)).toHaveLength(3);
       expect(wrapper.find("[data-test='search']").exists()).toBe(false);
       expect(wrapper.find("[data-test='apps-sheet']").exists()).toBe(false);
@@ -1717,7 +1720,7 @@ describe("ChatThread", () => {
       expect(sheet.props("contact")).toBe("c1");
     });
 
-    // Ioan, 2026-10-08: games are free forever; locked tools never lock a game.
+    // Decision of 2026-10-08: games are free forever; locked tools never lock a game.
     it("plays a game when the tools are locked", async () => {
       bridge({ installed: [CODE, CHESS] });
       const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
@@ -1890,8 +1893,8 @@ describe("ChatThread", () => {
       expect(calls.map(([command]) => command)).not.toContain("core_catalogue");
     });
 
-    // Ioan, 2026-10-02 (option A): a game is played inside the conversation, so the two can write
-    // while playing. It takes the place of the messages; the header and the composer stay.
+    // Decision of 2026-10-02 (option A): a game is played inside the conversation, so the two can
+    // write while playing. It takes the place of the messages; the header and the composer stay.
     describe("the game room", () => {
       const playChess = async (installed: unknown[] = [CODE, CHESS]) => {
         bridge({ installed });
@@ -1964,7 +1967,7 @@ describe("ChatThread", () => {
         expect(room(wrapper).exists()).toBe(false);
       });
 
-      // Ioan: no video while playing; and no files from the room.
+      // Project rule: no video while playing, and no files from the room.
       it("hides the attach button and the video call while playing, and brings them back after", async () => {
         const wrapper = await playChess();
         expect(wrapper.find(`[aria-label='Attach']`).exists()).toBe(false);
@@ -2034,9 +2037,9 @@ describe("ChatThread", () => {
       });
     });
 
-    // Ioan, 2026-10-08: a tool that lacks a permission asks for it on the spot. The sheet holds the
-    // request and says what it needs (`needs`); the thread shows Ionic's sheet with the tool and
-    // that one permission, and hands the user's answer back.
+    // Decision of 2026-10-08: a tool that lacks a permission asks for it on the spot. The sheet
+    // holds the request and says what it needs (`needs`); the thread shows Ionic's sheet with the
+    // tool and that one permission, and hands the user's answer back.
     describe("asking for a permission on the spot", () => {
       const LOCATION = {
         ...CODE,

@@ -1,8 +1,8 @@
 // Visual preferences chosen in Settings. They stay on this device (localStorage), never on a server.
 import { invoke } from "@tauri-apps/api/core";
 
-// Black and white first: it is the default (Ioan, 2026-09-22). Lime, the first Mono, is back as
-// a choice (Ioan, 2026-10-02).
+// Black and white first: it is the default (decision of 2026-09-22). Lime, the first Mono, is back
+// as a choice (decision of 2026-10-02).
 export const DIRECTIONS = ["mono", "ember", "aurora", "lime"] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 

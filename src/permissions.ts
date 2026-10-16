@@ -94,10 +94,10 @@ export function withPermission(plugin: PluginView, key: string, on: boolean): Pl
 }
 
 /**
- * The permission `key` if the plugin asked for it and lacks it (Ioan, 2026-10-08): what the app
- * offers to turn on, on the spot, when the plugin asks for something that needs it. Read from the
- * same lines as the switches, never from the core's words. Nothing for a permission it never asked
- * for (the user could not grant it) or one it has.
+ * The permission `key` if the plugin asked for it and lacks it (decision of 2026-10-08): what the
+ * app offers to turn on, on the spot, when the plugin asks for something that needs it. Read from
+ * the same lines as the switches, never from the core's words. Nothing for a permission it never
+ * asked for (the user could not grant it) or one it has.
  */
 export function missingPermission(plugin: PluginView, key: string): PermissionLine | undefined {
   const line = permissionsOf(plugin).find((one) => one.key === key);

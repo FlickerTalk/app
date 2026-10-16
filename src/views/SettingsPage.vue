@@ -88,8 +88,8 @@ import {
 const router = useRouter();
 const route = useRoute();
 
-// Plan §40–§47 (Ioan, 2026-10-08): chat, calls, files and games are free forever. The premium part
-// (the tools and the sessions with a PIN) is free for 15 days from the install, then a yearly
+// Plan §40–§47 (decision of 2026-10-08): chat, calls, files and games are free forever. The premium
+// part (the tools and the sessions with a PIN) is free for 15 days from the install, then a yearly
 // subscription at the Store's price. It all lives in the Premium section here (mockup
 // settings-premium.html); the Plan screen is gone. Everything is decided on this phone.
 const planView = ref<PlanView | null>(null);
@@ -340,7 +340,7 @@ async function erase() {
 }
 const appearance = ref(storedAppearance());
 
-// 2026-10-02: an anonymous suggestion, in a modal over Settings (Ioan); Back closes it, and closing
+// 2026-10-02: an anonymous suggestion, in a modal over Settings; Back closes it, and closing
 // forgets what was written.
 const suggesting = ref(false);
 // Only while Settings is on screen: a reminder or a call can put a page over it with the modal open.

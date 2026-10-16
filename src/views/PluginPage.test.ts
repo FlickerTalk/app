@@ -124,8 +124,8 @@ describe("PluginPage", () => {
     });
   });
 
-  // Ioan, 2026-10-08: a tool opened on its own (from Settings, a reminder) while the tools are
-  // locked shows the lock and the way to the subscription, never its frame. A game still opens.
+  // Decision of 2026-10-08: a tool opened on its own (from Settings, a reminder) while the tools
+  // are locked shows the lock and the way to the subscription, never its frame. A game still opens.
   it("shows a locked tool's lock and leads to the Premium section of Settings", async () => {
     premiumLocked.value = true;
     try {
@@ -147,8 +147,8 @@ describe("PluginPage", () => {
     }
   });
 
-  // Ioan, 2026-10-08: a tool on its own page that lacks a permission asks for it on the spot, in
-  // the same sheet as in a chat; the answer goes back to the plugin's sheet, which grants it.
+  // Decision of 2026-10-08: a tool on its own page that lacks a permission asks for it on the spot,
+  // in the same sheet as in a chat; the answer goes back to the plugin's sheet, which grants it.
   describe("asking for a permission on the spot", () => {
     const need = () => ({ key: "location", label: "Your location, only when you ask", icon: "pin", on: false, answer: vi.fn() });
     const Sheet = defineComponent({
@@ -202,9 +202,9 @@ describe("PluginPage", () => {
     });
   });
 
-  // Ioan, 2026-10-09: a tool on its own page has no chat behind it. What it proposes to send asks
-  // who it is for, in the same sheet the games use; the contact picked gets its conversation, with
-  // the proposal waiting in the composer. The tool's window goes with the page.
+  // Decision of 2026-10-09: a tool on its own page has no chat behind it. What it proposes to send
+  // asks who it is for, in the same sheet the games use; the contact picked gets its conversation,
+  // with the proposal waiting in the composer. The tool's window goes with the page.
   describe("sending from outside a chat", () => {
     const Sheet = defineComponent({
       name: "PluginSheet",

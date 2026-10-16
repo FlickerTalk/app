@@ -26,8 +26,8 @@ import { PREMIUM_PAGE } from "../core";
 
 // A plugin on its own (2026-09-27): from Settings, or from a reminder it set. There is no chat
 // behind it, so it cannot talk to another side; it can open the conversation a ref of its came from.
-// What it proposes to send asks who it is for (Ioan, 2026-10-09): the user picks a contact in the
-// games' sheet, the tool's window goes and that conversation opens with the proposal in its
+// What it proposes to send asks who it is for (decision of 2026-10-09): the user picks a contact in
+// the games' sheet, the tool's window goes and that conversation opens with the proposal in its
 // composer, for the user to send (§53).
 // Opened from a reminder set inside a hidden session, it is open in that session (2026-10-01,
 // §108); from Settings, in none.
@@ -44,8 +44,9 @@ onMounted(async () => {
   await Promise.all([plugin.value ? undefined : refreshPlugins(), refreshPremiumLock()]);
   ready.value = true;
 });
-// Ioan, 2026-10-08: a tool opened on its own while the tools are locked (the free days over, no
-// subscription) shows the lock and the way to the subscription, never its frame. Games never are.
+// Decision of 2026-10-08: a tool opened on its own while the tools are locked (the free days over,
+// no subscription) shows the lock and the way to the subscription, never its frame. Games never
+// are.
 const locked = computed(() => Boolean(plugin.value && isLocked(plugin.value)));
 
 // 2026-10-02: leaving the page closes the plugin through its sheet, so it can say goodbye while the
@@ -66,8 +67,8 @@ onIonViewWillLeave(() => {
   void sheet.value?.close();
 });
 
-// Ioan, 2026-10-08: the plugin asked for something it lacks the permission for; the user is asked
-// here, for that one permission, and the sheet grants it on a yes. Leaving the page is a no.
+// Decision of 2026-10-08: the plugin asked for something it lacks the permission for; the user is
+// asked here, for that one permission, and the sheet grants it on a yes. Leaving the page is a no.
 const needing = ref<PermissionNeed | null>(null);
 function answerNeed(allowed: boolean) {
   const need = needing.value;

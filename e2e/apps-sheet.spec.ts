@@ -1,7 +1,7 @@
-// The chat's apps sheet (Ioan, 2026-10-02): Ionic's sheet modal with a segment for the tools and
-// one for the games, as the apps themselves open. On a phone it is the width of the screen; on a
-// tablet, beside the list, it covers exactly the chat pane. Since 2026-10-08 the apps are tiles, as
-// in the Apps tab: a long name takes two lines at most, then it is cut.
+// The chat's apps sheet (decision of 2026-10-02): Ionic's sheet modal with a segment for the tools
+// and one for the games, as the apps themselves open. On a phone it is the width of the screen; on
+// a tablet, beside the list, it covers exactly the chat pane. Since 2026-10-08 the apps are tiles,
+// as in the Apps tab: a long name takes two lines at most, then it is cut.
 import type { Page } from "@playwright/test";
 import { expect, test } from "./helpers";
 

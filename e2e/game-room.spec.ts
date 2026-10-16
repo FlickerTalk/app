@@ -1,7 +1,7 @@
-// The game room (Ioan, 2026-10-02, option A): a game is played inside the conversation, so the
-// two can write while they play. The header (with the voice call) stays on top, the composer at the
-// bottom, a line above it shows what the other one writes, and the thread is one tap away. The game
-// keeps running while the thread is shown, and across a trip to the call screen.
+// The game room (decision of 2026-10-02, option A): a game is played inside the conversation, so
+// the two can write while they play. The header (with the voice call) stays on top, the composer at
+// the bottom, a line above it shows what the other one writes, and the thread is one tap away. The
+// game keeps running while the thread is shown, and across a trip to the call screen.
 import type { Locator, Page } from "@playwright/test";
 import { callsTo, expect, frameHeard, frameSays, servePluginFrames, test } from "./helpers";
 

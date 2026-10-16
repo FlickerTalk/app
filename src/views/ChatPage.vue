@@ -11,8 +11,8 @@ const route = useRoute();
 const chatId = String(route.params.id);
 // Plan 10.4: the games tab opens a game here (`?play=<id>`).
 const play = computed(() => (typeof route.query?.play === "string" && route.query.play ? route.query.play : undefined));
-// Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`, only for
-// this page's conversation (another page's address may be on screen).
+// Decision of 2026-10-06: the contact page's search opens the conversation with `?search=1`, only
+// for this page's conversation (another page's address may be on screen).
 const search = computed(() => String(route.params.id) === chatId && route.query?.search === "1");
 // Under another page, what the conversation left open lets go of Android's back button.
 const onScreen = ref(true);

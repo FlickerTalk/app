@@ -106,7 +106,7 @@ pub fn icon(name: &str) -> Option<(&'static str, &'static [u8])> {
     ICONS.iter().find(|(known, _)| *known == name).map(|(_, svg)| ("image/svg+xml", *svg))
 }
 
-/// The Ionic the app lends to every plugin and game frame (2026-10-09, Ioan; route B of the Ionic
+/// The Ionic the app lends to every plugin and game frame (2026-10-09; route B of the Ionic
 /// plan): the app's own `@ionic/core` and `ionicons`, so a plugin is drawn with the components the
 /// app is drawn with and carries none of them. A plugin targets the major version. Updating Ionic
 /// in the app means `node scripts/build-frame-ionic.mjs` and these two; a test checks them against
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(ALLOW_OPAQUE_ORIGIN, ("Access-Control-Allow-Origin", "*"));
     }
 
-    // The tools look like the app because the app lends them its icons (Ioan, 2026-09-23): a
+    // The tools look like the app because the app lends them its icons (decision of 2026-09-23): a
     // plugin has no network and carries no pictures, so the core serves them.
     #[test]
     fn the_core_lends_its_icons_to_the_plugins() {
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(route("/com.example.x/icon/pencil-outline.svg"), Some(("com.example.x".into(), "icon/pencil-outline.svg".into())));
     }
 
-    // 2026-10-09 (Ioan, route B of the Ionic plan): the app lends its own Ionic to every frame,
+    // 2026-10-09 (route B of the Ionic plan): the app lends its own Ionic to every frame,
     // so a plugin or a game is drawn with the components the app is drawn with, and carries none.
     #[test]
     fn the_core_lends_its_ionic_to_every_plugin() {

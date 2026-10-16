@@ -24,7 +24,7 @@ describe("theme", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => vi.restoreAllMocks());
 
-  // Black and white is the default (Ioan, 2026-09-22); the colours are a choice.
+  // Black and white is the default (decision of 2026-09-22); the colours are a choice.
   it("uses the black and white colors until the user picks others", () => {
     expect(storedDirection()).toBe("mono");
   });
@@ -35,7 +35,8 @@ describe("theme", () => {
     expect(storedDirection()).toBe("aurora");
   });
 
-  // The first Mono, black with an electric lime, came back as a fourth choice (Ioan, 2026-10-02).
+  // The first Mono, black with an electric lime, came back as a fourth choice (decision of
+  // 2026-10-02).
   it("applies and remembers the lime colors", () => {
     applyDirection("lime");
     expect(document.documentElement.dataset.direction).toBe("lime");
@@ -199,7 +200,7 @@ describe("the theme handed to Ionic", () => {
   });
 });
 
-// 2026-10-02 (Ioan): a plugin's frame is isolated, so the app hands it its colours: Ionic's names,
+// 2026-10-02: a plugin's frame is isolated, so the app hands it its colours: Ionic's names,
 // with the values the app shows right now, and whether it is dark.
 describe("the colours a plugin is handed", () => {
   afterEach(() => {

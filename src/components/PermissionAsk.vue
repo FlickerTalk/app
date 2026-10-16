@@ -4,11 +4,11 @@ import { IonButton, IonIcon, IonItem, IonLabel, IonList, IonModal } from "@ionic
 import { extensionPuzzleOutline } from "ionicons/icons";
 import { t } from "../i18n";
 
-// Ioan, 2026-10-08: «si no tiene permiso se debería pedir siempre». A tool that asks for something
-// it was not granted (installing grants nothing, §53) asks for that one permission on the spot, in
-// Ionic's sheet modal as the game's permissions sheet: the tool's icon or image, its name, the
-// permission with its label and icon, and Cancel / Allow. Dismissing it (dragging it down, a tap
-// outside, the back button) is a no.
+// Decision of 2026-10-08: a missing permission is always asked for on the spot. A tool that asks
+// for something it was not granted (installing grants nothing, §53) asks for that one permission on
+// the spot, in Ionic's sheet modal as the game's permissions sheet: the tool's icon or image, its
+// name, the permission with its label and icon, and Cancel / Allow. Dismissing it (dragging it
+// down, a tap outside, the back button) is a no.
 const props = defineProps<{
   open: boolean;
   name: string;

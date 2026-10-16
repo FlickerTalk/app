@@ -94,7 +94,7 @@ const whenLater = computed(() => {
   return `${day} ${clockOf(at)}`;
 });
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
-// A message written with fences is code, and the app draws it as such (Ioan, 2026-09-22).
+// A message written with fences is code, and the app draws it as such (decision of 2026-09-22).
 const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
 // Web and mail addresses are marked so they can be opened; nothing is fetched to preview them.
 const pieces = computed(() => piecesOf(props.message.text ?? ""));
@@ -289,7 +289,8 @@ function open() {
       </button>
       <!-- Taken back for both sides (2026-10-05): only the mark that it was there. -->
       <p v-if="message.deleted" class="ft-bubble__text ft-bubble__gone" data-test="deleted">{{ t("chat.deleted") }}</p>
-      <!-- Media carry nothing but the medium (Ioan, 2026-09-23): no card, no name, no size. -->
+      <!-- Media carry nothing but the medium (decision of 2026-09-23): no card, no name, no
+           size. -->
       <span v-else-if="file && (isImage || isVideo)" class="ft-media" :class="{ 'is-usable': usable }" data-test="media" @click="open">
         <img v-if="file.url && isImage" class="ft-image" :src="file.url" :alt="file.name" loading="lazy" />
         <!-- A video that arrived plays here, from the app's own files (§62). The time in the
@@ -537,8 +538,8 @@ function open() {
 .is-mine .ft-msg__column {
   align-items: flex-end;
 }
-/* The emoji on a message (2026-10-05): under the bubble, at its outer corner. Ioan (2026-10-06):
-   the emoji alone, no chip, no background and no border around it. */
+/* The emoji on a message (2026-10-05): under the bubble, at its outer corner. Decision of
+   2026-10-06: the emoji alone, no chip, no background and no border around it. */
 .ft-reactions {
   display: flex;
   gap: 6px;

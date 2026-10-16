@@ -1710,7 +1710,7 @@ async fn sync_reminders(app: &AppHandle, core: &Arc<Core>) {
 
 /// What the WebView may serve of each plugin right now: kept in step with what is installed, what
 /// the user granted (§53, §55) and what the plan lets open (a tool after the free year without
-/// the subscription does not, Ioan 2026-10-08).
+/// the subscription does not, decision of 2026-10-08).
 pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, dir: &Path) {
     let mut plugins = Vec::new();
     for plugin in core.plugins().await.unwrap_or_default() {
@@ -2630,7 +2630,7 @@ pub async fn core_plugin_remove(plugin: String, app: AppHandle, client: State<'_
     Ok(())
 }
 
-/// The tools and games the app carries: since 2026-10-08 (Ioan, Plan §56) every plugin of ours, so
+/// The tools and games the app carries: since 2026-10-08 (Plan §56) every plugin of ours, so
 /// presenting in a call works on any phone and an iPhone, which downloads nothing, has them all.
 /// The catalogue only updates them.
 const BUNDLED_PLUGINS: &[&[u8]] = &[
@@ -2666,8 +2666,8 @@ const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/game.wordgrid.ftplugin"),
 ];
 
-/// What a seed may weigh, and what all of them may weigh together. Raised on 2026-10-08 (Ioan,
-/// Plan §56) when every plugin of ours went inside the app: the PDF viewer, about 1.1 MiB with
+/// What a seed may weigh, and what all of them may weigh together. Raised on 2026-10-08
+/// (Plan §56) when every plugin of ours went inside the app: the PDF viewer, about 1.1 MiB with
 /// pdf.js and its fonts, is the largest, and all the seeds together weigh about 3.7 MiB. The test
 /// still holds the line: nothing heavier travels.
 #[cfg(test)]
@@ -4286,7 +4286,8 @@ mod tests {
         }
     }
 
-    // Ioan, 2026-10-08: the screen hears three states, and no age (there is no age rule any more).
+    // Decision of 2026-10-08: the screen hears three states, and no age (there is no age rule any
+    // more).
     #[test]
     fn the_plan_has_three_states_and_no_age() {
         let states: Vec<serde_json::Value> = [ft_billing::Access::Trial { until: 1 }, ft_billing::Access::Subscribed { until: 1 }, ft_billing::Access::Limited]
@@ -4297,8 +4298,8 @@ mod tests {
         assert!(states.iter().all(|view| view.get("age").is_none()));
     }
 
-    // Ioan, 2026-10-08: a tool the plan has closed is not served to the WebView at all, whatever
-    // screen tries to show it; a game always is.
+    // Decision of 2026-10-08: a tool the plan has closed is not served to the WebView at all,
+    // whatever screen tries to show it; a game always is.
     #[test]
     fn a_closed_tool_is_not_served_and_a_game_is() {
         let plugin = |id: &str, kind: &str| ft_core::plugins::InstalledPlugin {
@@ -4449,7 +4450,7 @@ mod tests {
         }
     }
 
-    /// The line holds after 2026-10-08 (Ioan, Plan §56: every plugin of ours travels inside the
+    /// The line holds after 2026-10-08 (Plan §56: every plugin of ours travels inside the
     /// app, the PDF viewer, about 1.1 MiB, included): a heavier plugin, or too many, still never
     /// reaches a release as a seed.
     #[test]
@@ -4494,11 +4495,11 @@ mod tests {
         }
     }
 
-    /// 2026-10-03 (Ioan): the games travel inside the app like the tools, so an iPhone, which
+    /// 2026-10-03: the games travel inside the app like the tools, so an iPhone, which
     /// downloads nothing (App Store 4.7, §52), has them too, and so does a phone offline.
-    /// 2026-10-06 (Ioan): the ten new games, Scanner and Countdown travel too, on both platforms.
+    /// 2026-10-06: the ten new games, Scanner and Countdown travel too, on both platforms.
     /// 2026-10-08: and Location, so an iPhone can send where it is.
-    /// 2026-10-08 (Ioan, Plan §56): all our tools travel, so presenting in a call works on every phone.
+    /// 2026-10-08 (Plan §56): all our tools travel, so presenting in a call works on every phone.
     #[test]
     fn the_app_carries_its_tools_and_games() {
         const TOOLS: [&str; 17] = [
@@ -5347,9 +5348,9 @@ mod tests {
     // §41: the free year shows in Settings, counted on this phone.
     #[test]
     fn me_carries_the_free_period() {
-        let me = MeView { id: "ft_me".to_owned(), name: "Ioan".to_owned(), mailbox: true, receipts: false, free_until: 42, auto_download: 10 };
+        let me = MeView { id: "ft_me".to_owned(), name: "Alice".to_owned(), mailbox: true, receipts: false, free_until: 42, auto_download: 10 };
         assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
-            "id": "ft_me", "name": "Ioan", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
+            "id": "ft_me", "name": "Alice", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
         }));
     }
 

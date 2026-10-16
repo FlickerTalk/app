@@ -150,7 +150,8 @@ describe("AppSheet", () => {
     expect(html(wrapper)).toContain("Removing it deletes its saved games on this phone.");
   });
 
-  // Ioan, 2026-10-08: past the free days the tools are locked; the sheet offers the subscription.
+  // Decision of 2026-10-08: past the free days the tools are locked; the sheet offers the
+  // subscription.
   it("offers the subscription instead of opening a locked tool, never for a game", async () => {
     premiumLocked.value = true;
     const wrapper = sheet(IMAGE);
