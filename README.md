@@ -175,10 +175,14 @@ A release build is signed when `src-tauri/gen/android/keystore.properties` exist
 otherwise it is unsigned. Without `src-tauri/gen/android/app/google-services.json` from your own
 Firebase project, the app builds, but it cannot be woken while it is closed.
 
-iOS: `APPLE_DEVELOPMENT_TEAM=<your team> scripts/ios-build.sh [device-udid]` builds a debug app
-and installs it on a connected iPhone. The bridge's Swift tests run on a simulator from
-`src-tauri/platform/ios`, after one iOS build:
-`xcodebuild test -scheme tauri-plugin-ft-platform -destination 'platform=iOS Simulator,name=<simulator>'`.
+iOS:
+
+```sh
+APPLE_DEVELOPMENT_TEAM=<your team> scripts/ios-build.sh [device-udid]   # debug build on an iPhone
+# Swift tests of the bridge, on a simulator, after one iOS build:
+(cd src-tauri/platform/ios && xcodebuild test -scheme tauri-plugin-ft-platform \
+  -destination 'platform=iOS Simulator,name=<simulator>')
+```
 
 iOS release builds with Xcode 27 also need `rustup component add llvm-tools`: the patched
 `swift-rs` in `Cargo.toml` uses its `llvm-objcopy` to export the Swift entry points that Xcode 27
