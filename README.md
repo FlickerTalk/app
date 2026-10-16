@@ -37,6 +37,14 @@ cargo test --workspace   # Rust tests, no network
 npm run tauri android dev
 ```
 
+The Rust version is pinned in `rust-toolchain.toml`; rustup installs it on first use, with clippy
+and the Android targets. For iOS, run this once in the repository (it adds the targets to that
+toolchain):
+
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+```
+
 iOS release builds with Xcode 27 also need `rustup component add llvm-tools`: the patched
 `swift-rs` in `Cargo.toml` uses its `llvm-objcopy` to export the Swift entry points that Xcode 27
 leaves local (see the comment there).

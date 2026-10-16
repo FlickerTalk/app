@@ -1,0 +1,7 @@
+# The Rust toolchain of every build, CI included: the same version on every run, not whatever
+# stable is that day. Keep it in step with `toolchain:` in .github/workflows/app.yml. The nightly
+# workflow stays on stable on purpose (RUSTUP_TOOLCHAIN), to warn before the next bump.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy"]
+targets = ["aarch64-linux-android", "armv7-linux-androideabi", "i686-linux-android", "x86_64-linux-android"]
