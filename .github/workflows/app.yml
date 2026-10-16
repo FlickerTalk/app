@@ -229,6 +229,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           (cd out && sha256sum -- *.apk > SHA256SUMS)
+          # The very first time there is no canary to delete.
           gh release delete canary --cleanup-tag --yes || true
           gh release create canary out/*.apk out/SHA256SUMS --prerelease --target "$GITHUB_SHA" --title "Canary" \
             --notes "Latest build of main ($GITHUB_SHA), signed. For testing: it talks to the production router."
