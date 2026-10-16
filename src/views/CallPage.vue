@@ -100,7 +100,7 @@ const state = computed(() => {
   }
 });
 
-// ---- Presenting (docs/plan-presentar-en-llamada.md, 2026-10-08) ----
+// ---- Presenting (2026-10-08) ----
 // A whiteboard or a PDF fills the call screen on both phones; the core says who presents
 // (`call.presenting`), the app opens the tool. A tool talks to its twin only with `live`, asked
 // once with the games' sheet.

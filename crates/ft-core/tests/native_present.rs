@@ -1,4 +1,4 @@
-//! Presenting in a call (2026-10-08, `docs/plan-presentar-en-llamada.md`): two complete devices,
+//! Presenting in a call (2026-10-08): two complete devices,
 //! a fake router in memory and real WebRTC on loopback, voice and video in Rust (`ft-media`).
 //! What is presented travels as `CallPresent`, a state like the camera's, only between two apps
 //! at call media version 2; the core never opens the plugin nor reads what it shows.

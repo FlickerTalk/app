@@ -592,7 +592,8 @@ describe("CallPage with native video", () => {
     expect(body).toMatch(/min-height:\s*44px/);
   });
 
-  // Arabic reads right to left: no physical sides in the layout (src/CLAUDE.md).
+  // Arabic reads right to left: no physical sides in the layout, only logical ones
+  // (inline-start/inline-end).
   it("uses no left or right in its styles", () => {
     const styles = source.slice(source.indexOf("<style"));
     expect(styles).not.toMatch(/(^|[\s;{-])(left|right)\s*:/m);
@@ -607,7 +608,7 @@ describe("CallPage with native video", () => {
   });
 });
 
-// Presenting in a call (docs/plan-presentar-en-llamada.md, 2026-10-08).
+// Presenting in a call (2026-10-08).
 describe("CallPage presenting", () => {
   const BOARD = "com.flickertalk.board";
   const PDF = "com.flickertalk.pdfviewer";
