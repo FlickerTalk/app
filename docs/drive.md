@@ -1,18 +1,17 @@
 # La nube del usuario: copia de seguridad y «Mi drive»
 
-Decisión del 2026-09-27 (plan del drive, fase A, con los cambios de la valoración: primero la
-copia de seguridad, «abrir con» general en vez de una acción específica, sin iCloud). El código de
-recuperación generado por la app pasó a ser una **frase que elige el usuario** (decisión del
-2026-09-28, `plan-recuperacion`). Implementado en `crates/ft-vault`, `crates/ft-core/src/vault.rs`,
-`src-tauri` (`core_vault_*`, `ft.drive.*` en el marco), `src/views/BackupPage.vue` y el plugin
-`plugin-drive`.
+Decisión del 2026-09-27: primero la copia de seguridad, «abrir con» general en vez de una acción
+específica, sin iCloud. El código de recuperación generado por la app pasó a ser una **frase que
+elige el usuario** (decisión del 2026-09-28). Implementado en `crates/ft-vault`,
+`crates/ft-core/src/vault.rs`, `src-tauri` (`core_vault_*`, `ft.drive.*` en el marco),
+`src/views/BackupPage.vue` y el plugin `plugin-drive`.
 
 ## Qué es
 
 El usuario guarda en **su propio Google Drive** una copia sellada de su teléfono (historial,
 clave y ficheros) y, con el plugin «Mi drive», sus ficheros. Todo se cifra en el teléfono antes de
 salir. Google ve ficheros sellados con nombres aleatorios, su tamaño y sus fechas; nosotros no
-vemos nada, porque nuestro servidor no participa (`§100`).
+vemos nada, porque nuestro servidor no participa.
 
 ## Cómo funciona
 
@@ -35,7 +34,7 @@ vemos nada, porque nuestro servidor no participa (`§100`).
 3. **Copia de seguridad**: instantánea consistente de la base de datos + clave de almacenamiento +
    ficheros, sellados y subidos; la siguiente copia solo sube lo que cambió y borra lo viejo.
    **Restaurar**: en un teléfono nuevo, tras conectar y abrir con la frase, la copia baja a la
-   carpeta de mudanza y la app arranca de nuevo con ella, como tras una mudanza (`§60`). Sus
+   carpeta de mudanza y la app arranca de nuevo con ella, como tras una mudanza. Sus
    sesiones Olm son las del día de la copia: el primer arranque abre con cada contacto una sesión
    nueva desde su tarjeta y se la presenta (mensaje *pre-key*), así que los dos lados vuelven a
    leerse y ninguna clave de la copia se reutiliza. Lo dicho después de la copia se pierde con el
@@ -57,7 +56,7 @@ vemos nada, porque nuestro servidor no participa (`§100`).
 
 ## Recuperar la cuenta, probado en el Lenovo (2026-09-28)
 
-Con la cuenta de Google de Ioan: Mark crea el drive con una frase sugerida y hace copia; Mark y
+Con una cuenta de Google de pruebas: Mark crea el drive con una frase sugerida y hace copia; Mark y
 Lucy (Samsung) se escriben después; se **desinstala** FlickerTalk del Lenovo y se instala de
 nuevo; identidad nueva → Ajustes → Copia de seguridad → conectar Google → una frase mala
 («Intentos restantes: 4») → la buena (6,5 s) → restaurar. La app arranca como Mark, con sus
@@ -66,17 +65,17 @@ acuses de entrega y lectura.
 
 ## Probado en un Google Drive de verdad (2026-09-27)
 
-En el Lenovo, con la cuenta de Ioan: conectar (Custom Tab → consentimiento `drive.file` → vuelta a
-la app), crear el drive, copia de seguridad, y en «Mi drive» guardar un PDF recibido por el chat
-(«abrir con»), subir otro desde el selector de Android, bajarlo a Descargas y enviarlo al chat. Lo
-bajado y lo recibido en el Samsung es idéntico al original (mismo SHA-256). Los ficheros de la
-carpeta de la app, bajados desde el Drive: todos empiezan por `FTV1`, con ~8 bits/byte de
-entropía, y ninguno lleva ni el nombre ni un byte del documento.
+En el Lenovo, con una cuenta de Google de pruebas: conectar (Custom Tab → consentimiento
+`drive.file` → vuelta a la app), crear el drive, copia de seguridad, y en «Mi drive» guardar un PDF
+recibido por el chat («abrir con»), subir otro desde el selector de Android, bajarlo a Descargas y
+enviarlo al chat. Lo bajado y lo recibido en el Samsung es idéntico al original (mismo SHA-256).
+Los ficheros de la carpeta de la app, bajados desde el Drive: todos empiezan por `FTV1`, con
+~8 bits/byte de entropía, y ninguno lleva ni el nombre ni un byte del documento.
 
 ## Lo que falta y lo que está sin probar en dispositivo
 
 - **Clientes OAuth de Google** (actualizado el 2026-09-30, versión 1.2.2): uno **por plataforma**,
-  en el proyecto de Google Cloud `flickertalk-64858`. Los id de cliente de una app instalada son
+  en el proyecto de Google Cloud `<id del proyecto>`. Los id de cliente de una app instalada son
   identificadores públicos, no secretos, pero no se escriben en el código: se inyectan al compilar.
   - **Android**: cliente de tipo Android con «Enable custom URI scheme» activado (Google lo marca
     como no recomendado en Android; así un solo cliente vale para cualquier firma). Variable
@@ -95,10 +94,10 @@ entropía, y ninguno lleva ni el nombre ni un byte del documento.
     (`AuthenticationServices/ASWebAuthenticationSession.h`, iOS 27): «For the app to receive the
     callback URL, it needs to either register the custom URL scheme in its Info.plist, or set the
     scheme to callbackURLScheme argument in the initializer». Por eso `Info.ios.plist` no cambia.
-  - **Dónde están**: `infra/.env` (`FT_GOOGLE_CLIENT_ID`, `FT_GOOGLE_IOS_CLIENT_ID`; el JSON del
-    cliente de Android en `infra/secrets/google-oauth-android-client.json`) y, para CI, los dos
-    como secretos del entorno `release` de GitHub. El job de Android recibe `FT_GOOGLE_CLIENT_ID`;
-    no hay job de iOS (se compila en un Mac con la variable exportada).
+  - **Dónde están**: fuera del repositorio (`FT_GOOGLE_CLIENT_ID`, `FT_GOOGLE_IOS_CLIENT_ID`) y,
+    para CI, los dos como secretos del entorno `release` de GitHub. El job de Android recibe
+    `FT_GOOGLE_CLIENT_ID`; el de iOS solo compila para el simulador, sin el id, y la build de tienda
+    se compila en un Mac con la variable exportada.
   - **`tauri ios build` no pasa las variables**: la CLI de Tauri (2.11, `mobile::env_vars`) da al
     build de Xcode, y con él a cargo, un entorno limpio con solo `TAURI*`, `WRY*`, `CARGO_*`,
     `RUST_*`, `TMPDIR` y `PATH`. Por eso el núcleo y la comprobación leen también
@@ -121,5 +120,5 @@ entropía, y ninguno lleva ni el nombre ni un byte del documento.
 - Restaurar una copia en otro teléfono, sin probar en dispositivo.
 - **Subidas largas en segundo plano** (servicio en primer plano en Android): pendiente; hoy una
   subida grande necesita la app en pantalla y, si Android la mata, queda pendiente y se reintenta.
-- **Pago** (producto `drive`, fase 6 del plan), Dropbox, iCloud: fuera de esta entrega.
+- **Pago** (producto `drive`), Dropbox, iCloud: fuera de esta entrega.
 - Pruebas automáticas contra Google real (`tests/live_*`): pendientes.
