@@ -5347,9 +5347,9 @@ mod tests {
     // §41: the free year shows in Settings, counted on this phone.
     #[test]
     fn me_carries_the_free_period() {
-        let me = MeView { id: "ft_me".to_owned(), name: "Ioan".to_owned(), mailbox: true, receipts: false, free_until: 42, auto_download: 10 };
+        let me = MeView { id: "ft_me".to_owned(), name: "Alice".to_owned(), mailbox: true, receipts: false, free_until: 42, auto_download: 10 };
         assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
-            "id": "ft_me", "name": "Ioan", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
+            "id": "ft_me", "name": "Alice", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
         }));
     }
 

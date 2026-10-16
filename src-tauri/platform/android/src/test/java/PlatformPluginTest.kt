@@ -167,7 +167,7 @@ class PlatformPluginTest {
 
     @Test
     fun theCallNotificationSaysWhoIsCallingAndWhatKind() {
-        assertEquals("Ioan", callTitle("Ioan"))
+        assertEquals("Alice", callTitle("Alice"))
         // A contact with no name is still a caller: the notification says "Someone" in the phone's language.
         assertNull(callTitle("  "))
         assertEquals(R.string.ft_incoming_video_call, callText(true))
