@@ -86,13 +86,49 @@ need only the recipient's routing code.
 
 - During a direct connection, the other phone can see your public IP address. In Settings you can
   make calls always go through our relay, which hides it from the other person during calls.
-- Google or Apple deliver the wake-up notification, so they see that your phone got one and when.
-  The notification never contains a message or who sent it.
+- When a direct connection is impossible, our relay carries the encrypted traffic. It sees the IP
+  addresses of both phones and how much data flows, never the content, and it keeps no logs.
+- Google or Apple deliver the wake-up notification, so they see that your phone got one and when,
+  and whether it is a call. The notification never contains a message or who sent it; besides its
+  kind, it carries only a number from 0 to 7 that tells your phone which of its spaces it is for.
+- On Android, the wake-up goes through Firebase Cloud Messaging, which needs Google Play services.
+  Without them the app works while it is open, but a closed app is not woken: messages wait until
+  you open it, and calls do not ring.
+- Both people need FlickerTalk. Chats, files and calls are one to one; circles are small groups,
+  up to 32 members, for text only. Your identity lives on one phone: there are no linked devices
+  and no desktop app.
+- A contact added by link is only as trustworthy as the channel the link came through. To be sure,
+  compare the security fingerprint on the contact's page in person.
+- If you uninstall the app without using **Erase this phone** first, your device record stays on
+  our server; the push token is dropped once Google or Apple report it invalid.
 - No app can protect you from a phone that is compromised or unlocked in someone else's hands,
   from malware, from screenshots, or from the people you write to copying what you send.
-- FlickerTalk itself has not been audited. The encryption library it uses, vodozemac, has.
+- FlickerTalk itself has not been audited. The encryption library it uses, vodozemac, had a
+  [public audit in 2022](https://matrix.org/blog/2022/05/16/independent-public-audit-of-vodozemac-a-native-rust-reference-implementation-of-matrix-end-to-end-encryption/),
+  of an earlier version than the one we use.
 
 Who can see what, party by party: [how it works](https://flickertalk.com/how-it-works/).
+
+## How it is encrypted
+
+- **Identity.** Each phone creates an Olm account with vodozemac: an Ed25519 key and a Curve25519
+  key. They are stored encrypted, with a key that the phone's key store (Android Keystore, iOS
+  Keychain) seals. Your FlickerTalk ID is `ft_` plus the base58 BLAKE3 hash of the Ed25519 public
+  key; your phone signs its own requests to our server with that key.
+- **Contacts.** You add someone with their contact card, a QR code or link signed with their key,
+  which carries their public keys and a routing code. Each contact's page shows a security
+  fingerprint to compare in person.
+- **Messages.** Olm (a Double Ratchet), from vodozemac. Packets are versioned CBOR
+  ([`crates/ft-protocol`](crates/ft-protocol/src/lib.rs)), padded to a multiple of 160 bytes
+  before they are encrypted. The same encrypted packet travels over the direct connection or
+  through the mailbox.
+- **Through our server.** Mailbox messages and connection offers are sealed a second time for the
+  recipient alone (a NaCl sealed box: X25519 and XSalsa20-Poly1305, from the `crypto_box` crate),
+  so what the server handles does not name the sender.
+- **The direct connection.** WebRTC: DTLS for the data channel, DTLS-SRTP for calls. The offer and
+  answer that set it up are encrypted with Olm, so the DTLS fingerprint in each one is bound to
+  your contact's identity: the server that relays them cannot put itself in the middle.
+- No cryptography of our own: we use these libraries as they are.
 
 ## This repository
 
