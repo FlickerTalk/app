@@ -118,10 +118,10 @@ final class QuietCallsTests: XCTestCase {
     func testAQuietCallIsANotificationWithNoSoundOnlyAwayFromTheApp() {
         XCTAssertFalse(showsQuietNotice(appActive: true))
         XCTAssertTrue(showsQuietNotice(appActive: false))
-        let content = quietCallContent(caller: "Ioan", video: false)
+        let content = quietCallContent(caller: "Alice", video: false)
         XCTAssertNil(content.sound)
         XCTAssertNil(content.badge)
-        XCTAssertEqual(content.title, "Ioan")
+        XCTAssertEqual(content.title, "Alice")
         XCTAssertEqual(content.body, NSLocalizedString("FT_INCOMING_CALL", comment: ""))
         XCTAssertEqual(quietCallContent(caller: "  ", video: true).title, "", "nameless: no title")
         XCTAssertEqual(quietCallContent(caller: "", video: true).body, NSLocalizedString("FT_INCOMING_VIDEO_CALL", comment: ""))

@@ -36,13 +36,13 @@ final class OpenAppOnAnswerTests: XCTestCase {
     // `startRinging` (a new report, or the name of the call PushKit reported) keeps the caller's
     // name and, with the switch on, the video flag of a voice call.
     func testRingingNamesTheCallerAndKeepsItAVideoCall() {
-        let ringing = callUpdate(caller: "Ioan", video: false, outgoing: false, openAppOnAnswer: true)
+        let ringing = callUpdate(caller: "Alice", video: false, outgoing: false, openAppOnAnswer: true)
         XCTAssertTrue(ringing.hasVideo)
-        XCTAssertEqual(ringing.localizedCallerName, "Ioan")
-        XCTAssertEqual(ringing.remoteHandle?.value, "Ioan")
+        XCTAssertEqual(ringing.localizedCallerName, "Alice")
+        XCTAssertEqual(ringing.remoteHandle?.value, "Alice")
         XCTAssertFalse(ringing.supportsHolding)
         XCTAssertFalse(ringing.supportsDTMF)
-        XCTAssertTrue(callUpdate(caller: "Ioan", video: true, outgoing: false, openAppOnAnswer: false).hasVideo)
+        XCTAssertTrue(callUpdate(caller: "Alice", video: true, outgoing: false, openAppOnAnswer: false).hasVideo)
     }
 
     // `callAnswering` (2026-09-29, `fix-bridge`): the call answered in CallKit, maybe before its
@@ -50,20 +50,20 @@ final class OpenAppOnAnswerTests: XCTestCase {
     // CallKit, or the rename of a voice call would take back what opens the app; off, it tells the
     // call's real media, exactly as without the experiment.
     func testTheAnsweredCallsRenameKeepsItAVideoCallWithTheSwitchOn() {
-        let on = answeringUpdate(caller: "Ioan", video: false, openAppOnAnswer: true)
+        let on = answeringUpdate(caller: "Alice", video: false, openAppOnAnswer: true)
         XCTAssertTrue(on.hasVideo)
-        XCTAssertEqual(on.localizedCallerName, "Ioan")
-        XCTAssertEqual(on.remoteHandle?.value, "Ioan")
-        XCTAssertFalse(answeringUpdate(caller: "Ioan", video: false, openAppOnAnswer: false).hasVideo)
-        XCTAssertTrue(answeringUpdate(caller: "Ioan", video: true, openAppOnAnswer: false).hasVideo)
+        XCTAssertEqual(on.localizedCallerName, "Alice")
+        XCTAssertEqual(on.remoteHandle?.value, "Alice")
+        XCTAssertFalse(answeringUpdate(caller: "Alice", video: false, openAppOnAnswer: false).hasVideo)
+        XCTAssertTrue(answeringUpdate(caller: "Alice", video: true, openAppOnAnswer: false).hasVideo)
         XCTAssertEqual(answeringUpdate(caller: "", video: false, openAppOnAnswer: true).localizedCallerName,
                        NSLocalizedString("FT_INCOMING_CALL", comment: ""))
     }
 
     // This phone's own calls are not touched: CallKit hears their real media.
     func testAnOutgoingCallTellsItsRealVideo() {
-        XCTAssertFalse(callUpdate(caller: "Ioan", video: false, outgoing: true, openAppOnAnswer: true).hasVideo)
-        XCTAssertTrue(callUpdate(caller: "Ioan", video: true, outgoing: true, openAppOnAnswer: true).hasVideo)
+        XCTAssertFalse(callUpdate(caller: "Alice", video: false, outgoing: true, openAppOnAnswer: true).hasVideo)
+        XCTAssertTrue(callUpdate(caller: "Alice", video: true, outgoing: true, openAppOnAnswer: true).hasVideo)
     }
 
     // `callVideo`: turning the cameras off does not turn an incoming call back into a voice call

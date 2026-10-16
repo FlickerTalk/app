@@ -24,7 +24,7 @@ import { setLocale } from "./i18n";
 const at = (hours: number, minutes: number) => new Date(2026, 8, 22, hours, minutes).getTime();
 
 const answers: Record<string, unknown> = {
-  core_me: { id: "ft_me", name: "Ioan", mailbox: true, freeUntil: 1_800_000_000_000 },
+  core_me: { id: "ft_me", name: "Alice", mailbox: true, freeUntil: 1_800_000_000_000 },
   core_conversations: [
     {
       id: "ft_bob",
@@ -53,7 +53,7 @@ describe("core bridge", () => {
 
   it("loads me and the conversations from the core", async () => {
     await core.start();
-    expect(core.store.me).toMatchObject({ id: "ft_me", name: "Ioan", mailbox: true, freeUntil: 1_800_000_000_000 });
+    expect(core.store.me).toMatchObject({ id: "ft_me", name: "Alice", mailbox: true, freeUntil: 1_800_000_000_000 });
     expect(core.store.chats.map((chat) => chat.name)).toEqual(["Bob", "Carol"]);
     expect(core.store.chats[0]).toMatchObject({
       unread: 2,
@@ -104,7 +104,7 @@ describe("core bridge", () => {
     await core.sendText("ft_bob", "hello");
     await core.markRead("ft_bob");
     await core.setMailbox(false);
-    await core.setName("  Ioan  ");
+    await core.setName("  Alice  ");
     await core.enablePush();
     expect(tauri.invoke).toHaveBeenCalledWith("core_enable_push");
     await core.openFile("f1");
@@ -114,7 +114,7 @@ describe("core bridge", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_send", { contact: "ft_bob", text: "hello" });
     expect(tauri.invoke).toHaveBeenCalledWith("core_mark_read", { contact: "ft_bob" });
     expect(tauri.invoke).toHaveBeenCalledWith("core_set_mailbox", { enabled: false });
-    expect(tauri.invoke).toHaveBeenCalledWith("core_set_name", { name: "Ioan" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_set_name", { name: "Alice" });
     expect(core.store.me.mailbox).toBe(false);
   });
 

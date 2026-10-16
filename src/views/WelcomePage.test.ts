@@ -27,10 +27,10 @@ describe("WelcomePage", () => {
   // The name only travels inside the Contact Card: contacts see it when they scan.
   it("asks for a name contacts will see and keeps it", async () => {
     const wrapper = mount(WelcomePage, { shallow: true });
-    await wrapper.find("[data-test='name']").setValue("Ioan");
+    await wrapper.find("[data-test='name']").setValue("Alice");
     await wrapper.find("[data-test='start']").trigger("click");
     await flushPromises();
-    expect(calls).toContainEqual(["core_set_name", { name: "Ioan" }]);
+    expect(calls).toContainEqual(["core_set_name", { name: "Alice" }]);
   });
 
   // Links that open the app (2026-10-08): the usual case is a link someone sent, the app
