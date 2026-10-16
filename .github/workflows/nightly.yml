@@ -22,6 +22,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Stable on purpose, not the toolchain pinned in rust-toolchain.toml: warns before the next
+  # toolchain bump. (rustup prefers this variable to that file.)
+  RUSTUP_TOOLCHAIN: stable
 
 jobs:
   suite:
