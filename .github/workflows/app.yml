@@ -83,6 +83,9 @@ jobs:
     environment: ${{ github.event_name != 'pull_request' && 'release' || '' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
+    env:
+      # The NDK every build uses, not the runner's newest (which changes with the runner image).
+      NDK_VERSION: 30.0.16248370
     steps:
       - uses: actions/checkout@v7
       - id: version
@@ -128,10 +131,14 @@ jobs:
           # a pull request's, which is never published and has no secrets.
           FT_GOOGLE_CLIENT_ID: ${{ secrets.FT_GOOGLE_CLIENT_ID }}
           FT_ALLOW_NO_GOOGLE_CLIENT: ${{ github.event_name == 'pull_request' && '1' || '' }}
-        # The runner's own variables are not in the `env` context: the NDK comes from the shell.
+        # The runner's own variables are not in the `env` context: ANDROID_HOME comes from the shell.
+        # An image that no longer ships the pinned NDK gets it installed here.
         # No --target: Tauri builds all four ABIs into one universal APK and one AAB.
         run: |
-          export NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          if [[ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
+          fi
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
           npm run tauri android build -- --apk --aab --ci
       - name: Kotlin tests
         working-directory: src-tauri/gen/android
