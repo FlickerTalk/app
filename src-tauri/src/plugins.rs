@@ -391,6 +391,17 @@ mod tests {
         assert_eq!(version("ionicons").as_deref(), Some(IONICONS_VERSION), "rebuild it: node scripts/build-frame-ionic.mjs");
     }
 
+    // Ionic and Ionicons are MIT: their notices sit next to the copy the repository carries, and
+    // name the versions that copy was built from.
+    #[test]
+    fn the_lent_ionic_keeps_its_licences() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/ionic/LICENSE");
+        let licence = std::fs::read_to_string(path).expect("resources/ionic/LICENSE: rebuild it: node scripts/build-frame-ionic.mjs");
+        assert!(licence.starts_with(&format!("@ionic/core {IONIC_VERSION}\n")), "the @ionic/core notice comes first, with its version");
+        assert!(licence.contains(&format!("\nionicons {IONICONS_VERSION}\n")), "the ionicons notice, with its version");
+        assert_eq!(licence.matches("Permission is hereby granted").count(), 2, "both MIT notices, in full");
+    }
+
     // What the app carries for it, said aloud and kept in check: it is in every build of the app.
     #[test]
     fn what_the_lent_ionic_weighs() {

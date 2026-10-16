@@ -2,7 +2,8 @@
 // plan): `src-tauri/resources/ionic/ionic.js` (every component of the app's own `@ionic/core`,
 // custom elements, one ES module with nothing loaded later, and the icons the core carries) and
 // `ionic.css` (ionic.bundle.css but for the body rules of structure.css). The Rust side embeds both (`plugins.rs`) and its tests
-// check they are the versions of `package-lock.json`. Run it after updating Ionic:
+// check they are the versions of `package-lock.json`. `LICENSE` keeps the MIT notices of both
+// packages next to them. Run it after updating Ionic:
 //   node scripts/build-frame-ionic.mjs
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readdirSync } from "node:fs";
@@ -116,5 +117,8 @@ const css = [banner.replace("/*!", "/*"), ...CSS.map(read), everything[0]].join(
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, "ionic.js"), script);
 writeFileSync(join(out, "ionic.css"), `${css}\n`);
+// Both packages are MIT: their notices, verbatim, travel with the copy of them the repo carries.
+const notice = (name, at) => `${name} ${at}\n\n${readFileSync(join(modules, name, "LICENSE"), "utf8").trimEnd()}\n`;
+writeFileSync(join(out, "LICENSE"), [notice("@ionic/core", ionic), notice("ionicons", ionicons)].join("\n"));
 rmSync(scratch, { recursive: true, force: true });
 console.log(`ionic.js ${script.length} bytes (${components.length} components, ${icons.length} icons), ionic.css ${css.length} bytes, @ionic/core ${ionic}, ionicons ${ionicons}`);
