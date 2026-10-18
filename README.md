@@ -1,7 +1,7 @@
 # FlickerTalk
 
 Private messages, phone to phone. Text, files, voice and video calls between two people, with the
-history living only on the phones — never on a server. [flickertalk.com](https://flickertalk.com)
+history living only on the phones; the server keeps no history. [flickertalk.com](https://flickertalk.com)
 
 - **No account:** no phone number, no email, no password. Your identity is a key made on your
   phone; you add people by scanning their code or opening their link.
