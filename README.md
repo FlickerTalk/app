@@ -1,15 +1,19 @@
 # FlickerTalk
 
 Private messages, phone to phone. Text, files, voice and video calls between two people, with the
-history living only on the phones — never on a server. [flickertalk.com](https://flickertalk.com)
+history living only on the phones; the server keeps no history. [flickertalk.com](https://flickertalk.com)
 
 - **No account:** no phone number, no email, no password. Your identity is a key made on your
   phone; you add people by scanning their code or opening their link.
 - **Phone to phone:** messages travel over an encrypted WebRTC connection straight to the other
   phone, end-to-end encrypted with Olm (vodozemac).
-- **Delivered, not stored:** when the other phone is off, the message waits in a mailbox on our
-  server, encrypted so that we cannot read it, until it is picked up or 7 days pass. Either side
-  can turn the mailbox off.
+- **Delivered, not stored:** when the other phone is off, the message can wait in a mailbox on
+  our server, end-to-end encrypted and with no sender attached, until it is picked up or 7 days
+  pass; it is deleted the moment it is picked up. The mailbox is optional: either side can turn
+  it off in Settings, and then your messages only ever wait on the sender's phone until both
+  phones are online, and nothing of yours is stored on our server. A message goes to the mailbox
+  only when both people have it on; the server keeps no preference, each request carries the
+  flag.
 - **Files and calls** are one to one and never go through the mailbox.
 - **Hidden sessions:** a 6-digit PIN opens a space with its own contacts that nobody else can tell
   exists; while closed it receives in silence.
