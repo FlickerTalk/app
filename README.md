@@ -28,9 +28,10 @@ phone, not on our servers. [flickertalk.com](https://flickertalk.com)
   WebRTC connection, end-to-end encrypted with Olm (vodozemac). When a direct path is impossible,
   our relay carries the same encrypted traffic.
 - **Optional mailbox:** if the other phone is offline, an optional mailbox holds your message
-  end-to-end encrypted. It is deleted when picked up, or after 7 days at the latest. We cannot
-  read it. If either of you turns the mailbox off, the message waits on the sender's phone until a
-  direct connection is possible.
+  end-to-end encrypted and with no sender attached. It is deleted when picked up, or after 7 days
+  at the latest. We cannot read it. If either of you turns the mailbox off, the message waits on
+  the sender's phone until a direct connection is possible. The server keeps no preference; each
+  request carries the flag.
 - **Files and calls** are one to one and never go through the mailbox. During a call you can
   present a whiteboard or a PDF, page by page.
 - **Circles:** a small, closed group of your contacts, up to 32 members, for text messages. Our
