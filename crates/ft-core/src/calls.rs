@@ -18,6 +18,12 @@ use crate::{now, Core, Event};
 
 /// How long a call keeps trying to reach a phone that may be asleep (the router wakes it).
 pub const CALL_REACH: Duration = Duration::from_secs(40);
+/// How long the hang-up of a call that was on keeps trying to reach the other phone (app#200,
+/// 2026-10-20). Its app was running, so it is not asleep: its socket to the router may have gone
+/// quiet in a network change, and the router hands that socket what comes until the phone notices
+/// (up to 60 s) and opens another. A call that was never answered keeps `CALL_REACH`: the other
+/// phone may really be asleep, and each attempt may wake it.
+pub const HANG_UP_REACH: Duration = Duration::from_secs(90);
 /// Between attempts.
 const CALL_RETRY: Duration = Duration::from_secs(2);
 
@@ -233,9 +239,11 @@ impl Core {
         let packet = Packet::new(Body::CallEnd { call: MessageId::parse(call)?, reason });
         if !self.transmit_direct(&contact, &packet).await.unwrap_or(false) {
             // The other phone may be asleep, its socket to the router gone (2026-09-28): the end
-            // keeps trying while a call would, so it stops ringing as soon as it is back.
+            // keeps trying while a call would, so it stops ringing as soon as it is back. A call
+            // that was on keeps trying until a quiet socket of the other phone is opened again.
+            let reach = if reason == EndReason::Hangup { HANG_UP_REACH } else { CALL_REACH };
             if let Some(core) = self.this.upgrade() {
-                tokio::spawn(async move { core.deliver_call_end(&contact, &packet, CALL_REACH).await });
+                tokio::spawn(async move { core.deliver_call_end(&contact, &packet, reach).await });
             }
         }
         Ok(())
@@ -474,6 +482,19 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The hang-up of a call that was on keeps trying until the other phone's quiet router socket
+    // has surely been opened again (app#200): noticed at worst 60 s after it went quiet (two
+    // unanswered pings, the first up to a period after), the client's first wait (2 s), and one
+    // more attempt that was already waiting on the old socket (gathering, the connection window,
+    // the pause between attempts).
+    #[test]
+    fn a_hang_up_outlasts_the_other_phone_noticing_its_socket_went_quiet() {
+        let noticed = ft_push::SILENT_FOR + ft_push::PING_EVERY + Duration::from_secs(2);
+        let attempt = ft_webrtc::SessionConfig::default().gather_timeout + crate::net::CONNECT_WAIT + CALL_RETRY;
+        assert!(HANG_UP_REACH >= noticed + attempt, "{HANG_UP_REACH:?} < {:?}", noticed + attempt);
+        assert!(HANG_UP_REACH >= CALL_REACH, "never shorter than a call's reach");
+    }
 
     fn ringing(started_at: i64) -> CallRecord {
         CallRecord {

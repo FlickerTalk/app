@@ -557,3 +557,171 @@ async fn an_away_client_lets_its_socket_go_and_opens_it_again_when_back() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(opened.load(SeqCst), 2, "one socket, not one per call");
 }
+
+/// A router on loopback whose `/v1/connect` welcomes and then does `after` with the socket;
+/// returns its address and how many sockets were opened.
+async fn router_that(
+    after: fn(axum::extract::ws::WebSocket) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let counted = counted.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    after(socket).await;
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (format!("http://{address}"), connections)
+}
+
+// The pings cost a phone battery and the router work, for every phone with the app open: one
+// every 20 s (the router itself pings once a minute), and a socket is taken for dead once two in a
+// row go unanswered (2026-10-20). A network change the phone can see is followed at once by the
+// core; these are for a path that dies without one.
+#[test]
+fn the_router_is_pinged_every_20_s_and_two_unanswered_pings_are_enough() {
+    assert_eq!(ft_push::PING_EVERY, Duration::from_secs(20));
+    assert_eq!(ft_push::SILENT_FOR, ft_push::PING_EVERY * 2);
+}
+
+/// Short pings for the tests below, which check what the pings do rather than how often.
+const PING: Duration = Duration::from_millis(200);
+const SILENT: Duration = Duration::from_millis(400);
+
+/// The first wait after a socket fails (the client doubles its 1 s backoff).
+const BACKOFF: Duration = Duration::from_secs(2);
+
+/// A client of `base` that pings every `PING` and gives up after `SILENT`.
+fn quick_client(base: &str) -> Arc<RouterClient> {
+    let client = Arc::new(RouterClient::new(base, device()).unwrap());
+    client.set_liveness(PING, SILENT);
+    client
+}
+
+// A network change leaves the socket on a path that is gone (app#200, 2026-10-20): nothing closes
+// it, it just goes quiet, and the router goes on handing it what comes for this phone (a call's
+// offer, the hang-up's connection). The client pings the router and, once two pings in a row go
+// unanswered, opens the socket again by itself; the new socket's welcome fetches what waits.
+#[tokio::test]
+async fn a_socket_that_stops_answering_is_opened_again() {
+    // It never reads again, so it never answers a ping: a socket on a path that is gone.
+    let (base, connections) = router_that(|socket| {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            drop(socket);
+        })
+    })
+    .await;
+    let client = quick_client(&base);
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+    let quiet = std::time::Instant::now();
+
+    let again = tokio::time::timeout(SILENT + PING + BACKOFF + Duration::from_secs(1), async {
+        loop {
+            if matches!(events.recv().await, Some(RouterEvent::Connected { .. })) {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(again.is_ok(), "opened again once the router stopped answering");
+    assert!(quiet.elapsed() >= SILENT, "not before two pings went unanswered");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+// A router that answers the pings keeps its socket, however long it has nothing to say: the pong
+// is enough (the real router pings only once a minute).
+#[tokio::test]
+async fn a_socket_that_answers_the_pings_is_kept() {
+    // Reading is what answers a ping; it says nothing else.
+    let (base, connections) = router_that(|mut socket| {
+        Box::pin(async move { while let Some(Ok(_)) = socket.recv().await {} })
+    })
+    .await;
+    let client = quick_client(&base);
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+
+    let quiet = tokio::time::timeout(SILENT * 10, events.recv()).await;
+    assert!(quiet.is_err(), "nothing happened: {quiet:?}");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+// Opening the socket is bounded too: after a network change the first attempt may go out on a
+// path that is gone, and nothing would ever answer it.
+#[tokio::test]
+async fn an_opening_that_gets_no_answer_is_tried_again() {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counted = accepted.clone();
+    // Takes the connection and never says a word: no TLS, no upgrade.
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            counted.fetch_add(1, SeqCst);
+            held.push(stream);
+        }
+    });
+    let client = quick_client(&format!("http://{address}"));
+    let _events = client.listen();
+
+    let tried_again = tokio::time::timeout(SILENT + BACKOFF + Duration::from_secs(1), async {
+        while accepted.load(SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(tried_again.is_ok(), "tried again instead of waiting for ever");
+}
+
+// The pings go with the socket: a closed client (an erased phone, or a client shut down) pings
+// no more, and neither does one that is away.
+#[tokio::test]
+async fn a_closed_or_away_client_pings_no_more() {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    static PINGS: AtomicUsize = AtomicUsize::new(0);
+    let (base, _) = router_that(|mut socket| {
+        Box::pin(async move {
+            while let Some(Ok(message)) = socket.recv().await {
+                if matches!(message, axum::extract::ws::Message::Ping(_)) {
+                    PINGS.fetch_add(1, SeqCst);
+                }
+            }
+        })
+    })
+    .await;
+    let client = quick_client(&base);
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+    tokio::time::sleep(PING * 3).await;
+    assert!(PINGS.load(SeqCst) > 0, "it pings while connected");
+
+    client.set_away(true);
+    tokio::time::sleep(PING).await;
+    let away = PINGS.load(SeqCst);
+    tokio::time::sleep(PING * 5).await;
+    assert_eq!(PINGS.load(SeqCst), away, "away, no pings");
+
+    client.set_away(false);
+    assert!(welcomed(&mut events).await);
+    client.close();
+    tokio::time::sleep(PING).await;
+    let closed = PINGS.load(SeqCst);
+    tokio::time::sleep(PING * 5).await;
+    assert_eq!(PINGS.load(SeqCst), closed, "closed, no pings");
+}
