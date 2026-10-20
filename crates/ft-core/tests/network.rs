@@ -367,9 +367,9 @@ async fn a_contact_that_vanishes_is_announced_as_gone() {
     assert!(!alice.network.is_connected(&bob.id()).await);
 }
 
-// A connection taken for lost can come back (ICE goes from disconnected to connected again after
-// a network blip). The side that let go of it closes it, so the contact, whose side may still look
-// open, does not keep sending into a connection nobody reads any more.
+// A connection that failed on one side only (the path broke one way) is closed by the side that let
+// go of it, so the contact, whose side may still look open, does not keep sending into a connection
+// nobody reads any more.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_connection_given_up_as_lost_is_closed_for_the_contact_too() {
     let bus = Arc::new(Bus::default());

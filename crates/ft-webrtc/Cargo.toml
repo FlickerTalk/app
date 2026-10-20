@@ -16,4 +16,4 @@ tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 webrtc = "0.21"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "time"] }
