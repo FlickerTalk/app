@@ -880,6 +880,153 @@ async fn the_location_plugin_installs_on_the_core_that_brought_location() {
     assert!(!ft_plugins::version_at_least("1.2.2", "1.3.0"), "and not on the core before it");
 }
 
+// ---- ft.translate (2026-10-20, app#177): the phone's own translator ----
+
+/// The phone's translator, as the tests want it to answer, counting how often it was asked.
+struct FakeTranslator {
+    languages: Vec<String>,
+    detected: Option<String>,
+    asked: std::sync::atomic::AtomicUsize,
+}
+
+impl FakeTranslator {
+    fn knowing(languages: &[&str]) -> Self {
+        Self { languages: languages.iter().map(|tag| (*tag).to_owned()).collect(), detected: Some("es".to_owned()), asked: Default::default() }
+    }
+
+    fn detecting(tag: &str) -> Self {
+        Self { detected: Some(tag.to_owned()), ..Self::knowing(&["en", "es"]) }
+    }
+
+    fn asked(&self) -> usize {
+        self.asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn ask(&self) {
+        self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl ft_core::plugins::Translator for FakeTranslator {
+    async fn languages(&self) -> anyhow::Result<Vec<String>> {
+        self.ask();
+        Ok(self.languages.clone())
+    }
+    async fn detect(&self, _text: &str) -> anyhow::Result<Option<String>> {
+        self.ask();
+        Ok(self.detected.clone())
+    }
+    async fn status(&self, from: &str, to: &str) -> anyhow::Result<ft_core::plugins::PairStatus> {
+        self.ask();
+        Ok(if from == "fr" || to == "fr" { ft_core::plugins::PairStatus::Downloadable } else { ft_core::plugins::PairStatus::Installed })
+    }
+    async fn prepare(&self, _from: &str, _to: &str) -> anyhow::Result<bool> {
+        self.ask();
+        Ok(true)
+    }
+    async fn remove(&self, _from: &str, _to: &str) -> anyhow::Result<bool> {
+        self.ask();
+        Ok(true)
+    }
+    async fn translate(&self, text: &str, from: &str, to: &str) -> anyhow::Result<Option<String>> {
+        self.ask();
+        Ok(Some(format!("[{from}>{to}] {text}")))
+    }
+}
+
+/// A core with a translator plugin installed and granted what `granted` says.
+async fn translator_plugin(granted: Permissions) -> (Arc<Core>, PathBuf) {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.translate", "1.0.0", r#"{"translate":true,"messages":"given","send":"propose"}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), granted).await.expect("installs");
+    (core, dir)
+}
+
+const TRANSLATOR: &str = "com.example.translate";
+
+// The core is the gate: a plugin uses the phone's translator only if the user granted it
+// `translate`, and the phone is not even asked otherwise (§53).
+#[tokio::test]
+async fn a_plugin_uses_the_phones_translator_only_if_the_user_granted_it() {
+    let (core, _dir) = translator_plugin(Permissions::default()).await;
+    let phone = FakeTranslator::knowing(&["en", "es", "fr"]);
+
+    for id in [TRANSLATOR, "com.example.never"] {
+        assert!(core.plugin_translate_languages(id, &phone).await.is_err(), "{id}: installed is not granted, and never is not installed");
+        assert!(core.plugin_translate_detect(id, &phone, "hola").await.is_err());
+        assert!(core.plugin_translate_status(id, &phone, "es", "en").await.is_err());
+        assert!(core.plugin_translate_prepare(id, &phone, "es", "fr").await.is_err());
+        assert!(core.plugin_translate_remove(id, &phone, "es", "fr").await.is_err());
+        assert!(core.plugin_translate_text(id, &phone, "hola", "es", "en").await.is_err());
+    }
+    assert_eq!(phone.asked(), 0, "the phone is not even asked for a plugin that may not translate");
+
+    core.grant_plugin(TRANSLATOR, Permissions { translate: true, ..Permissions::default() }).await.expect("grants");
+    assert_eq!(core.plugin_translate_languages(TRANSLATOR, &phone).await.unwrap(), ["en", "es", "fr"]);
+    assert_eq!(core.plugin_translate_detect(TRANSLATOR, &phone, "hola").await.unwrap().as_deref(), Some("es"));
+    assert_eq!(core.plugin_translate_status(TRANSLATOR, &phone, "es", "en").await.unwrap(), ft_core::plugins::PairStatus::Installed);
+    assert_eq!(core.plugin_translate_status(TRANSLATOR, &phone, "es", "fr").await.unwrap(), ft_core::plugins::PairStatus::Downloadable);
+    assert!(core.plugin_translate_prepare(TRANSLATOR, &phone, "es", "fr").await.unwrap());
+    assert!(core.plugin_translate_remove(TRANSLATOR, &phone, "es", "fr").await.unwrap());
+    assert_eq!(core.plugin_translate_text(TRANSLATOR, &phone, "hola", "es", "en").await.unwrap().as_deref(), Some("[es>en] hola"));
+    assert_eq!(phone.asked(), 7);
+
+    // Taken back, it is refused again.
+    core.grant_plugin(TRANSLATOR, Permissions::default()).await.unwrap();
+    assert!(core.plugin_translate_text(TRANSLATOR, &phone, "hola", "es", "en").await.is_err());
+    assert_eq!(phone.asked(), 7);
+}
+
+// A message, never a book: an empty text or one over 5 000 characters is refused by the core,
+// and the phone is never asked to translate or guess it.
+#[tokio::test]
+async fn an_empty_or_too_long_text_is_refused_without_asking_the_phone() {
+    let (core, _dir) = translator_plugin(Permissions { translate: true, ..Permissions::default() }).await;
+    let phone = FakeTranslator::knowing(&["en", "es"]);
+    let too_long = "a".repeat(5_001);
+    for text in ["", "  \n ", too_long.as_str()] {
+        assert!(core.plugin_translate_text(TRANSLATOR, &phone, text, "es", "en").await.is_err(), "{} characters", text.len());
+        assert!(core.plugin_translate_detect(TRANSLATOR, &phone, text).await.is_err(), "{} characters", text.len());
+    }
+    assert_eq!(phone.asked(), 0);
+
+    // Characters, not bytes: 5 000 of a script of two bytes each still fit.
+    let longest = "ñ".repeat(5_000);
+    assert!(core.plugin_translate_text(TRANSLATOR, &phone, &longest, "es", "en").await.unwrap().is_some());
+    assert!(core.plugin_translate_detect(TRANSLATOR, &phone, &longest).await.unwrap().is_some());
+    assert_eq!(phone.asked(), 2);
+}
+
+// A tag that does not read as a language is no language this phone has: the pair is unsupported,
+// nothing is translated, downloaded or removed, and the bridge never sees it.
+#[tokio::test]
+async fn a_language_that_is_no_tag_is_unsupported_without_asking_the_phone() {
+    let (core, _dir) = translator_plugin(Permissions { translate: true, ..Permissions::default() }).await;
+    let phone = FakeTranslator::knowing(&["en", "es"]);
+    for (from, to) in [("", "en"), ("es", ""), ("es_ES", "en"), ("es", "../en"), ("español", "en")] {
+        assert_eq!(core.plugin_translate_status(TRANSLATOR, &phone, from, to).await.unwrap(), ft_core::plugins::PairStatus::Unsupported, "{from:?}>{to:?}");
+        assert!(!core.plugin_translate_prepare(TRANSLATOR, &phone, from, to).await.unwrap());
+        assert!(!core.plugin_translate_remove(TRANSLATOR, &phone, from, to).await.unwrap());
+        assert_eq!(core.plugin_translate_text(TRANSLATOR, &phone, "hola", from, to).await.unwrap(), None);
+    }
+    assert_eq!(phone.asked(), 0);
+}
+
+// What the phone says goes to the plugin only if it reads as a language: a bridge that lists
+// something else, or guesses "und" (undetermined), says nothing about it.
+#[tokio::test]
+async fn what_the_phone_says_reaches_the_plugin_only_as_languages() {
+    let (core, _dir) = translator_plugin(Permissions { translate: true, ..Permissions::default() }).await;
+    let listing = FakeTranslator::knowing(&["en", "", "es", "not a tag", "zh-Hans", "en"]);
+    assert_eq!(core.plugin_translate_languages(TRANSLATOR, &listing).await.unwrap(), ["en", "es", "zh-Hans"], "once each, and only tags");
+    for unknown in ["und", "", "?"] {
+        assert_eq!(core.plugin_translate_detect(TRANSLATOR, &FakeTranslator::detecting(unknown), "hmm").await.unwrap(), None, "{unknown:?}");
+    }
+    assert_eq!(core.plugin_translate_detect(TRANSLATOR, &FakeTranslator::detecting("pt"), "olá").await.unwrap().as_deref(), Some("pt"));
+}
+
 // ---- Updates of downloaded plugins (2026-10-03) ----
 
 // A swap the phone cut short (killed between the two renames) is put right when the core starts,
