@@ -172,6 +172,7 @@ pub fn run() {
             client::core_message_note_clear,
             client::core_chat_hooks,
             client::core_chat_hooks_set,
+            client::core_hook_sample,
             client::core_plugins_opening,
             client::core_read_message_file,
             client::core_vault_status,

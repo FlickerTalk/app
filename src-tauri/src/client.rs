@@ -290,6 +290,10 @@ pub struct CircleMessageView {
     text: String,
     sent_at: i64,
     state: &'static str,
+    /// What tools said about it (2026-10-20): a translation, or the user's own words of a text
+    /// sent translated.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<NoteView>,
 }
 
 impl CircleMessageView {
@@ -303,7 +307,13 @@ impl CircleMessageView {
             text: message.body.clone(),
             sent_at: message.sent_at,
             state: state_name(message.state),
+            notes: Vec::new(),
         }
+    }
+
+    pub fn noted<'a>(mut self, notes: impl Iterator<Item = &'a ft_storage::MessageNote>) -> Self {
+        self.notes = notes.map(|note| NoteView { plugin: note.plugin.clone(), text: note.text.clone() }).collect();
+        self
     }
 }
 
@@ -2076,17 +2086,19 @@ pub async fn core_circle_forget(circle: String, client: State<'_, Client>) -> Re
 }
 
 #[tauri::command]
-pub async fn core_circle_send(circle: String, text: String, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_circle_send(circle: String, text: String, client: State<'_, Client>) -> Result<String, String> {
     if text.trim().is_empty() {
         return Err("nothing to send".to_owned());
     }
     let core = client.core().await?;
-    // What stops a text (admins only, no longer in it) is said at once; delivery runs behind.
-    core.circle_writable(&circle).await.map_err(failed)?;
+    // What stops a text (admins only, no longer in it) is said at once; delivery runs behind. The
+    // text is in the circle before that, so its id comes back (2026-10-20): the screen keeps the
+    // user's own words under a text sent translated.
+    let sent = core.queue_circle_text(&circle, &text).await.map_err(failed)?;
     tauri::async_runtime::spawn(async move {
-        let _ = core.send_circle_text(&circle, &text).await;
+        core.deliver_circle_queue().await;
     });
-    Ok(())
+    Ok(sent)
 }
 
 #[tauri::command]
@@ -2094,7 +2106,11 @@ pub async fn core_circle_messages(circle: String, limit: i64, client: State<'_, 
     let core = client.core().await?;
     let names = circle_names(&core, &circle).await?;
     let messages = core.store().circle_messages(&circle, limit).await.map_err(failed)?;
-    Ok(messages.iter().map(|message| CircleMessageView::new(message, &names)).collect())
+    let notes = core.store().notes(&circle).await.map_err(failed)?;
+    Ok(messages
+        .iter()
+        .map(|message| CircleMessageView::new(message, &names).noted(notes.iter().filter(|note| note.message_id == message.message_id)))
+        .collect())
 }
 
 #[tauri::command]
@@ -3042,8 +3058,11 @@ pub async fn core_plugin_ref(plugin: String, message: String, client: State<'_, 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefTargetView {
+    /// The conversation: a contact's id, or a circle's when `circle` (2026-10-20).
     contact: String,
     message: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    circle: bool,
 }
 
 #[tauri::command]
@@ -3053,8 +3072,10 @@ pub async fn core_plugin_open_chat(
     session: Option<String>,
     client: State<'_, Client>,
 ) -> Result<Option<RefTargetView>, String> {
-    let target = client.core().await?.plugin_ref_target(&plugin, session.as_deref(), &reference).await.map_err(failed)?;
-    Ok(target.map(|target| RefTargetView { contact: target.contact, message: target.message_id }))
+    let core = client.core().await?;
+    let Some(target) = core.plugin_ref_target(&plugin, session.as_deref(), &reference).await.map_err(failed)? else { return Ok(None) };
+    let circle = core.store().circle(&target.contact).await.map_err(failed)?.is_some();
+    Ok(Some(RefTargetView { contact: target.contact, message: target.message_id, circle }))
 }
 
 /// A reminder a plugin sets or moves (2026-09-27); the phone's alarm clock is told through the event.
@@ -3155,24 +3176,33 @@ impl From<ft_core::plugins::ChatHook> for ChatHookView {
     }
 }
 
-/// The tools that run by themselves in the conversation with `contact`.
+/// The tools that run by themselves in a conversation: a contact's or a circle's, by its id.
 #[tauri::command]
-pub async fn core_chat_hooks(contact: String, client: State<'_, Client>) -> Result<Vec<ChatHookView>, String> {
-    let hooks = client.core().await?.chat_hooks(&contact).await.map_err(failed)?;
+pub async fn core_chat_hooks(conversation: String, client: State<'_, Client>) -> Result<Vec<ChatHookView>, String> {
+    let hooks = client.core().await?.chat_hooks(&conversation).await.map_err(failed)?;
     Ok(hooks.into_iter().map(ChatHookView::from).collect())
 }
 
-/// What a tool's chat hook answered for the conversation: its switches and the chat's language.
+/// What a tool's settings hook answered for a conversation: its switches and the chat's language
+/// (none: `null`).
 #[tauri::command]
 pub async fn core_chat_hooks_set(
-    contact: String,
+    conversation: String,
     plugin: String,
     auto_message: bool,
     auto_composer: bool,
     lang: Option<String>,
     client: State<'_, Client>,
 ) -> Result<(), String> {
-    client.core().await?.set_chat_hooks(&contact, &plugin, auto_message, auto_composer, lang.as_deref()).await.map_err(failed)
+    let lang = lang.filter(|lang| !lang.is_empty());
+    client.core().await?.set_chat_hooks(&conversation, &plugin, auto_message, auto_composer, lang.as_deref()).await.map_err(failed)
+}
+
+/// What the settings hook's hidden run is handed: the last texts received in the conversation, one
+/// per line, or nothing when the tool may not read them (§8.2d).
+#[tauri::command]
+pub async fn core_hook_sample(plugin: String, conversation: String, client: State<'_, Client>) -> Result<String, String> {
+    client.core().await?.hook_sample(&plugin, &conversation).await.map_err(failed)
 }
 
 /// The plugins installed here that open a file of this kind, for "open with".
@@ -3934,15 +3964,19 @@ pub async fn core_send_picked(contact: String, file: PickedView, client: State<'
 
 /// Stored at once (the UI hears about it); delivered in the background.
 #[tauri::command]
-pub async fn core_send(contact: String, text: String, reply_to: Option<String>, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_send(contact: String, text: String, reply_to: Option<String>, client: State<'_, Client>) -> Result<String, String> {
     if text.trim().is_empty() {
         return Err("nothing to send".to_owned());
     }
     let core = client.core().await?;
+    // Stored and queued first, delivered behind; its id comes back (2026-10-20), so the screen
+    // keeps the user's own words under a text sent translated before it goes.
+    let sent = core.queue_text(&contact, &text, reply_to.as_deref()).await.map_err(failed)?;
+    let queued = sent.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = core.send_text_replying(&contact, &text, reply_to.as_deref()).await;
+        core.deliver_queued(&queued).await;
     });
-    Ok(())
+    Ok(sent)
 }
 
 /// Sends again a message the router refused (§84): the same message, queued again and tried in
@@ -4901,7 +4935,7 @@ mod tests {
     #[test]
     fn an_installed_tool_says_which_hooks_it_binds_to() {
         let manifest: ft_plugins::Manifest = serde_json::from_str(
-            r#"{"id":"com.flickertalk.translate","name":"Translator","version":"1.1.0","minCoreVersion":"1.7.0","components":["ft-translate"],"permissions":{"messages":"given","send":"propose"},"hooks":{"message":{"label":"Translate","icon":"language-outline"},"chat":{"label":"Chat language","icon":"language-outline"}},"locales":{"es":{"name":"Traductor","hooks":{"chat":"Idioma del chat"}}}}"#,
+            r#"{"id":"com.flickertalk.translate","name":"Translator","version":"1.1.0","minCoreVersion":"1.7.0","components":["ft-translate"],"permissions":{"messages":"given","send":"propose"},"hooks":{"message":{"label":"Translate","icon":"language-outline"},"settings":{"label":"Translation","icon":"language-outline","fields":[{"key":"lang","type":"select","label":"Language"},{"key":"receive","type":"toggle","label":"Translate what I receive"}],"note":"Packs are downloaded once."}},"locales":{"es":{"name":"Traductor","hooks":{"message":"Traducir","settings":{"label":"Traducción","fields":{"lang":"Idioma"}}}}}}"#,
         )
         .unwrap();
         let plain = ft_plugins::Manifest { hooks: Default::default(), ..manifest.clone() };
@@ -4909,8 +4943,22 @@ mod tests {
             serde_json::to_value(plugin_view(ft_core::plugins::InstalledPlugin { manifest, granted: Default::default(), installed_at: 7, image: String::new() })).unwrap()
         };
         let json = view(manifest);
-        assert_eq!(json["hooks"], serde_json::json!({ "message": { "label": "Translate", "icon": "language-outline" }, "chat": { "label": "Chat language", "icon": "language-outline" } }));
-        assert_eq!(json["locales"]["es"]["hooks"]["chat"], "Idioma del chat");
+        assert_eq!(
+            json["hooks"],
+            serde_json::json!({
+                "message": { "label": "Translate", "icon": "language-outline" },
+                "settings": {
+                    "label": "Translation",
+                    "icon": "language-outline",
+                    "fields": [
+                        { "key": "lang", "type": "select", "label": "Language" },
+                        { "key": "receive", "type": "toggle", "label": "Translate what I receive" }
+                    ],
+                    "note": "Packs are downloaded once."
+                }
+            })
+        );
+        assert_eq!(json["locales"]["es"]["hooks"]["settings"]["fields"]["lang"], "Idioma");
         assert!(view(plain).get("hooks").is_none(), "bound to none, nothing written");
     }
 
@@ -6201,6 +6249,26 @@ mod tests {
         let view = serde_json::to_value(MessageView::new(&message, None).noted(notes.iter())).unwrap();
         assert_eq!(view["notes"], serde_json::json!([{ "plugin": "com.flickertalk.translate", "text": "nos vemos a las seis" }]));
         assert!(serde_json::to_value(MessageView::new(&message, None).noted([].iter())).unwrap().get("notes").is_none());
+    }
+
+    // Circles too (plan of the translator, circles): a circle message carries its tools' notes.
+    #[test]
+    fn a_circle_message_carries_the_notes_tools_left_under_it() {
+        let said = ft_storage::CircleMessage {
+            message_id: "cm1".into(),
+            circle: "circle-1".into(),
+            sender: "ft_bob".into(),
+            outgoing: false,
+            kind: "text".into(),
+            body: "salut".into(),
+            sent_at: 1,
+            received_at: 1,
+            state: ft_storage::MessageState::Delivered,
+        };
+        let notes = [ft_storage::MessageNote { message_id: "cm1".into(), plugin: "com.flickertalk.translate".into(), text: "hola".into() }];
+        let view = serde_json::to_value(CircleMessageView::new(&said, &HashMap::new()).noted(notes.iter())).unwrap();
+        assert_eq!(view["notes"], serde_json::json!([{ "plugin": "com.flickertalk.translate", "text": "hola" }]));
+        assert!(serde_json::to_value(CircleMessageView::new(&said, &HashMap::new())).unwrap().get("notes").is_none());
     }
 
     // The chat hook's answer as the screen reads it: by tool, in camelCase.
