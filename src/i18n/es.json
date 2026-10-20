@@ -106,7 +106,7 @@
   "calls": {
     "callBack": "Devolver llamada",
     "voice": "Voz",
-    "video": "Video",
+    "video": "Vídeo",
     "incoming": "Entrante",
     "outgoing": "Saliente",
     "missed": "Perdida",
@@ -130,7 +130,7 @@
     "cameraPaused": "Cámara en pausa",
     "cameraDenied": "La cámara no está permitida. Permítela para FlickerTalk en los Ajustes del teléfono.",
     "cameraFailed": "No se pudo encender la cámara. La llamada sigue como voz.",
-    "videoUnavailable": "El video no está disponible en esta llamada",
+    "videoUnavailable": "El vídeo no está disponible en esta llamada",
     "turnOnCamera": "Enciende tu cámara",
     "hangUp": "Colgar",
     "backToCall": "Volver a la llamada",

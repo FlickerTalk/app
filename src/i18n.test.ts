@@ -63,7 +63,7 @@ const SAME_AS_ENGLISH: Record<string, SameAsEnglish> = {
   "colors.aurora": { locales: ["de", "es", "id", "it", "pt", "tr", "vi"], reason: THEME_NAME },
   "colors.lime": { locales: ["id", "it", "ro", "vi"], reason: THEME_NAME },
   "colors.ember": { locales: ["id", "vi"], reason: THEME_NAME },
-  "calls.video": { locales: ["de", "es", "id", "it", "ro", "vi"], reason: SAME_WORD },
+  "calls.video": { locales: ["de", "id", "it", "ro", "vi"], reason: SAME_WORD },
   "contact.video": { locales: ["de", "id", "it", "ro", "vi"], reason: SAME_WORD },
   "tabs.apps": { locales: ["de", "es", "fr", "pt"], reason: SAME_WORD },
   "premium.title": { locales: ["de", "es", "fr", "id", "it", "pl", "pt", "ro", "tr", "vi"], reason: SAME_WORD },
@@ -226,6 +226,17 @@ describe("i18n", () => {
     phone.dispatchEvent(new Event("languagechange"));
     await vi.waitFor(() => expect(i18n.global.locale.value).toBe("ar"));
     expect(document.documentElement.dir).toBe("rtl");
+  });
+});
+
+// app#159: the Spanish call history said "Video" while the contact page said "Vídeo". Spanish
+// writes the word with its accent everywhere ("videollamada", one word, has none).
+describe("the Spanish catalogue", () => {
+  it("writes \"vídeo\" with its accent", () => {
+    const unaccented = leaves(catalogues["./i18n/es.json"])
+      .filter(([, value]) => /\bvideos?\b/i.test(String(value)))
+      .map(([key, value]) => `${key}: ${String(value)}`);
+    expect(unaccented).toEqual([]);
   });
 });
 
