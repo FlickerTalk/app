@@ -17,6 +17,7 @@ import {
   attachOutline,
   checkmark,
   checkmarkDone,
+  checkmarkDoneCircle,
   checkmarkOutline,
   chevronForwardOutline,
   ellipsisVerticalOutline,
@@ -127,7 +128,8 @@ const STATUS_ICON: Record<string, string> = {
   pending: timeOutline,
   sent: checkmark,
   delivered: checkmarkDone,
-  read: checkmarkDone,
+  // The bubble's shape for read (app#154): not only the accent, which Mono may share.
+  read: checkmarkDoneCircle,
   unsent: alertCircleOutline,
 };
 </script>
