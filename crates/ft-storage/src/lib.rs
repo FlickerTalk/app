@@ -627,6 +627,21 @@ impl Store {
             .await?;
         sqlx::query("DELETE FROM contacts WHERE session = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM sessions WHERE id = ?").bind(id).execute(&self.pool).await?;
+        self.forget_orphans().await
+    }
+
+    /// Notes and chat switches whose message or conversation is gone (2026-10-20): they hang from
+    /// no table, so whatever takes those away calls this.
+    async fn forget_orphans(&self) -> Result<()> {
+        sqlx::query(
+            "DELETE FROM message_notes WHERE message_id NOT IN (SELECT message_id FROM messages)
+               AND message_id NOT IN (SELECT message_id FROM circle_messages)",
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query("DELETE FROM chat_hooks WHERE conversation NOT IN (SELECT device_id FROM contacts) AND conversation NOT IN (SELECT id FROM circles)")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -648,7 +663,7 @@ impl Store {
     pub async fn remove_contact(&self, device_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM pending_outbox WHERE contact = ?").bind(device_id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM contacts WHERE device_id = ?").bind(device_id).execute(&self.pool).await?;
-        Ok(())
+        self.forget_orphans().await
     }
 
     pub async fn rename_contact(&self, device_id: &str, name: &str) -> Result<()> {
@@ -835,13 +850,15 @@ impl Store {
         Ok(())
     }
 
-    /// The notes under the conversation's messages, by message and tool.
-    pub async fn notes(&self, contact: &str) -> Result<Vec<MessageNote>> {
+    /// The notes under the messages of a conversation (a contact's or a circle's, by its id), by
+    /// message and tool.
+    pub async fn notes(&self, conversation: &str) -> Result<Vec<MessageNote>> {
         let rows = sqlx::query(
-            "SELECT n.message_id, n.plugin, n.text FROM message_notes n JOIN messages m ON m.message_id = n.message_id
-             WHERE m.contact = ? ORDER BY n.message_id, n.plugin",
+            "SELECT message_id, plugin, text FROM message_notes
+             WHERE message_id IN (SELECT message_id FROM messages WHERE contact = ?1 UNION SELECT message_id FROM circle_messages WHERE circle = ?1)
+             ORDER BY message_id, plugin",
         )
-        .bind(contact)
+        .bind(conversation)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
@@ -850,19 +867,24 @@ impl Store {
             .collect())
     }
 
-    /// Whether a tool runs by itself in the conversation (2026-10-20), and the conversation's
-    /// language as it found it; both off and no language forgets it.
-    pub async fn set_chat_hooks(&self, contact: &str, plugin: &str, auto_message: bool, auto_composer: bool, lang: Option<&str>) -> Result<()> {
+    /// Whether a tool runs by itself in a conversation (2026-10-20; a contact or a circle, by its
+    /// id), and the conversation's language as it found it; both off and no language forgets it.
+    pub async fn set_chat_hooks(&self, conversation: &str, plugin: &str, auto_message: bool, auto_composer: bool, lang: Option<&str>) -> Result<()> {
         if !auto_message && !auto_composer && lang.is_none() {
-            sqlx::query("DELETE FROM chat_hooks WHERE contact = ? AND plugin = ?").bind(contact).bind(plugin).execute(&self.pool).await?;
+            sqlx::query("DELETE FROM chat_hooks WHERE conversation = ? AND plugin = ?").bind(conversation).bind(plugin).execute(&self.pool).await?;
             return Ok(());
         }
+        let known = sqlx::query("SELECT 1 FROM contacts WHERE device_id = ?1 UNION SELECT 1 FROM circles WHERE id = ?1")
+            .bind(conversation)
+            .fetch_optional(&self.pool)
+            .await?;
+        anyhow::ensure!(known.is_some(), "no such conversation");
         sqlx::query(
-            "INSERT INTO chat_hooks (contact, plugin, auto_message, auto_composer, lang) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT (contact, plugin) DO UPDATE SET auto_message = excluded.auto_message, auto_composer = excluded.auto_composer,
+            "INSERT INTO chat_hooks (conversation, plugin, auto_message, auto_composer, lang) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (conversation, plugin) DO UPDATE SET auto_message = excluded.auto_message, auto_composer = excluded.auto_composer,
              lang = excluded.lang",
         )
-        .bind(contact)
+        .bind(conversation)
         .bind(plugin)
         .bind(auto_message)
         .bind(auto_composer)
@@ -872,10 +894,10 @@ impl Store {
         Ok(())
     }
 
-    /// The tools that run by themselves in the conversation, by id.
-    pub async fn chat_hooks(&self, contact: &str) -> Result<Vec<ChatHook>> {
-        let rows = sqlx::query("SELECT plugin, auto_message, auto_composer, lang FROM chat_hooks WHERE contact = ? ORDER BY plugin")
-            .bind(contact)
+    /// The tools that run by themselves in a conversation, by id.
+    pub async fn chat_hooks(&self, conversation: &str) -> Result<Vec<ChatHook>> {
+        let rows = sqlx::query("SELECT plugin, auto_message, auto_composer, lang FROM chat_hooks WHERE conversation = ? ORDER BY plugin")
+            .bind(conversation)
             .fetch_all(&self.pool)
             .await?;
         Ok(rows
@@ -1055,6 +1077,7 @@ impl Store {
         .bind(now)
         .execute(&self.pool)
         .await?;
+        self.forget_orphans().await?;
         Ok(contacts)
     }
 
@@ -1066,6 +1089,7 @@ impl Store {
             .execute(&self.pool)
             .await?
             .rows_affected();
+        sqlx::query("DELETE FROM message_notes WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
         Ok(gone > 0)
     }
 
@@ -1722,7 +1746,7 @@ impl Store {
     /// Takes a circle away with everything said in it.
     pub async fn remove_circle(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM circles WHERE id = ?").bind(id).execute(&self.pool).await?;
-        Ok(())
+        self.forget_orphans().await
     }
 
     /// Returns false when the message was already there (a retry from another member).
@@ -2494,7 +2518,88 @@ mod tests {
         assert_eq!(store.notes("ft_bob").await.unwrap(), vec![note("m1", "com.example.translate", "hola otra vez")]);
         store.forget_message("m1").await.expect("forgets");
         assert!(store.notes("ft_bob").await.unwrap().is_empty(), "the note goes with the message");
-        assert!(store.set_message_note("m9", "com.example.translate", "x", 1).await.is_err(), "no message, no note");
+    }
+
+    /// A circle of the main list (or of `session`) with one thing said in it, `cm1`.
+    async fn a_circle_with_a_message(store: &Store, id: &str, session: Option<&str>) {
+        let circle = CircleRecord {
+            id: id.to_owned(),
+            name: "Friends".to_owned(),
+            card: vec![1],
+            revision: 1,
+            admins_only: false,
+            session: session.map(str::to_owned),
+            left: false,
+            created_at: 1,
+        };
+        store.save_circle(&circle).await.expect("saves");
+        let said = CircleMessage {
+            message_id: format!("{id}-m1"),
+            circle: id.to_owned(),
+            sender: "ft_bob".to_owned(),
+            outgoing: false,
+            kind: "text".to_owned(),
+            body: "salut".to_owned(),
+            sent_at: 1,
+            received_at: 1,
+            state: MessageState::Delivered,
+        };
+        store.insert_circle_message(&said).await.expect("inserts");
+    }
+
+    // Circles too (plan of the translator, circles): a note hangs from a circle message, and a
+    // circle has its own switches and language, by its id; both go with the circle.
+    #[tokio::test]
+    async fn a_circle_message_has_notes_and_a_circle_its_switches() {
+        let store = store().await;
+        a_circle_with_a_message(&store, "c1", None).await;
+        store.set_message_note("c1-m1", "com.example.translate", "hola", 1).await.expect("notes");
+        store.set_chat_hooks("c1", "com.example.translate", true, false, Some("fr")).await.expect("sets");
+        let notes = store.notes("c1").await.expect("reads");
+        assert_eq!((notes.len(), notes[0].message_id.as_str(), notes[0].text.as_str()), (1, "c1-m1", "hola"));
+        assert_eq!(store.chat_hooks("c1").await.unwrap()[0].lang.as_deref(), Some("fr"));
+
+        store.remove_circle("c1").await.expect("removes");
+        assert!(store.notes("c1").await.unwrap().is_empty());
+        assert!(store.chat_hooks("c1").await.unwrap().is_empty(), "its switches went with it");
+        assert_eq!(sqlx::query("SELECT COUNT(*) AS n FROM message_notes").fetch_one(&store.pool).await.unwrap().get::<i64, _>("n"), 0, "nothing left behind");
+    }
+
+    // Notes and switches hang from no table (a conversation is a contact or a circle), so whatever
+    // takes a conversation or its messages away takes them too: a contact, a hidden session with
+    // its contacts and circles, and the history rules.
+    #[tokio::test]
+    async fn notes_and_switches_go_with_their_conversation() {
+        let store = store().await;
+        let count = |table: &'static str| {
+            let store = &store;
+            let sql = if table == "message_notes" { "SELECT COUNT(*) AS n FROM message_notes" } else { "SELECT COUNT(*) AS n FROM chat_hooks" };
+            async move { sqlx::query(sql).fetch_one(&store.pool).await.unwrap().get::<i64, _>("n") }
+        };
+        store.add_contact(&contact("ft_bob")).await.unwrap();
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.unwrap();
+        store.set_message_note("m1", "com.example.translate", "hola", 1).await.unwrap();
+        store.set_chat_hooks("ft_bob", "com.example.translate", true, true, None).await.unwrap();
+        store.remove_contact("ft_bob").await.expect("removes");
+        assert_eq!((count("message_notes").await, count("chat_hooks").await), (0, 0), "gone with the contact");
+
+        store.add_session("s1", &[1; 32], 3).await.unwrap();
+        store.add_contact(&NewContact { session: Some("s1".to_owned()), ..contact("ft_ana") }).await.unwrap();
+        store.insert_message(&message("m2", "ft_ana", false, 1)).await.unwrap();
+        store.set_message_note("m2", "com.example.translate", "hola", 1).await.unwrap();
+        store.set_chat_hooks("ft_ana", "com.example.translate", true, false, None).await.unwrap();
+        a_circle_with_a_message(&store, "c2", Some("s1")).await;
+        store.set_message_note("c2-m1", "com.example.translate", "hola", 1).await.unwrap();
+        store.set_chat_hooks("c2", "com.example.translate", true, false, None).await.unwrap();
+        store.remove_session("s1").await.expect("removes");
+        assert_eq!((count("message_notes").await, count("chat_hooks").await), (0, 0), "gone with the session");
+
+        store.add_contact(&contact("ft_carol")).await.unwrap();
+        store.set_history("ft_carol", 1, 0).await.unwrap();
+        store.insert_message(&message("old", "ft_carol", false, 1)).await.unwrap();
+        store.set_message_note("old", "com.example.translate", "viejo", 1).await.unwrap();
+        assert_eq!(store.sweep(10_000).await.unwrap(), vec!["ft_carol".to_owned()]);
+        assert_eq!(count("message_notes").await, 0, "gone with the swept message");
     }
 
     // Other words make the note wrong, and a message taken back for both sides has nothing left to
@@ -2543,7 +2648,7 @@ mod tests {
         assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", false, false, Some("es"))], "the language stays");
         store.set_chat_hooks("ft_bob", "com.example.translate", false, false, None).await.expect("forgets");
         assert!(store.chat_hooks("ft_bob").await.unwrap().is_empty());
-        assert!(store.set_chat_hooks("ft_nobody", "com.example.translate", true, true, None).await.is_err(), "no contact, no row");
+        assert!(store.set_chat_hooks("ft_nobody", "com.example.translate", true, true, None).await.is_err(), "no conversation, no row");
 
         store.remove_contact("ft_carol").await.expect("removes");
         assert!(store.chat_hooks("ft_carol").await.unwrap().is_empty(), "it goes with the contact");
