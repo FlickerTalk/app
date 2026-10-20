@@ -198,6 +198,28 @@ async fn a_peer_that_vanishes_stops_being_open() {
     assert!(!caller.is_open(), "the caller still thinks a vanished peer is there");
 }
 
+/// The same vanished peer must also end the other side's inbox (app#151): that is what tells the
+/// core the link is gone, so the chat stops saying "Direct" without waiting for the next send.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_that_vanishes_ends_the_other_side_s_inbox() {
+    let (caller_out, caller_signals) = mpsc::channel(32);
+    let (callee_out, callee_signals) = mpsc::channel(32);
+    let (caller, mut caller_inbox) = Session::start(SessionConfig::offline(), Role::Caller, caller_out).await.expect("starts");
+    let (callee, _) = Session::start(SessionConfig::offline(), Role::Callee, callee_out).await.expect("starts");
+    pipe(caller_signals, callee.clone());
+    pipe(callee_signals, caller.clone());
+    caller.invite().await.expect("offers");
+    timeout(LIMIT, caller.wait_open()).await.expect("opens in time").expect("opens");
+    timeout(LIMIT, callee.wait_open()).await.expect("opens in time").expect("opens");
+
+    let vanished = std::time::Instant::now();
+    callee.vanish().await;
+    let ended = timeout(Duration::from_secs(15), caller_inbox.next()).await.expect("the inbox ends once the connection is gone");
+    eprintln!("a vanished peer ended the inbox after {} ms", vanished.elapsed().as_millis());
+    assert_eq!(ended, None);
+    assert!(!caller.is_open());
+}
+
 // DataChannel setup time (2026-09-29): a STUN or TURN server that never answers held the offer
 // and then the answer for the whole 3 s gathering deadline each, so the channel took over 6 s to
 // open. Each description now goes once it has what the routing wants, or a second at most.

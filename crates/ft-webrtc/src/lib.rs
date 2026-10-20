@@ -344,6 +344,14 @@ impl Session {
         let _ = self.connection.close().await;
     }
 
+    /// Acts as the connection does when the other side stops answering for a while
+    /// (`on_connection_state_change`), with the path still working: a network blip it may come
+    /// back from. For tests.
+    #[doc(hidden)]
+    pub fn lose(&self) {
+        let _ = self.open.send(false);
+    }
+
     /// Ends the session. The data channel is closed first: that is what tells the other side,
     /// which closing the connection alone does not.
     pub async fn close(&self) -> Result<()> {
@@ -541,17 +549,29 @@ async fn wait_for_ever(mut flag: watch::Receiver<bool>, closed: &'static str) ->
 }
 
 /// Turns the channel's events into the open flag and the inbox. Spawned, never awaited inline.
+///
+/// A peer that vanishes never closes the channel: once the open channel's connection is gone
+/// (`on_connection_state_change`), the inbox ends as it does on a close, so whoever reads it
+/// learns the session is over without having to send anything (app#151).
 fn listen(
     runtime: &Arc<dyn Runtime>,
     channel: Arc<dyn DataChannel>,
     open: watch::Sender<bool>,
     messages: mpsc::Sender<Vec<u8>>,
 ) {
+    let mut opened = open.subscribe();
     runtime.spawn(Box::pin(async move {
-        while let Some(event) = channel.poll().await {
+        let mut was_open = false;
+        loop {
+            let event = tokio::select! {
+                event = channel.poll() => event,
+                _ = opened.wait_for(|open| !open), if was_open => break,
+            };
+            let Some(event) = event else { break };
             match event {
                 DataChannelEvent::OnOpen => {
                     let _ = open.send(true);
+                    was_open = true;
                 }
                 DataChannelEvent::OnMessage(message) => {
                     let _ = messages.send(message.data.to_vec()).await;
