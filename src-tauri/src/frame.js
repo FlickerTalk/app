@@ -345,7 +345,7 @@ addEventListener("message", (event) => {
       ...(lent ? { ionic: { version: lent } } : {}),
       // Opened by the app inside a call to present (Plugin API 1.6.0): "lead" or "follow", only then.
       ...(said.presenting === "lead" || said.presenting === "follow" ? { presenting: said.presenting } : {}),
-      // Opened for one of the chat's hooks (2026-10-20): the chat's header opens it for "chat".
+      // In view for one of the conversation's hooks (2026-10-20): its name.
       ...(HOOKS.includes(said.hook) ? { hook: said.hook } : {}),
     };
     for (const handler of opened) handler(opening);

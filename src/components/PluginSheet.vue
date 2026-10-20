@@ -105,7 +105,8 @@ import type { ContactAsk, Proposal } from "../pending-send";
 // same grants, the same questions on the spot and the same lock; it shows (`shown`) only while the
 // plugin asks the user something (`ft.show`), and goes again once the hook is answered. Out of sight
 // nothing needing the user's eyes is done, and a hidden frame speaks only through its hooks'
-// answers. `hook`: the window opens for that hook (the chat's header opens it for `chat`).
+// answers. `hook`: the window opens for that hook. `contact` is the conversation it is used in: a
+// contact's id, or a circle's (2026-10-20), whose own key the plugin gets.
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -462,7 +463,7 @@ function opening() {
     live: Boolean(props.live && props.contact),
     // Only inside a call (API 1.6.0); a chat or a page never says it.
     ...(props.presenting ? { presenting: props.presenting } : {}),
-    // Opened for one of the chat's hooks (2026-10-20): the header opens it for `chat`.
+    // Opened for one of the conversation's hooks (2026-10-20).
     ...(props.hook ? { hook: props.hook } : {}),
   };
 }

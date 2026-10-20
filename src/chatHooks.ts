@@ -222,7 +222,7 @@ export function useChatHooks(options: { contact: () => string; messages: () => C
     } catch {
       return;
     }
-    const result = await runner.runHook({ name: "chat", text: "", chat, ref: null, lang: i18n.global.locale.value, manual: true }).catch(() => null);
+    const result = await runner.runHook({ name: "settings", text: "", chat, ref: null, lang: i18n.global.locale.value, manual: true }).catch(() => null);
     if (!result?.auto || options.contact() !== contact) return;
     const auto = { message: Boolean(result.auto.message && plugin.hooks?.message), composer: Boolean(result.auto.composer && plugin.hooks?.composer) };
     try {

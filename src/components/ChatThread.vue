@@ -628,7 +628,7 @@ type Opening = {
   file?: HandedFile;
   reference?: string;
   game?: boolean;
-  /** Opened for one of the chat's hooks (2026-10-20): the header opens it for `chat`. */
+  /** Opened for one of the conversation's hooks (2026-10-20). */
   hook?: PluginHookName;
 };
 const plugin = ref<(Opening & { contact: string; opening: number }) | null>(null);
@@ -1018,7 +1018,7 @@ const hooks = useChatHooks({
   messages: () => messages.value,
   active: () => seen() && !isRequest.value && !chat.value?.blocked,
 });
-const chatHookTools = computed(() => (isRequest.value ? [] : hooked("chat")));
+const chatHookTools = computed(() => (isRequest.value ? [] : hooked("settings")));
 const messageHookTools = computed(() => {
   const message = actingMessage.value;
   return message && message.kind !== "file" && !message.deleted && message.text.trim() && !isRequest.value ? hooked("message") : [];
@@ -1038,14 +1038,14 @@ const composing = ref("");
 /** The header's button: the tool's window for this conversation, opened for the chat hook. */
 function openChatHook(chosen: PluginView) {
   if (isLocked(chosen)) return toPremium();
-  openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live), hook: "chat" });
+  openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live), hook: "settings" });
 }
 
 // The window opened for the chat hook is handed it as soon as it is there; once it answers (the
 // user saved or removed its choice), its switches are kept and it closes. Closed first, nothing.
 watch(sheet, (shown) => {
   const opening = plugin.value;
-  if (!shown || opening?.hook !== "chat" || opening.game) return;
+  if (!shown || opening?.hook !== "settings" || opening.game) return;
   const chosen = installed.value.find((one) => one.id === opening.id);
   if (!chosen) return;
   void hooks.chooseForChat(chosen, shown as unknown as HookRunner).then(() => {
@@ -1270,11 +1270,11 @@ watch(
               :key="one.id"
               :data-test="`chat-hook-${one.id}`"
               :color="hooks.isOn(one.id) ? 'primary' : undefined"
-              :aria-label="hookLabel(one, 'chat')"
+              :aria-label="hookLabel(one, 'settings')"
               :aria-pressed="hooks.isOn(one.id)"
               @click="openChatHook(one)"
             >
-              <ion-icon slot="icon-only" :icon="hookIcon(one, 'chat')" aria-hidden="true" />
+              <ion-icon slot="icon-only" :icon="hookIcon(one, 'settings')" aria-hidden="true" />
             </ion-button>
           </template>
           <!-- Issue app#3: the utilities installed on this phone, and the games. -->

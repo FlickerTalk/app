@@ -32,7 +32,7 @@ const TRANSLATOR: PluginView = {
   hooks: {
     message: { label: "Translate", icon: "language-outline" },
     composer: { label: "Translate", icon: "language-outline" },
-    chat: { label: "Chat language", icon: "language-outline" },
+    settings: { label: "Translation", icon: "language-outline", fields: [{ key: "lang", type: "select", label: "Language" }] },
   },
 };
 const KEY = "k".repeat(43);
@@ -158,7 +158,7 @@ describe("the chat's hooks", () => {
     const { hooks } = conversation();
     await flushPromises();
     await hooks.chooseForChat(TRANSLATOR, window);
-    expect(window.handed).toEqual([{ name: "chat", text: "", chat: KEY, ref: null, lang: "en", manual: true }]);
+    expect(window.handed).toEqual([{ name: "settings", text: "", chat: KEY, ref: null, lang: "en", manual: true }]);
     expect(invoked("core_chat_hooks_set")).toEqual([{ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: null }]);
     await hooks.chooseForChat(TRANSLATOR, runner(() => null));
     await hooks.chooseForChat(TRANSLATOR, runner(() => ({ text: "not switches" })));

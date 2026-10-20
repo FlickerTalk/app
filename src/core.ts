@@ -940,10 +940,9 @@ export interface PluginView {
 /**
  * The places in a conversation a tool can bind to (2026-10-20, plan of the translator §8.2d): a link
  * in a received text's bubble (`message`), the text being sent (`composer`, only by itself) and a
- * group of settings in the contact's or circle's page (`settings`). `chat` is no hook any more (the
- * core refuses a manifest with it): it stays here only until the screens built on it are replaced.
+ * group of settings in the contact's or circle's page (`settings`).
  */
-export type PluginHookName = "message" | "composer" | "settings" | "chat";
+export type PluginHookName = "message" | "composer" | "settings";
 
 /** What the app shows for a hook: its label and an Ionicon's name, as `module.json` says them. */
 export interface PluginHookDeclaration {

@@ -793,7 +793,7 @@ describe("ChatThread", () => {
       hooks: {
         message: { label: "Translate", icon: "language-outline" },
         composer: { label: "Translate", icon: "language-outline" },
-        chat: { label: "Chat language", icon: "language-outline" },
+        settings: { label: "Chat language", icon: "language-outline", fields: [{ key: "lang", type: "select", label: "Language" }] },
       },
     };
     type Hook = { name: string; text: string; chat: string; ref: string | null; lang: string; manual: boolean };
@@ -856,16 +856,16 @@ describe("ChatThread", () => {
     const frames = () => sheets.filter((one) => one.props.hidden);
 
     it("puts a button for the tool bound to the chat in the header, and keeps what its window answers", async () => {
-      answer = (hook) => (hook.name === "chat" ? { auto: { message: true, composer: true } } : null);
+      answer = (hook) => (hook.name === "settings" ? { auto: { message: true, composer: true } } : null);
       const wrapper = await thread();
       const button = wrapper.find(`ion-header [data-test='chat-hook-${ID}']`);
       expect(button.exists()).toBe(true);
       expect(button.attributes("aria-label")).toBe("Chat language");
       await button.trigger("click");
       await flushPromises();
-      const window = sheets.find((one) => one.props.hook === "chat");
+      const window = sheets.find((one) => one.props.hook === "settings");
       expect(window?.props.hidden, "its window, on screen").toBe(false);
-      expect(window?.runHook).toHaveBeenCalledWith({ name: "chat", text: "", chat: KEY, ref: null, lang: "en", manual: true });
+      expect(window?.runHook).toHaveBeenCalledWith({ name: "settings", text: "", chat: KEY, ref: null, lang: "en", manual: true });
       expect(kept("core_chat_hooks_set")).toEqual([{ conversation: "c1", plugin: ID, autoMessage: true, autoComposer: true, lang: null }]);
       expect(wrapper.find("[data-test='plugin-window']").exists(), "closed once it answered").toBe(false);
     });

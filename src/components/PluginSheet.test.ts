@@ -1135,14 +1135,32 @@ describe("PluginSheet", () => {
       expect(wrapper.emitted("shown")).toBeUndefined();
     });
 
-    it("tells a window opened for the chat hook so", async () => {
+    it("tells a window opened for a hook so", async () => {
       tauri.invoke.mockImplementation(async (command: string) => (command === "core_plugin_chat" ? "c".repeat(43) : undefined));
-      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hook: "chat" }, shallow: true });
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hook: "settings" }, shallow: true });
       await flushPromises();
       const { post, says } = framed(wrapper);
       says({ type: "ft.ready" });
       await flushPromises();
-      expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", hook: "chat", chat: "c".repeat(43) }), "*");
+      expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", hook: "settings", chat: "c".repeat(43) }), "*");
+    });
+
+    // Circles too (plan of the translator, circles): `contact` is the conversation, a contact's or a
+    // circle's id; the plugin gets that circle's own key, and its hooks run there.
+    it("runs in a circle with the circle's key", async () => {
+      tauri.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) =>
+        command === "core_plugin_chat" && args?.contact === "circle-1" ? "k".repeat(43) : undefined,
+      );
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "circle-1", hidden: true }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_chat", { plugin: plugin.id, contact: "circle-1" });
+      expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", chat: "k".repeat(43) }), "*");
+      void vm(wrapper).runHook({ ...HOOK, chat: "k".repeat(43) });
+      await flushPromises();
+      expect(hookCalls(post)[0]).toMatchObject({ type: "ft.hook", chat: "k".repeat(43) });
     });
 
     // Out of sight nothing may put the phone's own screens up: a picker, a photo, saving or printing
