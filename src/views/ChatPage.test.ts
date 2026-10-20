@@ -43,11 +43,40 @@ describe("ChatPage", () => {
     routing.route.params = { id: "c2" };
   });
 
-  // Plan 10.4: the games tab opens a game in the conversation with the contact picked.
-  it("hands the conversation the game the address asks to play", () => {
+  // Plan 10.4: the Apps tab opens a game in the conversation with the contact picked.
+  // app#145: the address then forgets it, as it forgets the search: coming back to the
+  // conversation (from a call, from a page over it) never opens a game that was closed again.
+  it("hands the conversation the game the address asks to play, and takes it out of the address", () => {
+    routing.replace.mockClear();
     routing.route.query = { play: "com.flickertalk.game.chess" };
-    const thread = mount(ChatPage, { shallow: true }).findComponent(ChatThread);
-    expect(thread.props("play")).toBe("com.flickertalk.game.chess");
+    const wrapper = mount(ChatPage, { shallow: true });
+    try {
+      expect(wrapper.findComponent(ChatThread).props("play")).toBe("com.flickertalk.game.chess");
+      expect(routing.replace).toHaveBeenCalledWith({ query: {} });
+    } finally {
+      wrapper.unmount();
+      routing.route.query = {};
+    }
+  });
+
+  // Ionic keeps a conversation's page mounted under the next one: the game another
+  // conversation's address asks for is not this one's.
+  it("leaves the game to the conversation the address is for", async () => {
+    routing.route.params = { id: "c2" };
+    routing.route.query = {};
+    const wrapper = mount(ChatPage, { shallow: true });
+    try {
+      routing.replace.mockClear();
+      routing.route.params = { id: "c3" };
+      routing.route.query = { play: "com.flickertalk.game.chess" };
+      await wrapper.vm.$nextTick();
+      expect(wrapper.findComponent(ChatThread).props("play")).toBeUndefined();
+      expect(routing.replace).not.toHaveBeenCalled();
+    } finally {
+      wrapper.unmount();
+      routing.route.params = { id: "c2" };
+      routing.route.query = {};
+    }
   });
 
   // Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`. The

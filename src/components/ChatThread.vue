@@ -687,11 +687,14 @@ const lastFromThem = computed(() =>
     .filter((one) => !one.mine)
     .at(-1),
 );
-watch(playing, (now) => {
+watch(playing, async (now) => {
   peeking.value = false;
   seenUpTo.value = messages.value.length;
-  // What arrived while the game covered the thread is read once the thread is back.
-  if (!now) void markRead(props.chatId);
+  if (now) return;
+  // What arrived while the game covered the thread is read once the thread is back, and shown
+  // from its newest message (app#145).
+  void markRead(props.chatId);
+  await scrollToEnd();
 });
 async function peek() {
   peeking.value = !peeking.value;
@@ -990,6 +993,9 @@ async function resendMessage(id: string) {
   await resend(id).catch(() => {});
 }
 
+// The game the address asked for, kept until the plugins are read: the page takes `?play=` out of
+// the address as soon as it hands it over (app#145), maybe before then.
+let toPlay = props.play;
 onMounted(async () => {
   // A tool installed from another window shows up here as soon as the chat comes back.
   document.addEventListener("visibilitychange", onVisible);
@@ -997,12 +1003,15 @@ onMounted(async () => {
   // in the middle of the page transition on every opening (2026-10-08, device profile).
   await Promise.all([pluginsReady(), refreshPremiumLock()]);
   pluginsLoaded.value = true;
-  if (props.play) playGame(props.play);
+  if (toPlay) playGame(toPlay);
+  toPlay = undefined;
 });
 watch(
   () => props.play,
   (id) => {
-    if (id && pluginsLoaded.value) playGame(id);
+    if (!id) return;
+    if (pluginsLoaded.value) playGame(id);
+    else toPlay = id;
   },
 );
 onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));

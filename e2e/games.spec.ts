@@ -86,7 +86,8 @@ for (const appearance of ["dark", "light"]) {
       await shot(app, "contact-picker");
       await app.getByTestId(`play-with-${BOB}`).click();
 
-      await expect(app).toHaveURL(new RegExp(`/chat/${BOB}\\?play=${TICTACTOE.replace(/\./g, "\\.")}$`));
+      // app#145: the address hands the game over once and then forgets it.
+      await expect(app).toHaveURL(new RegExp(`/chat/${BOB}$`));
       await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
       expect(await openedLive(app)).toBe(true);
       const granted = (await callsTo(app)).find(([command]) => command === "core_plugin_grant");
@@ -146,6 +147,44 @@ for (const appearance of ["dark", "light"]) {
     });
   });
 }
+
+// app#145 (seen on the phones): a game opened from the Apps tab and closed with ✕ came back on
+// "Back to the chat" from a call, and once the chat stayed above its newest message. A closed game
+// stays closed, and the chat shows its newest message.
+test("a game from the Apps tab, closed, stays closed after a call and back to the chat", async ({ app }) => {
+  await app.addInitScript(() => Object.assign(window, { __ftFakeNative: true, __ftFakeLongChat: 40 }));
+  await servePluginFrames(app);
+  await app.goto("/tabs/apps?show=games");
+  await app.getByTestId(`app-${TICTACTOE}`).click();
+  await app.getByTestId("game-allow").click();
+  await app.getByTestId(`play-with-${BOB}`).click();
+  await expect(app.getByTestId("game-room")).toBeVisible();
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(1);
+
+  // Bob writes while the game covers the thread.
+  await app.evaluate((contact) => {
+    const fake = (window as unknown as { __ftFake: { state: { messages: Record<string, unknown[]> }; emit: (event: string, payload: unknown) => void } }).__ftFake;
+    fake.state.messages[contact].push({ id: "bob-move", outgoing: false, text: "your move!", sentAt: Date.now(), state: "delivered" });
+    fake.emit("ft://changed", { contact });
+  }, BOB);
+  await expect(app.getByTestId("game-strip")).toContainText("your move!");
+
+  await app.getByTestId("close-game").click();
+  await expect(app.getByTestId("game-room")).toHaveCount(0);
+  const newest = app.getByTestId("bubble").filter({ hasText: "your move!" });
+  await expect(newest).toBeInViewport();
+
+  await app.getByRole("button", { name: "Voice call", exact: true }).click();
+  await expect(app.locator(".ft-call__state")).toHaveText(/^00:0\d$/);
+  await app.getByRole("button", { name: "Back to the chat" }).click();
+  await expect.poll(() => app.evaluate(() => location.pathname)).toBe(`/chat/${BOB}`);
+  await expect(app.getByTestId("call-bar")).toBeVisible();
+  // Once the chat is back in place (Ionic gives the page its taps back), no game has opened again.
+  await expect(app.locator("div.ion-page", { has: app.getByTestId("peer") })).not.toHaveCSS("pointer-events", "none");
+  await expect(app.getByTestId("game-room")).toHaveCount(0);
+  await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
+  await expect(newest).toBeInViewport();
+});
 
 test("a chat without invitations does not read the catalogue", async ({ app }) => {
   await app.goto(`/chat/${BOB}`);
