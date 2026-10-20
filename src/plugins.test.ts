@@ -22,6 +22,7 @@ import {
   games,
   hookIcon,
   hookLabel,
+  hookPlatform,
   hooked,
   settingsFields,
   settingsNote,
@@ -528,6 +529,19 @@ describe("plugins in the app", () => {
       expect(settingsNote(TRANSLATOR)).toBe("Los paquetes se descargan una vez.");
       expect(settingsFields(NOTES), "no settings, no fields").toEqual([]);
       expect(settingsNote(NOTES)).toBe("");
+    });
+
+    // 2026-10-21 (device QA of the translator): a hook says what the tool runs on, as Ionic tells it
+    // (the app's mode comes from the same), so a tool asks before a download only where the phone
+    // does not: an iPhone shows its own sheet, Android none.
+    it("tells a hook what it runs on: an iPhone or an iPad, an Android phone, else a desktop", () => {
+      const on = (...platforms: string[]) => (name: string) => platforms.includes(name);
+      expect(hookPlatform(on("ios", "iphone", "mobile"))).toBe("ios");
+      expect(hookPlatform(on("ios", "ipad", "tablet")), "an iPad too").toBe("ios");
+      expect(hookPlatform(on("android", "mobile"))).toBe("android");
+      expect(hookPlatform(on("android", "tablet")), "an Android tablet too").toBe("android");
+      expect(hookPlatform(on("desktop"))).toBe("desktop");
+      expect(hookPlatform(on()), "anything else").toBe("desktop");
     });
 
     it("draws a hook with the icon it names if the app carries it, else the tool's own", () => {
