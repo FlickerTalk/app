@@ -44,8 +44,8 @@ export function useChatHooks(options: { contact: () => string; messages: () => C
   const frames = ref<string[]>([]);
   /** The frames on screen because their tool asked the user something (`ft.show`). */
   const shown = reactive(new Set<string>());
-  /** The messages a hook the user started is working on, for the bubble to say so. */
-  const noting = reactive(new Set<string>());
+  /** The messages a hook the user started is working on, and the tool, for the bubble to say so. */
+  const noting = reactive(new Map<string, string>());
   /** Which tools run by themselves here, as the core says. */
   const flags = ref<ChatHookState[]>([]);
 
@@ -155,7 +155,7 @@ export function useChatHooks(options: { contact: () => string; messages: () => C
    * its switch is on and the chat is seen. Whether a note was kept.
    */
   async function noteMessage(plugin: PluginView, message: ChatMessage, manual = true): Promise<boolean> {
-    if (manual) noting.add(message.id);
+    if (manual) noting.set(message.id, plugin.id);
     try {
       const result = await run(plugin, async () => {
         if (!manual && !(options.active() && autoMessage.value.some((one) => one.id === plugin.id))) return null;

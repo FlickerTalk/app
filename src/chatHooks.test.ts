@@ -92,7 +92,10 @@ describe("the chat's hooks", () => {
     const frame = runner(() => ({ text: "nos vemos a las seis" }));
     const { hooks } = conversation({ frame });
     await flushPromises();
-    expect(await hooks.noteMessage(TRANSLATOR, text("m1", "see you at six"))).toBe(true);
+    const noting = hooks.noteMessage(TRANSLATOR, text("m1", "see you at six"));
+    expect(hooks.noting.get("m1"), "the bubble says the tool is on it").toBe(TRANSLATOR.id);
+    expect(await noting).toBe(true);
+    expect(hooks.noting.has("m1")).toBe(false);
     expect(hooks.frames.value).toEqual([TRANSLATOR.id]);
     expect(frame.handed).toEqual([{ name: "message", text: "see you at six", chat: KEY, ref: "ref_1", lang: "en", manual: true }]);
     expect(invoked("core_message_note_set")).toEqual([{ message: "m1", plugin: TRANSLATOR.id, text: "nos vemos a las seis" }]);

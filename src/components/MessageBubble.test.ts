@@ -44,6 +44,50 @@ describe("MessageBubble", () => {
     expect(new Set(Object.values(icon)).size).toBe(STATES.length);
   });
 
+  // 2026-10-20 (plan of the translator §8): what a tool's message hook answered shows under the
+  // text, muted, with the hook's icon named by its label; only from a tool still here. While a run
+  // the user started is on its way, the bubble says so.
+  describe("tools' notes", () => {
+    const TRANSLATOR: PluginView = {
+      id: "com.flickertalk.translate",
+      name: "Translator",
+      version: "1.1.0",
+      kind: "tool",
+      asks: { network: [], messages: true, send: "propose" },
+      granted: { network: [], messages: true, send: "propose" },
+      installedAt: 1,
+      hooks: { message: { label: "Translate", icon: "language-outline" } },
+      locales: { es: { name: "Traductor", hooks: { message: "Traducir" } } },
+    };
+    beforeEach(() => (installed.value = [TRANSLATOR]));
+    afterEach(async () => {
+      installed.value = [];
+      await setLocale("en");
+    });
+
+    it("shows a tool's note under the text, with its hook's icon named by its label", async () => {
+      const notes = [
+        { plugin: TRANSLATOR.id, text: "nos vemos a las seis" },
+        { plugin: "com.example.gone", text: "left behind" },
+      ];
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false, text: "see you at six", notes } } });
+      const shown = wrapper.findAll("[data-test='note']");
+      expect(shown.map((one) => one.text())).toEqual(["nos vemos a las seis"]);
+      expect(shown[0].attributes("dir")).toBe("auto");
+      expect(shown[0].findComponent(IonIcon).attributes("aria-label")).toBe("Translate");
+      expect(wrapper.find(".ft-bubble__text").element.compareDocumentPosition(shown[0].element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(shown[0].element.compareDocumentPosition(wrapper.find(".ft-bubble__meta").element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await setLocale("es");
+      expect(wrapper.find("[data-test='note']").findComponent(IonIcon).attributes("aria-label")).toBe("Traducir");
+    });
+
+    it("says a tool is working on the message while the user waits", () => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false }, noting: TRANSLATOR.id } });
+      expect(wrapper.find("[data-test='noting']").attributes("aria-label")).toBe("Translator is working…");
+      expect(mount(MessageBubble, { props: { message: base } }).find("[data-test='noting']").exists()).toBe(false);
+    });
+  });
+
   // 2026-10-05: an answer shows what it answers over the text; a tap goes there.
   describe("an answer", () => {
     it("quotes the message it answers and goes to it on a tap", async () => {
