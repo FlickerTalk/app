@@ -992,11 +992,17 @@ async fn an_empty_or_too_long_text_is_refused_without_asking_the_phone() {
     }
     assert_eq!(phone.asked(), 0);
 
-    // Characters, not bytes: 5 000 of a script of two bytes each still fit.
-    let longest = "ñ".repeat(5_000);
-    assert!(core.plugin_translate_text(TRANSLATOR, &phone, &longest, "es", "en").await.unwrap().is_some());
-    assert!(core.plugin_translate_detect(TRANSLATOR, &phone, &longest).await.unwrap().is_some());
-    assert_eq!(phone.asked(), 2);
+    // Characters are Unicode scalar values (`chars()`), not bytes nor UTF-16 units: 5 000 of two
+    // bytes each, or of four bytes and two UTF-16 units each, still fit; one more does not.
+    for wide in ["ñ", "😀"] {
+        let longest = wide.repeat(5_000);
+        assert!(core.plugin_translate_text(TRANSLATOR, &phone, &longest, "es", "en").await.unwrap().is_some(), "5 000 × {wide}");
+        assert!(core.plugin_translate_detect(TRANSLATOR, &phone, &longest).await.unwrap().is_some(), "5 000 × {wide}");
+        let one_more = wide.repeat(5_001);
+        assert!(core.plugin_translate_text(TRANSLATOR, &phone, &one_more, "es", "en").await.is_err(), "5 001 × {wide}");
+        assert!(core.plugin_translate_detect(TRANSLATOR, &phone, &one_more).await.is_err(), "5 001 × {wide}");
+    }
+    assert_eq!(phone.asked(), 4, "only the texts that fit reach the phone");
 }
 
 // A tag that does not read as a language is no language this phone has: the pair is unsupported,
