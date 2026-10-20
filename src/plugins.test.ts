@@ -267,6 +267,20 @@ describe("plugins in the app", () => {
     // 2026-10-02: where the phone is, once; a question with nothing but its id.
     expect(said({ type: "ft.location", id: "l1" })).toEqual({ type: "ft.location", id: "l1" });
     expect(said({ type: "ft.location" })).toBeNull();
+    // 2026-10-20 (app#177): the phone's own translator; texts and tags are strings, or no question.
+    expect(said({ type: "ft.translateLanguages", id: "t1" })).toEqual({ type: "ft.translateLanguages", id: "t1" });
+    expect(said({ type: "ft.translateLanguages" })).toBeNull();
+    expect(said({ type: "ft.translateDetect", id: "t2", text: "hola" })).toEqual({ type: "ft.translateDetect", id: "t2", text: "hola" });
+    expect(said({ type: "ft.translateDetect", id: "t2" })).toBeNull();
+    for (const type of ["ft.translateStatus", "ft.translatePrepare", "ft.translateRemove"]) {
+      expect(said({ type, id: "t3", from: "es", to: "en", extra: 1 })).toEqual({ type, id: "t3", from: "es", to: "en" });
+      expect(said({ type, id: "t3", from: "es" })).toBeNull();
+      expect(said({ type, id: "t3", from: 7, to: "en" })).toBeNull();
+      expect(said({ type, from: "es", to: "en" })).toBeNull();
+    }
+    expect(said({ type: "ft.translateText", id: "t4", text: "hola", from: "es", to: "en" })).toEqual({ type: "ft.translateText", id: "t4", text: "hola", from: "es", to: "en" });
+    expect(said({ type: "ft.translateText", id: "t4", text: ["hola"], from: "es", to: "en" })).toBeNull();
+    expect(said({ type: "ft.translateText", id: "t4", text: "hola", from: "es" })).toBeNull();
   });
 
   // 2026-09-27: "open with": a plugin says which kinds of file it opens; a text goes only to

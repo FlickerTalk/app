@@ -288,6 +288,11 @@ export type FrameMessage =
   | { type: "ft.openChat"; id: string; ref: string }
   // 2026-10-02: where the phone is, once.
   | { type: "ft.location"; id: string }
+  // 2026-10-20 (app#177): the phone's own translator.
+  | { type: "ft.translateLanguages"; id: string }
+  | { type: "ft.translateDetect"; id: string; text: string }
+  | { type: "ft.translateStatus" | "ft.translatePrepare" | "ft.translateRemove"; id: string; from: string; to: string }
+  | { type: "ft.translateText"; id: string; text: string; from: string; to: string }
   // The user's cloud (plan-drive): one question with an operation and up to two strings.
   | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string };
 
@@ -386,7 +391,18 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
     case "ft.remindList":
     case "ft.location":
     case "ft.takePhoto":
+    case "ft.translateLanguages":
       return text(id) ? { type: said.type, id } : null;
+    case "ft.translateDetect":
+      return text(id) && text(said.text) ? { type: "ft.translateDetect", id, text: said.text } : null;
+    case "ft.translateStatus":
+    case "ft.translatePrepare":
+    case "ft.translateRemove":
+      return text(id) && text(said.from) && text(said.to) ? { type: said.type, id, from: said.from, to: said.to } : null;
+    case "ft.translateText":
+      return text(id) && text(said.text) && text(said.from) && text(said.to)
+        ? { type: "ft.translateText", id, text: said.text, from: said.from, to: said.to }
+        : null;
     case "ft.remindSet":
       return text(id) && text(said.reminder) && typeof said.at === "number" && Number.isFinite(said.at)
         ? { type: "ft.remindSet", id, reminder: said.reminder, at: said.at, text: text(said.text) ? said.text : "" }
