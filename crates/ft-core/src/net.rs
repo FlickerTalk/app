@@ -373,6 +373,35 @@ impl Network {
         self.dial(now);
     }
 
+    /// The phone's network changed (app#200, 2026-10-20) and the router's socket is about to be
+    /// opened again. The direct connections may run over a path that is gone and still look open
+    /// for seconds, losing what is sent into them, and the offers still waiting carry the old
+    /// network's addresses: all of it goes, and the contacts it was connected to are dialled again
+    /// at the router's next welcome, over the network there is now.
+    pub(crate) async fn moved(&self) {
+        let links: Vec<(String, Link)> = self.links.lock().await.drain().collect();
+        {
+            let mut redial = self.redial.lock().expect("redial poisoned");
+            redial.router_up = false;
+            redial.contacts.extend(links.iter().map(|(contact, _)| contact.clone()));
+            redial.contacts.sort();
+            redial.contacts.dedup();
+        }
+        let mut gone: Vec<Session> = self.retained.lock().await.drain().map(|(_, retained)| retained.session).collect();
+        gone.extend(self.spare.lock().await.drain().map(|(_, spare)| spare.session));
+        gone.extend(self.pending.lock().await.drain().map(|(_, session)| session));
+        for (contact, link) in links {
+            self.announce(&contact);
+            gone.push(link.session);
+        }
+        // Closing waits for the other side to hear it, over a path that may be gone.
+        tokio::spawn(async move {
+            for session in gone {
+                let _ = session.close().await;
+            }
+        });
+    }
+
     /// Opens a direct connection with each contact, in the background, without waiting for one
     /// that is not connected to the router. Not with a contact blocked, a stranger waiting for a
     /// yes, nor one of a session left (§35, A5, §108): any of them may have changed since.

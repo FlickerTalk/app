@@ -241,10 +241,15 @@ async fn two_phones() -> (Arc<Fake>, Phone, Phone) {
 
 /// Alice calls Bob (the WebView's way) and Bob answers: the call is on.
 async fn call_on(alice: &Phone, bob: &Phone) -> String {
+    call_on_ringing_within(alice, bob, Duration::from_secs(20)).await
+}
+
+/// The same, with Bob's phone ringing within `limit`.
+async fn call_on_ringing_within(alice: &Phone, bob: &Phone, limit: Duration) -> String {
     let call = alice.core().place_call(&bob.id(), false).await.expect("alice calls");
     let (core, id) = (alice.core().clone(), call.clone());
     tokio::spawn(async move { core.offer_call(&id, "v=0 offer").await });
-    until("bob's phone rings", || async {
+    until_within("bob's phone rings", limit, || async {
         bob.core().current_call().await.unwrap().is_some_and(|current| current.call == call && current.phase == CallPhase::Ringing)
     })
     .await;
@@ -264,9 +269,10 @@ async fn network_changes_under(fake: &Fake, alice: &Phone, bob: &Phone) {
     alice.online.network.vanish(&bob.id()).await;
 }
 
-/// Alice hangs up, in the background (the end waits for a connection), and the moment she did.
-fn hang_up(alice: &Phone, call: &str) -> Instant {
-    let (core, id) = (alice.core().clone(), call.to_owned());
+/// The phone hangs up, in the background (the end may wait for a connection), and the moment it
+/// did.
+fn hang_up(phone: &Phone, call: &str) -> Instant {
+    let (core, id) = (phone.core().clone(), call.to_owned());
     tokio::spawn(async move { core.end_call(&id, false).await });
     Instant::now()
 }
@@ -290,4 +296,48 @@ async fn a_hang_up_gets_through_once_a_quiet_router_socket_is_opened_again() {
     until_within("bob's call ends as a hang-up", CALL_REACH, || ended_as_answered(&bob, &call)).await;
     eprintln!("bob heard the hang-up {} ms after it", hung_up.elapsed().as_millis());
     assert_eq!(fake.opened(&bob.id()), 2, "through a socket opened again");
+}
+
+/// Bob's phone sees its addresses change (the watcher in `online::start` does it in the app) and
+/// its new socket to the router is open within a couple of seconds.
+async fn bob_sees_the_change(fake: &Fake, bob: &Phone) {
+    bob.online.lifecycle().network_changed().await;
+    until_within("bob's socket is open again", Duration::from_secs(3), || async { fake.opened(&bob.id()) == 2 }).await;
+}
+
+// The steps of app#200: the phone's network changes with the app open, then calls are made and
+// hung up from either side. The phone sees its addresses change and does not wait for the quiet
+// socket to be noticed: it opens it again at once, so a call rings at once and each hang-up
+// reaches the other phone in a couple of seconds, as after a restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_network_change_calls_ring_and_end_at_once_both_ways() {
+    let (fake, alice, bob) = two_phones().await;
+    fake.silence(&bob.id());
+    alice.online.network.vanish(&bob.id()).await;
+    bob_sees_the_change(&fake, &bob).await;
+
+    for bob_hangs_up in [false, true] {
+        let call = call_on_ringing_within(&alice, &bob, Duration::from_secs(5)).await;
+        let (by, other) = if bob_hangs_up { (&bob, &alice) } else { (&alice, &bob) };
+        let hung_up = hang_up(by, &call);
+        until_within("the other phone's call ends as a hang-up", Duration::from_secs(3), || ended_as_answered(other, &call)).await;
+        eprintln!("hang-up heard {} ms after it", hung_up.elapsed().as_millis());
+    }
+}
+
+// Right after the change the phone that moved still takes its direct connection for open, while
+// its path is gone: a hang-up handed to it would be lost and never sent again. The phone lets its
+// direct connections go when its network changes and dials those contacts again over the new one.
+#[tokio::test(flavor = "multi_thread")]
+async fn right_after_a_network_change_a_hang_up_goes_over_a_new_connection() {
+    let (fake, alice, bob) = two_phones().await;
+    let call = call_on(&alice, &bob).await;
+    fake.silence(&bob.id());
+    alice.online.network.vanish(&bob.id()).await;
+    assert!(bob.online.network.is_connected(&alice.id()).await, "bob has not noticed yet");
+    bob_sees_the_change(&fake, &bob).await;
+
+    let hung_up = hang_up(&bob, &call);
+    until_within("alice's call ends as a hang-up", Duration::from_secs(3), || ended_as_answered(&alice, &call)).await;
+    eprintln!("alice heard the hang-up {} ms after it", hung_up.elapsed().as_millis());
 }

@@ -250,6 +250,27 @@ impl LeftBehind {
     }
 }
 
+/// The phone's addresses as last seen, to notice when its network changes (app#200).
+#[derive(Debug)]
+struct Addresses(Vec<String>);
+
+impl Addresses {
+    fn new(mut seen: Vec<String>) -> Self {
+        seen.sort();
+        Self(seen)
+    }
+
+    /// Whether `now` is not what was last seen; it is what is seen from then on.
+    fn changed(&mut self, mut now: Vec<String>) -> bool {
+        now.sort();
+        if now == self.0 {
+            return false;
+        }
+        self.0 = now;
+        true
+    }
+}
+
 /// Lets go of the router and the other phones, or comes back to them, as `Presence` says.
 pub struct Lifecycle {
     core: Weak<Core>,
@@ -290,6 +311,21 @@ impl Lifecycle {
         *self.redial_within.lock().unwrap_or_else(PoisonError::into_inner) = within;
     }
 
+    /// The phone's network changed (app#200, 2026-10-20): its addresses are not the ones the
+    /// router's socket and the direct connections were opened on. The socket may be left on a path
+    /// that is gone, quiet, while the router hands it what comes: it is opened again at once,
+    /// without waiting for it to be noticed quiet. The direct connections go too, and their
+    /// contacts are dialled again once the new socket is welcomed (`Network::moved`). Away,
+    /// nothing is open, and coming back opens it all afresh.
+    pub async fn network_changed(&self) {
+        let _one_at_a_time = self.looking.lock().await;
+        if self.router.is_away() {
+            return;
+        }
+        self.network.moved().await;
+        self.router.reconnect_now();
+    }
+
     /// A push came (a call's, or a wake): out of the foreground, the connection comes back for what
     /// it announces. `true` if it came back; if it was there, the caller may still want a fresh one.
     pub async fn woken(&self) -> bool {
@@ -327,6 +363,31 @@ impl Lifecycle {
             self.network.close().await;
         }
         false
+    }
+}
+
+/// How often the phone's addresses are looked at, to notice that its network changed (app#200).
+const NETWORK_LOOK: Duration = Duration::from_secs(1);
+
+/// Looks at the phone's addresses every `NETWORK_LOOK` and calls `changed` each time they are not
+/// what they were, until the client stops.
+async fn watch_addresses<Fut>(
+    mut addresses: impl FnMut() -> Vec<String>,
+    mut changed: impl FnMut() -> Fut,
+    mut stop: tokio::sync::watch::Receiver<bool>,
+) where
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut seen = Addresses::new(addresses());
+    let mut look = tokio::time::interval(NETWORK_LOOK);
+    loop {
+        tokio::select! {
+            _ = look.tick() => {}
+            _ = stop.wait_for(|stopped| *stopped) => return,
+        }
+        if seen.changed(addresses()) {
+            changed().await;
+        }
     }
 }
 
@@ -385,9 +446,12 @@ impl Signer for CoreSigner {
 /// Opens the core over `store` and connects it to the router at `router` (for example
 /// `https://api.flickertalk.com`). WebRTC listens as `base` says; STUN and TURN come from the
 /// router. Registering runs in the background (`keep_registered`): nothing waits for the network.
+/// If `base` follows the phone's interfaces (the app's does), a change of them is a network change
+/// (`Lifecycle::network_changed`).
 pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfig) -> Result<Online> {
     let slot = Arc::new(OnceLock::new());
     let router = Arc::new(RouterClient::new(router, Arc::new(CoreSigner(slot.clone())))?);
+    let follows_the_network = base.follow_interfaces;
     let network = Network::new(router.clone(), base);
     let core = Core::open(store, key, network.clone()).await.context("cannot open the core")?;
     let _ = slot.set(core.clone());
@@ -419,6 +483,19 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         redial_within: std::sync::Mutex::new(REDIAL_WITHIN),
     });
     tokio::spawn(keep_present(lifecycle.clone(), core.events(), stop.subscribe()));
+    // A phone changes networks with the app open (app#200): the socket and the direct connections
+    // follow at once, instead of staying on a path that may be gone.
+    if follows_the_network {
+        let moved = lifecycle.clone();
+        tokio::spawn(watch_addresses(
+            ft_webrtc::interface_addresses,
+            move || {
+                let lifecycle = moved.clone();
+                async move { lifecycle.network_changed().await }
+            },
+            stop.subscribe(),
+        ));
+    }
 
     let mut stopping = stop.subscribe();
     let retrying = Arc::downgrade(&core);
@@ -607,6 +684,52 @@ mod tests {
         let mut left = LeftBehind::default();
         left.closed(vec!["ft_a".to_owned()], at);
         assert!(left.take(at - Duration::from_secs(1), REDIAL_WITHIN).is_empty());
+    }
+
+    fn addresses(list: &[&str]) -> Vec<String> {
+        list.iter().map(|address| (*address).to_owned()).collect()
+    }
+
+    // The phone's network changes when its addresses do (app#200): one comes or goes (Wi-Fi joined,
+    // mobile data dropped). The same ones in another order are no change.
+    #[test]
+    fn a_network_change_is_a_change_of_the_addresses() {
+        let mut seen = Addresses::new(addresses(&["10.0.0.7:0", "192.168.1.20:0"]));
+        assert!(!seen.changed(addresses(&["192.168.1.20:0", "10.0.0.7:0"])), "the same, in another order");
+        assert!(seen.changed(addresses(&["10.0.0.7:0"])), "Wi-Fi left");
+        assert!(!seen.changed(addresses(&["10.0.0.7:0"])), "seen once");
+        assert!(seen.changed(addresses(&["10.0.0.7:0", "192.168.5.3:0"])), "another Wi-Fi joined");
+        assert!(seen.changed(addresses(&["10.0.0.9:0", "192.168.5.3:0"])), "a new mobile data address");
+    }
+
+    // The watcher looks at the addresses every `NETWORK_LOOK` and says so once when they change,
+    // until the client stops.
+    #[tokio::test(start_paused = true)]
+    async fn the_watcher_tells_each_change_of_the_addresses_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+        let now = Arc::new(std::sync::Mutex::new(addresses(&["10.0.0.7:0"])));
+        let told = Arc::new(AtomicUsize::new(0));
+        let stop = tokio::sync::watch::Sender::new(false);
+        let (looked, counted) = (now.clone(), told.clone());
+        let watching = tokio::spawn(watch_addresses(
+            move || looked.lock().unwrap().clone(),
+            move || {
+                counted.fetch_add(1, SeqCst);
+                async {}
+            },
+            stop.subscribe(),
+        ));
+
+        tokio::time::sleep(NETWORK_LOOK * 3).await;
+        assert_eq!(told.load(SeqCst), 0, "nothing changed");
+        *now.lock().unwrap() = addresses(&["10.0.0.7:0", "192.168.1.20:0"]);
+        tokio::time::sleep(NETWORK_LOOK + Duration::from_millis(1)).await;
+        assert_eq!(told.load(SeqCst), 1, "Wi-Fi joined");
+        tokio::time::sleep(NETWORK_LOOK * 3).await;
+        assert_eq!(told.load(SeqCst), 1, "told once");
+
+        stop.send_replace(true);
+        tokio::time::timeout(NETWORK_LOOK, watching).await.expect("it stops").unwrap();
     }
 
     // In front, the app is always connected, call or not.
