@@ -152,6 +152,23 @@ pub struct Message {
     pub state: MessageState,
 }
 
+/// What a tool said about a message (2026-10-20, plan of the translator §8): shown under it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageNote {
+    pub message_id: String,
+    pub plugin: String,
+    pub text: String,
+}
+
+/// Whether a tool runs by itself in a conversation (2026-10-20): on each message received, on each
+/// text sent. What its `chat` hook answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatHook {
+    pub plugin: String,
+    pub auto_message: bool,
+    pub auto_composer: bool,
+}
+
 /// The emoji each side put on a message (2026-10-05).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reactions {
@@ -723,6 +740,8 @@ impl Store {
                 .bind(at)
                 .execute(&mut *tx)
                 .await?;
+            // A note on the old words (a translation) is wrong for the new ones (2026-10-20).
+            sqlx::query("DELETE FROM message_notes WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(changed == 1)
@@ -745,6 +764,7 @@ impl Store {
         if changed == 1 {
             sqlx::query("DELETE FROM files WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
             sqlx::query("DELETE FROM reactions WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
+            sqlx::query("DELETE FROM message_notes WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
             sqlx::query("DELETE FROM pending_outbox WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
             sqlx::query("DELETE FROM scheduled WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
             sqlx::query("INSERT INTO message_deletions (message_id, deleted_at) VALUES (?, ?) ON CONFLICT (message_id) DO NOTHING")
@@ -791,6 +811,72 @@ impl Store {
             .fetch_all(&self.pool)
             .await?;
         Ok(rows.into_iter().map(|row| row.get("message_id")).collect())
+    }
+
+    /// A tool's note under a message (2026-10-20), in place of the one it left before.
+    pub async fn set_message_note(&self, message_id: &str, plugin: &str, text: &str, at: i64) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO message_notes (message_id, plugin, text, at) VALUES (?, ?, ?, ?)
+             ON CONFLICT (message_id, plugin) DO UPDATE SET text = excluded.text, at = excluded.at",
+        )
+        .bind(message_id)
+        .bind(plugin)
+        .bind(text)
+        .bind(at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn clear_message_note(&self, message_id: &str, plugin: &str) -> Result<()> {
+        sqlx::query("DELETE FROM message_notes WHERE message_id = ? AND plugin = ?").bind(message_id).bind(plugin).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// The notes under the conversation's messages, by message and tool.
+    pub async fn notes(&self, contact: &str) -> Result<Vec<MessageNote>> {
+        let rows = sqlx::query(
+            "SELECT n.message_id, n.plugin, n.text FROM message_notes n JOIN messages m ON m.message_id = n.message_id
+             WHERE m.contact = ? ORDER BY n.message_id, n.plugin",
+        )
+        .bind(contact)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|row| MessageNote { message_id: row.get("message_id"), plugin: row.get("plugin"), text: row.get("text") })
+            .collect())
+    }
+
+    /// Whether a tool runs by itself in the conversation (2026-10-20); both off forgets it.
+    pub async fn set_chat_hooks(&self, contact: &str, plugin: &str, auto_message: bool, auto_composer: bool) -> Result<()> {
+        if !auto_message && !auto_composer {
+            sqlx::query("DELETE FROM chat_hooks WHERE contact = ? AND plugin = ?").bind(contact).bind(plugin).execute(&self.pool).await?;
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO chat_hooks (contact, plugin, auto_message, auto_composer) VALUES (?, ?, ?, ?)
+             ON CONFLICT (contact, plugin) DO UPDATE SET auto_message = excluded.auto_message, auto_composer = excluded.auto_composer",
+        )
+        .bind(contact)
+        .bind(plugin)
+        .bind(auto_message)
+        .bind(auto_composer)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The tools that run by themselves in the conversation, by id.
+    pub async fn chat_hooks(&self, contact: &str) -> Result<Vec<ChatHook>> {
+        let rows = sqlx::query("SELECT plugin, auto_message, auto_composer FROM chat_hooks WHERE contact = ? ORDER BY plugin")
+            .bind(contact)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|row| ChatHook { plugin: row.get("plugin"), auto_message: row.get("auto_message"), auto_composer: row.get("auto_composer") })
+            .collect())
     }
 
     /// One emoji on a message (2026-10-05), ours or theirs; `None` takes it back. `at` is when it
@@ -1341,6 +1427,9 @@ impl Store {
         sqlx::query("DELETE FROM plugin_records WHERE plugin = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM reminders WHERE plugin = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM plugin_refs WHERE plugin = ?").bind(id).execute(&self.pool).await?;
+        // What it left in the conversations (2026-10-20): its notes and its switches.
+        sqlx::query("DELETE FROM message_notes WHERE plugin = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM chat_hooks WHERE plugin = ?").bind(id).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -2367,6 +2456,112 @@ mod tests {
 
         let store = Store::with(pool, None).await.expect("migrates the rest");
         assert_eq!(store.contact("ft_bob").await.expect("reads").expect("present").unblocked_at, None);
+    }
+
+    // 2026-10-20 (plan of the translator §8.2): a tool's note under a message (a translation) is
+    // kept on this phone, one per tool, and goes with the message.
+    #[tokio::test]
+    async fn a_note_hangs_from_its_message_one_per_tool_and_goes_with_it() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.add_contact(&contact("ft_carol")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+        store.insert_message(&message("m2", "ft_bob", false, 2)).await.expect("inserts");
+        store.insert_message(&message("m3", "ft_carol", false, 3)).await.expect("inserts");
+
+        store.set_message_note("m1", "com.example.translate", "hola", 10).await.expect("notes");
+        store.set_message_note("m1", "com.example.other", "salut", 11).await.expect("notes");
+        store.set_message_note("m3", "com.example.translate", "ciao", 12).await.expect("notes");
+        store.set_message_note("m1", "com.example.translate", "hola otra vez", 13).await.expect("replaces");
+        let note = |message: &str, plugin: &str, text: &str| MessageNote { message_id: message.to_owned(), plugin: plugin.to_owned(), text: text.to_owned() };
+        assert_eq!(
+            store.notes("ft_bob").await.expect("reads"),
+            vec![note("m1", "com.example.other", "salut"), note("m1", "com.example.translate", "hola otra vez")],
+            "this conversation's only, one per tool"
+        );
+
+        store.clear_message_note("m1", "com.example.other").await.expect("clears");
+        assert_eq!(store.notes("ft_bob").await.unwrap(), vec![note("m1", "com.example.translate", "hola otra vez")]);
+        store.forget_message("m1").await.expect("forgets");
+        assert!(store.notes("ft_bob").await.unwrap().is_empty(), "the note goes with the message");
+        assert!(store.set_message_note("m9", "com.example.translate", "x", 1).await.is_err(), "no message, no note");
+    }
+
+    // Other words make the note wrong, and a message taken back for both sides has nothing left to
+    // note: either takes its notes away. An older edit that changes nothing leaves them.
+    #[tokio::test]
+    async fn editing_or_taking_back_a_message_takes_its_notes() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+        store.insert_message(&message("m2", "ft_bob", false, 2)).await.expect("inserts");
+        store.set_message_note("m1", "com.example.translate", "hola", 1).await.unwrap();
+        store.set_message_note("m2", "com.example.translate", "adiós", 1).await.unwrap();
+
+        assert!(store.edit_text("m1", "other words", 50).await.expect("edits"));
+        assert!(store.notes("ft_bob").await.unwrap().iter().all(|note| note.message_id != "m1"), "edited: its note went");
+        store.set_message_note("m1", "com.example.translate", "otras palabras", 2).await.unwrap();
+        assert!(!store.edit_text("m1", "older words", 40).await.expect("an older edit"));
+        assert!(store.notes("ft_bob").await.unwrap().iter().any(|note| note.message_id == "m1"), "nothing changed, the note stays");
+
+        assert!(store.mark_deleted("m2").await.expect("takes back"));
+        assert!(store.notes("ft_bob").await.unwrap().iter().all(|note| note.message_id != "m2"), "taken back: its note went");
+    }
+
+    // The chat hook's answer (plan §8.1): for each contact and tool, whether the tool runs by itself
+    // on each message received and on each text sent. Both off is no row at all.
+    #[tokio::test]
+    async fn a_conversation_remembers_which_tools_run_by_themselves() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.add_contact(&contact("ft_carol")).await.expect("adds");
+        let hook = |plugin: &str, auto_message: bool, auto_composer: bool| ChatHook { plugin: plugin.to_owned(), auto_message, auto_composer };
+
+        assert!(store.chat_hooks("ft_bob").await.expect("reads").is_empty(), "nothing runs by itself unless chosen");
+        store.set_chat_hooks("ft_bob", "com.example.translate", true, false).await.expect("sets");
+        store.set_chat_hooks("ft_carol", "com.example.translate", true, true).await.expect("sets");
+        assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", true, false)]);
+        store.set_chat_hooks("ft_bob", "com.example.translate", true, true).await.expect("changes");
+        assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", true, true)]);
+        store.set_chat_hooks("ft_bob", "com.example.translate", false, false).await.expect("switches off");
+        assert!(store.chat_hooks("ft_bob").await.unwrap().is_empty());
+        assert!(store.set_chat_hooks("ft_nobody", "com.example.translate", true, true).await.is_err(), "no contact, no row");
+
+        store.remove_contact("ft_carol").await.expect("removes");
+        assert!(store.chat_hooks("ft_carol").await.unwrap().is_empty(), "it goes with the contact");
+    }
+
+    // Uninstalling a tool takes what it left in the conversations: its notes and its switches.
+    #[tokio::test]
+    async fn a_removed_plugin_leaves_no_notes_nor_switches_behind() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+        for plugin in ["com.example.translate", "com.example.other"] {
+            store.install_plugin(plugin, "1.0.0", "{}").await.unwrap();
+            store.set_message_note("m1", plugin, "note", 1).await.unwrap();
+            store.set_chat_hooks("ft_bob", plugin, true, true).await.unwrap();
+        }
+        store.remove_plugin("com.example.translate").await.expect("removes");
+        assert!(store.notes("ft_bob").await.unwrap().iter().all(|note| note.plugin == "com.example.other"));
+        assert_eq!(store.chat_hooks("ft_bob").await.unwrap().len(), 1);
+        assert_eq!(store.chat_hooks("ft_bob").await.unwrap()[0].plugin, "com.example.other");
+    }
+
+    // A database from before 0023 opens with no notes and no switches, and takes them after.
+    #[tokio::test]
+    async fn a_database_from_before_has_no_notes_nor_switches() {
+        let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.expect("opens");
+        sqlx::migrate!("./migrations").run_to(22, &pool).await.expect("migrates to 0022");
+        sqlx::query("INSERT INTO contacts (device_id, name, card, mailbox, added_at) VALUES ('ft_bob', 'Bob', x'01', 1, 1)").execute(&pool).await.expect("a contact");
+
+        let store = Store::with(pool, None).await.expect("migrates the rest");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+        assert!(store.notes("ft_bob").await.expect("reads").is_empty());
+        assert!(store.chat_hooks("ft_bob").await.expect("reads").is_empty());
+        store.set_message_note("m1", "com.example.translate", "hola", 1).await.expect("notes");
+        store.set_chat_hooks("ft_bob", "com.example.translate", true, false).await.expect("sets");
     }
 
     // 2026-10-05: an answer remembers what it answers, and forgets it with the message.
