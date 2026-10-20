@@ -5,7 +5,7 @@
 // missing, the tool asks in its answer and the app asks the user in an alert. With the conversation's
 // switches on, what arrives is translated by itself, a chip under the header says so, and what is
 // sent goes in the conversation's language with the user's words kept under it.
-import type { Page } from "@playwright/test";
+import { devices, type Locator, type Page } from "@playwright/test";
 import { test as base } from "@playwright/test";
 import { installFakeCore } from "./fake-core";
 import { callsTo, expect, serveRealPluginFrames } from "./helpers";
@@ -182,3 +182,37 @@ test("with the sending switch on, what I write goes in French and my bubble keep
   await mine.getByTestId("show-original").click();
   await expect(mine).toContainText("hello");
 });
+
+// QA of the translator (2026-10-20, D6): on an iPhone, Ionic draws a list header as a large title
+// (22 px, its content at the bottom), so the Translation group's header stood out from the contact
+// page's other groups and its icon sat below the middle of its title. It is drawn as on Android: no
+// larger than its rows, its icon centred on its title and in the column of the other groups' icons.
+const PHONES = [
+  { name: "an Android phone", mode: "md", use: {} },
+  { name: "an iPhone", mode: "ios", use: { userAgent: devices["iPhone 13"].userAgent, viewport: { width: 390, height: 844 } } },
+];
+for (const phone of PHONES) {
+  test.describe(`on ${phone.name}`, () => {
+    test.use(phone.use);
+
+    test("the contact's Translation group has a header no larger than its rows, its icon centred on its title", async ({ page: app }) => {
+      await conversation(app);
+      await app.getByTestId("peer").click();
+      await expect(app.locator("html")).toHaveClass(new RegExp(`\\b${phone.mode}\\b`));
+      const group = app.getByTestId(`settings-${TRANSLATOR}`);
+      const header = group.locator("ion-list-header");
+      await expect(header).toContainText("Translation");
+      await group.scrollIntoViewIfNeeded();
+
+      const fontSize = (one: Locator) => one.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+      expect(await fontSize(header.locator("ion-label"))).toBeLessThanOrEqual(await fontSize(group.getByTestId("setting-receive")));
+
+      const icon = (await header.locator("ion-icon").boundingBox())!;
+      const title = (await header.locator("ion-label").boundingBox())!;
+      expect(Math.abs(icon.y + icon.height / 2 - (title.y + title.height / 2)), "the icon's middle against the title's").toBeLessThanOrEqual(1);
+      // The other groups' icons: the rules group's, the one just above.
+      const ruleIcon = (await app.locator("ion-item", { has: app.getByTestId("typing") }).locator("ion-icon").boundingBox())!;
+      expect(Math.abs(icon.x - ruleIcon.x), "the icon's column against the rules group's").toBeLessThanOrEqual(1);
+    });
+  });
+}

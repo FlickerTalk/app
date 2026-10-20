@@ -65,7 +65,7 @@ watch(() => props.active, read);
 
 <template>
   <ion-list inset :data-test="`settings-${plugin.id}`">
-    <ion-list-header>
+    <ion-list-header class="ft-settings__header">
       <ion-icon :icon="hookIcon(plugin, 'settings')" class="ft-settings__icon" aria-hidden="true" />
       <ion-label>{{ hookLabel(plugin, "settings") }}</ion-label>
     </ion-list-header>
@@ -98,6 +98,21 @@ watch(() => props.active, read);
 </template>
 
 <style scoped>
+/*
+ * The header in both modes as Android draws it (QA 2026-10-20): on an iPhone Ionic makes a list
+ * header a large title with its content at the bottom, which stood out from the page's other groups
+ * and put the icon below the middle of the title.
+ */
+.ft-settings__header {
+  --color: var(--ion-text-color);
+  align-items: center;
+  min-height: 45px;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+.ft-settings__header ion-label {
+  margin-block: 0;
+}
 .ft-settings__icon {
   margin-inline-end: 8px;
   font-size: 18px;
