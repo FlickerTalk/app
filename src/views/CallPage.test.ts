@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { IonActionSheet, IonIcon } from "@ionic/vue";
@@ -613,6 +613,127 @@ describe("CallPage with native video", () => {
     await thumb.trigger("pointerup", { clientX: 200, clientY: 500, pointerId: 1 });
     expect(thumb.attributes("style")).toContain("translate(-100px, -100px)");
     expect(actions.layoutVideo).toHaveBeenCalled();
+  });
+
+  // app#155: let go halfway to a corner, the small picture used to stay where the finger left it,
+  // half over their face. It glides into the nearest corner: as far from the sides as where it
+  // starts, under the buttons at the top or over the call's.
+  describe("letting my picture go", () => {
+    const place = (element: Element, rect: { x: number; y: number; width: number; height: number }) =>
+      (element.getBoundingClientRect = () => ({ ...rect, top: rect.y, left: rect.x, right: rect.x + rect.width, bottom: rect.y + rect.height, toJSON: () => rect }) as DOMRect);
+    /** The animation frames, run by hand, 16 ms apart; `run(n)` runs n of them, `run()` all. */
+    const frames = () => {
+      const due = new Map<number, FrameRequestCallback>();
+      let last = 0;
+      vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => (due.set(++last, callback), last));
+      vi.stubGlobal("cancelAnimationFrame", (id: number) => due.delete(id));
+      onTestFinished(() => {
+        vi.unstubAllGlobals();
+      });
+      let time = 1000;
+      return async (count = 100) => {
+        for (let ran = 0; due.size && ran < count; ran++) {
+          const now = [...due.values()];
+          due.clear();
+          time += 16;
+          now.forEach((callback) => callback(time));
+          await nextTick();
+        }
+      };
+    };
+    /** A 400 × 800 screen, its top buttons ending at 99, my picture starting at (288, 516). */
+    const screen = (wrapper: VueWrapper) => {
+      place(wrapper.find(".ft-call__body").element, { x: 0, y: 0, width: 400, height: 800 });
+      place(wrapper.find(".ft-call__minimize").element, { x: 8, y: 55, width: 44, height: 44 });
+      const thumb = wrapper.find("[data-test='local-slot']");
+      const element = thumb.element as HTMLElement;
+      element.getBoundingClientRect = () => {
+        const [, dx = "0", dy = "0"] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(element.style.transform) ?? [];
+        const rect = { x: 288 + Number(dx), y: 516 + Number(dy), width: 96, height: 140 };
+        return { ...rect, top: rect.y, left: rect.x, right: rect.x + rect.width, bottom: rect.y + rect.height, toJSON: () => rect } as DOMRect;
+      };
+      return thumb;
+    };
+    const offset = (thumb: { attributes: (name: string) => string | undefined }) => {
+      const [, x = "0", y = "0"] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(thumb.attributes("style") ?? "") ?? [];
+      return { x: Number(x), y: Number(y) };
+    };
+    /** Mounted with my picture over theirs, dragged by (dx, dy) from where it starts and let go;
+     *  `name` is where their name and the timer show, with their backdrop. */
+    const letGo = async (dx: number, dy: number, name?: { x: number; y: number; width: number; height: number }) => {
+      live({ remote: true, camera: true });
+      const wrapper = mount(CallPage, { shallow: true });
+      const thumb = screen(wrapper);
+      if (name) place(wrapper.find(".ft-call__peer").element, name);
+      await thumb.trigger("pointerdown", { clientX: 330, clientY: 580, pointerId: 1 });
+      await thumb.trigger("pointermove", { clientX: 330 + dx, clientY: 580 + dy, pointerId: 1 });
+      await thumb.trigger("pointerup", { clientX: 330 + dx, clientY: 580 + dy, pointerId: 1 });
+      return thumb;
+    };
+
+    it("settles it into the nearest corner and tells the core it is there", async () => {
+      const run = frames();
+      // Halfway to the top-left corner: its centre at (136, 336), in the top-left quarter.
+      const thumb = await letGo(-200, -250);
+      await run();
+      expect(thumb.attributes("style")).toContain("translate(-272px, -401px)");
+      expect(lastMeasure()()).toMatchObject({ local: { x: 16, y: 115, width: 96, height: 140 } });
+    });
+
+    // Seen on the iPhone (QA of #184, 2026-10-20): their name and the timer, on a rounded backdrop,
+    // reach lower than the buttons at the top, and the backdrop covered the picture's inner corner.
+    it("settles the top corners under their name and timer when these reach lower than the buttons", async () => {
+      const run = frames();
+      const name = { x: 120, y: 32, width: 160, height: 98 };
+      const left = await letGo(-200, -250, name);
+      await run();
+      expect(lastMeasure()()).toMatchObject({ local: { x: 16, y: 146 } });
+      expect(offset(left)).toEqual({ x: -272, y: -370 });
+      const right = await letGo(0, -300, name);
+      await run();
+      expect(lastMeasure()()).toMatchObject({ local: { x: 288, y: 146 } });
+      expect(offset(right)).toEqual({ x: 0, y: -370 });
+    });
+
+    it("glides there rather than jumping", async () => {
+      const run = frames();
+      const thumb = await letGo(-200, -250);
+      expect(offset(thumb)).toEqual({ x: -200, y: -250 });
+      await run(4);
+      const { x, y } = offset(thumb);
+      expect(x).toBeLessThan(-200);
+      expect(x).toBeGreaterThan(-272);
+      expect(y).toBeLessThan(-250);
+      expect(y).toBeGreaterThan(-401);
+    });
+
+    it("goes back to where it starts when let go nearer there", async () => {
+      const run = frames();
+      const thumb = await letGo(-50, -100);
+      await run();
+      expect(thumb.attributes("style")).toBeUndefined();
+      expect(lastMeasure()()).toMatchObject({ local: { x: 288, y: 516 } });
+    });
+
+    it("goes straight there when the phone asks for less motion", async () => {
+      frames();
+      const query = { matches: true, media: "(prefers-reduced-motion: reduce)", addEventListener: vi.fn(), removeEventListener: vi.fn() };
+      vi.spyOn(window, "matchMedia").mockImplementation((media) => ({ ...query, matches: media === query.media }) as unknown as MediaQueryList);
+      onTestFinished(() => vi.mocked(window.matchMedia).mockRestore());
+      const thumb = await letGo(-200, -250);
+      expect(offset(thumb)).toEqual({ x: -272, y: -401 });
+    });
+
+    // The finger takes it again on its way: from where it is, not from the corner it was going to.
+    it("is taken again from where it is while it glides", async () => {
+      const run = frames();
+      const thumb = await letGo(-200, -250);
+      await run(4);
+      const before = offset(thumb);
+      await thumb.trigger("pointerdown", { clientX: 100, clientY: 300, pointerId: 2 });
+      await run();
+      expect(offset(thumb)).toEqual(before);
+    });
   });
 
   it("hides the pictures when the call screen goes", () => {
