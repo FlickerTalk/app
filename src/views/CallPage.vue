@@ -23,6 +23,7 @@ import GamePermissions from "../components/GamePermissions.vue";
 import PluginSheet from "../components/PluginSheet.vue";
 import { closeOnBackWhile, goBack } from "../back";
 import { callScreenMounted } from "../call-screen";
+import { nearestCorner, thumbArea } from "../call-thumbnail";
 import {
   PREMIUM_PAGE,
   acceptFile,
@@ -552,11 +553,18 @@ onIonViewWillLeave(() => {
   seeThrough.value = false;
 });
 
-// The small picture moves where the thumb drags it, and stays inside the screen.
+// The small picture moves where the thumb drags it and, let go, glides into the nearest corner
+// (app#155): as far from the sides as where it starts, under the buttons at the top or over the call's.
 const drag = reactive({ x: 0, y: 0 });
 let grab: { id: number; x: number; y: number; fromX: number; fromY: number; slot: Element } | null = null;
 /** A drag is on: the presentation (and its frame) takes no touch meanwhile (defect I, 2026-10-09). */
 const dragging = ref(false);
+/** How long the small picture takes to glide into its corner. */
+const SETTLE_MS = 200;
+/** The frame of the glide under way, if one is. */
+let settling = 0;
+/** The button at the top that leaves the screen: the small picture settles under it. */
+const minimize = ref<{ $el?: Element } | null>(null);
 const thumbStyle = computed(() => ((localThumb.value || remoteThumb.value) && (drag.x || drag.y) ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined));
 // A new small picture starts in its corner, and a drag cut short (the picture went) is forgotten.
 watch([localThumb, remoteThumb], () => {
@@ -581,8 +589,10 @@ function grabThumb(event: PointerEvent) {
   window.addEventListener("pointerup", dropThumb);
   window.addEventListener("pointercancel", dropThumb);
 }
-/** The drag is over, or cut short: the capture and the listeners go. */
+/** The drag is over, or cut short: the capture and the listeners go, and a glide stops where it is. */
 function endDrag() {
+  cancelAnimationFrame(settling);
+  settling = 0;
   window.removeEventListener("pointermove", moveThumb);
   window.removeEventListener("pointerup", dropThumb);
   window.removeEventListener("pointercancel", dropThumb);
@@ -606,14 +616,38 @@ function dropThumb(event: PointerEvent) {
   if (!grab || event.pointerId !== grab.id) return;
   endDrag();
   const box = thumbSlot()?.getBoundingClientRect();
-  const area = body.value?.getBoundingClientRect();
-  if (box && area) {
-    if (box.left < area.left) drag.x += area.left - box.left;
-    if (box.right > area.right) drag.x -= box.right - area.right;
-    if (box.top < area.top) drag.y += area.top - box.top;
-    if (box.bottom > area.bottom) drag.y -= box.bottom - area.bottom;
+  const screen = body.value?.getBoundingClientRect();
+  if (box && screen && screen.width > 0 && screen.height > 0) {
+    // Undragged, it sits in its corner (the stylesheet's, mirrored right to left): the margins it keeps.
+    const home = { left: box.left - drag.x, top: box.top - drag.y, right: box.right - drag.x, bottom: box.bottom - drag.y };
+    const buttons = rectOf(minimize.value?.$el);
+    const corner = nearestCorner(box, thumbArea(screen, home, buttons ? buttons.y + buttons.height : screen.top));
+    settle({ x: Math.round(drag.x + corner.x - box.left), y: Math.round(drag.y + corner.y - box.top) });
   }
   relayout();
+}
+
+/**
+ * The small picture glides to `to`, a step each frame: the native picture under it follows every
+ * step as it follows a drag, where a CSS transition would leave it behind.
+ */
+function settle(to: { x: number; y: number }) {
+  // Asked for less motion: straight there.
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    Object.assign(drag, to);
+    return;
+  }
+  const from = { x: drag.x, y: drag.y };
+  let start: number | undefined;
+  const step = (now: number) => {
+    start ??= now;
+    const done = Math.min(1, (now - start) / SETTLE_MS);
+    // Quick at first, gently into the corner (an ease-out cubic).
+    const eased = 1 - (1 - done) ** 3;
+    Object.assign(drag, done < 1 ? { x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased } : to);
+    settling = done < 1 ? requestAnimationFrame(step) : 0;
+  };
+  settling = requestAnimationFrame(step);
 }
 
 const remoteVideo = ref<HTMLVideoElement | null>(null);
@@ -698,6 +732,7 @@ watch(
       >
         <ion-button
           v-if="call.phase !== 'ended'"
+          ref="minimize"
           class="ft-call__minimize"
           fill="clear"
           shape="round"

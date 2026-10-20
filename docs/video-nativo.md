@@ -264,7 +264,8 @@ todos los toques y dibuja sus controles sobre el vídeo tal cual.
 El WebView dice dónde va cada imagen con un **`VideoLayout`**: rectángulos en píxeles CSS medidos
 con `getBoundingClientRect()` del hueco de cada vídeo, más si el propio va en espejo y su radio de
 esquina. Lo manda al montar la pantalla de llamada, en cada `ResizeObserver` o giro, y al
-arrastrar la miniatura propia (a lo sumo una vez por `requestAnimationFrame`). `remote: null` y
+arrastrar la miniatura y mientras, al soltarla, se desliza a la esquina más cercana (app#155), a lo
+sumo una vez por `requestAnimationFrame`. `remote: null` y
 `local: null` esconden las vistas sin soltarlas.
 
 **iOS (Swift)**:
