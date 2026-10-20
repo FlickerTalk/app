@@ -4,6 +4,10 @@ import { IonBackButton, IonButtons, IonContent, IonHeader, IonIcon, IonItem, Ion
 import { checkmarkOutline, logOutOutline, pencilOutline, personAddOutline, personRemoveOutline, shieldOutline, trashOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
+import HookFrames from "../components/HookFrames.vue";
+import PluginSettingsGroup from "../components/PluginSettingsGroup.vue";
+import { useChatHooks } from "../chatHooks";
+import { installed, isLocked } from "../plugins";
 import {
   circle as circleOf,
   circleHome,
@@ -84,6 +88,13 @@ async function forget() {
 async function toggleAdmin(contact: string, isAdmin: boolean) {
   await setCircleAdmin(id, contact, !isAdmin);
 }
+
+// 2026-10-20 (plan of the translator §8.2d, screen G): as on a contact's page, a native group for
+// each tool with a settings hook (the Translator's language and switches), drawn from what it
+// declares, for this circle. Its hook runs out of sight in a frame this page hosts, in the circle's
+// hidden session if it lives in one; nothing runs by itself here (`active` off).
+const hooks = useChatHooks({ conversation: () => id, messages: () => [], active: () => false });
+const settingsTools = computed(() => installed.value.filter((one) => one.kind !== "game" && one.hooks?.settings && !isLocked(one)));
 </script>
 
 <template>
@@ -189,6 +200,8 @@ async function toggleAdmin(contact: string, isAdmin: boolean) {
           </ion-item>
         </ion-list>
 
+        <PluginSettingsGroup v-for="tool in settingsTools" :key="tool.id" class="ft-group" :plugin="tool" :hooks="hooks" />
+
         <ion-list inset class="ft-group">
           <ion-item v-if="!circle.left" button lines="none" :data-test="sure === 'leave' ? 'circle-leave-sure' : 'circle-leave'" @click="leave">
             <span slot="start" class="ft-tile ft-tile--danger"><ion-icon :icon="logOutOutline" aria-hidden="true" /></span>
@@ -201,6 +214,8 @@ async function toggleAdmin(contact: string, isAdmin: boolean) {
         </ion-list>
       </div>
     </ion-content>
+    <!-- The tools' settings hooks run here, out of sight. -->
+    <HookFrames :hooks="hooks" :contact="id" :session="circleHome(id).session" />
   </ion-page>
 </template>
 
