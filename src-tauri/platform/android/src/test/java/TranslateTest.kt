@@ -142,6 +142,17 @@ class TranslateTest {
         assertEquals(setOf("text", "from", "to"), fields(TranslateTextArgs::class.java))
     }
 
+    // ML Kit logs a diagnostic event for every model it checks: a status asked through
+    // `getDownloadedModels` queued 58 events for Google, one per language, and the Downloaded
+    // languages screen about 3,400 (QA on the Lenovo, 2026-10-20). The bridge asks only about the
+    // models of the pair, one by one.
+    @Test
+    fun theBridgeAsksMlKitOnlyAboutThePairsOwnModels() {
+        val translate = File("src/main/java/Translate.kt").readText()
+        assertFalse(translate.contains("getDownloadedModels"))
+        assertTrue(translate.contains("isModelDownloaded"))
+    }
+
     // ML Kit runs only when the user uses the translator: the plugin itself never touches it, and
     // Translate.kt keeps no client in a property or an object, so nothing of ML Kit is created
     // when the app starts. Each translate command makes its own client and closes it.
