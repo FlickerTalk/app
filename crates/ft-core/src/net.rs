@@ -177,6 +177,15 @@ pub struct Network {
     /// One mailbox collection at a time: a blob must not be processed twice.
     collecting: Mutex<()>,
     next_link: AtomicU64,
+    /// The contacts to dial again at the router's next welcome (`redial`).
+    redial: std::sync::Mutex<Redial>,
+}
+
+/// Contacts to dial again, and whether the router's socket is up, as its events say.
+#[derive(Default)]
+struct Redial {
+    router_up: bool,
+    contacts: Vec<String>,
 }
 
 impl Network {
@@ -194,6 +203,7 @@ impl Network {
             gates: Mutex::default(),
             collecting: Mutex::default(),
             next_link: AtomicU64::new(0),
+            redial: std::sync::Mutex::default(),
         });
         let _ = network.this.set(Arc::downgrade(&network));
         network
@@ -221,6 +231,12 @@ impl Network {
         match event {
             RouterEvent::Connected { stun, turn } => {
                 *self.ice.lock().expect("ice poisoned") = (stun, turn);
+                let redial = {
+                    let mut redial = self.redial.lock().expect("redial poisoned");
+                    redial.router_up = true;
+                    std::mem::take(&mut redial.contacts)
+                };
+                self.dial(redial);
                 tokio::spawn(async move {
                     if let Ok(core) = network.core() {
                         // A registration that failed offline goes now (2026-10-01).
@@ -240,7 +256,7 @@ impl Network {
                     let _ = network.on_signal(&bytes).await;
                 });
             }
-            RouterEvent::Disconnected => {}
+            RouterEvent::Disconnected => self.redial.lock().expect("redial poisoned").router_up = false,
         }
     }
 
@@ -326,6 +342,44 @@ impl Network {
     #[doc(hidden)]
     pub async fn offers_waiting(&self) -> usize {
         self.pending.lock().await.len()
+    }
+
+    /// Dials the contacts again, sending nothing (app#152): the direct connections the app let go
+    /// of when it left the foreground. At the router's next welcome, so that the answers find its
+    /// socket, or at once if the socket is up (a leave and return too quick for it to drop).
+    pub(crate) fn redial(&self, contacts: Vec<String>) {
+        let now = {
+            let mut redial = self.redial.lock().expect("redial poisoned");
+            if redial.router_up {
+                contacts
+            } else {
+                redial.contacts.extend(contacts);
+                redial.contacts.sort();
+                redial.contacts.dedup();
+                Vec::new()
+            }
+        };
+        self.dial(now);
+    }
+
+    /// Opens a direct connection with each contact, in the background, without waiting for one
+    /// that is not connected to the router. Not with a contact blocked, a stranger waiting for a
+    /// yes, nor one of a session left (§35, A5, §108): any of them may have changed since.
+    fn dial(&self, contacts: Vec<String>) {
+        let Some(network) = self.this.get().and_then(Weak::upgrade) else { return };
+        for contact in contacts {
+            let network = network.clone();
+            tokio::spawn(async move {
+                let Ok(core) = network.core() else { return };
+                let Ok(Some(stored)) = core.store().contact(&contact).await else { return };
+                if stored.blocked || core.silent(&stored) {
+                    return;
+                }
+                if let Ok(peer) = core.peer(&contact).await {
+                    let _ = network.reach(&peer, true).await;
+                }
+            });
+        }
     }
 
     /// Closes every direct connection and every offer still waiting (erasing the phone,

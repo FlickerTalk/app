@@ -200,6 +200,11 @@ impl Presence {
         }
     }
 
+    /// Whether the platform says the app is in the foreground.
+    pub fn in_front(&self) -> bool {
+        self.foreground
+    }
+
     /// Whether to stay connected now. `call_going_on`: a call rings, is being answered, is on, or
     /// ours is being placed.
     pub fn connected(&self, now: Instant, call_going_on: bool) -> bool {
@@ -218,6 +223,9 @@ pub struct Lifecycle {
     presence: std::sync::Mutex<Presence>,
     /// One look at a time: the last decision is the one that stands.
     looking: tokio::sync::Mutex<()>,
+    /// The contacts whose direct connection closed when the app let go (app#152), dialled again
+    /// once it is back in front.
+    left: std::sync::Mutex<Vec<String>>,
 }
 
 impl Lifecycle {
@@ -250,6 +258,10 @@ impl Lifecycle {
     /// Acts on what `Presence` says now: away, the router's socket goes at once (so it pushes what
     /// comes) and the direct connections close (so the other phones see this one gone); back, the
     /// socket opens again and its welcome fetches what waited. `true` if the connection came back.
+    ///
+    /// Back in front, the contacts it was connected to when it let go are dialled again (app#152),
+    /// without a message: nothing else would open those connections until something is sent. A
+    /// push that brings the connection back out of the foreground dials nobody.
     async fn settle(&self) -> bool {
         let _one_at_a_time = self.looking.lock().await;
         let now = Instant::now();
@@ -259,9 +271,20 @@ impl Lifecycle {
             self.presence().connected(now, going_on)
         };
         if connected {
+            if self.presence().in_front() {
+                let left = std::mem::take(&mut *self.left.lock().unwrap_or_else(PoisonError::into_inner));
+                self.network.redial(left);
+            }
             return self.router.set_away(false);
         }
         if self.router.set_away(true) {
+            let open = self.network.connected().await;
+            {
+                let mut left = self.left.lock().unwrap_or_else(PoisonError::into_inner);
+                left.extend(open);
+                left.sort();
+                left.dedup();
+            }
             self.network.close().await;
         }
         false
@@ -353,6 +376,7 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         network: network.clone(),
         presence: std::sync::Mutex::new(Presence::started(Instant::now())),
         looking: tokio::sync::Mutex::new(()),
+        left: std::sync::Mutex::default(),
     });
     tokio::spawn(keep_present(lifecycle.clone(), core.events(), stop.subscribe()));
 
