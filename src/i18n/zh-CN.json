@@ -95,7 +95,10 @@
     "yourOriginal": "你的原文",
     "restoreOriginal": "恢复你的原文",
     "sentAsIs": "已按原文发送：{plugin} 无法翻译",
-    "hookWorking": "{plugin} 正在处理…"
+    "hookWorking": "{plugin} 正在处理…",
+    "showOriginal": "查看原文",
+    "sentIn": "以{language}发送",
+    "view": "查看"
   },
   "status": {
     "pending": "等待对方设备",

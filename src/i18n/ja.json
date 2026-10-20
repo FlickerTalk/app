@@ -95,7 +95,10 @@
     "yourOriginal": "元の文",
     "restoreOriginal": "元の文に戻す",
     "sentAsIs": "書いたまま送信しました: {plugin} で翻訳できませんでした",
-    "hookWorking": "{plugin} で処理中…"
+    "hookWorking": "{plugin} で処理中…",
+    "showOriginal": "原文を表示",
+    "sentIn": "{language}で送信",
+    "view": "表示"
   },
   "status": {
     "pending": "相手の端末を待っています",

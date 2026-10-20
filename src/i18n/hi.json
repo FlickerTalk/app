@@ -95,7 +95,10 @@
     "yourOriginal": "आपका मूल पाठ",
     "restoreOriginal": "अपने पाठ पर लौटें",
     "sentAsIs": "जैसा लिखा था वैसा ही भेजा गया: {plugin} से अनुवाद नहीं हो सका",
-    "hookWorking": "{plugin}: काम जारी है…"
+    "hookWorking": "{plugin}: काम जारी है…",
+    "showOriginal": "मूल देखें",
+    "sentIn": "{language} में भेजा गया",
+    "view": "देखें"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",

@@ -95,7 +95,10 @@
     "yourOriginal": "Orijinal metniniz",
     "restoreOriginal": "Metninize dönün",
     "sentAsIs": "Yazıldığı gibi gönderildi: {plugin} çeviremedi",
-    "hookWorking": "{plugin} çalışıyor…"
+    "hookWorking": "{plugin} çalışıyor…",
+    "showOriginal": "Orijinali göster",
+    "sentIn": "{language} gönderildi",
+    "view": "Görüntüle"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

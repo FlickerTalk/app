@@ -95,7 +95,10 @@
     "yourOriginal": "Dein Original",
     "restoreOriginal": "Zurück zu deinem Text",
     "sentAsIs": "Wie geschrieben gesendet: {plugin} konnte nicht übersetzen",
-    "hookWorking": "{plugin} arbeitet…"
+    "hookWorking": "{plugin} arbeitet…",
+    "showOriginal": "Original anzeigen",
+    "sentIn": "Gesendet auf {language}",
+    "view": "Ansehen"
   },
   "status": {
     "pending": "Warte auf Gerät",

@@ -95,7 +95,10 @@
     "yourOriginal": "원래 쓴 글",
     "restoreOriginal": "원래 글로 되돌리기",
     "sentAsIs": "작성한 그대로 보냈습니다: {plugin}에서 번역하지 못했습니다",
-    "hookWorking": "{plugin} 작업 중…"
+    "hookWorking": "{plugin} 작업 중…",
+    "showOriginal": "원문 보기",
+    "sentIn": "{language}(으)로 보냄",
+    "view": "보기"
   },
   "status": {
     "pending": "상대 기기 대기 중",

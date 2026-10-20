@@ -95,7 +95,10 @@
     "yourOriginal": "Bản gốc của bạn",
     "restoreOriginal": "Quay lại văn bản của bạn",
     "sentAsIs": "Đã gửi nguyên văn: {plugin} không dịch được",
-    "hookWorking": "{plugin} đang xử lý…"
+    "hookWorking": "{plugin} đang xử lý…",
+    "showOriginal": "Xem bản gốc",
+    "sentIn": "Đã gửi bằng {language}",
+    "view": "Xem"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

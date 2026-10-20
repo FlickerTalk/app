@@ -95,7 +95,10 @@
     "yourOriginal": "Twój oryginał",
     "restoreOriginal": "Wróć do swojego tekstu",
     "sentAsIs": "Wysłano bez zmian: nie udało się przetłumaczyć ({plugin})",
-    "hookWorking": "{plugin}: trwa praca…"
+    "hookWorking": "{plugin}: trwa praca…",
+    "showOriginal": "Pokaż oryginał",
+    "sentIn": "Wysłano w języku: {language}",
+    "view": "Pokaż"
   },
   "status": {
     "pending": "Czeka na urządzenie",

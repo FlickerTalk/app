@@ -95,7 +95,10 @@
     "yourOriginal": "نصّك الأصلي",
     "restoreOriginal": "العودة إلى نصّك",
     "sentAsIs": "أُرسلت كما كُتبت: تعذّر على {plugin} الترجمة",
-    "hookWorking": "{plugin} يعمل…"
+    "hookWorking": "{plugin} يعمل…",
+    "showOriginal": "عرض الأصل",
+    "sentIn": "أُرسلت باللغة {language}",
+    "view": "عرض"
   },
   "status": {
     "pending": "بانتظار الجهاز",

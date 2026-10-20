@@ -52,8 +52,23 @@ export interface Message {
  * `games`: where games are played (a conversation, on a phone that has games), an invitation to
  * one gets a way to play it (plan 10.6).
  */
-/** `noting`: the tool working on this message for the user right now (2026-10-20), by its id. */
-const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; contactName?: string; games?: boolean; noting?: string }>();
+/**
+ * 2026-10-20 (plan of the translator §8.2d): `hook`, the message hook's link to offer under a
+ * received text (its label and icon; the conversation decides where); `noting`, the tool working on
+ * this message for the user right now, by its id; `language`, the conversation's language by name,
+ * for "Sent in {language}" on one of my texts a tool sent in it.
+ */
+const props = defineProps<{
+  message: Message;
+  saved?: boolean;
+  folded?: boolean;
+  sender?: string;
+  contactName?: string;
+  games?: boolean;
+  hook?: { label: string; icon: string };
+  noting?: string;
+  language?: string;
+}>();
 const emit = defineEmits<{
   open: [id: string];
   save: [id: string];
@@ -63,6 +78,8 @@ const emit = defineEmits<{
   play: [id: string];
   /** A tap on the quote: go to the message it answers. */
   jump: [id: string];
+  /** A tap on the message hook's link, with no answer of the tool here yet (2026-10-20). */
+  hook: [id: string];
 }>();
 
 const STATUS: Record<string, { icon: string; label: string }> = {
@@ -76,15 +93,27 @@ const STATUS: Record<string, { icon: string; label: string }> = {
 };
 
 /**
- * The tools' notes under the text (2026-10-20), each with its message hook's icon and label; only
- * from a tool still installed (its notes go with it, and the list may not have heard yet).
+ * A tool's answer for this text (2026-10-20, §8.2d), shown in its place: on a received text, the
+ * message hook's (the translation); on one of mine, the composer hook's (my own words, before it
+ * sent them in the conversation's language). Only from a tool still installed: its notes go with
+ * it, and the list may not have heard yet.
  */
-const notes = computed(() =>
-  (props.message.notes ?? []).flatMap((note) => {
-    const tool = installed.value.find((one) => one.id === note.plugin && one.hooks?.message);
-    return tool ? [{ ...note, icon: hookIcon(tool, "message"), label: hookLabel(tool, "message") }] : [];
-  }),
-);
+const note = computed(() => {
+  if (props.message.kind === "file" || props.message.deleted) return undefined;
+  const hook = props.message.mine ? "composer" : "message";
+  for (const one of props.message.notes ?? []) {
+    const tool = installed.value.find((plugin) => plugin.id === one.plugin && plugin.hooks?.[hook]);
+    if (tool) return { text: one.text, icon: hookIcon(tool, hook), label: hookLabel(tool, "message") || props.hook?.label || "" };
+  }
+  return undefined;
+});
+/** The message's own text shown, not the tool's answer: switched in memory, the answer first. */
+const ownText = ref(false);
+const shownText = computed(() => (note.value && !ownText.value ? note.value.text : (props.message.text ?? "")));
+/** The link under a received text: the hook's own while no answer is here, and while one waits. */
+const offersHook = computed(() => !props.message.mine && props.message.kind !== "file" && !props.message.deleted && Boolean(props.hook) && !note.value);
+/** "Sent in {language} · View", or "View" when the conversation has not named its language. */
+const sentIn = computed(() => [props.language ? t("chat.sentIn", { language: props.language }) : "", t("chat.view")].filter(Boolean).join(" · "));
 /** What a screen reader says while a tool works on the message. */
 const notingLabel = computed(() => {
   const tool = props.noting ? installed.value.find((one) => one.id === props.noting) : undefined;
@@ -115,9 +144,9 @@ const whenLater = computed(() => {
 });
 const file = computed(() => (props.message.kind === "file" ? props.message.file : undefined));
 // A message written with fences is code, and the app draws it as such (decision of 2026-09-22).
-const code = computed(() => (props.message.kind === "file" ? null : readCode(props.message.text ?? "")));
+const code = computed(() => (props.message.kind === "file" ? null : readCode(shownText.value)));
 // Web and mail addresses are marked so they can be opened; nothing is fetched to preview them.
-const pieces = computed(() => piecesOf(props.message.text ?? ""));
+const pieces = computed(() => piecesOf(shownText.value));
 
 /**
  * The game a text invites to (plan 10.6): only by the exact link of its page, and only a game this
@@ -485,14 +514,39 @@ function open() {
           <template v-else>{{ piece.text }}</template>
         </template>
       </p>
-      <!-- What tools said about it (2026-10-20): muted, under the text, each in its own direction. -->
-      <p v-for="note in notes" :key="note.plugin" class="ft-bubble__note" dir="auto" data-test="note">
-        <ion-icon :icon="note.icon" class="ft-bubble__note-icon" role="img" :aria-label="note.label" />
-        <span class="ft-bubble__note-text">{{ note.text }}</span>
-      </p>
-      <p v-if="notingLabel" class="ft-bubble__note" role="status" data-test="noting" :aria-label="notingLabel">
-        <ion-spinner name="dots" class="ft-bubble__note-spinner" aria-hidden="true" />
-      </p>
+      <!-- 2026-10-20 (§8.2d): the tool's answer and the text, one tap apart; the hook's link on a
+           received text with no answer yet; while the tool works, the same link, waiting. -->
+      <ion-button
+        v-if="noting && hook && !message.mine && !note"
+        fill="clear"
+        size="small"
+        class="ft-bubble__hook"
+        :disabled="true"
+        data-test="noting"
+        :aria-label="notingLabel"
+        @pointerdown.stop
+      >
+        <ion-spinner slot="start" name="dots" class="ft-bubble__hook-spinner" aria-hidden="true" />
+        {{ hook.label }}
+      </ion-button>
+      <ion-button v-else-if="offersHook && hook" fill="clear" size="small" class="ft-bubble__hook" data-test="translate" @pointerdown.stop @click.stop="emit('hook', message.id)">
+        <ion-icon slot="start" :icon="hook.icon" aria-hidden="true" />
+        {{ hook.label }}
+      </ion-button>
+      <template v-else-if="note">
+        <ion-button v-if="ownText && !message.mine" fill="clear" size="small" class="ft-bubble__hook" data-test="translate" @pointerdown.stop @click.stop="ownText = false">
+          <ion-icon slot="start" :icon="note.icon" aria-hidden="true" />
+          {{ note.label }}
+        </ion-button>
+        <ion-button v-else-if="!ownText && message.mine" fill="clear" size="small" class="ft-bubble__hook" data-test="sent-in" @pointerdown.stop @click.stop="ownText = true">
+          <ion-icon slot="start" :icon="note.icon" aria-hidden="true" />
+          {{ sentIn }}
+        </ion-button>
+        <ion-button v-else fill="clear" size="small" class="ft-bubble__hook" data-test="show-original" @pointerdown.stop @click.stop="ownText = !ownText">
+          <ion-icon slot="start" :icon="note.icon" aria-hidden="true" />
+          {{ t("chat.showOriginal") }}
+        </ion-button>
+      </template>
       <ion-button
         v-if="game"
         expand="block"
@@ -776,25 +830,35 @@ function open() {
   text-align: start;
 }
 
-/* A tool's note under the text (2026-10-20): smaller and muted, its icon at the start. */
-.ft-bubble__note {
+/* The tool's link under the text (2026-10-20, §8.2d): small, bold, in the bubble's own colour,
+   at the text's start; the same size whether it offers, waits or switches, so nothing moves. */
+.ft-bubble__hook {
   display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 4px 0 0;
+  width: fit-content;
+  height: 26px;
+  margin: 2px 0 0;
+  margin-inline-start: -4px;
+  --padding-start: 4px;
+  --padding-end: 4px;
+  --color: currentColor;
+  --color-activated: currentColor;
+  --color-focused: currentColor;
+  --color-hover: currentColor;
   font-size: var(--ft-font-meta);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.ft-bubble__hook::part(native) {
+  color: inherit;
+}
+.ft-bubble__hook.button-disabled {
   opacity: 0.75;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  text-align: start;
 }
-.ft-bubble__note-icon {
-  flex: none;
-  margin-block-start: 2px;
-}
-.ft-bubble__note-spinner {
-  width: 24px;
-  height: 16px;
+.ft-bubble__hook-spinner {
+  width: 18px;
+  height: 14px;
+  color: inherit;
 }
 
 .ft-bubble__meta {

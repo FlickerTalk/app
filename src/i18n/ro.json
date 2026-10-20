@@ -95,7 +95,10 @@
     "yourOriginal": "Originalul tău",
     "restoreOriginal": "Înapoi la textul tău",
     "sentAsIs": "Trimis așa cum a fost scris: {plugin} nu a putut traduce",
-    "hookWorking": "{plugin} lucrează…"
+    "hookWorking": "{plugin} lucrează…",
+    "showOriginal": "Vezi originalul",
+    "sentIn": "Trimis în {language}",
+    "view": "Vezi"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

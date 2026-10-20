@@ -44,10 +44,11 @@ describe("MessageBubble", () => {
     expect(new Set(Object.values(icon)).size).toBe(STATES.length);
   });
 
-  // 2026-10-20 (plan of the translator §8): what a tool's message hook answered shows under the
-  // text, muted, with the hook's icon named by its label; only from a tool still here. While a run
-  // the user started is on its way, the bubble says so.
-  describe("tools' notes", () => {
+  // 2026-10-20 (plan of the translator §8.2d, approved UX): a received text offers the message
+  // hook's link inside the bubble ("Translate"); the tool's answer takes the text's place, with
+  // "Show original" to switch back and forth, in memory, the answer first. One of my texts the
+  // composer hook sent in another language shows my own words, with "Sent in {language} · View".
+  describe("a tool's answer in place of the text", () => {
     const TRANSLATOR: PluginView = {
       id: "com.flickertalk.translate",
       name: "Translator",
@@ -56,35 +57,100 @@ describe("MessageBubble", () => {
       asks: { network: [], messages: true, send: "propose" },
       granted: { network: [], messages: true, send: "propose" },
       installedAt: 1,
-      hooks: { message: { label: "Translate", icon: "language-outline" } },
+      hooks: {
+        message: { label: "Translate", icon: "language-outline" },
+        composer: { label: "Translate", icon: "language-outline" },
+      },
       locales: { es: { name: "Traductor", hooks: { message: "Traducir" } } },
     };
+    const HOOK = { label: "Translate", icon: "language-icon" };
+    const theirs = { ...base, mine: false, text: "Coucou, à samedi" };
+    const shownText = (wrapper: ReturnType<typeof mount>) => wrapper.find(".ft-bubble__text").text();
     beforeEach(() => (installed.value = [TRANSLATOR]));
     afterEach(async () => {
       installed.value = [];
       await setLocale("en");
     });
 
-    it("shows a tool's note under the text, with its hook's icon named by its label", async () => {
-      const notes = [
-        { plugin: TRANSLATOR.id, text: "nos vemos a las seis" },
-        { plugin: "com.example.gone", text: "left behind" },
-      ];
-      const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false, text: "see you at six", notes } } });
-      const shown = wrapper.findAll("[data-test='note']");
-      expect(shown.map((one) => one.text())).toEqual(["nos vemos a las seis"]);
-      expect(shown[0].attributes("dir")).toBe("auto");
-      expect(shown[0].findComponent(IonIcon).attributes("aria-label")).toBe("Translate");
-      expect(wrapper.find(".ft-bubble__text").element.compareDocumentPosition(shown[0].element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(shown[0].element.compareDocumentPosition(wrapper.find(".ft-bubble__meta").element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      await setLocale("es");
-      expect(wrapper.find("[data-test='note']").findComponent(IonIcon).attributes("aria-label")).toBe("Traducir");
+    it("offers the hook's link inside a received text's bubble, under the text, and asks for it on a tap", async () => {
+      const wrapper = mount(MessageBubble, { props: { message: theirs, hook: HOOK } });
+      const link = wrapper.find("[data-test='translate']");
+      expect(link.text()).toBe("Translate");
+      expect(link.findComponent(IonIcon).props("icon")).toBe("language-icon");
+      expect(wrapper.findComponent<typeof IonButton>("[data-test='translate']").props()).toMatchObject({ fill: "clear", size: "small" });
+      const bubble = wrapper.find("[data-test='bubble']").element;
+      expect(bubble.contains(link.element), "inside the bubble").toBe(true);
+      expect(wrapper.find(".ft-bubble__text").element.compareDocumentPosition(link.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(link.element.compareDocumentPosition(wrapper.find(".ft-bubble__meta").element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await link.trigger("click");
+      expect(wrapper.emitted("hook")).toEqual([["m1"]]);
+      expect(wrapper.emitted("actions"), "a tap is not a long press").toBeUndefined();
     });
 
-    it("says a tool is working on the message while the user waits", () => {
-      const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false }, noting: TRANSLATOR.id } });
-      expect(wrapper.find("[data-test='noting']").attributes("aria-label")).toBe("Translator is working…");
-      expect(mount(MessageBubble, { props: { message: base } }).find("[data-test='noting']").exists()).toBe(false);
+    it("offers no link without a hook, on a file or on a text taken back", () => {
+      expect(mount(MessageBubble, { props: { message: theirs } }).find("[data-test='translate']").exists()).toBe(false);
+      const file = { ...theirs, kind: "file", file: { name: "a.pdf", size: "1 KB", progress: 1, state: "done", mime: "application/pdf" } };
+      expect(mount(MessageBubble, { props: { message: file, hook: HOOK } }).find("[data-test='translate']").exists()).toBe(false);
+      expect(mount(MessageBubble, { props: { message: { ...theirs, deleted: true }, hook: HOOK } }).find("[data-test='translate']").exists()).toBe(false);
+    });
+
+    it("says the tool is working where the link was while the user waits", () => {
+      const wrapper = mount(MessageBubble, { props: { message: theirs, hook: HOOK, noting: TRANSLATOR.id } });
+      const working = wrapper.find("[data-test='noting']");
+      expect(working.attributes("aria-label")).toBe("Translator is working…");
+      expect(wrapper.findComponent<typeof IonButton>("[data-test='noting']").props("disabled")).toBe(true);
+      expect(wrapper.find("[data-test='translate']").exists()).toBe(false);
+    });
+
+    it("shows the tool's answer in place of the text, and the original back and forth, the answer first", async () => {
+      const message = { ...theirs, notes: [{ plugin: TRANSLATOR.id, text: "Hola, hasta el sábado" }], reactions: { theirs: "👍" } };
+      const wrapper = mount(MessageBubble, { props: { message, hook: HOOK } });
+      expect(shownText(wrapper)).toBe("Hola, hasta el sábado");
+      expect(wrapper.find(".ft-bubble__text").attributes("dir")).toBe("auto");
+      expect(wrapper.find("[data-test='translate']").exists()).toBe(false);
+      await wrapper.find("[data-test='show-original']").trigger("click");
+      expect(shownText(wrapper)).toBe("Coucou, à samedi");
+      // The answer is here already: the link shows it again, the tool is not asked twice.
+      await wrapper.find("[data-test='translate']").trigger("click");
+      expect(shownText(wrapper)).toBe("Hola, hasta el sábado");
+      expect(wrapper.emitted("hook")).toBeUndefined();
+      expect(wrapper.find("[data-test='show-original']").text()).toBe("Show original");
+      expect(wrapper.find("[data-test='reaction-theirs']").text(), "the reactions stay").toBe("👍");
+      expect(wrapper.find(".ft-bubble__meta").text()).toContain("10:02");
+    });
+
+    it("shows the answer of a tool still installed only", () => {
+      const message = { ...theirs, notes: [{ plugin: "com.example.gone", text: "left behind" }] };
+      const wrapper = mount(MessageBubble, { props: { message } });
+      expect(shownText(wrapper)).toBe("Coucou, à samedi");
+      expect(wrapper.find("[data-test='show-original']").exists()).toBe(false);
+    });
+
+    it("shows my own words on a text sent in another language, with the language, and what was sent on a tap", async () => {
+      const message = { ...base, text: "Bonjour, ça va ?", status: "read", notes: [{ plugin: TRANSLATOR.id, text: "Hola, ¿qué tal?" }] };
+      const wrapper = mount(MessageBubble, { props: { message, language: "French" } });
+      expect(shownText(wrapper)).toBe("Hola, ¿qué tal?");
+      const sentIn = wrapper.find("[data-test='sent-in']");
+      expect(sentIn.text()).toBe("Sent in French · View");
+      await sentIn.trigger("click");
+      expect(shownText(wrapper)).toBe("Bonjour, ça va ?");
+      await wrapper.find("[data-test='show-original']").trigger("click");
+      expect(shownText(wrapper)).toBe("Hola, ¿qué tal?");
+      expect(wrapper.find("[aria-label='Read']").exists(), "the state stays").toBe(true);
+    });
+
+    it("says only View on a text sent in a language the conversation has not named", () => {
+      const message = { ...base, text: "Bonjour", notes: [{ plugin: TRANSLATOR.id, text: "Hola" }] };
+      expect(mount(MessageBubble, { props: { message } }).find("[data-test='sent-in']").text()).toBe("View");
+    });
+
+    it("names the hook in the phone's language", async () => {
+      await setLocale("es");
+      const wrapper = mount(MessageBubble, { props: { message: theirs, hook: { label: "Traducir", icon: "language-icon" } } });
+      expect(wrapper.find("[data-test='translate']").text()).toBe("Traducir");
+      const noted = mount(MessageBubble, { props: { message: { ...theirs, notes: [{ plugin: TRANSLATOR.id, text: "Hola" }] } } });
+      await noted.find("[data-test='show-original']").trigger("click");
+      expect(noted.find("[data-test='translate']").text(), "the tool's own label for its hook").toBe("Traducir");
     });
   });
 

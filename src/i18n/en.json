@@ -95,7 +95,10 @@
     "yourOriginal": "Your original",
     "restoreOriginal": "Back to your text",
     "sentAsIs": "Sent as written: {plugin} could not translate",
-    "hookWorking": "{plugin} is working…"
+    "hookWorking": "{plugin} is working…",
+    "showOriginal": "Show original",
+    "sentIn": "Sent in {language}",
+    "view": "View"
   },
   "status": {
     "pending": "Waiting for device",

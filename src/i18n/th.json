@@ -95,7 +95,10 @@
     "yourOriginal": "ข้อความต้นฉบับของคุณ",
     "restoreOriginal": "กลับไปที่ข้อความของคุณ",
     "sentAsIs": "ส่งตามที่เขียนแล้ว: {plugin} แปลไม่ได้",
-    "hookWorking": "{plugin} กำลังทำงาน…"
+    "hookWorking": "{plugin} กำลังทำงาน…",
+    "showOriginal": "ดูต้นฉบับ",
+    "sentIn": "ส่งเป็นภาษา{language}",
+    "view": "ดู"
   },
   "status": {
     "pending": "รออุปกรณ์",

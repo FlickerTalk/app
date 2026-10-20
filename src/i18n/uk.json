@@ -95,7 +95,10 @@
     "yourOriginal": "Ваш оригінал",
     "restoreOriginal": "Повернути ваш текст",
     "sentAsIs": "Надіслано як є: не вдалося перекласти ({plugin})",
-    "hookWorking": "{plugin}: триває робота…"
+    "hookWorking": "{plugin}: триває робота…",
+    "showOriginal": "Показати оригінал",
+    "sentIn": "Надіслано мовою: {language}",
+    "view": "Показати"
   },
   "status": {
     "pending": "Очікування пристрою",

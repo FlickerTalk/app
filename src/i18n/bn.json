@@ -95,7 +95,10 @@
     "yourOriginal": "আপনার মূল লেখা",
     "restoreOriginal": "আপনার লেখায় ফিরে যান",
     "sentAsIs": "যেমন লেখা হয়েছিল তেমনই পাঠানো হয়েছে: {plugin} অনুবাদ করতে পারেনি",
-    "hookWorking": "{plugin} কাজ করছে…"
+    "hookWorking": "{plugin} কাজ করছে…",
+    "showOriginal": "মূল দেখুন",
+    "sentIn": "{language} ভাষায় পাঠানো হয়েছে",
+    "view": "দেখুন"
   },
   "status": {
     "pending": "ডিভাইসের অপেক্ষায়",

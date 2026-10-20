@@ -95,7 +95,10 @@
     "yourOriginal": "Votre original",
     "restoreOriginal": "Revenir à votre texte",
     "sentAsIs": "Envoyé tel quel : {plugin} n’a pas pu traduire",
-    "hookWorking": "{plugin} travaille…"
+    "hookWorking": "{plugin} travaille…",
+    "showOriginal": "Voir l'original",
+    "sentIn": "Envoyé en {language}",
+    "view": "Voir"
   },
   "status": {
     "pending": "En attente de l’appareil",
