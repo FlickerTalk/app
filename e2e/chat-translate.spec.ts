@@ -18,18 +18,39 @@ const BOB = "ft_bob123456789";
 const FRENCH = "Coucou, on se voit samedi ?";
 const SPANISH = "Hola, ¿nos vemos el sábado?";
 
-/** A translator as the real one answers the app: a question first while its pack is missing. */
+/**
+ * A translator as the real one answers the app: a question first while its pack is missing (asked
+ * by the user's own runs; the pack is the phone's, so a run of the conversation's own just goes),
+ * and the conversation's settings, French found in what Bob writes.
+ */
 const plugin = (downloaded: boolean) => `
 customElements.define("ft-probe", class extends HTMLElement {});
 let downloaded = ${downloaded};
-const SPANISH = { ${JSON.stringify(FRENCH)}: ${JSON.stringify(SPANISH)}, "hello": "bonjour" };
+let record = { lang: "fr", receive: false, send: false };
+const SPANISH = { ${JSON.stringify(FRENCH)}: ${JSON.stringify(SPANISH)} };
+const FRENCH = { "hello": "bonjour" };
+const ASK = { ask: { text: "Download French? About 30 MB, once." } };
 ft.onHook(async (hook) => {
   if (hook.name === "message") {
-    if (!downloaded && !hook.answer) return hook.manual ? { ask: { text: "Download French? About 30 MB, once." } } : null;
-    downloaded = true;
+    if (!downloaded && hook.manual && !hook.answer) return ASK;
+    if (hook.answer) downloaded = true;
     return { text: SPANISH[hook.text] ?? "" };
   }
-  if (hook.name === "composer") return { text: SPANISH[hook.text] ?? hook.text };
+  if (hook.name === "composer") return { text: FRENCH[hook.text] ?? hook.text };
+  if (hook.name === "settings") {
+    if (hook.values) {
+      const next = { ...record, ...hook.values };
+      if ((next.receive || next.send) && !downloaded && !hook.answer) return ASK;
+      if (hook.answer) downloaded = true;
+      record = next;
+    }
+    return {
+      values: record,
+      options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French (detected)" }] },
+      auto: { message: Boolean(record.lang && record.receive), composer: Boolean(record.lang && record.send) },
+      lang: record.lang || null,
+    };
+  }
   return null;
 });
 `;
@@ -105,4 +126,59 @@ test("with the receiving switch on, texts arrive translated and a chip says so",
   await expect(chip).toHaveText("Translating · French");
   await chip.click();
   await expect(app).toHaveURL(new RegExp(`/contact/${BOB}$`));
+});
+
+test("the contact's page turns translating what arrives on, after the download, and the chat follows", async ({ page: app }) => {
+  await conversation(app);
+  await app.getByTestId("peer").click();
+  await expect(app).toHaveURL(new RegExp(`/contact/${BOB}$`));
+  const group = app.getByTestId(`settings-${TRANSLATOR}`);
+  await expect(group).toContainText("Translation");
+  await expect(group).toContainText("Language packs are downloaded once; translation happens on the phone.");
+  await expect(group.getByTestId("setting-lang")).toHaveJSProperty("value", "fr");
+  const receive = group.getByTestId("setting-receive");
+  await expect(receive).toHaveJSProperty("disabled", false);
+
+  await receive.click();
+  // The page has an alert of its own (deleting the contact): the tool's question is the one asking.
+  const alert = app.locator("ion-alert", { hasText: "Download French? About 30 MB, once." });
+  await expect(alert).toBeVisible();
+  await alert.locator("button", { hasText: "OK" }).click();
+  await expect(receive).toHaveJSProperty("checked", true);
+  await expect
+    .poll(async () => (await callsTo(app)).filter(([command]) => command === "core_chat_hooks_set").map(([, args]) => args).at(-1))
+    .toEqual({ conversation: BOB, plugin: TRANSLATOR, autoMessage: true, autoComposer: false, lang: "fr" });
+
+  await app.goBack();
+  await expect(app.getByTestId("translating")).toHaveText("Translating · French");
+  await expect(bobsBubble(app)).toContainText(SPANISH);
+});
+
+test("a no to the download leaves the switch off", async ({ page: app }) => {
+  await conversation(app);
+  await app.getByTestId("peer").click();
+  const receive = app.getByTestId(`settings-${TRANSLATOR}`).getByTestId("setting-receive");
+  await expect(receive).toHaveJSProperty("disabled", false);
+  await receive.click();
+  await app.locator("ion-alert", { hasText: "Download French?" }).locator("button", { hasText: "Cancel" }).click();
+  await expect(receive).toHaveJSProperty("checked", false);
+  const kept = (await callsTo(app)).filter(([command]) => command === "core_chat_hooks_set").map(([, args]) => args);
+  expect(kept.some((args) => (args as { autoMessage?: boolean }).autoMessage)).toBe(false);
+});
+
+test("with the sending switch on, what I write goes in French and my bubble keeps my words", async ({ page: app }) => {
+  await conversation(app, { downloaded: true, flags: [{ plugin: TRANSLATOR, autoMessage: false, autoComposer: true, lang: "fr" }] });
+  await expect(app.getByTestId("translating")).toHaveText("Translating · French");
+  await app.locator("ion-textarea textarea").fill("hello");
+  await app.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(async () => (await callsTo(app)).filter(([command]) => command === "core_send").map(([, args]) => args?.text)).toEqual(["bonjour"]);
+
+  const mine = app.locator("[data-message='sent1'] [data-test='bubble']");
+  await expect(mine).toContainText("hello");
+  const sentIn = mine.getByTestId("sent-in");
+  await expect(sentIn).toHaveText("Sent in French · View");
+  await sentIn.click();
+  await expect(mine).toContainText("bonjour");
+  await mine.getByTestId("show-original").click();
+  await expect(mine).toContainText("hello");
 });

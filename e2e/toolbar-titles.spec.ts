@@ -104,7 +104,7 @@ const SCREENS: Array<Screen & { file: string }> = [
 ];
 
 /** Titles that are not catalogue text (see the top of this file), by the file they are in. */
-const NOT_CATALOGUE = ["components/ChatThread.vue", "views/PluginPage.vue"];
+const NOT_CATALOGUE = ["components/ChatThread.vue", "components/HookFrames.vue", "views/PluginPage.vue"];
 
 /** Where a title sits: a page's bar, the iPhone's large title under it, or a sheet's bar. */
 type Place = "bar" | "large" | "sheet";
