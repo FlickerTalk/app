@@ -364,6 +364,19 @@ describe("SettingsPage", () => {
       return wrapper;
     }
 
+    // Not "Off" before the core has answered: that would be a guess, and possibly a wrong one.
+    it("says nothing until the hours are known", async () => {
+      let answer: (week: string | null) => void = () => undefined;
+      installTauri((command) =>
+        command === "core_quiet_hours" ? new Promise<string | null>((resolve) => (answer = resolve)) : undefined,
+      );
+      const wrapper = await settings();
+      expect(state(wrapper).exists()).toBe(false);
+      answer(null);
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+    });
+
     it("says Off while the weekly hours are off", async () => {
       expect(state(await settings()).text()).toBe(en.settings.hoursOff);
     });

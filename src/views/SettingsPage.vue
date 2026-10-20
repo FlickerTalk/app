@@ -226,8 +226,9 @@ async function copyId() {
 const version = ref("");
 // Issue app#7: whether the weekly hours are on, shown on their row. Settings stays alive behind the
 // tabs, so they are read again each time the page is shown: back from the Hours page, the row says
-// what was just chosen there (app#153).
-const hoursOn = ref(false);
+// what was just chosen there (app#153). Null until the core has answered: the row says nothing then,
+// rather than a guess.
+const hoursOn = ref<boolean | null>(null);
 async function readHours() {
   hoursOn.value = (await quietHours().catch(() => null)) !== null;
 }
@@ -469,7 +470,7 @@ function chooseAppearance(id: Appearance) {
           <ion-item button detail lines="none" data-test="hours" @click="router.push('/hours')">
             <span slot="start" class="ft-tile"><ion-icon :icon="notificationsOffOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.hours") }}</ion-label>
-            <ion-note slot="end">{{ $t(hoursOn ? "settings.hoursOn" : "settings.hoursOff") }}</ion-note>
+            <ion-note v-if="hoursOn !== null" slot="end">{{ $t(hoursOn ? "settings.hoursOn" : "settings.hoursOff") }}</ion-note>
           </ion-item>
           <!-- Plan §17/§67: "always" hides your IP from the contact; "direct" never uses our relay. -->
           <ion-item lines="none">
