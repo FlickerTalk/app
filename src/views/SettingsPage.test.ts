@@ -28,8 +28,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 const push = vi.fn();
-// Where the app is: `/plan` and every locked premium thing land on Settings at `#premium`.
-const route = vi.hoisted(() => ({ path: "/tabs/settings", hash: "" }));
+// Where the app is: `/plan` and every locked premium thing land on Settings at `#premium`. Reactive,
+// as the router's own route is, so a test can walk the app to another page and back.
+const route = await vi.hoisted(async () => {
+  const { reactive } = await import("vue");
+  return reactive({ path: "/tabs/settings", hash: "" });
+});
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }), useRoute: () => route }));
 // Ionic's toasts are overlays of the real app; here, what the screen asks of them.
 const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
@@ -352,6 +356,7 @@ describe("SettingsPage", () => {
 
     beforeEach(() => {
       hours = null;
+      route.path = "/tabs/settings";
       installTauri((command, args) => {
         calls.push([command, args]);
         return command === "core_quiet_hours" ? hours : undefined;
@@ -394,6 +399,27 @@ describe("SettingsPage", () => {
       expect(state(wrapper).text()).toBe(en.settings.hoursOn);
       hours = null;
       enter(wrapper);
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+    });
+
+    // Seen on both phones (PR #182): Calls → Settings → Hours, turn them on, back. Ionic shows the
+    // Settings tab again without its enter hook (the tab was never hidden), so only the route says so.
+    it("reads the hours again when the app comes back to Settings, even without Ionic's enter hook", async () => {
+      route.path = "/tabs/calls";
+      route.path = "/tabs/settings";
+      const wrapper = await settings();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+      route.path = "/hours";
+      await flushPromises();
+      hours = WEEK;
+      route.path = "/tabs/settings";
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOn);
+      route.path = "/hours";
+      await flushPromises();
+      hours = null;
+      route.path = "/tabs/settings";
       await flushPromises();
       expect(state(wrapper).text()).toBe(en.settings.hoursOff);
     });

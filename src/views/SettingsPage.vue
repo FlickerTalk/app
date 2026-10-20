@@ -237,6 +237,16 @@ onMounted(async () => {
   await readHours();
 });
 onIonViewWillEnter(() => void readHours());
+// Ionic does not always fire that hook on a tab page: Calls → Settings → Hours → back shows the
+// Settings tab again without it, because the tab was never hidden (seen on both phones). The route
+// always changes, so the row follows the route too.
+const SETTINGS_PATH = "/tabs/settings";
+watch(
+  () => route.path === SETTINGS_PATH,
+  (here) => {
+    if (here) void readHours();
+  },
+);
 // Settings stays alive behind the tabs, so the plan and the price are read again each time it
 // comes back, and when the app does.
 async function refreshPlan() {
