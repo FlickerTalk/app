@@ -83,10 +83,17 @@ fun detectPayload(tag: String?): Map<String, Any> {
 fun textPayload(text: String?): Map<String, Any> =
     if (text == null) mapOf("found" to false) else mapOf("found" to true, "text" to text)
 
-/** Which translation models are on the phone, by language; `null` when ML Kit cannot say. */
-private fun downloadedModels(done: (Set<String>?) -> Unit) {
-    RemoteModelManager.getInstance().getDownloadedModels(TranslateRemoteModel::class.java)
-        .addOnSuccessListener { models -> done(models.map { it.language }.toSet()) }
+/**
+ * Which of these languages' models are on the phone; `null` when ML Kit cannot say. Asked model by
+ * model, never for the whole list: ML Kit logs a diagnostic event for every model it checks, and
+ * the list has 58 (QA 2026-10-20).
+ */
+private fun downloadedAmong(languages: Set<String>, done: (Set<String>?) -> Unit) {
+    if (languages.isEmpty()) return done(emptySet())
+    val manager = RemoteModelManager.getInstance()
+    val asked = languages.toList()
+    Tasks.whenAllSuccess<Boolean>(asked.map { manager.isModelDownloaded(TranslateRemoteModel.Builder(it).build()) })
+        .addOnSuccessListener { present -> done(asked.filterIndexed { index, _ -> present[index] == true }.toSet()) }
         .addOnFailureListener { done(null) }
 }
 
@@ -101,8 +108,8 @@ private fun online(context: Context): Boolean = try {
 
 /** `translateStatus`: the pair's state; `null` when ML Kit could not list its models. */
 fun pairStatus(from: String, to: String, done: (String?) -> Unit) {
-    if (modelsFor(from, to) == null) return done("unsupported")
-    downloadedModels { downloaded -> done(downloaded?.let { statusOf(from, to, it) }) }
+    val models = modelsFor(from, to) ?: return done("unsupported")
+    downloadedAmong(models) { downloaded -> done(downloaded?.let { statusOf(from, to, it) }) }
 }
 
 /**
@@ -110,8 +117,8 @@ fun pairStatus(from: String, to: String, done: (String?) -> Unit) {
  * the plugin), and says whether the pair can be used now.
  */
 fun preparePair(context: Context, from: String, to: String, done: (Boolean) -> Unit) {
-    if (modelsFor(from, to) == null) return done(false)
-    downloadedModels { downloaded ->
+    val models = modelsFor(from, to) ?: return done(false)
+    downloadedAmong(models) { downloaded ->
         val missing = downloaded?.let { missingModels(from, to, it) }
         when (prepareStep(missing, online(context))) {
             PrepareStep.READY -> done(true)
@@ -132,9 +139,9 @@ fun preparePair(context: Context, from: String, to: String, done: (Boolean) -> U
  * plugin frees one language with `remove(tag, "en")`); `true` once none of them is on the phone.
  */
 fun removePair(from: String, to: String, done: (Boolean) -> Unit) {
-    if (removableModels(from, to, emptySet()) == null) return done(false)
-    downloadedModels { downloaded ->
-        val removable = downloaded?.let { removableModels(from, to, it) } ?: return@downloadedModels done(false)
+    val models = modelsFor(from, to)?.takeIf { it.isNotEmpty() } ?: return done(false)
+    downloadedAmong(models) { downloaded ->
+        val removable = downloaded?.let { removableModels(from, to, it) } ?: return@downloadedAmong done(false)
         val manager = RemoteModelManager.getInstance()
         Tasks.whenAll(removable.map { manager.deleteDownloadedModel(TranslateRemoteModel.Builder(it).build()) })
             .addOnSuccessListener { done(true) }
@@ -158,10 +165,10 @@ fun detectLanguage(text: String, done: (String?) -> Unit) {
  * translation never starts a download); `null` when it could not.
  */
 fun translateOnPhone(text: String, from: String, to: String, done: (String?) -> Unit) {
-    if (modelsFor(from, to) == null) return done(null)
+    val models = modelsFor(from, to) ?: return done(null)
     if (from == to) return done(text)
-    downloadedModels { downloaded ->
-        if (downloaded == null || statusOf(from, to, downloaded) != "installed") return@downloadedModels done(null)
+    downloadedAmong(models) { downloaded ->
+        if (downloaded == null || statusOf(from, to, downloaded) != "installed") return@downloadedAmong done(null)
         val options = TranslatorOptions.Builder().setSourceLanguage(from).setTargetLanguage(to).build()
         val translator = Translation.getClient(options)
         translator.translate(text)
