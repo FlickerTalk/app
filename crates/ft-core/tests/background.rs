@@ -420,6 +420,25 @@ async fn coming_back_dials_again_the_contacts_it_was_connected_to() {
     assert!(!bob.online.network.is_connected(&carol.id()).await);
 }
 
+// Only after a short absence (2026-10-20, `REDIAL_WITHIN`): after a longer one the contact has
+// likely left too, and the router would wake their phone for an offer with nothing behind it.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_long_absence_coming_back_dials_nobody() {
+    let (fake, alice, bob) = two_phones().await;
+    bob.online.lifecycle().set_redial_within(Duration::from_secs(1));
+    linked(&bob, &alice).await;
+    bob.online.set_foreground(false).await;
+    until("alice sees bob's connection closed", || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    let signalled = fake.signalled_to(&alice.id());
+
+    bob.online.set_foreground(true).await;
+    until("bob is connected to the router", || async { fake.is_connected(&bob.id()) }).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fake.signalled_to(&alice.id()), signalled, "alice was not dialled");
+    assert!(!both_connected(&bob, &alice).await);
+}
+
 // Only those the user may reach now: not a contact blocked while the app was away (§35), a
 // stranger whose request was never accepted (A5), nor one of a session left meanwhile (§108). The
 // router's welcome may come long after the return (no network), with any of these done by then.
