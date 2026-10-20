@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from "vue";
-import { IonActionSheet, IonButton, IonContent, IonIcon, IonPage, IonSpinner, onIonViewDidEnter, onIonViewWillEnter, onIonViewWillLeave, toastController } from "@ionic/vue";
+import { IonActionSheet, IonButton, IonContent, IonIcon, IonPage, IonSpinner, onIonViewWillLeave, toastController } from "@ionic/vue";
 import {
   callOutline,
   cameraReverseOutline,
@@ -24,6 +24,7 @@ import PluginSheet from "../components/PluginSheet.vue";
 import { closeOnBackWhile, goBack } from "../back";
 import { callScreenMounted } from "../call-screen";
 import { nearestCorner, thumbArea } from "../call-thumbnail";
+import { useOnScreen } from "../on-screen";
 import {
   PREMIUM_PAGE,
   acceptFile,
@@ -82,8 +83,9 @@ const isVideo = computed(() => (current.value ? call.video : Boolean(route.query
 const now = ref(Date.now());
 let ticking: ReturnType<typeof setInterval> | undefined;
 /** On this screen, for Android's back button and the presented tool (Ionic keeps a page mounted
- *  under the next one). */
-const onScreen = ref(true);
+ *  under the next one). A late "did enter" under a page pushed over this one does not count
+ *  (app#179): there it went back by itself when the call ended, and took Android's back button. */
+const onScreen = useOnScreen(cameIn);
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const state = computed(() => {
@@ -540,22 +542,13 @@ watch([body, remoteSlot, localSlot, presentBox], (elements) => {
   sized?.disconnect();
   for (const element of elements) if (element) sized?.observe(element);
 });
-// Ionic says a page leaves as soon as the next one starts to come in, but that it came in only once
-// its own transition is over (app#179): with a page pushed over this one while it still came in,
-// that late word would put it back in front under the page on top. There it went back by itself
-// when the call ended, and took Android's back button. It counts only if nothing left since.
-let entering = false;
-onIonViewWillEnter(() => (entering = true));
-onIonViewDidEnter(() => {
-  if (!entering) return;
+/** Back on screen (`useOnScreen`): the pictures show again. */
+function cameIn() {
   shown = true;
-  onScreen.value = true;
   seeThrough.value = true;
   relayout();
-});
+}
 onIonViewWillLeave(() => {
-  entering = false;
-  onScreen.value = false;
   clearTimeout(leaving);
   hide();
   seeThrough.value = false;

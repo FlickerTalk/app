@@ -11,6 +11,11 @@ vi.mock("vue-router", () => ({ useRoute: () => ({ params: { id: "circle1" } }), 
 /** Runs the Ionic page hooks the page registered under this name. */
 const hooks = (wrapper: { vm: unknown }, name: string) =>
   ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+/** As Ionic does: "will enter" as the transition starts, "did enter" once it is over. */
+const enterView = (wrapper: { vm: unknown }) => {
+  hooks(wrapper, "onIonViewWillEnter");
+  hooks(wrapper, "onIonViewDidEnter");
+};
 
 describe("CirclePage", () => {
   it("shows the circle from the route, with a way back", () => {
@@ -27,9 +32,21 @@ describe("CirclePage", () => {
     hooks(wrapper, "onIonViewWillLeave");
     await wrapper.vm.$nextTick();
     expect(wrapper.findComponent(CircleThread).props("active")).toBe(false);
-    hooks(wrapper, "onIonViewDidEnter");
+    enterView(wrapper);
     await wrapper.vm.$nextTick();
     expect(wrapper.findComponent(CircleThread).props("active")).toBe(true);
+  });
+
+  // app#193: a page opened over the circle while it still came in (a call, a reminder tapped then).
+  // Ionic says the circle leaves as that page starts to come in, and only then that it came in,
+  // once its own transition is over: the circle stays off screen under that page.
+  it("stays off screen under a page opened over it while it still came in", async () => {
+    const wrapper = mount(CirclePage, { shallow: true });
+    hooks(wrapper, "onIonViewWillEnter");
+    hooks(wrapper, "onIonViewWillLeave");
+    hooks(wrapper, "onIonViewDidEnter");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent(CircleThread).props("active")).toBe(false);
   });
 
   // Ionic's own shape (2026-10-09), as the chat's page: the circle's header, content and footer are

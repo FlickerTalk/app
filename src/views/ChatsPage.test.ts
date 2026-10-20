@@ -241,9 +241,27 @@ describe("ChatsPage", () => {
       hooks("onIonViewWillLeave");
       await wide.vm.$nextTick();
       expect(wide.findComponent({ name: "CircleThread" }).props("active")).toBe(false);
+      // As Ionic does: "will enter" as the transition starts, "did enter" once it is over.
+      hooks("onIonViewWillEnter");
       hooks("onIonViewDidEnter");
       await wide.vm.$nextTick();
       expect(wide.findComponent({ name: "CircleThread" }).props("active")).toBe(true);
+    });
+
+    // app#193: another page opened while Chats still came in. Ionic says Chats leaves as that page
+    // starts to come in, and only then that Chats came in, once its own transition is over: the
+    // circle beside the list stays off screen under that page.
+    it("keeps the circle beside the list off screen under a page opened while Chats still came in", async () => {
+      screen(true);
+      const wide = mount(ChatsPage, { shallow: true });
+      await wide.find("[data-test='circle-row']").trigger("click");
+      const hooks = (name: string) =>
+        ((wide.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+      hooks("onIonViewWillEnter");
+      hooks("onIonViewWillLeave");
+      hooks("onIonViewDidEnter");
+      await wide.vm.$nextTick();
+      expect(wide.findComponent({ name: "CircleThread" }).props("active")).toBe(false);
     });
 
     it("offers a new circle only when there is someone to put in it", async () => {

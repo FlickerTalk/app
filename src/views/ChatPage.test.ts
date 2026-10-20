@@ -43,6 +43,27 @@ describe("ChatPage", () => {
     routing.route.params = { id: "c2" };
   });
 
+  // app#193: Ionic says a page leaves as soon as the next one starts to come in, but that it came in
+  // only once its own transition is over. With a page opened over the conversation while it still
+  // came in (a call, a reminder tapped then), that late word must not put the conversation back on
+  // screen under it: there it would read what arrives and keep Android's back button.
+  it("stays off screen under a page opened over it while it still came in", async () => {
+    routing.route.params = { id: "c2" };
+    const wrapper = mount(ChatPage, { shallow: true });
+    const hooks = (name: string) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewWillLeave");
+    hooks("onIonViewDidEnter");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent(ChatThread).props("active")).toBe(false);
+    // Back on screen the next time it comes in.
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewDidEnter");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent(ChatThread).props("active")).toBe(true);
+  });
+
   // Plan 10.4: the Apps tab opens a game in the conversation with the contact picked.
   // app#145: the address then forgets it, as it forgets the search: coming back to the
   // conversation (from a call, from a page over it) never opens a game that was closed again.
