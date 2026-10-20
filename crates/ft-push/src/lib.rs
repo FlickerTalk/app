@@ -266,6 +266,11 @@ impl RouterClient {
         *self.away.borrow()
     }
 
+    /// Follows `is_away`.
+    pub fn away_changes(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.away.subscribe()
+    }
+
     /// How often this client pings the router and how long a socket may say nothing, from the
     /// next socket on (`PING_EVERY`, `SILENT_FOR`). For tests.
     #[doc(hidden)]

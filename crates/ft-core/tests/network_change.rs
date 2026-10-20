@@ -342,3 +342,23 @@ async fn right_after_a_network_change_a_hang_up_goes_over_a_new_connection() {
     until_within("alice's call ends as a hang-up", Duration::from_secs(3), || ended_as_answered(&alice, &call)).await;
     eprintln!("alice heard the hang-up {} ms after it", hung_up.elapsed().as_millis());
 }
+
+// Away from the foreground the app has let go of the router and the other phones: a network change
+// then opens nothing, and coming back opens the socket once, on the network there is then, not a
+// second time for the change.
+#[tokio::test(flavor = "multi_thread")]
+async fn away_a_network_change_opens_nothing_and_the_return_opens_once() {
+    let (fake, _alice, bob) = two_phones().await;
+    bob.online.set_foreground(false).await;
+    until("the router sees bob gone", || async { !fake.is_connected(&bob.id()) }).await;
+
+    bob.online.lifecycle().network_changed().await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fake.opened(&bob.id()), 1, "nothing opened while away");
+    assert!(!fake.is_connected(&bob.id()));
+
+    bob.online.set_foreground(true).await;
+    until_within("bob is back", Duration::from_secs(3), || async { fake.opened(&bob.id()) == 2 }).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fake.opened(&bob.id()), 2, "opened once");
+}
