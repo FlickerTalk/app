@@ -1789,6 +1789,31 @@ describe("ChatThread", () => {
       expect(sheet.props("live")).toBe(true);
     });
 
+    // app#145: the page takes `?play=` out of the address as soon as it hands it over, which may be
+    // before the apps are read: the game asked for opens all the same.
+    it("opens the game the address asked for even when the address has forgotten it", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = mount(ChatThread, { props: { chatId: "c1", play: CHESS.id }, shallow: false, global: { stubs } });
+      await wrapper.setProps({ play: undefined });
+      await flushPromises();
+      const sheet = wrapper.findComponent({ name: "PluginSheet" });
+      expect(sheet.exists()).toBe(true);
+      expect(sheet.props("plugin")).toMatchObject({ id: CHESS.id });
+    });
+
+    // Asked again from the Apps tab once it was closed, the game opens again.
+    it("opens the game again when the address asks for it again", async () => {
+      bridge({ installed: [CODE, CHESS] });
+      const wrapper = await thread({ play: CHESS.id });
+      await wrapper.setProps({ play: undefined });
+      await wrapper.find("[data-test='close-game']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='game-room']").exists()).toBe(false);
+      await wrapper.setProps({ play: CHESS.id });
+      await flushPromises();
+      expect(wrapper.find("[data-test='game-room']").exists()).toBe(true);
+    });
+
     it("asks first when the game the address asks for lacks what it needs, and never opens a tool", async () => {
       bridge({ installed: [CODE, UNGRANTED] });
       const asked = await thread({ play: CHESS.id });
@@ -2022,6 +2047,31 @@ describe("ChatThread", () => {
         await wrapper.find("[data-test='game-peek']").trigger("click");
         await flushPromises();
         expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+      });
+
+      // app#145: back from the game, the thread shows its newest message, also what arrived while
+      // the game covered it.
+      it("shows the newest message when the game closes", async () => {
+        bridge({ installed: [CODE, CHESS] });
+        const scrollToBottom = vi.fn(async () => {});
+        const Content = defineComponent({
+          mounted() {
+            (this.$el as { scrollToBottom?: unknown }).scrollToBottom = scrollToBottom;
+          },
+          render() {
+            return h("div", this.$slots.default?.());
+          },
+        });
+        const wrapper = mount(ChatThread, { props: { chatId: "c1", play: CHESS.id }, shallow: false, global: { stubs: { ...stubs, IonContent: Content } } });
+        await flushPromises();
+        expect(room(wrapper).exists()).toBe(true);
+        arrives("your move");
+        await flushPromises();
+        scrollToBottom.mockClear();
+        await wrapper.find("[data-test='close-game']").trigger("click");
+        await flushPromises();
+        expect(room(wrapper).exists()).toBe(false);
+        expect(scrollToBottom).toHaveBeenCalled();
       });
 
       it("closes the game with the back button and stays in the chat", async () => {

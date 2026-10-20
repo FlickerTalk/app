@@ -9,11 +9,16 @@ const route = useRoute();
 // The conversation of this page, for as long as it lives: Ionic gives each one a page of its own
 // and keeps it mounted under the next page and while it goes, when the address is another's.
 const chatId = String(route.params.id);
-// Plan 10.4: the games tab opens a game here (`?play=<id>`).
-const play = computed(() => (typeof route.query?.play === "string" && route.query.play ? route.query.play : undefined));
-// Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`, only for
-// this page's conversation (another page's address may be on screen).
-const search = computed(() => String(route.params.id) === chatId && route.query?.search === "1");
+// Ionic keeps this page mounted under others: what an address asks for is only this page's when
+// the address is this page's conversation.
+const forThisChat = () => String(route.params.id) === chatId;
+// Plan 10.4: the Apps tab opens a game here (`?play=<id>`).
+const play = computed(() => {
+  const asked = route.query?.play;
+  return forThisChat() && typeof asked === "string" && asked ? asked : undefined;
+});
+// Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`.
+const search = computed(() => forThisChat() && route.query?.search === "1");
 // Under another page, what the conversation left open lets go of Android's back button.
 const onScreen = ref(true);
 onIonViewDidEnter(() => {
@@ -34,12 +39,13 @@ const position = () => {
   const at = router.options.history.state?.position;
   return typeof at === "number" ? at : undefined;
 };
-// Once open, the address forgets it, so coming back to the conversation does not open it again.
+// Once handed over, the address forgets the search and the game, so coming back to the
+// conversation (from a call, app#145) does not open them again.
 watch(
-  search,
-  (asked) => {
-    if (!asked) return;
-    const { search: _asked, ...rest } = route.query;
+  [search, play],
+  ([searching, playing]) => {
+    if (!searching && !playing) return;
+    const { search: _search, play: _play, ...rest } = route.query;
     void router.replace({ query: rest });
   },
   { immediate: true },
