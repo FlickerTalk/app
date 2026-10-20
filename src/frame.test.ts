@@ -184,6 +184,39 @@ describe("the frame", () => {
     }
   });
 
+  // 2026-10-20 (app#177): the phone's own translator, six questions to the app, each answered with
+  // the contract's type whatever comes back (§4.2 of the translator's plan).
+  it("asks the app to translate on the phone, and hands the plugin only the contract's answers", async () => {
+    const { posted, says, ran } = await frame();
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    await ran;
+    type Translator = Record<string, (...args: unknown[]) => Promise<unknown>>;
+    const translator = (globalThis as unknown as { ft: { translate: Translator } }).ft.translate;
+    /** Calls `method`, checks what the frame asked the app, and answers it with `answer`. */
+    const asked = async (method: string, args: unknown[], question: Said, answer: unknown) => {
+      const pending = translator[method](...args);
+      const last = posted[posted.length - 1];
+      expect(last).toEqual({ ...question, id: expect.any(String) });
+      await says({ type: "ft.done", id: last.id, answer });
+      return pending;
+    };
+    expect(await asked("languages", [], { type: "ft.translateLanguages" }, ["en", "es"])).toEqual(["en", "es"]);
+    expect(await asked("detect", ["hola"], { type: "ft.translateDetect", text: "hola" }, "es")).toBe("es");
+    expect(await asked("status", ["es", "en"], { type: "ft.translateStatus", from: "es", to: "en" }, "downloadable")).toBe("downloadable");
+    expect(await asked("prepare", ["es", "en"], { type: "ft.translatePrepare", from: "es", to: "en" }, true)).toBe(true);
+    expect(await asked("remove", ["es", "en"], { type: "ft.translateRemove", from: "es", to: "en" }, true)).toBe(true);
+    expect(await asked("translate", ["hola", "es", "en"], { type: "ft.translateText", text: "hola", from: "es", to: "en" }, "hello")).toBe("hello");
+
+    // What is not the contract's answer is its empty answer: a refusal, a broken core, junk.
+    expect(await asked("languages", [], { type: "ft.translateLanguages" }, null)).toEqual([]);
+    expect(await asked("languages", [], { type: "ft.translateLanguages" }, ["en", 7, null])).toEqual(["en"]);
+    expect(await asked("detect", [12], { type: "ft.translateDetect", text: "12" }, false)).toBeNull();
+    expect(await asked("status", ["es", "xx"], { type: "ft.translateStatus", from: "es", to: "xx" }, "maybe")).toBe("unsupported");
+    expect(await asked("prepare", ["es", "en"], { type: "ft.translatePrepare", from: "es", to: "en" }, "yes")).toBe(false);
+    expect(await asked("remove", ["es", "en"], { type: "ft.translateRemove", from: "es", to: "en" }, null)).toBe(false);
+    expect(await asked("translate", ["hola", "es", "en"], { type: "ft.translateText", text: "hola", from: "es", to: "en" }, false)).toBeNull();
+  });
+
   it("loads the plugin all the same if the colours never come", async () => {
     vi.useFakeTimers();
     try {

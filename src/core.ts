@@ -892,6 +892,8 @@ export interface PluginPermissions {
   storage?: "small" | "large";
   /** Whether it may ask for the phone's current position, once (2026-10-02). */
   location?: boolean;
+  /** Whether it may translate text with the phone's own translator (2026-10-20, app#177). */
+  translate?: boolean;
 }
 
 export interface PluginView {
@@ -1138,6 +1140,42 @@ export interface PluginLocation {
 /** The core checks the grant before it asks the phone; `null` when there is no place to give. */
 export async function pluginLocation(plugin: string): Promise<PluginLocation | null> {
   return invoke<PluginLocation | null>("core_plugin_location", { plugin });
+}
+
+// ---- The phone's own translator, for a plugin granted `translate` (2026-10-20, app#177) ----
+// The core checks the grant, the text (1 to 5 000 characters) and the tags before the phone is
+// asked; the text never leaves the phone.
+
+/** Whether a language pair can be translated on this phone now, after a download, or not at all. */
+export type TranslationStatus = "installed" | "downloadable" | "unsupported";
+
+/** The BCP-47 tags this phone translates between; empty when it cannot translate. */
+export async function translateLanguages(plugin: string): Promise<string[]> {
+  return invoke<string[]>("core_translate_languages", { plugin });
+}
+
+/** The language of a text, guessed on the phone; `null` when it cannot tell. */
+export async function translateDetect(plugin: string, text: string): Promise<string | null> {
+  return invoke<string | null>("core_translate_detect", { plugin, text });
+}
+
+export async function translateStatus(plugin: string, from: string, to: string): Promise<TranslationStatus> {
+  return invoke<TranslationStatus>("core_translate_status", { plugin, from, to });
+}
+
+/** Downloads what the pair needs (iOS may show its own sheet); `true` once it is ready. */
+export async function translatePrepare(plugin: string, from: string, to: string): Promise<boolean> {
+  return invoke<boolean>("core_translate_prepare", { plugin, from, to });
+}
+
+/** Removes a downloaded pack where the phone lets the app (Android); `false` otherwise. */
+export async function translateRemove(plugin: string, from: string, to: string): Promise<boolean> {
+  return invoke<boolean>("core_translate_remove", { plugin, from, to });
+}
+
+/** The text translated on the phone; `null` when it could not. */
+export async function translateText(plugin: string, text: string, from: string, to: string): Promise<string | null> {
+  return invoke<string | null>("core_translate_text", { plugin, text, from, to });
 }
 
 export async function pluginFetch(

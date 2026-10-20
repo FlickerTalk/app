@@ -146,6 +146,11 @@ pub struct Permissions {
     /// is open, that the phone asks the user for the first time. No background, no following.
     #[serde(default)]
     pub location: bool,
+    /// Whether it may translate text with the phone's own translator (2026-10-20, app#177): ML
+    /// Kit on Android, iOS's Translation on iPhone. The text never leaves the phone; language
+    /// packs are downloaded once from Google or Apple.
+    #[serde(default)]
+    pub translate: bool,
 }
 
 /// How much a plugin may keep in its records (2026-09-27), asked for like any permission.
@@ -773,6 +778,8 @@ mod tests {
             r#","permissions":{"live":true,"storage":"large"}"#,
             // Where the phone is (2026-10-02, app#32): a game never learns it.
             r#","permissions":{"live":true,"location":true}"#,
+            // The phone's translator (2026-10-20, app#177): a tool's job, never a game's.
+            r#","permissions":{"live":true,"translate":true}"#,
             // It proposes a line for the chat; it never sends on the user's behalf.
             r#","permissions":{"live":true,"send":"auto"}"#,
             // A game is opened from the games, never handed a file: no "open with", no viewer.
@@ -1105,6 +1112,24 @@ mod tests {
         // A grant written before this permission existed reads as no position.
         let before: Permissions = serde_json::from_str(r#"{"network":[],"messages":"none","send":"nothing"}"#).unwrap();
         assert_eq!(serde_json::to_value(&before).unwrap()["location"], serde_json::json!(false));
+    }
+
+    // 2026-10-20 (app#177): the translator asks for the phone's own translator as a yes or a no.
+    // The text never leaves the phone; there is nothing else to ask for.
+    #[test]
+    fn a_plugin_asks_to_translate_on_its_own() {
+        let catalogue = Ed25519SecretKey::new();
+        let asking = open(&package(&manifest_with(r#"{"translate":true,"messages":"given","send":"propose"}"#), b"", &catalogue), &catalogue.public_key()).unwrap();
+        let said = serde_json::to_value(&asking.manifest.permissions).unwrap();
+        assert_eq!(said["translate"], serde_json::json!(true), "the manifest asked for the translator: {said}");
+        let plain = open(&package(&manifest_of("com.example.code"), b"", &catalogue), &catalogue.public_key()).unwrap();
+        assert_eq!(serde_json::to_value(&plain.manifest.permissions).unwrap()["translate"], serde_json::json!(false), "never unless asked");
+        for wrong in [r#"{"translate":"always"}"#, r#"{"translate":1}"#, r#"{"translate":"cloud"}"#] {
+            assert!(open(&package(&manifest_with(wrong), b"", &catalogue), &catalogue.public_key()).is_err(), "{wrong} is not a yes or a no");
+        }
+        // A grant written before this permission existed reads as no translator.
+        let before: Permissions = serde_json::from_str(r#"{"network":[],"messages":"none","send":"nothing"}"#).unwrap();
+        assert_eq!(serde_json::to_value(&before).unwrap()["translate"], serde_json::json!(false));
     }
 
     // 2026-09-27: the permissions the board, the notes and the drive need are asked for one by

@@ -65,6 +65,12 @@
  * the chat and for the live channel, and was granted none. `core_plugin_location` answers a fixed
  * position (`FAKE_FIX`) only to a plugin granted `location`, and refuses any other, as the core.
  *
+ * The phone's translator (2026-10-20, app#177): `window.__ftFakeTranslateTool` installs Translator
+ * (`com.flickertalk.translate`), which asks to read what it is handed, to translate and to write
+ * in the chat, and was granted none. The `core_translate_*` commands answer only a plugin granted
+ * `translate`, as the core: English and Spanish installed, Spanish guessed, "hola" as the
+ * translation; any other plugin is refused.
+ *
  * Links that open the app (2026-10-08): `window.__ftFakeOpenedLink` (a URL) is the link the phone
  * opened the app with, handed over once (`core_opened_link`); `window.__ftFake.openLink(url)` is a
  * link opening the app that runs already (the core's `ft://opened-link`). `core_read_link` reads
@@ -213,6 +219,16 @@ export function installFakeCore() {
     installedAt: 3,
   };
   const FAKE_FIX = { lat: 40.41678, lon: -3.70379, accuracy: 35, at: 1_790_000_000_000 };
+  const TRANSLATE_TOOL = {
+    id: "com.flickertalk.translate",
+    icon: "language-outline",
+    name: "Translator",
+    version: "1.0.0",
+    opens: ["text/plain"],
+    asks: { network: [], messages: true, send: "propose", translate: true, storage: "small" },
+    granted: { network: [], messages: false, send: "nothing", translate: false, storage: "small" },
+    installedAt: 4,
+  };
   const callEvent = (payload: Record<string, unknown>) =>
     emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
   /** The other phone answering the outgoing native call, until it has. */
@@ -404,6 +420,7 @@ export function installFakeCore() {
       case "core_plugins": {
         grantLive();
         if (flag("__ftFakeLocationTool") && !state.plugins.some((p) => p.id === LOCATION_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(LOCATION_TOOL)));
+        if (flag("__ftFakeTranslateTool") && !state.plugins.some((p) => p.id === TRANSLATE_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(TRANSLATE_TOOL)));
         const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
         const extra = Array.from({ length: many }, (_, at) => String(at).padStart(2, "0")).flatMap((n) => [
           { id: `com.example.tool${n}`, name: `Tool ${n} with a rather long name to see it cut`, version: "1.0.0", asks: { network: [], messages: false, send: "nothing" }, granted: { network: [], messages: false, send: "nothing" }, installedAt: 1 },
@@ -645,6 +662,24 @@ export function installFakeCore() {
         const plugin = state.plugins.find((p) => p.id === a.plugin);
         if (!plugin?.granted.location) throw new Error(`${String(a.plugin)} may not ask where the phone is`);
         return FAKE_FIX;
+      }
+      case "core_translate_languages":
+      case "core_translate_detect":
+      case "core_translate_status":
+      case "core_translate_prepare":
+      case "core_translate_remove":
+      case "core_translate_text": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.translate) throw new Error(`${String(a.plugin)} may not translate`);
+        const answers: Record<string, unknown> = {
+          core_translate_languages: ["en", "es"],
+          core_translate_detect: "es",
+          core_translate_status: "installed",
+          core_translate_prepare: true,
+          core_translate_remove: true,
+          core_translate_text: "hola",
+        };
+        return answers[command];
       }
       case "core_plugin_live_send": {
         grantLive();

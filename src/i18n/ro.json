@@ -337,6 +337,7 @@
     "drive": "Să păstreze fișiere în propriul tău cloud",
     "storageLarge": "Să păstreze multe date pe acest telefon (până la 256 MB)",
     "location": "Locația ta, doar când o ceri",
+    "translate": "Să traducă text pe acest telefon",
     "askPermission": "{name} are nevoie de o permisiune",
     "allow": "Permite",
     "opens": "Deschide: {kinds}",

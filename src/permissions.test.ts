@@ -6,8 +6,8 @@ const BOARD: PluginView = {
   id: "com.flickertalk.board",
   name: "Board",
   version: "1.0.0",
-  asks: { network: ["api.example.com"], messages: true, send: "propose", live: true, remind: true, drive: true, location: true, storage: "large" },
-  granted: { network: [], messages: false, send: "nothing", live: false, remind: false, drive: false, location: false, storage: "small" },
+  asks: { network: ["api.example.com"], messages: true, send: "propose", live: true, remind: true, drive: true, location: true, translate: true, storage: "large" },
+  granted: { network: [], messages: false, send: "nothing", live: false, remind: false, drive: false, location: false, translate: false, storage: "small" },
   installedAt: 1,
 };
 
@@ -22,6 +22,7 @@ describe("plugin permissions", () => {
       ["remind", false],
       ["drive", false],
       ["location", false],
+      ["translate", false],
       ["storage", false],
     ]);
     expect(permissionsOf({ ...BOARD, asks: { network: [], messages: false, send: "nothing" } })).toEqual([]);
@@ -37,6 +38,10 @@ describe("plugin permissions", () => {
     // 2026-10-02 (app#32): the phone's position has a switch of its own, and the others keep it.
     expect(withPermission(BOARD, "location", true).location).toBe(true);
     expect(withPermission({ ...BOARD, granted: { ...BOARD.granted, location: true } }, "live", true).location).toBe(true);
+    // 2026-10-20 (app#177): and the phone's translator.
+    expect(withPermission(BOARD, "translate", true).translate).toBe(true);
+    expect(withPermission({ ...BOARD, granted: { ...BOARD.granted, translate: true } }, "translate", false).translate).toBe(false);
+    expect(withPermission({ ...BOARD, granted: { ...BOARD.granted, translate: true } }, "live", true).translate).toBe(true);
   });
 
   // A game talks to the same game on the other phone: the switch says so, not "plugin".
@@ -48,10 +53,13 @@ describe("plugin permissions", () => {
   });
 
   // A game never learns where the phone is: its switches never offer it, whatever it says it asks.
-  it("never offers a game the phone's position", () => {
+  // Nor the phone's translator (2026-10-20): the core refuses a game that asks for either.
+  it("never offers a game the phone's position or its translator", () => {
     const keys = permissionsOf({ ...BOARD, kind: "game" }).map((one) => one.key);
     expect(keys).not.toContain("location");
+    expect(keys).not.toContain("translate");
     expect(permissionsOf(BOARD).map((one) => one.key)).toContain("location");
+    expect(permissionsOf(BOARD).map((one) => one.key)).toContain("translate");
   });
 
   // Decision of 2026-10-08: a tool that lacks a permission it asked for asks the user on the spot.
@@ -68,6 +76,11 @@ describe("plugin permissions", () => {
     expect(missingPermission(BOARD, "network:elsewhere.example.com")).toBeUndefined();
     // A game is never offered the phone's position.
     expect(missingPermission({ ...BOARD, kind: "game" }, "location")).toBeUndefined();
+    // 2026-10-20 (app#177): the phone's translator, asked for on the spot like the rest.
+    expect(missingPermission(BOARD, "translate")).toMatchObject({ key: "translate", label: "Translate text on this phone", on: false });
+    expect(missingPermission({ ...BOARD, granted: { ...BOARD.granted, translate: true } }, "translate")).toBeUndefined();
+    expect(missingPermission({ ...BOARD, asks: { ...BOARD.asks, translate: false } }, "translate")).toBeUndefined();
+    expect(missingPermission({ ...BOARD, kind: "game" }, "translate")).toBeUndefined();
   });
 
   // The host a plugin's fetch goes to, as the core reads it (`host_of` in ft-core's web.rs).

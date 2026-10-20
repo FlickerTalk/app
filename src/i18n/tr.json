@@ -337,6 +337,7 @@
     "drive": "Dosyaları kendi bulutunda saklamak",
     "storageLarge": "Bu telefonda çok veri saklamak (256 MB'a kadar)",
     "location": "Konumunuz, yalnızca siz istediğinizde",
+    "translate": "Bu telefonda metin çevirmek",
     "askPermission": "{name} bir izne ihtiyaç duyuyor",
     "allow": "İzin ver",
     "opens": "Açar: {kinds}",

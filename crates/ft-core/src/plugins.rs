@@ -64,7 +64,9 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// full-height tool windows, a tool opened on its own sends to a picked contact;
 /// `onOpen.presenting: "lead" | "follow"` when the app opens a plugin inside a call (a follower with
 /// the tools closed may still open the presented tool).
-pub const CORE_VERSION: &str = "1.6.0";
+/// 1.7.0 (2026-10-20, app#177): `translate`, the phone's own translator (`ft.translate.languages`,
+/// `detect`, `status`, `prepare`, `remove`, `translate`): ML Kit on Android, Translation on iOS 18+.
+pub const CORE_VERSION: &str = "1.7.0";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 /// What the key of a plugin's chat ids is derived for, from the storage key (2026-10-02).
@@ -110,6 +112,118 @@ async fn located(locator: &dyn Locator) -> Option<Fix> {
         Ok(Ok(fix)) => fix.filter(Fix::is_a_place),
         _ => None,
     }
+}
+
+/// Whether a language pair can be translated on this phone now, after a download, or not at all
+/// (2026-10-20, app#177). Per pair, because that is all iOS says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PairStatus {
+    Installed,
+    Downloadable,
+    Unsupported,
+}
+
+/// The phone's own translator, through the platform bridge (2026-10-20, app#177): ML Kit on
+/// Android, iOS's Translation framework on iPhone. The text never leaves the phone; a language
+/// pack is downloaded once from Google or Apple, and only when the user asks for it.
+#[async_trait]
+pub trait Translator: Send + Sync {
+    /// BCP-47 tags this phone translates between; empty when it cannot translate.
+    async fn languages(&self) -> Result<Vec<String>>;
+    /// The language of a text, guessed on the phone; `None` when it cannot tell.
+    async fn detect(&self, text: &str) -> Result<Option<String>>;
+    /// Whether this pair is ready, needs a download, or is not available here.
+    async fn status(&self, from: &str, to: &str) -> Result<PairStatus>;
+    /// Downloads what the pair needs (iOS may show its own sheet); `true` once it is ready.
+    async fn prepare(&self, from: &str, to: &str) -> Result<bool>;
+    /// Removes a downloaded pack when the phone lets the app do it (Android); `false` otherwise.
+    async fn remove(&self, from: &str, to: &str) -> Result<bool>;
+    /// The text in `to`, translated on the phone; `None` when it could not.
+    async fn translate(&self, text: &str, from: &str, to: &str) -> Result<Option<String>>;
+}
+
+/// The most a plugin may hand the translator at once: a message, never a book.
+pub const TRANSLATE_MAX_CHARS: usize = 5_000;
+
+/// How long the core waits for a translation, a guess or an answer about languages. ML Kit and
+/// iOS fail fast by themselves; this is the backstop, so a plugin is never left hanging.
+const TRANSLATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How long the core waits for a language pack to download (~30 MB on a slow network).
+const PREPARE_WAIT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// The longest tag the bridges are asked about (the longest well-formed BCP-47 tags in use).
+const LANGUAGE_TAG_MAX: usize = 35;
+
+/// Whether `tag` reads as a BCP-47 language tag (`[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*`): only those
+/// are handed to the bridges; anything else is no language this phone has.
+fn is_language_tag(tag: &str) -> bool {
+    let mut parts = tag.split('-');
+    let language = parts.next().unwrap_or_default();
+    tag.len() <= LANGUAGE_TAG_MAX
+        && (2..=3).contains(&language.len())
+        && language.chars().all(|c| c.is_ascii_alphabetic())
+        && parts.all(|part| (2..=8).contains(&part.len()) && part.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
+/// A text a plugin may hand the translator: something to translate, and a message's worth.
+fn a_text_to_translate(text: &str) -> Result<()> {
+    ensure!(!text.trim().is_empty(), "there is nothing to translate");
+    ensure!(text.chars().count() <= TRANSLATE_MAX_CHARS, "a text to translate is {TRANSLATE_MAX_CHARS} characters at most");
+    Ok(())
+}
+
+/// The phone's answer within `wait`, or an error: the plugin then gets the empty answer.
+async fn within<T>(wait: std::time::Duration, asked: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+    tokio::time::timeout(wait, asked).await.map_err(|_| anyhow::anyhow!("the phone's translator did not answer in time"))?
+}
+
+/// The languages the phone lists, once each and only those that read as tags.
+async fn languages_of(translator: &dyn Translator) -> Result<Vec<String>> {
+    let mut languages: Vec<String> = Vec::new();
+    for tag in within(TRANSLATE_WAIT, translator.languages()).await? {
+        if is_language_tag(&tag) && !languages.contains(&tag) {
+            languages.push(tag);
+        }
+    }
+    Ok(languages)
+}
+
+/// The phone's guess at a text's language; "und" (undetermined) or anything that is no tag is no guess.
+async fn detected(translator: &dyn Translator, text: &str) -> Result<Option<String>> {
+    a_text_to_translate(text)?;
+    let guess = within(TRANSLATE_WAIT, translator.detect(text)).await?;
+    Ok(guess.filter(|tag| is_language_tag(tag) && !tag.eq_ignore_ascii_case("und")))
+}
+
+async fn status_of(translator: &dyn Translator, from: &str, to: &str) -> Result<PairStatus> {
+    if !is_language_tag(from) || !is_language_tag(to) {
+        return Ok(PairStatus::Unsupported);
+    }
+    within(TRANSLATE_WAIT, translator.status(from, to)).await
+}
+
+async fn prepared(translator: &dyn Translator, from: &str, to: &str) -> Result<bool> {
+    if !is_language_tag(from) || !is_language_tag(to) {
+        return Ok(false);
+    }
+    within(PREPARE_WAIT, translator.prepare(from, to)).await
+}
+
+async fn removed(translator: &dyn Translator, from: &str, to: &str) -> Result<bool> {
+    if !is_language_tag(from) || !is_language_tag(to) {
+        return Ok(false);
+    }
+    within(TRANSLATE_WAIT, translator.remove(from, to)).await
+}
+
+async fn translated(translator: &dyn Translator, text: &str, from: &str, to: &str) -> Result<Option<String>> {
+    a_text_to_translate(text)?;
+    if !is_language_tag(from) || !is_language_tag(to) {
+        return Ok(None);
+    }
+    within(TRANSLATE_WAIT, translator.translate(text, from, to)).await
 }
 
 /// A plugin as the app shows it: what it is, and what it may do here.
@@ -398,6 +512,53 @@ impl Core {
         Ok(located(locator).await)
     }
 
+    // ---- ft.translate (2026-10-20, app#177): the phone's own translator ----
+    //
+    // Each call is for a plugin the user granted `translate`; the phone is not even asked
+    // otherwise. The core only passes the text on: nothing of it is kept or logged (§100).
+
+    /// Whether this plugin may use the phone's translator.
+    async fn may_translate(&self, id: &str) -> Result<()> {
+        ensure!(self.granted_to(id).await?.translate, "{id} may not translate");
+        Ok(())
+    }
+
+    /// The languages this phone translates between; empty when it cannot translate.
+    pub async fn plugin_translate_languages(&self, id: &str, translator: &dyn Translator) -> Result<Vec<String>> {
+        self.may_translate(id).await?;
+        languages_of(translator).await
+    }
+
+    /// The language of a text, guessed on the phone; `None` when it cannot tell.
+    pub async fn plugin_translate_detect(&self, id: &str, translator: &dyn Translator, text: &str) -> Result<Option<String>> {
+        self.may_translate(id).await?;
+        detected(translator, text).await
+    }
+
+    /// Whether a pair is ready, needs a download, or is not available on this phone.
+    pub async fn plugin_translate_status(&self, id: &str, translator: &dyn Translator, from: &str, to: &str) -> Result<PairStatus> {
+        self.may_translate(id).await?;
+        status_of(translator, from, to).await
+    }
+
+    /// Downloads what a pair needs (the plugin asked the user first); `true` once it is ready.
+    pub async fn plugin_translate_prepare(&self, id: &str, translator: &dyn Translator, from: &str, to: &str) -> Result<bool> {
+        self.may_translate(id).await?;
+        prepared(translator, from, to).await
+    }
+
+    /// Removes a downloaded pack where the phone lets the app do it (Android); `false` otherwise.
+    pub async fn plugin_translate_remove(&self, id: &str, translator: &dyn Translator, from: &str, to: &str) -> Result<bool> {
+        self.may_translate(id).await?;
+        removed(translator, from, to).await
+    }
+
+    /// A text translated on the phone; `None` when it could not.
+    pub async fn plugin_translate_text(&self, id: &str, translator: &dyn Translator, text: &str, from: &str, to: &str) -> Result<Option<String>> {
+        self.may_translate(id).await?;
+        translated(translator, text, from, to).await
+    }
+
     /// The plugins installed here that open a file of this kind, for "open with" (2026-09-27).
     pub async fn plugins_opening(&self, mime: &str) -> Result<Vec<Manifest>> {
         Ok(self.plugins().await?.into_iter().map(|plugin| plugin.manifest).filter(|manifest| manifest.opens_kind(mime)).collect())
@@ -609,6 +770,7 @@ fn allowed(asked: &Permissions, granted: &Permissions) -> Result<()> {
     ensure!(!granted.remind || asked.remind, "the plugin never asked to set reminders");
     ensure!(!granted.drive || asked.drive, "the plugin never asked for your cloud");
     ensure!(!granted.location || asked.location, "the plugin never asked where the phone is");
+    ensure!(!granted.translate || asked.translate, "the plugin never asked to translate");
     ensure!(
         granted.storage == ft_plugins::Storage::Small || asked.storage == ft_plugins::Storage::Large,
         "the plugin never asked for that much room"
@@ -629,6 +791,7 @@ fn narrowed(granted: &Permissions, asked: &Permissions) -> Permissions {
         drive: granted.drive && asked.drive,
         storage: if asked.storage == ft_plugins::Storage::Large { granted.storage } else { ft_plugins::Storage::Small },
         location: granted.location && asked.location,
+        translate: granted.translate && asked.translate,
     }
 }
 
@@ -668,6 +831,70 @@ mod tests {
         assert!(waited >= std::time::Duration::from_secs(15) && waited <= std::time::Duration::from_secs(30), "waited {waited:?}");
     }
 
+    /// A translator that never answers: a bridge stuck on a download or a model.
+    struct Mute;
+
+    #[async_trait]
+    impl Translator for Mute {
+        async fn languages(&self) -> Result<Vec<String>> {
+            std::future::pending().await
+        }
+        async fn detect(&self, _text: &str) -> Result<Option<String>> {
+            std::future::pending().await
+        }
+        async fn status(&self, _from: &str, _to: &str) -> Result<PairStatus> {
+            std::future::pending().await
+        }
+        async fn prepare(&self, _from: &str, _to: &str) -> Result<bool> {
+            std::future::pending().await
+        }
+        async fn remove(&self, _from: &str, _to: &str) -> Result<bool> {
+            std::future::pending().await
+        }
+        async fn translate(&self, _text: &str, _from: &str, _to: &str) -> Result<Option<String>> {
+            std::future::pending().await
+        }
+    }
+
+    /// How long a call to the translator took before it gave up, and whether it did.
+    async fn gave_up<T: std::fmt::Debug>(asked: impl std::future::Future<Output = Result<T>>) -> std::time::Duration {
+        let started = tokio::time::Instant::now();
+        let answer = asked.await;
+        assert!(answer.is_err(), "a translator that never answers is an error, not {answer:?}");
+        started.elapsed()
+    }
+
+    // 2026-10-20 (app#177): a translation or a guess is given up after 30 s, and a download after
+    // five minutes, so a plugin is never left waiting for a bridge that never answers. ML Kit fails
+    // fast without a network; these are only the backstop.
+    #[tokio::test(start_paused = true)]
+    async fn a_translator_that_never_answers_is_an_error_after_a_while() {
+        let half_a_minute = std::time::Duration::from_secs(30);
+        for waited in [
+            gave_up(translated(&Mute, "hola", "es", "en")).await,
+            gave_up(detected(&Mute, "hola")).await,
+            gave_up(languages_of(&Mute)).await,
+            gave_up(status_of(&Mute, "es", "en")).await,
+            gave_up(removed(&Mute, "es", "en")).await,
+        ] {
+            assert_eq!(waited, half_a_minute);
+        }
+        assert_eq!(gave_up(prepared(&Mute, "es", "en")).await, std::time::Duration::from_secs(5 * 60), "a download may take a while");
+    }
+
+    // The bridges are only asked about tags that look like BCP-47 ("es", "zh-Hans", "es-419");
+    // anything else is no language at all, never something handed to native code.
+    #[test]
+    fn a_language_tag_is_what_bcp_47_looks_like() {
+        for tag in ["es", "pt", "fil", "zh-Hans", "es-419", "sr-Latn-RS", "EN-us", "xx"] {
+            assert!(is_language_tag(tag), "{tag} is a tag");
+        }
+        let long = format!("en-{}", ["abcdefgh"; 5].join("-"));
+        for tag in ["", "e", "espa", "español", "es_ES", "es-", "-es", "es--419", "es-x", "es-123456789", "../es", "es en", "e1", long.as_str()] {
+            assert!(!is_language_tag(tag), "{tag:?} is not a tag");
+        }
+    }
+
     #[test]
     fn a_grant_may_never_go_beyond_what_was_asked() {
         let asked = Permissions {
@@ -693,6 +920,8 @@ mod tests {
             Permissions { storage: ft_plugins::Storage::Large, ..Permissions::default() },
             // 2026-10-02: the phone's position.
             Permissions { location: true, ..Permissions::default() },
+            // 2026-10-20: the phone's translator.
+            Permissions { translate: true, ..Permissions::default() },
         ] {
             assert!(allowed(&asked, &wanted).is_err(), "{wanted:?} was never asked for");
             assert!(allowed(&wanted, &wanted).is_ok());
@@ -794,6 +1023,7 @@ mod tests {
             drive: true,
             storage: ft_plugins::Storage::Large,
             location: true,
+            translate: true,
         };
         for asked in [Permissions::default(), Permissions { network: vec!["b.example.com".to_owned()], send: Sending::Propose, ..Permissions::default() }, all.clone()] {
             let left = narrowed(&all, &asked);

@@ -337,6 +337,7 @@
     "drive": "Menyimpan berkas di cloud milikmu sendiri",
     "storageLarge": "Menyimpan banyak data di ponsel ini (hingga 256 MB)",
     "location": "Lokasi Anda, hanya saat Anda memintanya",
+    "translate": "Menerjemahkan teks di ponsel ini",
     "askPermission": "{name} memerlukan izin",
     "allow": "Izinkan",
     "opens": "Membuka: {kinds}",

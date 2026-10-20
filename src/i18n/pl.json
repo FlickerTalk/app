@@ -337,6 +337,7 @@
     "drive": "Przechowywać pliki w twojej własnej chmurze",
     "storageLarge": "Przechowywać dużo danych na tym telefonie (do 256 MB)",
     "location": "Twoja lokalizacja, tylko gdy o nią poprosisz",
+    "translate": "Tłumaczyć tekst na tym telefonie",
     "askPermission": "{name} potrzebuje uprawnienia",
     "allow": "Zezwól",
     "opens": "Otwiera: {kinds}",

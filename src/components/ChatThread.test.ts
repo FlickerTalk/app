@@ -702,6 +702,77 @@ describe("ChatThread", () => {
     expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
   });
 
+  // Decision of 2026-10-20 (app#177): a tool that asks to read what it is handed is offered in
+  // "open with" before it was granted that, so a new one is found (Translator, Reminders, Notes);
+  // picking it asks for the permission on the spot, and it opens only after a yes.
+  describe("open with a tool not yet allowed to read the message", () => {
+    const TRANSLATOR = {
+      id: "com.flickertalk.translate",
+      name: "Translator",
+      version: "1.0.0",
+      asks: { network: [], messages: true, send: "propose", translate: true },
+      granted: { network: [], messages: false, send: "nothing", translate: false },
+      installedAt: 1,
+      opens: ["text/plain"],
+    };
+
+    /** Long press on the first message, "open with", then the Translator. */
+    async function chooseTranslator() {
+      const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const fallback = bridge.invoke;
+      let view: Record<string, unknown> = JSON.parse(JSON.stringify(TRANSLATOR));
+      bridge.invoke = (command, args) => {
+        if (command === "core_plugins") return Promise.resolve([view]);
+        if (command === "core_plugin_grant") {
+          calls.push([command, args]);
+          view = { ...view, granted: args?.granted };
+          return Promise.resolve(undefined);
+        }
+        if (command === "core_plugin_ref") return Promise.resolve("ref_1");
+        return fallback(command, args);
+      };
+      await refreshPlugins();
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+      await flushPromises();
+      await pressed(wrapper);
+      await wrapper.find("[data-test='open-with']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='open-with-com.flickertalk.translate']").text()).toBe("Translator");
+      await wrapper.find("[data-test='open-with-com.flickertalk.translate']").trigger("click");
+      await flushPromises();
+      return wrapper;
+    }
+    const asks = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='permission-ask']");
+    const grants = () => calls.filter(([command]) => command === "core_plugin_grant");
+
+    it("asks for reading the message, and opens the tool with its text after a yes", async () => {
+      const wrapper = await chooseTranslator();
+      expect(asks(wrapper).html()).toContain("Translator needs a permission");
+      expect(asks(wrapper).html()).toContain("Read what you send it");
+      // Held: nothing opens and nothing is granted until the user says.
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+      expect(grants()).toHaveLength(0);
+
+      await wrapper.find("[data-test='permission-allow']").trigger("click");
+      await flushPromises();
+      expect(grants()).toEqual([["core_plugin_grant", { plugin: TRANSLATOR.id, granted: expect.objectContaining({ messages: true, translate: false, send: "nothing" }) }]]);
+      const sheet = wrapper.findComponent({ name: "PluginSheet" });
+      expect(sheet.exists()).toBe(true);
+      expect(sheet.props("text")).toBe(fixture.chats[0].messages[0].text);
+      expect(sheet.props("reference")).toBe("ref_1");
+      expect(asks(wrapper).exists()).toBe(false);
+    });
+
+    it("opens nothing and grants nothing when the user says no", async () => {
+      const wrapper = await chooseTranslator();
+      await wrapper.find("[data-test='permission-cancel']").trigger("click");
+      await flushPromises();
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+      expect(grants()).toHaveLength(0);
+      expect(asks(wrapper).exists()).toBe(false);
+    });
+  });
+
   // 2026-10-02 (plan of the catalogue's translations): a Spanish phone names a tool in Spanish in
   // the apps sheet, in "open with" and in its window, from its package.
   it("names a tool in the phone's language wherever it is shown", async () => {
