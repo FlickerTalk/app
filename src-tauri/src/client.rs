@@ -3246,6 +3246,122 @@ pub async fn core_plugin_location(plugin: String, app: AppHandle, client: State<
     Ok(fix.map(|fix| LocationView { lat: fix.lat, lon: fix.lon, accuracy: fix.accuracy, at: fix.at }))
 }
 
+// ---- The phone's own translator (2026-10-20, app#177) ----
+
+/// The phone's translator through the bridge: ML Kit on Android, Translation on iOS 18+, nothing
+/// on a desktop (no languages, every pair unsupported). Each bridge call blocks until the phone
+/// answers, so it runs off the async threads, as `PlatformLocator` does.
+struct PlatformTranslator(AppHandle);
+
+impl PlatformTranslator {
+    async fn ask<T: Send + 'static>(
+        &self,
+        call: impl FnOnce(&AppHandle) -> tauri_plugin_ft_platform::Result<T> + Send + 'static,
+    ) -> anyhow::Result<T> {
+        let app = self.0.clone();
+        Ok(tauri::async_runtime::spawn_blocking(move || call(&app)).await??)
+    }
+}
+
+/// The bridge's word for a pair, as the core says it.
+fn pair_status(status: tauri_plugin_ft_platform::TranslateStatus) -> ft_core::plugins::PairStatus {
+    match status {
+        tauri_plugin_ft_platform::TranslateStatus::Installed => ft_core::plugins::PairStatus::Installed,
+        tauri_plugin_ft_platform::TranslateStatus::Downloadable => ft_core::plugins::PairStatus::Downloadable,
+        tauri_plugin_ft_platform::TranslateStatus::Unsupported => ft_core::plugins::PairStatus::Unsupported,
+    }
+}
+
+#[async_trait::async_trait]
+impl ft_core::plugins::Translator for PlatformTranslator {
+    async fn languages(&self) -> anyhow::Result<Vec<String>> {
+        self.ask(|app| app.platform().translate_languages()).await
+    }
+
+    async fn detect(&self, text: &str) -> anyhow::Result<Option<String>> {
+        let text = text.to_owned();
+        self.ask(move |app| app.platform().translate_detect(&text)).await
+    }
+
+    async fn status(&self, from: &str, to: &str) -> anyhow::Result<ft_core::plugins::PairStatus> {
+        let (from, to) = (from.to_owned(), to.to_owned());
+        Ok(pair_status(self.ask(move |app| app.platform().translate_status(&from, &to)).await?))
+    }
+
+    async fn prepare(&self, from: &str, to: &str) -> anyhow::Result<bool> {
+        let (from, to) = (from.to_owned(), to.to_owned());
+        self.ask(move |app| app.platform().translate_prepare(&from, &to)).await
+    }
+
+    async fn remove(&self, from: &str, to: &str) -> anyhow::Result<bool> {
+        let (from, to) = (from.to_owned(), to.to_owned());
+        self.ask(move |app| app.platform().translate_remove(&from, &to)).await
+    }
+
+    async fn translate(&self, text: &str, from: &str, to: &str) -> anyhow::Result<Option<String>> {
+        let (text, from, to) = (text.to_owned(), from.to_owned(), to.to_owned());
+        self.ask(move |app| app.platform().translate_text(&text, &from, &to)).await
+    }
+}
+
+/// The languages this phone translates between, for a plugin granted `translate`; empty when it
+/// cannot translate (a desktop, iOS before 18). The core checks the grant before the phone is asked.
+#[tauri::command]
+pub async fn core_translate_languages(plugin: String, app: AppHandle, client: State<'_, Client>) -> Result<Vec<String>, String> {
+    let core = client.core().await?;
+    core.plugin_translate_languages(&plugin, &PlatformTranslator(app)).await.map_err(failed)
+}
+
+/// The language of a text, guessed on the phone; `null` when it cannot tell.
+#[tauri::command]
+pub async fn core_translate_detect(plugin: String, text: String, app: AppHandle, client: State<'_, Client>) -> Result<Option<String>, String> {
+    let core = client.core().await?;
+    core.plugin_translate_detect(&plugin, &PlatformTranslator(app), &text).await.map_err(failed)
+}
+
+/// Whether a pair is ready ("installed"), needs a download ("downloadable") or is not available
+/// on this phone ("unsupported").
+#[tauri::command]
+pub async fn core_translate_status(
+    plugin: String,
+    from: String,
+    to: String,
+    app: AppHandle,
+    client: State<'_, Client>,
+) -> Result<ft_core::plugins::PairStatus, String> {
+    let core = client.core().await?;
+    core.plugin_translate_status(&plugin, &PlatformTranslator(app), &from, &to).await.map_err(failed)
+}
+
+/// Downloads what a pair needs, once the user agreed in the plugin; `true` once it is ready.
+#[tauri::command]
+pub async fn core_translate_prepare(plugin: String, from: String, to: String, app: AppHandle, client: State<'_, Client>) -> Result<bool, String> {
+    let core = client.core().await?;
+    core.plugin_translate_prepare(&plugin, &PlatformTranslator(app), &from, &to).await.map_err(failed)
+}
+
+/// Removes a downloaded pack where the phone lets the app do it (Android); `false` otherwise.
+#[tauri::command]
+pub async fn core_translate_remove(plugin: String, from: String, to: String, app: AppHandle, client: State<'_, Client>) -> Result<bool, String> {
+    let core = client.core().await?;
+    core.plugin_translate_remove(&plugin, &PlatformTranslator(app), &from, &to).await.map_err(failed)
+}
+
+/// A text translated on the phone; `null` when it could not. The text never leaves the phone, and
+/// the core keeps and logs nothing of it.
+#[tauri::command]
+pub async fn core_translate_text(
+    plugin: String,
+    text: String,
+    from: String,
+    to: String,
+    app: AppHandle,
+    client: State<'_, Client>,
+) -> Result<Option<String>, String> {
+    let core = client.core().await?;
+    core.plugin_translate_text(&plugin, &PlatformTranslator(app), &text, &from, &to).await.map_err(failed)
+}
+
 /// Deletes what was left for the printer before, an hour old or more; never the one going now.
 fn forget_old_prints(dir: &Path, keep: &Path) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -4365,6 +4481,20 @@ mod tests {
         // A screen that says nothing of it grants nothing.
         let silent: PermissionsView = serde_json::from_value(serde_json::json!({ "network": [], "messages": false, "send": "nothing" })).unwrap();
         assert!(!ft_plugins::Permissions::from(silent).translate);
+    }
+
+    // 2026-10-20 (app#177): what the bridge says of a pair reaches the plugin as one of three
+    // words, the ones `ft.translate.status` resolves with.
+    #[test]
+    fn a_pair_reaches_the_screen_as_one_of_three_words() {
+        use tauri_plugin_ft_platform::TranslateStatus;
+        for (bridge, word) in [
+            (TranslateStatus::Installed, "installed"),
+            (TranslateStatus::Downloadable, "downloadable"),
+            (TranslateStatus::Unsupported, "unsupported"),
+        ] {
+            assert_eq!(serde_json::to_value(pair_status(bridge)).unwrap(), serde_json::json!(word), "{bridge:?}");
+        }
     }
 
     // Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): off unless
