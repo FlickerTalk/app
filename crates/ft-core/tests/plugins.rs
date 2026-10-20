@@ -1027,6 +1027,18 @@ async fn what_the_phone_says_reaches_the_plugin_only_as_languages() {
     assert_eq!(core.plugin_translate_detect(TRANSLATOR, &FakeTranslator::detecting("pt"), "olá").await.unwrap().as_deref(), Some("pt"));
 }
 
+// `ft.translate` is a new capability of the Plugin API, so it comes with a new core (§51): the
+// translator asks for 1.7.0, and that is what this core is.
+#[tokio::test]
+async fn the_translator_installs_on_the_core_that_brought_translate() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.flickertalk.translate","name":"Translator","version":"1.0.0","minCoreVersion":"1.7.0","components":["ft-translate"],"opens":["text/plain"],"permissions":{"messages":"given","translate":true,"send":"propose","storage":"small"}}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs on 1.7.0");
+    assert!(!ft_plugins::version_at_least("1.6.0", "1.7.0"), "and not on the core before it");
+}
+
 // ---- Updates of downloaded plugins (2026-10-03) ----
 
 // A swap the phone cut short (killed between the two renames) is put right when the core starts,
