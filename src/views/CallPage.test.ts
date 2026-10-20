@@ -51,10 +51,22 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
 enableAutoUnmount(afterEach);
 
 // Ionic keeps the page mounted under the next one: it must act as gone, and as back when it shows.
-const leaveView = (wrapper: { vm: unknown }) =>
-  ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
-const enterView = (wrapper: { vm: unknown }) =>
-  ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewDidEnter ?? []).forEach((hook) => hook());
+type ViewHook = "onIonViewWillEnter" | "onIonViewDidEnter" | "onIonViewWillLeave";
+const fireView = (wrapper: { vm: unknown }, hook: ViewHook) =>
+  ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[hook] ?? []).forEach((one) => one());
+const leaveView = (wrapper: { vm: unknown }) => fireView(wrapper, "onIonViewWillLeave");
+// As Ionic does: "will enter" as the transition starts, "did enter" once it is over.
+const enterView = (wrapper: { vm: unknown }) => {
+  fireView(wrapper, "onIonViewWillEnter");
+  fireView(wrapper, "onIonViewDidEnter");
+};
+/** A page pushed over the call screen while it still came in (app#179): Ionic says it leaves as
+ *  that page starts to come in, and only then that it came in, once its own transition is over. */
+const enterViewUnderNext = (wrapper: { vm: unknown }) => {
+  fireView(wrapper, "onIonViewWillEnter");
+  fireView(wrapper, "onIonViewWillLeave");
+  fireView(wrapper, "onIonViewDidEnter");
+};
 
 describe("CallPage", () => {
   beforeEach(() => {
@@ -319,6 +331,32 @@ describe("CallPage", () => {
     expect(nav.back).not.toHaveBeenCalled();
     expect(nav.replace).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  // The nightly e2e on CI (2026-10-17 and 2026-10-20, app#179): with a page pushed over the call
+  // screen before it had finished coming in, the call screen took itself for the one in front. When
+  // the call ended, it went back from under that page and took it away, or, with a new call
+  // answered by then, left the new call's screen for the chat.
+  it("does not go back from a page pushed over it while it still came in when the call ends", async () => {
+    vi.useFakeTimers();
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    enterViewUnderNext(wrapper);
+    call.phase = "ended";
+    await nextTick();
+    vi.advanceTimersByTime(3000);
+    expect(nav.back).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("leaves Android's back button to a page pushed over it while it still came in", async () => {
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", since: Date.now() });
+    const wrapper = mount(CallPage, { shallow: true });
+    await flushPromises();
+    enterViewUnderNext(wrapper);
+    await flushPromises();
+    expect(back.handler).toBeNull();
   });
 
   it("does not go back from another screen when the call ended just before leaving", async () => {

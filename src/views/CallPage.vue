@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from "vue";
-import { IonActionSheet, IonButton, IonContent, IonIcon, IonPage, IonSpinner, onIonViewDidEnter, onIonViewWillLeave, toastController } from "@ionic/vue";
+import { IonActionSheet, IonButton, IonContent, IonIcon, IonPage, IonSpinner, onIonViewDidEnter, onIonViewWillEnter, onIonViewWillLeave, toastController } from "@ionic/vue";
 import {
   callOutline,
   cameraReverseOutline,
@@ -539,13 +539,21 @@ watch([body, remoteSlot, localSlot, presentBox], (elements) => {
   sized?.disconnect();
   for (const element of elements) if (element) sized?.observe(element);
 });
+// Ionic says a page leaves as soon as the next one starts to come in, but that it came in only once
+// its own transition is over (app#179): with a page pushed over this one while it still came in,
+// that late word would put it back in front under the page on top. There it went back by itself
+// when the call ended, and took Android's back button. It counts only if nothing left since.
+let entering = false;
+onIonViewWillEnter(() => (entering = true));
 onIonViewDidEnter(() => {
+  if (!entering) return;
   shown = true;
   onScreen.value = true;
   seeThrough.value = true;
   relayout();
 });
 onIonViewWillLeave(() => {
+  entering = false;
   onScreen.value = false;
   clearTimeout(leaving);
   hide();

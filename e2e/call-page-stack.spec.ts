@@ -196,3 +196,45 @@ test("a call answered with the last call's screen still under the page on top go
   await expect.poll(() => path(app)).toBe(CHAT);
   await expect(callPages(app)).toHaveCount(0);
 });
+
+// The nightly on CI (2026-10-17 and 2026-10-20, app#179): a page opened over the call screen while
+// it was still coming in. Ionic says a page leaves as the next one starts to come in, but that it
+// came in only once its own transition is over: the call screen took itself for the one in front,
+// under the page on top. When the call ended, it went back from there by itself and took that page
+// away; with a new call answered meanwhile, it left the new call's screen for the chat.
+test("a page opened over the call screen while it still comes in stays when the call ends", async ({ app }) => {
+  await servePluginFrames(app);
+  await app.addInitScript(() => Object.assign(window, { __ftFakeNative: true, __ftFakeAnswerLater: true }));
+  await app.goto("/tabs/chats");
+  await app.locator('[data-test="chat-row"]').first().click();
+  await expect.poll(() => path(app)).toBe(CHAT);
+  // The reminder is tapped as the call screen starts to come in, and the call screen is held there
+  // until the tool's page is on its way (its code may still be loading): a slow phone, or the CI
+  // runner, where the call screen took over a second to come in.
+  await app.evaluate((plugin) => {
+    const tap = () => {
+      const screen = document.querySelector("ion-router-outlet > .ion-page:has(ion-content.ft-call)");
+      const moving = screen?.getAnimations().filter((animation) => animation.playState === "running") ?? [];
+      if (!moving.length) return void requestAnimationFrame(tap);
+      moving.forEach((animation) => animation.pause());
+      (window as unknown as { __ftFake: Fake }).__ftFake.tapReminder(plugin, "r1");
+      const resume = () => {
+        const tool = document.querySelector("ion-router-outlet > .ion-page:has(ion-content.ft-plugin-page)");
+        if (!tool) return void requestAnimationFrame(resume);
+        moving.forEach((animation) => animation.play());
+      };
+      requestAnimationFrame(resume);
+    };
+    requestAnimationFrame(tap);
+  }, MARKDOWN);
+  await app.getByRole("button", { name: "Voice call", exact: true }).click();
+  await expect.poll(() => path(app)).toBe(`/plugin/${MARKDOWN}`);
+  // Hidden by Ionic once the tool's page is in: the call screen has said it came in by then.
+  await expect(callPages(app)).toHaveClass(/ion-page-hidden/);
+  await app.getByTestId("call-bar").getByRole("button", { name: "Hang up" }).click();
+  await expect(app.getByTestId("call-bar")).toHaveCount(0);
+  // Past the moment the call screen in front leaves by itself once its call has ended (1.5 s).
+  await app.waitForTimeout(2500);
+  expect(await path(app)).toBe(`/plugin/${MARKDOWN}`);
+  await expect(app.locator("ion-router-outlet > .ion-page:has(.ft-plugin__frame)")).not.toHaveClass(/ion-page-hidden/);
+});
