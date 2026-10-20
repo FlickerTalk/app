@@ -347,6 +347,11 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     await refresh();
   }
 
+  /** A tool's settings as its group opens: read out of sight, with the latest texts received. */
+  async function readSettings(plugin: PluginView): Promise<PluginHookResult | null> {
+    return settings(plugin, { manual: false, text: await hookSample(plugin.id, options.conversation()) });
+  }
+
   /** The first tool of this phone with a settings group (never a game), not locked. */
   const settingsTool = computed(() => installed.value.find((one) => one.kind !== "game" && one.hooks?.settings && !isLocked(one)));
 
@@ -413,6 +418,7 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     dismiss: drop,
     noteMessage,
     settings,
+    readSettings,
     outgoing,
     keepOriginal,
     refresh,

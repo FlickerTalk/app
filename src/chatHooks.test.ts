@@ -404,6 +404,14 @@ describe("the chat's hooks", () => {
       expect(invoked("core_chat_hooks_set"), "nothing more kept").toHaveLength(1);
     });
 
+    it("reads a tool's settings out of sight for its group, with the latest texts received", async () => {
+      const frame = runner(() => ANSWER);
+      const { hooks } = conversation({ frame, active: false, sample: "salut" });
+      await flushPromises();
+      expect(await hooks.readSettings(TRANSLATOR)).toEqual(ANSWER);
+      expect(frame.handed).toEqual([{ name: "settings", text: "salut", chat: KEY, ref: null, lang: "en", manual: false }]);
+    });
+
     it("finds the language of a conversation without one as it opens, from the latest texts received, once", async () => {
       const sample = "texte 2\ntexte 3\ntexte 4\ntexte 5\ntexte 6";
       const frame = runner(() => ({ lang: "fr" }));
