@@ -392,20 +392,40 @@ describe("the frame", () => {
       expect(done(posted)[0]).toEqual({ type: "ft.hookDone", id: "h1", result: { text: "nos vemos a las seis" } });
     });
 
-    it("hands the chat hook's switches back, and only what a result can say", async () => {
+    // §8.2c: the chat's language as the plugin found it, and a question for the user (a download)
+    // the app asks in its own alert before running the hook again with the answer.
+    it("hands the chat hook's switches and language back, a question for the user, and only what a result can say", async () => {
       const answers: unknown[] = [
-        { auto: { message: true, composer: false } },
-        { text: 7, auto: { message: "yes", composer: true }, secret: "x" },
+        { auto: { message: true, composer: false }, lang: "es" },
+        { text: 7, auto: { message: "yes", composer: true }, lang: 5, secret: "x" },
+        { ask: { text: "Download Spanish, about 30 MB?" } },
+        { ask: "Download?" },
         "a text",
         {},
         null,
       ];
-      const { posted, says, ran } = await frame(() => hooks().onHook(async () => answers.shift()));
+      const heard: Said[] = [];
+      const { posted, says, ran } = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          return answers.shift();
+        }),
+      );
       await says({ type: "ft.theme", dark: false, theme: {} });
       await ran;
-      for (const id of ["a", "b", "c", "d", "e"]) await says({ ...hook, id, name: "chat", text: "", ref: null, manual: false });
-      await vi.waitFor(() => expect(done(posted)).toHaveLength(5));
-      expect(done(posted).map((one) => one.result)).toEqual([{ auto: { message: true, composer: false } }, { auto: { composer: true } }, null, null, null]);
+      for (const id of ["a", "b", "c", "d", "e", "f", "g"]) await says({ ...hook, id, name: "chat", text: "", ref: null, manual: false, answer: id === "c" });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(7));
+      expect(done(posted).map((one) => one.result)).toEqual([
+        { auto: { message: true, composer: false }, lang: "es" },
+        { auto: { composer: true } },
+        { ask: { text: "Download Spanish, about 30 MB?" } },
+        null,
+        null,
+        null,
+        null,
+      ]);
+      expect(heard[2]).toMatchObject({ answer: true });
+      expect(heard[0]).not.toHaveProperty("answer");
     });
 
     it("answers nothing for a plugin without a handler, a handler that fails or a hook it cannot know", async () => {

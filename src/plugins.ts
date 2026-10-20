@@ -347,13 +347,24 @@ export interface PluginHook {
   lang: string;
   /** Started by the user, not by the conversation's own switches. */
   manual: boolean;
+  /** The user said yes to the question the tool asked in its last answer (§8.2c): run it again. */
+  answer?: boolean;
 }
 
-/** A hook's answer: a text (a note, a new draft) or the chat hook's two switches. */
+/**
+ * A hook's answer: a text (a note, a new draft), the chat's language as the tool found it, the chat
+ * hook's two switches, or a question for the user (a download) that the app asks in its own alert,
+ * running the hook again with `answer` on a yes (§8.2c).
+ */
 export interface PluginHookResult {
   text?: string;
+  lang?: string;
   auto?: { message?: boolean; composer?: boolean };
+  ask?: { text: string };
 }
+
+/** The longest language tag a hook may say (the core's limit too). */
+const HOOK_LANG_LIMIT = 35;
 
 /** The longest text a hook may hand back: as long as a message (the core's note limit too). */
 export const HOOK_TEXT_LIMIT = 5_000;
@@ -361,12 +372,16 @@ export const HOOK_TEXT_LIMIT = 5_000;
 /** Only what a hook's answer can say; anything else, or a text longer than a message, is none. */
 function hookResult(said: unknown): PluginHookResult | null {
   if (!said || typeof said !== "object") return null;
-  const given = said as { text?: unknown; auto?: unknown };
+  const given = said as { text?: unknown; auto?: unknown; lang?: unknown; ask?: unknown };
   const result: PluginHookResult = {};
   if (typeof given.text === "string") {
     if (Array.from(given.text).length > HOOK_TEXT_LIMIT) return null;
     result.text = given.text;
   }
+  if (typeof given.lang === "string" && given.lang && given.lang.length <= HOOK_LANG_LIMIT) result.lang = given.lang;
+  const asked = given.ask && typeof given.ask === "object" ? (given.ask as { text?: unknown }).text : undefined;
+  // Shown in the app's own alert: cleaned and cut as a notice is.
+  if (typeof asked === "string" && noticeText(asked)) result.ask = { text: noticeText(asked) };
   if (given.auto && typeof given.auto === "object") {
     const auto = given.auto as Record<string, unknown>;
     result.auto = {};

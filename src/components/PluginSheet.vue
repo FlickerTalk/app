@@ -385,7 +385,17 @@ function runHook(hook: PluginHook): Promise<PluginHookResult | null> {
     void opened.then(() => {
       if (!hooksRunning.has(id)) return;
       byUser = hook.manual;
-      tell({ type: "ft.hook", id, name: hook.name, text: hook.text, chat: hook.chat, ref: hook.ref, lang: hook.lang, manual: hook.manual });
+      tell({
+        type: "ft.hook",
+        id,
+        name: hook.name,
+        text: hook.text,
+        chat: hook.chat,
+        ref: hook.ref,
+        lang: hook.lang,
+        manual: hook.manual,
+        ...(hook.answer ? { answer: true } : {}),
+      });
     });
   });
 }

@@ -439,6 +439,15 @@ describe("plugins in the app", () => {
     expect(said({ type: "ft.hookDone", id: "h4", result: "hola" })).toEqual({ type: "ft.hookDone", id: "h4", result: null });
     expect(said({ type: "ft.hookDone", id: "h5", result: { text: "x".repeat(5_001) } })).toEqual({ type: "ft.hookDone", id: "h5", result: null });
     expect(said({ type: "ft.hookDone", result: { text: "hola" } })).toBeNull();
+    // §8.2c: the chat's language as the tool found it, and a question the app asks for it.
+    expect(said({ type: "ft.hookDone", id: "h6", result: { lang: "es", auto: { message: true } } })).toEqual({ type: "ft.hookDone", id: "h6", result: { lang: "es", auto: { message: true } } });
+    expect(said({ type: "ft.hookDone", id: "h7", result: { lang: "x".repeat(36) } })).toEqual({ type: "ft.hookDone", id: "h7", result: null });
+    expect(said({ type: "ft.hookDone", id: "h8", result: { ask: { text: "Download Spanish,\nabout 30 MB?" } } })).toEqual({
+      type: "ft.hookDone",
+      id: "h8",
+      result: { ask: { text: "Download Spanish, about 30 MB?" } },
+    });
+    expect(said({ type: "ft.hookDone", id: "h9", result: { ask: { text: "  " } } })).toEqual({ type: "ft.hookDone", id: "h9", result: null });
   });
 
   describe("the chat's hooks", () => {

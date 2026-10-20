@@ -159,8 +159,10 @@ globalThis.ft = {
     closers.push(handler);
   },
   /** The chat's hooks this tool binds to in its manifest (2026-10-20): called once per run with
-   *  {name, text, chat, ref, lang, manual}; resolve with {text} or {auto: {message, composer}}, or
-   *  null. Register at load: the app may run a hook as soon as the plugin is up. */
+   *  {name, text, chat, ref, lang, manual} (and `answer: true` when the user said yes to the
+   *  question it asked); resolve with {text}, {lang}, {auto: {message, composer}}, {ask: {text}}
+   *  (a question the app asks the user, then runs the hook again), or null. Register at load: the
+   *  app may run a hook as soon as the plugin is up. */
   onHook(handler) {
     hooked = handler;
   },
@@ -176,11 +178,14 @@ const closers = [];
 let hooked;
 const HOOKS = ["message", "composer", "chat"];
 
-/** What a hook's answer may say, and nothing else: a text, and the two switches of the chat hook. */
+/** What a hook's answer may say, and nothing else: a text, the chat's language, the chat hook's two
+ *  switches and a question for the user. */
 const hookResult = (said) => {
   if (!said || typeof said !== "object") return null;
   const result = {};
   if (typeof said.text === "string") result.text = said.text;
+  if (typeof said.lang === "string") result.lang = said.lang;
+  if (said.ask && typeof said.ask === "object" && typeof said.ask.text === "string") result.ask = { text: said.ask.text };
   if (said.auto && typeof said.auto === "object") {
     const auto = {};
     for (const name of ["message", "composer"]) if (typeof said.auto[name] === "boolean") auto[name] = said.auto[name];
@@ -200,6 +205,7 @@ const runHook = async (said) => {
       ref: said.ref ? String(said.ref) : null,
       lang: String(said.lang ?? "en"),
       manual: said.manual === true,
+      ...(said.answer === true ? { answer: true } : {}),
     };
     try {
       result = hookResult(await hooked(hook));

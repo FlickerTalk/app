@@ -1066,6 +1066,11 @@ describe("PluginSheet", () => {
       says({ type: "ft.hookDone", id: handed.id, result: { text: "nos vemos a las seis" } });
       await flushPromises();
       expect(answer).toEqual({ text: "nos vemos a las seis" });
+      expect(handed, "no question was answered").not.toHaveProperty("answer");
+      // Run again once the user said yes to its question (§8.2c).
+      void vm(wrapper).runHook({ ...HOOK, answer: true });
+      await flushPromises();
+      expect(hookCalls(post)[1]).toMatchObject({ type: "ft.hook", ...HOOK, answer: true });
     });
 
     it("comes back with nothing once it is closing, and runs nothing more", async () => {
