@@ -236,6 +236,58 @@ describe("the chat's hooks", () => {
       expect(hooks.languageName.value).toBe("francés");
     });
 
+    // Android's WebView names no language for be, cy, eo, ga, ht, mt (2026-10-21): the tool's own
+    // name for it, from the choices its settings hook gave, rather than the bare tag.
+    describe("a language the phone cannot name", () => {
+      const WELSH = { options: { lang: [{ value: "", label: "None" }, { value: "cy", label: "Welsh" }] } };
+      const ON_WELSH: ChatHookState[] = [{ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "cy" }];
+      beforeEach(() => {
+        const of = Intl.DisplayNames.prototype.of;
+        vi.spyOn(Intl.DisplayNames.prototype, "of").mockImplementation(function (this: Intl.DisplayNames, tag: string) {
+          return tag === "cy" || tag === "mt" ? tag : of.call(this, tag);
+        });
+      });
+      afterEach(() => vi.restoreAllMocks());
+
+      it("takes the tool's name from the choices its settings hook gave", async () => {
+        const frame = runner(() => WELSH);
+        const { hooks } = conversation({ flags: ON_WELSH, frame, active: false });
+        await flushPromises();
+        expect(hooks.translating.value, "the tag, while the tool has said nothing").toBe("cy");
+        await hooks.readSettings(TRANSLATOR);
+        expect(hooks.translating.value).toBe("Welsh");
+        expect(hooks.languageName.value).toBe("Welsh");
+      });
+
+      it("keeps the tool's names for the conversation opened again", async () => {
+        const first = conversation({ flags: ON_WELSH, frame: runner(() => WELSH), active: false });
+        await flushPromises();
+        await first.hooks.readSettings(TRANSLATOR);
+        first.scope.stop();
+        const frame = runner(() => null);
+        const again = conversation({ flags: ON_WELSH, frame, active: false });
+        await flushPromises();
+        expect(again.hooks.translating.value).toBe("Welsh");
+        expect(frame.handed).toEqual([]);
+      });
+
+      it("asks the tool once, out of sight, as a conversation in such a language is seen", async () => {
+        // A language the tool has not named in this run of the app yet.
+        const frame = runner(() => ({ options: { lang: [{ value: "mt", label: "Maltese" }] } }));
+        const { hooks } = conversation({ flags: [{ ...ON_WELSH[0], lang: "mt" }], frame, sample: "bonġu" });
+        await vi.waitFor(() => expect(hooks.translating.value).toBe("Maltese"));
+        expect(frame.handed.filter((hook) => hook.name === "settings")).toHaveLength(1);
+      });
+    });
+
+    it("names a language the phone can name by the phone's name, never the tool's \"(detected)\"", async () => {
+      const frame = runner(() => ({ options: { lang: [{ value: "fr", label: "French (detected)" }] } }));
+      const { hooks } = conversation({ flags: [{ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" }], frame, active: false });
+      await flushPromises();
+      await hooks.readSettings(TRANSLATOR);
+      expect(hooks.translating.value).toBe("French");
+    });
+
     it("offers nothing without a tool bound to messages, or with only a game", async () => {
       installed.value = [{ ...TRANSLATOR, hooks: { composer: TRANSLATOR.hooks!.composer } }];
       const { hooks } = conversation({ flags: WITH("fr") });

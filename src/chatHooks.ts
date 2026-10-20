@@ -58,15 +58,29 @@ export interface Original {
 /** The main subtag of a language tag, to compare "en-GB" with "en". */
 const primary = (tag: string) => tag.split(/[-_]/)[0].toLowerCase();
 
-/** A language's name in the app's language ("fr" → "French", "francés"); the tag if it has none. */
-export function languageName(tag: string | undefined): string {
-  if (!tag) return "";
+/** The phone's name for a language in the app's language ("fr" → "French", "francés"); "" if none. */
+function phoneName(tag: string): string {
   try {
-    return new Intl.DisplayNames([i18n.global.locale.value], { type: "language" }).of(tag) ?? tag;
+    const name = new Intl.DisplayNames([i18n.global.locale.value], { type: "language" }).of(tag) ?? "";
+    // Android's WebView names no language for be, cy, eo, ga, ht, mt (2026-10-21): it says the tag.
+    return name.toLowerCase() === tag.toLowerCase() ? "" : name;
   } catch {
-    return tag;
+    return "";
   }
 }
+
+/**
+ * A language's name in the app's language: the phone's own; else the tool's, from the choices its
+ * settings hook gave (`named`, not preferred: it says "(detected)" beside a language it found);
+ * else the tag.
+ */
+export function languageName(tag: string | undefined, named: Record<string, string> = {}): string {
+  if (!tag) return "";
+  return phoneName(tag) || named[tag] || tag;
+}
+
+/** The tools' names for languages, by conversation, from the choices their settings hook gave. */
+const toolNames = new Map<string, Record<string, string>>();
 
 /** The conversations' switches as last read, so a conversation opened again shows them at once. */
 const lastRead = new Map<string, ChatHookState[]>();
@@ -170,6 +184,8 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     frames.value = [];
     loaded.value = false;
     looked = false;
+    askedName = false;
+    named.value = toolNames.get(options.conversation()) ?? {};
   }
 
   /**
@@ -260,7 +276,9 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     const own = flags.value.find((flag) => flag.plugin === messageTool.value?.id)?.lang;
     return (own ?? flags.value.find((flag) => flag.lang)?.lang) || undefined;
   });
-  const languageNameNow = computed(() => languageName(language.value));
+  /** The tool's names for languages here, as its settings hook last gave them. */
+  const named = ref<Record<string, string>>(toolNames.get(options.conversation()) ?? {});
+  const languageNameNow = computed(() => languageName(language.value, named.value));
 
   /** Whether received texts offer the message hook: a tool for it, and a language not the app's. */
   const offersHook = computed(() => Boolean(messageTool.value) && (!language.value || primary(language.value) !== primary(i18n.global.locale.value)));
@@ -327,8 +345,29 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
       ...(asked.values ? { values: asked.values } : {}),
       ...(answer ? { answer } : {}),
     }));
-    if (result && options.conversation() === conversation) await keep(plugin, conversation, result);
+    if (result && options.conversation() === conversation) {
+      learnNames(conversation, result);
+      await keep(plugin, conversation, result);
+    }
     return result;
+  }
+
+  function learnNames(conversation: string, result: PluginHookResult) {
+    const choices = result.options?.lang?.filter((one) => one.value && one.label.trim());
+    if (!choices?.length) return;
+    const now = { ...(toolNames.get(conversation) ?? {}), ...Object.fromEntries(choices.map((one) => [one.value, one.label])) };
+    toolNames.set(conversation, now);
+    named.value = now;
+  }
+
+  /** Its language is one the phone cannot name, and the tool has not named it yet. */
+  let askedName = false;
+  async function lookForName() {
+    const plugin = settingsTool.value;
+    const tag = language.value;
+    if (askedName || !tag || phoneName(tag) || named.value[tag] || !plugin || !options.active()) return;
+    askedName = true;
+    await readSettings(plugin);
   }
 
   async function keep(plugin: PluginView, conversation: string, result: PluginHookResult) {
@@ -405,6 +444,7 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
   });
   watch(() => [options.messages(), autoMessage.value, options.active()], catchUp);
   watch(() => [loaded.value, language.value, settingsTool.value, options.messages(), options.active()], () => void lookForLanguage());
+  watch(() => [language.value, settingsTool.value, options.active()], () => void lookForName());
   onScopeDispose(forgetAll);
 
   return {
