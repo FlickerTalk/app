@@ -353,6 +353,10 @@ describe("CircleThread", () => {
         }
         if (command === "core_plugin_ref") return "ref_1";
         if (command === "core_plugin_grant") view = { ...view, granted: args?.granted };
+        if (command === "core_hook_sample") {
+          calls.push([command, args]);
+          return "dinner on friday?";
+        }
         if (command === "core_circle_send") {
           calls.push([command, args]);
           return sentId;
@@ -535,6 +539,21 @@ describe("CircleThread", () => {
       await flushPromises();
       expect(frames()).toHaveLength(0);
       expect(kept("core_message_note_set")).toEqual([]);
+    });
+
+    // §8.2c/§8.2d: a circle without a language finds it as it opens, from the latest texts others
+    // said there, as the core hands them to the tool; what the tool finds is kept for the circle.
+    it("finds the circle's language as it opens, from what the core hands the tool for the circle", async () => {
+      view = {
+        ...TRANSLATOR,
+        hooks: { ...TRANSLATOR.hooks, settings: { label: "Translation", icon: "language-outline", fields: [{ key: "lang", type: "select", label: "Language" }] } },
+      };
+      answer = (hook) => (hook.name === "settings" ? { lang: "fr" } : null);
+      await thread();
+      await vi.waitFor(() => expect(kept("core_chat_hooks_set")).toHaveLength(1));
+      expect(kept("core_hook_sample")).toEqual([{ plugin: ID, conversation: "circle1" }]);
+      expect(frames()[0].runHook).toHaveBeenCalledWith({ name: "settings", text: "dinner on friday?", chat: KEY, ref: null, lang: "en", manual: false });
+      expect(kept("core_chat_hooks_set")).toEqual([{ conversation: "circle1", plugin: ID, autoMessage: false, autoComposer: false, lang: "fr" }]);
     });
 
     it("runs the frames in the circle's hidden session when it lives in one", async () => {
