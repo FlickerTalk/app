@@ -773,11 +773,12 @@ describe("ChatThread", () => {
     });
   });
 
-  // 2026-10-20 (plan of the translator §8): the chat's hooks. A tool bound to the chat has a button
-  // in the header that opens its window for this conversation; what it answers switches it on by
-  // itself here. A tool bound to messages is a button on a long press, and its answer a note under
-  // the text; one bound to the composer is a button by Send, and its answer the new draft, with the
-  // user's original over it. The tools run out of sight, in a frame each (stubbed here: what it is
+  // 2026-10-20 (plan of the translator §8.2d, approved UX): the header and the composer stay as
+  // they were. Each received text offers the message hook's link inside its bubble while the
+  // conversation's language is not the app's (or is not known); the tool runs out of sight and its
+  // answer takes the text's place. With the conversation's switches on, a chip under the header says
+  // so, what arrives is translated by itself, and what is sent goes in the conversation's language
+  // with the user's own words kept under it. The tools run in a frame each (stubbed here: what it is
   // handed, and what the test says it answers).
   describe("the chat's hooks", () => {
     const ID = "com.flickertalk.translate";
@@ -793,10 +794,10 @@ describe("ChatThread", () => {
       hooks: {
         message: { label: "Translate", icon: "language-outline" },
         composer: { label: "Translate", icon: "language-outline" },
-        settings: { label: "Chat language", icon: "language-outline", fields: [{ key: "lang", type: "select", label: "Language" }] },
+        settings: { label: "Translation", icon: "language-outline", fields: [{ key: "lang", type: "select", label: "Language" }] },
       },
     };
-    type Hook = { name: string; text: string; chat: string; ref: string | null; lang: string; manual: boolean };
+    type Hook = { name: string; text: string; chat: string; ref: string | null; lang: string; manual: boolean; answer?: boolean };
     let answer: (hook: Hook) => unknown = () => null;
     const sheets: { props: Record<string, unknown>; runHook: ReturnType<typeof vi.fn> }[] = [];
     const HookSheet = defineComponent({
@@ -825,12 +826,18 @@ describe("ChatThread", () => {
     const hookStubs = { ...stubs, PluginSheet: HookSheet };
     let view: Record<string, unknown> = TRANSLATOR;
     let flags: unknown[] = [];
+    /** What the core answers for a text sent: the id of the message it made. */
+    let sentId: string | undefined;
+    /** The latest texts received, as the core hands them to the settings hook. */
+    let sample = "";
 
     beforeEach(() => {
       sheets.length = 0;
       answer = () => null;
       view = JSON.parse(JSON.stringify(TRANSLATOR));
       flags = [];
+      sentId = undefined;
+      sample = "";
       const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
       const fallback = internals.invoke;
       internals.invoke = (command, args) => {
@@ -838,7 +845,12 @@ describe("ChatThread", () => {
         if (command === "core_chat_hooks") return Promise.resolve(flags);
         if (command === "core_plugin_chat") return Promise.resolve(KEY);
         if (command === "core_plugin_ref") return Promise.resolve("ref_1");
+        if (command === "core_hook_sample") return Promise.resolve(sample);
         if (command === "core_plugin_grant") view = { ...view, granted: args?.granted };
+        if (command === "core_send") {
+          calls.push([command, args]);
+          return Promise.resolve(sentId);
+        }
         return fallback(command, args);
       };
     });
@@ -854,52 +866,46 @@ describe("ChatThread", () => {
     }
     const kept = (command: string) => calls.filter(([one]) => one === command).map(([, args]) => args);
     const frames = () => sheets.filter((one) => one.props.hidden);
+    /** The bubbles offering the message hook's link, by message id. */
+    const offering = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.findAllComponents(MessageBubble).filter((one) => one.find("[data-test='translate']").exists()).map((one) => one.props("message").id);
 
-    it("puts a button for the tool bound to the chat in the header, and keeps what its window answers", async () => {
-      answer = (hook) => (hook.name === "settings" ? { auto: { message: true, composer: true } } : null);
+    it("keeps the header, the long press and the composer as they were: no hook buttons there", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: false, lang: "fr" }];
       const wrapper = await thread();
-      const button = wrapper.find(`ion-header [data-test='chat-hook-${ID}']`);
-      expect(button.exists()).toBe(true);
-      expect(button.attributes("aria-label")).toBe("Chat language");
-      await button.trigger("click");
+      expect(wrapper.find("ion-header [data-test^='chat-hook-']").exists()).toBe(false);
+      await pressed(wrapper);
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(true);
+      expect(wrapper.find("[data-test^='hook-message-']").exists()).toBe(false);
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
       await flushPromises();
-      const window = sheets.find((one) => one.props.hook === "settings");
-      expect(window?.props.hidden, "its window, on screen").toBe(false);
-      expect(window?.runHook).toHaveBeenCalledWith({ name: "settings", text: "", chat: KEY, ref: null, lang: "en", manual: true });
-      expect(kept("core_chat_hooks_set")).toEqual([{ conversation: "c1", plugin: ID, autoMessage: true, autoComposer: true, lang: null }]);
-      expect(wrapper.find("[data-test='plugin-window']").exists(), "closed once it answered").toBe(false);
+      expect(wrapper.find("[data-test^='hook-composer-']").exists()).toBe(false);
+      expect(wrapper.find("[data-test='your-original']").exists()).toBe(false);
+      expect(wrapper.find("[data-test='translating']").exists(), "nothing runs by itself").toBe(false);
     });
 
-    it("keeps nothing when the window is closed before it answers", async () => {
-      answer = () => new Promise(() => {});
+    it("offers the hook's link under each received text while the conversation's language is not known", async () => {
       const wrapper = await thread();
-      await wrapper.find(`[data-test='chat-hook-${ID}']`).trigger("click");
-      await flushPromises();
-      await wrapper.find("[data-test='close-app']").trigger("click");
-      await flushPromises();
-      expect(wrapper.find("[data-test='plugin-window']").exists()).toBe(false);
-      expect(kept("core_chat_hooks_set")).toEqual([]);
+      expect(offering(wrapper)).toEqual(["m1", "m3", "m6"]);
     });
 
-    it("leads a locked tool's button to Premium", async () => {
-      premiumLocked.value = true;
-      const wrapper = await thread();
-      premiumLocked.value = true;
-      await wrapper.find(`[data-test='chat-hook-${ID}']`).trigger("click");
-      await flushPromises();
-      expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
-      expect(sheets).toHaveLength(0);
+    it("offers it while the conversation is in another language, and not in the app's", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: false, lang: "fr" }];
+      expect(offering(await thread())).toEqual(["m1", "m3", "m6"]);
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: false, lang: "en" }];
+      expect(offering(await thread())).toEqual([]);
     });
 
-    it("offers the tool bound to messages on a long press, and keeps its answer under the message", async () => {
+    it("offers nothing without a tool bound to messages", async () => {
+      view = { ...TRANSLATOR, hooks: { composer: TRANSLATOR.hooks.composer } };
+      expect(offering(await thread())).toEqual([]);
+    });
+
+    it("runs the message hook out of sight on a tap, and keeps its answer for the bubble", async () => {
       answer = (hook) => (hook.name === "message" ? { text: "¿Vienes esta noche?" } : null);
       const wrapper = await thread();
-      await pressed(wrapper);
-      const button = wrapper.find(`[data-test='hook-message-${ID}']`);
-      expect(button.text()).toContain("Translate");
-      await button.trigger("click");
+      await wrapper.findAllComponents(MessageBubble)[0].find("[data-test='translate']").trigger("click");
       await flushPromises();
-      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
       expect(frames()).toHaveLength(1);
       expect(frames()[0].runHook).toHaveBeenCalledWith({ name: "message", text: "Are you coming tonight?", chat: KEY, ref: "ref_1", lang: "en", manual: true });
       expect(kept("core_message_note_set")).toEqual([{ message: "m1", plugin: ID, text: "¿Vienes esta noche?" }]);
@@ -909,8 +915,7 @@ describe("ChatThread", () => {
       view = { ...TRANSLATOR, granted: { ...TRANSLATOR.granted, messages: false } };
       answer = () => ({ text: "hola" });
       const wrapper = await thread();
-      await pressed(wrapper);
-      await wrapper.find(`[data-test='hook-message-${ID}']`).trigger("click");
+      await wrapper.findAllComponents(MessageBubble)[0].find("[data-test='translate']").trigger("click");
       await flushPromises();
       expect(wrapper.find("[data-test='permission-ask']").html()).toContain("Read what you send it");
       expect(frames()).toHaveLength(0);
@@ -920,60 +925,85 @@ describe("ChatThread", () => {
       expect(kept("core_message_note_set")).toHaveLength(1);
     });
 
-    it("has no hook button for a file", async () => {
+    it("leads a locked tool's link to Premium", async () => {
       const wrapper = await thread();
-      const file = wrapper.findAll("[data-test='bubble']")[3];
-      await file.trigger("pointerdown");
-      await new Promise((wake) => setTimeout(wake, 550));
+      premiumLocked.value = true;
+      await wrapper.findAllComponents(MessageBubble)[0].find("[data-test='translate']").trigger("click");
       await flushPromises();
-      expect(wrapper.find("[data-test='actions']").exists()).toBe(true);
-      expect(wrapper.find(`[data-test='hook-message-${ID}']`).exists()).toBe(false);
+      expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
+      expect(frames()).toHaveLength(0);
     });
 
-    it("puts the composer hook's answer in the composer, with the user's original over it to go back to", async () => {
-      answer = (hook) => (hook.name === "composer" ? { text: "hola" } : null);
+    it("says under the header that it translates by itself, into what, and leads to the contact's page", async () => {
+      flags = [{ plugin: ID, autoMessage: true, autoComposer: false, lang: "fr" }];
       const wrapper = await thread();
-      const composer = () => wrapper.findComponent(IonTextarea);
-      expect(wrapper.find(`[data-test='hook-composer-${ID}']`).exists(), "nothing to translate yet").toBe(false);
-      composer().vm.$emit("update:modelValue", "hello");
-      await flushPromises();
-      const button = wrapper.find(`[data-test='hook-composer-${ID}']`);
-      expect(button.attributes("aria-label")).toBe("Translate");
-      await button.trigger("click");
-      await flushPromises();
-      expect(frames()[0].runHook).toHaveBeenCalledWith({ name: "composer", text: "hello", chat: KEY, ref: null, lang: "en", manual: true });
-      expect(composer().props("modelValue")).toBe("hola");
-      const strip = wrapper.find("[data-test='your-original']");
-      expect(strip.text()).toContain("Your original");
-      expect(strip.text()).toContain("hello");
-      await wrapper.find("[data-test='restore-original']").trigger("click");
-      await flushPromises();
-      expect(composer().props("modelValue")).toBe("hello");
-      expect(wrapper.find("[data-test='your-original']").exists()).toBe(false);
-
-      await wrapper.find(`[data-test='hook-composer-${ID}']`).trigger("click");
-      await flushPromises();
-      await wrapper.find("[aria-label='Send']").trigger("click");
-      await flushPromises();
-      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hola" }]);
-      expect(wrapper.find("[data-test='your-original']").exists()).toBe(false);
+      const chip = wrapper.find("[data-test='translating']");
+      // happy-dom reads no text through Ionic's chip and label: their markup says it.
+      expect(chip.html()).toContain("Translating · French");
+      await chip.trigger("click");
+      expect(push).toHaveBeenCalledWith("/contact/c1");
     });
 
-    it("translates what is sent by itself with the conversation's composer switch on", async () => {
-      flags = [{ plugin: ID, autoMessage: false, autoComposer: true }];
-      answer = (hook) => (hook.name === "composer" ? { text: "hola" } : null);
+    it("sends in the conversation's language with its composer switch on", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      sentId = "sent1";
+      answer = (hook) => (hook.name === "composer" ? { text: "bonjour" } : null);
       const wrapper = await thread();
       wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
       await flushPromises();
       await wrapper.find("[aria-label='Send']").trigger("click");
       await flushPromises();
       expect(frames()[0].runHook).toHaveBeenCalledWith(expect.objectContaining({ name: "composer", text: "hello", manual: false }));
-      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hola" }]);
-      expect(calls).not.toContainEqual(["core_send", { contact: "c1", text: "hello" }]);
+      expect(kept("core_send")).toEqual([{ contact: "c1", text: "bonjour" }]);
+    });
+
+    it("keeps the user's words under the message sent in the conversation's language", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      sentId = "sent1";
+      answer = (hook) => (hook.name === "composer" ? { text: "bonjour" } : null);
+      const wrapper = await thread();
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(kept("core_message_note_set")).toEqual([{ message: "sent1", plugin: ID, text: "hello" }]);
+    });
+
+    it("keeps nothing under a text the tool sent unchanged, or could not translate", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      sentId = "sent1";
+      const answers: unknown[] = [{ text: "ok" }, null];
+      answer = (hook) => (hook.name === "composer" ? answers.shift() : null);
+      const wrapper = await thread();
+      for (const words of ["ok", "hello"]) {
+        wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", words);
+        await flushPromises();
+        await wrapper.find("[aria-label='Send']").trigger("click");
+        await flushPromises();
+      }
+      expect(kept("core_send")).toEqual([
+        { contact: "c1", text: "ok" },
+        { contact: "c1", text: "hello" },
+      ]);
+      expect(kept("core_message_note_set")).toEqual([]);
+    });
+
+    it("names the conversation's language on my texts sent in it", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      const wrapper = await thread();
+      expect(wrapper.findAllComponents(MessageBubble)[1].props("language")).toBe("French");
+    });
+
+    it("looks for the language of a conversation without one as it opens, and keeps it", async () => {
+      sample = "Are you coming tonight?\nSee you at 6 then ✨";
+      answer = (hook) => (hook.name === "settings" ? { lang: "it" } : null);
+      await thread();
+      await vi.waitFor(() => expect(kept("core_chat_hooks_set")).toEqual([{ conversation: "c1", plugin: ID, autoMessage: false, autoComposer: false, lang: "it" }]));
+      expect(frames()[0].runHook).toHaveBeenCalledWith({ name: "settings", text: sample, chat: KEY, ref: null, lang: "en", manual: false });
     });
 
     it("translates the texts received by itself with the conversation's message switch on, the newest first", async () => {
-      flags = [{ plugin: ID, autoMessage: true, autoComposer: false }];
+      flags = [{ plugin: ID, autoMessage: true, autoComposer: false, lang: "fr" }];
       answer = (hook) => ({ text: `[${hook.text}]` });
       await thread();
       await vi.waitFor(() => expect(kept("core_message_note_set")).toHaveLength(3));

@@ -19,7 +19,8 @@
     "share": "Compartir",
     "copy": "Copiar",
     "cancel": "Cancelar",
-    "save": "Guardar"
+    "save": "Guardar",
+    "ok": "Aceptar"
   },
   "chat": {
     "direct": "Directo",
@@ -92,10 +93,12 @@
     "scheduledFor": "Programado para {time}",
     "scheduleNote": "Sale de este teléfono a esa hora, si está encendido; bórralo aquí antes para cancelarlo.",
     "hookFailed": "{plugin} no ha respondido",
-    "yourOriginal": "Tu original",
-    "restoreOriginal": "Volver a tu texto",
     "sentAsIs": "Enviado tal cual: {plugin} no pudo traducir",
-    "hookWorking": "{plugin} está trabajando…"
+    "hookWorking": "{plugin} está trabajando…",
+    "showOriginal": "Ver original",
+    "sentIn": "Enviado en {language}",
+    "view": "Ver",
+    "translating": "Traduciendo · {language}"
   },
   "status": {
     "pending": "Esperando al dispositivo",

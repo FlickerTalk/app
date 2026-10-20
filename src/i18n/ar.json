@@ -19,7 +19,8 @@
     "share": "مشاركة",
     "copy": "نسخ",
     "cancel": "إلغاء",
-    "save": "حفظ"
+    "save": "حفظ",
+    "ok": "حسنًا"
   },
   "chat": {
     "direct": "مباشر",
@@ -92,10 +93,12 @@
     "scheduledFor": "مجدول لـ {time}",
     "scheduleNote": "يُرسل من هذا الهاتف في ذلك الوقت إذا كان مشغّلًا؛ احذفه هنا قبل ذلك لإلغائه.",
     "hookFailed": "{plugin} لم يستجب",
-    "yourOriginal": "نصّك الأصلي",
-    "restoreOriginal": "العودة إلى نصّك",
     "sentAsIs": "أُرسلت كما كُتبت: تعذّر على {plugin} الترجمة",
-    "hookWorking": "{plugin} يعمل…"
+    "hookWorking": "{plugin} يعمل…",
+    "showOriginal": "عرض الأصل",
+    "sentIn": "أُرسلت باللغة {language}",
+    "view": "عرض",
+    "translating": "جارٍ الترجمة · {language}"
   },
   "status": {
     "pending": "بانتظار الجهاز",

@@ -8,13 +8,17 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+/** The app's own alert for a tool's question: the role the user's tap dismissed it with. */
+const alert = vi.hoisted(() => ({ create: vi.fn(), role: "confirm" as string }));
 vi.mock("@ionic/vue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@ionic/vue")>()),
   toastController: { create: toast.create },
+  alertController: { create: alert.create },
 }));
 
 import { CATCH_UP, HOOK_LIMIT, useChatHooks, type HookRunner } from "./chatHooks";
 import { installed, premiumLocked, type PluginHook, type PluginHookResult } from "./plugins";
+import { setLocale } from "./i18n";
 import type { ChatHookState, ChatMessage, PluginView } from "./core";
 
 // 2026-10-20 (plan of the translator §8): the chat's hooks in a conversation. A tool bound to them
@@ -32,7 +36,16 @@ const TRANSLATOR: PluginView = {
   hooks: {
     message: { label: "Translate", icon: "language-outline" },
     composer: { label: "Translate", icon: "language-outline" },
-    settings: { label: "Translation", icon: "language-outline", fields: [{ key: "lang", type: "select", label: "Language" }] },
+    settings: {
+      label: "Translation",
+      icon: "language-outline",
+      fields: [
+        { key: "lang", type: "select", label: "Language" },
+        { key: "receive", type: "toggle", label: "Translate what I receive" },
+        { key: "send", type: "toggle", label: "Send translated" },
+      ],
+      note: "Language packs are downloaded once; translation happens on the phone.",
+    },
   },
 };
 const KEY = "k".repeat(43);
@@ -55,7 +68,7 @@ function runner(answer: (hook: PluginHook) => Promise<PluginHookResult | null> |
 }
 
 /** The conversation's hooks, with the frames mounted as the thread would mount them. */
-function conversation(options: { messages?: ChatMessage[]; active?: boolean; flags?: ChatHookState[]; frame?: ReturnType<typeof runner> } = {}) {
+function conversation(options: { messages?: ChatMessage[]; active?: boolean; flags?: ChatHookState[]; frame?: ReturnType<typeof runner>; sample?: string } = {}) {
   const contact = ref("ft_bob");
   const messages = ref<ChatMessage[]>(options.messages ?? []);
   const active = ref(options.active ?? true);
@@ -64,11 +77,14 @@ function conversation(options: { messages?: ChatMessage[]; active?: boolean; fla
   tauri.invoke.mockImplementation(async (command: string) => {
     if (command === "core_plugin_chat") return KEY;
     if (command === "core_plugin_ref") return "ref_1";
-    if (command === "core_chat_hooks") return flags;
+    // A new list each time, as the core sends.
+    if (command === "core_chat_hooks") return [...flags];
+    // The last texts received, one per line, as the core hands them to a tool allowed to read them.
+    if (command === "core_hook_sample") return options.sample ?? "";
     return undefined;
   });
   const scope = effectScope();
-  const hooks = scope.run(() => useChatHooks({ contact: () => contact.value, messages: () => messages.value, active: () => active.value }))!;
+  const hooks = scope.run(() => useChatHooks({ conversation: () => contact.value, messages: () => messages.value, active: () => active.value }))!;
   // The thread mounts a frame for each plugin the hooks ask for, and hands it over.
   scope.run(() => watch(() => [...hooks.frames.value], (ids) => ids.forEach((id) => hooks.attach(id, frame)), { immediate: true }));
   return { hooks, contact, messages, active, frame, scope };
@@ -80,6 +96,8 @@ describe("the chat's hooks", () => {
   beforeEach(() => {
     tauri.invoke.mockReset();
     toast.create.mockReset().mockImplementation(async () => ({ present: toast.present }));
+    alert.role = "confirm";
+    alert.create.mockReset().mockImplementation(async () => ({ present: async () => {}, onDidDismiss: async () => ({ role: alert.role }) }));
     installed.value = [TRANSLATOR];
     premiumLocked.value = false;
   });
@@ -142,59 +160,206 @@ describe("the chat's hooks", () => {
     expect(invoked("core_message_note_set")).toEqual([]);
   });
 
-  it("hands back the composer hook's new draft, or nothing", async () => {
-    const answers: (PluginHookResult | null)[] = [{ text: "hola" }, { text: "  " }, null];
-    const frame = runner(() => answers.shift() ?? null);
+  // §8.2c: a language pack missing, the tool asks in its answer instead of opening its window; the
+  // app asks in its own alert and, on a yes, runs the hook again with the answer.
+  it("asks the tool's question in the app's alert and runs the hook again on a yes", async () => {
+    const frame = runner((hook) => (hook.answer ? { text: "hola" } : { ask: { text: "Download French? About 30 MB, once." } }));
     const { hooks } = conversation({ frame });
     await flushPromises();
-    expect(await hooks.compose(TRANSLATOR, "hello")).toBe("hola");
-    expect(frame.handed[0]).toEqual({ name: "composer", text: "hello", chat: KEY, ref: null, lang: "en", manual: true });
-    expect(await hooks.compose(TRANSLATOR, "hello")).toBeNull();
-    expect(await hooks.compose(TRANSLATOR, "hello")).toBeNull();
+    expect(await hooks.noteMessage(TRANSLATOR, text("m1", "salut"))).toBe(true);
+    expect(alert.create).toHaveBeenCalledTimes(1);
+    const asked = alert.create.mock.calls[0][0] as { message: string; buttons: { text: string; role?: string }[] };
+    expect(asked.message).toBe("Download French? About 30 MB, once.");
+    expect(asked.buttons.map((one) => [one.text, one.role])).toEqual([
+      ["Cancel", "cancel"],
+      ["OK", "confirm"],
+    ]);
+    expect(frame.handed.map((hook) => hook.answer)).toEqual([undefined, true]);
+    expect(frame.handed[1]).toMatchObject({ name: "message", text: "salut", manual: true });
+    expect(invoked("core_message_note_set")).toEqual([{ message: "m1", plugin: TRANSLATOR.id, text: "hola" }]);
   });
 
-  it("keeps the chat hook's switches for the conversation, and nothing when it answers nothing", async () => {
-    const window = runner(() => ({ auto: { message: true } }));
-    const { hooks } = conversation();
+  it("keeps nothing when the user says no to the tool's question", async () => {
+    alert.role = "cancel";
+    const frame = runner(() => ({ ask: { text: "Download French?" } }));
+    const { hooks } = conversation({ frame });
     await flushPromises();
-    await hooks.chooseForChat(TRANSLATOR, window);
-    expect(window.handed).toEqual([{ name: "settings", text: "", chat: KEY, ref: null, lang: "en", manual: true }]);
-    expect(invoked("core_chat_hooks_set")).toEqual([{ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: null }]);
-    await hooks.chooseForChat(TRANSLATOR, runner(() => null));
-    await hooks.chooseForChat(TRANSLATOR, runner(() => ({ text: "not switches" })));
-    expect(invoked("core_chat_hooks_set")).toHaveLength(1);
+    expect(await hooks.noteMessage(TRANSLATOR, text("m1", "salut"))).toBe(false);
+    expect(frame.handed).toHaveLength(1);
+    expect(invoked("core_message_note_set")).toEqual([]);
+  });
+
+  it("says when the tool fails, and keeps nothing", async () => {
+    const frame = runner(() => {
+      throw new Error("gone");
+    });
+    const { hooks } = conversation({ frame });
+    await flushPromises();
+    expect(await hooks.noteMessage(TRANSLATOR, text("m1", "salut"))).toBe(false);
+    expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "Translator did not answer" }));
+    expect(invoked("core_message_note_set")).toEqual([]);
+  });
+
+  // §8.2d: the link under a received text is there while the conversation's language, as the tool
+  // found it, is not the app's, or is not known yet; never without a tool bound to messages.
+  describe("the conversation's language", () => {
+    const WITH = (lang?: string): ChatHookState[] => [{ plugin: TRANSLATOR.id, autoMessage: false, autoComposer: false, ...(lang === undefined ? {} : { lang }) }];
+    afterEach(async () => setLocale("en"));
+
+    it("offers the message hook while the conversation's language is another, or not known", async () => {
+      const french = conversation({ flags: WITH("fr") });
+      await flushPromises();
+      expect(french.hooks.messageTool.value?.id).toBe(TRANSLATOR.id);
+      expect(french.hooks.language.value).toBe("fr");
+      expect(french.hooks.languageName.value).toBe("French");
+      expect(french.hooks.offersHook.value).toBe(true);
+      french.scope.stop();
+
+      const unknown = conversation({ flags: [] });
+      await flushPromises();
+      expect(unknown.hooks.language.value).toBeUndefined();
+      expect(unknown.hooks.offersHook.value).toBe(true);
+      unknown.scope.stop();
+
+      for (const same of ["en", "en-GB"]) {
+        const mine = conversation({ flags: WITH(same) });
+        await flushPromises();
+        expect(mine.hooks.offersHook.value, same).toBe(false);
+        mine.scope.stop();
+      }
+    });
+
+    it("names the language in the app's language", async () => {
+      await setLocale("es");
+      const { hooks } = conversation({ flags: WITH("fr") });
+      await flushPromises();
+      expect(hooks.languageName.value).toBe("francés");
+    });
+
+    // Android's WebView names no language for be, cy, eo, ga, ht, mt (2026-10-21): the tool's own
+    // name for it, from the choices its settings hook gave, rather than the bare tag.
+    describe("a language the phone cannot name", () => {
+      const WELSH = { options: { lang: [{ value: "", label: "None" }, { value: "cy", label: "Welsh" }] } };
+      const ON_WELSH: ChatHookState[] = [{ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "cy" }];
+      beforeEach(() => {
+        const of = Intl.DisplayNames.prototype.of;
+        vi.spyOn(Intl.DisplayNames.prototype, "of").mockImplementation(function (this: Intl.DisplayNames, tag: string) {
+          return tag === "cy" || tag === "mt" ? tag : of.call(this, tag);
+        });
+      });
+      afterEach(() => vi.restoreAllMocks());
+
+      it("takes the tool's name from the choices its settings hook gave", async () => {
+        const frame = runner(() => WELSH);
+        const { hooks } = conversation({ flags: ON_WELSH, frame, active: false });
+        await flushPromises();
+        expect(hooks.translating.value, "the tag, while the tool has said nothing").toBe("cy");
+        await hooks.readSettings(TRANSLATOR);
+        expect(hooks.translating.value).toBe("Welsh");
+        expect(hooks.languageName.value).toBe("Welsh");
+      });
+
+      it("keeps the tool's names for the conversation opened again", async () => {
+        const first = conversation({ flags: ON_WELSH, frame: runner(() => WELSH), active: false });
+        await flushPromises();
+        await first.hooks.readSettings(TRANSLATOR);
+        first.scope.stop();
+        const frame = runner(() => null);
+        const again = conversation({ flags: ON_WELSH, frame, active: false });
+        await flushPromises();
+        expect(again.hooks.translating.value).toBe("Welsh");
+        expect(frame.handed).toEqual([]);
+      });
+
+      it("asks the tool once, out of sight, as a conversation in such a language is seen", async () => {
+        // A language the tool has not named in this run of the app yet.
+        const frame = runner(() => ({ options: { lang: [{ value: "mt", label: "Maltese" }] } }));
+        const { hooks } = conversation({ flags: [{ ...ON_WELSH[0], lang: "mt" }], frame, sample: "bonġu" });
+        await vi.waitFor(() => expect(hooks.translating.value).toBe("Maltese"));
+        expect(frame.handed.filter((hook) => hook.name === "settings")).toHaveLength(1);
+      });
+    });
+
+    it("names a language the phone can name by the phone's name, never the tool's \"(detected)\"", async () => {
+      const frame = runner(() => ({ options: { lang: [{ value: "fr", label: "French (detected)" }] } }));
+      const { hooks } = conversation({ flags: [{ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" }], frame, active: false });
+      await flushPromises();
+      await hooks.readSettings(TRANSLATOR);
+      expect(hooks.translating.value).toBe("French");
+    });
+
+    it("offers nothing without a tool bound to messages, or with only a game", async () => {
+      installed.value = [{ ...TRANSLATOR, hooks: { composer: TRANSLATOR.hooks!.composer } }];
+      const { hooks } = conversation({ flags: WITH("fr") });
+      await flushPromises();
+      expect(hooks.offersHook.value).toBe(false);
+      installed.value = [{ ...TRANSLATOR, kind: "game" }];
+      expect(hooks.offersHook.value).toBe(false);
+    });
+
+    it("says it translates by itself, and into what, only with a switch on and the language known", async () => {
+      const on = conversation({ flags: [{ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" }] });
+      await flushPromises();
+      expect(on.hooks.translating.value).toBe("French");
+      on.scope.stop();
+      const off = conversation({ flags: WITH("fr") });
+      await flushPromises();
+      expect(off.hooks.translating.value).toBe("");
+      off.scope.stop();
+      const none = conversation({ flags: [{ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: true, lang: "" }] });
+      await flushPromises();
+      expect(none.hooks.translating.value, "no language: None").toBe("");
+    });
   });
 
   describe("by itself", () => {
     const ON = (autoMessage: boolean, autoComposer: boolean): ChatHookState[] => [{ plugin: TRANSLATOR.id, autoMessage, autoComposer }];
 
-    it("translates what is sent with the conversation's switch on, and says so when it cannot", async () => {
+    it("translates what is sent with the conversation's switch on, with the user's words to keep, and says so when it cannot", async () => {
       const answers: (PluginHookResult | null)[] = [{ text: "hola" }, { text: "hello" }, null];
       const frame = runner(() => answers.shift() ?? null);
       const { hooks } = conversation({ flags: ON(false, true), frame });
       await flushPromises();
-      expect(await hooks.outgoing("hello")).toBe("hola");
+      expect(await hooks.outgoing("hello")).toEqual({ text: "hola", original: { plugin: TRANSLATOR.id, text: "hello" } });
       expect(frame.handed[0]).toMatchObject({ name: "composer", text: "hello", manual: false });
-      expect(await hooks.outgoing("hello"), "unchanged: sent as it is, without a word").toBe("hello");
+      expect(await hooks.outgoing("hello"), "unchanged: sent as it is, without a word").toEqual({ text: "hello" });
       expect(toast.create).not.toHaveBeenCalled();
-      expect(await hooks.outgoing("hello"), "nothing: sent as written").toBe("hello");
+      expect(await hooks.outgoing("hello"), "nothing: sent as written").toEqual({ text: "hello" });
       expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Translator") }));
+    });
+
+    it("keeps the user's words under the message that went", async () => {
+      const { hooks } = conversation({ flags: ON(false, true) });
+      await flushPromises();
+      await hooks.keepOriginal("sent1", { plugin: TRANSLATOR.id, text: "hello" });
+      expect(invoked("core_message_note_set")).toEqual([{ message: "sent1", plugin: TRANSLATOR.id, text: "hello" }]);
+      await hooks.keepOriginal(undefined, { plugin: TRANSLATOR.id, text: "hello" });
+      expect(invoked("core_message_note_set"), "no message, no note").toHaveLength(1);
+    });
+
+    it("does not ask the user anything on a run of its own", async () => {
+      const frame = runner(() => ({ ask: { text: "Download French?" } }));
+      conversation({ messages: [text("r1", "salut")], flags: ON(true, false), frame });
+      await vi.waitFor(() => expect(frame.handed).toHaveLength(1));
+      await flushPromises();
+      expect(alert.create).not.toHaveBeenCalled();
+      expect(invoked("core_message_note_set")).toEqual([]);
     });
 
     it("sends as written with the switch off, the tool locked or not allowed to read", async () => {
       const frame = runner(() => ({ text: "hola" }));
       const off = conversation({ flags: ON(true, false), frame });
       await flushPromises();
-      expect(await off.hooks.outgoing("hello")).toBe("hello");
+      expect(await off.hooks.outgoing("hello")).toEqual({ text: "hello" });
       off.scope.stop();
 
       const on = conversation({ flags: ON(false, true), frame });
       await flushPromises();
       premiumLocked.value = true;
-      expect(await on.hooks.outgoing("hello")).toBe("hello");
+      expect(await on.hooks.outgoing("hello")).toEqual({ text: "hello" });
       premiumLocked.value = false;
       installed.value = [{ ...TRANSLATOR, granted: { ...TRANSLATOR.granted, messages: false } }];
-      expect(await on.hooks.outgoing("hello")).toBe("hello");
+      expect(await on.hooks.outgoing("hello")).toEqual({ text: "hello" });
       expect(frame.handed).toEqual([]);
       expect(toast.create).not.toHaveBeenCalled();
     });
@@ -234,7 +399,7 @@ describe("the chat's hooks", () => {
       expect(frame.handed).toHaveLength(4);
     });
 
-    it("starts translating what arrived once its chat hook switches it on", async () => {
+    it("starts translating what arrived once its switch is on", async () => {
       const frame = runner(() => ({ text: "x" }));
       const { hooks } = conversation({ messages: [text("r1", "first")], frame });
       await flushPromises();
@@ -245,9 +410,102 @@ describe("the chat's hooks", () => {
         if (command === "core_chat_hooks") return ON(true, false);
         return undefined;
       });
-      await hooks.chooseForChat(TRANSLATOR, runner(() => ({ auto: { message: true, composer: false } })));
+      await hooks.refresh();
       await vi.waitFor(() => expect(frame.handed.map((hook) => hook.text)).toEqual(["first"]));
     });
+  });
+
+  // §8.2d: the settings hook draws the conversation's group on the contact's page, and finds the
+  // conversation's language as a conversation without one opens. The app keeps only the switches
+  // and the language it answers, for the hooks the tool binds to.
+  describe("the settings hook", () => {
+    const VALUES = { lang: "fr", receive: true, send: false };
+    const ANSWER = { values: VALUES, options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French (detected)" }] }, auto: { message: true, composer: false }, lang: "fr" };
+
+    it("runs it with the values changed, and keeps the switches and the language it answers", async () => {
+      const frame = runner(() => ANSWER);
+      const { hooks } = conversation({ frame });
+      await flushPromises();
+      expect(await hooks.settings(TRANSLATOR, { manual: true, values: VALUES })).toEqual(ANSWER);
+      expect(frame.handed).toEqual([{ name: "settings", text: "", chat: KEY, ref: null, lang: "en", manual: true, values: VALUES }]);
+      expect(invoked("core_chat_hooks_set")).toEqual([{ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" }]);
+      expect(invoked("core_chat_hooks"), "read again").toHaveLength(2);
+    });
+
+    it("keeps no language for None, and no switch for a hook the tool does not bind to", async () => {
+      installed.value = [{ ...TRANSLATOR, hooks: { message: TRANSLATOR.hooks!.message, settings: TRANSLATOR.hooks!.settings } }];
+      const frame = runner(() => ({ values: { lang: "", receive: true, send: true }, auto: { message: true, composer: true }, lang: "" }));
+      const { hooks } = conversation({ frame });
+      await flushPromises();
+      await hooks.settings(installed.value[0], { manual: true, values: { lang: "" } });
+      expect(invoked("core_chat_hooks_set")).toEqual([{ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: null }]);
+    });
+
+    it("applies an answer only after a yes to the tool's question", async () => {
+      const frame = runner((hook) => (hook.answer ? ANSWER : { ask: { text: "Download French?" } }));
+      const yes = conversation({ frame });
+      await flushPromises();
+      expect(await yes.hooks.settings(TRANSLATOR, { manual: true, values: VALUES })).toEqual(ANSWER);
+      expect(frame.handed.map((hook) => hook.answer)).toEqual([undefined, true]);
+      expect(invoked("core_chat_hooks_set")).toHaveLength(1);
+      yes.scope.stop();
+
+      alert.role = "cancel";
+      const no = conversation({ frame: runner(() => ({ ask: { text: "Download French?" } })) });
+      await flushPromises();
+      expect(await no.hooks.settings(TRANSLATOR, { manual: true, values: VALUES })).toBeNull();
+      expect(invoked("core_chat_hooks_set"), "nothing more kept").toHaveLength(1);
+    });
+
+    it("reads a tool's settings out of sight for its group, with the latest texts received", async () => {
+      const frame = runner(() => ANSWER);
+      const { hooks } = conversation({ frame, active: false, sample: "salut" });
+      await flushPromises();
+      expect(await hooks.readSettings(TRANSLATOR)).toEqual(ANSWER);
+      expect(frame.handed).toEqual([{ name: "settings", text: "salut", chat: KEY, ref: null, lang: "en", manual: false }]);
+    });
+
+    it("finds the language of a conversation without one as it opens, from the latest texts received, once", async () => {
+      const sample = "texte 2\ntexte 3\ntexte 4\ntexte 5\ntexte 6";
+      const frame = runner(() => ({ lang: "fr" }));
+      const { hooks } = conversation({ messages: [text("r1", "texte 6")], frame, sample });
+      await vi.waitFor(() => expect(invoked("core_chat_hooks_set")).toHaveLength(1));
+      expect(invoked("core_hook_sample")).toEqual([{ plugin: TRANSLATOR.id, conversation: "ft_bob" }]);
+      expect(frame.handed).toEqual([{ name: "settings", text: sample, chat: KEY, ref: null, lang: "en", manual: false }]);
+      expect(invoked("core_chat_hooks_set")[0]).toEqual({ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: false, autoComposer: false, lang: "fr" });
+      await hooks.refresh();
+      await flushPromises();
+      expect(frame.handed, "once").toHaveLength(1);
+    });
+
+    it("does not look for a language a conversation has, nor without texts received or while unseen", async () => {
+      const frame = runner(() => ({ lang: "fr" }));
+      for (const setup of [
+        { messages: [text("r1", "salut")], flags: [{ plugin: TRANSLATOR.id, autoMessage: false, autoComposer: false, lang: "es" }], sample: "salut" },
+        { messages: [text("mine", "hola", true)], sample: "" },
+        { messages: [text("r9", "salut")], active: false, sample: "salut" },
+      ]) {
+        const one = conversation({ ...setup, frame });
+        await flushPromises();
+        await flushPromises();
+        one.scope.stop();
+      }
+      expect(frame.handed).toEqual([]);
+    });
+  });
+
+  // Changed on the contact's page, with the conversation's page kept under it (Ionic keeps it
+  // mounted): back on screen, it reads its switches again.
+  it("reads the switches again when the conversation is seen again", async () => {
+    const flags: ChatHookState[] = [];
+    const { hooks, active } = conversation({ flags });
+    await flushPromises();
+    expect(hooks.translating.value).toBe("");
+    active.value = false;
+    await flushPromises();
+    flags.push({ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" });
+    active.value = true;
+    await vi.waitFor(() => expect(hooks.translating.value).toBe("French"));
   });
 
   it("lets its frames go when another conversation is on screen", async () => {

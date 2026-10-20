@@ -19,7 +19,8 @@
     "share": "Bagikan",
     "copy": "Salin",
     "cancel": "Batal",
-    "save": "Simpan"
+    "save": "Simpan",
+    "ok": "OK"
   },
   "chat": {
     "direct": "Langsung",
@@ -92,10 +93,12 @@
     "scheduledFor": "Dijadwalkan untuk {time}",
     "scheduleNote": "Dikirim dari ponsel ini pada waktu itu, jika ponsel menyala; hapus di sini sebelumnya untuk membatalkan.",
     "hookFailed": "{plugin} tidak merespons",
-    "yourOriginal": "Teks asli Anda",
-    "restoreOriginal": "Kembali ke teks Anda",
     "sentAsIs": "Dikirim apa adanya: {plugin} tidak bisa menerjemahkan",
-    "hookWorking": "{plugin} sedang bekerja…"
+    "hookWorking": "{plugin} sedang bekerja…",
+    "showOriginal": "Lihat asli",
+    "sentIn": "Dikirim dalam bahasa {language}",
+    "view": "Lihat",
+    "translating": "Menerjemahkan · {language}"
   },
   "status": {
     "pending": "Menunggu perangkat",

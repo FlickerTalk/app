@@ -19,7 +19,8 @@
     "share": "Teilen",
     "copy": "Kopieren",
     "cancel": "Abbrechen",
-    "save": "Speichern"
+    "save": "Speichern",
+    "ok": "OK"
   },
   "chat": {
     "direct": "Direkt",
@@ -92,10 +93,12 @@
     "scheduledFor": "Geplant für {time}",
     "scheduleNote": "Geht zu dieser Zeit von diesem Telefon ab, wenn es an ist; vorher hier löschen, um es abzusagen.",
     "hookFailed": "{plugin} hat nicht geantwortet",
-    "yourOriginal": "Dein Original",
-    "restoreOriginal": "Zurück zu deinem Text",
     "sentAsIs": "Wie geschrieben gesendet: {plugin} konnte nicht übersetzen",
-    "hookWorking": "{plugin} arbeitet…"
+    "hookWorking": "{plugin} arbeitet…",
+    "showOriginal": "Original anzeigen",
+    "sentIn": "Gesendet auf {language}",
+    "view": "Ansehen",
+    "translating": "Wird übersetzt · {language}"
   },
   "status": {
     "pending": "Warte auf Gerät",

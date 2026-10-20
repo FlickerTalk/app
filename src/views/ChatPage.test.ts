@@ -245,7 +245,8 @@ describe("ChatPage", () => {
     seed();
     routing.route.params = { id: "c1" };
     const wrapper = mount(ChatPage, { shallow: true, global: { stubs: { ChatThread: false } } });
-    // The two permission sheets are overlays: Ionic presents them over the page.
-    expect(pageShape(wrapper, ["permission-ask", "game-permissions"])).toEqual(["ion-header", "ion-content", "ion-footer"]);
+    // The two permission sheets are overlays: Ionic presents them over the page. So are the chat's
+    // hooks' frames (2026-10-20): fixed windows out of sight and their own permission sheet.
+    expect(pageShape(wrapper, ["permission-ask", "game-permissions", "hook-frames"])).toEqual(["ion-header", "ion-content", "ion-footer"]);
   });
 });

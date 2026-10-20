@@ -4,6 +4,7 @@ import {
   IonBackButton,
   IonButton,
   IonButtons,
+  IonChip,
   IonContent,
   IonDatetime,
   IonFabButton,
@@ -18,7 +19,6 @@ import {
   IonSearchbar,
   IonSegment,
   IonSegmentButton,
-  IonSpinner,
   IonText,
   IonTextarea,
   IonTitle,
@@ -66,6 +66,7 @@ import GamePermissions from "./GamePermissions.vue";
 import PermissionAsk from "./PermissionAsk.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginSheet from "./PluginSheet.vue";
+import HookFrames from "./HookFrames.vue";
 import {
   games as installedGames,
   installed,
@@ -74,7 +75,6 @@ import {
   offeredOnce,
   openersOf,
   byPluginName,
-  hooked,
   hookIcon,
   hookLabel,
   pluginIcon,
@@ -124,12 +124,11 @@ import {
   store,
   type ChatMessage,
   type PickedFile,
-  type PluginHookName,
   type PluginView,
   type Sending,
   PREMIUM_PAGE,
 } from "../core";
-import { useChatHooks, type HookRunner } from "../chatHooks";
+import { useChatHooks } from "../chatHooks";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
 import { missingPermission, withPermission, type PermissionNeed } from "../permissions";
@@ -221,14 +220,14 @@ async function send() {
     return;
   }
   const answering = replying.value?.id;
-  const byHand = original.value !== null;
   draft.value = "";
   emoji.value = false;
   replying.value = null;
-  original.value = null;
-  // With the conversation's composer switch on, what the tool answers goes (2026-10-20); a draft
-  // the user already ran through the tool goes as it is.
-  await sendText(props.chatId, byHand ? text : await hooks.outgoing(text), answering);
+  // With the conversation's composer switch on, what the tool answers goes (2026-10-20, §8.2d),
+  // and the user's own words are kept under the message that went.
+  const out = await hooks.outgoing(text);
+  const sent = await sendText(props.chatId, out.text, answering);
+  if (out.original) await hooks.keepOriginal(sent, out.original);
 }
 
 // 2026-10-05: one of my texts, said again with other words: it goes to the composer, and Send
@@ -316,13 +315,13 @@ async function schedule() {
   const when = new Date(sendAt.value).getTime();
   if (!text || !canSchedule.value) return;
   const answering = replying.value?.id;
-  const byHand = original.value !== null;
   draft.value = "";
   emoji.value = false;
   replying.value = null;
-  original.value = null;
   scheduling.value = false;
-  await scheduleText(props.chatId, byHand ? text : await hooks.outgoing(text), when, answering).catch(() => {});
+  const out = await hooks.outgoing(text);
+  const sent = await scheduleText(props.chatId, out.text, when, answering).catch(() => undefined);
+  if (out.original) await hooks.keepOriginal(sent, out.original);
 }
 
 // 2026-10-05: a search in this conversation, on this phone. The hits list under the header; a tap
@@ -628,8 +627,6 @@ type Opening = {
   file?: HandedFile;
   reference?: string;
   game?: boolean;
-  /** Opened for one of the conversation's hooks (2026-10-20). */
-  hook?: PluginHookName;
 };
 const plugin = ref<(Opening & { contact: string; opening: number }) | null>(null);
 const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
@@ -1005,98 +1002,38 @@ async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean
   }
 }
 
-// ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
+// ---- The chat's hooks (2026-10-20, plan of the translator §8, UX of §8.2d) ----
 //
-// A tool bound to the chat has a button in the header: its window for this conversation, whose
-// answer switches it on by itself here (each text received, while the chat is seen; each text
-// sent). A tool bound to messages is a button on a long press of a text: its answer is a note under
-// it. A tool bound to the composer is a button by Send: its answer takes the draft's place, with
-// the user's original over it to go back to. The runs go in a frame of the tool's own, out of
-// sight, which shows only while the tool asks the user something.
+// The header and the composer stay as they were. Each received text offers the message hook's link
+// in its bubble while the conversation's language is not the app's; the tool's answer takes the
+// text's place. With the conversation's switches on (set on the contact's page), a chip under the
+// header says so, what arrives is translated by itself while the chat is seen, and what is sent
+// goes in the conversation's language with the user's own words kept under it. The runs go in a
+// frame of the tool's own, out of sight (`HookFrames`).
 const hooks = useChatHooks({
-  contact: () => props.chatId,
+  conversation: () => props.chatId,
   messages: () => messages.value,
   active: () => seen() && !isRequest.value && !chat.value?.blocked,
 });
-const chatHookTools = computed(() => (isRequest.value ? [] : hooked("settings")));
-const messageHookTools = computed(() => {
-  const message = actingMessage.value;
-  return message && message.kind !== "file" && !message.deleted && message.text.trim() && !isRequest.value ? hooked("message") : [];
-});
-const composerHookTools = computed(() => (draft.value.trim() && !editing.value && !recording.active ? hooked("composer") : []));
-/** The tools with a frame out of sight here, as installed now. */
-const hookFrames = computed(() => hooks.frames.value.map((id) => installed.value.find((one) => one.id === id)).filter((one): one is PluginView => Boolean(one)));
-/** The draft as the user wrote it, before a tool's answer took its place. */
-const original = ref<string | null>(null);
-watch(() => props.chatId, () => (original.value = null));
-watch(draft, (now) => {
-  if (!now.trim()) original.value = null;
-});
-/** The tool working on the draft now, by id. */
-const composing = ref("");
-
-/** The header's button: the tool's window for this conversation, opened for the chat hook. */
-function openChatHook(chosen: PluginView) {
-  if (isLocked(chosen)) return toPremium();
-  openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live), hook: "settings" });
-}
-
-// The window opened for the chat hook is handed it as soon as it is there; once it answers (the
-// user saved or removed its choice), its switches are kept and it closes. Closed first, nothing.
-watch(sheet, (shown) => {
-  const opening = plugin.value;
-  if (!shown || opening?.hook !== "settings" || opening.game) return;
-  const chosen = installed.value.find((one) => one.id === opening.id);
-  if (!chosen) return;
-  void hooks.chooseForChat(chosen, shown as unknown as HookRunner).then(() => {
-    if (plugin.value?.opening === opening.opening) closePlugin();
-  });
+/** The message hook's link under a received text: its label and icon (a padlock while locked). */
+const messageHook = computed(() => {
+  const tool = hooks.messageTool.value;
+  if (!tool || !hooks.offersHook.value || isRequest.value) return undefined;
+  return { label: hookLabel(tool, "message"), icon: isLocked(tool) ? lockClosedOutline : hookIcon(tool, "message") };
 });
 
-/** A long press's hook button: the tool's note under the message, asked to read it first if need be. */
+/** The chip's icon: the message hook's own. */
+const translatingIcon = computed(() => (hooks.messageTool.value ? hookIcon(hooks.messageTool.value, "message") : extensionPuzzleOutline));
+
+/** A tap on the link: the tool's answer for the text, asked to read it first if need be. */
 async function runMessageHook(id: string) {
-  const message = actingMessage.value;
-  let chosen = installed.value.find((one) => one.id === id);
-  closeActions();
+  const message = messages.value.find((one) => one.id === id);
+  let chosen = hooks.messageTool.value;
   if (!message || !chosen) return;
   if (isLocked(chosen)) return toPremium();
   if (!chosen.granted.messages) chosen = await allowedToRead(chosen);
   if (chosen) await hooks.noteMessage(chosen, message);
 }
-
-/** The composer's hook button: the tool's answer takes the draft's place, the original kept over it. */
-async function runComposerHook(id: string) {
-  const text = draft.value.trim();
-  let chosen = installed.value.find((one) => one.id === id);
-  if (!chosen || !text || composing.value) return;
-  if (isLocked(chosen)) return toPremium();
-  if (!chosen.granted.messages) chosen = await allowedToRead(chosen);
-  if (!chosen) return;
-  composing.value = chosen.id;
-  const answered = await hooks.compose(chosen, text).finally(() => (composing.value = ""));
-  // Written on meanwhile: the user's words stay.
-  if (!answered || draft.value.trim() !== text) return;
-  original.value ??= text;
-  draft.value = answered;
-}
-
-function restoreOriginal() {
-  if (original.value === null) return;
-  draft.value = original.value;
-  original.value = null;
-}
-
-/** A tool running out of sight asks for a permission: the same sheet, named after it. */
-function needFromHook(chosen: PluginView, need: PermissionNeed) {
-  askingFor.value = chosen;
-  needing.value = need;
-}
-
-/** ✕ or Back on a tool that showed itself for a hook: its frame goes, the run comes back empty. */
-function dismissHookFrames() {
-  for (const id of [...hooks.shown]) hooks.dismiss(id);
-}
-closeOnBackWhile(() => props.active && hooks.shown.size > 0, dismissHookFrames);
 
 /** A plugin proposes; the user sends (§53). A game goes on: the composer is in sight below it. */
 function fromPlugin(text: string) {
@@ -1263,20 +1200,6 @@ watch(
           <ion-button v-if="!playing" :aria-label="$t('chat.videoCall')" @click="router.push(`/call/${chat.id}?video=1`)">
             <ion-icon slot="icon-only" :icon="videocamOutline" aria-hidden="true" />
           </ion-button>
-          <!-- 2026-10-20: each tool bound to the chat (the chat's language), lit while it runs here by itself. -->
-          <template v-if="!playing">
-            <ion-button
-              v-for="one in chatHookTools"
-              :key="one.id"
-              :data-test="`chat-hook-${one.id}`"
-              :color="hooks.isOn(one.id) ? 'primary' : undefined"
-              :aria-label="hookLabel(one, 'settings')"
-              :aria-pressed="hooks.isOn(one.id)"
-              @click="openChatHook(one)"
-            >
-              <ion-icon slot="icon-only" :icon="hookIcon(one, 'settings')" aria-hidden="true" />
-            </ion-button>
-          </template>
           <!-- Issue app#3: the utilities installed on this phone, and the games. -->
           <ion-button data-test="apps" :aria-label="$t('tabs.apps')" @click="openApps">
             <ion-icon slot="icon-only" :icon="appsOutline" aria-hidden="true" />
@@ -1379,7 +1302,6 @@ watch(
           :file="plugin.file"
           :reference="plugin.reference"
           :session="sessionOf(plugin.contact)"
-          :hook="plugin.hook"
           fill
           @text="fromPlugin"
           @attach="stage"
@@ -1387,43 +1309,6 @@ watch(
           @done="pluginDone"
           @closed="pluginClosed"
           @needs="needFromApp"
-        />
-      </div>
-    </div>
-
-    <!-- 2026-10-20: the tools running the chat's hooks, one frame each, out of sight. Laid out as a
-         window, so one that asks the user something shows where it is (a frame moved would reload). -->
-    <div
-      v-for="one in hookFrames"
-      :key="one.id"
-      class="ft-app"
-      :class="{ 'is-unseen': !hooks.shown.has(one.id) }"
-      role="dialog"
-      :aria-label="pluginName(one)"
-      :aria-hidden="!hooks.shown.has(one.id) || undefined"
-      :inert="!hooks.shown.has(one.id) || undefined"
-      :data-test="`hook-window-${one.id}`"
-    >
-      <ion-toolbar class="ft-app__bar">
-        <ion-buttons slot="start">
-          <ion-button data-test="close-hook" :aria-label="$t('common.back')" @click="hooks.dismiss(one.id)">
-            <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
-          </ion-button>
-        </ion-buttons>
-        <ion-title size="small"><span class="ft-title">{{ pluginName(one) }}</span></ion-title>
-      </ion-toolbar>
-      <div class="ft-app__body">
-        <PluginSheet
-          :ref="(frame) => hooks.attach(one.id, (frame as unknown as HookRunner | null) ?? null)"
-          :plugin="one"
-          :contact="chatId"
-          :sending="one.granted.send"
-          :session="sessionOf(chatId)"
-          hidden
-          fill
-          @shown="(visible: boolean) => hooks.setShown(one.id, visible)"
-          @needs="(need: PermissionNeed) => needFromHook(one, need)"
-          @done="hooks.dismiss(one.id)"
         />
       </div>
     </div>
@@ -1517,7 +1402,18 @@ watch(
       @cancel="asking = null"
     />
 
+    <!-- 2026-10-20: the tools running the chat's hooks, one frame each, out of sight. -->
+    <HookFrames :hooks="hooks" :contact="chatId" :session="sessionOf(chatId)" :active="active" :pane-class="sheetPane" />
+
     <ion-content v-show="!playing || peeking" ref="content" class="ft-thread__content">
+      <!-- 2026-10-20 (§8.2d): translated by itself here, into what; a tap goes to the switches. It
+           floats over the content's top (Ionic's fixed slot), so nothing moves when it comes. -->
+      <div v-if="hooks.translating.value && !isRequest" slot="fixed" class="ft-translating">
+        <ion-chip data-test="translating" @click="router.push(`/contact/${chatId}`)">
+          <ion-icon :icon="translatingIcon" aria-hidden="true" />
+          <ion-label>{{ $t("chat.translating", { language: hooks.translating.value }) }}</ion-label>
+        </ion-chip>
+      </div>
       <!-- One box for the messages: its size is followed to keep the end in sight (app#81). -->
       <div ref="list">
         <template v-for="(message, index) in messages" :key="message.id">
@@ -1528,7 +1424,9 @@ watch(
             :saved="saved.has(message.id)"
             :folded="folded.has(message.id)"
             :contact-name="chat?.name"
+            :hook="messageHook"
             :noting="hooks.noting.get(message.id)"
+            :language="hooks.languageName.value"
             games
             @open="tapFile"
             @save="save"
@@ -1537,6 +1435,7 @@ watch(
             @resend="resendMessage"
             @play="playGame"
             @jump="jumpTo"
+            @hook="runMessageHook"
           />
         </template>
 
@@ -1633,18 +1532,6 @@ watch(
         >
           <ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" />
         </button>
-        <!-- 2026-10-20: each tool bound to messages (Translate); its answer, a note under the text. -->
-        <ion-button
-          v-for="one in messageHookTools"
-          :key="one.id"
-          fill="clear"
-          color="medium"
-          :data-test="`hook-message-${one.id}`"
-          @click="runMessageHook(one.id)"
-        >
-          <ion-icon slot="start" :icon="isLocked(one) ? lockClosedOutline : hookIcon(one, 'message')" aria-hidden="true" />
-          {{ hookLabel(one, "message") }}
-        </ion-button>
         <button
           v-if="!erasing"
           type="button"
@@ -1757,16 +1644,6 @@ watch(
           <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
         </ion-button>
       </div>
-      <!-- 2026-10-20: what the user wrote, before a tool's answer took its place; one tap brings it back. -->
-      <div v-if="original !== null" class="ft-replying" data-test="your-original">
-        <span class="ft-replying__text">
-          <span class="ft-replying__who">{{ $t("chat.yourOriginal") }}</span>
-          <span class="ft-replying__quote" dir="auto">{{ original }}</span>
-        </span>
-        <ion-button fill="clear" color="medium" data-test="restore-original" :aria-label="$t('chat.restoreOriginal')" @click="restoreOriginal">
-          <ion-icon slot="icon-only" :icon="arrowUndoOutline" aria-hidden="true" />
-        </ion-button>
-      </div>
       <!-- 2026-10-05: the message being answered, until it is sent or dropped. -->
       <div v-if="replying" class="ft-replying" data-test="replying">
         <span class="ft-replying__text">
@@ -1842,21 +1719,6 @@ watch(
           >
             <ion-icon :icon="arrowUp" aria-hidden="true" />
           </button>
-          <!-- 2026-10-20: each tool bound to the composer (Translate): its answer takes the draft's place. -->
-          <ion-button
-            v-for="one in composerHookTools"
-            :key="one.id"
-            fill="clear"
-            color="medium"
-            class="ft-composer__hook"
-            :disabled="Boolean(composing)"
-            :data-test="`hook-composer-${one.id}`"
-            :aria-label="hookLabel(one, 'composer')"
-            @click="runComposerHook(one.id)"
-          >
-            <ion-spinner v-if="composing === one.id" slot="icon-only" name="dots" aria-hidden="true" />
-            <ion-icon v-else slot="icon-only" :icon="isLocked(one) ? lockClosedOutline : hookIcon(one, 'composer')" aria-hidden="true" />
-          </ion-button>
           <!-- 2026-10-06: the same words, later; not for other words of a text already sent. -->
           <button
             v-if="!recording.active && draft.trim() && !editing"
@@ -2269,19 +2131,20 @@ watch(
 .ft-app__bar {
   flex: none;
 }
-/* A tool running a hook out of sight (2026-10-20): there, laid out, neither seen nor touched. */
-.ft-app.is-unseen {
-  visibility: hidden;
+/* 2026-10-20 (§8.2d): "Translating · French", centred over the top of the messages. */
+.ft-translating {
+  inset-block-start: 4px;
+  inset-inline: 0;
+  display: flex;
+  justify-content: center;
   pointer-events: none;
 }
-/* The composer's hook button, as round and as tall as the composer's own. */
-.ft-composer__hook {
-  --padding-start: 0;
-  --padding-end: 0;
+.ft-translating ion-chip {
+  pointer-events: auto;
   margin: 0;
-  width: 44px;
-  height: 44px;
-  flex: none;
+  background: var(--ion-color-light);
+  color: var(--ion-text-color);
+  font-size: var(--ft-font-meta);
 }
 
 /* The apps sheet scrolls to its last row above Android's navigation bar (edge to edge): Ionic pads

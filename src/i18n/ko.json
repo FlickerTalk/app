@@ -19,7 +19,8 @@
     "share": "공유",
     "copy": "복사",
     "cancel": "취소",
-    "save": "저장"
+    "save": "저장",
+    "ok": "확인"
   },
   "chat": {
     "direct": "직접 연결",
@@ -92,10 +93,12 @@
     "scheduledFor": "{time}에 보내기 예약됨",
     "scheduleNote": "그 시각에 이 휴대폰이 켜져 있으면 전송됩니다. 취소하려면 그 전에 여기서 삭제하세요.",
     "hookFailed": "{plugin}에서 응답이 없습니다",
-    "yourOriginal": "원래 쓴 글",
-    "restoreOriginal": "원래 글로 되돌리기",
     "sentAsIs": "작성한 그대로 보냈습니다: {plugin}에서 번역하지 못했습니다",
-    "hookWorking": "{plugin} 작업 중…"
+    "hookWorking": "{plugin} 작업 중…",
+    "showOriginal": "원문 보기",
+    "sentIn": "{language}(으)로 보냄",
+    "view": "보기",
+    "translating": "번역 중 · {language}"
   },
   "status": {
     "pending": "상대 기기 대기 중",

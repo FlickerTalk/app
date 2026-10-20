@@ -19,7 +19,8 @@
     "share": "Distribuie",
     "copy": "Copiază",
     "cancel": "Anulează",
-    "save": "Salvează"
+    "save": "Salvează",
+    "ok": "OK"
   },
   "chat": {
     "direct": "Direct",
@@ -92,10 +93,12 @@
     "scheduledFor": "Programat pentru {time}",
     "scheduleNote": "Pleacă de pe acest telefon la ora aceea, dacă este pornit; șterge-l aici înainte ca să-l anulezi.",
     "hookFailed": "{plugin} nu a răspuns",
-    "yourOriginal": "Originalul tău",
-    "restoreOriginal": "Înapoi la textul tău",
     "sentAsIs": "Trimis așa cum a fost scris: {plugin} nu a putut traduce",
-    "hookWorking": "{plugin} lucrează…"
+    "hookWorking": "{plugin} lucrează…",
+    "showOriginal": "Vezi originalul",
+    "sentIn": "Trimis în {language}",
+    "view": "Vezi",
+    "translating": "Se traduce · {language}"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
