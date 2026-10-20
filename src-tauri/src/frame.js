@@ -158,9 +158,57 @@ globalThis.ft = {
   onClose(handler) {
     closers.push(handler);
   },
+  /** The chat's hooks this tool binds to in its manifest (2026-10-20): called once per run with
+   *  {name, text, chat, ref, lang, manual}; resolve with {text} or {auto: {message, composer}}, or
+   *  null. Register at load: the app may run a hook as soon as the plugin is up. */
+  onHook(handler) {
+    hooked = handler;
+  },
+  /** Shows the plugin's window while it runs out of sight for a hook (to ask the user something);
+   *  it goes again once the hook is answered. Nothing happens in a window already on screen. */
+  show() {
+    post({ type: "ft.show" });
+  },
 };
 const heard = [];
 const closers = [];
+/** The plugin's hook handler, if it bound to any. */
+let hooked;
+const HOOKS = ["message", "composer", "chat"];
+
+/** What a hook's answer may say, and nothing else: a text, and the two switches of the chat hook. */
+const hookResult = (said) => {
+  if (!said || typeof said !== "object") return null;
+  const result = {};
+  if (typeof said.text === "string") result.text = said.text;
+  if (said.auto && typeof said.auto === "object") {
+    const auto = {};
+    for (const name of ["message", "composer"]) if (typeof said.auto[name] === "boolean") auto[name] = said.auto[name];
+    result.auto = auto;
+  }
+  return Object.keys(result).length ? result : null;
+};
+
+/** Runs one hook the app handed over and answers it, whatever the handler does. */
+const runHook = async (said) => {
+  let result = null;
+  if (hooked && HOOKS.includes(said.name)) {
+    const hook = {
+      name: said.name,
+      text: String(said.text ?? ""),
+      chat: String(said.chat ?? ""),
+      ref: said.ref ? String(said.ref) : null,
+      lang: String(said.lang ?? "en"),
+      manual: said.manual === true,
+    };
+    try {
+      result = hookResult(await hooked(hook));
+    } catch {
+      result = null;
+    }
+  }
+  post({ type: "ft.hookDone", id: String(said.id ?? ""), result });
+};
 /** The goodbye, run once however many times the app says it is closing. */
 let goodbye;
 
@@ -263,11 +311,15 @@ addEventListener("message", (event) => {
       ...(lent ? { ionic: { version: lent } } : {}),
       // Opened by the app inside a call to present (Plugin API 1.6.0): "lead" or "follow", only then.
       ...(said.presenting === "lead" || said.presenting === "follow" ? { presenting: said.presenting } : {}),
+      // Opened for one of the chat's hooks (2026-10-20): the chat's header opens it for "chat".
+      ...(HOOKS.includes(said.hook) ? { hook: said.hook } : {}),
     };
     for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);
   } else if (said.type === "ft.theme") {
     paint(said);
+  } else if (said.type === "ft.hook") {
+    void runHook(said);
   } else if (said.type === "ft.live") {
     for (const handler of heard) handler(String(said.data ?? ""));
   } else if (said.type === "ft.closing") {

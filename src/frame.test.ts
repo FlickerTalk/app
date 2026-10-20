@@ -366,4 +366,82 @@ describe("the frame", () => {
       expect(closedSaid(posted)).toBe(1);
     });
   });
+
+  // 2026-10-20 (plan of the translator §8): the chat's hooks. The app hands the plugin a message,
+  // a draft or the chat itself (`ft.hook`) and waits for its answer (`ft.hookDone`); a plugin running
+  // out of sight may ask to be seen (`ft.show`).
+  describe("hooks", () => {
+    type Hooked = { onHook(handler: (hook: Said) => unknown): void; show(): void };
+    const hooks = () => (globalThis as unknown as { ft: Hooked }).ft;
+    const hook = { type: "ft.hook", id: "h1", name: "message", text: "see you at six", chat: "c".repeat(43), ref: "ref_1", lang: "es", manual: true };
+    const done = (posted: Said[]) => posted.filter((one) => one.type === "ft.hookDone");
+
+    it("hands the hook to the plugin's handler and its answer back to the app", async () => {
+      const heard: Said[] = [];
+      const { posted, says, ran } = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          return { text: "nos vemos a las seis" };
+        }),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says(hook);
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(1));
+      expect(heard).toEqual([{ name: "message", text: "see you at six", chat: "c".repeat(43), ref: "ref_1", lang: "es", manual: true }]);
+      expect(done(posted)[0]).toEqual({ type: "ft.hookDone", id: "h1", result: { text: "nos vemos a las seis" } });
+    });
+
+    it("hands the chat hook's switches back, and only what a result can say", async () => {
+      const answers: unknown[] = [
+        { auto: { message: true, composer: false } },
+        { text: 7, auto: { message: "yes", composer: true }, secret: "x" },
+        "a text",
+        {},
+        null,
+      ];
+      const { posted, says, ran } = await frame(() => hooks().onHook(async () => answers.shift()));
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      for (const id of ["a", "b", "c", "d", "e"]) await says({ ...hook, id, name: "chat", text: "", ref: null, manual: false });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(5));
+      expect(done(posted).map((one) => one.result)).toEqual([{ auto: { message: true, composer: false } }, { auto: { composer: true } }, null, null, null]);
+    });
+
+    it("answers nothing for a plugin without a handler, a handler that fails or a hook it cannot know", async () => {
+      const heard: Said[] = [];
+      const bare = await frame();
+      await bare.says({ type: "ft.theme", dark: false, theme: {} });
+      await bare.ran;
+      await bare.says(hook);
+      await vi.waitFor(() => expect(done(bare.posted)).toEqual([{ type: "ft.hookDone", id: "h1", result: null }]));
+
+      const broken = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          throw new Error("broken");
+        }),
+      );
+      await broken.says({ type: "ft.theme", dark: false, theme: {} });
+      await broken.ran;
+      await broken.says(hook);
+      await broken.says({ ...hook, id: "h2", name: "reaction" });
+      await vi.waitFor(() => expect(done(broken.posted)).toHaveLength(2));
+      expect(done(broken.posted).map((one) => one.result)).toEqual([null, null]);
+      expect(heard).toHaveLength(1);
+    });
+
+    it("lets a plugin ask to be seen, and says which hook its window was opened for", async () => {
+      const opened: Said[] = [];
+      const { posted, says, ran } = await frame(() => ft().onOpen((one) => opened.push(one)));
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      hooks().show();
+      expect(posted).toContainEqual({ type: "ft.show" });
+      await says({ type: "ft.open", hook: "chat", chat: "c".repeat(43) });
+      await says({ type: "ft.open", hook: "boss" });
+      expect(opened[0]).toMatchObject({ hook: "chat", chat: "c".repeat(43) });
+      expect(opened[1]).not.toHaveProperty("hook");
+    });
+  });
 });
