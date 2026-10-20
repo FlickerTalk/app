@@ -837,9 +837,8 @@ function open() {
   width: fit-content;
   height: 26px;
   margin: 2px 0 0;
-  margin-inline-start: -4px;
-  --padding-start: 4px;
-  --padding-end: 4px;
+  --padding-start: 0;
+  --padding-end: 0;
   --color: currentColor;
   --color-activated: currentColor;
   --color-focused: currentColor;
@@ -851,6 +850,11 @@ function open() {
 }
 .ft-bubble__hook::part(native) {
   color: inherit;
+}
+/* Its icon starts where the text does (Ionic pulls a start icon out by 0.3em). */
+.ft-bubble__hook ion-icon[slot="start"],
+.ft-bubble__hook ion-spinner[slot="start"] {
+  margin-inline-start: 0;
 }
 .ft-bubble__hook.button-disabled {
   opacity: 0.75;
