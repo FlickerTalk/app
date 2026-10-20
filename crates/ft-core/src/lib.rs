@@ -1528,6 +1528,12 @@ impl Core {
                 // Chat off (app#5): nothing is kept; they stop retrying and see only sent.
                 let _ = self.send_control(contact, Body::Received { ids: vec![packet.id] }).await;
             }
+            Body::Message { .. } if written_while_blocked(contact, packet.sent_at) => {
+                // Written while they were blocked, arriving after the unblock (app#146): dropped
+                // like everything that came during the block. They stop retrying and see only
+                // sent, as they did while blocked: nothing tells them (§35).
+                let _ = self.send_control(contact, Body::Received { ids: vec![packet.id] }).await;
+            }
             Body::Message { text, reply_to } => {
                 let stored = self
                     .store
@@ -2030,6 +2036,13 @@ async fn renew_sessions(store: &Store, identity: &Identity, key: &[u8; 32]) -> R
 #[cfg(debug_assertions)]
 fn trial_over_for_debugging() -> bool {
     std::env::var("FT_DEBUG_TRIAL_OVER").as_deref() == Ok("1")
+}
+
+/// Whether a packet the contact stamped `sent_at` was written before this phone last unblocked
+/// them, so while they were blocked (app#146). Their clock against ours: a skew between the two
+/// phones moves the line by as much.
+pub(crate) fn written_while_blocked(contact: &Contact, sent_at: u64) -> bool {
+    contact.unblocked_at.is_some_and(|unblocked_at| (sent_at as i64) < unblocked_at)
 }
 
 /// This phone's clock, in milliseconds since the Unix epoch.

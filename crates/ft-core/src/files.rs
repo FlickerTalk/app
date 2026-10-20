@@ -19,7 +19,7 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use ft_protocol::{Body, MessageId, Packet, FILE_CHUNK};
 use ft_storage::{Contact, FileRecord, Message, MessageState, OutboxEntry, Store};
 
-use crate::{now, retry_delay, Core, Event, RECEIPT_WAIT};
+use crate::{now, retry_delay, written_while_blocked, Core, Event, RECEIPT_WAIT};
 
 /// Chunks asked for at once; the next half is asked for when half of them are in.
 pub const FILE_WINDOW: u32 = 16;
@@ -235,8 +235,9 @@ impl Core {
             let _ = self.send_control(contact, Body::FileFailed { file: id }).await;
             bail!("an offer with an impossible size");
         }
-        if !contact.rules.accepts_chat {
-            // Chat off (app#5): the file is not taken; they stop offering it and see only sent.
+        if !contact.rules.accepts_chat || written_while_blocked(contact, sent_at) {
+            // Chat off (app#5), or offered while they were blocked and arriving after the unblock
+            // (app#146): the file is not taken; they stop offering it and see only sent.
             let _ = self.send_control(contact, Body::Received { ids: vec![id] }).await;
             return Ok(());
         }

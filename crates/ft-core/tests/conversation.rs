@@ -657,6 +657,96 @@ async fn blocked_contacts_are_ignored() {
     assert_ne!(state_of(&alice, &id(&bob), &message).await, MessageState::Delivered);
 }
 
+/// The text of the last message in Bob's chat list for this contact, if any.
+async fn latest_in_list(core: &Core, contact: &str) -> Option<String> {
+    let conversations = core.store().conversations().await.expect("lists");
+    let conversation = conversations.into_iter().find(|c| c.contact.device_id == contact).expect("in the list");
+    conversation.last.map(|message| message.body)
+}
+
+// app#146: what Alice writes while Bob has her blocked is still in her outbox when he unblocks
+// her, and her retry gets through. It is dropped: the block stays silent (§35), so her retries
+// stop with a plain receipt and she sees it as sent, never as delivered (§84).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_written_while_blocked_is_dropped_after_the_unblock() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    alice.send_text(&id(&bob), "before the block").await.expect("sends");
+    until("bob got it", || async { texts(&bob, &id(&alice)).await.len() == 1 }).await;
+    bob.block(&id(&alice), true).await.expect("blocks");
+
+    let blocked = alice.send_text(&id(&bob), "while blocked").await.expect("sends");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!alice.store().outbox().await.unwrap().is_empty(), "it waits in alice's outbox");
+    bob.block(&id(&alice), false).await.expect("unblocks");
+    alice.retry_now().await.expect("retries");
+
+    until("alice stops retrying", || async { alice.store().outbox().await.unwrap().is_empty() }).await;
+    assert_eq!(texts(&bob, &id(&alice)).await, ["before the block"]);
+    assert_eq!(latest_in_list(&bob, &id(&alice)).await.as_deref(), Some("before the block"));
+    assert_eq!(state_of(&alice, &id(&bob), &blocked).await, MessageState::Sent, "sent, never delivered");
+}
+
+// app#146: what Alice writes once Bob has unblocked her arrives as always.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_written_after_the_unblock_arrives() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    bob.block(&id(&alice), true).await.expect("blocks");
+    bob.block(&id(&alice), false).await.expect("unblocks");
+
+    let message = alice.send_text(&id(&bob), "friends again").await.expect("sends");
+    until("bob has it", || async { texts(&bob, &id(&alice)).await == ["friends again"] }).await;
+    until("alice sees it delivered", || async { state_of(&alice, &id(&bob), &message).await == MessageState::Delivered })
+        .await;
+    assert_eq!(latest_in_list(&bob, &id(&alice)).await.as_deref(), Some("friends again"));
+}
+
+// app#146: the unblock is remembered on disk, so a restart of Bob between the unblock and Alice's
+// retry still drops what she wrote while blocked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_written_while_blocked_is_dropped_after_a_restart() {
+    let net = Net::new();
+    let path = std::env::temp_dir().join(format!("ft-core-unblock-{}.db", ft_protocol::MessageId::new()));
+    let alice = device(&net, "Alice").await;
+    {
+        let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+        pair(&alice, &bob).await;
+        bob.block(&id(&alice), true).await.expect("blocks");
+        alice.send_text(&id(&bob), "while blocked").await.expect("sends");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        bob.block(&id(&alice), false).await.expect("unblocks");
+    }
+
+    let bob = device_with(&net, "Bob", Store::open(&path).await.unwrap(), [2; 32]).await;
+    alice.retry_now().await.expect("retries");
+    until("alice stops retrying", || async { alice.store().outbox().await.unwrap().is_empty() }).await;
+    assert!(texts(&bob, &id(&alice)).await.is_empty());
+    let _ = std::fs::remove_file(&path);
+}
+
+// app#146: a file (a photo, a voice message) offered while blocked is dropped the same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_offered_while_blocked_is_dropped_after_the_unblock() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    bob.block(&id(&alice), true).await.expect("blocks");
+    let (path, _) = some_file(1_000);
+
+    let sent = alice.send_file(&id(&bob), &path, "a.bin", "application/octet-stream").await.expect("offers");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    bob.block(&id(&alice), false).await.expect("unblocks");
+    alice.retry_now().await.expect("retries");
+
+    until("alice stops offering it", || async { alice.store().outbox().await.unwrap().is_empty() }).await;
+    assert!(bob.store().file(&sent).await.unwrap().is_none(), "nothing of it is kept");
+    assert!(texts(&bob, &id(&alice)).await.is_empty());
+    assert_eq!(state_of(&alice, &id(&bob), &sent).await, MessageState::Sent, "sent, never delivered");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn garbage_from_strangers_is_rejected() {
     let net = Net::new();
