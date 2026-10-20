@@ -1,22 +1,20 @@
 # FlickerTalk: qué hace la app hoy
 
-Estado a 2026-09-27 (versión 1.2.0 sin publicar; la 1.0.0 en revisión en Google Play; iOS
-pendiente de la cuenta de Apple; incluye el paquete de endurecimiento de la revisión del
-2026-09-24, los círculos, los plugins de fase 3 y la nube del usuario). Describe la app tal como funciona, pantalla a pantalla. Las decisiones de diseño y el porqué
-de cada una están en el plan del proyecto; aquí solo lo que el usuario ve y lo que pasa por debajo.
+Descripción funcional de la app, pantalla a pantalla: lo que el usuario ve y lo que pasa por
+debajo. Puede ir por detrás de la última versión de la app.
 
 ## Qué es
 
 Mensajería privada de teléfono a teléfono. Texto, ficheros, mensajes de voz y llamadas de voz y de
-vídeo entre dos personas, y **círculos** de texto entre unas pocas. El historial vive **solo en
-los teléfonos**. Los mensajes viajan
+vídeo entre dos personas, y **círculos** de texto entre unas pocas. El historial vive **en los
+teléfonos, no en nuestros servidores**. Los mensajes viajan
 cifrados de extremo a extremo (Olm, la biblioteca `vodozemac`) por una conexión directa WebRTC
 entre los dos teléfonos. Si el otro teléfono no está disponible, el mensaje espera cifrado en un
-buzón del servidor hasta que lo recoge (como mucho 7 días). El servidor no puede leer nada y no
-guarda historial.
+buzón del servidor hasta que lo recoge (como mucho 7 días). El servidor no puede leer los
+mensajes y no guarda conversaciones ni historiales.
 
 La interfaz va con iconos primero. Todo texto visible sale de un catálogo de traducciones con el
-inglés como fuente; la traducción al español está en curso.
+inglés como fuente; la app está traducida a 20 idiomas.
 
 ## Primer arranque
 
@@ -43,7 +41,7 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   aceptar.
 - **Renovar mi enlace** (Ajustes): retira el enlace actual y hace uno nuevo. Quien guardara el
   antiguo ya no puede llegar a ti; tus contactos reciben la tarjeta nueva solos. Cada sesión
-  oculta puede renovar el suyo por separado.
+  con PIN puede renovar el suyo por separado.
 
 ## Chats
 
@@ -103,8 +101,8 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
   notificación de llamada con **Answer** y **Decline**, también con la app cerrada o la pantalla
   bloqueada. Contestar desde la notificación abre la pantalla de llamada.
 - En Android, con la app cerrada, el push de la llamada arranca el núcleo sin abrir la app: la
-  notificación dice «Alguien» mientras suena, a propósito (decisión del 2026-10-01, `Plan.md` §66:
-  volver a publicarla con el nombre corta el tono y un tono propio anula las teclas de volumen);
+  notificación dice «Alguien» mientras suena, a propósito (volver a publicarla con el nombre corta
+  el tono y un tono propio anula las teclas de volumen);
   si el contacto está silenciado o fuera del horario se calla en cuanto el núcleo sabe quién llama,
   y desaparece si la llamada se rechaza sin rastro. Deja de sonar en cuanto el que llama cuelga y
   la llamada perdida queda en el historial, en la lista o la sesión que le toca. Rechazar desde la
@@ -113,7 +111,7 @@ No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu códi
 - Una llamada a la vez: si ya estás en una, el otro recibe «busy».
 - Pestaña **Calls:** historial (entrantes, salientes, perdidas) con botón de devolver la llamada.
 - Ajustes → **Calls:** «Only direct» (nunca por el relay), «Relay when needed» o «Always relay»
-  (oculta tu IP al otro).
+  (el otro no ve tu IP durante las llamadas).
 
 ## Ficha del contacto
 
@@ -135,18 +133,19 @@ no se entera y el servidor no lo ve.
 - **Report:** abre un correo a FlickerTalk con el motivo y, si quieres, sus últimos mensajes como
   prueba; además lo bloquea.
 
-## Sesiones ocultas
+## Sesiones con PIN
 
-Espacios con sus propios contactos y conversaciones que **solo conoce quien los crea**. Sirven para
+Espacios aparte, con sus propios contactos y conversaciones, que se abren con un PIN. Sirven para
 separar vidas: un chat con los amigos aparte, o uno de trabajo que se cierra al salir de la
 oficina y no molesta hasta el día siguiente.
 
-- **Ajustes → Session** abre un teclado numérico con seis puntos. Sin nombre, sin título.
+- **Ajustes → Sessions with PIN** (en el apartado Premium) abre un teclado numérico con seis
+  puntos. Sin nombre, sin título.
 - **Premium (2026-10-08):** pasados los 15 días gratis sin suscripción, en lugar del teclado sale
   el candado con Suscribirse (ver «Plan y precio»); una sesión ya abierta sigue hasta que se sale.
 - Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se crea una sesión
   **nueva y vacía**. Todo PIN es válido: no existe «PIN incorrecto» ni espera entre intentos, y
-  nada dice cuál de las dos cosas ha pasado, así que nadie puede saber si hay sesiones.
+  nada dice cuál de las dos cosas ha pasado: el teclado no delata si hay sesiones.
 - Una sesión **vacía** (sin contactos, solicitudes ni círculos) se borra al salir de ella: teclear
   PIN nunca llena los siete huecos. Con algo dentro, se queda.
 - Una sesión que se borra se lleva su enlace: quien guardara su QR ya no llega a nadie, ni a la
@@ -155,7 +154,7 @@ oficina y no molesta hasta el día siguiente.
   izquierda y, a la derecha, un botón de **QR** para añadir un contacto a esa sesión, una
   **papelera** para borrarla (pide confirmación en el mismo sitio; borra sus contactos, historial
   y ficheros, y libera su hueco) y otro para **salir**. Ningún texto.
-- Un contacto añadido dentro de una sesión pertenece a ella para siempre y nunca aparece en la
+- Un contacto añadido dentro de una sesión pertenece siempre a ella y nunca aparece en la
   lista principal. Funciona en los dos sentidos: escanear a alguien desde la sesión o que alguien
   escanee el QR que muestra la sesión.
 - **Sesión cerrada:** sus mensajes y ficheros llegan y se confirman, pero no hay aviso, ni número de
@@ -180,11 +179,11 @@ oficina y no molesta hasta el día siguiente.
 ## Círculos
 
 Un círculo es un grupo **pequeño y cerrado** de tus contactos (hasta 32): los amigos, la familia,
-el trabajo. Nadie fuera de él, **ni siquiera el servidor**, sabe que existe: cada mensaje se cifra
+el trabajo. **Nuestro servidor no guarda ningún registro de los círculos**: cada mensaje se cifra
 y se envía a cada miembro por el mismo canal que ya usas con él, directo o por su buzón, así que el
 servidor ve mensajes 1 a 1 y nada más.
 
-- **Crear:** el icono de personas en Chats (o en la cabecera de una sesión oculta) pide un nombre y
+- **Crear:** el icono de personas en Chats (o en la cabecera de una sesión con PIN) pide un nombre y
   a quién meter, de entre tus contactos. Quien lo crea es su administrador.
 - **Conocer a los demás sin escanear a nadie:** la tarjeta del círculo lleva la tarjeta de contacto
   de cada miembro, así que todos pueden escribirse dentro del círculo. Fuera de él, alguien a quien
@@ -210,8 +209,8 @@ también con la app cerrada; no sale del teléfono.
 
 ## Plugins
 
-**Ajustes → Plugins.** Ninguna herramienta viene dentro de la app salvo cinco pequeñas de serie:
-imágenes, PDF, tapar datos, dibujo y markdown. El resto se instala desde un catálogo firmado.
+**Pestaña Apps.** Las herramientas y los juegos se instalan desde un catálogo firmado; la app
+lleva dentro algunos de ellos para instalarlos sin red.
 
 - Cada plugin corre aislado y empieza sin ningún permiso. El usuario decide qué puede hacer y lo
   puede quitar: leer lo que tú le entregas, escribir en el chat, enviar mensajes por su cuenta.
@@ -223,7 +222,7 @@ imágenes, PDF, tapar datos, dibujo y markdown. El resto se instala desde un cat
   con el mismo plugin al otro lado** de la conversación (solo por la conexión directa, nunca por
   el servidor), **poner avisos** en tu teléfono, **usar tu nube** y **guardar muchos datos** en el
   teléfono (256 MB). En la pulsación larga de una burbuja aparece **«Abrir con»** para los plugins
-  que abren ese tipo de fichero o un texto. Un plugin se puede abrir solo desde Ajustes → Plugins.
+  que abren ese tipo de fichero o un texto. Un plugin se puede abrir solo desde la pestaña Apps.
 - **Notas**: notas personales con un aviso (una notificación en tu teléfono a la hora que
   elijas, una sola vez). Nacen desde un mensaje («Abrir con» → Notas: llega el texto y un camino
   de vuelta a la conversación, nunca el contacto) o desde cero. Por defecto la notificación solo
@@ -246,68 +245,66 @@ propio Google Drive**. Todo se cifra en el teléfono antes de salir: Google ve f
 nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
 
 - **Ajustes → Copia de seguridad**: conectar Google Drive (el login se abre en el navegador del
-  sistema; la app no ve los tokens), crear el drive (se enseña **una sola vez** un código de
-  recuperación de 30 símbolos: apúntalo), hacer copia (historial, clave y ficheros), restaurar en
-  un teléfono nuevo (conectar la misma nube + código; la app reinicia con la copia, como tras una
+  sistema; la app no ve los tokens), crear el drive (eliges una **frase de recuperación**, que no
+  se guarda en ningún sitio: apúntala), hacer copia (historial, clave y ficheros), restaurar en un
+  teléfono nuevo (conectar la misma nube + frase; la app reinicia con la copia, como tras una
   mudanza) y olvidar la nube en este teléfono (los ficheros siguen en tu nube, sellados).
 - **Mi drive** (plugin, permiso «usar tu nube»): carpetas, subir del selector, guardar cualquier
   fichero de una burbuja («Abrir con» → Mi drive; del tamaño que sea, los bytes no pasan por el
   plugin), abrir, guardar en Descargas y enviar a la conversación. Lo que espera red se ve con su
   motivo; nunca se marca como guardado lo que no subió.
-- Pendiente para usarlo de verdad: el cliente OAuth de Google de la app (`docs/drive.md`).
 
 ## Ajustes
 
 - **Your FlickerTalk ID**, copiar y mostrar tu QR.
-- **Offline mailbox:** buzón cifrado, activado por defecto. Apagado, nada tuyo se guarda en el
-  servidor y los mensajes esperan en el teléfono del emisor hasta que haya conexión directa.
+- **Offline mailbox:** buzón cifrado, activado por defecto. Apagado, el buzón no guarda nada tuyo
+  y los mensajes esperan en el teléfono del emisor hasta que haya conexión directa.
 - **Delivered and read receipts:** valor por defecto para los contactos nuevos.
-- **Hours**, **Calls**, **Blocked**, **Session** (arriba).
-- **Color** (Mono, Ember, Aurora) y **Appearance** (sistema, oscuro, claro).
-- **Show in the tab bar** (desde el 2026-10-05): qué va en la barra entre Calls y Settings, elegido
-  en una hoja modal: nada (por defecto), **Games** o **Plugins**. La barra y el raíl de pantalla
-  ancha cambian al momento; `/tabs/games` y `/tabs/plugins` siguen existiendo aunque no se muestren.
-- **Plugins**, **Move to a new phone**, **Backup** (la nube del usuario), **Erase this phone**
-  (quita el dispositivo del servidor y borra todo el teléfono, con confirmación).
-- **Plan** y **Version**.
+- **Hours**, **Calls**, **Blocked** (arriba).
+- **Color** (Ember, Aurora, Mono, Lime) y **Appearance** (sistema, oscuro, claro).
+- **Premium**: qué es gratis y qué es premium, y las filas **Tools** (lleva a la pestaña Apps) y
+  **Sessions with PIN** (ver «Plan y precio»).
+- **Move to a new phone**, **Backup** (la nube del usuario), **Erase this phone** (quita el
+  dispositivo del servidor y borra todo el teléfono, con confirmación).
+- **Version**.
 
 ## Plan y precio
 
-**Decisión de Ioan (2026-10-08).** El chat, las notas de voz, los ficheros, las llamadas de voz y
-vídeo, los contactos y conversaciones nuevos, los círculos y los **juegos** son **gratis para
-siempre**. Lo **premium** son las **herramientas** (plugins de tipo `tool`, también las que la app
-trae de serie) y las **sesiones extra con PIN** (todas menos la lista principal): gratis **15 días**
-desde la instalación, contados en el propio teléfono y sin tarjeta, y después con la suscripción
-anual `yearly`, **0,99 €** en España desde el 2026-09-29 (Google no deja poner 1,00 € exactos). No
-hay regla de edad.
+El chat, las notas de voz, los ficheros, las llamadas de voz y vídeo, los contactos y
+conversaciones nuevos, los círculos y los **juegos** son **gratis**. Lo **premium** son las
+**herramientas** (plugins de tipo `tool`, también las que la app trae de serie) y las **sesiones
+extra con PIN** (todas menos la lista principal): gratis **15 días** desde la instalación,
+contados en el propio teléfono y sin tarjeta, y después con la suscripción anual `yearly`,
+**0,99 €** en España desde el 2026-09-29 (Google no deja poner 1,00 € exactos). No hay regla de
+edad.
 
 Sin suscripción, pasados los 15 días:
 
-- Cada herramienta enseña un candado (en Ajustes → Plugins, en la hoja de apps del chat, en «abrir
-  con» y en su propia página) y tocarla lleva a la pantalla del plan; un fichero cuyo visor es una
-  herramienta bloqueada se abre con otra app. El núcleo no abre ni instala una herramienta bloqueada
-  (`needs_subscription`) y el WebView no la sirve. Una herramienta ya instalada se sigue
+- Cada herramienta enseña un candado (en la pestaña Apps, en la hoja de apps del chat, en «abrir
+  con» y en su propia página) y tocarla lleva al apartado Premium de Ajustes; un fichero cuyo visor
+  es una herramienta bloqueada se abre con otra app. El núcleo no abre ni instala una herramienta
+  bloqueada (`needs_subscription`) y el WebView no la sirve. Una herramienta ya instalada se sigue
   actualizando.
-- El candado de las sesiones está **delante** del teclado del PIN (la fila de Ajustes lleva al plan
-  y la página del PIN enseña Suscribirse en lugar del teclado), nunca después del sexto dígito: el
-  teclado no puede delatar si una sesión existe. El núcleo rechaza igual cualquier PIN. Una sesión
-  que ya estaba abierta sigue funcionando hasta que el usuario sale de ella; la lista principal
-  funciona siempre.
+- El candado de las sesiones está **delante** del teclado del PIN (la fila de Ajustes pide la
+  suscripción a la tienda y la página del PIN enseña Suscribirse en lugar del teclado), nunca
+  después del sexto dígito: el teclado no puede delatar si una sesión existe. El núcleo rechaza
+  igual cualquier PIN. Una sesión que ya estaba abierta sigue funcionando hasta que el usuario sale
+  de ella; la lista principal funciona siempre.
 - Nada más se limita nunca.
 
 El plan se vigila solo: el núcleo vuelve a mirarlo justo cuando acaban los días gratis o pasa la
 fecha pagada, y al volver la app a la pantalla. Al pasar la fecha pagada pregunta antes a la tienda
 (entitlements actuales de StoreKit, compras de Play): si renovó, sigue de pago con la fecha nueva;
 si no hay nada, pasa a bloqueado; si la tienda no contesta, la fecha sigue valiendo **3 días** de
-gracia y se vuelve a preguntar. La pantalla del plan, la fila de Ajustes y los candados se ponen al
-día sin reiniciar.
+gracia y se vuelve a preguntar. El apartado Premium de Ajustes y los candados se ponen al día sin
+reiniciar.
 
-La pantalla del plan dice qué es gratis y qué es premium, con el precio **tal como lo da la tienda**
-(Play Billing o StoreKit, con su moneda y su formato), pedido otra vez al entrar, al cambiar el plan y
-al volver la app; si la tienda no puede decirlo (sin red, en escritorio, sin producto) se queda el
-último conocido o, si no hay ninguno, «Suscripción anual» sin cantidad, y el botón de pagar funciona
-igual. La app no escribe ni guarda ningún importe. Suscribirse y Restaurar compras aparecen cuando
-los días gratis han acabado. Ajustes y la pantalla del plan cuentan los días que quedan igual (un día
+El apartado Premium de Ajustes dice qué es gratis y qué es premium, con el precio **tal como lo da
+la tienda** (Play Billing o StoreKit, con su moneda y su formato), pedido otra vez al entrar, al
+cambiar el plan y al volver la app; si la tienda no puede decirlo (sin red, en escritorio, sin
+producto) se queda el último conocido o, si no hay ninguno, «Suscripción anual» sin cantidad, y el
+botón de pagar funciona igual. La app no escribe ni guarda ningún importe. Suscribirse y Restaurar
+compras aparecen cuando los días gratis han acabado. Ajustes cuenta los días que quedan (un día
 empezado cuenta: recién instalada, 15).
 
 Para probarlo en un teléfono de desarrollo: `FT_DEBUG_TRIAL_OVER=1` (antes
@@ -323,14 +320,16 @@ enviados o recibidos no se mueven todavía.
 ## Lo que guarda el servidor
 
 - Por dispositivo: su identificador, su clave pública, los hashes de sus ocho direcciones de
-  entrega y dónde despertarlo (el token de push, cifrado con una clave que no está en la base de
-  datos).
+  entrega, dónde despertarlo (el token de push, cifrado con una clave que no está en la base de
+  datos), ocho bits con los huecos en silencio (ver «Sesiones con PIN») y cuándo cambió su registro
+  por última vez.
 - El buzón: solo mensajes cifrados, metidos además en un sobre sellado para el destinatario
-  (sin remitente, sin clave del remitente y sin tamaño reconocible: van rellenados a bloques), que
-  se borran al recogerlos o a los 7 días. Las señales para conectar van en el mismo sobre.
+  (sin remitente, sin clave del remitente y sin tamaño reconocible: van rellenados a bloques). Cada
+  uno lleva el número del hueco (0 a 7) por el que llegó y se borra al recogerlo o a los 7 días.
+  Las señales para conectar van en el mismo sobre.
 - Sin registros de acceso, sin analítica, sin cuentas.
 
 ## Plataformas
 
-Android: publicada en revisión (1.0.0). iOS: la app compila y funciona en un iPhone, pero el push,
-las llamadas con la app cerrada y la publicación esperan a la cuenta de pago de Apple.
+Android: publicada en Google Play; la última versión es la 1.6.0. iPhone: llega pronto al App
+Store, sin fecha.
