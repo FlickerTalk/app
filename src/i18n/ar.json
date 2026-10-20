@@ -269,6 +269,7 @@
     "receiptsNote": "لجهات الاتصال الجديدة",
     "hours": "الساعات",
     "hoursOff": "إيقاف",
+    "hoursOn": "تشغيل",
     "autoDownload": "تنزيل الملفات تلقائيًا",
     "autoDownloadAsk": "اسأل دائمًا",
     "autoDownloadUpTo": "حتى {size}",

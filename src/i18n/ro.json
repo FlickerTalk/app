@@ -269,6 +269,7 @@
     "receiptsNote": "Pentru contactele noi",
     "hours": "Program",
     "hoursOff": "Oprit",
+    "hoursOn": "Pornit",
     "autoDownload": "Descărcare automată",
     "autoDownloadAsk": "Întreabă mereu",
     "autoDownloadUpTo": "Până la {size}",

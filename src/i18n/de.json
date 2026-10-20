@@ -269,6 +269,7 @@
     "receiptsNote": "Für neue Kontakte",
     "hours": "Zeiten",
     "hoursOff": "Aus",
+    "hoursOn": "An",
     "autoDownload": "Dateien automatisch laden",
     "autoDownloadAsk": "Immer fragen",
     "autoDownloadUpTo": "Bis {size}",

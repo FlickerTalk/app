@@ -269,6 +269,7 @@
     "receiptsNote": "新しい連絡先に適用",
     "hours": "時間帯",
     "hoursOff": "オフ",
+    "hoursOn": "オン",
     "autoDownload": "自動ダウンロード",
     "autoDownloadAsk": "毎回確認",
     "autoDownloadUpTo": "{size}まで",

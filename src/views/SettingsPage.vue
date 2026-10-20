@@ -224,12 +224,29 @@ async function copyId() {
 }
 
 const version = ref("");
-// Issue app#7: whether the weekly hours are on, shown on their row.
-const hoursOn = ref(false);
+// Issue app#7: whether the weekly hours are on, shown on their row. Settings stays alive behind the
+// tabs, so they are read again each time the page is shown: back from the Hours page, the row says
+// what was just chosen there (app#153). Null until the core has answered: the row says nothing then,
+// rather than a guess.
+const hoursOn = ref<boolean | null>(null);
+async function readHours() {
+  hoursOn.value = (await quietHours().catch(() => null)) !== null;
+}
 onMounted(async () => {
   version.value = await getVersion().catch(() => "");
-  hoursOn.value = (await quietHours().catch(() => null)) !== null;
+  await readHours();
 });
+onIonViewWillEnter(() => void readHours());
+// Ionic does not always fire that hook on a tab page: Calls → Settings → Hours → back shows the
+// Settings tab again without it, because the tab was never hidden (seen on both phones). The route
+// always changes, so the row follows the route too.
+const SETTINGS_PATH = "/tabs/settings";
+watch(
+  () => route.path === SETTINGS_PATH,
+  (here) => {
+    if (here) void readHours();
+  },
+);
 // Settings stays alive behind the tabs, so the plan and the price are read again each time it
 // comes back, and when the app does.
 async function refreshPlan() {
@@ -463,7 +480,7 @@ function chooseAppearance(id: Appearance) {
           <ion-item button detail lines="none" data-test="hours" @click="router.push('/hours')">
             <span slot="start" class="ft-tile"><ion-icon :icon="notificationsOffOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.hours") }}</ion-label>
-            <ion-note v-if="!hoursOn" slot="end">{{ $t("settings.hoursOff") }}</ion-note>
+            <ion-note v-if="hoursOn !== null" slot="end">{{ $t(hoursOn ? "settings.hoursOn" : "settings.hoursOff") }}</ion-note>
           </ion-item>
           <!-- Plan §17/§67: "always" hides your IP from the contact; "direct" never uses our relay. -->
           <ion-item lines="none">

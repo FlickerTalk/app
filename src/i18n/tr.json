@@ -269,6 +269,7 @@
     "receiptsNote": "Yeni kişiler için",
     "hours": "Saatler",
     "hoursOff": "Kapalı",
+    "hoursOn": "Açık",
     "autoDownload": "Otomatik indirme",
     "autoDownloadAsk": "Her zaman sor",
     "autoDownloadUpTo": "En fazla {size}",

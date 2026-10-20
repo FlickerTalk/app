@@ -269,6 +269,7 @@
     "receiptsNote": "สำหรับผู้ติดต่อใหม่",
     "hours": "ช่วงเวลา",
     "hoursOff": "ปิด",
+    "hoursOn": "เปิด",
     "autoDownload": "ดาวน์โหลดอัตโนมัติ",
     "autoDownloadAsk": "ถามทุกครั้ง",
     "autoDownloadUpTo": "สูงสุด {size}",

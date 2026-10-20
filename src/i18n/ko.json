@@ -269,6 +269,7 @@
     "receiptsNote": "새 연락처에 적용",
     "hours": "수신 시간",
     "hoursOff": "꺼짐",
+    "hoursOn": "켜짐",
     "autoDownload": "파일 자동 다운로드",
     "autoDownloadAsk": "항상 묻기",
     "autoDownloadUpTo": "{size}까지",
