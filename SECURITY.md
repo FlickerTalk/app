@@ -1,25 +1,52 @@
 # Security policy
 
-Thank you for looking. FlickerTalk carries private conversations, so security reports are welcome
-and taken seriously.
+FlickerTalk carries private conversations. If you find a security problem, please tell us
+privately.
 
-## Reporting a vulnerability
+## How to report
 
-Please report privately, not in a public issue:
-
-- GitHub: the **Report a vulnerability** button under this repository's *Security* tab, or
+- GitHub: **Report a vulnerability** under this repository's *Security* tab (private
+  vulnerability reporting), or
 - email: [info@flickertalk.com](mailto:info@flickertalk.com).
 
-Tell us what you found, how to reproduce it and what an attacker could do with it. We will confirm
-that we received your report, keep you informed while we work on it, and credit you when it is
-fixed if you want us to. There is no bug bounty.
+Please include the affected version (Settings, Version in the app, or the commit), how to reproduce
+the problem, and what an attacker could do with it. Do not include private conversations, private
+keys or other people's personal data.
 
-## What matters most
+Test only with your own phones. Do not put load on `api.flickertalk.com`: run your own router from
+[FlickerTalk/server](https://github.com/FlickerTalk/server).
 
-Anything that would let someone read or alter messages, files or calls; recover a private key;
-impersonate a device; or make our server store, log or hand over more than it should (device
-records, encrypted push tokens and end-to-end encrypted mail waiting for delivery, nothing else).
+## What happens next
 
-Out of scope: attacks that need a compromised or unlocked phone, and the limits we document in
-[how it works](https://flickertalk.com/how-it-works/), such as contacts seeing each other's IP
-address on a direct connection.
+We are a small team. We aim to confirm that we received your report within a few working days, and
+to tell you within about two weeks whether we could reproduce it and what we plan to do. We cannot
+promise a date for the fix. We will keep you informed, publish a GitHub security advisory once the
+fix is released, and credit you if you want. There is no bug bounty.
+
+## Supported versions
+
+The latest release (Google Play and [GitHub Releases](https://github.com/FlickerTalk/app/releases))
+and `main`.
+
+## In scope
+
+- Reading or altering messages, files or calls, or the keys that protect them.
+- Recovering a private key, or opening a backup without its recovery phrase.
+- Impersonating a phone or a contact, or putting oneself in the middle of a connection.
+- A plugin getting more than the user granted it: leaving its frame, or reaching the identity, keys,
+  contacts or history; or the app running a package that the signed catalogue does not list.
+- Making our server store, log or hand over more than the README and
+  [how it works](https://flickertalk.com/how-it-works/) describe, or reaching a phone without its
+  routing code.
+- Crashing a phone, or making it misbehave, with what someone else sends it.
+
+## Out of scope
+
+- Attacks that need a compromised, rooted or unlocked phone.
+- The limits we document on [how it works](https://flickertalk.com/how-it-works/), such as a
+  contact seeing your IP address on a direct connection.
+- Volume attacks against our servers, problems in Google's or Apple's push services, and scanner
+  output without a demonstrated impact.
+
+How the app is built and what it is designed to protect against:
+[flickertalk.com/security](https://flickertalk.com/security/).
