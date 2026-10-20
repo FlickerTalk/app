@@ -73,7 +73,72 @@ pub struct Manifest {
     /// `image-outline`. Empty means the app's own: a puzzle piece for a tool, a controller for a game.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub icon: String,
+    /// The chat's hooks this tool binds to (2026-10-20, plan of the translator §8, §8.2d): a link
+    /// in a message's bubble, the text being sent, and a group of settings in the conversation's
+    /// page. A hook this app does not know refuses the package; a game binds to none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub hooks: BTreeMap<HookName, HookDeclaration>,
 }
+
+/// The places in a conversation a tool can bind to (2026-10-20). The app knows nothing of what the
+/// tool does there: it hands it the text and shows what comes back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HookName {
+    /// A link in a received text's bubble: what the tool says is kept as a note and shown in place
+    /// of the text.
+    Message,
+    /// A text being sent, with the conversation's switch on: what the tool says goes instead.
+    Composer,
+    /// A group of settings in the conversation's page (§8.2d), drawn by the app from `fields`: the
+    /// tool says the values and the options, and may switch the other two on by themselves.
+    Settings,
+}
+
+impl HookName {
+    /// The name as `module.json` writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Message => "message",
+            Self::Composer => "composer",
+            Self::Settings => "settings",
+        }
+    }
+}
+
+/// What the app shows for a hook: its label, in English (other languages in `locales`), and an
+/// Ionicon's name, as the tile's `icon`. The settings hook also declares its fields and a note.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookDeclaration {
+    pub label: String,
+    pub icon: String,
+    /// The settings the app draws, in order (`settings` only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<HookField>,
+    /// A line under them (`settings` only).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+/// One setting of the settings hook, as the app draws it: a choice among the options the tool
+/// gives (`select`) or a switch (`toggle`), under a key of the tool's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookField {
+    pub key: String,
+    #[serde(rename = "type")]
+    pub kind: FieldKind,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FieldKind {
+    Select,
+    Toggle,
+}
+
+/// The most settings a tool may draw in a conversation's page.
+const FIELDS_LIMIT: usize = 8;
 
 /// A plugin's name and summary in one language; either may be left out, and then the English one
 /// is shown. Anything else a newer FlickerTalk adds here is ignored, as everywhere (§14).
@@ -83,6 +148,12 @@ pub struct Localized {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// The labels of its hooks (2026-10-20), by the hook's name: a label, or for `settings` its
+    /// `label`, its `fields`' labels by key and its `note`. Kept as they come, not checked here: a
+    /// catalogue that lists a hook a newer FlickerTalk knows is still read (§14); the package is
+    /// checked when it is opened.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub hooks: BTreeMap<String, serde_json::Value>,
 }
 
 /// The longest a name and a summary may be, in characters, in English or in any other language.
@@ -448,8 +519,15 @@ fn check(manifest: &Manifest) -> Result<()> {
         };
         ensure!(fits(&said.name, NAME_LIMIT), "the name in '{code}' is empty or too long");
         ensure!(fits(&said.summary, SUMMARY_LIMIT), "the summary in '{code}' is empty or too long");
+        for (hook, labels) in &said.hooks {
+            let Some((_, declared)) = manifest.hooks.iter().find(|(name, _)| name.as_str() == hook) else {
+                bail!("a label in '{code}' for '{hook}', a hook it does not bind to");
+            };
+            check_hook_labels(code, hook, declared, labels)?;
+        }
     }
     ensure!(manifest.icon.is_empty() || is_icon(&manifest.icon), "'{}' is not the name of an icon", manifest.icon);
+    check_hooks(manifest)?;
     match manifest.kind {
         Kind::Tool => {}
         Kind::Game => {
@@ -465,6 +543,78 @@ fn check(manifest: &Manifest) -> Result<()> {
             );
         }
         Kind::Unknown => bail!("this FlickerTalk does not know that kind of plugin"),
+    }
+    Ok(())
+}
+
+/// Whether a label fits: something to read, and no longer than `limit` characters.
+fn a_label(text: &str, limit: usize) -> bool {
+    !text.trim().is_empty() && text.chars().count() <= limit
+}
+
+/// The key of a setting, as the SDK spells it: `^[a-z][a-zA-Z0-9]*$`, 32 at most.
+fn is_field_key(key: &str) -> bool {
+    (1..=32).contains(&key.len()) && key.starts_with(|c: char| c.is_ascii_lowercase()) && key.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// The chat's hooks a tool binds to (2026-10-20, plan of the translator §8.1, §8.2d): only a tool's,
+/// each with a label and an icon, and only with what the hook needs asked for. `message` and
+/// `composer` read the text they are handed (`messages: given`); `composer` puts its answer in the
+/// chat (`send: propose`). `settings` needs nothing, and is the only one with fields (one to eight,
+/// each a `select` or a `toggle` under a key of its own) and a note.
+fn check_hooks(manifest: &Manifest) -> Result<()> {
+    ensure!(manifest.hooks.is_empty() || manifest.kind == Kind::Tool, "only a tool binds to the chat's hooks");
+    let asks = &manifest.permissions;
+    for (name, hook) in &manifest.hooks {
+        let hook_name = name.as_str();
+        ensure!(a_label(&hook.label, NAME_LIMIT), "the label of '{hook_name}' is empty or too long");
+        ensure!(is_icon(&hook.icon), "'{}' is not the name of an icon", hook.icon);
+        match name {
+            HookName::Message => ensure!(asks.reads_given_messages, "the message hook reads the message: it needs messages: given"),
+            HookName::Composer => {
+                ensure!(asks.reads_given_messages, "the composer hook reads the draft: it needs messages: given");
+                ensure!(asks.send == Sending::Propose, "the composer hook proposes a text: it needs send: propose");
+            }
+            HookName::Settings => {
+                ensure!((1..=FIELDS_LIMIT).contains(&hook.fields.len()), "the settings hook draws one to {FIELDS_LIMIT} fields");
+                for (at, field) in hook.fields.iter().enumerate() {
+                    ensure!(is_field_key(&field.key), "'{}' is not the key of a setting", field.key);
+                    ensure!(hook.fields[..at].iter().all(|before| before.key != field.key), "two settings under '{}'", field.key);
+                    ensure!(a_label(&field.label, NAME_LIMIT), "the label of the setting '{}' is empty or too long", field.key);
+                }
+                ensure!(hook.note.is_empty() || a_label(&hook.note, SUMMARY_LIMIT), "the note of the settings is blank or too long");
+            }
+        }
+        if *name != HookName::Settings {
+            ensure!(hook.fields.is_empty() && hook.note.is_empty(), "only the settings hook has fields and a note");
+        }
+    }
+    Ok(())
+}
+
+/// A hook's labels in one language: a label for `message` and `composer`; for `settings`, its
+/// label, its fields' labels by key (only fields it declares) and its note, each optional.
+fn check_hook_labels(code: &str, hook: &str, declared: &HookDeclaration, labels: &serde_json::Value) -> Result<()> {
+    let fits = |text: &serde_json::Value, limit: usize| text.as_str().is_some_and(|text| a_label(text, limit));
+    if hook != HookName::Settings.as_str() {
+        ensure!(fits(labels, NAME_LIMIT), "the label of '{hook}' in '{code}' is not a label, or is empty or too long");
+        return Ok(());
+    }
+    let Some(said) = labels.as_object() else { bail!("the settings' labels in '{code}' are not an object") };
+    for (key, value) in said {
+        match key.as_str() {
+            "label" => ensure!(fits(value, NAME_LIMIT), "the settings' label in '{code}' is empty or too long"),
+            "note" => ensure!(fits(value, SUMMARY_LIMIT), "the settings' note in '{code}' is empty or too long"),
+            "fields" => {
+                let Some(fields) = value.as_object() else { bail!("the settings' field labels in '{code}' are not by key") };
+                for (field, label) in fields {
+                    ensure!(declared.fields.iter().any(|one| &one.key == field), "a label in '{code}' for '{field}', a setting it does not draw");
+                    ensure!(fits(label, NAME_LIMIT), "the label of the setting '{field}' in '{code}' is empty or too long");
+                }
+            }
+            // Something a newer FlickerTalk adds here is not a reason to refuse the plugin (§14).
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -1130,6 +1280,156 @@ mod tests {
         // A grant written before this permission existed reads as no translator.
         let before: Permissions = serde_json::from_str(r#"{"network":[],"messages":"none","send":"nothing"}"#).unwrap();
         assert_eq!(serde_json::to_value(&before).unwrap()["translate"], serde_json::json!(false));
+    }
+
+    /// A tool that binds to the chat's hooks (2026-10-20, plan of the translator §8): `hooks` and
+    /// the permissions it asks for.
+    fn hooked(hooks: &str, permissions: &str) -> String {
+        format!(
+            r#"{{"id":"com.example.translate","name":"Translator","version":"1.1.0","minCoreVersion":"1.7.0","components":["ft-translate"],"permissions":{permissions},"hooks":{hooks}}}"#
+        )
+    }
+
+    /// The settings hook as the Translator declares it (§8.2d): three fields and a note.
+    const SETTINGS: &str = r#"{"label":"Translation","icon":"language-outline","fields":[{"key":"lang","type":"select","label":"Language"},{"key":"receive","type":"toggle","label":"Translate what I receive"},{"key":"send","type":"toggle","label":"Send translated"}],"note":"Language packs are downloaded once; translation happens on the phone."}"#;
+    fn every_hook() -> String {
+        format!(r#"{{"message":{{"label":"Translate","icon":"language-outline"}},"composer":{{"label":"Translate","icon":"language-outline"}},"settings":{SETTINGS}}}"#)
+    }
+    const READS_AND_PROPOSES: &str = r#"{"messages":"given","send":"propose","translate":true}"#;
+
+    // 2026-10-20 (plan of the translator §8.1, §8.2d): a tool says which of the chat's hooks it binds
+    // to, each with the label and the icon the app shows; `settings` declares the fields the app
+    // draws in the conversation's page, and a note. A manifest that says nothing binds to none.
+    #[test]
+    fn a_tool_may_bind_to_the_chats_hooks() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let tool = opens(&hooked(&every_hook(), READS_AND_PROPOSES)).expect("a tool with its hooks").manifest;
+        assert_eq!(tool.hooks.len(), 3);
+        assert_eq!(tool.hooks[&HookName::Message].label, "Translate");
+        assert_eq!(tool.hooks[&HookName::Message].icon, "language-outline");
+        assert!(tool.hooks[&HookName::Message].fields.is_empty());
+        let settings = &tool.hooks[&HookName::Settings];
+        assert_eq!(settings.label, "Translation");
+        assert_eq!(
+            settings.fields,
+            vec![
+                HookField { key: "lang".to_owned(), kind: FieldKind::Select, label: "Language".to_owned() },
+                HookField { key: "receive".to_owned(), kind: FieldKind::Toggle, label: "Translate what I receive".to_owned() },
+                HookField { key: "send".to_owned(), kind: FieldKind::Toggle, label: "Send translated".to_owned() },
+            ]
+        );
+        assert_eq!(settings.note, "Language packs are downloaded once; translation happens on the phone.");
+        let said = serde_json::to_value(&tool).unwrap();
+        assert_eq!(said["hooks"]["composer"]["icon"], "language-outline", "{said}");
+        assert_eq!(said["hooks"]["settings"]["fields"][0], serde_json::json!({ "key": "lang", "type": "select", "label": "Language" }));
+        assert!(said["hooks"]["message"].get("fields").is_none() && said["hooks"]["message"].get("note").is_none(), "{said}");
+
+        let plain = opens(&manifest_of("com.example.code")).unwrap().manifest;
+        assert!(plain.hooks.is_empty(), "no hooks unless it says so");
+        assert!(serde_json::to_value(&plain).unwrap().get("hooks").is_none(), "none, nothing written");
+        // `settings` needs no permission: the app draws its fields and hands it only what it may read.
+        let settings_only = hooked(&format!(r#"{{"settings":{SETTINGS}}}"#), "{}");
+        assert_eq!(opens(&settings_only).unwrap().manifest.hooks.len(), 1);
+    }
+
+    // `message` and `composer` read the text they are given, so they need `messages: given`;
+    // `composer` puts its text in the chat, so it needs `send: propose`. A hook this app does not know
+    // (`chat` is gone, §8.2d), a game with hooks, an empty or long label, an icon that is no icon's
+    // name and settings whose fields cannot be drawn are refused.
+    #[test]
+    fn a_hook_the_app_does_not_know_or_whose_needs_are_not_asked_for_is_refused() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let message = r#"{"message":{"label":"Translate","icon":"language-outline"}}"#;
+        let composer = r#"{"composer":{"label":"Translate","icon":"language-outline"}}"#;
+        assert!(opens(&hooked(message, r#"{"messages":"given"}"#)).is_ok());
+        assert!(opens(&hooked(composer, r#"{"messages":"given","send":"propose"}"#)).is_ok());
+        let settings = |fields: &str, note: &str| format!(r#"{{"settings":{{"label":"Translation","icon":"language-outline","fields":{fields}{note}}}}}"#);
+        let field = |key: &str, kind: &str, label: &str| format!(r#"{{"key":"{key}","type":"{kind}","label":"{label}"}}"#);
+        let nine = format!("[{}]", (0..9).map(|at| field(&format!("f{at}"), "toggle", "On")).collect::<Vec<_>>().join(","));
+        let wrong: Vec<(String, &str)> = vec![
+            (message.to_owned(), "{}"),
+            (composer.to_owned(), r#"{"send":"propose"}"#),
+            (composer.to_owned(), r#"{"messages":"given"}"#),
+            (composer.to_owned(), r#"{"messages":"given","send":"auto"}"#),
+            (r#"{"chat":{"label":"Chat language","icon":"language-outline"}}"#.to_owned(), "{}"),
+            (r#"{"reaction":{"label":"React","icon":"happy-outline"}}"#.to_owned(), READS_AND_PROPOSES),
+            (r#"{"message":{"label":"","icon":"language-outline"}}"#.to_owned(), READS_AND_PROPOSES),
+            (r#"{"message":{"label":"   ","icon":"language-outline"}}"#.to_owned(), READS_AND_PROPOSES),
+            (format!(r#"{{"message":{{"label":"{}","icon":"language-outline"}}}}"#, "x".repeat(65)), READS_AND_PROPOSES),
+            (r#"{"message":{"label":"Translate","icon":"Language Outline"}}"#.to_owned(), READS_AND_PROPOSES),
+            (r#"{"message":{"label":"Translate","icon":""}}"#.to_owned(), READS_AND_PROPOSES),
+            (r#"{"message":{"label":"Translate"}}"#.to_owned(), READS_AND_PROPOSES),
+            (r#"{"message":"Translate"}"#.to_owned(), READS_AND_PROPOSES),
+            // Fields and a note are the settings hook's only.
+            (format!(r#"{{"message":{{"label":"Translate","icon":"language-outline","fields":[{}]}}}}"#, field("lang", "select", "Language")), READS_AND_PROPOSES),
+            (r#"{"message":{"label":"Translate","icon":"language-outline","note":"A note"}}"#.to_owned(), READS_AND_PROPOSES),
+            (settings("[]", ""), "{}"),
+            (settings(&nine, ""), "{}"),
+            (settings(&format!("[{}]", field("lang", "slider", "Language")), ""), "{}"),
+            (settings(&format!("[{}]", field("Lang", "select", "Language")), ""), "{}"),
+            (settings(&format!("[{}]", field("send_now", "toggle", "Send")), ""), "{}"),
+            (settings(&format!("[{}]", field("9lives", "toggle", "Lives")), ""), "{}"),
+            (settings(&format!("[{}]", field(&"k".repeat(33), "toggle", "Long")), ""), "{}"),
+            (settings(&format!("[{}]", field("", "select", "Language")), ""), "{}"),
+            (settings(&format!("[{}]", field("lang", "select", "")), ""), "{}"),
+            (settings(&format!("[{},{}]", field("lang", "select", "Language"), field("lang", "toggle", "Again")), ""), "{}"),
+            (settings(&format!("[{}]", field("lang", "select", "Language")), &format!(r#","note":"{}""#, "n".repeat(201))), "{}"),
+            (settings(&format!("[{}]", field("lang", "select", "Language")), r#","note":"  ""#), "{}"),
+        ];
+        for (hooks, permissions) in &wrong {
+            assert!(opens(&hooked(hooks, permissions)).is_err(), "{hooks} with {permissions} should be refused");
+        }
+        let eight = format!("[{}]", (0..8).map(|at| field(&format!("sendTranslated{at}"), "toggle", "On")).collect::<Vec<_>>().join(","));
+        assert!(opens(&hooked(&settings(&eight, r#","note":"A note""#), "{}")).is_ok(), "eight fields and a note");
+        let game = game_with(&format!(r#","permissions":{{"live":true}},"hooks":{{"settings":{SETTINGS}}}"#));
+        assert!(opens(&game).is_err(), "a game binds to no hook of the chat");
+    }
+
+    // The labels in other languages, as the name and the summary (`locales.<lang>.hooks`): a label
+    // for `message` and `composer`; for `settings`, its label, its fields' labels and its note. Only
+    // for a hook (and a field) the tool declares, with the same limits as the English ones.
+    #[test]
+    fn a_hooks_labels_may_come_in_other_languages() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let with = |locales: &str| hooked(&every_hook(), READS_AND_PROPOSES).replacen('{', &format!(r#"{{"locales":{locales},"#), 1);
+        let spanish = r#"{"es":{"name":"Traductor","hooks":{"message":"Traducir","settings":{"label":"Traducción","fields":{"lang":"Idioma","send":"Enviar traducido"},"note":"Los paquetes se descargan una vez."}}}}"#;
+        let tool = opens(&with(spanish)).unwrap().manifest;
+        assert_eq!(tool.locales["es"].hooks["message"], "Traducir");
+        assert_eq!(tool.locales["es"].hooks["settings"]["fields"]["lang"], "Idioma");
+        assert!(!tool.locales["es"].hooks.contains_key("composer"), "a label left out is the English one");
+        assert_eq!(serde_json::to_value(&tool).unwrap()["locales"]["es"]["hooks"]["settings"]["note"], "Los paquetes se descargan una vez.");
+        assert!(serde_json::to_value(&opens(&manifest_in(r#"{"es":{"name":"Traductor"}}"#)).unwrap().manifest).unwrap()["locales"]["es"].get("hooks").is_none());
+        for wrong in [
+            r#"{"es":{"hooks":{"reaction":"Reaccionar"}}}"#.to_owned(),
+            r#"{"es":{"hooks":{"message":""}}}"#.to_owned(),
+            format!(r#"{{"es":{{"hooks":{{"message":"{}"}}}}}}"#, "x".repeat(65)),
+            r#"{"es":{"hooks":{"message":7}}}"#.to_owned(),
+            r#"{"es":{"hooks":{"message":{"label":"Traducir"}}}}"#.to_owned(),
+            r#"{"es":{"hooks":{"settings":{"fields":{"speed":"Velocidad"}}}}}"#.to_owned(),
+            r#"{"es":{"hooks":{"settings":{"fields":{"lang":""}}}}}"#.to_owned(),
+            r#"{"es":{"hooks":{"settings":{"label":"  "}}}}"#.to_owned(),
+            format!(r#"{{"es":{{"hooks":{{"settings":{{"note":"{}"}}}}}}}}"#, "n".repeat(201)),
+            r#"{"es":{"hooks":{"settings":{"fields":["Idioma"]}}}}"#.to_owned(),
+        ] {
+            assert!(opens(&with(&wrong)).is_err(), "{wrong} should be refused");
+        }
+        // A label for a hook it does not bind to.
+        let unbound = hooked(&format!(r#"{{"settings":{SETTINGS}}}"#), "{}").replacen('{', r#"{"locales":{"es":{"hooks":{"message":"Traducir"}}},"#, 1);
+        assert!(opens(&unbound).is_err());
+    }
+
+    // §14: a catalogue whose entries carry the labels of a hook this app does not know yet is still
+    // read; only the package of such a plugin is refused, when it is opened.
+    #[test]
+    fn the_catalogue_is_read_with_labels_of_hooks_this_app_does_not_know() {
+        let catalogue = Ed25519SecretKey::new();
+        let index = index_of(&"ab".repeat(32))
+            .replacen(r#""summary":"#, r#""locales":{"es":{"name":"Traductor","hooks":{"message":"Traducir","reaction":"Reaccionar"}}},"summary":"#, 1);
+        let listed = catalogue_entries(&index, &catalogue.sign(index.as_bytes()).to_base64(), &catalogue.public_key()).expect("still a catalogue");
+        assert_eq!(listed[0].locales["es"].hooks["message"], "Traducir");
     }
 
     // 2026-09-27: the permissions the board, the notes and the drive need are asked for one by

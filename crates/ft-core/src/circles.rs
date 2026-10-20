@@ -167,6 +167,14 @@ impl Core {
     /// Says something in the circle: stored once, queued once per member, and delivered to each
     /// by whichever way works, like a message to one contact.
     pub async fn send_circle_text(&self, circle: &str, text: &str) -> Result<String> {
+        let message_id = self.queue_circle_text(circle, text).await?;
+        self.deliver_circle_queue().await;
+        Ok(message_id)
+    }
+
+    /// Stores a text in the circle and queues it for every other member, without delivering it
+    /// yet; returns its id (2026-10-20), as `queue_text` does. `deliver_circle_queue` sends it.
+    pub async fn queue_circle_text(&self, circle: &str, text: &str) -> Result<String> {
         let text = text.trim();
         ensure!(!text.is_empty(), "nothing to send");
         self.circle_writable(circle).await?;
@@ -190,7 +198,6 @@ impl Core {
             self.store.circle_enqueue(&message_id, member, now()).await?;
         }
         let _ = self.events.send(Event::CircleMessagesChanged { circle: circle.to_owned() });
-        self.deliver_circle_queue().await;
         Ok(message_id)
     }
 
@@ -412,7 +419,7 @@ impl Core {
     }
 
     /// Tries every circle entry now.
-    pub(crate) async fn deliver_circle_queue(&self) {
+    pub async fn deliver_circle_queue(&self) {
         if let Ok(entries) = self.store.circle_outbox().await {
             for entry in entries {
                 let _ = self.deliver_circle(&entry).await;

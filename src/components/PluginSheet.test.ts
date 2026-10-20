@@ -1037,6 +1037,162 @@ describe("PluginSheet", () => {
     });
   });
 
+  // 2026-10-20 (plan of the translator §8): the chat's hooks. The app hands the plugin a message,
+  // a draft or the chat (`ft.hook`) once it is up, and waits for its answer (`ft.hookDone`). A
+  // hook may run in a frame out of sight (`hidden`), which shows only while the plugin asks the user
+  // something (`ft.show`) and goes again when it answers.
+  describe("the chat's hooks", () => {
+    type Hooking = { runHook(hook: Record<string, unknown>): Promise<unknown>; close(): Promise<void> };
+    const HOOK = { name: "message", text: "see you at six", chat: "c".repeat(43), ref: "ref_1", lang: "es", manual: true };
+    const hookCalls = (post: ReturnType<typeof vi.fn>) => post.mock.calls.map(([message]) => message).filter((message) => message.type === "ft.hook");
+    const vm = (wrapper: ReturnType<typeof mount>) => wrapper.vm as unknown as Hooking;
+
+    it("hands a hook to the plugin once it is up, and comes back with its answer", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      let answer: unknown = "waiting";
+      void vm(wrapper).runHook(HOOK).then((said) => (answer = said));
+      await flushPromises();
+      expect(hookCalls(post), "not before the plugin is up").toHaveLength(0);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      const [handed] = hookCalls(post);
+      expect(handed).toMatchObject({ type: "ft.hook", ...HOOK });
+      expect(typeof handed.id).toBe("string");
+      says({ type: "ft.hookDone", id: "another", result: { text: "nope" } });
+      await flushPromises();
+      expect(answer, "another run's answer is not this one's").toBe("waiting");
+      says({ type: "ft.hookDone", id: handed.id, result: { text: "nos vemos a las seis" } });
+      await flushPromises();
+      expect(answer).toEqual({ text: "nos vemos a las seis" });
+      expect(handed, "no question was answered").not.toHaveProperty("answer");
+      // Run again once the user said yes to its question (§8.2c).
+      void vm(wrapper).runHook({ ...HOOK, answer: true });
+      await flushPromises();
+      expect(hookCalls(post)[1]).toMatchObject({ type: "ft.hook", ...HOOK, answer: true });
+      // The settings the user changed (§8.2d), handed as they are.
+      void vm(wrapper).runHook({ ...HOOK, name: "settings", text: "", ref: null, values: { lang: "fr", receive: true } });
+      await flushPromises();
+      expect(hookCalls(post)[2]).toMatchObject({ type: "ft.hook", name: "settings", values: { lang: "fr", receive: true } });
+      expect(hookCalls(post)[1]).not.toHaveProperty("values");
+    });
+
+    it("comes back with nothing once it is closing, and runs nothing more", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      const running = vm(wrapper).runHook(HOOK);
+      await flushPromises();
+      void vm(wrapper).close();
+      expect(await running).toBeNull();
+      expect(await vm(wrapper).runHook(HOOK)).toBeNull();
+      expect(hookCalls(post)).toHaveLength(1);
+    });
+
+    // A locked tool (decision of 2026-10-08): the core will not open it, so no hook runs in it.
+    it("comes back with nothing when the core will not open the plugin", async () => {
+      tauri.invoke.mockImplementation(async (command: string) => {
+        if (command === "core_plugin_open") throw "refused";
+      });
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true }, shallow: true });
+      await flushPromises();
+      framed(wrapper).says({ type: "ft.ready" });
+      expect(await vm(wrapper).runHook(HOOK)).toBeNull();
+    });
+
+    it("stays out of sight until the plugin asks to be seen, and goes once it answers", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      const section = () => wrapper.find("section");
+      expect(section().classes()).toContain("ft-plugin--hidden");
+      expect(section().attributes("inert")).toBeDefined();
+      says({ type: "ft.ready" });
+      await flushPromises();
+      const running = vm(wrapper).runHook(HOOK);
+      await flushPromises();
+      says({ type: "ft.show" });
+      await flushPromises();
+      expect(section().classes()).not.toContain("ft-plugin--hidden");
+      expect(section().attributes("inert")).toBeUndefined();
+      expect(wrapper.emitted("shown")).toEqual([[true]]);
+      says({ type: "ft.hookDone", id: hookCalls(post)[0].id, result: null });
+      expect(await running).toBeNull();
+      await flushPromises();
+      expect(section().classes()).toContain("ft-plugin--hidden");
+      expect(wrapper.emitted("shown")).toEqual([[true], [false]]);
+    });
+
+    it("leaves a window on screen as it is when its plugin asks to be seen", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      framed(wrapper).says({ type: "ft.show" });
+      await flushPromises();
+      expect(wrapper.find("section").classes()).not.toContain("ft-plugin--hidden");
+      expect(wrapper.emitted("shown")).toBeUndefined();
+    });
+
+    it("tells a window opened for a hook so", async () => {
+      tauri.invoke.mockImplementation(async (command: string) => (command === "core_plugin_chat" ? "c".repeat(43) : undefined));
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hook: "settings" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", hook: "settings", chat: "c".repeat(43) }), "*");
+    });
+
+    // Circles too (plan of the translator, circles): `contact` is the conversation, a contact's or a
+    // circle's id; the plugin gets that circle's own key, and its hooks run there.
+    it("runs in a circle with the circle's key", async () => {
+      tauri.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) =>
+        command === "core_plugin_chat" && args?.contact === "circle-1" ? "k".repeat(43) : undefined,
+      );
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "circle-1", hidden: true }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_chat", { plugin: plugin.id, contact: "circle-1" });
+      expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", chat: "k".repeat(43) }), "*");
+      void vm(wrapper).runHook({ ...HOOK, chat: "k".repeat(43) });
+      await flushPromises();
+      expect(hookCalls(post)[0]).toMatchObject({ type: "ft.hook", chat: "k".repeat(43) });
+    });
+
+    // Out of sight nothing may put the phone's own screens up: a picker, a photo, saving or printing
+    // are refused at once and the plugin is not left waiting; the rest works as on screen. A hidden frame speaks through its hook's answer only:
+    // it never writes in the composer nor goes to a chat.
+    it("refuses at once out of sight what needs the user, and never writes in the chat", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true, sending: "propose" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      says({ type: "ft.pickFile", id: "p1", accept: "" });
+      says({ type: "ft.save", id: "s1", name: "a.txt", mime: "text/plain", data: "QQ==" });
+      says({ type: "ft.text", text: "hello" });
+      says({ type: "ft.notify", text: "Already in your language", sticky: false });
+      says({ type: "ft.read", id: "r1", key: "chat-language" });
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "p1", name: "", mime: "", data: "" }, "*");
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "s1", answer: false }, "*");
+      expect(tauri.invoke.mock.calls.map(([command]) => command)).not.toContain("core_pick_for_plugin");
+      expect(tauri.invoke.mock.calls.map(([command]) => command)).not.toContain("core_plugin_save");
+      expect(wrapper.emitted("text")).toBeUndefined();
+      // What it keeps and its notices work out of sight as on screen: the window goes on its answer.
+      expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "Already in your language" }));
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_read", expect.objectContaining({ plugin: plugin.id, key: "chat-language" }));
+      says({ type: "ft.show" });
+      says({ type: "ft.text", text: "hello" });
+      await flushPromises();
+      expect(wrapper.emitted("text"), "seen, it still answers through its hook").toBeUndefined();
+    });
+  });
+
   it("makes the call the plugin asked for through the core, never itself", async () => {
     tauri.invoke.mockResolvedValue({ status: 200, body: "QUJD" });
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
@@ -1386,6 +1542,32 @@ describe("PluginSheet", () => {
 
     afterEach(() => {
       installed.value = [];
+    });
+
+    // 2026-10-20 (plan of the translator §8): a hook the conversation runs by itself, out of sight,
+    // asks like any other; but a no is not asked again by the next run the user did not start
+    // (twenty messages are twenty runs). One the user starts asks again.
+    it("out of sight, does not ask again after a no unless the user started the run", async () => {
+      core({}, { ...TOOL, asks: { ...TOOL.asks, translate: true }, granted: { ...NOTHING, network: [], translate: false } });
+      const { wrapper, post, says } = await open({ hidden: true });
+      const sheet = wrapper.vm as unknown as { runHook(hook: Record<string, unknown>): Promise<unknown> };
+      const run = (manual: boolean) => void sheet.runHook({ name: "message", text: "hola", chat: "c", ref: null, lang: "en", manual });
+      run(false);
+      says({ type: "ft.translateLanguages", id: "t1" });
+      await flushPromises();
+      expect(needs(wrapper)).toHaveLength(1);
+      needs(wrapper)[0].answer(false);
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "t1", answer: [] }, "*");
+      run(false);
+      says({ type: "ft.translateLanguages", id: "t2" });
+      await flushPromises();
+      expect(needs(wrapper), "not asked again by the conversation").toHaveLength(1);
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "t2", answer: [] }, "*");
+      run(true);
+      says({ type: "ft.translateLanguages", id: "t3" });
+      await flushPromises();
+      expect(needs(wrapper), "the user asked for it").toHaveLength(2);
     });
 
     it("asks for the location it lacks, and after a yes hands the plugin the real position", async () => {

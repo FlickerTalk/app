@@ -366,4 +366,137 @@ describe("the frame", () => {
       expect(closedSaid(posted)).toBe(1);
     });
   });
+
+  // 2026-10-20 (plan of the translator §8): the chat's hooks. The app hands the plugin a message,
+  // a draft or the chat itself (`ft.hook`) and waits for its answer (`ft.hookDone`); a plugin running
+  // out of sight may ask to be seen (`ft.show`).
+  describe("hooks", () => {
+    type Hooked = { onHook(handler: (hook: Said) => unknown): void; show(): void };
+    const hooks = () => (globalThis as unknown as { ft: Hooked }).ft;
+    const hook = { type: "ft.hook", id: "h1", name: "message", text: "see you at six", chat: "c".repeat(43), ref: "ref_1", lang: "es", manual: true };
+    const done = (posted: Said[]) => posted.filter((one) => one.type === "ft.hookDone");
+
+    it("hands the hook to the plugin's handler and its answer back to the app", async () => {
+      const heard: Said[] = [];
+      const { posted, says, ran } = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          return { text: "nos vemos a las seis" };
+        }),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says(hook);
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(1));
+      expect(heard).toEqual([{ name: "message", text: "see you at six", chat: "c".repeat(43), ref: "ref_1", lang: "es", manual: true }]);
+      expect(done(posted)[0]).toEqual({ type: "ft.hookDone", id: "h1", result: { text: "nos vemos a las seis" } });
+    });
+
+    // §8.2c: the chat's language as the plugin found it, and a question for the user (a download)
+    // the app asks in its own alert before running the hook again with the answer.
+    it("hands the settings hook's switches and language back, a question for the user, and only what a result can say", async () => {
+      const answers: unknown[] = [
+        { auto: { message: true, composer: false }, lang: "es" },
+        { text: 7, auto: { message: "yes", composer: true }, lang: 5, secret: "x" },
+        { ask: { text: "Download Spanish, about 30 MB?" } },
+        { ask: "Download?" },
+        "a text",
+        {},
+        null,
+      ];
+      const heard: Said[] = [];
+      const { posted, says, ran } = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          return answers.shift();
+        }),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      for (const id of ["a", "b", "c", "d", "e", "f", "g"]) await says({ ...hook, id, name: "settings", text: "", ref: null, manual: false, answer: id === "c" });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(7));
+      expect(done(posted).map((one) => one.result)).toEqual([
+        { auto: { message: true, composer: false }, lang: "es" },
+        { auto: { composer: true } },
+        { ask: { text: "Download Spanish, about 30 MB?" } },
+        null,
+        null,
+        null,
+        null,
+      ]);
+      expect(heard[2]).toMatchObject({ answer: true });
+      expect(heard[0]).not.toHaveProperty("answer");
+    });
+
+    // §8.2d: the settings hook. The app hands the values the user changed and takes back the
+    // group as it is: values, the options of each select, the conversation's language (null: none).
+    it("hands the settings hook the values the user changed, and takes back values, options and language", async () => {
+      const heard: Said[] = [];
+      const answers: unknown[] = [
+        {
+          values: { lang: "fr", receive: true, send: "yes", nested: { no: 1 } },
+          options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French" }, { value: 7, label: "Seven" }], bad: "x" },
+          lang: null,
+          auto: { message: true, composer: false },
+        },
+      ];
+      const { posted, says, ran } = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          return answers.shift() ?? null;
+        }),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says({ ...hook, name: "settings", text: "", ref: null, values: { lang: "fr", receive: true, bad: { x: 1 } } });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(1));
+      expect(heard[0]).toMatchObject({ name: "settings", values: { lang: "fr", receive: true } });
+      expect((heard[0].values as Record<string, unknown>).bad).toBeUndefined();
+      expect(done(posted)[0].result).toEqual({
+        values: { lang: "fr", receive: true, send: "yes" },
+        options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French" }] },
+        lang: null,
+        auto: { message: true, composer: false },
+      });
+      await says({ ...hook, id: "h2" });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(2));
+      expect(heard[1]).not.toHaveProperty("values");
+    });
+
+    it("answers nothing for a plugin without a handler, a handler that fails or a hook it cannot know", async () => {
+      const heard: Said[] = [];
+      const bare = await frame();
+      await bare.says({ type: "ft.theme", dark: false, theme: {} });
+      await bare.ran;
+      await bare.says(hook);
+      await vi.waitFor(() => expect(done(bare.posted)).toEqual([{ type: "ft.hookDone", id: "h1", result: null }]));
+
+      const broken = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          throw new Error("broken");
+        }),
+      );
+      await broken.says({ type: "ft.theme", dark: false, theme: {} });
+      await broken.ran;
+      await broken.says(hook);
+      await broken.says({ ...hook, id: "h2", name: "reaction" });
+      await vi.waitFor(() => expect(done(broken.posted)).toHaveLength(2));
+      expect(done(broken.posted).map((one) => one.result)).toEqual([null, null]);
+      expect(heard).toHaveLength(1);
+    });
+
+    it("lets a plugin ask to be seen, and says which hook its window was opened for", async () => {
+      const opened: Said[] = [];
+      const { posted, says, ran } = await frame(() => ft().onOpen((one) => opened.push(one)));
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      hooks().show();
+      expect(posted).toContainEqual({ type: "ft.show" });
+      await says({ type: "ft.open", hook: "settings", chat: "c".repeat(43) });
+      await says({ type: "ft.open", hook: "chat" });
+      expect(opened[0]).toMatchObject({ hook: "settings", chat: "c".repeat(43) });
+      expect(opened[1]).not.toHaveProperty("hook");
+    });
+  });
 });

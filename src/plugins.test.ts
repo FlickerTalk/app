@@ -20,6 +20,11 @@ import {
   NOTICE_LIMIT,
   frameUrl,
   games,
+  hookIcon,
+  hookLabel,
+  hooked,
+  settingsFields,
+  settingsNote,
   installed,
   isLocked,
   followPremiumLock,
@@ -42,7 +47,7 @@ import {
 } from "./plugins";
 import type { OfferedPlugin, PluginView } from "./core";
 import { setLocale } from "./i18n";
-import { bookOutline, extensionPuzzleOutline, gameControllerOutline, imageOutline, logoMarkdown, radioButtonOnOutline } from "ionicons/icons";
+import { bookOutline, extensionPuzzleOutline, languageOutline, gameControllerOutline, imageOutline, logoMarkdown, radioButtonOnOutline } from "ionicons/icons";
 import { readdirSync } from "node:fs";
 
 const CODE: PluginView = {
@@ -420,6 +425,118 @@ describe("plugins in the app", () => {
   // 2026-10-02 (plan of the catalogue's translations): a plugin's name and summary in the phone's
   // language. The installed package's own, then the catalogue's entry with the same id, then the
   // English; for each, the exact language, then its base language.
+  // 2026-10-20 (plan of the translator §8): a hook's answer and a plugin asking to be seen. Only a
+  // text and the chat hook's two switches come through; a note is as long as a message at most.
+  it("understands a hook's answer and a plugin asking to be seen, and nothing more", () => {
+    const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+    const said = (data: unknown) => fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
+    expect(said({ type: "ft.show" })).toEqual({ type: "ft.show" });
+    expect(said({ type: "ft.hookDone", id: "h1", result: { text: "hola" } })).toEqual({ type: "ft.hookDone", id: "h1", result: { text: "hola" } });
+    expect(said({ type: "ft.hookDone", id: "h2", result: { auto: { message: true, composer: "yes" }, secret: 1 } })).toEqual({
+      type: "ft.hookDone",
+      id: "h2",
+      result: { auto: { message: true } },
+    });
+    expect(said({ type: "ft.hookDone", id: "h3", result: null })).toEqual({ type: "ft.hookDone", id: "h3", result: null });
+    expect(said({ type: "ft.hookDone", id: "h4", result: "hola" })).toEqual({ type: "ft.hookDone", id: "h4", result: null });
+    expect(said({ type: "ft.hookDone", id: "h5", result: { text: "x".repeat(5_001) } })).toEqual({ type: "ft.hookDone", id: "h5", result: null });
+    expect(said({ type: "ft.hookDone", result: { text: "hola" } })).toBeNull();
+    // §8.2c: the chat's language as the tool found it, and a question the app asks for it.
+    expect(said({ type: "ft.hookDone", id: "h6", result: { lang: "es", auto: { message: true } } })).toEqual({ type: "ft.hookDone", id: "h6", result: { lang: "es", auto: { message: true } } });
+    expect(said({ type: "ft.hookDone", id: "h7", result: { lang: "x".repeat(36) } })).toEqual({ type: "ft.hookDone", id: "h7", result: null });
+    expect(said({ type: "ft.hookDone", id: "h10", result: { lang: "" } }), "no language any more").toEqual({ type: "ft.hookDone", id: "h10", result: { lang: "" } });
+    expect(said({ type: "ft.hookDone", id: "h11", result: { lang: null } }), "none, as the SDK says it").toEqual({ type: "ft.hookDone", id: "h11", result: { lang: null } });
+    // §8.2d: the settings hook gives back its values and the options of each select.
+    const group = {
+      values: { lang: "fr", receive: true, send: 3, deep: { x: 1 } },
+      options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French" }, { value: "de" }], other: "x" },
+      lang: "fr",
+    };
+    expect(said({ type: "ft.hookDone", id: "h12", result: group })).toEqual({
+      type: "ft.hookDone",
+      id: "h12",
+      result: { values: { lang: "fr", receive: true }, options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French" }] }, lang: "fr" },
+    });
+    const many = { options: { lang: Array.from({ length: 400 }, (_, at) => ({ value: `l${at}`, label: `Language ${at}` })) } };
+    expect((said({ type: "ft.hookDone", id: "h13", result: many }) as unknown as { result: { options: { lang: unknown[] } } }).result.options.lang, "no list longer than the languages there are").toHaveLength(300);
+    expect(said({ type: "ft.hookDone", id: "h8", result: { ask: { text: "Download Spanish,\nabout 30 MB?" } } })).toEqual({
+      type: "ft.hookDone",
+      id: "h8",
+      result: { ask: { text: "Download Spanish, about 30 MB?" } },
+    });
+    expect(said({ type: "ft.hookDone", id: "h9", result: { ask: { text: "  " } } })).toEqual({ type: "ft.hookDone", id: "h9", result: null });
+  });
+
+  describe("the chat's hooks", () => {
+    const SETTINGS = {
+      label: "Translation",
+      icon: "language-outline",
+      fields: [
+        { key: "lang", type: "select" as const, label: "Language" },
+        { key: "receive", type: "toggle" as const, label: "Translate what I receive" },
+      ],
+      note: "Language packs are downloaded once.",
+    };
+    const TRANSLATOR: PluginView = {
+      ...CODE,
+      id: "com.flickertalk.translate",
+      name: "Translator",
+      kind: "tool",
+      hooks: {
+        message: { label: "Translate", icon: "language-outline" },
+        composer: { label: "Translate", icon: "not-an-icon-we-carry" },
+        settings: SETTINGS,
+      },
+      locales: {
+        es: { name: "Traductor", hooks: { message: "Traducir", composer: "  ", settings: { label: "Traducción", fields: { lang: "Idioma", receive: " " }, note: "Los paquetes se descargan una vez." } } },
+      },
+    };
+    const CHESS: PluginView = { ...CODE, id: "com.flickertalk.game.chess", name: "Chess", kind: "game", hooks: { settings: SETTINGS } };
+    const NOTES: PluginView = { ...CODE, id: "com.flickertalk.notes", name: "Notes", hooks: { message: { label: "Keep", icon: "book-outline" } } };
+
+    beforeEach(async () => {
+      installed.value = [];
+      await setLocale("en");
+    });
+
+    it("lists the tools bound to a hook, by name, never a game", () => {
+      installed.value = [TRANSLATOR, CHESS, NOTES, CODE];
+      expect(hooked("message").map((one) => one.id)).toEqual(["com.flickertalk.notes", "com.flickertalk.translate"]);
+      expect(hooked("settings").map((one) => one.id)).toEqual(["com.flickertalk.translate"]);
+      expect(hooked("composer").map((one) => one.id)).toEqual(["com.flickertalk.translate"]);
+    });
+
+    it("names a hook in the phone's language, else in English", async () => {
+      expect(hookLabel(TRANSLATOR, "message")).toBe("Translate");
+      expect(hookLabel(TRANSLATOR, "settings")).toBe("Translation");
+      await setLocale("es");
+      expect(hookLabel(TRANSLATOR, "message")).toBe("Traducir");
+      expect(hookLabel(TRANSLATOR, "settings"), "the settings' own label").toBe("Traducción");
+      expect(hookLabel(TRANSLATOR, "composer"), "an empty label is no label").toBe("Translate");
+      expect(hookLabel(CODE, "message"), "no hook, no label").toBe("");
+    });
+
+    // §8.2d: the app draws the settings from what the tool declares, in the phone's language.
+    it("names the settings' fields and note in the phone's language, else in English", async () => {
+      expect(settingsFields(TRANSLATOR)).toEqual([
+        { key: "lang", type: "select", label: "Language" },
+        { key: "receive", type: "toggle", label: "Translate what I receive" },
+      ]);
+      expect(settingsNote(TRANSLATOR)).toBe("Language packs are downloaded once.");
+      await setLocale("es");
+      expect(settingsFields(TRANSLATOR).map((field) => field.label)).toEqual(["Idioma", "Translate what I receive"]);
+      expect(settingsNote(TRANSLATOR)).toBe("Los paquetes se descargan una vez.");
+      expect(settingsFields(NOTES), "no settings, no fields").toEqual([]);
+      expect(settingsNote(NOTES)).toBe("");
+    });
+
+    it("draws a hook with the icon it names if the app carries it, else the tool's own", () => {
+      expect(hookIcon(TRANSLATOR, "message")).toBe(languageOutline);
+      expect(hookIcon(TRANSLATOR, "composer")).toBe(extensionPuzzleOutline);
+      expect(hookIcon(CODE, "settings")).toBe(extensionPuzzleOutline);
+    });
+  });
+
   describe("names and summaries in the phone's language", () => {
     const LIST: PluginView = {
       ...CODE,

@@ -90,7 +90,12 @@
     "schedule": "Agendar",
     "scheduleTime": "Hora",
     "scheduledFor": "Agendado para {time}",
-    "scheduleNote": "Sai deste telefone a essa hora, se estiver ligado; apague-o aqui antes para cancelar."
+    "scheduleNote": "Sai deste telefone a essa hora, se estiver ligado; apague-o aqui antes para cancelar.",
+    "hookFailed": "{plugin} não respondeu",
+    "yourOriginal": "O seu original",
+    "restoreOriginal": "Voltar ao seu texto",
+    "sentAsIs": "Enviado tal como escrito: {plugin} não conseguiu traduzir",
+    "hookWorking": "{plugin}: a trabalhar…"
   },
   "status": {
     "pending": "Aguardando o dispositivo",

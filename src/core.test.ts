@@ -503,6 +503,17 @@ describe("circles", () => {
         return Promise.resolve([
           { id: "e1", outgoing: true, sender: "ft_me", senderName: "Me", kind: "created", text: "Friends", sentAt: at(10, 0), state: "read" },
           { id: "m1", outgoing: false, sender: "ft_bob", senderName: "Bob", kind: "text", text: "dinner?", sentAt: at(10, 2), state: "delivered" },
+          {
+            id: "m2",
+            outgoing: false,
+            sender: "ft_bob",
+            senderName: "Bob",
+            kind: "text",
+            text: "à demain",
+            sentAt: at(10, 3),
+            state: "delivered",
+            notes: [{ plugin: "com.flickertalk.translate", text: "hasta mañana" }],
+          },
         ]);
       }
       if (command === "core_circle_create") return Promise.resolve("circle2");
@@ -524,6 +535,18 @@ describe("circles", () => {
     expect(core.circle("circle1")?.messages).toEqual([
       { id: "e1", mine: true, text: "Friends", time: "10:00", status: "read", kind: "created", sender: "ft_me", senderName: "Me" },
       { id: "m1", mine: false, text: "dinner?", time: "10:02", status: "delivered", kind: "text", sender: "ft_bob", senderName: "Bob" },
+      // What a tool said about it (2026-10-20), as for a contact's message.
+      {
+        id: "m2",
+        mine: false,
+        text: "à demain",
+        time: "10:03",
+        status: "delivered",
+        kind: "text",
+        sender: "ft_bob",
+        senderName: "Bob",
+        notes: [{ plugin: "com.flickertalk.translate", text: "hasta mañana" }],
+      },
     ]);
   });
 
@@ -570,6 +593,64 @@ describe("circles", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_pin", { message: "m1", pinned: true });
     await core.pinMessage("m1", false);
     expect(tauri.invoke).toHaveBeenCalledWith("core_pin", { message: "m1", pinned: false });
+  });
+
+  // 2026-10-20 (plan of the translator §8): what a tool's message hook answered is kept under the
+  // message; the chat hook's answer says which tools run by themselves in the conversation.
+  it("keeps and clears a tool's note on a message through the core", async () => {
+    await core.setMessageNote("m1", "com.flickertalk.translate", "hola");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_message_note_set", { message: "m1", plugin: "com.flickertalk.translate", text: "hola" });
+    await core.clearMessageNote("m1", "com.flickertalk.translate");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_message_note_clear", { message: "m1", plugin: "com.flickertalk.translate" });
+  });
+
+  it("reads and sets the tools that run by themselves in a conversation", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_chat_hooks" ? [{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false, lang: "es" }] : undefined),
+    );
+    expect(await core.chatHooks("ft_bob")).toEqual([{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false, lang: "es" }]);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks", { conversation: "ft_bob" });
+    await core.setChatHooks("ft_bob", "com.flickertalk.translate", { message: true, composer: true, lang: "de" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks_set", { conversation: "ft_bob", plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: true, lang: "de" });
+    // A circle's, by its id (plan of the translator, circles); no language is `null`.
+    await core.setChatHooks("circle1", "com.flickertalk.translate", { message: false, composer: false, lang: null });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks_set", { conversation: "circle1", plugin: "com.flickertalk.translate", autoMessage: false, autoComposer: false, lang: null });
+    tauri.invoke.mockImplementation(() => Promise.reject(new Error("no core")));
+    expect(await core.chatHooks("ft_bob"), "a core that cannot say runs nothing by itself").toEqual([]);
+  });
+
+  it("shows the notes tools left under a message, and none when there are none", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [
+              { id: "m1", outgoing: false, text: "see you at six", sentAt: at(9, 30), state: "read", notes: [{ plugin: "com.flickertalk.translate", text: "nos vemos a las seis" }] },
+              { id: "m2", outgoing: true, text: "ok", sentAt: at(9, 31), state: "read" },
+            ]
+          : answers[command],
+      ),
+    );
+    await core.start();
+    await core.loadMessages("ft_bob");
+    const [noted, plain] = core.chat("ft_bob")?.messages ?? [];
+    expect(noted.notes).toEqual([{ plugin: "com.flickertalk.translate", text: "nos vemos a las seis" }]);
+    expect(plain.notes).toBeUndefined();
+  });
+
+  // §8.2d: the settings hook's hidden run is handed what the core gives (nothing for a tool that
+  // may not read the messages); a sent text's id comes back, so the user's words stay under it.
+  it("asks the core for the settings hook's sample, and gets a sent text's id back", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_hook_sample" ? "salut\nça va ?" : command === "core_send" || command === "core_circle_send" ? "m9" : undefined),
+    );
+    expect(await core.hookSample("com.flickertalk.translate", "ft_bob")).toBe("salut\nça va ?");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_hook_sample", { plugin: "com.flickertalk.translate", conversation: "ft_bob" });
+    expect(await core.sendText("ft_bob", "hola")).toBe("m9");
+    expect(await core.sendCircleText("circle1", "hola")).toBe("m9");
+    tauri.invoke.mockImplementation((command: string) => Promise.resolve(command === "core_schedule" ? "m10" : undefined));
+    expect(await core.scheduleText("ft_bob", "hola", 1_900_000_000_000)).toBe("m10");
+    tauri.invoke.mockImplementation(() => Promise.reject(new Error("no core")));
+    expect(await core.hookSample("com.flickertalk.translate", "ft_bob"), "a core that cannot say hands nothing").toBe("");
   });
 
   // 2026-10-05: one emoji on a message; none takes it back.

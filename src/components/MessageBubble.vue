@@ -5,9 +5,9 @@ import { clock as clockOf, formatSize } from "../core";
 import { gameIdFromText, isGame } from "../games";
 import { mapsLink, piecesOf, type Place } from "../links";
 import { isAppLink, openInApp } from "../opened";
-import { installed, offered, pluginName } from "../plugins";
+import { hookIcon, hookLabel, installed, offered, pluginName } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { IonButton, IonIcon } from "@ionic/vue";
+import { IonButton, IonIcon, IonSpinner } from "@ionic/vue";
 import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, checkmarkDoneCircle, documentOutline, downloadOutline, pause, pinOutline, play, refreshOutline, timeOutline } from "ionicons/icons";
 import { i18n, t } from "../i18n";
 
@@ -42,6 +42,8 @@ export interface Message {
   scheduledFor?: number;
   /** An edit or a taking back of it still waits for the contact's receipt (2026-10-06). */
   updatePending?: boolean;
+  /** What tools said about it (2026-10-20, plan of the translator §8): a line under the text each. */
+  notes?: { plugin: string; text: string }[];
 }
 
 /**
@@ -50,7 +52,8 @@ export interface Message {
  * `games`: where games are played (a conversation, on a phone that has games), an invitation to
  * one gets a way to play it (plan 10.6).
  */
-const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; contactName?: string; games?: boolean }>();
+/** `noting`: the tool working on this message for the user right now (2026-10-20), by its id. */
+const props = defineProps<{ message: Message; saved?: boolean; folded?: boolean; sender?: string; contactName?: string; games?: boolean; noting?: string }>();
 const emit = defineEmits<{
   open: [id: string];
   save: [id: string];
@@ -71,6 +74,22 @@ const STATUS: Record<string, { icon: string; label: string }> = {
   // The router refused it (§84): never shown as on its way; it can be sent again.
   unsent: { icon: alertCircleOutline, label: t("status.unsent") },
 };
+
+/**
+ * The tools' notes under the text (2026-10-20), each with its message hook's icon and label; only
+ * from a tool still installed (its notes go with it, and the list may not have heard yet).
+ */
+const notes = computed(() =>
+  (props.message.notes ?? []).flatMap((note) => {
+    const tool = installed.value.find((one) => one.id === note.plugin && one.hooks?.message);
+    return tool ? [{ ...note, icon: hookIcon(tool, "message"), label: hookLabel(tool, "message") }] : [];
+  }),
+);
+/** What a screen reader says while a tool works on the message. */
+const notingLabel = computed(() => {
+  const tool = props.noting ? installed.value.find((one) => one.id === props.noting) : undefined;
+  return tool ? t("chat.hookWorking", { plugin: pluginName(tool) }) : "";
+});
 
 /**
  * The state shown by the time: the message's own, or the clock while an edit or a taking back of
@@ -466,6 +485,14 @@ function open() {
           <template v-else>{{ piece.text }}</template>
         </template>
       </p>
+      <!-- What tools said about it (2026-10-20): muted, under the text, each in its own direction. -->
+      <p v-for="note in notes" :key="note.plugin" class="ft-bubble__note" dir="auto" data-test="note">
+        <ion-icon :icon="note.icon" class="ft-bubble__note-icon" role="img" :aria-label="note.label" />
+        <span class="ft-bubble__note-text">{{ note.text }}</span>
+      </p>
+      <p v-if="notingLabel" class="ft-bubble__note" role="status" data-test="noting" :aria-label="notingLabel">
+        <ion-spinner name="dots" class="ft-bubble__note-spinner" aria-hidden="true" />
+      </p>
       <ion-button
         v-if="game"
         expand="block"
@@ -747,6 +774,27 @@ function open() {
 .ft-bubble__text,
 .ft-code__body {
   text-align: start;
+}
+
+/* A tool's note under the text (2026-10-20): smaller and muted, its icon at the start. */
+.ft-bubble__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: var(--ft-font-meta);
+  opacity: 0.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.ft-bubble__note-icon {
+  flex: none;
+  margin-block-start: 2px;
+}
+.ft-bubble__note-spinner {
+  width: 24px;
+  height: 16px;
 }
 
 .ft-bubble__meta {

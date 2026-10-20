@@ -221,6 +221,22 @@ async fn a_circle_reaches_everyone_and_members_meet_through_it() {
 // Texts: once per member, directly or through each mailbox, and the router learns nothing.
 // ---------------------------------------------------------------------------------------------
 
+// 2026-10-20 (plan of the translator, circles): a text can be put in the circle first and delivered
+// after, so the app knows its id at once (to keep what the user wrote under it); it then goes to
+// every member as any text does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_queued_in_a_circle_is_there_at_once_and_goes_to_everyone() {
+    let net = Net::new();
+    let (alice, bob, carol) = three(&net).await;
+    let circle = friends(&alice, &bob, &carol).await;
+    let sent = alice.queue_circle_text(&circle, "à vendredi").await.expect("queued");
+    let stored = alice.store().circle_message(&sent).await.expect("reads").expect("there at once");
+    assert_eq!((stored.body.as_str(), stored.outgoing), ("à vendredi", true));
+    alice.deliver_circle_queue().await;
+    until("bob and carol got it", || async { said(&bob, &circle).await == ["à vendredi"] && said(&carol, &circle).await == ["à vendredi"] }).await;
+    assert!(alice.queue_circle_text("no-such-circle", "hi").await.is_err());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_text_reaches_every_member_and_comes_back_from_any() {
     let net = Net::new();

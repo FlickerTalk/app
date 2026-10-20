@@ -315,6 +315,11 @@ mod tests {
             script.contains(r#"post({ type: "ft.notify", text: String(text ?? ""), sticky: options?.sticky === true })"#),
             "a plugin cannot hand the app a notice"
         );
+        // 2026-10-20 (plan of the translator §8): the chat's hooks. The app hands a hook, the plugin
+        // answers it; one running out of sight may ask to be seen.
+        assert!(script.contains("onHook(handler)"), "a plugin cannot bind to the chat's hooks");
+        assert!(script.contains(r#"said.type === "ft.hook""#) && script.contains(r#"type: "ft.hookDone""#));
+        assert!(script.contains(r#"post({ type: "ft.show" })"#), "a plugin running out of sight cannot ask to be seen");
         // 2026-10-02: told the window is closing, the frame runs the plugin's goodbye and answers.
         assert!(script.contains("onClose"), "a plugin cannot say goodbye when the app closes it");
         assert!(script.contains(r#"said.type === "ft.closing""#) && script.contains(r#"type: "ft.closed""#));

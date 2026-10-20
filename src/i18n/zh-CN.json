@@ -90,7 +90,12 @@
     "schedule": "定时",
     "scheduleTime": "时间",
     "scheduledFor": "定于 {time} 发送",
-    "scheduleNote": "届时若手机开机，将从此手机发出；要取消，请提前在此删除。"
+    "scheduleNote": "届时若手机开机，将从此手机发出；要取消，请提前在此删除。",
+    "hookFailed": "{plugin} 没有响应",
+    "yourOriginal": "你的原文",
+    "restoreOriginal": "恢复你的原文",
+    "sentAsIs": "已按原文发送：{plugin} 无法翻译",
+    "hookWorking": "{plugin} 正在处理…"
   },
   "status": {
     "pending": "等待对方设备",

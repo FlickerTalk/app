@@ -1297,6 +1297,24 @@ impl Core {
     /// Like `send_text`, answering one of the conversation's messages (2026-10-05): the other
     /// phone shows the quote over the text. The quoted message has to be in this conversation.
     pub async fn send_text_replying(&self, contact: &str, text: &str, reply_to: Option<&str>) -> Result<String> {
+        let message_id = self.queue_text(contact, text, reply_to).await?;
+        self.deliver_queued(&message_id).await;
+        Ok(message_id)
+    }
+
+    /// Tries now to deliver a message waiting in the outbox (one `queue_text` put there).
+    pub async fn deliver_queued(&self, message_id: &str) {
+        if let Ok(outbox) = self.store.outbox().await {
+            if let Some(entry) = outbox.into_iter().find(|e| e.message_id == message_id) {
+                self.attempt(&entry).await;
+            }
+        }
+    }
+
+    /// Stores a text for the contact and puts it in the outbox, without trying to deliver it yet;
+    /// returns its id (2026-10-20): the app keeps what it needs under the message (the user's own
+    /// words of a text sent translated) before it goes. `deliver_queued` sends it.
+    pub async fn queue_text(&self, contact: &str, text: &str, reply_to: Option<&str>) -> Result<String> {
         let text = text.trim();
         if text.is_empty() {
             bail!("nothing to send");
@@ -1328,10 +1346,6 @@ impl Core {
         }
         self.store.enqueue(&message_id, contact, now()).await?;
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
-
-        if let Some(entry) = self.store.outbox().await?.into_iter().find(|e| e.message_id == message_id) {
-            self.attempt(&entry).await;
-        }
         Ok(message_id)
     }
 

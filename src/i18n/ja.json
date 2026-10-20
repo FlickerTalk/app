@@ -90,7 +90,12 @@
     "schedule": "予約",
     "scheduleTime": "時刻",
     "scheduledFor": "{time} に送信予定",
-    "scheduleNote": "その時刻に、この端末の電源が入っていれば送信されます。取り消すには、それまでにここで削除してください。"
+    "scheduleNote": "その時刻に、この端末の電源が入っていれば送信されます。取り消すには、それまでにここで削除してください。",
+    "hookFailed": "{plugin} から応答がありません",
+    "yourOriginal": "元の文",
+    "restoreOriginal": "元の文に戻す",
+    "sentAsIs": "書いたまま送信しました: {plugin} で翻訳できませんでした",
+    "hookWorking": "{plugin} で処理中…"
   },
   "status": {
     "pending": "相手の端末を待っています",

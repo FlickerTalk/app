@@ -90,7 +90,12 @@
     "schedule": "Programma",
     "scheduleTime": "Ora",
     "scheduledFor": "Programmato per {time}",
-    "scheduleNote": "Parte da questo telefono a quell’ora, se è acceso; eliminalo qui prima per annullarlo."
+    "scheduleNote": "Parte da questo telefono a quell’ora, se è acceso; eliminalo qui prima per annullarlo.",
+    "hookFailed": "{plugin} non ha risposto",
+    "yourOriginal": "Il tuo originale",
+    "restoreOriginal": "Torna al tuo testo",
+    "sentAsIs": "Inviato così com’è: {plugin} non ha potuto tradurre",
+    "hookWorking": "{plugin} sta lavorando…"
   },
   "status": {
     "pending": "In attesa del dispositivo",

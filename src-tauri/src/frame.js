@@ -158,9 +158,91 @@ globalThis.ft = {
   onClose(handler) {
     closers.push(handler);
   },
+  /** The conversation's hooks this tool binds to in its manifest (2026-10-20): called once per run
+   *  with {name, text, chat, ref, lang, manual} (and `answer: true` when the user said yes to the
+   *  question it asked, `values` when the user changed its settings); resolve with {text}, the
+   *  settings' {values, options, lang, auto}, {ask: {text}} (a question the app asks the user, then
+   *  runs the hook again), or null. Register at load: the app may run a hook as soon as the plugin
+   *  is up. */
+  onHook(handler) {
+    hooked = handler;
+  },
+  /** Shows the plugin's window while it runs out of sight for a hook (to ask the user something);
+   *  it goes again once the hook is answered. Nothing happens in a window already on screen. */
+  show() {
+    post({ type: "ft.show" });
+  },
 };
 const heard = [];
 const closers = [];
+/** The plugin's hook handler, if it bound to any. */
+let hooked;
+const HOOKS = ["message", "composer", "settings"];
+
+/** Settings' values by key: only strings and yes-or-noes (a select's value, a toggle's state). */
+const settingValues = (said) => {
+  if (!said || typeof said !== "object" || Array.isArray(said)) return null;
+  const values = {};
+  for (const [key, value] of Object.entries(said)) if (typeof value === "string" || typeof value === "boolean") values[key] = value;
+  return values;
+};
+
+/** The choices of each select by key: a value and a label each, nothing else. */
+const settingOptions = (said) => {
+  if (!said || typeof said !== "object" || Array.isArray(said)) return null;
+  const options = {};
+  for (const [key, list] of Object.entries(said)) {
+    if (!Array.isArray(list)) continue;
+    options[key] = list
+      .filter((one) => one && typeof one.value === "string" && typeof one.label === "string")
+      .map((one) => ({ value: one.value, label: one.label }));
+  }
+  return options;
+};
+
+/** What a hook's answer may say, and nothing else: a text, the chat's language (null: none), the
+ *  two switches, a question for the user, and the settings' values and options. */
+const hookResult = (said) => {
+  if (!said || typeof said !== "object") return null;
+  const result = {};
+  if (typeof said.text === "string") result.text = said.text;
+  if (typeof said.lang === "string" || said.lang === null) result.lang = said.lang;
+  if (said.ask && typeof said.ask === "object" && typeof said.ask.text === "string") result.ask = { text: said.ask.text };
+  const values = settingValues(said.values);
+  if (values) result.values = values;
+  const options = settingOptions(said.options);
+  if (options) result.options = options;
+  if (said.auto && typeof said.auto === "object") {
+    const auto = {};
+    for (const name of ["message", "composer"]) if (typeof said.auto[name] === "boolean") auto[name] = said.auto[name];
+    result.auto = auto;
+  }
+  return Object.keys(result).length ? result : null;
+};
+
+/** Runs one hook the app handed over and answers it, whatever the handler does. */
+const runHook = async (said) => {
+  let result = null;
+  if (hooked && HOOKS.includes(said.name)) {
+    const hook = {
+      name: said.name,
+      text: String(said.text ?? ""),
+      chat: String(said.chat ?? ""),
+      ref: said.ref ? String(said.ref) : null,
+      lang: String(said.lang ?? "en"),
+      manual: said.manual === true,
+      ...(said.answer === true ? { answer: true } : {}),
+      // The settings the user changed (`settings`, by hand).
+      ...(settingValues(said.values) ? { values: settingValues(said.values) } : {}),
+    };
+    try {
+      result = hookResult(await hooked(hook));
+    } catch {
+      result = null;
+    }
+  }
+  post({ type: "ft.hookDone", id: String(said.id ?? ""), result });
+};
 /** The goodbye, run once however many times the app says it is closing. */
 let goodbye;
 
@@ -263,11 +345,15 @@ addEventListener("message", (event) => {
       ...(lent ? { ionic: { version: lent } } : {}),
       // Opened by the app inside a call to present (Plugin API 1.6.0): "lead" or "follow", only then.
       ...(said.presenting === "lead" || said.presenting === "follow" ? { presenting: said.presenting } : {}),
+      // In view for one of the conversation's hooks (2026-10-20): its name.
+      ...(HOOKS.includes(said.hook) ? { hook: said.hook } : {}),
     };
     for (const handler of opened) handler(opening);
     requestAnimationFrame(tell);
   } else if (said.type === "ft.theme") {
     paint(said);
+  } else if (said.type === "ft.hook") {
+    void runHook(said);
   } else if (said.type === "ft.live") {
     for (const handler of heard) handler(String(said.data ?? ""));
   } else if (said.type === "ft.closing") {

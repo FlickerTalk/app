@@ -9,11 +9,13 @@ use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::Serialize;
-use ft_plugins::{installed, CatalogueEntry, Manifest, Permissions, Plugin, Sending};
+use ft_plugins::{installed, CatalogueEntry, HookName, Manifest, Permissions, Plugin, Sending};
 use vodozemac::Ed25519PublicKey;
 
 use ft_protocol::{Body, Packet};
 use ft_storage::{Contact, PluginRef, Reminder};
+/// Whether a tool runs by itself in a conversation (2026-10-20): what its `chat` hook answered.
+pub use ft_storage::ChatHook;
 
 use crate::native_calls::{BOARD, VIEWER};
 use crate::web::{host_of, Fetch, WebAnswer, WebRequest};
@@ -226,6 +228,15 @@ async fn translated(translator: &dyn Translator, text: &str, from: &str, to: &st
     within(TRANSLATE_WAIT, translator.translate(text, from, to)).await
 }
 
+/// The longest note a tool may leave under a message (2026-10-20, plan of the translator §8.2): as
+/// long as the text it may be handed.
+pub const NOTE_MAX_CHARS: usize = TRANSLATE_MAX_CHARS;
+
+/// How many texts received the settings hook's hidden run is handed (§8.2d), and among how many of
+/// the conversation's latest messages they are looked for.
+const SAMPLE_TEXTS: usize = 5;
+const SAMPLE_WINDOW: i64 = 50;
+
 /// A plugin as the app shows it: what it is, and what it may do here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledPlugin {
@@ -368,25 +379,37 @@ impl Core {
     // ---- Refs: a way back to the message a plugin was opened with, and nothing more ----
 
     /// An opaque handle for the message the user hands a plugin: the same message gives the same
-    /// ref, and the plugin learns nothing of the contact from it.
+    /// ref, and the plugin learns nothing of the contact from it. A circle's message too
+    /// (2026-10-20): its ref leads to the circle.
     pub async fn plugin_ref(&self, id: &str, message_id: &str) -> Result<String> {
         if let Some(reference) = self.store.plugin_ref_for(id, message_id).await? {
             return Ok(reference);
         }
-        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        let conversation = match self.store.message(message_id).await? {
+            Some(message) => message.contact,
+            None => self.store.circle_message(message_id).await?.context("that message is not here")?.circle,
+        };
         let reference = format!("ref_{}", ft_protocol::MessageId::new());
-        self.store.add_plugin_ref(&reference, id, &message.contact, message_id).await?;
+        self.store.add_plugin_ref(&reference, id, &conversation, message_id).await?;
         Ok(reference)
     }
 
-    /// Where a plugin's ref leads, if the message and the contact are still here, it was this
-    /// plugin's ref, and the contact is in the place the plugin is open in (§108). `None`
-    /// otherwise: a plugin cannot fish for someone else's, nor reach a session from outside it.
+    /// Where a plugin's ref leads, if the message and its conversation are still here, it was this
+    /// plugin's ref, and the conversation is in the place the plugin is open in (§108). `None`
+    /// otherwise: a plugin cannot fish for someone else's, nor reach a session from outside it. For
+    /// a circle's message, `contact` is the circle's id.
     pub async fn plugin_ref_target(&self, id: &str, session: Option<&str>, reference: &str) -> Result<Option<PluginRef>> {
         let session = self.place(session)?;
         let Some(target) = self.store.plugin_ref(reference).await? else { return Ok(None) };
+        if target.plugin != id {
+            return Ok(None);
+        }
+        if let Some(circle) = self.store.circle(&target.contact).await? {
+            let here = circle.session.as_deref() == session && self.store.circle_message(&target.message_id).await?.is_some();
+            return Ok(here.then_some(target));
+        }
         let contact = self.store.contact(&target.contact).await?;
-        if target.plugin != id || contact.is_none_or(|contact| contact.blocked || contact.session.as_deref() != session) {
+        if contact.is_none_or(|contact| contact.blocked || contact.session.as_deref() != session) {
             return Ok(None);
         }
         if self.store.message(&target.message_id).await?.is_none() {
@@ -459,18 +482,120 @@ impl Core {
     /// match theirs; and opaque, since the plugin never has the key. 32 bytes, base64url without
     /// padding: 43 characters of `[A-Za-z0-9_-]`.
     ///
-    /// Only for a contact the user chose and did not block, in the main list or in a hidden
-    /// session that is open (§108): anyone else gets the same error as nobody at all.
+    /// Only for a contact the user chose and did not block, or a circle (2026-10-20), in the main
+    /// list or in a hidden session that is open (§108): anyone else gets the same error as nobody
+    /// at all. `contact` is the conversation's id: a contact's or a circle's.
     pub async fn plugin_chat(&self, id: &str, contact: &str) -> Result<String> {
         ensure!(self.store.plugin(id).await?.is_some(), "{id} is not installed here");
-        let reachable = self.store.contact(contact).await?.is_some_and(|contact| {
-            contact.accepted && !contact.blocked && contact.session.as_deref().is_none_or(|session| self.is_session_open(session))
-        });
+        let open = |session: Option<&str>| session.is_none_or(|session| self.is_session_open(session));
+        let reachable = match self.store.circle(contact).await? {
+            Some(circle) => open(circle.session.as_deref()),
+            None => self.store.contact(contact).await?.is_some_and(|contact| contact.accepted && !contact.blocked && open(contact.session.as_deref())),
+        };
         ensure!(reachable, "that is not a contact of yours");
         let mut hasher = blake3::Hasher::new_keyed(&blake3::derive_key(PLUGIN_CHAT_CONTEXT, &self.key));
         // Neither id can hold a NUL, so the two are told apart.
         hasher.update(id.as_bytes()).update(&[0]).update(contact.as_bytes());
         Ok(URL_SAFE_NO_PAD.encode(hasher.finalize().as_bytes()))
+    }
+
+    // ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
+
+    /// What a tool said about a message, kept under it on this phone, in place of what it said
+    /// before: a translation of a text received (its message hook), or the user's own words under a
+    /// text sent translated (its composer hook, §8.2d). A message of a contact or of a circle. Only
+    /// from a tool bound to one of those hooks that may read what it is handed and may be used now,
+    /// on a text still there, and as long as a message.
+    pub async fn set_message_note(&self, message_id: &str, id: &str, text: &str) -> Result<()> {
+        let manifest = self.plugin_manifest(id)?;
+        let bound = manifest.hooks.contains_key(&HookName::Message) || manifest.hooks.contains_key(&HookName::Composer);
+        ensure!(bound, "{id} does not bind to messages");
+        ensure!(self.granted_to(id).await?.reads_given_messages, "{id} may not read messages");
+        self.usable(manifest.kind).await?;
+        let text = text.trim();
+        ensure!(!text.is_empty(), "nothing to note");
+        ensure!(text.chars().count() <= NOTE_MAX_CHARS, "a note is as long as a message at most");
+        let changed = self.noted_message(message_id).await?;
+        self.store.set_message_note(message_id, id, text, crate::now()).await?;
+        let _ = self.events.send(changed);
+        Ok(())
+    }
+
+    /// Takes a tool's note off a message.
+    pub async fn clear_message_note(&self, message_id: &str, id: &str) -> Result<()> {
+        let changed = self.noted_message(message_id).await?;
+        self.store.clear_message_note(message_id, id).await?;
+        let _ = self.events.send(changed);
+        Ok(())
+    }
+
+    /// A text a note may hang from, a contact's or a circle's, and what the screen hears when it does.
+    async fn noted_message(&self, message_id: &str) -> Result<Event> {
+        if let Some(message) = self.store.message(message_id).await? {
+            ensure!(self.store.file(message_id).await?.is_none(), "a file has no words to note");
+            ensure!(!self.store.is_deleted(message_id).await?, "that message was taken back");
+            return Ok(Event::MessagesChanged { contact: message.contact });
+        }
+        let said = self.store.circle_message(message_id).await?.context("that message is not here")?;
+        ensure!(said.kind == "text", "only a text has words to note");
+        Ok(Event::CircleMessagesChanged { circle: said.circle })
+    }
+
+    /// What a tool's settings hook answered for a conversation (a contact or a circle, by its id):
+    /// whether it runs by itself on each message received and each text sent there, and the
+    /// conversation's language as it found it (§8.2c, a BCP-47 tag). Only where it binds (the
+    /// message hook, the composer hook), and only a tool bound to the settings hook; both off is
+    /// always fine.
+    pub async fn set_chat_hooks(&self, conversation: &str, id: &str, auto_message: bool, auto_composer: bool, lang: Option<&str>) -> Result<()> {
+        let changed = if self.store.circle(conversation).await?.is_some() {
+            Event::CirclesChanged
+        } else {
+            self.contact(conversation).await.context("no such conversation")?;
+            Event::ContactsChanged
+        };
+        let manifest = self.plugin_manifest(id)?;
+        ensure!(manifest.hooks.contains_key(&HookName::Settings), "{id} has no settings for a conversation");
+        ensure!(!auto_message || manifest.hooks.contains_key(&HookName::Message), "{id} does not bind to messages");
+        ensure!(!auto_composer || manifest.hooks.contains_key(&HookName::Composer), "{id} does not bind to the composer");
+        ensure!(lang.is_none_or(is_language_tag), "that is not a language tag");
+        if auto_message || auto_composer {
+            self.usable(manifest.kind).await?;
+        }
+        self.store.set_chat_hooks(conversation, id, auto_message, auto_composer, lang).await?;
+        let _ = self.events.send(changed);
+        Ok(())
+    }
+
+    /// The tools that run by themselves in a conversation (a contact or a circle).
+    pub async fn chat_hooks(&self, conversation: &str) -> Result<Vec<ChatHook>> {
+        self.store.chat_hooks(conversation).await
+    }
+
+    /// What the settings hook's hidden run is handed (§8.2d): the last texts received in the
+    /// conversation (a contact's or a circle's), oldest first, one per line, so the tool tells the
+    /// conversation's language. Empty unless the tool may read what it is handed: the core keeps
+    /// the words from a tool that was never allowed them. Never a file, a message taken back or the
+    /// user's own words.
+    pub async fn hook_sample(&self, id: &str, conversation: &str) -> Result<String> {
+        ensure!(self.plugin_manifest(id)?.hooks.contains_key(&HookName::Settings), "{id} has no settings for a conversation");
+        let received: Vec<String> = if self.store.circle(conversation).await?.is_some() {
+            let said = self.store.circle_messages(conversation, SAMPLE_WINDOW).await?;
+            said.into_iter().filter(|one| !one.outgoing && one.kind == "text").map(|one| one.body).collect()
+        } else {
+            self.contact(conversation).await.context("no such conversation")?;
+            let deleted = self.store.deleted(conversation).await?;
+            let files: std::collections::HashSet<String> = self.store.files(conversation).await?.into_iter().map(|file| file.message_id).collect();
+            let said = self.store.messages(conversation, SAMPLE_WINDOW).await?;
+            said.into_iter()
+                .filter(|one| !one.outgoing && !deleted.contains(&one.message_id) && !files.contains(&one.message_id))
+                .map(|one| one.body)
+                .collect()
+        };
+        if !self.granted_to(id).await?.reads_given_messages {
+            return Ok(String::new());
+        }
+        let texts: Vec<String> = received.into_iter().filter(|text| !text.trim().is_empty()).collect();
+        Ok(texts[texts.len().saturating_sub(SAMPLE_TEXTS)..].join("\n"))
     }
 
     // ---- ft.live (2026-09-27): a plugin talks to its twin on the other side ----
@@ -988,7 +1113,7 @@ mod tests {
                     // Chinese, Japanese and Korean say it in about half the characters.
                     let dense = matches!(*code, "ja" | "ko" | "zh-CN" | "zh-TW");
                     let (name, summary) = if dense { (6, summary * 6 / 10) } else { (18, summary * 13 / 10) };
-                    let said = ft_plugins::Localized { name: Some(text(word, name)), summary: Some(text(word, summary.min(200))) };
+                    let said = ft_plugins::Localized { name: Some(text(word, name)), summary: Some(text(word, summary.min(200))), ..Default::default() };
                     ((*code).to_owned(), said)
                 })
                 .collect()
@@ -996,7 +1121,7 @@ mod tests {
         let longest = served_index(|_| {
             LANGUAGES
                 .iter()
-                .map(|(code, _)| ((*code).to_owned(), ft_plugins::Localized { name: Some("न".repeat(64)), summary: Some("न".repeat(200)) }))
+                .map(|(code, _)| ((*code).to_owned(), ft_plugins::Localized { name: Some("न".repeat(64)), summary: Some("न".repeat(200)), ..Default::default() }))
                 .collect()
         }, &svg(ft_plugins::icon::IMAGE_LIMIT, '"'));
         eprintln!("catalogue.json: {} bytes translated, {} bytes at the limits", realistic.len(), longest.len());

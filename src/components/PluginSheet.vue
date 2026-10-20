@@ -55,6 +55,7 @@ import {
   PLUGIN_EVENT,
   type PickedFile,
   type PluginEvent,
+  type PluginHookName,
   type Sending,
 } from "../core";
 import { i18n } from "../i18n";
@@ -68,6 +69,8 @@ import {
   refreshPlugins,
   type FrameMessage,
   type HandedFile,
+  type PluginHook,
+  type PluginHookResult,
 } from "../plugins";
 import { hostOf, missingPermission, permissionsOf, withPermission, type PermissionNeed } from "../permissions";
 import { offerExactAlarms } from "../exact-alarms";
@@ -97,6 +100,13 @@ import type { ContactAsk, Proposal } from "../pending-send";
 // placed in the frame, are on the screen. Without it the frame is as tall as its content (the game
 // room).
 // 2026-10-08: opened by the call screen to present, it is told whether it leads or follows.
+// 2026-10-20 (plan of the translator §8): the chat's hooks. `runHook` hands the plugin a message, a
+// draft or the chat and comes back with its answer. `hidden`: the frame runs out of sight, with the
+// same grants, the same questions on the spot and the same lock; it shows (`shown`) only while the
+// plugin asks the user something (`ft.show`), and goes again once the hook is answered. Out of sight
+// nothing needing the user's eyes is done, and a hidden frame speaks only through its hooks'
+// answers. `hook`: the window opens for that hook. `contact` is the conversation it is used in: a
+// contact's id, or a circle's (2026-10-20), whose own key the plugin gets.
 const props = withDefaults(
   defineProps<{
     plugin: { id: string; name: string };
@@ -110,6 +120,8 @@ const props = withDefaults(
     session?: string;
     fill?: boolean;
     presenting?: "lead" | "follow";
+    hidden?: boolean;
+    hook?: PluginHookName;
   }>(),
   {
     text: undefined,
@@ -121,6 +133,8 @@ const props = withDefaults(
     session: undefined,
     fill: false,
     presenting: undefined,
+    hidden: false,
+    hook: undefined,
   },
 );
 // `done`: the plugin is finished or asked to be closed; whoever shows it decides, and closes it with
@@ -137,6 +151,7 @@ const emit = defineEmits<{
   closed: [];
   needs: [need: PermissionNeed];
   refused: [];
+  shown: [visible: boolean];
 }>();
 
 const frame = ref<HTMLIFrameElement | null>(null);
@@ -157,12 +172,22 @@ async function onMessage(event: MessageEvent) {
   const said = fromFrame(event, frame.value);
   if (!said) return;
   if (closing && SILENT_WHILE_CLOSING.has(said.type)) return;
+  if (props.hidden && UNSAID_WHEN_HIDDEN.has(said.type)) return;
+  if (props.hidden && !shown.value && NEEDS_EYES.has(said.type)) return refuseUnseen(said);
 
   if (said.type === "ft.hello") {
     tell({ type: "ft.theme", ...look() });
   } else if (said.type === "ft.ready") {
     ready = true;
     tell({ ...opening(), ...(await chatOf()) });
+    markOpen();
+  } else if (said.type === "ft.hookDone") {
+    hookDone(said.id, said.result);
+  } else if (said.type === "ft.show") {
+    if (props.hidden && !shown.value) {
+      shown.value = true;
+      emit("shown", true);
+    }
   } else if (said.type === "ft.height") {
     height.value = Math.min(Math.max(said.height, 160), 4000);
   } else if (said.type === "ft.pickFile") {
@@ -318,6 +343,83 @@ const SILENT_WHILE_CLOSING = new Set<FrameMessage["type"]>([
   "ft.translateText",
 ]);
 
+// ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
+
+/**
+ * Out of sight, what would put the phone's own screens up (a picker, the camera, saving, printing):
+ * refused at once, so the plugin is not left waiting. Everything else works as in a window.
+ */
+const NEEDS_EYES = new Set<FrameMessage["type"]>(["ft.pickFile", "ft.takePhoto", "ft.print", "ft.save"]);
+/** What a hidden frame never says, seen or not: its hooks' answers are how it speaks. */
+const UNSAID_WHEN_HIDDEN = new Set<FrameMessage["type"]>(["ft.text", "ft.made", "ft.openChat"]);
+
+const shown = ref(false);
+const unseen = computed(() => props.hidden && !shown.value);
+
+function refuseUnseen(said: FrameMessage) {
+  if (!("id" in said)) return;
+  if (said.type === "ft.pickFile" || said.type === "ft.takePhoto") tell({ type: "ft.file", id: said.id, name: "", mime: "", data: "" });
+  else tell({ type: "ft.done", id: said.id, answer: refusal(said) });
+}
+
+/** The hooks handed over and not answered yet, by the id each was handed with. */
+const hooksRunning = new Map<string, (result: PluginHookResult | null) => void>();
+let hooksHanded = 0;
+/** The run the plugin is working on (one at a time per plugin, `chatHooks.ts`): who started it. */
+let byUser = true;
+/** Out of sight, what the user said no to; a run the conversation started does not ask it again. */
+const declined = new Set<string>();
+/** The core would not open the plugin (a locked tool): no hook runs in it. */
+let refusedByCore = false;
+let markOpen = () => {};
+const opened = new Promise<void>((resolve) => (markOpen = resolve));
+
+/**
+ * Hands the plugin one run of a hook once it is up, and resolves with its answer: a text, the chat
+ * hook's switches, or `null` (no answer, the plugin closing, or the core not opening it).
+ */
+function runHook(hook: PluginHook): Promise<PluginHookResult | null> {
+  if (closing || gone || refusedByCore) return Promise.resolve(null);
+  const id = `h${(hooksHanded += 1)}`;
+  return new Promise((resolve) => {
+    hooksRunning.set(id, resolve);
+    void opened.then(() => {
+      if (!hooksRunning.has(id)) return;
+      byUser = hook.manual;
+      tell({
+        type: "ft.hook",
+        id,
+        name: hook.name,
+        text: hook.text,
+        chat: hook.chat,
+        ref: hook.ref,
+        lang: hook.lang,
+        manual: hook.manual,
+        ...(hook.answer ? { answer: true } : {}),
+        // A plain copy: the values may be reactive state, which postMessage cannot clone.
+        ...(hook.values ? { values: { ...hook.values } } : {}),
+      });
+    });
+  });
+}
+
+function hookDone(id: string, result: PluginHookResult | null) {
+  const answer = hooksRunning.get(id);
+  if (!answer) return;
+  hooksRunning.delete(id);
+  answer(result);
+  // Seen only to ask the user something for this hook: it goes again with the answer.
+  if (props.hidden && shown.value && !hooksRunning.size) {
+    shown.value = false;
+    emit("shown", false);
+  }
+}
+
+/** Every hook still running comes back with nothing. */
+function dropHooks() {
+  for (const [id] of [...hooksRunning]) hookDone(id, null);
+}
+
 function close(): Promise<void> {
   closing ??= new Promise<void>((resolve) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -331,6 +433,7 @@ function close(): Promise<void> {
     // question it was waiting on.
     void notify("");
     refuseUnanswered();
+    dropHooks();
     // A plugin that never came up has heard nothing, started nothing and has nothing to say.
     if (!ready) return letGo();
     timer = setTimeout(letGo, CLOSING_WAIT);
@@ -338,7 +441,7 @@ function close(): Promise<void> {
   });
   return closing;
 }
-defineExpose({ close });
+defineExpose({ close, runHook });
 
 /** The app's look as the frame puts it on its root, and whether the frame fills its window. */
 function look() {
@@ -360,6 +463,8 @@ function opening() {
     live: Boolean(props.live && props.contact),
     // Only inside a call (API 1.6.0); a chat or a page never says it.
     ...(props.presenting ? { presenting: props.presenting } : {}),
+    // Opened for one of the conversation's hooks (2026-10-20).
+    ...(props.hook ? { hook: props.hook } : {}),
   };
 }
 
@@ -547,6 +652,7 @@ function refuseUnanswered() {
 
 /** Asks the user for `key` and grants it on a yes: whether the plugin has it now. */
 function obtain(key: string): Promise<boolean> {
+  if (props.hidden && !byUser && declined.has(key)) return Promise.resolve(false);
   const already = asking.get(key);
   if (already) return already;
   const asked = questions.then(() => ask(key));
@@ -572,6 +678,7 @@ async function ask(key: string): Promise<boolean> {
     unanswered.add(answer);
     emit("needs", { ...line, answer });
   });
+  if (!yes && props.hidden) declined.add(key);
   if (!yes || closing || gone) return false;
   try {
     await grantPlugin(id, withPermission(view, key, true));
@@ -727,7 +834,11 @@ watch(
 
 onMounted(async () => {
   // Refused by the core (a locked tool, say): whoever shows it decides what to tell the user.
-  void pluginOpen(props.plugin.id, true).catch(() => emit("refused"));
+  void pluginOpen(props.plugin.id, true).catch(() => {
+    refusedByCore = true;
+    dropHooks();
+    emit("refused");
+  });
   lastTheme = JSON.stringify(look());
   looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction", "dir"] });
   window.addEventListener("message", onMessage);
@@ -741,6 +852,7 @@ onBeforeUnmount(() => {
   if (ready && !closing) tell({ type: "ft.closing" });
   letGo?.();
   refuseUnanswered();
+  dropHooks();
   void notify("");
   looks.disconnect();
   window.removeEventListener("message", onMessage);
@@ -757,7 +869,14 @@ watch(
 
 <template>
   <!-- Presenting in a call, the tool fills the area the call screen gives it (defect J). -->
-  <section ref="pane" class="ft-plugin" :class="{ 'ft-plugin--fill': fill, 'is-presenting': presenting }">
+  <!-- Out of sight for a hook (2026-10-20): laid out as on screen, so it shows where it is. -->
+  <section
+    ref="pane"
+    class="ft-plugin"
+    :class="{ 'ft-plugin--fill': fill, 'is-presenting': presenting, 'ft-plugin--hidden': unseen }"
+    :inert="unseen || undefined"
+    :aria-hidden="unseen || undefined"
+  >
     <!-- The name and the way out are the window's job; here only what the tool is doing. It floats
          over the frame's top edge: the plugin never moves when it shows or goes (2026-10-06). -->
     <span v-if="working" class="ft-plugin__working" role="status">…</span>
@@ -791,6 +910,11 @@ watch(
 .ft-plugin--fill .ft-plugin__frame {
   flex: 1;
   min-height: 0;
+}
+/* Running a hook out of sight: there, laid out, but neither seen nor touched. */
+.ft-plugin--hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 .ft-plugin__working {
   position: absolute;

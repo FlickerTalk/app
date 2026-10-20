@@ -6,7 +6,18 @@
 import { computed, shallowRef } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PLAN_EVENT, offeredPlugins, plan, plugins, type OfferedPlugin, type PluginLocales, type PluginView } from "./core";
+import {
+  PLAN_EVENT,
+  offeredPlugins,
+  plan,
+  plugins,
+  type OfferedPlugin,
+  type PluginHookName,
+  type PluginLocales,
+  type PluginSettingsField,
+  type PluginSettingsLabels,
+  type PluginView,
+} from "./core";
 import { isGame } from "./games";
 import { i18n } from "./i18n";
 import {
@@ -218,6 +229,62 @@ export function pluginName(plugin: Named): string {
   return localized(plugin, "name");
 }
 
+// ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
+
+/** The tools of this phone bound to a hook of the chat, by the name the phone shows. Never a game. */
+export function hooked(name: PluginHookName): PluginView[] {
+  return tools.value.filter((one) => Boolean(one.hooks?.[name]));
+}
+
+/**
+ * What a tool says of one of its hooks in the phone's language (`locales.<lang>.hooks`), as for the
+ * name: the exact language, then its base; otherwise `english`. `pick` reads it from the hook's
+ * labels in a language: a label, or the settings hook's object.
+ */
+function hookSaid(plugin: PluginView, name: PluginHookName, english: string, pick: (said: string | PluginSettingsLabels) => unknown): string {
+  const locale = i18n.global.locale.value;
+  const languages = locale === "en" ? [] : [...new Set([locale, locale.split("-")[0]])];
+  for (const language of languages) {
+    const labels = plugin.locales?.[language]?.hooks?.[name];
+    const said = labels === undefined ? undefined : pick(labels);
+    if (typeof said === "string" && said.trim()) return said;
+  }
+  return english;
+}
+
+/**
+ * A hook's label in the phone's language, else the English one; for the settings hook, its own
+ * label. Empty for a hook the tool does not bind to.
+ */
+export function hookLabel(plugin: PluginView, name: PluginHookName): string {
+  const english = plugin.hooks?.[name]?.label ?? "";
+  if (!english) return "";
+  return hookSaid(plugin, name, english, (said) => (typeof said === "string" ? said : said.label));
+}
+
+/**
+ * The settings the app draws for a tool in a conversation's page (§8.2d), in order, each labelled in
+ * the phone's language (else in English). None for a tool without the settings hook.
+ */
+export function settingsFields(plugin: PluginView): PluginSettingsField[] {
+  return (plugin.hooks?.settings?.fields ?? []).map((field) => ({
+    ...field,
+    label: hookSaid(plugin, "settings", field.label, (said) => (typeof said === "string" ? undefined : said.fields?.[field.key])),
+  }));
+}
+
+/** The line under a tool's settings, in the phone's language (else in English); "" for none. */
+export function settingsNote(plugin: PluginView): string {
+  const english = plugin.hooks?.settings?.note ?? "";
+  if (!english) return "";
+  return hookSaid(plugin, "settings", english, (said) => (typeof said === "string" ? undefined : said.note));
+}
+
+/** A hook's icon: the Ionicon it names, if the app carries it; otherwise the tool's puzzle piece. */
+export function hookIcon(plugin: PluginView, name: PluginHookName): string {
+  return pluginIcon({ icon: plugin.hooks?.[name]?.icon, kind: "tool" });
+}
+
 export function pluginSummary(plugin: Named): string {
   return localized(plugin, "summary");
 }
@@ -294,7 +361,106 @@ export type FrameMessage =
   | { type: "ft.translateStatus" | "ft.translatePrepare" | "ft.translateRemove"; id: string; from: string; to: string }
   | { type: "ft.translateText"; id: string; text: string; from: string; to: string }
   // The user's cloud (plan-drive): one question with an operation and up to two strings.
-  | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string };
+  | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string }
+  // 2026-10-20 (plan of the translator §8): a hook's answer, and a plugin out of sight asking to be seen.
+  | { type: "ft.hookDone"; id: string; result: PluginHookResult | null }
+  | { type: "ft.show" };
+
+/** What the app hands a plugin for one run of a hook (`ft.hook`); `chat` is `pluginChat`'s key. */
+export interface PluginHook {
+  name: PluginHookName;
+  /** The message or the draft; "" for the chat hook. */
+  text: string;
+  chat: string;
+  /** The message's ref (`message` only). */
+  ref: string | null;
+  lang: string;
+  /** Started by the user, not by the conversation's own switches. */
+  manual: boolean;
+  /** The user said yes to the question the tool asked in its last answer (§8.2c): run it again. */
+  answer?: boolean;
+  /** `settings` run by the user (§8.2d): the values changed, by field key. */
+  values?: Record<string, string | boolean>;
+}
+
+/**
+ * A hook's answer: a text (a note, a new draft), the chat's language as the tool found it, the chat
+ * hook's two switches, or a question for the user (a download) that the app asks in its own alert,
+ * running the hook again with `answer` on a yes (§8.2c).
+ */
+export interface PluginHookResult {
+  text?: string;
+  /** The conversation's language (`settings`); `null` or "" for none. */
+  lang?: string | null;
+  auto?: { message?: boolean; composer?: boolean };
+  ask?: { text: string };
+  /** The settings' values by field key (§8.2d): what each row shows. */
+  values?: Record<string, string | boolean>;
+  /** The choices of each select by field key, in order, labelled in the app's language. */
+  options?: Record<string, { value: string; label: string }[]>;
+}
+
+/** The longest language tag a hook may say (the core's limit too). */
+const HOOK_LANG_LIMIT = 35;
+/** The most settings, choices of a select, and characters of a value or a label a hook may give. */
+const SETTINGS_LIMIT = 16;
+const OPTIONS_LIMIT = 300;
+const SETTING_TEXT_LIMIT = 200;
+
+/** Settings' values by key: strings (cut to a sensible length) and yes-or-noes, nothing else. */
+function settingValues(said: unknown): Record<string, string | boolean> | undefined {
+  if (!said || typeof said !== "object" || Array.isArray(said)) return undefined;
+  const values: Record<string, string | boolean> = {};
+  for (const [key, value] of Object.entries(said).slice(0, SETTINGS_LIMIT)) {
+    if (typeof value === "boolean" || (typeof value === "string" && value.length <= SETTING_TEXT_LIMIT)) values[key] = value;
+  }
+  return values;
+}
+
+/** The choices of each select by key: a value and a label each, as many as there are languages. */
+function settingOptions(said: unknown): Record<string, { value: string; label: string }[]> | undefined {
+  if (!said || typeof said !== "object" || Array.isArray(said)) return undefined;
+  const options: Record<string, { value: string; label: string }[]> = {};
+  for (const [key, list] of Object.entries(said).slice(0, SETTINGS_LIMIT)) {
+    if (!Array.isArray(list)) continue;
+    options[key] = list
+      .filter((one): one is { value: string; label: string } => typeof one?.value === "string" && typeof one?.label === "string")
+      .filter((one) => one.value.length <= SETTING_TEXT_LIMIT && one.label.length <= SETTING_TEXT_LIMIT)
+      .slice(0, OPTIONS_LIMIT)
+      .map((one) => ({ value: one.value, label: one.label }));
+  }
+  return options;
+}
+
+/** The longest text a hook may hand back: as long as a message (the core's note limit too). */
+export const HOOK_TEXT_LIMIT = 5_000;
+
+/** Only what a hook's answer can say; anything else, or a text longer than a message, is none. */
+function hookResult(said: unknown): PluginHookResult | null {
+  if (!said || typeof said !== "object") return null;
+  const given = said as { text?: unknown; auto?: unknown; lang?: unknown; ask?: unknown; values?: unknown; options?: unknown };
+  const result: PluginHookResult = {};
+  if (typeof given.text === "string") {
+    if (Array.from(given.text).length > HOOK_TEXT_LIMIT) return null;
+    result.text = given.text;
+  }
+  // `null` (or an empty one): the conversation has no language any more (the user chose none).
+  if (given.lang === null || (typeof given.lang === "string" && given.lang.length <= HOOK_LANG_LIMIT)) result.lang = given.lang;
+  const values = settingValues(given.values);
+  if (values) result.values = values;
+  const options = settingOptions(given.options);
+  if (options) result.options = options;
+  const asked = given.ask && typeof given.ask === "object" ? (given.ask as { text?: unknown }).text : undefined;
+  // Shown in the app's own alert: cleaned and cut as a notice is.
+  if (typeof asked === "string" && noticeText(asked)) result.ask = { text: noticeText(asked) };
+  if (given.auto && typeof given.auto === "object") {
+    const auto = given.auto as Record<string, unknown>;
+    result.auto = {};
+    if (typeof auto.message === "boolean") result.auto.message = auto.message;
+    if (typeof auto.composer === "boolean") result.auto.composer = auto.composer;
+  }
+  return Object.keys(result).length ? result : null;
+}
 
 /**
  * How long a closing plugin is kept, out of sight, to say goodbye to its twin (2026-10-02): its
@@ -417,6 +583,10 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       const op = DRIVE_OPS.find((one) => one === said.op);
       return text(id) && op ? { type: "ft.drive", id, op, a: text(said.a) ? said.a : "", b: text(said.b) ? said.b : "" } : null;
     }
+    case "ft.hookDone":
+      return text(id) ? { type: "ft.hookDone", id, result: hookResult(said.result) } : null;
+    case "ft.show":
+      return { type: "ft.show" };
     default:
       return null;
   }
