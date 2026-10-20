@@ -3,8 +3,9 @@
 //! ties the knot, registers the device, listens to the router, retries the outbox and resumes
 //! stalled file transfers.
 
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, PoisonError, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -200,6 +201,11 @@ impl Presence {
         }
     }
 
+    /// Whether the platform says the app is in the foreground.
+    pub fn in_front(&self) -> bool {
+        self.foreground
+    }
+
     /// Whether to stay connected now. `call_going_on`: a call rings, is being answered, is on, or
     /// ours is being placed.
     pub fn connected(&self, now: Instant, call_going_on: bool) -> bool {
@@ -210,6 +216,40 @@ impl Presence {
 /// How often the client looks whether what kept it connected out of the foreground is over.
 const PRESENCE_LOOK: Duration = Duration::from_secs(1);
 
+/// How long after the app let go of a direct connection it is dialled again when the app is back
+/// in front (app#152, decision 2026-10-20). After a longer absence the contact has likely left the
+/// app too, and the router, which has no signal for a connected phone only, would wake their phone
+/// for an offer with nothing behind it. A quiet signal from the router would remove this limit.
+pub const REDIAL_WITHIN: Duration = Duration::from_secs(120);
+
+/// The contacts whose direct connection closed when the app let go (app#152), and when. Wall-clock
+/// time: a sleeping phone's monotonic clock stops, and a night away must count as one.
+#[derive(Debug, Default)]
+struct LeftBehind {
+    closed: HashMap<String, SystemTime>,
+}
+
+impl LeftBehind {
+    fn closed(&mut self, contacts: Vec<String>, at: SystemTime) {
+        for contact in contacts {
+            self.closed.insert(contact, at);
+        }
+    }
+
+    /// The contacts to dial again now: closed less than `within` ago. All of them are forgotten.
+    /// A clock set back says nothing of how long the app was away: nobody then.
+    fn take(&mut self, now: SystemTime, within: Duration) -> Vec<String> {
+        let mut recent: Vec<String> = self
+            .closed
+            .drain()
+            .filter(|(_, at)| now.duration_since(*at).is_ok_and(|ago| ago < within))
+            .map(|(contact, _)| contact)
+            .collect();
+        recent.sort();
+        recent
+    }
+}
+
 /// Lets go of the router and the other phones, or comes back to them, as `Presence` says.
 pub struct Lifecycle {
     core: Weak<Core>,
@@ -218,6 +258,10 @@ pub struct Lifecycle {
     presence: std::sync::Mutex<Presence>,
     /// One look at a time: the last decision is the one that stands.
     looking: tokio::sync::Mutex<()>,
+    /// The contacts whose direct connection closed when the app let go (app#152), dialled again
+    /// once it is back in front, if that was less than `redial_within` ago.
+    left: std::sync::Mutex<LeftBehind>,
+    redial_within: std::sync::Mutex<Duration>,
 }
 
 impl Lifecycle {
@@ -240,6 +284,12 @@ impl Lifecycle {
         back
     }
 
+    /// How long after a let-go its contacts are still dialled again (`REDIAL_WITHIN`). For tests.
+    #[doc(hidden)]
+    pub fn set_redial_within(&self, within: Duration) {
+        *self.redial_within.lock().unwrap_or_else(PoisonError::into_inner) = within;
+    }
+
     /// A push came (a call's, or a wake): out of the foreground, the connection comes back for what
     /// it announces. `true` if it came back; if it was there, the caller may still want a fresh one.
     pub async fn woken(&self) -> bool {
@@ -250,6 +300,11 @@ impl Lifecycle {
     /// Acts on what `Presence` says now: away, the router's socket goes at once (so it pushes what
     /// comes) and the direct connections close (so the other phones see this one gone); back, the
     /// socket opens again and its welcome fetches what waited. `true` if the connection came back.
+    ///
+    /// Back in front, the contacts it was connected to when it let go are dialled again (app#152),
+    /// without a message: nothing else would open those connections until something is sent. Only
+    /// after a short absence (`REDIAL_WITHIN`). A push that brings the connection back out of the
+    /// foreground dials nobody.
     async fn settle(&self) -> bool {
         let _one_at_a_time = self.looking.lock().await;
         let now = Instant::now();
@@ -259,9 +314,16 @@ impl Lifecycle {
             self.presence().connected(now, going_on)
         };
         if connected {
+            if self.presence().in_front() {
+                let within = *self.redial_within.lock().unwrap_or_else(PoisonError::into_inner);
+                let left = self.left.lock().unwrap_or_else(PoisonError::into_inner).take(SystemTime::now(), within);
+                self.network.redial(left);
+            }
             return self.router.set_away(false);
         }
         if self.router.set_away(true) {
+            let open = self.network.connected().await;
+            self.left.lock().unwrap_or_else(PoisonError::into_inner).closed(open, SystemTime::now());
             self.network.close().await;
         }
         false
@@ -353,6 +415,8 @@ pub async fn start(store: Store, key: [u8; 32], router: &str, base: SessionConfi
         network: network.clone(),
         presence: std::sync::Mutex::new(Presence::started(Instant::now())),
         looking: tokio::sync::Mutex::new(()),
+        left: std::sync::Mutex::default(),
+        redial_within: std::sync::Mutex::new(REDIAL_WITHIN),
     });
     tokio::spawn(keep_present(lifecycle.clone(), core.events(), stop.subscribe()));
 
@@ -509,6 +573,41 @@ mod tests {
         assert_eq!(watch.stops(start + LINGER, false), None);
     }
 
+
+    // Back in front, the contacts are dialled again only after a short absence (app#152,
+    // 2026-10-20): after a longer one, nobody.
+    #[test]
+    fn contacts_are_dialled_again_only_after_a_short_absence() {
+        let at = SystemTime::now();
+        let mut left = LeftBehind::default();
+        left.closed(vec!["ft_b".to_owned(), "ft_a".to_owned()], at);
+        assert_eq!(left.take(at + REDIAL_WITHIN - Duration::from_secs(1), REDIAL_WITHIN), ["ft_a", "ft_b"]);
+        assert!(left.take(at, REDIAL_WITHIN).is_empty(), "taken once");
+
+        left.closed(vec!["ft_a".to_owned()], at);
+        assert!(left.take(at + REDIAL_WITHIN, REDIAL_WITHIN).is_empty());
+        assert!(left.take(at, REDIAL_WITHIN).is_empty(), "forgotten all the same");
+    }
+
+    // Each contact counts from its own let-go: one closed by a later one (after a push brought the
+    // connection back meanwhile) is still recent.
+    #[test]
+    fn each_contact_counts_from_its_own_let_go() {
+        let at = SystemTime::now();
+        let mut left = LeftBehind::default();
+        left.closed(vec!["ft_a".to_owned()], at);
+        left.closed(vec!["ft_c".to_owned()], at + Duration::from_secs(100));
+        assert_eq!(left.take(at + Duration::from_secs(150), REDIAL_WITHIN), ["ft_c"]);
+    }
+
+    // A clock set back says nothing of how long the app was away: nobody is dialled.
+    #[test]
+    fn a_clock_set_back_dials_nobody() {
+        let at = SystemTime::now();
+        let mut left = LeftBehind::default();
+        left.closed(vec!["ft_a".to_owned()], at);
+        assert!(left.take(at - Duration::from_secs(1), REDIAL_WITHIN).is_empty());
+    }
 
     // In front, the app is always connected, call or not.
     #[test]

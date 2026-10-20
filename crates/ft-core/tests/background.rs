@@ -25,7 +25,7 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ft_core::online::{self, Online, LINGER};
-use ft_core::{CallPhase, Core, Feedback};
+use ft_core::{CallPhase, Core, Event, Feedback};
 use ft_storage::{MessageState, Store};
 use ft_webrtc::SessionConfig;
 use serde_json::{json, Value};
@@ -61,6 +61,9 @@ struct Inner {
     feedback: Vec<(String, Value)>,
     /// What a suggestion is answered with; 204 unless a test says otherwise.
     feedback_answer: Option<StatusCode>,
+    /// A device whose network is down: its socket does not get through, nor do signals (they name
+    /// no sender, so while it is down none gets through: in those tests only it would signal).
+    unreachable: Option<String>,
 }
 
 #[derive(Default)]
@@ -144,7 +147,10 @@ async fn fake_router() -> (String, Arc<Fake>) {
             "/v1/connect",
             get(|State(fake): State<Arc<Fake>>, Query(query): Query<HashMap<String, String>>, upgrade: WebSocketUpgrade| async move {
                 let device = query.get("ft-device").cloned().unwrap_or_default();
-                upgrade.on_upgrade(move |socket| fake.serve(device, socket))
+                if fake.with(|inner| inner.unreachable.as_ref() == Some(&device)) {
+                    return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                }
+                upgrade.on_upgrade(move |socket| fake.serve(device, socket)).into_response()
             }),
         )
         .route(
@@ -168,6 +174,9 @@ async fn fake_router() -> (String, Arc<Fake>) {
                 let call = headers.get("ft-call").is_some_and(|value| value == "1");
                 let frame = json!({ "kind": "signal", "signal": STANDARD_NO_PAD.encode(&body) }).to_string();
                 fake.with(|inner| {
+                    if inner.unreachable.is_some() {
+                        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    }
                     *inner.signalled.entry(to.clone()).or_default() += 1;
                     if Fake::deliver(inner, &to, frame.clone(), call) {
                         return StatusCode::ACCEPTED.into_response();
@@ -365,6 +374,144 @@ async fn a_call_keeps_the_connection_in_the_background_until_it_ends() {
     until_within("bob lets go once the call is over", LINGER + Duration::from_secs(3), || async { !fake.is_connected(&bob.id()) }).await;
     assert!(ended.elapsed() >= LINGER - Duration::from_millis(500), "a moment for the hang-up to go out first");
     until_within("the direct connection goes too", Duration::from_secs(3), || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+}
+
+// Back in front, the phone dials again the contacts it had a direct connection with when it left
+// (app#152): leaving closed them (a link opened in the browser, the microphone dialog, the screen
+// going off), and nothing else opened them again until something was sent. Nothing is sent to do
+// it, and a contact it was not connected to is not dialled.
+#[tokio::test(flavor = "multi_thread")]
+async fn coming_back_dials_again_the_contacts_it_was_connected_to() {
+    let (base, fake) = fake_router().await;
+    let bob = phone(&base, "Bob", true).await;
+    let (alice, carol) = (phone(&base, "Alice", true).await, phone(&base, "Carol", true).await);
+    pair(&fake, &alice, &bob).await;
+    pair(&fake, &carol, &bob).await;
+    linked(&bob, &alice).await;
+    linked(&bob, &carol).await;
+    until("nothing waits to be sent", || nothing_waits([&alice, &bob, &carol])).await;
+    // Carol is a contact, in front too, but without a direct connection when Bob leaves.
+    carol.online.network.disconnect(&bob.id()).await;
+    until("bob sees carol's connection closed", || async { !bob.online.network.is_connected(&carol.id()).await }).await;
+
+    bob.online.set_foreground(false).await;
+    until("alice sees bob's connection closed", || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+    let said = (texts(&alice, &bob.id()).await, texts(&bob, &alice.id()).await);
+    let carol_signalled = fake.signalled_to(&carol.id());
+    let mut bob_events = bob.core().events();
+
+    let back = Instant::now();
+    bob.online.set_foreground(true).await;
+    until_within("both see the direct connection again", Duration::from_secs(10), || both_connected(&bob, &alice)).await;
+    eprintln!("the direct connection was back {} ms after the app came back", back.elapsed().as_millis());
+    let announced = async {
+        loop {
+            if let Ok(Event::ConnectionChanged { contact }) = bob_events.recv().await {
+                if contact == alice.id() {
+                    return;
+                }
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(1), announced).await.expect("the UI hears of it");
+    assert_eq!((texts(&alice, &bob.id()).await, texts(&bob, &alice.id()).await), said, "nothing was sent to do it");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(fake.signalled_to(&carol.id()), carol_signalled, "carol was not dialled");
+    assert!(!bob.online.network.is_connected(&carol.id()).await);
+}
+
+// Only after a short absence (2026-10-20, `REDIAL_WITHIN`): after a longer one the contact has
+// likely left too, and the router would wake their phone for an offer with nothing behind it.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_long_absence_coming_back_dials_nobody() {
+    let (fake, alice, bob) = two_phones().await;
+    bob.online.lifecycle().set_redial_within(Duration::from_secs(1));
+    linked(&bob, &alice).await;
+    bob.online.set_foreground(false).await;
+    until("alice sees bob's connection closed", || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    let signalled = fake.signalled_to(&alice.id());
+
+    bob.online.set_foreground(true).await;
+    until("bob is connected to the router", || async { fake.is_connected(&bob.id()) }).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fake.signalled_to(&alice.id()), signalled, "alice was not dialled");
+    assert!(!both_connected(&bob, &alice).await);
+}
+
+// Only those the user may reach now: not a contact blocked while the app was away (§35), a
+// stranger whose request was never accepted (A5), nor one of a session left meanwhile (§108). The
+// router's welcome may come long after the return (no network), with any of these done by then.
+#[tokio::test(flavor = "multi_thread")]
+async fn coming_back_dials_no_one_blocked_unaccepted_or_in_a_session_left() {
+    let (base, fake) = fake_router().await;
+    let bob = phone(&base, "Bob", true).await;
+    let alice = phone(&base, "Alice", true).await;
+    let (carol, dave, erin) = (phone(&base, "Carol", true).await, phone(&base, "Dave", true).await, phone(&base, "Erin", true).await);
+    pair(&fake, &alice, &bob).await;
+    linked(&bob, &alice).await;
+    pair(&fake, &carol, &bob).await;
+    linked(&bob, &carol).await;
+    // Dave writes first and Bob never says yes.
+    dave.core().add_contact(&bob.core().my_card().await.unwrap().to_link(), None).await.expect("dave adds bob");
+    dave.core().send_text(&bob.id(), "hello?").await.unwrap();
+    until("bob has dave's request", || async { texts(&bob, &dave.id()).await == ["hello?"] }).await;
+    until("bob is connected to dave", || async { bob.online.network.is_connected(&dave.id()).await }).await;
+    let session = bob.core().open_session(LEFT_PIN).await.unwrap().expect("a session");
+    pair_in(&fake, &bob, &erin, &session).await;
+    linked(&bob, &erin).await;
+    until("nothing waits to be sent", || nothing_waits([&alice, &bob, &carol, &dave, &erin])).await;
+
+    bob.online.set_foreground(false).await;
+    until("alice sees bob's connection closed", || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+    bob.core().block(&carol.id(), true).await.unwrap();
+    assert!(!bob.core().close_session(&session).await.unwrap(), "erin is in it: it stays, closed");
+    let others = [&carol, &dave, &erin];
+    let signalled: Vec<usize> = others.iter().map(|other| fake.signalled_to(&other.id())).collect();
+
+    bob.online.set_foreground(true).await;
+    until_within("alice's connection is back", Duration::from_secs(10), || both_connected(&bob, &alice)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let now: Vec<usize> = others.iter().map(|other| fake.signalled_to(&other.id())).collect();
+    assert_eq!(now, signalled, "carol, dave and erin were not dialled");
+}
+
+// Back in front with no network, the contacts are dialled once the router's welcome comes, not
+// before: a dial then could not get through and would be lost.
+#[tokio::test(flavor = "multi_thread")]
+async fn coming_back_without_a_network_dials_once_the_router_is_reached() {
+    let (fake, alice, bob) = two_phones().await;
+    linked(&bob, &alice).await;
+    bob.online.set_foreground(false).await;
+    until("alice sees bob's connection closed", || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+
+    fake.with(|inner| inner.unreachable = Some(bob.id()));
+    bob.online.set_foreground(true).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!fake.is_connected(&bob.id()), "no network yet");
+    fake.with(|inner| inner.unreachable = None);
+    until_within("alice's connection is back", Duration::from_secs(15), || both_connected(&bob, &alice)).await;
+}
+
+// A push that brings the connection back out of the foreground dials nobody: away, nothing opens a
+// connection the other phone would see as there (`nothing_is_retried_in_the_background`). The
+// contacts wait for the app to be back in front.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_out_of_the_foreground_dials_nobody_until_the_app_is_back() {
+    let (fake, alice, bob) = two_phones().await;
+    linked(&bob, &alice).await;
+    bob.online.set_foreground(false).await;
+    until("alice sees bob's connection closed", || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+    let signalled = fake.signalled_to(&alice.id());
+
+    assert!(bob.online.woken().await, "the push brought the connection back");
+    until("bob is connected to the router", || async { fake.is_connected(&bob.id()) }).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fake.signalled_to(&alice.id()), signalled, "alice was not dialled");
+    assert!(!alice.online.network.is_connected(&bob.id()).await);
+
+    bob.online.set_foreground(true).await;
+    until_within("alice's connection is back", Duration::from_secs(10), || both_connected(&bob, &alice)).await;
 }
 
 // The other phone no longer believes the direct connection is open ("Direct"): it closes too.
@@ -566,6 +713,16 @@ async fn linked(bob: &Phone, other: &Phone) {
 
 async fn both_connected(bob: &Phone, other: &Phone) -> bool {
     bob.online.network.is_connected(&other.id()).await && other.online.network.is_connected(&bob.id()).await
+}
+
+/// Whether every message of these phones is delivered: none of them will dial on its own.
+async fn nothing_waits<const N: usize>(phones: [&Phone; N]) -> bool {
+    for phone in phones {
+        if !phone.core().store().outbox().await.unwrap().is_empty() {
+            return false;
+        }
+    }
+    true
 }
 
 /// Bob with Alice in his main list, Carol in the session he will leave and Dave in another open
