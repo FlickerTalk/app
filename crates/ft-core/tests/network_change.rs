@@ -25,7 +25,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
-use ft_core::calls::CALL_REACH;
+use ft_core::calls::HANG_UP_REACH;
 use ft_core::online::{self, Online};
 use ft_core::{CallPhase, Core};
 use ft_storage::{CallOutcome, Store};
@@ -283,9 +283,10 @@ async fn ended_as_answered(phone: &Phone, call: &str) -> bool {
 }
 
 // Nothing on the phone says its network changed (the same addresses, or a path that died on its
-// own): the quiet socket is noticed by its unanswered pings and opened again, and the hang-up,
-// which keeps trying while a call would, gets through on it. Before, the socket was never noticed
-// and the hang-up never arrived: the iPhone counted on and logged the call as failed.
+// own): the quiet socket is noticed by its unanswered pings and opened again (40 to 60 s), and the
+// hang-up, which keeps trying that long (`HANG_UP_REACH`), gets through on it. Before, the socket
+// was never noticed and the hang-up never arrived: the iPhone counted on and logged the call as
+// failed. The real timings: this test takes about a minute.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hang_up_gets_through_once_a_quiet_router_socket_is_opened_again() {
     let (fake, alice, bob) = two_phones().await;
@@ -293,7 +294,7 @@ async fn a_hang_up_gets_through_once_a_quiet_router_socket_is_opened_again() {
 
     network_changes_under(&fake, &alice, &bob).await;
     let hung_up = hang_up(&alice, &call);
-    until_within("bob's call ends as a hang-up", CALL_REACH, || ended_as_answered(&bob, &call)).await;
+    until_within("bob's call ends as a hang-up", HANG_UP_REACH, || ended_as_answered(&bob, &call)).await;
     eprintln!("bob heard the hang-up {} ms after it", hung_up.elapsed().as_millis());
     assert_eq!(fake.opened(&bob.id()), 2, "through a socket opened again");
 }
