@@ -2,8 +2,9 @@
 // circle, as in a 1:1 conversation. A text another member said offers "Translate" inside its bubble,
 // under who said it; the tool runs in a frame out of sight (the real `frame.js`, with a translator of
 // the test's own) and its answer takes the text's place, with "Show original" to switch back. With
-// the circle's switches on, a chip under the header says so, what arrives is translated by itself,
-// and what is sent goes in the circle's language with the user's words kept under it.
+// the circle's switches on (set in the native group of its info page), a chip under the header says
+// so, what arrives is translated by itself, and what is sent goes in the circle's language with the
+// user's words kept under it.
 import type { Page } from "@playwright/test";
 import { test } from "@playwright/test";
 import { installFakeCore } from "./fake-core";
@@ -15,10 +16,14 @@ const CIRCLE = "circle1";
 const SAID = "dinner on friday?";
 const TRANSLATED = "¿cenamos el viernes?";
 
-/** A translator as the real one answers the app: a question first while its pack is missing. */
+/**
+ * A translator as the real one answers the app: a question first while its pack is missing, and
+ * its settings for the conversation (the language it found, and its two switches).
+ */
 const plugin = (downloaded: boolean) => `
 customElements.define("ft-probe", class extends HTMLElement {});
 let downloaded = ${downloaded};
+let set = { lang: "fr", receive: false, send: false };
 const WORDS = { ${JSON.stringify(SAID)}: ${JSON.stringify(TRANSLATED)}, "hello": "bonjour" };
 ft.onHook(async (hook) => {
   if (hook.name === "message") {
@@ -27,11 +32,16 @@ ft.onHook(async (hook) => {
     return { text: WORDS[hook.text] ?? "" };
   }
   if (hook.name === "composer") return { text: WORDS[hook.text] ?? hook.text };
+  if (hook.name === "settings") {
+    if (hook.manual) set = { ...set, ...hook.values };
+    const options = { lang: [{ value: "", label: "None" }, { value: "fr", label: "French (detected)" }] };
+    return { values: set, options, auto: { message: set.receive, composer: set.send }, lang: set.lang || null };
+  }
   return null;
 });
 `;
 
-async function circle(app: Page, options: { downloaded?: boolean; flags?: Record<string, unknown>[] } = {}) {
+async function circle(app: Page, options: { downloaded?: boolean; flags?: Record<string, unknown>[]; page?: string } = {}) {
   await app.addInitScript(
     ({ flags, circle }) => {
       const fake = window as unknown as Record<string, unknown>;
@@ -43,7 +53,7 @@ async function circle(app: Page, options: { downloaded?: boolean; flags?: Record
   );
   await app.addInitScript(installFakeCore);
   await serveRealPluginFrames(app, plugin(options.downloaded ?? false));
-  await app.goto(`/circle/${CIRCLE}`);
+  await app.goto(options.page ?? `/circle/${CIRCLE}`);
 }
 
 /** The bubble of the text Bob said in the circle. */
@@ -109,4 +119,23 @@ test("with the circle's sending switch on, the text goes translated and my words
   await sentIn.click();
   await expect(mine).toContainText("bonjour");
   await expect(mine).not.toContainText("hello");
+});
+
+test("the circle's info page sets it to translate what arrives, and the circle does so", async ({ page: app }) => {
+  await circle(app, { downloaded: true, page: `/circle/${CIRCLE}/info` });
+  const group = app.getByTestId(`settings-${TRANSLATOR}`);
+  await expect(group).toContainText("Translation");
+  await expect(group).toContainText("Language packs are downloaded once; translation happens on the phone.");
+  const receive = group.getByTestId("setting-receive");
+  await expect(receive).toBeEnabled();
+  await receive.click();
+  await expect
+    .poll(async () => (await callsTo(app)).filter(([command]) => command === "core_chat_hooks_set").at(-1)?.[1])
+    .toEqual({ conversation: CIRCLE, plugin: TRANSLATOR, autoMessage: true, autoComposer: false, lang: "fr" });
+
+  // The page's own way back (the hidden frames' window has one too, out of sight).
+  await app.locator("ion-back-button").click();
+  await expect(app).toHaveURL(new RegExp(`/circle/${CIRCLE}$`));
+  await expect(app.getByTestId("translating")).toHaveText("Translating · French");
+  await expect(bobsBubble(app)).toContainText(TRANSLATED);
 });
