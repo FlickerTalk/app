@@ -3,6 +3,7 @@ import { IonIcon, IonPage, IonRouterOutlet, IonTabBar, IonTabButton, IonTabs } f
 import { appsOutline, callOutline, chatbubblesOutline, settingsOutline } from "ionicons/icons";
 import NavRail from "../components/NavRail.vue";
 import { t } from "../i18n";
+import { useOnScreen } from "../on-screen";
 
 // 2026-10-08 (plan of the apps grid): four fixed tabs. The tools and the games are the Apps tab,
 // between Calls and Settings, on every phone: the app carries the games and the small tools.
@@ -12,6 +13,11 @@ const tabs = [
   { tab: "apps", href: "/tabs/apps", label: t("tabs.apps"), icon: appsOutline },
   { tab: "settings", href: "/tabs/settings", label: t("tabs.settings"), icon: settingsOutline },
 ];
+
+// A page pushed over the tabs (a contact's page, a call) is Ionic's word to this page alone, never
+// to the tab inside it: the tab learns from here that it is covered (app#197; on a tablet, the
+// conversation beside the list must not read what arrives under that page).
+useOnScreen();
 </script>
 
 <template>
