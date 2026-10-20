@@ -20,6 +20,9 @@ import {
   NOTICE_LIMIT,
   frameUrl,
   games,
+  hookIcon,
+  hookLabel,
+  hooked,
   installed,
   isLocked,
   followPremiumLock,
@@ -42,7 +45,7 @@ import {
 } from "./plugins";
 import type { OfferedPlugin, PluginView } from "./core";
 import { setLocale } from "./i18n";
-import { bookOutline, extensionPuzzleOutline, gameControllerOutline, imageOutline, logoMarkdown, radioButtonOnOutline } from "ionicons/icons";
+import { bookOutline, extensionPuzzleOutline, languageOutline, gameControllerOutline, imageOutline, logoMarkdown, radioButtonOnOutline } from "ionicons/icons";
 import { readdirSync } from "node:fs";
 
 const CODE: PluginView = {
@@ -420,6 +423,68 @@ describe("plugins in the app", () => {
   // 2026-10-02 (plan of the catalogue's translations): a plugin's name and summary in the phone's
   // language. The installed package's own, then the catalogue's entry with the same id, then the
   // English; for each, the exact language, then its base language.
+  // 2026-10-20 (plan of the translator §8): a hook's answer and a plugin asking to be seen. Only a
+  // text and the chat hook's two switches come through; a note is as long as a message at most.
+  it("understands a hook's answer and a plugin asking to be seen, and nothing more", () => {
+    const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+    const said = (data: unknown) => fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
+    expect(said({ type: "ft.show" })).toEqual({ type: "ft.show" });
+    expect(said({ type: "ft.hookDone", id: "h1", result: { text: "hola" } })).toEqual({ type: "ft.hookDone", id: "h1", result: { text: "hola" } });
+    expect(said({ type: "ft.hookDone", id: "h2", result: { auto: { message: true, composer: "yes" }, secret: 1 } })).toEqual({
+      type: "ft.hookDone",
+      id: "h2",
+      result: { auto: { message: true } },
+    });
+    expect(said({ type: "ft.hookDone", id: "h3", result: null })).toEqual({ type: "ft.hookDone", id: "h3", result: null });
+    expect(said({ type: "ft.hookDone", id: "h4", result: "hola" })).toEqual({ type: "ft.hookDone", id: "h4", result: null });
+    expect(said({ type: "ft.hookDone", id: "h5", result: { text: "x".repeat(5_001) } })).toEqual({ type: "ft.hookDone", id: "h5", result: null });
+    expect(said({ type: "ft.hookDone", result: { text: "hola" } })).toBeNull();
+  });
+
+  describe("the chat's hooks", () => {
+    const TRANSLATOR: PluginView = {
+      ...CODE,
+      id: "com.flickertalk.translate",
+      name: "Translator",
+      kind: "tool",
+      hooks: {
+        message: { label: "Translate", icon: "language-outline" },
+        composer: { label: "Translate", icon: "not-an-icon-we-carry" },
+        chat: { label: "Chat language", icon: "language-outline" },
+      },
+      locales: { es: { name: "Traductor", hooks: { message: "Traducir", chat: "  " } } },
+    };
+    const CHESS: PluginView = { ...CODE, id: "com.flickertalk.game.chess", name: "Chess", kind: "game", hooks: { chat: { label: "Play", icon: "dice-outline" } } };
+    const NOTES: PluginView = { ...CODE, id: "com.flickertalk.notes", name: "Notes", hooks: { message: { label: "Keep", icon: "book-outline" } } };
+
+    beforeEach(async () => {
+      installed.value = [];
+      await setLocale("en");
+    });
+
+    it("lists the tools bound to a hook, by name, never a game", () => {
+      installed.value = [TRANSLATOR, CHESS, NOTES, CODE];
+      expect(hooked("message").map((one) => one.id)).toEqual(["com.flickertalk.notes", "com.flickertalk.translate"]);
+      expect(hooked("chat").map((one) => one.id)).toEqual(["com.flickertalk.translate"]);
+      expect(hooked("composer").map((one) => one.id)).toEqual(["com.flickertalk.translate"]);
+    });
+
+    it("names a hook in the phone's language, else in English", async () => {
+      expect(hookLabel(TRANSLATOR, "message")).toBe("Translate");
+      await setLocale("es");
+      expect(hookLabel(TRANSLATOR, "message")).toBe("Traducir");
+      expect(hookLabel(TRANSLATOR, "chat"), "an empty label is no label").toBe("Chat language");
+      expect(hookLabel(TRANSLATOR, "composer")).toBe("Translate");
+      expect(hookLabel(CODE, "message"), "no hook, no label").toBe("");
+    });
+
+    it("draws a hook with the icon it names if the app carries it, else the tool's own", () => {
+      expect(hookIcon(TRANSLATOR, "message")).toBe(languageOutline);
+      expect(hookIcon(TRANSLATOR, "composer")).toBe(extensionPuzzleOutline);
+      expect(hookIcon(CODE, "chat")).toBe(extensionPuzzleOutline);
+    });
+  });
+
   describe("names and summaries in the phone's language", () => {
     const LIST: PluginView = {
       ...CODE,

@@ -572,6 +572,45 @@ describe("circles", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_pin", { message: "m1", pinned: false });
   });
 
+  // 2026-10-20 (plan of the translator §8): what a tool's message hook answered is kept under the
+  // message; the chat hook's answer says which tools run by themselves in the conversation.
+  it("keeps and clears a tool's note on a message through the core", async () => {
+    await core.setMessageNote("m1", "com.flickertalk.translate", "hola");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_message_note_set", { message: "m1", plugin: "com.flickertalk.translate", text: "hola" });
+    await core.clearMessageNote("m1", "com.flickertalk.translate");
+    expect(tauri.invoke).toHaveBeenCalledWith("core_message_note_clear", { message: "m1", plugin: "com.flickertalk.translate" });
+  });
+
+  it("reads and sets the tools that run by themselves in a conversation", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "core_chat_hooks" ? [{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false }] : undefined),
+    );
+    expect(await core.chatHooks("ft_bob")).toEqual([{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false }]);
+    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks", { contact: "ft_bob" });
+    await core.setChatHooks("ft_bob", "com.flickertalk.translate", { message: true, composer: true });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks_set", { contact: "ft_bob", plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: true });
+    tauri.invoke.mockImplementation(() => Promise.reject(new Error("no core")));
+    expect(await core.chatHooks("ft_bob"), "a core that cannot say runs nothing by itself").toEqual([]);
+  });
+
+  it("shows the notes tools left under a message, and none when there are none", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "core_messages"
+          ? [
+              { id: "m1", outgoing: false, text: "see you at six", sentAt: at(9, 30), state: "read", notes: [{ plugin: "com.flickertalk.translate", text: "nos vemos a las seis" }] },
+              { id: "m2", outgoing: true, text: "ok", sentAt: at(9, 31), state: "read" },
+            ]
+          : answers[command],
+      ),
+    );
+    await core.start();
+    await core.loadMessages("ft_bob");
+    const [noted, plain] = core.chat("ft_bob")?.messages ?? [];
+    expect(noted.notes).toEqual([{ plugin: "com.flickertalk.translate", text: "nos vemos a las seis" }]);
+    expect(plain.notes).toBeUndefined();
+  });
+
   // 2026-10-05: one emoji on a message; none takes it back.
   it("puts an emoji on a message through the core, and takes it back", async () => {
     await core.react("ft_bob", "m1", "👍");

@@ -6,7 +6,16 @@
 import { computed, shallowRef } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PLAN_EVENT, offeredPlugins, plan, plugins, type OfferedPlugin, type PluginLocales, type PluginView } from "./core";
+import {
+  PLAN_EVENT,
+  offeredPlugins,
+  plan,
+  plugins,
+  type OfferedPlugin,
+  type PluginHookName,
+  type PluginLocales,
+  type PluginView,
+} from "./core";
 import { isGame } from "./games";
 import { i18n } from "./i18n";
 import {
@@ -218,6 +227,34 @@ export function pluginName(plugin: Named): string {
   return localized(plugin, "name");
 }
 
+// ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
+
+/** The tools of this phone bound to a hook of the chat, by the name the phone shows. Never a game. */
+export function hooked(name: PluginHookName): PluginView[] {
+  return tools.value.filter((one) => Boolean(one.hooks?.[name]));
+}
+
+/**
+ * A hook's label in the phone's language (`locales.<lang>.hooks`), as for the name: the exact
+ * language, then its base; otherwise the English one. Empty for a hook the tool does not bind to.
+ */
+export function hookLabel(plugin: PluginView, name: PluginHookName): string {
+  const english = plugin.hooks?.[name]?.label ?? "";
+  if (!english) return "";
+  const locale = i18n.global.locale.value;
+  const languages = locale === "en" ? [] : [...new Set([locale, locale.split("-")[0]])];
+  for (const language of languages) {
+    const said = plugin.locales?.[language]?.hooks?.[name];
+    if (said?.trim()) return said;
+  }
+  return english;
+}
+
+/** A hook's icon: the Ionicon it names, if the app carries it; otherwise the tool's puzzle piece. */
+export function hookIcon(plugin: PluginView, name: PluginHookName): string {
+  return pluginIcon({ icon: plugin.hooks?.[name]?.icon, kind: "tool" });
+}
+
 export function pluginSummary(plugin: Named): string {
   return localized(plugin, "summary");
 }
@@ -294,7 +331,50 @@ export type FrameMessage =
   | { type: "ft.translateStatus" | "ft.translatePrepare" | "ft.translateRemove"; id: string; from: string; to: string }
   | { type: "ft.translateText"; id: string; text: string; from: string; to: string }
   // The user's cloud (plan-drive): one question with an operation and up to two strings.
-  | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string };
+  | { type: "ft.drive"; id: string; op: DriveOp; a: string; b: string }
+  // 2026-10-20 (plan of the translator §8): a hook's answer, and a plugin out of sight asking to be seen.
+  | { type: "ft.hookDone"; id: string; result: PluginHookResult | null }
+  | { type: "ft.show" };
+
+/** What the app hands a plugin for one run of a hook (`ft.hook`); `chat` is `pluginChat`'s key. */
+export interface PluginHook {
+  name: PluginHookName;
+  /** The message or the draft; "" for the chat hook. */
+  text: string;
+  chat: string;
+  /** The message's ref (`message` only). */
+  ref: string | null;
+  lang: string;
+  /** Started by the user, not by the conversation's own switches. */
+  manual: boolean;
+}
+
+/** A hook's answer: a text (a note, a new draft) or the chat hook's two switches. */
+export interface PluginHookResult {
+  text?: string;
+  auto?: { message?: boolean; composer?: boolean };
+}
+
+/** The longest text a hook may hand back: as long as a message (the core's note limit too). */
+export const HOOK_TEXT_LIMIT = 5_000;
+
+/** Only what a hook's answer can say; anything else, or a text longer than a message, is none. */
+function hookResult(said: unknown): PluginHookResult | null {
+  if (!said || typeof said !== "object") return null;
+  const given = said as { text?: unknown; auto?: unknown };
+  const result: PluginHookResult = {};
+  if (typeof given.text === "string") {
+    if (Array.from(given.text).length > HOOK_TEXT_LIMIT) return null;
+    result.text = given.text;
+  }
+  if (given.auto && typeof given.auto === "object") {
+    const auto = given.auto as Record<string, unknown>;
+    result.auto = {};
+    if (typeof auto.message === "boolean") result.auto.message = auto.message;
+    if (typeof auto.composer === "boolean") result.auto.composer = auto.composer;
+  }
+  return Object.keys(result).length ? result : null;
+}
 
 /**
  * How long a closing plugin is kept, out of sight, to say goodbye to its twin (2026-10-02): its
@@ -417,6 +497,10 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       const op = DRIVE_OPS.find((one) => one === said.op);
       return text(id) && op ? { type: "ft.drive", id, op, a: text(said.a) ? said.a : "", b: text(said.b) ? said.b : "" } : null;
     }
+    case "ft.hookDone":
+      return text(id) ? { type: "ft.hookDone", id, result: hookResult(said.result) } : null;
+    case "ft.show":
+      return { type: "ft.show" };
     default:
       return null;
   }

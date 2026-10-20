@@ -52,6 +52,14 @@ export interface ChatMessage {
   scheduledFor?: number;
   /** An edit or a taking back of it still waits for the contact's receipt (2026-10-06). */
   updatePending?: boolean;
+  /** What tools said about it (2026-10-20, plan of the translator §8): a line under the text each. */
+  notes?: MessageNote[];
+}
+
+/** A tool's note under a message (2026-10-20): which tool, and what its message hook answered. */
+export interface MessageNote {
+  plugin: string;
+  text: string;
 }
 
 export interface Reactions {
@@ -200,6 +208,7 @@ interface MessageView {
   deleted?: boolean;
   scheduledFor?: number;
   updatePending?: boolean;
+  notes?: MessageNote[];
 }
 
 interface ConversationView {
@@ -385,6 +394,7 @@ function toMessage(view: MessageView, connected = false): ChatMessage {
   if (view.deleted) message.deleted = true;
   if (view.scheduledFor) message.scheduledFor = view.scheduledFor;
   if (view.updatePending) message.updatePending = true;
+  if (view.notes?.length) message.notes = view.notes;
   return message;
 }
 
@@ -915,10 +925,26 @@ export interface PluginView {
   icon?: string;
   /** Its own `icon.svg` as text (2026-10-08); `pluginImage` makes it an image. */
   image?: string;
+  /** The chat's hooks it binds to (2026-10-20), with their English labels; `hookLabel` picks one. */
+  hooks?: PluginHooks;
 }
 
-/** A plugin's name and summary by language code (`es`, `zh-TW`…), as `module.json` gives them. */
-export type PluginLocales = Record<string, { name?: string; summary?: string }>;
+/** The places in a conversation a tool can bind to (2026-10-20, plan of the translator §8). */
+export type PluginHookName = "message" | "composer" | "chat";
+
+/** What the app shows for a hook: its label and an Ionicon's name, as `module.json` says them. */
+export interface PluginHookDeclaration {
+  label: string;
+  icon: string;
+}
+
+export type PluginHooks = Partial<Record<PluginHookName, PluginHookDeclaration>>;
+
+/**
+ * A plugin's name and summary by language code (`es`, `zh-TW`…), as `module.json` gives them, and
+ * the labels of its hooks (2026-10-20).
+ */
+export type PluginLocales = Record<string, { name?: string; summary?: string; hooks?: Partial<Record<string, string>> }>;
 
 /** What a plugin is for: a tool of the chat, or a game in its own section (plan 10.1). */
 export type PluginKind = "tool" | "game";
@@ -1101,6 +1127,38 @@ export async function deleteForEveryone(message: string): Promise<void> {
 /** Pins a message on this phone, or unpins it (2026-10-05); nothing of it travels. */
 export async function pinMessage(message: string, pinned: boolean): Promise<void> {
   await invoke("core_pin", { message, pinned });
+}
+
+// ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
+
+/** Keeps what a tool's message hook answered under the message, in place of its note before. */
+export async function setMessageNote(message: string, plugin: string, text: string): Promise<void> {
+  await invoke("core_message_note_set", { message, plugin, text });
+}
+
+export async function clearMessageNote(message: string, plugin: string): Promise<void> {
+  await invoke("core_message_note_clear", { message, plugin });
+}
+
+/** Whether a tool runs by itself in a conversation: on each message received, on each text sent. */
+export interface ChatHookState {
+  plugin: string;
+  autoMessage: boolean;
+  autoComposer: boolean;
+}
+
+/** The tools that run by themselves in the conversation; none when the core cannot say. */
+export async function chatHooks(contact: string): Promise<ChatHookState[]> {
+  try {
+    return (await invoke<ChatHookState[] | undefined>("core_chat_hooks", { contact })) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** What a tool's chat hook answered for the conversation. */
+export async function setChatHooks(contact: string, plugin: string, auto: { message: boolean; composer: boolean }): Promise<void> {
+  await invoke("core_chat_hooks_set", { contact, plugin, autoMessage: auto.message, autoComposer: auto.composer });
 }
 
 /** One emoji on a message of the conversation (2026-10-05); `null` takes it back. */
