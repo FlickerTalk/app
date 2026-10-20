@@ -11,7 +11,7 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 rtc = "0.21"
 webrtc = "0.21"
-webrtc-engine = { git = "https://github.com/FlickerTalk/webrtc-engine-rs", branch = "main" }
+webrtc-engine = { git = "https://github.com/FlickerTalk/webrtc-engine-rs", rev = "f05bd29c6e73fe71d77df1199bb316f2b38869a8" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
