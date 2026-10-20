@@ -239,6 +239,9 @@ pub struct Core {
     /// The highest call media version this phone says (2026-10-08): `CALL_MEDIA_VERSION`, lower
     /// only in tests that play an older app (`set_call_media_version`).
     call_media_ceiling: std::sync::atomic::AtomicU16,
+    /// Whether our packets say if we use the mailbox (app#190): always, but in tests that play an
+    /// app from before (`set_tells_mailbox`).
+    tells_mailbox: std::sync::atomic::AtomicBool,
     /// One native answer at a time: CallKit and the WebView may both answer the same call.
     native_setup: Mutex<()>,
     /// The offer of the call ringing here: (call, SDP, the caller's call media version), for a
@@ -385,6 +388,7 @@ impl Core {
             call_audio: RwLock::new(ft_media::platform_audio()),
             native_call: std::sync::Mutex::default(),
             call_media_ceiling: std::sync::atomic::AtomicU16::new(ft_protocol::CALL_MEDIA_VERSION),
+            tells_mailbox: std::sync::atomic::AtomicBool::new(true),
             native_setup: Mutex::new(()),
             ringing_offer: std::sync::Mutex::default(),
             call_video: RwLock::new(ft_media::platform_video()),
@@ -630,7 +634,16 @@ impl Core {
         Ok(self.store.setting(MAILBOX).await?.as_deref() != Some("0"))
     }
 
-    /// Stores the preference and tells every contact, who need it to decide where to send.
+    /// Only for tests: with `false`, this phone's packets say nothing of its mailbox, as those of
+    /// an app from before app#190.
+    #[doc(hidden)]
+    pub fn set_tells_mailbox(&self, tells: bool) {
+        self.tells_mailbox.store(tells, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Stores the preference and tells every contact, who need it to decide where to send. Told
+    /// once here, by whichever way works; every packet after says it too (app#190), so a contact
+    /// out of reach now learns it from the next one that gets through.
     pub async fn set_mailbox(&self, enabled: bool) -> Result<()> {
         self.store.set_setting(MAILBOX, if enabled { "1" } else { "0" }).await?;
         for contact in self.store.all_contacts().await? {
@@ -1439,9 +1452,10 @@ impl Core {
     /// Encrypts a signal body (offer or answer) for a contact: its plaintext is a `Packet`.
     pub async fn seal_signal(&self, contact: &str, body: Body) -> Result<Vec<u8>> {
         let contact = self.contact(contact).await?;
+        let plaintext = self.plaintext(&Packet::new(body)).await?;
         let _identity = self.identity.lock().await;
         let mut channel = self.channel(&contact.device_id).await?;
-        let sealed = channel.encrypt(&self.device_id, &Packet::new(body).encode())?;
+        let sealed = channel.encrypt(&self.device_id, &plaintext)?;
         self.store.save_channel(&contact.device_id, &channel.seal(&self.key)).await?;
         Ok(sealed.encode())
     }
@@ -1518,7 +1532,15 @@ impl Core {
             }
         };
         self.store.set_introduced(from.as_str()).await?;
-        Ok(Some((self.contact(from.as_str()).await?, packet, first_contact)))
+        let mut contact = self.contact(from.as_str()).await?;
+        // Whether they use the mailbox as they say it now (app#190): a change of theirs this phone
+        // missed is put right by whatever of theirs comes next. An app before says nothing.
+        if let Some(enabled) = packet.mailbox.filter(|enabled| *enabled != contact.mailbox) {
+            self.store.set_contact_mailbox(from.as_str(), enabled).await?;
+            contact.mailbox = enabled;
+            let _ = self.events.send(Event::ContactsChanged);
+        }
+        Ok(Some((contact, packet, first_contact)))
     }
 
     async fn handle(&self, contact: &Contact, packet: Packet, first_contact: bool) -> Result<()> {
@@ -1836,11 +1858,22 @@ impl Core {
         Ok(())
     }
 
+    /// A packet as it leaves this phone, saying whether we use the mailbox now (app#190): told
+    /// once, a change was lost when the contact was out of reach; said on every packet, the first
+    /// that gets through puts their record right. Said when sealed, so a retry says it as it is.
+    async fn plaintext(&self, packet: &Packet) -> Result<Vec<u8>> {
+        if !self.tells_mailbox.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(packet.encode());
+        }
+        Ok(Packet { mailbox: Some(self.mailbox().await?), ..packet.clone() }.encode())
+    }
+
     /// Encrypts a packet for the contact with Olm.
     async fn seal_for(&self, contact: &Contact, packet: &Packet) -> Result<Vec<u8>> {
+        let plaintext = self.plaintext(packet).await?;
         let _identity = self.identity.lock().await;
         let mut channel = self.channel(&contact.device_id).await?;
-        let sealed = channel.encrypt(&self.device_id, &packet.encode())?;
+        let sealed = channel.encrypt(&self.device_id, &plaintext)?;
         self.store.save_channel(&contact.device_id, &channel.seal(&self.key)).await?;
         Ok(sealed.encode())
     }
