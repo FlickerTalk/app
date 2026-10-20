@@ -8,7 +8,7 @@ import { isAppLink, openInApp } from "../opened";
 import { installed, offered, pluginName } from "../plugins";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IonButton, IonIcon } from "@ionic/vue";
-import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, documentOutline, downloadOutline, pause, pinOutline, play, refreshOutline, timeOutline } from "ionicons/icons";
+import { alertCircleOutline, gameControllerOutline, checkmark, checkmarkDone, checkmarkDoneCircle, documentOutline, downloadOutline, pause, pinOutline, play, refreshOutline, timeOutline } from "ionicons/icons";
 import { i18n, t } from "../i18n";
 
 interface TransferredFile {
@@ -66,7 +66,8 @@ const STATUS: Record<string, { icon: string; label: string }> = {
   pending: { icon: timeOutline, label: t("status.pending") },
   sent: { icon: checkmark, label: t("status.sent") },
   delivered: { icon: checkmarkDone, label: t("status.delivered") },
-  read: { icon: checkmarkDone, label: t("status.read") },
+  // Read has a shape of its own (app#154): a glow alone did not show on Mono's bubble.
+  read: { icon: checkmarkDoneCircle, label: t("status.read") },
   // The router refused it (§84): never shown as on its way; it can be sent again.
   unsent: { icon: alertCircleOutline, label: t("status.unsent") },
 };

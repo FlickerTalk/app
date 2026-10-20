@@ -15,16 +15,33 @@ import { setLocale } from "../i18n";
 
 const base = { id: "m1", text: "Hi", time: "10:02", mine: true };
 
+/** Each state of a message of mine, with what a screen reader says for it. */
+const STATES: [status: string, label: string][] = [
+  ["pending", "Waiting for device"],
+  ["sent", "Sent"],
+  ["delivered", "Delivered"],
+  ["read", "Read"],
+  ["unsent", "Not sent"],
+];
+
 describe("MessageBubble", () => {
-  it.each([
-    ["pending", "Waiting for device"],
-    ["sent", "Sent"],
-    ["delivered", "Delivered"],
-    ["read", "Read"],
-    ["unsent", "Not sent"],
-  ])("labels the %s state for screen readers", (status, label) => {
+  it.each(STATES)("labels the %s state for screen readers", (status, label) => {
     const wrapper = mount(MessageBubble, { props: { message: { ...base, status } }, shallow: true });
     expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
+  });
+
+  // app#154: in Mono, read and delivered were the same double tick, told apart only by a glow the
+  // colour of Mono's bubble. Each state has a shape of its own, so it reads in every colour.
+  it("draws each state of my message with an icon of its own", () => {
+    const icon = Object.fromEntries(
+      STATES.map(([status, label]) => [
+        status,
+        mount(MessageBubble, { props: { message: { ...base, status } }, shallow: true }).find(`[aria-label="${label}"]`).attributes("icon"),
+      ]),
+    );
+    for (const [status] of STATES) expect(icon[status], status).toBeTruthy();
+    expect(icon.read, "read is not drawn as delivered").not.toBe(icon.delivered);
+    expect(new Set(Object.values(icon)).size).toBe(STATES.length);
   });
 
   // 2026-10-05: an answer shows what it answers over the text; a tap goes there.

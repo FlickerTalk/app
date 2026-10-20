@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import ChatsPage from "./ChatsPage.vue";
 import ChatThread from "../components/ChatThread.vue";
+import MessageBubble from "../components/MessageBubble.vue";
 import { childTags, pageShape } from "../__tests__/page-shape";
 import { fixture, seed } from "../__tests__/seed";
 import { calls } from "../__tests__/seed";
@@ -56,6 +57,24 @@ describe("ChatsPage", () => {
     store.chats[0].status = "unsent";
     const row = mount(ChatsPage, { shallow: true }).findAll("[data-test='chat-row']")[0];
     expect(row.find(".ft-row__status.is-unsent").attributes("icon")).toBeTruthy();
+  });
+
+  // app#154: read has a shape of its own, the same in the list as in the bubble, so it does not
+  // depend on a colour that may be the bubble's or the page's (Mono).
+  it("draws a read last message with its own icon, the one the bubble uses", () => {
+    screen(false);
+    store.chats[0].lastMine = true;
+    const iconOf = (status: "delivered" | "read") => {
+      store.chats[0].status = status;
+      const row = mount(ChatsPage, { shallow: true }).findAll("[data-test='chat-row']")[0];
+      return row.find(`.ft-row__status.is-${status}`).attributes("icon");
+    };
+    const delivered = iconOf("delivered");
+    const read = iconOf("read");
+    expect(delivered).toBeTruthy();
+    expect(read, "read is not drawn as delivered").not.toBe(delivered);
+    const bubble = mount(MessageBubble, { props: { message: { id: "m1", text: "Hi", time: "10:02", mine: true, status: "read" } }, shallow: true });
+    expect(read, "the same shape as in the bubble").toBe(bubble.find("[aria-label='Read']").attributes("icon"));
   });
 
   it("lists every conversation", () => {
