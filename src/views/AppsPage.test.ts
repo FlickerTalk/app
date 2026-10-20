@@ -21,6 +21,15 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
   alertController: { create: alert.create },
 }));
 
+// Android's back button: the handler the app listens with while something is open on top.
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
+  },
+}));
+
 const nav = vi.hoisted(() => ({ push: vi.fn(), route: { query: {} as Record<string, string> } }));
 vi.mock("vue-router", async () => {
   const { reactive } = await import("vue");
@@ -197,6 +206,30 @@ describe("AppsPage", () => {
     ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
     await flushPromises();
     expect(calls.filter(([command]) => command === "core_plugins").length).toBeGreaterThan(before);
+  });
+
+  // app#193: Ionic says a page leaves as soon as the next one starts to come in, but that it came in
+  // only once its own transition is over. With a page opened over the tab while it still came in,
+  // the tab stays off screen under it: a sheet of its own leaves Android's back button to that page.
+  it("leaves Android's back button to a page opened over it while it still came in", async () => {
+    const wrapper = await page();
+    const hooks = (name: string) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewWillLeave");
+    hooks("onIonViewDidEnter");
+    tile(wrapper, `app-${IMAGE.id}`)!.vm.$emit("hold");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(sheet(wrapper).props("open")).toBe(true);
+    // Back on screen the next time it comes in: Back closes the sheet again.
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewDidEnter");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(sheet(wrapper).props("open")).toBe(false);
   });
 
   // 2026-10-03 (updates): an update made in the background shows at once.

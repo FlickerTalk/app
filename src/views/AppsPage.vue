@@ -11,7 +11,6 @@ import {
   IonTitle,
   IonToast,
   IonToolbar,
-  onIonViewDidEnter,
   onIonViewWillEnter,
   onIonViewWillLeave,
 } from "@ionic/vue";
@@ -49,6 +48,7 @@ import {
   tools,
 } from "../plugins";
 import { closeOnBackWhile } from "../back";
+import { useOnScreen } from "../on-screen";
 
 // 2026-10-08 (plan of the apps grid, docs/mockups/apps-grid.html): the tools and the games of this
 // phone as a grid of icons, and under them what the app carries or the catalogue offers. A tap
@@ -102,10 +102,8 @@ const asking = ref<PluginView | null>(null);
 const picking = ref("");
 
 // Only while the tab is on screen: Ionic keeps it mounted under the others (2026-10-02).
-const onScreen = ref(true);
-onIonViewDidEnter(() => (onScreen.value = true));
+const onScreen = useOnScreen();
 onIonViewWillLeave(() => {
-  onScreen.value = false;
   // What was open on top is forgotten on the way out.
   sheetOpen.value = false;
   asking.value = null;

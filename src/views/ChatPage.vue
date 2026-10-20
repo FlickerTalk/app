@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { IonPage, onIonViewDidEnter, onIonViewWillEnter, onIonViewWillLeave } from "@ionic/vue";
 import { useRoute, useRouter } from "vue-router";
 import ChatThread from "../components/ChatThread.vue";
+import { useOnScreen } from "../on-screen";
 import { takeSearch } from "../pending-search";
 
 const route = useRoute();
@@ -20,9 +21,8 @@ const play = computed(() => {
 // Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`.
 const search = computed(() => forThisChat() && route.query?.search === "1");
 // Under another page, what the conversation left open lets go of Android's back button.
-const onScreen = ref(true);
+const onScreen = useOnScreen();
 onIonViewDidEnter(() => {
-  onScreen.value = true;
   // Back from the contact page's search (2026-10-06): the conversation searches now it is seen.
   if (takeSearch(chatId)) thread.value?.openSearch();
 });
@@ -52,7 +52,6 @@ watch(
 );
 onIonViewWillEnter(() => (enteredAt = position()));
 onIonViewWillLeave(() => {
-  onScreen.value = false;
   const now = position();
   if (enteredAt !== undefined && now !== undefined && now < enteredAt) thread.value?.leave();
 });

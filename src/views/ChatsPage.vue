@@ -10,7 +10,6 @@ import {
   IonTitle,
   IonToolbar,
   onIonViewDidEnter,
-  onIonViewWillLeave,
 } from "@ionic/vue";
 import {
   alertCircleOutline,
@@ -35,6 +34,7 @@ import CircleThread from "../components/CircleThread.vue";
 import { t } from "../i18n";
 import { previewOf } from "../links";
 import { closeSession, removeSession, store, type Chat, type Circle, type Session } from "../core";
+import { useOnScreen } from "../on-screen";
 import { showInPane, takeSearch } from "../pending-search";
 
 const router = useRouter();
@@ -49,10 +49,8 @@ onBeforeUnmount(() => wideQuery.removeEventListener("change", onWidthChange));
 
 // On another tab, what the conversation beside the list left open lets go of Android's back
 // button; back on Chats it takes it again (2026-10-02).
-const onScreen = ref(true);
-onIonViewWillLeave(() => (onScreen.value = false));
+const onScreen = useOnScreen();
 onIonViewDidEnter(() => {
-  onScreen.value = true;
   // Back from the contact page's search on a tablet (2026-10-06): the pane searches now it is seen.
   if (wide.value && selectedId.value && !selectedCircle.value && takeSearch(selectedId.value)) paneThread.value?.openSearch();
 });

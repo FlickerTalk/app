@@ -22,7 +22,6 @@ import {
   IonToolbar,
   onIonViewDidEnter,
   onIonViewWillEnter,
-  onIonViewWillLeave,
   toastController,
 } from "@ionic/vue";
 import {
@@ -54,6 +53,7 @@ import {
 import Avatar from "../components/Avatar.vue";
 import FeedbackModal from "../components/FeedbackModal.vue";
 import { closeOnBackWhile } from "../back";
+import { useOnScreen } from "../on-screen";
 import {
   AUTO_DOWNLOAD_CHOICES,
   autoDownloadChoice,
@@ -361,9 +361,7 @@ const appearance = ref(storedAppearance());
 // forgets what was written.
 const suggesting = ref(false);
 // Only while Settings is on screen: a reminder or a call can put a page over it with the modal open.
-const onScreen = ref(true);
-onIonViewWillLeave(() => (onScreen.value = false));
-onIonViewDidEnter(() => (onScreen.value = true));
+const onScreen = useOnScreen();
 closeOnBackWhile(() => onScreen.value && suggesting.value, () => (suggesting.value = false));
 
 function chooseColor(id: Direction) {

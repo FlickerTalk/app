@@ -176,6 +176,31 @@ describe("SettingsPage", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
+  // app#193: Ionic says a page leaves as soon as the next one starts to come in, but that it came in
+  // only once its own transition is over. With a page opened over Settings while it still came in
+  // (a reminder tapped then), the modal left open there leaves Android's back button to that page.
+  it("leaves Android's back button to a page opened over it while it still came in", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    const hooks = (name: string) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    hooks("onIonViewWillLeave");
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewWillLeave");
+    hooks("onIonViewDidEnter");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(true);
+    // Back on screen the next time it comes in: Back closes the modal again.
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewDidEnter");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(false);
+  });
+
   // Nothing of a suggestion is kept: closing forgets what was written and what came of it.
   it("opens the suggestion modal empty again after closing it", async () => {
     installTauri((command) => (command === "core_send_feedback" ? "failed" : undefined));
