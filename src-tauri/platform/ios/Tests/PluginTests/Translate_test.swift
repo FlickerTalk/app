@@ -61,10 +61,48 @@ final class TranslateTests: XCTestCase {
     }
 
     // One request at a time goes through the hidden SwiftUI view; one that never answers gives
-    // up after the core's own limits, so the next is never stuck behind it.
+    // up after the core's own limits, so the next is never stuck behind it. Apple's sheet may stay
+    // up for the whole `prepare` limit; once it is gone, the pair gets a short wait of its own.
     func testARequestGivesUpAfterTheCoresLimits() {
         XCTAssertEqual(translateWait, 30)
         XCTAssertEqual(prepareWait, 300)
+        XCTAssertEqual(prepareInstalledWait, 30)
+    }
+
+    // The user closed Apple's sheet with ✕ (`prepareTranslation()` returns, nothing downloads):
+    // the pair is not ready after 30 s, not after the sheet's 5 minutes, so the plugin's hook and
+    // the conversation's queue behind it move on. The user can tap again later.
+    func testOnceTheSheetIsGoneAPairThatNeverInstallsIsNotReadyAfterThirtySeconds() async {
+        let clock = TestClock()
+        var asks = 0
+        let installed = await becomesInstalled(now: { clock.now }, sleep: { clock.now += $0 }) {
+            asks += 1
+            return false
+        }
+        XCTAssertFalse(installed)
+        XCTAssertEqual(clock.elapsed, 30, accuracy: installedPoll)
+        XCTAssertGreaterThan(asks, 1)
+    }
+
+    // A download that finishes behind the sheet is ready as soon as the pair shows as installed.
+    func testAPairThatInstallsWhileWaitingIsReadyAtOnce() async {
+        let clock = TestClock()
+        var asks = 0
+        let installed = await becomesInstalled(now: { clock.now }, sleep: { clock.now += $0 }) {
+            asks += 1
+            return asks == 3
+        }
+        XCTAssertTrue(installed)
+        XCTAssertEqual(asks, 3)
+        XCTAssertEqual(clock.elapsed, 2 * installedPoll, accuracy: 0.001)
+    }
+
+    // A pair already installed when the sheet goes needs no wait at all.
+    func testAPairAlreadyInstalledNeedsNoWait() async {
+        let clock = TestClock()
+        let installed = await becomesInstalled(now: { clock.now }, sleep: { clock.now += $0 }) { true }
+        XCTAssertTrue(installed)
+        XCTAssertEqual(clock.elapsed, 0)
     }
 
     // The commands Rust runs (`run_mobile_plugin` in platform/src/lib.rs), as Tauri looks them
@@ -76,4 +114,11 @@ final class TranslateTests: XCTestCase {
             XCTAssertTrue(found, name)
         }
     }
+}
+
+/// A clock that only moves when the code under test sleeps.
+private final class TestClock {
+    let start = Date(timeIntervalSince1970: 0)
+    var now = Date(timeIntervalSince1970: 0)
+    var elapsed: TimeInterval { now.timeIntervalSince(start) }
 }
