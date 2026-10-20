@@ -139,8 +139,9 @@ async fn two_peers_connect_through_stun_on_the_real_network() {
     assert_eq!(received.as_deref(), Some("hello"));
 }
 
-/// The local coturn of `app/CLAUDE.md` by default. `FT_TURN_URL`, `FT_TURN_USERNAME` and
-/// `FT_TURN_CREDENTIAL` point the test at another relay, such as the cluster's.
+/// A local TURN relay by default (`turn:127.0.0.1:3478`, user `ft`, password `poc`).
+/// `FT_TURN_URL`, `FT_TURN_USERNAME` and `FT_TURN_CREDENTIAL` point the test at another relay,
+/// such as the cluster's.
 fn relayed() -> SessionConfig {
     let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.to_owned());
     let url = var("FT_TURN_URL", "turn:127.0.0.1:3478");

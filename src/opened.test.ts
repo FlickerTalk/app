@@ -71,7 +71,7 @@ const settle = async () => {
   for (let at = 0; at < 10; at += 1) await Promise.resolve();
 };
 
-// Links that open the app (2026-10-08, docs/plan-enlaces-app.md): a link never acts alone. It
+// Links that open the app (2026-10-08): a link never acts alone. It
 // opens its page with the field filled, and the user taps.
 describe("deciding what an opened link does", () => {
   const app = { onboarded: true, moving: false, onCallScreen: false };

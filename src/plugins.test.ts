@@ -544,7 +544,7 @@ describe("plugins in the app", () => {
       expect(pluginIcon({ kind: "game", icon: "nope" })).toBe(gameControllerOutline);
     });
 
-    // Every name chosen for our plugins (docs/plan-apps-grid.md) and every icon a plugin's frame
+    // Every name chosen for our plugins and every icon a plugin's frame
     // can ask the core for (src-tauri/resources/icons) can be a tile.
     it("allows every icon our plugins use and every icon of the frame", () => {
       const chosen = [
