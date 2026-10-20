@@ -332,6 +332,61 @@ async fn the_network_reports_open_connections() {
     until("bob sees it closed", || async { !bob.network.is_connected(&alice.id()).await }).await;
 }
 
+// A contact whose app is killed (swiped from recents, app#151) never closes the channel. The
+// connection notices within seconds that it stopped answering, and the UI hears of it then: the
+// chat stops saying "Direct" without waiting for a reload or the next send.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_contact_that_vanishes_is_announced_as_gone() {
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    alice.core.send_text(&bob.id(), "hi").await.unwrap();
+    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+    let mut events = alice.core.events();
+
+    // Bob's app is killed: its socket to the router and its connection stop without a word.
+    bus.online.lock().unwrap().remove(&bob.id());
+    bob.network.vanish(&alice.id()).await;
+    let vanished = std::time::Instant::now();
+    let gone = async {
+        loop {
+            // The announcement of the connection opening may still be on its way: only one that
+            // comes once the connection no longer counts is the one looked for.
+            if let Ok(Event::ConnectionChanged { contact }) = events.recv().await {
+                if contact == bob.id() && !alice.network.connected().await.contains(&bob.id()) {
+                    return;
+                }
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(15), gone).await.expect("alice hears the connection is gone");
+    eprintln!("a vanished contact was announced as gone after {} ms", vanished.elapsed().as_millis());
+    assert!(alice.network.connected().await.is_empty());
+    assert!(!alice.network.is_connected(&bob.id()).await);
+}
+
+// A connection taken for lost can come back (ICE goes from disconnected to connected again after
+// a network blip). The side that let go of it closes it, so the contact, whose side may still look
+// open, does not keep sending into a connection nobody reads any more.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_given_up_as_lost_is_closed_for_the_contact_too() {
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
+    alice.go_online(&bus);
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    alice.core.send_text(&bob.id(), "hi").await.unwrap();
+    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+
+    let lost = std::time::Instant::now();
+    alice.network.lose(&bob.id()).await;
+    until("alice let go of it", || async { alice.network.connected().await.is_empty() }).await;
+    until_within_secs("bob sees it closed", 15, || async { !bob.network.is_connected(&alice.id()).await }).await;
+    eprintln!("bob saw it closed after {} ms", lost.elapsed().as_millis());
+}
+
 // Erasing the phone (2026-09-30): the running app lets go of every direct connection, and the
 // contact sees it close.
 #[tokio::test(flavor = "multi_thread")]

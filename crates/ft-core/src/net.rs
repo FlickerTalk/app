@@ -322,6 +322,15 @@ impl Network {
         }
     }
 
+    /// The direct connection with the contact says it stopped answering, while the contact's side
+    /// still answers: a network blip the connection may come back from. For tests.
+    #[doc(hidden)]
+    pub async fn lose(&self, contact: &str) {
+        if let Some(link) = self.links.lock().await.get(contact) {
+            link.session.lose();
+        }
+    }
+
     /// How many of our offers wait for their answer. For tests.
     #[doc(hidden)]
     pub async fn offers_waiting(&self) -> usize {
@@ -610,9 +619,14 @@ impl Network {
     }
 
     /// Keeps the open channel for the contact and feeds what arrives on it to the core.
+    ///
+    /// The inbox ends when the channel closes or its connection is lost (a contact whose app was
+    /// killed never closes it): the link goes, the UI hears of it (app#151), and the session is
+    /// closed, since a connection taken for lost may come back and the contact would keep sending
+    /// into it.
     async fn adopt(&self, contact: &str, session: Session, mut inbox: Inbox) {
         let id = self.next_link.fetch_add(1, Ordering::Relaxed);
-        self.links.lock().await.insert(contact.to_owned(), Link { id, session });
+        self.links.lock().await.insert(contact.to_owned(), Link { id, session: session.clone() });
         self.announce(contact);
         if let Ok(core) = self.core() {
             core.mark_call_stage(CallStage::LinkOpened);
@@ -645,6 +659,7 @@ impl Network {
                     network.announce(&contact);
                 }
             }
+            let _ = session.close().await;
         });
     }
 }
