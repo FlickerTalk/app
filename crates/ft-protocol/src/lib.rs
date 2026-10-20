@@ -77,6 +77,11 @@ pub struct Packet {
     /// Local clock of the sender, milliseconds since the Unix epoch.
     pub sent_at: u64,
     pub body: Body,
+    /// Whether the sender uses the mailbox (§19) when it sealed the packet (app#190): every packet
+    /// says it, so the other side's record follows a change it missed as soon as any packet gets
+    /// through. `None` from an app before, which says nothing; it is not "off".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mailbox: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,12 +259,12 @@ pub enum EndReason {
 impl Packet {
     pub fn new(body: Body) -> Self {
         let sent_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        Self { version: PROTOCOL_VERSION, id: MessageId::new(), sent_at, body }
+        Self { version: PROTOCOL_VERSION, id: MessageId::new(), sent_at, body, mailbox: None }
     }
 
     /// The same message again, for a retry.
     pub fn resend(id: MessageId, sent_at: u64, body: Body) -> Self {
-        Self { version: PROTOCOL_VERSION, id, sent_at, body }
+        Self { version: PROTOCOL_VERSION, id, sent_at, body, mailbox: None }
     }
 
     /// The packet as it is encrypted: padded to a bucket, so its size says nothing (M9). A
@@ -271,14 +276,19 @@ impl Packet {
             id: MessageId,
             sent_at: u64,
             body: &'a Body,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            mailbox: Option<bool>,
             #[serde(with = "serde_bytes")]
             pad: Vec<u8>,
         }
-        let bare = encode(&Padded { version: self.version, id: self.id, sent_at: self.sent_at, body: &self.body, pad: Vec::new() });
+        let with_pad = |pad: usize| {
+            encode(&Padded { version: self.version, id: self.id, sent_at: self.sent_at, body: &self.body, mailbox: self.mailbox, pad: vec![0; pad] })
+        };
+        let bare = with_pad(0);
         // The length prefix of the pad grows with the pad: settle on a size that lands exactly.
         let mut missing = (PAD_BUCKET - bare.len() % PAD_BUCKET) % PAD_BUCKET;
         loop {
-            let padded = encode(&Padded { version: self.version, id: self.id, sent_at: self.sent_at, body: &self.body, pad: vec![0; missing] });
+            let padded = with_pad(missing);
             if padded.len().is_multiple_of(PAD_BUCKET) {
                 return padded;
             }
@@ -295,10 +305,12 @@ impl Packet {
             id: MessageId,
             sent_at: u64,
             body: ciborium::Value,
+            #[serde(default)]
+            mailbox: Option<bool>,
         }
         let raw: Raw = decode(bytes)?;
         let body = raw.body.deserialized().unwrap_or(Body::Unknown);
-        Ok(Self { version: raw.version, id: raw.id, sent_at: raw.sent_at, body })
+        Ok(Self { version: raw.version, id: raw.id, sent_at: raw.sent_at, body, mailbox: raw.mailbox })
     }
 }
 
@@ -421,6 +433,55 @@ mod tests {
         let bytes = plain.encode();
         assert!(!String::from_utf8_lossy(&bytes).contains("reply_to"), "nothing on the wire for a plain text");
         assert_eq!(Packet::decode(&bytes).unwrap().body, Body::Message { text: "hi".to_owned(), reply_to: None });
+    }
+
+    // app#190: every packet may say whether its sender uses the mailbox (§19), so the record the
+    // other side keeps follows it; a packet that says nothing puts nothing on the wire.
+    #[test]
+    fn a_packet_says_whether_its_sender_uses_the_mailbox() {
+        for mailbox in [Some(true), Some(false)] {
+            let packet = Packet { mailbox, ..Packet::new(Body::Message { text: "hi".to_owned(), reply_to: None }) };
+            assert_eq!(Packet::decode(&packet.encode()).expect("decodes").mailbox, mailbox);
+        }
+        let silent = Packet::new(Body::Ping);
+        assert_eq!(silent.mailbox, None);
+        assert!(!String::from_utf8_lossy(&silent.encode()).contains("mailbox"), "nothing on the wire");
+    }
+
+    /// A packet as an app before app#190 makes it: no `mailbox` beside the body.
+    fn packet_before_the_mailbox_stamp(body: &Body) -> Vec<u8> {
+        #[derive(serde::Serialize)]
+        struct Before<'a> {
+            version: u16,
+            id: MessageId,
+            sent_at: u64,
+            body: &'a Body,
+        }
+        encode(&Before { version: 1, id: MessageId::new(), sent_at: 1, body })
+    }
+
+    // §23, app#190: a packet of an app before says nothing of the mailbox, which is not "off".
+    #[test]
+    fn a_packet_from_an_app_before_the_stamp_says_nothing_of_the_mailbox() {
+        let body = Body::Message { text: "hi".to_owned(), reply_to: None };
+        let packet = Packet::decode(&packet_before_the_mailbox_stamp(&body)).expect("decodes");
+        assert_eq!((packet.body, packet.mailbox), (body, None));
+    }
+
+    // §23, app#190: an app before reads a packet that says it, and ignores what it does not know.
+    #[test]
+    fn an_app_before_the_stamp_reads_a_packet_that_says_it() {
+        #[derive(serde::Deserialize)]
+        struct Before {
+            version: u16,
+            sent_at: u64,
+            body: ciborium::Value,
+        }
+        let body = Body::Delivered { ids: vec![MessageId::new()] };
+        let packet = Packet { mailbox: Some(true), ..Packet::new(body.clone()) };
+        let before: Before = decode(&packet.encode()).expect("an app before reads it");
+        assert_eq!((before.version, before.sent_at), (packet.version, packet.sent_at));
+        assert_eq!(before.body.deserialized::<Body>().expect("and its body"), body);
     }
 
     #[test]

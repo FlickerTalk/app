@@ -595,6 +595,97 @@ async fn turning_the_mailbox_off_is_told_to_contacts() {
     until("alice learns it", || async { !alice.store().contact(&id(&bob)).await.unwrap().unwrap().mailbox }).await;
 }
 
+/// What `core` holds of `contact`'s mailbox (§19): whether it may leave messages there for them.
+async fn mailbox_of(core: &Core, contact: &Core) -> bool {
+    core.store().contact(&id(contact)).await.unwrap().expect("a contact").mailbox
+}
+
+// app#190: the preference was told once, when it changed, and a contact out of reach then never
+// heard of it. Every packet now says it, so the next one that gets through puts the record right.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mailbox_turned_on_out_of_reach_is_learnt_from_the_next_packet() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    alice.set_mailbox(false).await.expect("alice starts without it");
+    pair(&alice, &bob).await;
+    assert!(!mailbox_of(&bob, &alice).await, "bob knows it from her card");
+
+    // Bob cannot be reached at all: no direct path, and the router does not take the mail.
+    net.set_direct(false);
+    net.failing.lock().unwrap().insert(id(&bob));
+    alice.set_mailbox(true).await.expect("alice turns it on");
+    net.set_direct(true);
+    net.failing.lock().unwrap().remove(&id(&bob));
+    assert!(!mailbox_of(&bob, &alice).await, "the change was lost on the way");
+
+    alice.send_text(&id(&bob), "hi").await.expect("sends");
+    until("bob got it", || async { texts(&bob, &id(&alice)).await == ["hi"] }).await;
+    assert!(mailbox_of(&bob, &alice).await, "her text says she uses it now");
+}
+
+// app#190, the other way: a receipt is enough, and from then on nothing of hers goes to the server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mailbox_turned_off_out_of_reach_is_learnt_from_the_next_packet() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    assert!(mailbox_of(&bob, &alice).await);
+
+    net.unreachable.lock().unwrap().insert(id(&bob));
+    alice.set_mailbox(false).await.expect("alice turns it off");
+    net.unreachable.lock().unwrap().remove(&id(&bob));
+    assert!(mailbox_of(&bob, &alice).await, "the change was lost on the way");
+
+    // Bob writes; Alice's receipt is the first packet of hers to reach him.
+    let first = bob.send_text(&id(&alice), "hi").await.expect("sends");
+    until("bob sees it delivered", || async { state_of(&bob, &id(&alice), &first).await == MessageState::Delivered }).await;
+    assert!(!mailbox_of(&bob, &alice).await, "her receipt says she no longer uses it");
+
+    net.set_direct(false);
+    let later = bob.send_text(&id(&alice), "later").await.expect("sends");
+    assert_eq!(net.mailbox_len(&id(&alice)), 0, "nothing of alice's is stored on the server");
+    assert_eq!(state_of(&bob, &id(&alice), &later).await, MessageState::Pending);
+}
+
+// app#190, as seen on two phones: the Lenovo's record said the iPhone had no mailbox while it had
+// one, so a text to the iPhone in the background waited on the Lenovo for minutes instead of going
+// to the mailbox after a few seconds and waking it. One packet from the iPhone puts it right.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_one_packet_a_stale_record_no_longer_holds_a_message_back_from_the_mailbox() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    // Bob's second card (he accepted Alice) is in before the record goes stale: the link keeps
+    // the order, so a text of his that comes after it is the proof.
+    let hello = bob.send_text(&id(&alice), "hello").await.expect("sends");
+    until("delivered", || async { state_of(&bob, &id(&alice), &hello).await == MessageState::Delivered }).await;
+    alice.store().set_contact_mailbox(&id(&bob), false).await.expect("a stale record");
+
+    let here = bob.send_text(&id(&alice), "here").await.expect("sends");
+    until("delivered", || async { state_of(&bob, &id(&alice), &here).await == MessageState::Delivered }).await;
+    assert_eq!(texts(&alice, &id(&bob)).await, ["hello", "here"]);
+
+    net.set_direct(false);
+    let message = alice.send_text(&id(&bob), "are you there?").await.expect("sends");
+    assert_eq!(net.mailbox_len(&id(&bob)), 1, "the mailbox takes it");
+    assert_eq!(state_of(&alice, &id(&bob), &message).await, MessageState::Sent);
+}
+
+// §23: an app from before app#190 says nothing of its mailbox on its packets; what the record
+// holds (from the card, or a `MailboxPreference`) stays as it is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_packet_that_says_nothing_of_the_mailbox_leaves_the_record_as_it_is() {
+    let net = Net::new();
+    let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);
+    pair(&alice, &bob).await;
+    alice.set_tells_mailbox(false);
+    bob.store().set_contact_mailbox(&id(&alice), false).await.expect("what bob holds");
+
+    alice.send_text(&id(&bob), "hi").await.expect("sends");
+    until("bob got it", || async { texts(&bob, &id(&alice)).await == ["hi"] }).await;
+    assert!(!mailbox_of(&bob, &alice).await, "untouched");
+}
+
 // §27: when the receipt is lost, the sender retries; the receiver stores the message once and
 // acknowledges it again.
 #[tokio::test(flavor = "multi_thread")]
