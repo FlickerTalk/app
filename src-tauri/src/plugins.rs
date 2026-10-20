@@ -303,6 +303,11 @@ mod tests {
         assert!(script.contains(r#"ask("ft.drive", { op: "list""#));
         // 2026-10-02: the phone's position, once; anything but a place comes back as null.
         assert!(script.contains(r#"location: () => ask("ft.location", {})"#), "a plugin cannot ask where the phone is");
+        // 2026-10-20 (app#177): the phone's own translator, six questions to the app.
+        assert!(script.contains("translate: {"), "a plugin cannot translate on the phone");
+        for question in ["ft.translateLanguages", "ft.translateDetect", "ft.translateStatus", "ft.translatePrepare", "ft.translateRemove", "ft.translateText"] {
+            assert!(script.contains(&format!(r#"ask("{question}""#)), "a plugin cannot ask {question}");
+        }
         // 2026-10-06: a photo taken now with the phone's camera app, answered like a picked file.
         assert!(script.contains(r#"takePhoto: () => ask("ft.takePhoto", {})"#), "a plugin cannot ask for a photo from the camera");
         // 2026-10-06: a notice the app shows as its single toast at the top; fire and forget, like say.

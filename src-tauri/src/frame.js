@@ -6,6 +6,9 @@ const opened = [];
 const waiting = new Map();
 let asked = 0;
 
+/** A string the app answered, or null for anything else. */
+const textOrNull = (said) => (typeof said === "string" ? said : null);
+
 /** Asks the app for something and waits for its answer, one call at a time. */
 const ask = (type, message) => {
   const id = `q${(asked += 1)}`;
@@ -122,6 +125,26 @@ globalThis.ft = {
       ? { lat: Number(fix.lat), lon: Number(fix.lon), accuracy: Number(fix.accuracy), at: Number(fix.at) }
       : null,
   ),
+  /** The phone's own translator (2026-10-20). Needs `translate`. The text never leaves the phone;
+   *  a language pack is downloaded once from Google or Apple. The flow: `detect` → `status` →
+   *  `prepare` when "downloadable" → `translate`. Tags are BCP-47 ("es", "zh-Hans"). */
+  translate: {
+    /** The tags this phone translates between; empty when it cannot translate. */
+    languages: () => ask("ft.translateLanguages", {}).then((tags) => (Array.isArray(tags) ? tags.filter((tag) => typeof tag === "string") : [])),
+    /** The language of a text, guessed on the phone, or null. */
+    detect: (text) => ask("ft.translateDetect", { text: String(text) }).then(textOrNull),
+    /** "installed", "downloadable" or "unsupported", for this pair. */
+    status: (from, to) =>
+      ask("ft.translateStatus", { from: String(from), to: String(to) }).then((status) =>
+        status === "installed" || status === "downloadable" ? status : "unsupported",
+      ),
+    /** Downloads what the pair needs; the phone may show its own sheet. True once it is ready. */
+    prepare: (from, to) => ask("ft.translatePrepare", { from: String(from), to: String(to) }).then((ready) => ready === true),
+    /** Removes a downloaded pack where the phone lets the app (Android); false otherwise. */
+    remove: (from, to) => ask("ft.translateRemove", { from: String(from), to: String(to) }).then((removed) => removed === true),
+    /** The text translated on the phone, or null when it could not. */
+    translate: (text, from, to) => ask("ft.translateText", { text: String(text), from: String(from), to: String(to) }).then(textOrNull),
+  },
   /** Goes back to the conversation a `ref` came from. Resolves false if it is gone. */
   openChat(ref) {
     return ask("ft.openChat", { ref: String(ref) });
