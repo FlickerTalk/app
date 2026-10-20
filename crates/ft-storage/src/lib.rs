@@ -161,12 +161,14 @@ pub struct MessageNote {
 }
 
 /// Whether a tool runs by itself in a conversation (2026-10-20): on each message received, on each
-/// text sent. What its `chat` hook answered.
+/// text sent; and the conversation's language as the tool found it (§8.2c). What its `chat` hook
+/// answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatHook {
     pub plugin: String,
     pub auto_message: bool,
     pub auto_composer: bool,
+    pub lang: Option<String>,
 }
 
 /// The emoji each side put on a message (2026-10-05).
@@ -848,20 +850,23 @@ impl Store {
             .collect())
     }
 
-    /// Whether a tool runs by itself in the conversation (2026-10-20); both off forgets it.
-    pub async fn set_chat_hooks(&self, contact: &str, plugin: &str, auto_message: bool, auto_composer: bool) -> Result<()> {
-        if !auto_message && !auto_composer {
+    /// Whether a tool runs by itself in the conversation (2026-10-20), and the conversation's
+    /// language as it found it; both off and no language forgets it.
+    pub async fn set_chat_hooks(&self, contact: &str, plugin: &str, auto_message: bool, auto_composer: bool, lang: Option<&str>) -> Result<()> {
+        if !auto_message && !auto_composer && lang.is_none() {
             sqlx::query("DELETE FROM chat_hooks WHERE contact = ? AND plugin = ?").bind(contact).bind(plugin).execute(&self.pool).await?;
             return Ok(());
         }
         sqlx::query(
-            "INSERT INTO chat_hooks (contact, plugin, auto_message, auto_composer) VALUES (?, ?, ?, ?)
-             ON CONFLICT (contact, plugin) DO UPDATE SET auto_message = excluded.auto_message, auto_composer = excluded.auto_composer",
+            "INSERT INTO chat_hooks (contact, plugin, auto_message, auto_composer, lang) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (contact, plugin) DO UPDATE SET auto_message = excluded.auto_message, auto_composer = excluded.auto_composer,
+             lang = excluded.lang",
         )
         .bind(contact)
         .bind(plugin)
         .bind(auto_message)
         .bind(auto_composer)
+        .bind(lang)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -869,13 +874,18 @@ impl Store {
 
     /// The tools that run by themselves in the conversation, by id.
     pub async fn chat_hooks(&self, contact: &str) -> Result<Vec<ChatHook>> {
-        let rows = sqlx::query("SELECT plugin, auto_message, auto_composer FROM chat_hooks WHERE contact = ? ORDER BY plugin")
+        let rows = sqlx::query("SELECT plugin, auto_message, auto_composer, lang FROM chat_hooks WHERE contact = ? ORDER BY plugin")
             .bind(contact)
             .fetch_all(&self.pool)
             .await?;
         Ok(rows
             .iter()
-            .map(|row| ChatHook { plugin: row.get("plugin"), auto_message: row.get("auto_message"), auto_composer: row.get("auto_composer") })
+            .map(|row| ChatHook {
+                plugin: row.get("plugin"),
+                auto_message: row.get("auto_message"),
+                auto_composer: row.get("auto_composer"),
+                lang: row.get("lang"),
+            })
             .collect())
     }
 
@@ -2508,24 +2518,32 @@ mod tests {
         assert!(store.notes("ft_bob").await.unwrap().iter().all(|note| note.message_id != "m2"), "taken back: its note went");
     }
 
-    // The chat hook's answer (plan §8.1): for each contact and tool, whether the tool runs by itself
-    // on each message received and on each text sent. Both off is no row at all.
+    // The chat hook's answer (plan §8.1, §8.2c): for each contact and tool, whether the tool runs by
+    // itself on each message received and on each text sent, and the conversation's language as the
+    // tool found it. Both off and no language is no row at all.
     #[tokio::test]
-    async fn a_conversation_remembers_which_tools_run_by_themselves() {
+    async fn a_conversation_remembers_which_tools_run_by_themselves_and_its_language() {
         let store = store().await;
         store.add_contact(&contact("ft_bob")).await.expect("adds");
         store.add_contact(&contact("ft_carol")).await.expect("adds");
-        let hook = |plugin: &str, auto_message: bool, auto_composer: bool| ChatHook { plugin: plugin.to_owned(), auto_message, auto_composer };
+        let hook = |plugin: &str, auto_message: bool, auto_composer: bool, lang: Option<&str>| ChatHook {
+            plugin: plugin.to_owned(),
+            auto_message,
+            auto_composer,
+            lang: lang.map(str::to_owned),
+        };
 
         assert!(store.chat_hooks("ft_bob").await.expect("reads").is_empty(), "nothing runs by itself unless chosen");
-        store.set_chat_hooks("ft_bob", "com.example.translate", true, false).await.expect("sets");
-        store.set_chat_hooks("ft_carol", "com.example.translate", true, true).await.expect("sets");
-        assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", true, false)]);
-        store.set_chat_hooks("ft_bob", "com.example.translate", true, true).await.expect("changes");
-        assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", true, true)]);
-        store.set_chat_hooks("ft_bob", "com.example.translate", false, false).await.expect("switches off");
+        store.set_chat_hooks("ft_bob", "com.example.translate", true, false, None).await.expect("sets");
+        store.set_chat_hooks("ft_carol", "com.example.translate", true, true, Some("de")).await.expect("sets");
+        assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", true, false, None)]);
+        store.set_chat_hooks("ft_bob", "com.example.translate", true, true, Some("es")).await.expect("changes");
+        assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", true, true, Some("es"))]);
+        store.set_chat_hooks("ft_bob", "com.example.translate", false, false, Some("es")).await.expect("switches off");
+        assert_eq!(store.chat_hooks("ft_bob").await.unwrap(), vec![hook("com.example.translate", false, false, Some("es"))], "the language stays");
+        store.set_chat_hooks("ft_bob", "com.example.translate", false, false, None).await.expect("forgets");
         assert!(store.chat_hooks("ft_bob").await.unwrap().is_empty());
-        assert!(store.set_chat_hooks("ft_nobody", "com.example.translate", true, true).await.is_err(), "no contact, no row");
+        assert!(store.set_chat_hooks("ft_nobody", "com.example.translate", true, true, None).await.is_err(), "no contact, no row");
 
         store.remove_contact("ft_carol").await.expect("removes");
         assert!(store.chat_hooks("ft_carol").await.unwrap().is_empty(), "it goes with the contact");
@@ -2540,7 +2558,7 @@ mod tests {
         for plugin in ["com.example.translate", "com.example.other"] {
             store.install_plugin(plugin, "1.0.0", "{}").await.unwrap();
             store.set_message_note("m1", plugin, "note", 1).await.unwrap();
-            store.set_chat_hooks("ft_bob", plugin, true, true).await.unwrap();
+            store.set_chat_hooks("ft_bob", plugin, true, true, Some("es")).await.unwrap();
         }
         store.remove_plugin("com.example.translate").await.expect("removes");
         assert!(store.notes("ft_bob").await.unwrap().iter().all(|note| note.plugin == "com.example.other"));
@@ -2561,7 +2579,7 @@ mod tests {
         assert!(store.notes("ft_bob").await.expect("reads").is_empty());
         assert!(store.chat_hooks("ft_bob").await.expect("reads").is_empty());
         store.set_message_note("m1", "com.example.translate", "hola", 1).await.expect("notes");
-        store.set_chat_hooks("ft_bob", "com.example.translate", true, false).await.expect("sets");
+        store.set_chat_hooks("ft_bob", "com.example.translate", true, false, Some("es")).await.expect("sets");
     }
 
     // 2026-10-05: an answer remembers what it answers, and forgets it with the message.

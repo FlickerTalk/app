@@ -509,18 +509,20 @@ impl Core {
     }
 
     /// What a tool's chat hook answered for the conversation: whether it runs by itself on each
-    /// message received and each text sent there. Only where it binds (the message hook, the
-    /// composer hook), and only a tool bound to the chat hook; both off is always fine.
-    pub async fn set_chat_hooks(&self, contact: &str, id: &str, auto_message: bool, auto_composer: bool) -> Result<()> {
+    /// message received and each text sent there, and the conversation's language as it found it
+    /// (§8.2c, a BCP-47 tag). Only where it binds (the message hook, the composer hook), and only a
+    /// tool bound to the chat hook; both off is always fine.
+    pub async fn set_chat_hooks(&self, contact: &str, id: &str, auto_message: bool, auto_composer: bool, lang: Option<&str>) -> Result<()> {
         let contact = self.contact(contact).await?;
         let manifest = self.plugin_manifest(id)?;
         ensure!(manifest.hooks.contains_key(&HookName::Chat), "{id} does not bind to the chat");
         ensure!(!auto_message || manifest.hooks.contains_key(&HookName::Message), "{id} does not bind to messages");
         ensure!(!auto_composer || manifest.hooks.contains_key(&HookName::Composer), "{id} does not bind to the composer");
+        ensure!(lang.is_none_or(is_language_tag), "that is not a language tag");
         if auto_message || auto_composer {
             self.usable(manifest.kind).await?;
         }
-        self.store.set_chat_hooks(&contact.device_id, id, auto_message, auto_composer).await?;
+        self.store.set_chat_hooks(&contact.device_id, id, auto_message, auto_composer, lang).await?;
         let _ = self.events.send(Event::ContactsChanged);
         Ok(())
     }

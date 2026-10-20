@@ -1397,20 +1397,27 @@ async fn a_conversation_lets_a_tool_run_by_itself_only_where_it_binds() {
     let (core, bob, _message) = hooks_and_a_message().await;
     assert!(core.chat_hooks(&bob).await.expect("reads").is_empty(), "nothing by itself unless chosen");
     let mut events = core.events();
-    core.set_chat_hooks(&bob, TRANSLATOR, true, false).await.expect("sets");
+    core.set_chat_hooks(&bob, TRANSLATOR, true, false, None).await.expect("sets");
     assert_eq!(events.try_recv().ok(), Some(ft_core::Event::ContactsChanged));
     let hooks = core.chat_hooks(&bob).await.unwrap();
-    assert_eq!((hooks[0].plugin.as_str(), hooks[0].auto_message, hooks[0].auto_composer), (TRANSLATOR, true, false));
+    assert_eq!((hooks[0].plugin.as_str(), hooks[0].auto_message, hooks[0].auto_composer, hooks[0].lang.as_deref()), (TRANSLATOR, true, false, None));
+    // The conversation's language as the tool found it (§8.2c), with nothing on by itself: a tag.
+    core.set_chat_hooks(&bob, TRANSLATOR, false, false, Some("zh-Hant")).await.expect("a language alone");
+    assert_eq!(core.chat_hooks(&bob).await.unwrap()[0].lang.as_deref(), Some("zh-Hant"));
+    for wrong in ["", "spanish please", "e", "es_ES", "x-y-z-very-long-tag-that-goes-on-and-on"] {
+        assert!(core.set_chat_hooks(&bob, TRANSLATOR, true, false, Some(wrong)).await.is_err(), "{wrong:?} is no language tag");
+    }
 
-    assert!(core.set_chat_hooks(&bob, "com.example.code", true, false).await.is_err(), "bound to no chat hook");
-    assert!(core.set_chat_hooks("ft_nobody", TRANSLATOR, true, false).await.is_err(), "not a contact");
+    assert!(core.set_chat_hooks(&bob, "com.example.code", true, false, None).await.is_err(), "bound to no chat hook");
+    assert!(core.set_chat_hooks("ft_nobody", TRANSLATOR, true, false, None).await.is_err(), "not a contact");
     let catalogue = Ed25519SecretKey::new();
     let chat_only = hooked("com.example.lang", r#"{"chat":{"label":"Chat language","icon":"language-outline"}}"#, "{}", &catalogue);
     core.install_plugin(&chat_only, &catalogue.public_key(), Permissions::default()).await.expect("installs");
-    assert!(core.set_chat_hooks(&bob, "com.example.lang", true, false).await.is_err(), "it does not bind to messages");
-    assert!(core.set_chat_hooks(&bob, "com.example.lang", false, true).await.is_err(), "nor to the composer");
-    core.set_chat_hooks(&bob, "com.example.lang", false, false).await.expect("nothing by itself is always fine");
+    assert!(core.set_chat_hooks(&bob, "com.example.lang", true, false, None).await.is_err(), "it does not bind to messages");
+    assert!(core.set_chat_hooks(&bob, "com.example.lang", false, true, None).await.is_err(), "nor to the composer");
+    core.set_chat_hooks(&bob, "com.example.lang", false, false, Some("fr")).await.expect("nothing by itself is always fine");
 
     core.remove_plugin(TRANSLATOR).await.expect("removes");
-    assert!(core.chat_hooks(&bob).await.unwrap().is_empty(), "its switches went with it");
+    let left = core.chat_hooks(&bob).await.unwrap();
+    assert_eq!(left.iter().map(|hook| hook.plugin.as_str()).collect::<Vec<_>>(), ["com.example.lang"], "its switches went with it");
 }

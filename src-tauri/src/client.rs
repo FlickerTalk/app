@@ -3144,11 +3144,14 @@ pub struct ChatHookView {
     plugin: String,
     auto_message: bool,
     auto_composer: bool,
+    /// The conversation's language as the tool found it (§8.2c); left out until it says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lang: Option<String>,
 }
 
 impl From<ft_core::plugins::ChatHook> for ChatHookView {
     fn from(hook: ft_core::plugins::ChatHook) -> Self {
-        Self { plugin: hook.plugin, auto_message: hook.auto_message, auto_composer: hook.auto_composer }
+        Self { plugin: hook.plugin, auto_message: hook.auto_message, auto_composer: hook.auto_composer, lang: hook.lang }
     }
 }
 
@@ -3159,16 +3162,17 @@ pub async fn core_chat_hooks(contact: String, client: State<'_, Client>) -> Resu
     Ok(hooks.into_iter().map(ChatHookView::from).collect())
 }
 
-/// What a tool's chat hook answered for the conversation.
+/// What a tool's chat hook answered for the conversation: its switches and the chat's language.
 #[tauri::command]
 pub async fn core_chat_hooks_set(
     contact: String,
     plugin: String,
     auto_message: bool,
     auto_composer: bool,
+    lang: Option<String>,
     client: State<'_, Client>,
 ) -> Result<(), String> {
-    client.core().await?.set_chat_hooks(&contact, &plugin, auto_message, auto_composer).await.map_err(failed)
+    client.core().await?.set_chat_hooks(&contact, &plugin, auto_message, auto_composer, lang.as_deref()).await.map_err(failed)
 }
 
 /// The plugins installed here that open a file of this kind, for "open with".
@@ -6202,9 +6206,11 @@ mod tests {
     // The chat hook's answer as the screen reads it: by tool, in camelCase.
     #[test]
     fn a_tool_that_runs_by_itself_goes_to_the_screen() {
-        let hook = ft_core::plugins::ChatHook { plugin: "com.flickertalk.translate".into(), auto_message: true, auto_composer: false };
-        let view = serde_json::to_value(ChatHookView::from(hook)).unwrap();
-        assert_eq!(view, serde_json::json!({ "plugin": "com.flickertalk.translate", "autoMessage": true, "autoComposer": false }));
+        let hook = ft_core::plugins::ChatHook { plugin: "com.flickertalk.translate".into(), auto_message: true, auto_composer: false, lang: Some("es".into()) };
+        let view = serde_json::to_value(ChatHookView::from(hook.clone())).unwrap();
+        assert_eq!(view, serde_json::json!({ "plugin": "com.flickertalk.translate", "autoMessage": true, "autoComposer": false, "lang": "es" }));
+        let unknown = serde_json::to_value(ChatHookView::from(ft_core::plugins::ChatHook { lang: None, ..hook })).unwrap();
+        assert!(unknown.get("lang").is_none(), "no language yet, nothing written: {unknown}");
     }
 
     // 2026-10-05: the emoji each side put on a message, only the sides that did.
