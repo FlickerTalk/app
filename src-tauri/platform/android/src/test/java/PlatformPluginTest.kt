@@ -753,6 +753,65 @@ class PlatformPluginTest {
         assertFalse(refusalCancels(coreRinging = false, inCall = true))
     }
 
+    // app#157 (2026-10-20): with the app on the screen, a call the core rang also posted the system's
+    // incoming-call notification, which came down as a heads-up banner over the app's own call card.
+    // On the screen the card and the core's ringtone are the call; the notification shows only while
+    // the app is off the screen, so the user can still answer from outside it.
+    private val ringingCall = RingingCall(title = "Ana", text = "Incoming call", video = false)
+
+    private class FakeCallNotifications {
+        val posted = mutableListOf<RingingCall>()
+        var cancels = 0
+
+        fun notice() = RingingNotice(post = { posted.add(it) }, cancel = { cancels += 1 })
+    }
+
+    @Test
+    fun aCallTheCoreRingsWithTheAppOnScreenPostsNoNotification() {
+        val notifications = FakeCallNotifications()
+        notifications.notice().ring(ringingCall, appVisible = true)
+        assertEquals(emptyList<RingingCall>(), notifications.posted)
+        // One already up (a call push's, before the app took the core) goes too: only the app rings.
+        assertEquals(1, notifications.cancels)
+    }
+
+    @Test
+    fun aCallTheCoreRingsWithTheAppOffScreenPostsItsNotificationAsBefore() {
+        val notifications = FakeCallNotifications()
+        val notice = notifications.notice()
+        notice.ring(ringingCall, appVisible = false)
+        assertEquals(listOf(ringingCall), notifications.posted)
+        notice.appHidden()
+        assertEquals("posted once", listOf(ringingCall), notifications.posted)
+    }
+
+    @Test
+    fun aCallStillRingingWhenTheAppLeavesTheScreenPostsItsNotificationThen() {
+        val notifications = FakeCallNotifications()
+        val notice = notifications.notice()
+        notice.ring(ringingCall, appVisible = true)
+        assertEquals("nothing while the app is on the screen", emptyList<RingingCall>(), notifications.posted)
+        notice.appHidden()
+        assertEquals(listOf(ringingCall), notifications.posted)
+        notice.appHidden()
+        assertEquals("once per call, however often the app leaves the screen", listOf(ringingCall), notifications.posted)
+    }
+
+    @Test
+    fun stoppingTheRingingCancelsTheNotificationOnOrOffScreen() {
+        for (visible in listOf(true, false)) {
+            val notifications = FakeCallNotifications()
+            val notice = notifications.notice()
+            notice.ring(ringingCall, appVisible = visible)
+            val shown = notifications.posted.toList()
+            val cancels = notifications.cancels
+            notice.stop()
+            assertEquals("cancelled, app on screen: $visible", cancels + 1L, notifications.cancels.toLong())
+            notice.appHidden()
+            assertEquals("a call that stopped ringing never shows, app on screen: $visible", shown, notifications.posted)
+        }
+    }
+
     // 2026-10-02: the system bars' icons follow the app's appearance, not the system's: light on
     // the dark app, dark on the light one. Before Android 8 the navigation bar's icons cannot be
     // dark, so on the light app the bar gets a dark scrim behind its light ones; otherwise it

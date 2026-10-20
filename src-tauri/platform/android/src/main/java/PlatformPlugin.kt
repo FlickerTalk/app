@@ -630,6 +630,51 @@ object CallRinger {
     }
 }
 
+/** What the call notification of a call the core rings says. */
+data class RingingCall(val title: String, val text: String, val video: Boolean)
+
+/**
+ * The call notification of a call the core rings (`startRinging`). With the app on the screen, its
+ * own call card shows the call and the core's ringtone rings it; a call notification there came
+ * down as a heads-up banner over the card (app#157). So it is posted only while the app is off the
+ * screen: at once, or once the app leaves the screen with the call still ringing, and once per
+ * call. Coming back to the screen leaves it up: over the lock screen the app pauses and resumes
+ * with the screen, and the notification's full-screen intent would turn the screen on each time.
+ */
+class RingingNotice(private val post: (RingingCall) -> Unit, private val cancel: () -> Unit) {
+    private var ringing: RingingCall? = null
+    private var posted = false
+
+    @Synchronized
+    fun ring(call: RingingCall, appVisible: Boolean) {
+        ringing = call
+        posted = false
+        // A call notification already up (a call push's, before the app took the core) goes too:
+        // with the app on the screen only the app rings.
+        if (appVisible) cancel() else show(call)
+    }
+
+    /** The app left the screen: a call still ringing shows now, to answer it from outside. */
+    @Synchronized
+    fun appHidden() {
+        val call = ringing ?: return
+        if (!posted) show(call)
+    }
+
+    /** The call rings no more (it ended, or is being answered): its notification goes for good. */
+    @Synchronized
+    fun stop() {
+        ringing = null
+        posted = false
+        cancel()
+    }
+
+    private fun show(call: RingingCall) {
+        posted = true
+        post(call)
+    }
+}
+
 /**
  * The call this phone is in (native calls): communication audio mode, audio focus for voice,
  * and a foreground service of type phone call and microphone, so the microphone keeps working
@@ -1398,6 +1443,12 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     /** The WebView the call's video views go under (native video). */
     private var webView: WebView? = null
 
+    /** The call notification of a call the core rings: only while the app is off the screen. */
+    private val ringingNotice = RingingNotice(
+        post = { call -> showCall(activity, call.title, call.text, video = call.video) },
+        cancel = { IncomingCall.dismiss(activity) },
+    )
+
     /** The app is open: the "something new" notification has done its job. */
     override fun load(webView: WebView) {
         super.load(webView)
@@ -1440,6 +1491,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         super.onPause()
         InCall.appVisible = false
         CallEvents.offer(CallEvent.Visible(false))
+        ringingNotice.appHidden()
     }
 
     /**
@@ -1549,7 +1601,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(AnsweringArgs::class.java)
         InCall.ringingName = args.caller
         CallRinger.coreRinging = false
-        IncomingCall.dismiss(activity)
+        ringingNotice.stop()
         silence()
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
         invoke.resolve()
@@ -1775,9 +1827,10 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * An incoming call (§66): the user's ringtone and vibration, and a call notification with a
-     * full-screen intent, so the call shows on the screen even with the app in the background or
-     * the phone locked. It all goes away with `stopRinging`.
+     * An incoming call (§66): the user's ringtone and vibration and, while the app is off the
+     * screen, a call notification with a full-screen intent, so the call shows on the screen even
+     * with the app in the background or the phone locked. With the app on the screen its own call
+     * card shows the call (`RingingNotice`, app#157). It all goes away with `stopRinging`.
      */
     @Command
     fun startRinging(invoke: Invoke) {
@@ -1787,11 +1840,13 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             CallRinger.coreRinging = true
             showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))
             silence()
-            showCall(
-                activity,
-                callTitle(args.caller) ?: activity.getString(R.string.ft_someone),
-                activity.getString(callText(args.video)),
-                video = args.video,
+            ringingNotice.ring(
+                RingingCall(
+                    title = callTitle(args.caller) ?: activity.getString(R.string.ft_someone),
+                    text = activity.getString(callText(args.video)),
+                    video = args.video,
+                ),
+                appVisible = InCall.appVisible,
             )
             val audio = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val ringing = ringingFor(audio.ringerMode, quiet = args.muted || !mayDisturbNow(activity))
@@ -1923,7 +1978,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun stopRinging(invoke: Invoke) {
         CallRinger.coreRinging = false
-        IncomingCall.dismiss(activity)
+        ringingNotice.stop()
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = InCall.active))
         silence()
         invoke.resolve()
