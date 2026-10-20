@@ -77,7 +77,8 @@ function conversation(options: { messages?: ChatMessage[]; active?: boolean; fla
   tauri.invoke.mockImplementation(async (command: string) => {
     if (command === "core_plugin_chat") return KEY;
     if (command === "core_plugin_ref") return "ref_1";
-    if (command === "core_chat_hooks") return flags;
+    // A new list each time, as the core sends.
+    if (command === "core_chat_hooks") return [...flags];
     // The last texts received, one per line, as the core hands them to a tool allowed to read them.
     if (command === "core_hook_sample") return options.sample ?? "";
     return undefined;
@@ -439,6 +440,20 @@ describe("the chat's hooks", () => {
       }
       expect(frame.handed).toEqual([]);
     });
+  });
+
+  // Changed on the contact's page, with the conversation's page kept under it (Ionic keeps it
+  // mounted): back on screen, it reads its switches again.
+  it("reads the switches again when the conversation is seen again", async () => {
+    const flags: ChatHookState[] = [];
+    const { hooks, active } = conversation({ flags });
+    await flushPromises();
+    expect(hooks.translating.value).toBe("");
+    active.value = false;
+    await flushPromises();
+    flags.push({ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" });
+    active.value = true;
+    await vi.waitFor(() => expect(hooks.translating.value).toBe("French"));
   });
 
   it("lets its frames go when another conversation is on screen", async () => {

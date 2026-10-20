@@ -399,6 +399,10 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     },
     { immediate: true },
   );
+  // Back on screen (its switches may have changed on the contact's page meanwhile): read again.
+  watch(options.active, (now, before) => {
+    if (now && !before) void refresh();
+  });
   watch(() => [options.messages(), autoMessage.value, options.active()], catchUp);
   watch(() => [loaded.value, language.value, settingsTool.value, options.messages(), options.active()], () => void lookForLanguage());
   onScopeDispose(forgetAll);
