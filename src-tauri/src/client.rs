@@ -2523,6 +2523,9 @@ pub struct PermissionsView {
     /// 2026-10-02: the phone's current position, once.
     #[serde(default)]
     location: bool,
+    /// 2026-10-20 (app#177): the phone's own translator.
+    #[serde(default)]
+    translate: bool,
 }
 
 fn small() -> String {
@@ -2550,6 +2553,7 @@ impl From<&ft_plugins::Permissions> for PermissionsView {
             }
             .to_owned(),
             location: permissions.location,
+            translate: permissions.translate,
         }
     }
 }
@@ -2571,6 +2575,7 @@ impl From<PermissionsView> for ft_plugins::Permissions {
             drive: granted.drive,
             storage: if granted.storage == "large" { ft_plugins::Storage::Large } else { ft_plugins::Storage::Small },
             location: granted.location,
+            translate: granted.translate,
         }
     }
 }
@@ -4343,6 +4348,23 @@ mod tests {
         // A screen that says nothing of it grants nothing.
         let silent: PermissionsView = serde_json::from_value(serde_json::json!({ "network": [], "messages": false, "send": "nothing" })).unwrap();
         assert!(!ft_plugins::Permissions::from(silent).location);
+    }
+
+    // 2026-10-20 (app#177): the screen shows whether a plugin asks for the phone's translator and
+    // whether it was granted, and what the user switches on reaches the core as it is.
+    #[test]
+    fn the_translate_permission_goes_to_the_screen_and_back() {
+        let asked = ft_plugins::Permissions { translate: true, ..ft_plugins::Permissions::default() };
+        let shown = serde_json::to_value(PermissionsView::from(&asked)).unwrap();
+        assert_eq!(shown["translate"], serde_json::json!(true), "{shown}");
+        let switched: PermissionsView = serde_json::from_value(serde_json::json!({
+            "network": [], "messages": false, "send": "nothing", "translate": true
+        }))
+        .unwrap();
+        assert!(ft_plugins::Permissions::from(switched).translate);
+        // A screen that says nothing of it grants nothing.
+        let silent: PermissionsView = serde_json::from_value(serde_json::json!({ "network": [], "messages": false, "send": "nothing" })).unwrap();
+        assert!(!ft_plugins::Permissions::from(silent).translate);
     }
 
     // Opening the app when an incoming call is answered (iOS experiment, 2026-09-29): off unless
