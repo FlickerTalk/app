@@ -1296,3 +1296,121 @@ async fn an_open_plugin_waits_for_the_next_pass() {
     assert_eq!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await, ["com.example.code"]);
     assert_eq!(script(&dir), b"new()");
 }
+
+// ---- The chat's hooks (2026-10-20, plan of the translator §8): notes and tools that run by themselves ----
+
+/// A tool that binds to `hooks`, asking for `permissions`, as the catalogue would sign it.
+fn hooked(id: &str, hooks: &str, permissions: &str, catalogue: &Ed25519SecretKey) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{"id":"{id}","name":"Translator","version":"1.1.0","minCoreVersion":"1.7.0","components":["ft-translate"],"permissions":{permissions},"hooks":{hooks}}}"#
+    );
+    sign_package(&[("module.json".to_owned(), manifest.into_bytes()), ("dist/index.js".to_owned(), b"".to_vec())], catalogue)
+}
+
+const EVERY_HOOK: &str = r#"{"message":{"label":"Translate","icon":"language-outline"},"composer":{"label":"Translate","icon":"language-outline"},"chat":{"label":"Chat language","icon":"language-outline"}}"#;
+
+/// A core with the translator bound to every hook, a tool bound to none, a contact and a text
+/// received from them.
+async fn hooks_and_a_message() -> (Arc<Core>, String, String) {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let asks = r#"{"messages":"given","send":"propose","translate":true}"#;
+    let reads = Permissions { reads_given_messages: true, ..Permissions::default() };
+    core.install_plugin(&hooked(TRANSLATOR, EVERY_HOOK, asks, &catalogue), &catalogue.public_key(), reads).await.expect("installs");
+    core.install_plugin(&signed("com.example.code", "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    let (other, _dir) = self::core().await;
+    let bob = core.add_contact(&other.my_card().await.unwrap().to_link(), None).await.expect("adds").device_id;
+    let message = ft_protocol::MessageId::new().to_string();
+    let received = ft_storage::Message {
+        message_id: message.clone(),
+        contact: bob.clone(),
+        outgoing: false,
+        body: "see you at six".to_owned(),
+        sent_at: 1,
+        received_at: 1,
+        state: ft_storage::MessageState::Delivered,
+    };
+    core.store().insert_message(&received).await.expect("a message");
+    (core, bob, message)
+}
+
+// What the message hook answers is kept under the message, on this phone, and the screen hears
+// of it to show it.
+#[tokio::test]
+async fn a_tools_note_on_a_message_is_kept_and_the_screen_hears_of_it() {
+    let (core, bob, message) = hooks_and_a_message().await;
+    let mut events = core.events();
+    core.set_message_note(&message, TRANSLATOR, "nos vemos a las seis").await.expect("notes");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::MessagesChanged { contact: bob.clone() }));
+    let notes = core.store().notes(&bob).await.unwrap();
+    assert_eq!((notes[0].message_id.as_str(), notes[0].plugin.as_str(), notes[0].text.as_str()), (message.as_str(), TRANSLATOR, "nos vemos a las seis"));
+
+    core.clear_message_note(&message, TRANSLATOR).await.expect("clears");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::MessagesChanged { contact: bob.clone() }));
+    assert!(core.store().notes(&bob).await.unwrap().is_empty());
+}
+
+// A note is a short text from a tool bound to the message hook, on a text that is still there.
+#[tokio::test]
+async fn a_note_is_only_a_short_text_from_a_tool_bound_to_messages_on_a_text_still_there() {
+    let (core, bob, message) = hooks_and_a_message().await;
+    assert!(core.set_message_note(&message, "com.example.code", "x").await.is_err(), "not bound to the message hook");
+    assert!(core.set_message_note(&message, "com.example.missing", "x").await.is_err(), "not installed");
+    assert!(core.set_message_note(&message, TRANSLATOR, "  ").await.is_err(), "nothing to note");
+    let limit = ft_core::plugins::NOTE_MAX_CHARS;
+    assert_eq!(limit, 5_000);
+    assert!(core.set_message_note(&message, TRANSLATOR, &"ñ".repeat(limit + 1)).await.is_err(), "too long");
+    core.set_message_note(&message, TRANSLATOR, &"ñ".repeat(limit)).await.expect("as long as a message");
+    assert!(core.set_message_note("01890a5d-ac96-774b-bcce-b302099a8057", TRANSLATOR, "x").await.is_err(), "no such message");
+    core.grant_plugin(TRANSLATOR, Permissions::default()).await.unwrap();
+    assert!(core.set_message_note(&message, TRANSLATOR, "x").await.is_err(), "it may no longer read messages");
+    core.grant_plugin(TRANSLATOR, Permissions { reads_given_messages: true, ..Permissions::default() }).await.unwrap();
+
+    let file = ft_protocol::MessageId::new().to_string();
+    let photo = ft_storage::Message { message_id: file.clone(), contact: bob.clone(), outgoing: false, body: String::new(), sent_at: 2, received_at: 2, state: ft_storage::MessageState::Delivered };
+    core.store().insert_message(&photo).await.unwrap();
+    core.store()
+        .insert_file(&ft_storage::FileRecord {
+            message_id: file.clone(),
+            name: "photo.jpg".to_owned(),
+            size: 10,
+            mime: "image/jpeg".to_owned(),
+            hash: [1; 32],
+            chunk: 10,
+            path: "/files/photo.jpg".to_owned(),
+            chunks_done: 0,
+            complete: false,
+            failed: false,
+            waiting: false,
+        })
+        .await
+        .unwrap();
+    assert!(core.set_message_note(&file, TRANSLATOR, "x").await.is_err(), "a file has no words");
+    core.store().mark_deleted(&message).await.unwrap();
+    assert!(core.set_message_note(&message, TRANSLATOR, "x").await.is_err(), "taken back");
+}
+
+// What the chat hook answers: whether the tool runs by itself on each message received and each
+// text sent in this conversation. Only for the hooks it binds to; the screen hears of it.
+#[tokio::test]
+async fn a_conversation_lets_a_tool_run_by_itself_only_where_it_binds() {
+    let (core, bob, _message) = hooks_and_a_message().await;
+    assert!(core.chat_hooks(&bob).await.expect("reads").is_empty(), "nothing by itself unless chosen");
+    let mut events = core.events();
+    core.set_chat_hooks(&bob, TRANSLATOR, true, false).await.expect("sets");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::ContactsChanged));
+    let hooks = core.chat_hooks(&bob).await.unwrap();
+    assert_eq!((hooks[0].plugin.as_str(), hooks[0].auto_message, hooks[0].auto_composer), (TRANSLATOR, true, false));
+
+    assert!(core.set_chat_hooks(&bob, "com.example.code", true, false).await.is_err(), "bound to no chat hook");
+    assert!(core.set_chat_hooks("ft_nobody", TRANSLATOR, true, false).await.is_err(), "not a contact");
+    let catalogue = Ed25519SecretKey::new();
+    let chat_only = hooked("com.example.lang", r#"{"chat":{"label":"Chat language","icon":"language-outline"}}"#, "{}", &catalogue);
+    core.install_plugin(&chat_only, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    assert!(core.set_chat_hooks(&bob, "com.example.lang", true, false).await.is_err(), "it does not bind to messages");
+    assert!(core.set_chat_hooks(&bob, "com.example.lang", false, true).await.is_err(), "nor to the composer");
+    core.set_chat_hooks(&bob, "com.example.lang", false, false).await.expect("nothing by itself is always fine");
+
+    core.remove_plugin(TRANSLATOR).await.expect("removes");
+    assert!(core.chat_hooks(&bob).await.unwrap().is_empty(), "its switches went with it");
+}

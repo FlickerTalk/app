@@ -9,11 +9,13 @@ use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::Serialize;
-use ft_plugins::{installed, CatalogueEntry, Manifest, Permissions, Plugin, Sending};
+use ft_plugins::{installed, CatalogueEntry, HookName, Manifest, Permissions, Plugin, Sending};
 use vodozemac::Ed25519PublicKey;
 
 use ft_protocol::{Body, Packet};
 use ft_storage::{Contact, PluginRef, Reminder};
+/// Whether a tool runs by itself in a conversation (2026-10-20): what its `chat` hook answered.
+pub use ft_storage::ChatHook;
 
 use crate::native_calls::{BOARD, VIEWER};
 use crate::web::{host_of, Fetch, WebAnswer, WebRequest};
@@ -225,6 +227,10 @@ async fn translated(translator: &dyn Translator, text: &str, from: &str, to: &st
     }
     within(TRANSLATE_WAIT, translator.translate(text, from, to)).await
 }
+
+/// The longest note a tool may leave under a message (2026-10-20, plan of the translator §8.2): as
+/// long as the text it may be handed.
+pub const NOTE_MAX_CHARS: usize = TRANSLATE_MAX_CHARS;
 
 /// A plugin as the app shows it: what it is, and what it may do here.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -471,6 +477,57 @@ impl Core {
         // Neither id can hold a NUL, so the two are told apart.
         hasher.update(id.as_bytes()).update(&[0]).update(contact.as_bytes());
         Ok(URL_SAFE_NO_PAD.encode(hasher.finalize().as_bytes()))
+    }
+
+    // ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
+
+    /// What a tool's message hook answered, kept under the message on this phone (a translation),
+    /// in place of what it said before. Only from a tool bound to the message hook that may read
+    /// what it is handed and may be used now, on a text still there, and as long as a message.
+    pub async fn set_message_note(&self, message_id: &str, id: &str, text: &str) -> Result<()> {
+        let manifest = self.plugin_manifest(id)?;
+        ensure!(manifest.hooks.contains_key(&HookName::Message), "{id} does not bind to messages");
+        ensure!(self.granted_to(id).await?.reads_given_messages, "{id} may not read messages");
+        self.usable(manifest.kind).await?;
+        let text = text.trim();
+        ensure!(!text.is_empty(), "nothing to note");
+        ensure!(text.chars().count() <= NOTE_MAX_CHARS, "a note is as long as a message at most");
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        ensure!(self.store.file(message_id).await?.is_none(), "a file has no words to note");
+        ensure!(!self.store.is_deleted(message_id).await?, "that message was taken back");
+        self.store.set_message_note(message_id, id, text, crate::now()).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: message.contact });
+        Ok(())
+    }
+
+    /// Takes a tool's note off a message.
+    pub async fn clear_message_note(&self, message_id: &str, id: &str) -> Result<()> {
+        let message = self.store.message(message_id).await?.context("that message is not here")?;
+        self.store.clear_message_note(message_id, id).await?;
+        let _ = self.events.send(Event::MessagesChanged { contact: message.contact });
+        Ok(())
+    }
+
+    /// What a tool's chat hook answered for the conversation: whether it runs by itself on each
+    /// message received and each text sent there. Only where it binds (the message hook, the
+    /// composer hook), and only a tool bound to the chat hook; both off is always fine.
+    pub async fn set_chat_hooks(&self, contact: &str, id: &str, auto_message: bool, auto_composer: bool) -> Result<()> {
+        let contact = self.contact(contact).await?;
+        let manifest = self.plugin_manifest(id)?;
+        ensure!(manifest.hooks.contains_key(&HookName::Chat), "{id} does not bind to the chat");
+        ensure!(!auto_message || manifest.hooks.contains_key(&HookName::Message), "{id} does not bind to messages");
+        ensure!(!auto_composer || manifest.hooks.contains_key(&HookName::Composer), "{id} does not bind to the composer");
+        if auto_message || auto_composer {
+            self.usable(manifest.kind).await?;
+        }
+        self.store.set_chat_hooks(&contact.device_id, id, auto_message, auto_composer).await?;
+        let _ = self.events.send(Event::ContactsChanged);
+        Ok(())
+    }
+
+    /// The tools that run by themselves in the conversation with `contact`.
+    pub async fn chat_hooks(&self, contact: &str) -> Result<Vec<ChatHook>> {
+        self.store.chat_hooks(contact).await
     }
 
     // ---- ft.live (2026-09-27): a plugin talks to its twin on the other side ----
