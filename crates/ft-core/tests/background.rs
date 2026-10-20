@@ -493,6 +493,71 @@ async fn coming_back_without_a_network_dials_once_the_router_is_reached() {
     until_within("alice's connection is back", Duration::from_secs(15), || both_connected(&bob, &alice)).await;
 }
 
+/// Runs what the presence loop does (once a second and after every event) over and over, from a
+/// few tasks, until stopped: the looks a push or a return may meet.
+struct Looking(Vec<tokio::task::JoinHandle<()>>);
+
+impl Looking {
+    fn stop(self) {
+        for task in self.0 {
+            task.abort();
+        }
+    }
+}
+
+fn looking_again(phone: &Phone) -> Looking {
+    Looking(
+        (0..3)
+            .map(|_| {
+                let lifecycle = phone.online.lifecycle();
+                tokio::spawn(async move {
+                    loop {
+                        lifecycle.look().await;
+                        tokio::task::yield_now().await;
+                    }
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Bob leaves, until the router sees him gone.
+async fn away(fake: &Fake, bob: &Phone) {
+    bob.online.set_foreground(false).await;
+    until("the router sees bob gone", || async { !fake.is_connected(&bob.id()) }).await;
+}
+
+// A push says whether it brought the connection back (2026-10-20): the app opens a fresh socket
+// when it did not, and that drops the one just opened, with the call's offer the router handed
+// over after its welcome. The presence loop looking at the same moment must not take that from it:
+// it saw the push's change and brought the connection back first, and the push said "not me".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_says_it_brought_the_connection_back_while_the_presence_loop_looks() {
+    let (fake, _alice, bob) = two_phones().await;
+    for round in 0..100 {
+        away(&fake, &bob).await;
+        let looks = looking_again(&bob);
+        let back = bob.online.woken().await;
+        looks.stop();
+        assert!(back, "round {round}: the push brought the connection back");
+        bob.online.set_foreground(true).await;
+    }
+}
+
+// The same for the app coming back to the screen (`core_resume` opens a fresh socket when it
+// thinks the connection never went).
+#[tokio::test(flavor = "multi_thread")]
+async fn coming_back_says_it_brought_the_connection_back_while_the_presence_loop_looks() {
+    let (fake, _alice, bob) = two_phones().await;
+    for round in 0..100 {
+        away(&fake, &bob).await;
+        let looks = looking_again(&bob);
+        let back = bob.online.set_foreground(true).await;
+        looks.stop();
+        assert!(back, "round {round}: coming back brought the connection back");
+    }
+}
+
 // A push that brings the connection back out of the foreground dials nobody: away, nothing opens a
 // connection the other phone would see as there (`nothing_is_retried_in_the_background`). The
 // contacts wait for the app to be back in front.
