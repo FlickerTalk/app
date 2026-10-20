@@ -19,7 +19,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use reqwest::{Method, RequestBuilder, StatusCode};
 use serde::Deserialize;
 use serde_json::json;
@@ -29,6 +29,16 @@ use tokio_tungstenite::tungstenite::Message;
 
 /// Reconnection waits grow up to this.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// How often the client pings the router's socket (app#200, 2026-10-20). The router answers
+/// every ping; it pings only once a minute itself, far too seldom to notice a dead socket.
+pub const PING_EVERY: Duration = Duration::from_secs(5);
+
+/// A socket nothing has come from for this long, two pings in a row unanswered, is taken for dead
+/// and opened again; opening one is bounded by the same limit. After a network change the socket
+/// is left on a path that is gone: nothing closes it, it just goes quiet, and the router goes on
+/// handing it what comes for this phone.
+pub const SILENT_FOR: Duration = Duration::from_secs(10);
 
 /// The router refuses a blob for good (403): the recipient is no longer registered or the route
 /// capability we hold was withdrawn (they deleted their phone, or renewed their link). Trying
@@ -398,8 +408,9 @@ impl RouterClient {
         }
     }
 
-    /// Keeps a signed WebSocket open with the router, reconnecting when it drops, until the
-    /// receiver is dropped or the client is closed (then the events end). None while away.
+    /// Keeps a signed WebSocket open with the router, reconnecting when it drops or goes quiet
+    /// (`SILENT_FOR`), until the receiver is dropped or the client is closed (then the events
+    /// end). None while away.
     pub fn listen(self: &Arc<Self>) -> mpsc::Receiver<RouterEvent> {
         let (events, receiver) = mpsc::channel(64);
         let client = self.clone();
@@ -458,8 +469,24 @@ impl RouterClient {
             .map(|(name, value)| format!("{name}={}", query_escape(&value)))
             .collect();
         let url = format!("{}{path}?{}", websocket_base(&self.base), query.join("&"));
-        let (mut socket, _) = connect_async(url.as_str()).await.context("cannot reach the router")?;
-        while let Some(message) = socket.next().await {
+        let opening = tokio::time::timeout(SILENT_FOR, connect_async(url.as_str()));
+        let (mut socket, _) = opening.await.map_err(|_| anyhow!("the router did not answer"))?.context("cannot reach the router")?;
+        // Anything that comes proves the socket alive: a frame, the router's ping, a pong.
+        let mut heard = tokio::time::Instant::now();
+        let mut ping = tokio::time::interval_at(heard + PING_EVERY, PING_EVERY);
+        loop {
+            let message = tokio::select! {
+                message = socket.next() => message,
+                _ = ping.tick() => {
+                    if heard.elapsed() >= SILENT_FOR {
+                        bail!("the router stopped answering");
+                    }
+                    socket.send(Message::Ping(Default::default())).await?;
+                    continue;
+                }
+            };
+            let Some(message) = message else { return Ok(()) };
+            heard = tokio::time::Instant::now();
             let Message::Text(text) = message? else { continue };
             let event = match serde_json::from_str::<Frame>(text.as_str()) {
                 Ok(Frame::Welcome { stun, turn }) => {
@@ -474,7 +501,6 @@ impl RouterClient {
                 return Ok(());
             }
         }
-        Ok(())
     }
 }
 

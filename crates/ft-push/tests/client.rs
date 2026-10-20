@@ -557,3 +557,112 @@ async fn an_away_client_lets_its_socket_go_and_opens_it_again_when_back() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(opened.load(SeqCst), 2, "one socket, not one per call");
 }
+
+/// A router on loopback whose `/v1/connect` welcomes and then does `after` with the socket;
+/// returns its address and how many sockets were opened.
+async fn router_that(
+    after: fn(axum::extract::ws::WebSocket) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let counted = counted.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    after(socket).await;
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (format!("http://{address}"), connections)
+}
+
+// A network change leaves the socket on a path that is gone (app#200, 2026-10-20): nothing closes
+// it, it just goes quiet, and the router goes on handing it what comes for this phone (a call's
+// offer, the hang-up's connection). The client pings the router and, once two pings in a row go
+// unanswered, opens the socket again by itself; the new socket's welcome fetches what waits.
+#[tokio::test]
+async fn a_socket_that_stops_answering_is_opened_again() {
+    // It never reads again, so it never answers a ping: a socket on a path that is gone.
+    let (base, connections) = router_that(|socket| {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            drop(socket);
+        })
+    })
+    .await;
+    let client = Arc::new(RouterClient::new(&base, device()).unwrap());
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+    let quiet = std::time::Instant::now();
+
+    let limit = ft_push::SILENT_FOR + ft_push::PING_EVERY + Duration::from_secs(5);
+    let again = tokio::time::timeout(limit, async {
+        loop {
+            if matches!(events.recv().await, Some(RouterEvent::Connected { .. })) {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(again.is_ok(), "opened again once the router stopped answering");
+    eprintln!("opened again {} ms after the router went quiet", quiet.elapsed().as_millis());
+    assert!(quiet.elapsed() >= ft_push::SILENT_FOR - Duration::from_millis(500), "not before two pings went unanswered");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+// A router that answers the pings keeps its socket, however long it has nothing to say: the pong
+// is enough (the real router pings only once a minute).
+#[tokio::test]
+async fn a_socket_that_answers_the_pings_is_kept() {
+    // Reading is what answers a ping; it says nothing else.
+    let (base, connections) = router_that(|mut socket| {
+        Box::pin(async move { while let Some(Ok(_)) = socket.recv().await {} })
+    })
+    .await;
+    let client = Arc::new(RouterClient::new(&base, device()).unwrap());
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+
+    let quiet = tokio::time::timeout(ft_push::SILENT_FOR + ft_push::PING_EVERY * 2, events.recv()).await;
+    assert!(quiet.is_err(), "nothing happened: {quiet:?}");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+// Opening the socket is bounded too: after a network change the first attempt may go out on a
+// path that is gone, and nothing would ever answer it.
+#[tokio::test]
+async fn an_opening_that_gets_no_answer_is_tried_again() {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counted = accepted.clone();
+    // Takes the connection and never says a word: no TLS, no upgrade.
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            counted.fetch_add(1, SeqCst);
+            held.push(stream);
+        }
+    });
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let _events = client.listen();
+
+    let tried_again = tokio::time::timeout(ft_push::SILENT_FOR + Duration::from_secs(5), async {
+        while accepted.load(SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(tried_again.is_ok(), "tried again instead of waiting for ever");
+}
