@@ -337,6 +337,7 @@
     "drive": "Guardar ficheiros na sua própria nuvem",
     "storageLarge": "Guardar muitos dados neste telemóvel (até 256 MB)",
     "location": "A sua localização, só quando você pedir",
+    "translate": "Traduzir texto neste telemóvel",
     "askPermission": "{name} precisa de uma permissão",
     "allow": "Permitir",
     "opens": "Abre: {kinds}",

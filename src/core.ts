@@ -892,6 +892,8 @@ export interface PluginPermissions {
   storage?: "small" | "large";
   /** Whether it may ask for the phone's current position, once (2026-10-02). */
   location?: boolean;
+  /** Whether it may translate text with the phone's own translator (2026-10-20, app#177). */
+  translate?: boolean;
 }
 
 export interface PluginView {

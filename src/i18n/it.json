@@ -337,6 +337,7 @@
     "drive": "Conservare file nel tuo cloud",
     "storageLarge": "Conservare molti dati su questo telefono (fino a 256 MB)",
     "location": "La tua posizione, solo quando la chiedi",
+    "translate": "Tradurre testo su questo telefono",
     "askPermission": "{name} ha bisogno di un permesso",
     "allow": "Consenti",
     "opens": "Apre: {kinds}",

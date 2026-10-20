@@ -10,6 +10,7 @@ import {
   cloudOutline,
   createOutline,
   globeOutline,
+  languageOutline,
   locationOutline,
   swapHorizontalOutline,
 } from "ionicons/icons";
@@ -60,6 +61,8 @@ export function permissionsOf(plugin: PluginView): PermissionLine[] {
   // 2026-10-02: the phone's position, once each time the plugin asks; the phone asks too.
   // A game never: the core refuses a game that asks for it (`ft-plugins` `check`).
   if (plugin.asks.location && !isGame(plugin)) lines.push({ key: "location", label: t("plugins.location"), icon: locationOutline, on: !!plugin.granted.location });
+  // 2026-10-20 (app#177): the phone's own translator; never a game's either.
+  if (plugin.asks.translate && !isGame(plugin)) lines.push({ key: "translate", label: t("plugins.translate"), icon: languageOutline, on: !!plugin.granted.translate });
   if (plugin.asks.storage === "large") {
     lines.push({ key: "storage", label: t("plugins.storageLarge"), icon: archiveOutline, on: plugin.granted.storage === "large" });
   }
@@ -78,6 +81,7 @@ export function withPermission(plugin: PluginView, key: string, on: boolean): Pl
     drive: plugin.granted.drive,
     storage: plugin.granted.storage,
     location: plugin.granted.location,
+    translate: plugin.granted.translate,
   };
   if (key === "messages") granted.messages = on;
   else if (key === "send") granted.send = on ? plugin.asks.send : "nothing";
@@ -85,6 +89,7 @@ export function withPermission(plugin: PluginView, key: string, on: boolean): Pl
   else if (key === "remind") granted.remind = on;
   else if (key === "drive") granted.drive = on;
   else if (key === "location") granted.location = on;
+  else if (key === "translate") granted.translate = on;
   else if (key === "storage") granted.storage = on ? "large" : "small";
   else {
     const host = key.slice("network:".length);

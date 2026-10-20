@@ -337,6 +337,7 @@
     "drive": "내 클라우드에 파일 보관",
     "storageLarge": "이 휴대폰에 많은 데이터 보관 (최대 256 MB)",
     "location": "내 위치, 요청할 때만",
+    "translate": "이 휴대폰에서 텍스트 번역",
     "askPermission": "{name}에 권한이 필요합니다",
     "allow": "허용",
     "opens": "여는 형식: {kinds}",
