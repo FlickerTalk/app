@@ -1,7 +1,11 @@
 # Every night, on main: the whole suite again (a test that fails only now and then, or a
 # dependency that moved, shows up here before a release does) and the tests against the real
 # network, which pull requests skip: two cores chatting through api.flickertalk.com, the live
-# router, and WebRTC through the cluster's STUN (and TURN, when its secrets are set).
+# router, and WebRTC through a public STUN server (and through TURN, when its secrets are set).
+#
+# It also checks that the last push run of `app` on main succeeded: that run publishes the canary,
+# and one that fails or never ends (on 2026-10-06 one stuck on the release environment held main's
+# concurrency group for ten days, cancelling every push after it) would otherwise go unnoticed.
 #
 # A failure opens an issue labelled `nightly`, or comments on the one already open, so that it is
 # seen. Nothing is signed or published here.
@@ -29,6 +33,7 @@ env:
 jobs:
   suite:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,6 +67,7 @@ jobs:
 
   live:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -80,7 +86,7 @@ jobs:
         run: cargo test --locked -p ft-core --test live two_phones_chat_through_the_live_cluster -- --ignored --nocapture
       - name: Two devices meet on the live router
         run: cargo test --locked -p ft-push --test client -- --ignored --nocapture
-      - name: WebRTC through the cluster's STUN
+      - name: WebRTC through a public STUN server
         run: cargo test --locked -p ft-webrtc --test handshake two_peers_connect_through_stun_on_the_real_network -- --ignored --nocapture
       - name: WebRTC through TURN alone
         env:
@@ -94,10 +100,38 @@ jobs:
           fi
           cargo test --locked -p ft-webrtc --test handshake two_peers_connect_through_the_turn_relay_alone -- --ignored --nocapture
 
+  main-ci:
+    name: last push run of main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: The last push run of main succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A run still going is fine for three hours: with the jobs' time limits, a healthy one ends
+        # sooner. One older than that is stuck (queued, or waiting on an environment).
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" -w app.yml -b main -e push -L 1 \
+            --json status,conclusion,startedAt,url \
+            --jq '.[0] | "\(.status)/\(.conclusion) \((now - (.startedAt | fromdate)) / 60 | floor) \(.url)"')
+          read -r state minutes url <<< "$last"
+          if [[ "$state" == completed/success ]]; then
+            exit 0
+          fi
+          if [[ "$state" != completed/* && "$minutes" -lt 180 ]]; then
+            echo "::notice::the last push run of main is still going ($state, $minutes min): $url"
+            exit 0
+          fi
+          echo "::error::the last push run of main did not succeed ($state, started $minutes min ago): $url"
+          exit 1
+
   report:
-    needs: [suite, live]
+    needs: [suite, live, main-ci]
     if: failure()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       issues: write
     steps:
@@ -106,12 +140,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEEDS: ${{ toJSON(needs) }}
         run: |
+          # The label already exists after the first failure.
           gh label create nightly --color B60205 --description "The nightly run failed" 2>/dev/null || true
+          failed=$(jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(", ")' <<< "$NEEDS")
           open=$(gh issue list --label nightly --state open --json number --jq '.[0].number')
           if [[ -n "$open" ]]; then
-            gh issue comment "$open" --body "Failed again: $RUN"
+            gh issue comment "$open" --body "Failed again ($failed): $RUN"
           else
             gh issue create --label nightly --title "Nightly run failed" \
-              --body "The nightly run on \`main\` failed: $RUN. Close this issue once it is green again."
+              --body "The nightly run on \`main\` failed ($failed): $RUN. Close this issue once it is green again."
           fi
