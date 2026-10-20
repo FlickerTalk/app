@@ -269,6 +269,7 @@
     "receiptsNote": "适用于新联系人",
     "hours": "时段",
     "hoursOff": "关闭",
+    "hoursOn": "开启",
     "autoDownload": "自动下载文件",
     "autoDownloadAsk": "每次询问",
     "autoDownloadUpTo": "最多 {size}",

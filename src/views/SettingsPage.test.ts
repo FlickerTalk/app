@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonIcon, IonModal, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
+import { IonIcon, IonModal, IonNote, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
 import { checkmarkOutline, copyOutline, sparklesOutline } from "ionicons/icons";
 import SettingsPage from "./SettingsPage.vue";
 import { pageShape } from "../__tests__/page-shape";
@@ -47,6 +47,10 @@ const catalogues = import.meta.glob<{
   eager: true,
   import: "default",
 });
+
+/** Ionic shows the page again: Settings stays alive behind the tabs, so this is every later visit. */
+const enter = (wrapper: ReturnType<typeof mount>) =>
+  ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
 
 function texts(node: unknown): string[] {
   if (typeof node === "string") return [node];
@@ -338,6 +342,49 @@ describe("SettingsPage", () => {
     await mount(SettingsPage, { shallow: true }).find("[data-test='hours']").trigger("click");
     expect(push).toHaveBeenCalledWith("/hours");
   });
+
+  // Issue app#153: the row always says whether the weekly hours are on. Settings stays alive behind
+  // the tabs, so back from the Hours page it reads them again instead of keeping what it read first.
+  describe("the Hours row", () => {
+    const WEEK = JSON.stringify({ days: ["all", "all", "all", "all", "all", "all", "all"] });
+    const state = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='hours']").findComponent(IonNote);
+    let hours: string | null;
+
+    beforeEach(() => {
+      hours = null;
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        return command === "core_quiet_hours" ? hours : undefined;
+      });
+    });
+
+    async function settings() {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      await flushPromises();
+      return wrapper;
+    }
+
+    it("says Off while the weekly hours are off", async () => {
+      expect(state(await settings()).text()).toBe(en.settings.hoursOff);
+    });
+
+    it("says On while the weekly hours are on", async () => {
+      hours = WEEK;
+      expect(state(await settings()).text()).toBe(en.settings.hoursOn);
+    });
+
+    it("reads the hours again every time the page is entered", async () => {
+      const wrapper = await settings();
+      hours = WEEK;
+      enter(wrapper);
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOn);
+      hours = null;
+      enter(wrapper);
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+    });
+  });
   // Ioan, 2026-10-08 (mockup settings-premium.html): the Plan screen is gone. Settings has a
   // Premium section between the appearance and the move/backup groups: a note, the tools and the
   // sessions with a PIN, and, once the 15 days are over without paying, the subscription itself.
@@ -347,8 +394,6 @@ describe("SettingsPage", () => {
     const note = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='premium-note']");
     const tools = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='plugins']");
     const sessions = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='session']");
-    const enter = (wrapper: ReturnType<typeof mount>) =>
-      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
 
     /** What the core says about the plan, and what the Store says a year costs (null: it cannot say). */
     function planning(plan: Record<string, unknown>, price: string | null = "0,99 €") {

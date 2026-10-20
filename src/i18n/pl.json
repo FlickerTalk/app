@@ -269,6 +269,7 @@
     "receiptsNote": "Dla nowych kontaktów",
     "hours": "Godziny",
     "hoursOff": "Wył.",
+    "hoursOn": "Wł.",
     "autoDownload": "Automatyczne pobieranie",
     "autoDownloadAsk": "Zawsze pytaj",
     "autoDownloadUpTo": "Do {size}",

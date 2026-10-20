@@ -224,12 +224,18 @@ async function copyId() {
 }
 
 const version = ref("");
-// Issue app#7: whether the weekly hours are on, shown on their row.
+// Issue app#7: whether the weekly hours are on, shown on their row. Settings stays alive behind the
+// tabs, so they are read again each time the page is shown: back from the Hours page, the row says
+// what was just chosen there (app#153).
 const hoursOn = ref(false);
+async function readHours() {
+  hoursOn.value = (await quietHours().catch(() => null)) !== null;
+}
 onMounted(async () => {
   version.value = await getVersion().catch(() => "");
-  hoursOn.value = (await quietHours().catch(() => null)) !== null;
+  await readHours();
 });
+onIonViewWillEnter(() => void readHours());
 // Settings stays alive behind the tabs, so the plan and the price are read again each time it
 // comes back, and when the app does.
 async function refreshPlan() {
@@ -463,7 +469,7 @@ function chooseAppearance(id: Appearance) {
           <ion-item button detail lines="none" data-test="hours" @click="router.push('/hours')">
             <span slot="start" class="ft-tile"><ion-icon :icon="notificationsOffOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.hours") }}</ion-label>
-            <ion-note v-if="!hoursOn" slot="end">{{ $t("settings.hoursOff") }}</ion-note>
+            <ion-note slot="end">{{ $t(hoursOn ? "settings.hoursOn" : "settings.hoursOff") }}</ion-note>
           </ion-item>
           <!-- Plan §17/§67: "always" hides your IP from the contact; "direct" never uses our relay. -->
           <ion-item lines="none">

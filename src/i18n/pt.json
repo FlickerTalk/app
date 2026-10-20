@@ -269,6 +269,7 @@
     "receiptsNote": "Para novos contatos",
     "hours": "Horário",
     "hoursOff": "Desativado",
+    "hoursOn": "Ativado",
     "autoDownload": "Transferir ficheiros sozinho",
     "autoDownloadAsk": "Perguntar sempre",
     "autoDownloadUpTo": "Até {size}",

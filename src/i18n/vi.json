@@ -269,6 +269,7 @@
     "receiptsNote": "Cho liên hệ mới",
     "hours": "Giờ nhận",
     "hoursOff": "Tắt",
+    "hoursOn": "Bật",
     "autoDownload": "Tự động tải tệp",
     "autoDownloadAsk": "Luôn hỏi",
     "autoDownloadUpTo": "Tối đa {size}",

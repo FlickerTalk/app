@@ -269,6 +269,7 @@
     "receiptsNote": "Untuk kontak baru",
     "hours": "Jam aktif",
     "hoursOff": "Nonaktif",
+    "hoursOn": "Aktif",
     "autoDownload": "Unduh file otomatis",
     "autoDownloadAsk": "Selalu tanya",
     "autoDownloadUpTo": "Hingga {size}",

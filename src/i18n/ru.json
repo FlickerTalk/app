@@ -269,6 +269,7 @@
     "receiptsNote": "Для новых контактов",
     "hours": "Расписание",
     "hoursOff": "Выкл.",
+    "hoursOn": "Вкл.",
     "autoDownload": "Автозагрузка файлов",
     "autoDownloadAsk": "Всегда спрашивать",
     "autoDownloadUpTo": "До {size}",

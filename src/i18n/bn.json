@@ -269,6 +269,7 @@
     "receiptsNote": "নতুন কন্টাক্টদের জন্য",
     "hours": "সময়",
     "hoursOff": "বন্ধ",
+    "hoursOn": "চালু",
     "autoDownload": "ফাইল অটো-ডাউনলোড",
     "autoDownloadAsk": "সবসময় জিজ্ঞেস করুন",
     "autoDownloadUpTo": "{size} পর্যন্ত",
