@@ -322,8 +322,8 @@ impl Network {
         }
     }
 
-    /// The direct connection with the contact says it stopped answering, while the contact's side
-    /// still answers: a network blip the connection may come back from. For tests.
+    /// The direct connection with the contact fails on this side while the contact's side still
+    /// answers. For tests.
     #[doc(hidden)]
     pub async fn lose(&self, contact: &str) {
         if let Some(link) = self.links.lock().await.get(contact) {
@@ -620,10 +620,10 @@ impl Network {
 
     /// Keeps the open channel for the contact and feeds what arrives on it to the core.
     ///
-    /// The inbox ends when the channel closes or its connection is lost (a contact whose app was
-    /// killed never closes it): the link goes, the UI hears of it (app#151), and the session is
-    /// closed, since a connection taken for lost may come back and the contact would keep sending
-    /// into it.
+    /// The UI hears whenever the connection stalls (a contact whose app was killed never closes
+    /// it, app#151) and whenever it comes back (app#152). The inbox ends when the channel closes or
+    /// the connection fails: the link goes, the UI hears of it, and the session is closed, so the
+    /// contact's side, if it still answers, sees it close too.
     async fn adopt(&self, contact: &str, session: Session, mut inbox: Inbox) {
         let id = self.next_link.fetch_add(1, Ordering::Relaxed);
         self.links.lock().await.insert(contact.to_owned(), Link { id, session: session.clone() });
@@ -645,10 +645,20 @@ impl Network {
 
         let (Some(core), Some(network)) = (self.core.get().cloned(), self.this.get().cloned()) else { return };
         let contact = contact.to_owned();
+        let mut open = session.open_changes();
         tokio::spawn(async move {
-            while let Some(bytes) = inbox.next().await {
-                let Some(core) = core.upgrade() else { break };
-                let _ = core.receive(&bytes).await;
+            loop {
+                tokio::select! {
+                    bytes = inbox.next() => {
+                        let (Some(bytes), Some(core)) = (bytes, core.upgrade()) else { break };
+                        let _ = core.receive(&bytes).await;
+                    }
+                    Ok(()) = open.changed() => {
+                        if let Some(network) = network.upgrade() {
+                            network.announce(&contact);
+                        }
+                    }
+                }
             }
             if let Some(network) = network.upgrade() {
                 let removed = {

@@ -11,6 +11,7 @@
 //! or TURN server that never answers, on one interface or all, used to hold the offer and then the
 //! answer for the whole 3 s deadline each.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -154,6 +155,10 @@ struct Events {
     runtime: Arc<dyn Runtime>,
     gathered: watch::Sender<Live>,
     open: watch::Sender<bool>,
+    /// The data channel opened once: from then on the connection's state says whether it is open.
+    opened_once: Arc<AtomicBool>,
+    /// The connection failed or closed: the session is over and its inbox ends.
+    gone: watch::Sender<bool>,
     channel: SharedChannel,
     /// The callee's inbox, handed to its one channel: once that channel closes nothing holds a
     /// sender any more, so the inbox ends.
@@ -185,9 +190,23 @@ impl PeerConnectionEventHandler for Events {
     // A peer that vanishes (its app killed, the phone reinstalled) never closes the channel; the
     // connection notices it stopped answering. From then on the session is not open, so what is
     // sent next opens a new connection or goes to the mailbox instead of vanishing too.
+    //
+    // Disconnected is not the end (app#152): a few seconds without a packet (the network stalls)
+    // and the connection may come back, with the data channel working all along. It counts as
+    // open again then. Failed or closed, the session is over.
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
-        if matches!(state, RTCPeerConnectionState::Disconnected | RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
-            let _ = self.open.send(false);
+        match state {
+            RTCPeerConnectionState::Disconnected => {
+                let _ = self.open.send(false);
+            }
+            RTCPeerConnectionState::Connected if self.opened_once.load(Ordering::SeqCst) && !*self.gone.borrow() => {
+                let _ = self.open.send(true);
+            }
+            RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed => {
+                let _ = self.open.send(false);
+                let _ = self.gone.send(true);
+            }
+            _ => {}
         }
     }
 
@@ -195,7 +214,7 @@ impl PeerConnectionEventHandler for Events {
     async fn on_data_channel(&self, channel: Arc<dyn DataChannel>) {
         let Some(messages) = self.messages.lock().unwrap_or_else(PoisonError::into_inner).take() else { return };
         *self.channel.lock().await = Some(channel.clone());
-        listen(&self.runtime, channel, self.open.clone(), messages);
+        listen(&self.runtime, channel, self.open.clone(), self.opened_once.clone(), self.gone.subscribe(), messages);
     }
 }
 
@@ -210,6 +229,7 @@ pub struct Session {
     report: Arc<std::sync::Mutex<Gathering>>,
     opened: watch::Receiver<bool>,
     open: watch::Sender<bool>,
+    gone: watch::Sender<bool>,
 }
 
 impl Session {
@@ -222,6 +242,8 @@ impl Session {
         let (messages, inbox) = mpsc::channel(64);
         let (gathered_tx, gathered) = watch::channel(Live::default());
         let (open_tx, opened) = watch::channel(false);
+        let opened_once = Arc::new(AtomicBool::new(false));
+        let gone = watch::Sender::new(false);
         let channel: SharedChannel = Arc::new(Mutex::new(None));
 
         let (ice_servers, policy) = ice_configuration(&config);
@@ -229,6 +251,8 @@ impl Session {
             runtime: runtime.clone(),
             gathered: gathered_tx,
             open: open_tx.clone(),
+            opened_once: opened_once.clone(),
+            gone: gone.clone(),
             channel: channel.clone(),
             messages: std::sync::Mutex::new((role == Role::Callee).then(|| messages.clone())),
         });
@@ -251,7 +275,7 @@ impl Session {
         if role == Role::Caller {
             let created = connection.create_data_channel(CHANNEL_LABEL, None).await?;
             *channel.lock().await = Some(created.clone());
-            listen(&runtime, created, open_tx.clone(), messages.clone());
+            listen(&runtime, created, open_tx.clone(), opened_once, gone.subscribe(), messages.clone());
         }
 
         let wanted = Wanted::of(&config);
@@ -259,7 +283,7 @@ impl Session {
         let report = Arc::default();
         drop(messages);
         let open = open_tx;
-        Ok((Self { connection, signals, channel, gathered, wanted, limits, report, opened, open }, Inbox(inbox)))
+        Ok((Self { connection, signals, channel, gathered, wanted, limits, report, opened, open, gone }, Inbox(inbox)))
     }
 
     /// Creates the offer and sends it out. Only the caller does this.
@@ -341,15 +365,22 @@ impl Session {
     #[doc(hidden)]
     pub async fn vanish(&self) {
         let _ = self.open.send(false);
+        let _ = self.gone.send(true);
         let _ = self.connection.close().await;
     }
 
-    /// Acts as the connection does when the other side stops answering for a while
-    /// (`on_connection_state_change`), with the path still working: a network blip it may come
-    /// back from. For tests.
+    /// Acts as the connection does when it fails (`on_connection_state_change`) while the other
+    /// side still answers. For tests.
     #[doc(hidden)]
     pub fn lose(&self) {
         let _ = self.open.send(false);
+        let _ = self.gone.send(true);
+    }
+
+    /// Changes whenever the session opens or stops being open (2026-10-20): the connection may
+    /// stall and come back (app#152).
+    pub fn open_changes(&self) -> watch::Receiver<bool> {
+        self.open.subscribe()
     }
 
     /// Ends the session. The data channel is closed first: that is what tells the other side,
@@ -363,6 +394,7 @@ impl Session {
             }
         }
         let _ = self.open.send(false);
+        let _ = self.gone.send(true);
         self.connection.close().await?;
         Ok(())
     }
@@ -550,28 +582,28 @@ async fn wait_for_ever(mut flag: watch::Receiver<bool>, closed: &'static str) ->
 
 /// Turns the channel's events into the open flag and the inbox. Spawned, never awaited inline.
 ///
-/// A peer that vanishes never closes the channel: once the open channel's connection is gone
+/// A peer that vanishes never closes the channel: once its connection has failed
 /// (`on_connection_state_change`), the inbox ends as it does on a close, so whoever reads it
 /// learns the session is over without having to send anything (app#151).
 fn listen(
     runtime: &Arc<dyn Runtime>,
     channel: Arc<dyn DataChannel>,
     open: watch::Sender<bool>,
+    opened_once: Arc<AtomicBool>,
+    mut gone: watch::Receiver<bool>,
     messages: mpsc::Sender<Vec<u8>>,
 ) {
-    let mut opened = open.subscribe();
     runtime.spawn(Box::pin(async move {
-        let mut was_open = false;
         loop {
             let event = tokio::select! {
                 event = channel.poll() => event,
-                _ = opened.wait_for(|open| !open), if was_open => break,
+                _ = gone.wait_for(|gone| *gone) => break,
             };
             let Some(event) = event else { break };
             match event {
                 DataChannelEvent::OnOpen => {
+                    opened_once.store(true, Ordering::SeqCst);
                     let _ = open.send(true);
-                    was_open = true;
                 }
                 DataChannelEvent::OnMessage(message) => {
                     let _ = messages.send(message.data.to_vec()).await;
