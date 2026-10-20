@@ -1426,6 +1426,27 @@ class SaveFileArgs {
     lateinit var mime: String
 }
 
+/** A language pair of the translator (2026-10-20): `TranslatePair` in platform/src/lib.rs. */
+@InvokeArg
+class TranslatePairArgs {
+    lateinit var from: String
+    lateinit var to: String
+}
+
+/** A text whose language is guessed: `TranslateSource` in platform/src/lib.rs. */
+@InvokeArg
+class TranslateSourceArgs {
+    lateinit var text: String
+}
+
+/** A text to translate: `TranslateRequest` in platform/src/lib.rs. */
+@InvokeArg
+class TranslateTextArgs {
+    lateinit var text: String
+    lateinit var from: String
+    lateinit var to: String
+}
+
 /** What only Android lets Kotlin do (Plan §5): lend a file to a viewer, save it to Downloads. */
 @TauriPlugin(
     permissions = [
@@ -1717,6 +1738,59 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             }
         }
     }
+
+    /**
+     * On-device translation (2026-10-20, app#177): the core already checked that the plugin was
+     * granted `translate`, and the size of a download was agreed in the plugin. ML Kit runs only
+     * inside these commands (Translate.kt); a tag the bridge does not list is unsupported, never
+     * an error. Only an exception rejects, with `failed:` and its kind, never the text.
+     */
+    @Command
+    fun translateLanguages(invoke: Invoke) = translating(invoke) {
+        invoke.resolve(JSObject().apply { put("languages", JSArray(supportedTags())) })
+    }
+
+    @Command
+    fun translateDetect(invoke: Invoke) = translating(invoke) {
+        val args = invoke.parseArgs(TranslateSourceArgs::class.java)
+        detectLanguage(args.text) { tag -> invoke.resolve(jsObject(detectPayload(tag))) }
+    }
+
+    @Command
+    fun translateStatus(invoke: Invoke) = translating(invoke) {
+        val args = invoke.parseArgs(TranslatePairArgs::class.java)
+        pairStatus(args.from, args.to) { status ->
+            if (status == null) invoke.reject("failed: models") else invoke.resolve(JSObject().apply { put("status", status) })
+        }
+    }
+
+    @Command
+    fun translatePrepare(invoke: Invoke) = translating(invoke) {
+        val args = invoke.parseArgs(TranslatePairArgs::class.java)
+        preparePair(activity, args.from, args.to) { ready -> invoke.resolve(JSObject().apply { put("ready", ready) }) }
+    }
+
+    @Command
+    fun translateRemove(invoke: Invoke) = translating(invoke) {
+        val args = invoke.parseArgs(TranslatePairArgs::class.java)
+        removePair(args.from, args.to) { removed -> invoke.resolve(JSObject().apply { put("removed", removed) }) }
+    }
+
+    @Command
+    fun translateText(invoke: Invoke) = translating(invoke) {
+        val args = invoke.parseArgs(TranslateTextArgs::class.java)
+        translateOnPhone(args.text, args.from, args.to) { text -> invoke.resolve(jsObject(textPayload(text))) }
+    }
+
+    private fun translating(invoke: Invoke, work: () -> Unit) {
+        try {
+            work()
+        } catch (error: Exception) {
+            invoke.reject("failed: ${error.javaClass.simpleName}")
+        }
+    }
+
+    private fun jsObject(payload: Map<String, Any>) = JSObject().apply { payload.forEach { (key, value) -> put(key, value) } }
 
     /**
      * The camera before our camera turns on (native video, 2026-09-29, §30): asks only if it is
