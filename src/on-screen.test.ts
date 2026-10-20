@@ -85,3 +85,67 @@ describe("useOnScreen", () => {
     expect(entered).toHaveBeenCalledTimes(2);
   });
 });
+
+// app#197: a tab page sits inside the tabs page. When a page is pushed over the tabs, Ionic tells
+// only the tabs page it leaves, never the tab inside it.
+describe("useOnScreen in a page inside another page", () => {
+  function nested() {
+    const Inner = defineComponent({
+      setup() {
+        const onScreen = useOnScreen();
+        return () => h("i", { "data-on-screen": String(onScreen.value) });
+      },
+    });
+    const Outer = defineComponent({
+      setup() {
+        useOnScreen();
+        return () => h(Inner);
+      },
+    });
+    const wrapper = mount(Outer);
+    const fire = (vm: unknown, hook: ViewHook) =>
+      ((vm as Record<string, Array<() => void> | undefined>)[hook] ?? []).forEach((one) => one());
+    return {
+      outer: (hook: ViewHook) => fire(wrapper.vm, hook),
+      inner: (hook: ViewHook) => fire(wrapper.findComponent(Inner).vm, hook),
+      onScreen: async () => {
+        await wrapper.vm.$nextTick();
+        return wrapper.find("i").attributes("data-on-screen") === "true";
+      },
+    };
+  }
+
+  it("is off screen while the page holding it is covered", async () => {
+    const view = nested();
+    expect(await view.onScreen()).toBe(true);
+    view.outer("onIonViewWillLeave");
+    expect(await view.onScreen()).toBe(false);
+  });
+
+  it("is back on screen once the page holding it has come in again", async () => {
+    const view = nested();
+    view.outer("onIonViewWillLeave");
+    view.outer("onIonViewWillEnter");
+    view.outer("onIonViewDidEnter");
+    expect(await view.onScreen()).toBe(true);
+  });
+
+  it("stays off screen when a page opened over the one holding it while that one still came in", async () => {
+    const view = nested();
+    view.outer("onIonViewWillLeave");
+    view.outer("onIonViewWillEnter");
+    view.outer("onIonViewWillLeave");
+    view.outer("onIonViewDidEnter");
+    expect(await view.onScreen()).toBe(false);
+  });
+
+  it("stays off screen when the page holding it comes back showing another of its pages", async () => {
+    const view = nested();
+    // Another tab, then a page over the tabs, then back to the tabs: still the other tab.
+    view.inner("onIonViewWillLeave");
+    view.outer("onIonViewWillLeave");
+    view.outer("onIonViewWillEnter");
+    view.outer("onIonViewDidEnter");
+    expect(await view.onScreen()).toBe(false);
+  });
+});

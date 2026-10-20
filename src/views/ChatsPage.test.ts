@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import ChatsPage from "./ChatsPage.vue";
+import TabsPage from "./TabsPage.vue";
 import ChatThread from "../components/ChatThread.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import { childTags, pageShape } from "../__tests__/page-shape";
@@ -19,6 +20,25 @@ function screen(wide: boolean) {
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   } as unknown as MediaQueryList);
+}
+
+/**
+ * Chats as Ionic shows it: a tab inside the tabs page. A page pushed over the tabs (a contact's
+ * page, a call) is Ionic's word to the tabs page only (app#197); `covered` and `uncovered` are what
+ * it says then, the tabs page's own lifecycle.
+ */
+function chatsInTabs(stubs: Record<string, unknown> = {}) {
+  const tabs = mount(TabsPage, { shallow: true, global: { stubs: { IonRouterOutlet: ChatsPage, ...stubs } } });
+  const fire = (hook: string) => ((tabs.vm as unknown as Record<string, Array<() => void> | undefined>)[hook] ?? []).forEach((one) => one());
+  return {
+    tabs,
+    covered: () => fire("onIonViewWillLeave"),
+    // As Ionic does: "will enter" as the transition starts, "did enter" once it is over.
+    uncovered: () => {
+      fire("onIonViewWillEnter");
+      fire("onIonViewDidEnter");
+    },
+  };
 }
 
 describe("ChatsPage", () => {
@@ -151,6 +171,35 @@ describe("ChatsPage", () => {
     });
   });
 
+  // app#197: on a tablet a page pushed over the tabs (a contact's page) hid the split view, but
+  // Ionic told only the tabs page; the conversation beside the list read what arrived meanwhile.
+  describe("under a page pushed over the tabs, on a wide screen", () => {
+    const arrive = () => store.chats[0].messages.push({ id: "new", mine: false, text: "still there?", time: "09:50", sentAt: Date.now() });
+    const markedRead = () => calls.some(([command]) => command === "core_mark_read");
+
+    it("does not read what arrives in the conversation beside the list, and reads it once back", async () => {
+      screen(true);
+      const view = chatsInTabs({ ChatThread: false });
+      await flushPromises();
+      const thread = () => view.tabs.findComponent(ChatThread);
+      expect(thread().props("chatId")).toBe(store.chats[0].id);
+      expect(thread().props("active")).toBe(true);
+
+      view.covered();
+      await flushPromises();
+      expect(thread().props("active")).toBe(false);
+      calls.length = 0;
+      arrive();
+      await flushPromises();
+      expect(markedRead()).toBe(false);
+
+      view.uncovered();
+      await flushPromises();
+      expect(thread().props("active")).toBe(true);
+      expect(calls).toContainEqual(["core_mark_read", { contact: store.chats[0].id }]);
+    });
+  });
+
   // A new phone has no contacts yet: the list says how to start.
   it("explains how to start when there are no conversations", async () => {
     screen(false);
@@ -246,6 +295,21 @@ describe("ChatsPage", () => {
       hooks("onIonViewDidEnter");
       await wide.vm.$nextTick();
       expect(wide.findComponent({ name: "CircleThread" }).props("active")).toBe(true);
+    });
+
+    // app#197: a page pushed over the tabs covers the circle beside the list too.
+    it("tells the circle beside the list it is covered by a page pushed over the tabs, and back", async () => {
+      screen(true);
+      const view = chatsInTabs();
+      await view.tabs.find("[data-test='circle-row']").trigger("click");
+      const active = () => view.tabs.findComponent({ name: "CircleThread" }).props("active");
+      expect(active()).toBe(true);
+      view.covered();
+      await view.tabs.vm.$nextTick();
+      expect(active()).toBe(false);
+      view.uncovered();
+      await view.tabs.vm.$nextTick();
+      expect(active()).toBe(true);
     });
 
     // app#193: another page opened while Chats still came in. Ionic says Chats leaves as that page

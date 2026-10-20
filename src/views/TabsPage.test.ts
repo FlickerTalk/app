@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { IonTabButton } from "@ionic/vue";
 import { appsOutline } from "ionicons/icons";
+import { defineComponent, h } from "vue";
 import TabsPage from "./TabsPage.vue";
 import NavRail from "../components/NavRail.vue";
 import { childTags, pageShape } from "../__tests__/page-shape";
+import { useOnScreen } from "../on-screen";
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 
@@ -46,5 +48,28 @@ describe("TabsPage", () => {
     const tabs = wrapper.find("ion-tabs-stub");
     expect(childTags(tabs.element)).toEqual(["ion-router-outlet", "ion-tab-bar"]);
     expect(tabs.find("ion-tab-bar-stub").attributes("slot")).toBe("bottom");
+  });
+
+  // app#197: a page pushed over the tabs (a contact's page) is Ionic's word to this page only, not
+  // to the tab inside it; the tab must still know it is covered (the split view's read receipts).
+  it("keeps the tab inside off screen while a page pushed over the tabs covers them", async () => {
+    const Tab = defineComponent({
+      setup() {
+        const onScreen = useOnScreen();
+        return () => h("i", { "data-on-screen": String(onScreen.value) });
+      },
+    });
+    const wrapper = mount(TabsPage, { shallow: true, global: { stubs: { IonRouterOutlet: Tab } } });
+    const fire = (hook: string) => ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[hook] ?? []).forEach((one) => one());
+    const tabOnScreen = async () => {
+      await wrapper.vm.$nextTick();
+      return wrapper.find("i").attributes("data-on-screen");
+    };
+    expect(await tabOnScreen()).toBe("true");
+    fire("onIonViewWillLeave");
+    expect(await tabOnScreen()).toBe("false");
+    fire("onIonViewWillEnter");
+    fire("onIonViewDidEnter");
+    expect(await tabOnScreen()).toBe("true");
   });
 });
