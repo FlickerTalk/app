@@ -1,4 +1,4 @@
-// A suggestion from Settings (2026-10-02), in an Ionic modal over Settings (Ioan), on a phone. In
+// A suggestion from Settings (2026-10-02), in an Ionic modal over Settings, on a phone. In
 // Arabic the modal reads right to left, Ionic's counter keeps its digits in order, and a send the
 // core does not confirm (here the fake core has no such command, like an app talking to a router
 // without the endpoint) never says "sent" and keeps what was written. Every check retries: the app
@@ -214,7 +214,7 @@ test.describe("the text box", () => {
   });
 });
 
-// Ioan's rule (2026-10-02): a component's colour is one of Ionic's named colours. On iOS the box's
+// Project rule (2026-10-02): a component's colour is one of Ionic's named colours. On iOS the box's
 // border is Ionic's `medium`, as resolved by the theme in force.
 test.describe("the text box on iOS", () => {
   test.use({ viewport: { width: 390, height: 780 } });

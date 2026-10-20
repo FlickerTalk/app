@@ -61,9 +61,10 @@ const details = ref<ContactDetails | null>(null);
 const fingerprint = computed(() => details.value?.fingerprint ?? "");
 const blocked = computed(() => details.value?.blocked ?? false);
 
-// Ioan, 2026-10-06: as in Messenger and WhatsApp, the quick actions live here, under the name, and
-// the chat header keeps few icons. The calls go as the header's do, and only where it offers them:
-// not to a stranger whose request is unanswered (A5). The search opens in the conversation.
+// Decision of 2026-10-06: as in Messenger and WhatsApp, the quick actions live here, under the
+// name, and the chat header keeps few icons. The calls go as the header's do, and only where it
+// offers them: not to a stranger whose request is unanswered (A5). The search opens in the
+// conversation.
 const canCall = computed(() => !requestPending(id));
 const QUICK = computed(() => [
   ...(canCall.value

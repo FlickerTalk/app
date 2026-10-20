@@ -1,10 +1,10 @@
 //! What the plan decides once the free year is over (Plan §40–§47). Everything is decided on the
 //! phone: the server never learns who pays.
 //!
-//! Ioan, 2026-10-08: chat, voice notes, files, calls, new conversations, circles and games are free
-//! forever. Without the subscription, after the 15 free days, only the premium part is closed: the
-//! tools (plugins of kind `tool`, the ones the app carries included) neither open nor install, and
-//! no hidden session opens with a PIN. The main list always works.
+//! Decision of 2026-10-08: chat, voice notes, files, calls, new conversations, circles and games
+//! are free forever. Without the subscription, after the 15 free days, only the premium part is
+//! closed: the tools (plugins of kind `tool`, the ones the app carries included) neither open nor
+//! install, and no hidden session opens with a PIN. The main list always works.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -208,7 +208,7 @@ async fn the_free_days_include_the_tools_and_the_sessions() {
     assert!(core.open_session("123456").await.expect("opens a session").is_some());
 }
 
-// Ioan, 2026-10-08: extra sessions with a PIN are premium. After the free days, without the
+// Decision of 2026-10-08: extra sessions with a PIN are premium. After the free days, without the
 // subscription, no PIN opens one, new or not, and the PIN says nothing about which; the main list
 // goes on. With the subscription they open again.
 #[tokio::test(flavor = "multi_thread")]
@@ -234,7 +234,7 @@ async fn after_the_free_days_a_pin_opens_no_session() {
     assert!(core.open_session("123456").await.expect("opens").is_some());
 }
 
-// Ioan, 2026-10-08: without the subscription, everything a chat app does goes on, new things
+// Decision of 2026-10-08: without the subscription, everything a chat app does goes on, new things
 // included: writing to someone for the first time, a circle, a call and a file.
 #[tokio::test(flavor = "multi_thread")]
 async fn after_the_year_chat_calls_files_and_circles_stay_free() {

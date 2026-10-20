@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn counts_the_ice_candidates_carried_by_a_description() {
         let sdp = "v=0\r\na=candidate:1 1 udp 2130706431 192.168.1.2 50000 typ host\r\n\
-                   a=mid:0\r\na=candidate:2 1 udp 1694498815 81.2.3.4 50000 typ srflx\r\n";
+                   a=mid:0\r\na=candidate:2 1 udp 1694498815 203.0.113.4 50000 typ srflx\r\n";
         assert_eq!(candidate_count(sdp), 2);
         assert_eq!(candidate_count("v=0\r\na=mid:0\r\n"), 0);
     }

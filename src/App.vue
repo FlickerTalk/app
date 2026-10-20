@@ -36,7 +36,7 @@ function onVisible() {
 }
 // An update the core made in the background reaches every list of plugins (2026-10-03).
 let unfollow: (() => void) | undefined;
-// Whether the tools are locked (Ioan, 2026-10-08), followed while the app runs.
+// Whether the tools are locked (decision of 2026-10-08), followed while the app runs.
 let unfollowLock: (() => void) | undefined;
 // Links that open the app (2026-10-08, `opened.ts`): asked for at start, back on the screen and
 // when the core says one came while the app runs.

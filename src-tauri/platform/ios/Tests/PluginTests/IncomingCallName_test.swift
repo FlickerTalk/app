@@ -72,7 +72,7 @@ final class IncomingCallNameTests: XCTestCase {
                 XCTAssertNotEqual(shown, englishText, "\(language) shows the English text")
             }
         }
-        XCTAssertEqual(incomingCallName(caller: "Ioan", bundle: try bundle("es")), "Ioan")
+        XCTAssertEqual(incomingCallName(caller: "Alice", bundle: try bundle("es")), "Alice")
         XCTAssertEqual(try table("es")["FT_INCOMING_CALL"], "Llamada entrante")
     }
 }

@@ -8,8 +8,8 @@ import { formatSize } from "../core";
 // sheet says what it will do —talk to the other person's phone, leave the result in the chat— and
 // one button grants both. A game that is not here yet is a download: the sheet says what it
 // weighs, and the same button installs it. Without a yes, nothing is installed or granted.
-// Ioan, 2026-10-02: Ionic's sheet modal, as tall as what it says; dismissing it (dragging it down,
-// a tap outside, the back button) is a no.
+// Decision of 2026-10-02: Ionic's sheet modal, as tall as what it says; dismissing it (dragging it
+// down, a tap outside, the back button) is a no.
 // The game's own icon (its tile's, `pluginIcon`), or the controller (device review of app#121).
 // Or its own image (`pluginImage`, 2026-10-08), drawn instead of any icon.
 // 2026-10-08: presenting in a call asks with the same sheet, with its own text and button.

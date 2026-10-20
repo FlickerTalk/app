@@ -10,8 +10,8 @@ const sheet = (props: Record<string, unknown>) =>
   mount(GamePermissions, { props: { open: true, name: "Chess", ...props }, global: { stubs: { IonModal: IonModalStub, IonIcon: true } } });
 
 describe("GamePermissions", () => {
-  // Plan decision 11: one sheet says what a game does with the other phone and the chat. Ioan,
-  // 2026-10-02: Ionic's sheet modal, Ionic's buttons, and an icon, never an emoji.
+  // Plan decision 11: one sheet says what a game does with the other phone and the chat. Decided
+  // on 2026-10-02: Ionic's sheet modal, Ionic's buttons, and an icon, never an emoji.
   it("is an Ionic sheet that says what the game will do and lets the user allow it or not", async () => {
     const wrapper = sheet({});
     const modal = wrapper.findComponent(IonModalStub);

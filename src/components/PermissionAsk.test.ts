@@ -12,8 +12,8 @@ const sheet = (props: Record<string, unknown>, stubs: Stubs = { IonModal: IonMod
   mount(PermissionAsk, { props: { open: true, name: "Location", permission: LOCATION, ...props }, global: { stubs } });
 
 describe("PermissionAsk", () => {
-  // Ioan, 2026-10-08: a tool that lacks a permission asks for it on the spot, in Ionic's sheet
-  // modal, as the game's permissions sheet: the tool, the one permission and Cancel / Allow.
+  // Decision of 2026-10-08: a tool that lacks a permission asks for it on the spot, in Ionic's
+  // sheet modal, as the game's permissions sheet: the tool, the one permission and Cancel / Allow.
   it("is an Ionic sheet that names the tool and the one permission it needs", async () => {
     const wrapper = sheet({});
     const modal = wrapper.findComponent(IonModalStub);

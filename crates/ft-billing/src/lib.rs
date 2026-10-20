@@ -3,10 +3,10 @@
 //! Nothing here talks to anyone: it decides, from what the phone already knows, what the user may
 //! do. The money is the Store's business (§47) and the server never learns who pays (§45–§46).
 //!
-//! Ioan, 2026-10-08: chat, voice notes, files, calls, new conversations, circles and games are
-//! free forever. The premium part —the tools (plugins of kind `tool`) and the extra sessions with a
-//! PIN— is free for 15 days from the install, then needs the subscription; nothing else is ever
-//! limited. There is no age rule any more.
+//! Decision of 2026-10-08: chat, voice notes, files, calls, new conversations, circles and games
+//! are free forever. The premium part —the tools (plugins of kind `tool`) and the extra sessions
+//! with a PIN— is free for 15 days from the install, then needs the subscription; nothing else is
+//! ever limited. There is no age rule any more.
 
 use std::time::Duration;
 
@@ -64,7 +64,8 @@ pub enum Access {
 }
 
 /// The things access decides about. Writing, calling, sending files, circles and games are never
-/// among them: they are free (Ioan, 2026-10-08), and a message that arrives is always delivered.
+/// among them: they are free (decision of 2026-10-08), and a message that arrives is always
+/// delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Doing {
     /// Opening or installing a tool (a plugin of kind `tool`), the ones the app carries included.
@@ -161,8 +162,8 @@ mod tests {
         assert!(!plan(NOW - DAY, 0).paid_date_passed(NOW));
     }
 
-    // Ioan, 2026-10-08: chat, calls, files, circles and games are free forever. After the free
-    // year, only the tools ask for the subscription.
+    // Decision of 2026-10-08: chat, calls, files, circles and games are free forever. After the
+    // free year, only the tools ask for the subscription.
     #[test]
     fn without_the_subscription_only_the_tools_are_closed() {
         let access = Access::of(NOW, plan(NOW - DAY, 0));
@@ -171,7 +172,8 @@ mod tests {
         assert!(!access.may(Doing::UseTool));
     }
 
-    // Ioan, 2026-10-08 (01:00): the premium part is free for 15 days from the install, not a year.
+    // Decision of 2026-10-08 (01:00): the premium part is free for 15 days from the install, not a
+    // year.
     #[test]
     fn the_free_period_is_fifteen_days() {
         assert_eq!(FREE_PERIOD.as_secs(), 15 * 24 * 60 * 60);

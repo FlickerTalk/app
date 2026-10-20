@@ -148,8 +148,8 @@ impl Core {
         // An update keeps what the user granted before, cut down to what this version asks for:
         // never more (§53), and a version that asks for less still installs (2026-10-03).
         let before = self.store.plugin(&plugin.manifest.id).await?;
-        // A new tool is what the subscription pays for (Ioan, 2026-10-08); an update of one already
-        // here is not, and a game never asks.
+        // A new tool is what the subscription pays for (decision of 2026-10-08); an update of one
+        // already here is not, and a game never asks.
         if before.is_none() {
             self.usable(plugin.manifest.kind).await?;
         }
@@ -506,8 +506,8 @@ impl Core {
         Ok(serde_json::from_str(&row.granted).unwrap_or_default())
     }
 
-    /// Whether a plugin of this kind may be opened or installed now (Ioan, 2026-10-08): a game
-    /// always; a tool (or a kind this core does not know) in the free year or with the
+    /// Whether a plugin of this kind may be opened or installed now (decision of 2026-10-08): a
+    /// game always; a tool (or a kind this core does not know) in the free year or with the
     /// subscription.
     pub async fn may_use(&self, kind: ft_plugins::Kind) -> Result<bool> {
         Ok(kind == ft_plugins::Kind::Game || self.access().await?.may(ft_billing::Doing::UseTool))
@@ -515,9 +515,9 @@ impl Core {
 
     /// Whether this plugin may be opened, and served to the WebView, now: what `may_use` says of
     /// its kind or, with the tools closed, the plugin the other side presents in the call going on
-    /// (watching a class is free, Ioan 2026-10-08) if it is one of the two presenting tools and
-    /// asks for the live channel, the only way a plugin can follow anything. The core decides it
-    /// from its own call.
+    /// (watching a class is free, decision of 2026-10-08) if it is one of the two presenting tools
+    /// and asks for the live channel, the only way a plugin can follow anything. The core decides
+    /// it from its own call.
     pub async fn may_use_plugin(&self, id: &str, kind: ft_plugins::Kind) -> Result<bool> {
         if self.may_use(kind).await? {
             return Ok(true);

@@ -61,11 +61,11 @@ const MAILBOX: &str = "mailbox";
 /// When the app was first opened on this phone (ms): the free year counts from it (§41).
 const INSTALLED_AT: &str = "installed_at";
 // `age_class` (a settings key, 2026-09-22 to 2026-10-08) is no longer read nor written: there is
-// no age rule any more (Ioan, 2026-10-08). A phone that kept one keeps the row, unused.
+// no age rule any more (decision of 2026-10-08). A phone that kept one keeps the row, unused.
 /// Until when the Store says the subscription runs (ms); 0 when there is none (§45).
 const PAID_UNTIL: &str = "paid_until";
-/// What the core answers when the plan closes something premium (Ioan, 2026-10-08): a key, never a
-/// sentence; the screen says it in the user's language and offers the subscription.
+/// What the core answers when the plan closes something premium (decision of 2026-10-08): a key,
+/// never a sentence; the screen says it in the user's language and offers the subscription.
 pub const NEEDS_SUBSCRIPTION: &str = "needs_subscription";
 /// What the core answers when the other side's app cannot show a presentation (2026-10-08): a
 /// key, never a sentence; the call screen says it in the user's language.
@@ -737,9 +737,9 @@ impl Core {
     /// when it is closed. `None` only when the seven slots are all taken: the screen shows an
     /// empty session all the same.
     ///
-    /// Opening one is premium (Ioan, 2026-10-08): after the free days, without the subscription,
-    /// every PIN is refused alike, so the refusal says nothing about which exist. One already open
-    /// stays open until the user leaves it; the main list always works.
+    /// Opening one is premium (decision of 2026-10-08): after the free days, without the
+    /// subscription, every PIN is refused alike, so the refusal says nothing about which exist. One
+    /// already open stays open until the user leaves it; the main list always works.
     pub async fn open_session(&self, pin: &str) -> Result<Option<String>> {
         let hash = self.pin_hash(pin)?;
         ensure!(self.access().await?.may(ft_billing::Doing::UseSession), NEEDS_SUBSCRIPTION);

@@ -54,8 +54,8 @@ describe("plugin permissions", () => {
     expect(permissionsOf(BOARD).map((one) => one.key)).toContain("location");
   });
 
-  // Ioan, 2026-10-08: a tool that lacks a permission it asked for asks the user on the spot. What
-  // it lacks is read from the same lines as the switches, never from what the core said.
+  // Decision of 2026-10-08: a tool that lacks a permission it asked for asks the user on the spot.
+  // What it lacks is read from the same lines as the switches, never from what the core said.
   it("says which permission a plugin asked for and lacks, with its label and icon", () => {
     expect(missingPermission(BOARD, "location")).toMatchObject({ key: "location", label: "Your location, only when you ask", on: false });
     expect(missingPermission(BOARD, "location")?.icon).toBeTruthy();

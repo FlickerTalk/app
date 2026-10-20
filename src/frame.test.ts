@@ -74,7 +74,7 @@ describe("the frame", () => {
     expect(opened[1]).not.toHaveProperty("presenting");
   });
 
-  // 2026-10-02 (Ioan): the app's colours, as Ionic's variables on the frame's root, there before
+  // 2026-10-02: the app's colours, as Ionic's variables on the frame's root, there before
   // the plugin draws anything and kept up to date; and whether the app is dark.
   const dark = {
     "--ion-background-color": "#000000",

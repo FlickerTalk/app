@@ -1,7 +1,8 @@
-// Ionic in the plugins (Ioan, 2026-10-09; route B of the Ionic plan): the app lends its own Ionic
-// to every frame. A plugin that carries none of it draws Ionic's components in the app's colours,
-// under the frame's real policy, and its overlays land on the screen because a tool's frame is as
-// tall as its window. The frame here is the one the app serves: its page, script, Ionic and theme.
+// Ionic in the plugins (decision of 2026-10-09; route B of the Ionic plan): the app lends its own
+// Ionic to every frame. A plugin that carries none of it draws Ionic's components in the app's
+// colours, under the frame's real policy, and its overlays land on the screen because a tool's
+// frame is as tall as its window. The frame here is the one the app serves: its page, script, Ionic
+// and theme.
 import type { ConsoleMessage, Page } from "@playwright/test";
 import { expect, serveRealPluginFrames, test } from "./helpers";
 

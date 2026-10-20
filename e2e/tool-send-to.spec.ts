@@ -1,5 +1,5 @@
-// Ioan, 2026-10-09: a tool opened on its own (from the Apps tab) has no chat behind it. What it
-// proposes to send asks who it is for, in the same sheet the games use; the contact picked gets
+// Decision of 2026-10-09: a tool opened on its own (from the Apps tab) has no chat behind it. What
+// it proposes to send asks who it is for, in the same sheet the games use; the contact picked gets
 // their conversation with the proposal waiting in the composer. The user sends it, never the tool.
 import type { Page } from "@playwright/test";
 import { callsTo, expect, frameSays, test } from "./helpers";

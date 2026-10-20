@@ -100,7 +100,7 @@ describe("ChatPage", () => {
     }
   });
 
-  // Ioan, 2026-10-06: the contact page's search opens the conversation with `?search=1`. The
+  // Decision of 2026-10-06: the contact page's search opens the conversation with `?search=1`. The
   // address then forgets it, so going back and forth does not open the search again.
   it("opens the search the address asks for, and takes it out of the address", () => {
     routing.route.query = { search: "1" };
@@ -134,8 +134,8 @@ describe("ChatPage", () => {
     expect(routing.replace).not.toHaveBeenCalled();
   });
 
-  // Ioan, 2026-10-06: as in WhatsApp, the contact page's search goes back to the conversation it
-  // came from; the conversation opens its search once it is on screen again.
+  // Decision of 2026-10-06: as in WhatsApp, the contact page's search goes back to the conversation
+  // it came from; the conversation opens its search once it is on screen again.
   describe("back from the contact page's search", () => {
     const openSearch = vi.fn();
     const Thread = defineComponent({

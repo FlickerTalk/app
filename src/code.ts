@@ -1,7 +1,7 @@
 /**
- * Code in a message (Ioan, 2026-09-22). A message fenced with ``` is shown as a block of code, in
- * both phones, by the app itself: it is how the text is drawn, not something a plugin should do.
- * The text that travels is the message as it was written, fences included.
+ * Code in a message (decision of 2026-09-22). A message fenced with ``` is shown as a block of
+ * code, in both phones, by the app itself: it is how the text is drawn, not something a plugin
+ * should do. The text that travels is the message as it was written, fences included.
  */
 const LANGUAGES = [
   "bash",

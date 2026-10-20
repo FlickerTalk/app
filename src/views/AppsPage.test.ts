@@ -490,8 +490,8 @@ describe("AppsPage", () => {
     });
   });
 
-  // Ioan, 2026-10-08: past the free days, without the subscription, the tools are locked; a tap on
-  // one goes to the Premium section of Settings. Games never are.
+  // Decision of 2026-10-08: past the free days, without the subscription, the tools are locked; a
+  // tap on one goes to the Premium section of Settings. Games never are.
   describe("once the free days are over", () => {
     beforeEach(() => answering({ also: (command) => (command === "core_plan" ? { state: "limited", until: 0 } : undefined) }));
 

@@ -1,4 +1,4 @@
-// The contact page's quick actions (Ioan, 2026-10-06): as in Messenger and WhatsApp, the chat
+// The contact page's quick actions (decision of 2026-10-06): as in Messenger and WhatsApp, the chat
 // header keeps three icons and the search of the conversation starts from the contact page.
 import { expect, test } from "./helpers";
 

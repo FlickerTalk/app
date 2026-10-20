@@ -1,6 +1,6 @@
 /**
- * Web and mail addresses inside a message (Ioan, 2026-09-22). The app marks them so they can be
- * opened; it never goes and fetches them, which would tell a stranger's server that the message
+ * Web and mail addresses inside a message (decision of 2026-09-22). The app marks them so they can
+ * be opened; it never goes and fetches them, which would tell a stranger's server that the message
  * arrived (Plan §70, §99). Only http(s) and mail are ever links: anything else stays text.
  *
  * 2026-10-02: a place, as a `geo:` URI (RFC 5870) the location plugin writes, is a third kind of

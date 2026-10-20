@@ -982,7 +982,7 @@ impl Core {
         let Some(native) = self.native_of(call) else { bail!("no native call") };
         ensure!(native.connected_at().is_some(), "the call is not on yet");
         ensure!(native.can_present(), crate::PEER_CANNOT_PRESENT);
-        // Presenting is using the tool (Ioan, 2026-10-08): a plugin this phone does not have
+        // Presenting is using the tool (decision of 2026-10-08): a plugin this phone does not have
         // counts as one.
         let kind = self.plugin_manifest(plugin).map_or(ft_plugins::Kind::Tool, |manifest| manifest.kind);
         self.usable(kind).await?;

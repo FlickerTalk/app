@@ -17,7 +17,7 @@ import { sendFeedback, type FeedbackOutcome } from "../core";
 
 // 2026-10-02: an anonymous suggestion, mailed on by the router, which keeps nothing. Nothing of it
 // is kept here either: no draft, no history; once the modal is gone, it is forgotten. An Ionic
-// modal over Settings (Ioan): the ✕ and Android's Back (Settings sets `open` to false) always
+// modal over Settings: the ✕ and Android's Back (Settings sets `open` to false) always
 // close it; a tap outside, Escape or a swipe only with nothing written and nothing on its way,
 // so a stray tap never loses a text. The router takes up to 2000 characters.
 const MAX = 2000;
