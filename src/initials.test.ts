@@ -30,6 +30,30 @@ describe("avatar initials", () => {
     expect(initials("🇪🇸 Spain")).toBe("🇪🇸S");
     expect(initials("👩‍👩‍👧 Family")).toBe("👩‍👩‍👧F");
   });
+
+  // app#158: "Marcos (escalada)" showed "M(": each word gave its first character, whatever it was.
+  it("skips the punctuation in front of a word", () => {
+    expect(initials("Marcos (escalada)")).toBe("ME");
+    expect(initials('Ana "Nana" López')).toBe("AN");
+    expect(initials("«Lola» ¡Flores!")).toBe("LF");
+  });
+
+  it("skips a word that is only punctuation", () => {
+    expect(initials("- Pepe")).toBe("P");
+    expect(initials("Marcos ()")).toBe("M");
+    expect(initials("Marcos - Luis")).toBe("ML");
+  });
+
+  it("takes a digit or an emoji as an initial", () => {
+    expect(initials("#2 Pepe")).toBe("2P");
+    expect(initials("🙂 Luis")).toBe("🙂L");
+  });
+
+  // A name with no letter, digit or emoji anywhere must not leave the avatar blank (app#158).
+  it("falls back to the first character of a name with no letter, digit or emoji", () => {
+    expect(initials("(—)")).toBe("(");
+    expect(initials("  (—) ...")).toBe("(");
+  });
 });
 
 describe("first character of a word", () => {
@@ -41,5 +65,17 @@ describe("first character of a word", () => {
     expect(firstCharacter("😀x", false)).toBe("😀");
     expect(firstCharacter("𠮷田", false)).toBe("𠮷");
     expect(firstCharacter("ab", false)).toBe("a");
+  });
+
+  it("is the first letter, digit or emoji, with or without a segmenter", () => {
+    expect(firstCharacter("(escalada)", true)).toBe("e");
+    expect(firstCharacter("(escalada)", false)).toBe("e");
+    expect(firstCharacter("«🇪🇸»", true)).toBe("🇪🇸");
+    expect(firstCharacter("\"😀\"", false)).toBe("😀");
+  });
+
+  it("is empty for a word with no letter, digit or emoji", () => {
+    expect(firstCharacter("()", true)).toBe("");
+    expect(firstCharacter("()", false)).toBe("");
   });
 });
