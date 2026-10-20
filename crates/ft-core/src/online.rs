@@ -274,8 +274,7 @@ impl Lifecycle {
     /// front, a registration waiting to be retried goes at once, whether or not the socket dropped:
     /// a leave-and-return faster than the socket loop is polled leaves it open, with no new welcome.
     pub async fn set_foreground(&self, foreground: bool) -> bool {
-        self.presence().set_foreground(foreground);
-        let back = self.settle().await;
+        let back = self.change(|presence| presence.set_foreground(foreground)).await;
         if foreground {
             if let Some(core) = self.core.upgrade() {
                 core.router_reachable();
@@ -293,7 +292,22 @@ impl Lifecycle {
     /// A push came (a call's, or a wake): out of the foreground, the connection comes back for what
     /// it announces. `true` if it came back; if it was there, the caller may still want a fresh one.
     pub async fn woken(&self) -> bool {
-        self.presence().woken(Instant::now());
+        self.change(|presence| presence.woken(Instant::now())).await
+    }
+
+    /// Changes `Presence` and acts on it in one look (2026-10-20): `true` if this change brought
+    /// the connection back. A look of the presence loop running meanwhile could otherwise see the
+    /// change first and bring it back itself, and the caller, told "not me", would open a fresh
+    /// socket over the one just opened (dropping the call's offer the router handed to it).
+    async fn change(&self, change: impl FnOnce(&mut Presence)) -> bool {
+        let one_at_a_time = self.looking.lock().await;
+        change(&mut self.presence());
+        self.settle_holding(&one_at_a_time).await
+    }
+
+    /// What the presence loop does every second and after each event (`keep_present`). For tests.
+    #[doc(hidden)]
+    pub async fn look(&self) -> bool {
         self.settle().await
     }
 
@@ -306,7 +320,12 @@ impl Lifecycle {
     /// after a short absence (`REDIAL_WITHIN`). A push that brings the connection back out of the
     /// foreground dials nobody.
     async fn settle(&self) -> bool {
-        let _one_at_a_time = self.looking.lock().await;
+        let one_at_a_time = self.looking.lock().await;
+        self.settle_holding(&one_at_a_time).await
+    }
+
+    /// `settle`, for whoever holds the `looking` lock.
+    async fn settle_holding(&self, _one_at_a_time: &tokio::sync::MutexGuard<'_, ()>) -> bool {
         let now = Instant::now();
         let connected = self.presence().connected(now, false) || {
             let Some(core) = self.core.upgrade() else { return false };
