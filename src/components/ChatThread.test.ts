@@ -794,6 +794,7 @@ describe("ChatThread", () => {
       hooks: {
         message: { label: "Translate", icon: "language-outline" },
         composer: { label: "Translate", icon: "language-outline" },
+        settings: { label: "Translation", icon: "language-outline", fields: [{ key: "lang", type: "select", label: "Language" }] },
       },
     };
     type Hook = { name: string; text: string; chat: string; ref: string | null; lang: string; manual: boolean; answer?: boolean };
@@ -827,6 +828,8 @@ describe("ChatThread", () => {
     let flags: unknown[] = [];
     /** What the core answers for a text sent: the id of the message it made. */
     let sentId: string | undefined;
+    /** The latest texts received, as the core hands them to the settings hook. */
+    let sample = "";
 
     beforeEach(() => {
       sheets.length = 0;
@@ -834,6 +837,7 @@ describe("ChatThread", () => {
       view = JSON.parse(JSON.stringify(TRANSLATOR));
       flags = [];
       sentId = undefined;
+      sample = "";
       const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
       const fallback = internals.invoke;
       internals.invoke = (command, args) => {
@@ -841,6 +845,7 @@ describe("ChatThread", () => {
         if (command === "core_chat_hooks") return Promise.resolve(flags);
         if (command === "core_plugin_chat") return Promise.resolve(KEY);
         if (command === "core_plugin_ref") return Promise.resolve("ref_1");
+        if (command === "core_hook_sample") return Promise.resolve(sample);
         if (command === "core_plugin_grant") view = { ...view, granted: args?.granted };
         if (command === "core_send") {
           calls.push([command, args]);
@@ -952,13 +957,49 @@ describe("ChatThread", () => {
       expect(kept("core_send")).toEqual([{ contact: "c1", text: "bonjour" }]);
     });
 
-    // Waits on the core saying which message a text sent became (`sendText` resolving with its id).
-    it.todo("keeps the user's words under the message sent in the conversation's language");
+    it("keeps the user's words under the message sent in the conversation's language", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      sentId = "sent1";
+      answer = (hook) => (hook.name === "composer" ? { text: "bonjour" } : null);
+      const wrapper = await thread();
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(kept("core_message_note_set")).toEqual([{ message: "sent1", plugin: ID, text: "hello" }]);
+    });
+
+    it("keeps nothing under a text the tool sent unchanged, or could not translate", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      sentId = "sent1";
+      const answers: unknown[] = [{ text: "ok" }, null];
+      answer = (hook) => (hook.name === "composer" ? answers.shift() : null);
+      const wrapper = await thread();
+      for (const words of ["ok", "hello"]) {
+        wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", words);
+        await flushPromises();
+        await wrapper.find("[aria-label='Send']").trigger("click");
+        await flushPromises();
+      }
+      expect(kept("core_send")).toEqual([
+        { contact: "c1", text: "ok" },
+        { contact: "c1", text: "hello" },
+      ]);
+      expect(kept("core_message_note_set")).toEqual([]);
+    });
 
     it("names the conversation's language on my texts sent in it", async () => {
       flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
       const wrapper = await thread();
       expect(wrapper.findAllComponents(MessageBubble)[1].props("language")).toBe("French");
+    });
+
+    it("looks for the language of a conversation without one as it opens, and keeps it", async () => {
+      sample = "Are you coming tonight?\nSee you at 6 then ✨";
+      answer = (hook) => (hook.name === "settings" ? { lang: "it" } : null);
+      await thread();
+      await vi.waitFor(() => expect(kept("core_chat_hooks_set")).toEqual([{ conversation: "c1", plugin: ID, autoMessage: false, autoComposer: false, lang: "it" }]));
+      expect(frames()[0].runHook).toHaveBeenCalledWith({ name: "settings", text: sample, chat: KEY, ref: null, lang: "en", manual: false });
     });
 
     it("translates the texts received by itself with the conversation's message switch on, the newest first", async () => {

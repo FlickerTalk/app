@@ -13,8 +13,10 @@ import { computed, onScopeDispose, reactive, ref, watch } from "vue";
 import { alertController, toastController } from "@ionic/vue";
 import {
   chatHooks,
+  hookSample,
   pluginChat,
   pluginRef,
+  setChatHooks,
   setMessageNote,
   type ChatHookState,
   type ChatMessage,
@@ -43,6 +45,9 @@ const FAILED = Symbol("failed");
 
 type HookAsked = Omit<PluginHook, "chat" | "lang">;
 type Ran = PluginHookResult | null | typeof LATE | typeof FAILED;
+
+/** The settings' values by field key, as the settings hook hands them and is handed them. */
+export type SettingsValues = Record<string, string | boolean>;
 
 /** A text's own words, kept under it once a tool sent it in other words. */
 export interface Original {
@@ -113,6 +118,10 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
   const tried = new Set<string>();
   /** Bumped when the conversation changes or goes: what was asked before comes back with nothing. */
   let generation = 0;
+  /** The conversation's switches have been read from the core since it opened. */
+  const loaded = ref(false);
+  /** Its language was looked for since it opened: once, whatever the tool found. */
+  let looked = false;
 
   const nobody: HookRunner = { runHook: async () => null };
 
@@ -159,6 +168,8 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     tried.clear();
     noting.clear();
     frames.value = [];
+    loaded.value = false;
+    looked = false;
   }
 
   /**
@@ -293,7 +304,66 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     const conversation = options.conversation();
     const now = await chatHooks(conversation);
     lastRead.set(conversation, now);
-    if (at === generation) flags.value = now;
+    if (at !== generation) return;
+    flags.value = now;
+    loaded.value = true;
+  }
+
+  /**
+   * The settings hook (§8.2d): run with the values the user changed (`manual`) or to read them
+   * (`manual: false`, `text` the latest texts received, to find the language). A question in the
+   * answer is asked first and, only after a yes, what it answers again is applied. The app keeps
+   * the switches and the conversation's language it answers, for the hooks the tool binds to; a
+   * switch or a language it does not say stays as it was. The answer (values and options for the
+   * group), or nothing.
+   */
+  async function settings(plugin: PluginView, asked: { manual: boolean; values?: SettingsValues; text?: string }): Promise<PluginHookResult | null> {
+    const conversation = options.conversation();
+    const result = await runAsking(plugin, asked.manual, async (answer) => ({
+      name: "settings",
+      text: asked.text ?? "",
+      ref: null,
+      manual: asked.manual,
+      ...(asked.values ? { values: asked.values } : {}),
+      ...(answer ? { answer } : {}),
+    }));
+    if (result && options.conversation() === conversation) await keep(plugin, conversation, result);
+    return result;
+  }
+
+  async function keep(plugin: PluginView, conversation: string, result: PluginHookResult) {
+    if (!result.auto && result.lang === undefined) return;
+    const now = flags.value.find((flag) => flag.plugin === plugin.id);
+    const said = {
+      message: Boolean((result.auto?.message ?? now?.autoMessage) && plugin.hooks?.message),
+      composer: Boolean((result.auto?.composer ?? now?.autoComposer) && plugin.hooks?.composer),
+      lang: result.lang === undefined ? now?.lang : result.lang,
+    };
+    try {
+      await setChatHooks(conversation, plugin.id, said);
+    } catch {
+      return;
+    }
+    await refresh();
+  }
+
+  /** The first tool of this phone with a settings group (never a game), not locked. */
+  const settingsTool = computed(() => installed.value.find((one) => one.kind !== "game" && one.hooks?.settings && !isLocked(one)));
+
+  /**
+   * A conversation without a language, once its switches are read and it is seen: the settings hook
+   * runs out of sight once with the latest texts received (§8.2c), and what it finds is kept. Not
+   * without texts to look at (the core gives them only to a tool allowed to read them).
+   */
+  async function lookForLanguage() {
+    const plugin = settingsTool.value;
+    if (looked || !loaded.value || language.value || !plugin || !options.active()) return;
+    if (!options.messages().some((one) => !one.mine && one.kind !== "file" && !one.deleted && one.text.trim())) return;
+    looked = true;
+    const at = generation;
+    const text = await hookSample(plugin.id, options.conversation());
+    if (!text.trim() || at !== generation) return;
+    await settings(plugin, { manual: false, text });
   }
 
   /**
@@ -325,6 +395,7 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     { immediate: true },
   );
   watch(() => [options.messages(), autoMessage.value, options.active()], catchUp);
+  watch(() => [loaded.value, language.value, settingsTool.value, options.messages(), options.active()], () => void lookForLanguage());
   onScopeDispose(forgetAll);
 
   return {
@@ -341,6 +412,7 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
     setShown,
     dismiss: drop,
     noteMessage,
+    settings,
     outgoing,
     keepOriginal,
     refresh,

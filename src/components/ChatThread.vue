@@ -226,8 +226,8 @@ async function send() {
   // With the conversation's composer switch on, what the tool answers goes (2026-10-20, §8.2d),
   // and the user's own words are kept under the message that went.
   const out = await hooks.outgoing(text);
-  const sent: unknown = await sendText(props.chatId, out.text, answering);
-  if (out.original) await hooks.keepOriginal(typeof sent === "string" ? sent : undefined, out.original);
+  const sent = await sendText(props.chatId, out.text, answering);
+  if (out.original) await hooks.keepOriginal(sent, out.original);
 }
 
 // 2026-10-05: one of my texts, said again with other words: it goes to the composer, and Send
@@ -320,8 +320,8 @@ async function schedule() {
   replying.value = null;
   scheduling.value = false;
   const out = await hooks.outgoing(text);
-  const sent: unknown = await scheduleText(props.chatId, out.text, when, answering).catch(() => undefined);
-  if (out.original) await hooks.keepOriginal(typeof sent === "string" ? sent : undefined, out.original);
+  const sent = await scheduleText(props.chatId, out.text, when, answering).catch(() => undefined);
+  if (out.original) await hooks.keepOriginal(sent, out.original);
 }
 
 // 2026-10-05: a search in this conversation, on this phone. The hits list under the header; a tap

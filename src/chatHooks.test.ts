@@ -36,6 +36,16 @@ const TRANSLATOR: PluginView = {
   hooks: {
     message: { label: "Translate", icon: "language-outline" },
     composer: { label: "Translate", icon: "language-outline" },
+    settings: {
+      label: "Translation",
+      icon: "language-outline",
+      fields: [
+        { key: "lang", type: "select", label: "Language" },
+        { key: "receive", type: "toggle", label: "Translate what I receive" },
+        { key: "send", type: "toggle", label: "Send translated" },
+      ],
+      note: "Language packs are downloaded once; translation happens on the phone.",
+    },
   },
 };
 const KEY = "k".repeat(43);
@@ -58,7 +68,7 @@ function runner(answer: (hook: PluginHook) => Promise<PluginHookResult | null> |
 }
 
 /** The conversation's hooks, with the frames mounted as the thread would mount them. */
-function conversation(options: { messages?: ChatMessage[]; active?: boolean; flags?: ChatHookState[]; frame?: ReturnType<typeof runner> } = {}) {
+function conversation(options: { messages?: ChatMessage[]; active?: boolean; flags?: ChatHookState[]; frame?: ReturnType<typeof runner>; sample?: string } = {}) {
   const contact = ref("ft_bob");
   const messages = ref<ChatMessage[]>(options.messages ?? []);
   const active = ref(options.active ?? true);
@@ -68,6 +78,8 @@ function conversation(options: { messages?: ChatMessage[]; active?: boolean; fla
     if (command === "core_plugin_chat") return KEY;
     if (command === "core_plugin_ref") return "ref_1";
     if (command === "core_chat_hooks") return flags;
+    // The last texts received, one per line, as the core hands them to a tool allowed to read them.
+    if (command === "core_hook_sample") return options.sample ?? "";
     return undefined;
   });
   const scope = effectScope();
@@ -347,6 +359,77 @@ describe("the chat's hooks", () => {
       });
       await hooks.refresh();
       await vi.waitFor(() => expect(frame.handed.map((hook) => hook.text)).toEqual(["first"]));
+    });
+  });
+
+  // §8.2d: the settings hook draws the conversation's group on the contact's page, and finds the
+  // conversation's language as a conversation without one opens. The app keeps only the switches
+  // and the language it answers, for the hooks the tool binds to.
+  describe("the settings hook", () => {
+    const VALUES = { lang: "fr", receive: true, send: false };
+    const ANSWER = { values: VALUES, options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French (detected)" }] }, auto: { message: true, composer: false }, lang: "fr" };
+
+    it("runs it with the values changed, and keeps the switches and the language it answers", async () => {
+      const frame = runner(() => ANSWER);
+      const { hooks } = conversation({ frame });
+      await flushPromises();
+      expect(await hooks.settings(TRANSLATOR, { manual: true, values: VALUES })).toEqual(ANSWER);
+      expect(frame.handed).toEqual([{ name: "settings", text: "", chat: KEY, ref: null, lang: "en", manual: true, values: VALUES }]);
+      expect(invoked("core_chat_hooks_set")).toEqual([{ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" }]);
+      expect(invoked("core_chat_hooks"), "read again").toHaveLength(2);
+    });
+
+    it("keeps no language for None, and no switch for a hook the tool does not bind to", async () => {
+      installed.value = [{ ...TRANSLATOR, hooks: { message: TRANSLATOR.hooks!.message, settings: TRANSLATOR.hooks!.settings } }];
+      const frame = runner(() => ({ values: { lang: "", receive: true, send: true }, auto: { message: true, composer: true }, lang: "" }));
+      const { hooks } = conversation({ frame });
+      await flushPromises();
+      await hooks.settings(installed.value[0], { manual: true, values: { lang: "" } });
+      expect(invoked("core_chat_hooks_set")).toEqual([{ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: null }]);
+    });
+
+    it("applies an answer only after a yes to the tool's question", async () => {
+      const frame = runner((hook) => (hook.answer ? ANSWER : { ask: { text: "Download French?" } }));
+      const yes = conversation({ frame });
+      await flushPromises();
+      expect(await yes.hooks.settings(TRANSLATOR, { manual: true, values: VALUES })).toEqual(ANSWER);
+      expect(frame.handed.map((hook) => hook.answer)).toEqual([undefined, true]);
+      expect(invoked("core_chat_hooks_set")).toHaveLength(1);
+      yes.scope.stop();
+
+      alert.role = "cancel";
+      const no = conversation({ frame: runner(() => ({ ask: { text: "Download French?" } })) });
+      await flushPromises();
+      expect(await no.hooks.settings(TRANSLATOR, { manual: true, values: VALUES })).toBeNull();
+      expect(invoked("core_chat_hooks_set"), "nothing more kept").toHaveLength(1);
+    });
+
+    it("finds the language of a conversation without one as it opens, from the latest texts received, once", async () => {
+      const sample = "texte 2\ntexte 3\ntexte 4\ntexte 5\ntexte 6";
+      const frame = runner(() => ({ lang: "fr" }));
+      const { hooks } = conversation({ messages: [text("r1", "texte 6")], frame, sample });
+      await vi.waitFor(() => expect(invoked("core_chat_hooks_set")).toHaveLength(1));
+      expect(invoked("core_hook_sample")).toEqual([{ plugin: TRANSLATOR.id, conversation: "ft_bob" }]);
+      expect(frame.handed).toEqual([{ name: "settings", text: sample, chat: KEY, ref: null, lang: "en", manual: false }]);
+      expect(invoked("core_chat_hooks_set")[0]).toEqual({ conversation: "ft_bob", plugin: TRANSLATOR.id, autoMessage: false, autoComposer: false, lang: "fr" });
+      await hooks.refresh();
+      await flushPromises();
+      expect(frame.handed, "once").toHaveLength(1);
+    });
+
+    it("does not look for a language a conversation has, nor without texts received or while unseen", async () => {
+      const frame = runner(() => ({ lang: "fr" }));
+      for (const setup of [
+        { messages: [text("r1", "salut")], flags: [{ plugin: TRANSLATOR.id, autoMessage: false, autoComposer: false, lang: "es" }], sample: "salut" },
+        { messages: [text("mine", "hola", true)], sample: "" },
+        { messages: [text("r9", "salut")], active: false, sample: "salut" },
+      ]) {
+        const one = conversation({ ...setup, frame });
+        await flushPromises();
+        await flushPromises();
+        one.scope.stop();
+      }
+      expect(frame.handed).toEqual([]);
     });
   });
 
