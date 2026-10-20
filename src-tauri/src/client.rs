@@ -2656,6 +2656,7 @@ const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/sign.ftplugin"),
     include_bytes!("../resources/plugins/split.ftplugin"),
     include_bytes!("../resources/plugins/pdfviewer.ftplugin"),
+    include_bytes!("../resources/plugins/translate.ftplugin"),
     include_bytes!("../resources/plugins/game.tictactoe.ftplugin"),
     include_bytes!("../resources/plugins/game.fourinarow.ftplugin"),
     include_bytes!("../resources/plugins/game.chess.ftplugin"),
@@ -4652,11 +4653,13 @@ mod tests {
     /// 2026-10-06: the ten new games, Scanner and Countdown travel too, on both platforms.
     /// 2026-10-08: and Location, so an iPhone can send where it is.
     /// 2026-10-08 (Plan §56): all our tools travel, so presenting in a call works on every phone.
+    /// 2026-10-20 (app#177): and the Translator, which an iPhone could not download (it uses a
+    /// native capability, §52).
     #[test]
     fn the_app_carries_its_tools_and_games() {
-        const TOOLS: [&str; 17] = [
+        const TOOLS: [&str; 18] = [
             "markdown", "images", "pdf", "redact", "sketch", "scanner", "countdown", "board", "clean", "drive", "list", "location",
-            "notes", "poll", "sign", "split", "pdfviewer",
+            "notes", "poll", "sign", "split", "pdfviewer", "translate",
         ];
         const GAMES: [&str; 13] = [
             "tictactoe", "fourinarow", "chess", "backgammon", "checkers", "dotsandboxes", "eights", "gomoku", "mancala", "reversi",
