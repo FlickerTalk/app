@@ -90,7 +90,12 @@
     "schedule": "Programează",
     "scheduleTime": "Ora",
     "scheduledFor": "Programat pentru {time}",
-    "scheduleNote": "Pleacă de pe acest telefon la ora aceea, dacă este pornit; șterge-l aici înainte ca să-l anulezi."
+    "scheduleNote": "Pleacă de pe acest telefon la ora aceea, dacă este pornit; șterge-l aici înainte ca să-l anulezi.",
+    "hookFailed": "{plugin} nu a răspuns",
+    "yourOriginal": "Originalul tău",
+    "restoreOriginal": "Înapoi la textul tău",
+    "sentAsIs": "Trimis așa cum a fost scris: {plugin} nu a putut traduce",
+    "hookWorking": "{plugin} lucrează…"
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",

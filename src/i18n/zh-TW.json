@@ -90,7 +90,12 @@
     "schedule": "排程",
     "scheduleTime": "時間",
     "scheduledFor": "預定 {time} 傳送",
-    "scheduleNote": "屆時若手機開機，將從此手機送出；要取消，請提前在此刪除。"
+    "scheduleNote": "屆時若手機開機，將從此手機送出；要取消，請提前在此刪除。",
+    "hookFailed": "{plugin} 沒有回應",
+    "yourOriginal": "你的原文",
+    "restoreOriginal": "恢復你的原文",
+    "sentAsIs": "已按原文傳送：{plugin} 無法翻譯",
+    "hookWorking": "{plugin} 正在處理…"
   },
   "status": {
     "pending": "等待對方裝置",

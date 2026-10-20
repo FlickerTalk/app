@@ -90,7 +90,12 @@
     "schedule": "Jadwalkan",
     "scheduleTime": "Waktu",
     "scheduledFor": "Dijadwalkan untuk {time}",
-    "scheduleNote": "Dikirim dari ponsel ini pada waktu itu, jika ponsel menyala; hapus di sini sebelumnya untuk membatalkan."
+    "scheduleNote": "Dikirim dari ponsel ini pada waktu itu, jika ponsel menyala; hapus di sini sebelumnya untuk membatalkan.",
+    "hookFailed": "{plugin} tidak merespons",
+    "yourOriginal": "Teks asli Anda",
+    "restoreOriginal": "Kembali ke teks Anda",
+    "sentAsIs": "Dikirim apa adanya: {plugin} tidak bisa menerjemahkan",
+    "hookWorking": "{plugin} sedang bekerja…"
   },
   "status": {
     "pending": "Menunggu perangkat",

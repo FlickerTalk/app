@@ -90,7 +90,12 @@
     "schedule": "Programar",
     "scheduleTime": "Hora",
     "scheduledFor": "Programado para {time}",
-    "scheduleNote": "Sale de este teléfono a esa hora, si está encendido; bórralo aquí antes para cancelarlo."
+    "scheduleNote": "Sale de este teléfono a esa hora, si está encendido; bórralo aquí antes para cancelarlo.",
+    "hookFailed": "{plugin} no ha respondido",
+    "yourOriginal": "Tu original",
+    "restoreOriginal": "Volver a tu texto",
+    "sentAsIs": "Enviado tal cual: {plugin} no pudo traducir",
+    "hookWorking": "{plugin} está trabajando…"
   },
   "status": {
     "pending": "Esperando al dispositivo",

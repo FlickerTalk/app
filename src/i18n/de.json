@@ -90,7 +90,12 @@
     "schedule": "Planen",
     "scheduleTime": "Uhrzeit",
     "scheduledFor": "Geplant für {time}",
-    "scheduleNote": "Geht zu dieser Zeit von diesem Telefon ab, wenn es an ist; vorher hier löschen, um es abzusagen."
+    "scheduleNote": "Geht zu dieser Zeit von diesem Telefon ab, wenn es an ist; vorher hier löschen, um es abzusagen.",
+    "hookFailed": "{plugin} hat nicht geantwortet",
+    "yourOriginal": "Dein Original",
+    "restoreOriginal": "Zurück zu deinem Text",
+    "sentAsIs": "Wie geschrieben gesendet: {plugin} konnte nicht übersetzen",
+    "hookWorking": "{plugin} arbeitet…"
   },
   "status": {
     "pending": "Warte auf Gerät",

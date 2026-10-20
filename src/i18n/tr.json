@@ -90,7 +90,12 @@
     "schedule": "Planla",
     "scheduleTime": "Saat",
     "scheduledFor": "{time} için planlandı",
-    "scheduleNote": "O saatte, açıksa bu telefondan gider; iptal etmek için önce buradan silin."
+    "scheduleNote": "O saatte, açıksa bu telefondan gider; iptal etmek için önce buradan silin.",
+    "hookFailed": "{plugin} yanıt vermedi",
+    "yourOriginal": "Orijinal metniniz",
+    "restoreOriginal": "Metninize dönün",
+    "sentAsIs": "Yazıldığı gibi gönderildi: {plugin} çeviremedi",
+    "hookWorking": "{plugin} çalışıyor…"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

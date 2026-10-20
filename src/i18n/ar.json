@@ -90,7 +90,12 @@
     "schedule": "جدولة",
     "scheduleTime": "الوقت",
     "scheduledFor": "مجدول لـ {time}",
-    "scheduleNote": "يُرسل من هذا الهاتف في ذلك الوقت إذا كان مشغّلًا؛ احذفه هنا قبل ذلك لإلغائه."
+    "scheduleNote": "يُرسل من هذا الهاتف في ذلك الوقت إذا كان مشغّلًا؛ احذفه هنا قبل ذلك لإلغائه.",
+    "hookFailed": "{plugin} لم يستجب",
+    "yourOriginal": "نصّك الأصلي",
+    "restoreOriginal": "العودة إلى نصّك",
+    "sentAsIs": "أُرسلت كما كُتبت: تعذّر على {plugin} الترجمة",
+    "hookWorking": "{plugin} يعمل…"
   },
   "status": {
     "pending": "بانتظار الجهاز",
