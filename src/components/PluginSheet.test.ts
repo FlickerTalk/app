@@ -1135,8 +1135,8 @@ describe("PluginSheet", () => {
       expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: "ft.open", hook: "chat", chat: "c".repeat(43) }), "*");
     });
 
-    // Out of sight nothing may need the user's eyes: a picker, a photo, a position are refused at
-    // once and the plugin is not left waiting. A hidden frame speaks through its hook's answer only:
+    // Out of sight nothing may put the phone's own screens up: a picker, a photo, saving or printing
+    // are refused at once and the plugin is not left waiting; the rest works as on screen. A hidden frame speaks through its hook's answer only:
     // it never writes in the composer nor goes to a chat.
     it("refuses at once out of sight what needs the user, and never writes in the chat", async () => {
       const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true, sending: "propose" }, shallow: true });
@@ -1145,14 +1145,19 @@ describe("PluginSheet", () => {
       says({ type: "ft.ready" });
       await flushPromises();
       says({ type: "ft.pickFile", id: "p1", accept: "" });
-      says({ type: "ft.location", id: "l1" });
+      says({ type: "ft.save", id: "s1", name: "a.txt", mime: "text/plain", data: "QQ==" });
       says({ type: "ft.text", text: "hello" });
+      says({ type: "ft.notify", text: "Already in your language", sticky: false });
+      says({ type: "ft.read", id: "r1", key: "chat-language" });
       await flushPromises();
       expect(post).toHaveBeenCalledWith({ type: "ft.file", id: "p1", name: "", mime: "", data: "" }, "*");
-      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l1", answer: null }, "*");
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "s1", answer: false }, "*");
       expect(tauri.invoke.mock.calls.map(([command]) => command)).not.toContain("core_pick_for_plugin");
-      expect(tauri.invoke.mock.calls.map(([command]) => command)).not.toContain("core_plugin_location");
+      expect(tauri.invoke.mock.calls.map(([command]) => command)).not.toContain("core_plugin_save");
       expect(wrapper.emitted("text")).toBeUndefined();
+      // What it keeps and its notices work out of sight as on screen: the window goes on its answer.
+      expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: "Already in your language" }));
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_read", expect.objectContaining({ plugin: plugin.id, key: "chat-language" }));
       says({ type: "ft.show" });
       says({ type: "ft.text", text: "hello" });
       await flushPromises();

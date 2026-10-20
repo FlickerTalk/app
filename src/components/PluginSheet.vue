@@ -344,8 +344,11 @@ const SILENT_WHILE_CLOSING = new Set<FrameMessage["type"]>([
 
 // ---- The chat's hooks (2026-10-20, plan of the translator §8) ----
 
-/** Out of sight, what would need the user's eyes; refused at once, the plugin is not left waiting. */
-const NEEDS_EYES = new Set<FrameMessage["type"]>(["ft.pickFile", "ft.takePhoto", "ft.drive", "ft.print", "ft.save", "ft.location"]);
+/**
+ * Out of sight, what would put the phone's own screens up (a picker, the camera, saving, printing):
+ * refused at once, so the plugin is not left waiting. Everything else works as in a window.
+ */
+const NEEDS_EYES = new Set<FrameMessage["type"]>(["ft.pickFile", "ft.takePhoto", "ft.print", "ft.save"]);
 /** What a hidden frame never says, seen or not: its hooks' answers are how it speaks. */
 const UNSAID_WHEN_HIDDEN = new Set<FrameMessage["type"]>(["ft.text", "ft.made", "ft.openChat"]);
 
