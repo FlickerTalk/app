@@ -57,6 +57,10 @@ const SAME_AS_ENGLISH: Record<string, SameAsEnglish> = {
     reason: "unit abbreviation shared with English",
   },
   "chat.emoji": { locales: LATIN_LOANWORDS, reason: '"Emoji" is the word in that language' },
+  "common.ok": {
+    locales: ["de", "fr", "id", "it", "ja", "pl", "pt", "ro", "vi"],
+    reason: '"OK" is the word these languages put on a button',
+  },
   "emoji.open": { locales: LATIN_LOANWORDS, reason: '"Emoji" is the word in that language' },
   "contact.reasons.spam": { locales: LATIN_LOANWORDS, reason: '"Spam" is the word in that language' },
   "colors.mono": { locales: LATIN_LOANWORDS, reason: THEME_NAME },

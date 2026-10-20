@@ -19,7 +19,8 @@
     "share": "Paylaş",
     "copy": "Kopyala",
     "cancel": "İptal",
-    "save": "Kaydet"
+    "save": "Kaydet",
+    "ok": "Tamam"
   },
   "chat": {
     "direct": "Doğrudan",
@@ -92,13 +93,12 @@
     "scheduledFor": "{time} için planlandı",
     "scheduleNote": "O saatte, açıksa bu telefondan gider; iptal etmek için önce buradan silin.",
     "hookFailed": "{plugin} yanıt vermedi",
-    "yourOriginal": "Orijinal metniniz",
-    "restoreOriginal": "Metninize dönün",
     "sentAsIs": "Yazıldığı gibi gönderildi: {plugin} çeviremedi",
     "hookWorking": "{plugin} çalışıyor…",
     "showOriginal": "Orijinali göster",
     "sentIn": "{language} gönderildi",
-    "view": "Görüntüle"
+    "view": "Görüntüle",
+    "translating": "Çevriliyor · {language}"
   },
   "status": {
     "pending": "Cihaz bekleniyor",

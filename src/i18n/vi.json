@@ -19,7 +19,8 @@
     "share": "Chia sẻ",
     "copy": "Sao chép",
     "cancel": "Hủy",
-    "save": "Lưu"
+    "save": "Lưu",
+    "ok": "OK"
   },
   "chat": {
     "direct": "Trực tiếp",
@@ -92,13 +93,12 @@
     "scheduledFor": "Đã lên lịch lúc {time}",
     "scheduleNote": "Sẽ gửi từ điện thoại này vào giờ đó, nếu máy đang bật; xóa ở đây trước đó để hủy.",
     "hookFailed": "{plugin} không phản hồi",
-    "yourOriginal": "Bản gốc của bạn",
-    "restoreOriginal": "Quay lại văn bản của bạn",
     "sentAsIs": "Đã gửi nguyên văn: {plugin} không dịch được",
     "hookWorking": "{plugin} đang xử lý…",
     "showOriginal": "Xem bản gốc",
     "sentIn": "Đã gửi bằng {language}",
-    "view": "Xem"
+    "view": "Xem",
+    "translating": "Đang dịch · {language}"
   },
   "status": {
     "pending": "Đang chờ thiết bị",

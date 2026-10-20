@@ -19,7 +19,8 @@
     "share": "Udostępnij",
     "copy": "Kopiuj",
     "cancel": "Anuluj",
-    "save": "Zapisz"
+    "save": "Zapisz",
+    "ok": "OK"
   },
   "chat": {
     "direct": "Bezpośrednio",
@@ -92,13 +93,12 @@
     "scheduledFor": "Zaplanowano na {time}",
     "scheduleNote": "Wyjdzie z tego telefonu o tej porze, jeśli będzie włączony; aby anulować, usuń ją tutaj wcześniej.",
     "hookFailed": "Brak odpowiedzi: {plugin}",
-    "yourOriginal": "Twój oryginał",
-    "restoreOriginal": "Wróć do swojego tekstu",
     "sentAsIs": "Wysłano bez zmian: nie udało się przetłumaczyć ({plugin})",
     "hookWorking": "{plugin}: trwa praca…",
     "showOriginal": "Pokaż oryginał",
     "sentIn": "Wysłano w języku: {language}",
-    "view": "Pokaż"
+    "view": "Pokaż",
+    "translating": "Tłumaczenie · {language}"
   },
   "status": {
     "pending": "Czeka na urządzenie",

@@ -19,7 +19,8 @@
     "share": "共有",
     "copy": "コピー",
     "cancel": "キャンセル",
-    "save": "保存"
+    "save": "保存",
+    "ok": "OK"
   },
   "chat": {
     "direct": "直接接続",
@@ -92,13 +93,12 @@
     "scheduledFor": "{time} に送信予定",
     "scheduleNote": "その時刻に、この端末の電源が入っていれば送信されます。取り消すには、それまでにここで削除してください。",
     "hookFailed": "{plugin} から応答がありません",
-    "yourOriginal": "元の文",
-    "restoreOriginal": "元の文に戻す",
     "sentAsIs": "書いたまま送信しました: {plugin} で翻訳できませんでした",
     "hookWorking": "{plugin} で処理中…",
     "showOriginal": "原文を表示",
     "sentIn": "{language}で送信",
-    "view": "表示"
+    "view": "表示",
+    "translating": "翻訳中 · {language}"
   },
   "status": {
     "pending": "相手の端末を待っています",

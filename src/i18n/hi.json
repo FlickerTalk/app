@@ -19,7 +19,8 @@
     "share": "शेयर करें",
     "copy": "कॉपी करें",
     "cancel": "रद्द करें",
-    "save": "सेव करें"
+    "save": "सेव करें",
+    "ok": "ठीक है"
   },
   "chat": {
     "direct": "सीधा",
@@ -92,13 +93,12 @@
     "scheduledFor": "{time} के लिए शेड्यूल किया गया",
     "scheduleNote": "उस समय इस फ़ोन से जाएगा, अगर फ़ोन चालू है; रद्द करने के लिए पहले इसे यहाँ हटाएँ।",
     "hookFailed": "{plugin} ने जवाब नहीं दिया",
-    "yourOriginal": "आपका मूल पाठ",
-    "restoreOriginal": "अपने पाठ पर लौटें",
     "sentAsIs": "जैसा लिखा था वैसा ही भेजा गया: {plugin} से अनुवाद नहीं हो सका",
     "hookWorking": "{plugin}: काम जारी है…",
     "showOriginal": "मूल देखें",
     "sentIn": "{language} में भेजा गया",
-    "view": "देखें"
+    "view": "देखें",
+    "translating": "अनुवाद हो रहा है · {language}"
   },
   "status": {
     "pending": "डिवाइस का इंतज़ार",

@@ -19,7 +19,8 @@
     "share": "分享",
     "copy": "复制",
     "cancel": "取消",
-    "save": "保存"
+    "save": "保存",
+    "ok": "确定"
   },
   "chat": {
     "direct": "直连",
@@ -92,13 +93,12 @@
     "scheduledFor": "定于 {time} 发送",
     "scheduleNote": "届时若手机开机，将从此手机发出；要取消，请提前在此删除。",
     "hookFailed": "{plugin} 没有响应",
-    "yourOriginal": "你的原文",
-    "restoreOriginal": "恢复你的原文",
     "sentAsIs": "已按原文发送：{plugin} 无法翻译",
     "hookWorking": "{plugin} 正在处理…",
     "showOriginal": "查看原文",
     "sentIn": "以{language}发送",
-    "view": "查看"
+    "view": "查看",
+    "translating": "正在翻译 · {language}"
   },
   "status": {
     "pending": "等待对方设备",

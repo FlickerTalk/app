@@ -19,7 +19,8 @@
     "share": "แชร์",
     "copy": "คัดลอก",
     "cancel": "ยกเลิก",
-    "save": "บันทึก"
+    "save": "บันทึก",
+    "ok": "ตกลง"
   },
   "chat": {
     "direct": "โดยตรง",
@@ -92,13 +93,12 @@
     "scheduledFor": "ตั้งเวลาส่ง {time}",
     "scheduleNote": "จะส่งจากโทรศัพท์เครื่องนี้ตามเวลานั้นหากเปิดอยู่ ลบที่นี่ก่อนเพื่อยกเลิก",
     "hookFailed": "{plugin} ไม่ตอบสนอง",
-    "yourOriginal": "ข้อความต้นฉบับของคุณ",
-    "restoreOriginal": "กลับไปที่ข้อความของคุณ",
     "sentAsIs": "ส่งตามที่เขียนแล้ว: {plugin} แปลไม่ได้",
     "hookWorking": "{plugin} กำลังทำงาน…",
     "showOriginal": "ดูต้นฉบับ",
     "sentIn": "ส่งเป็นภาษา{language}",
-    "view": "ดู"
+    "view": "ดู",
+    "translating": "กำลังแปล · {language}"
   },
   "status": {
     "pending": "รออุปกรณ์",

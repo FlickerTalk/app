@@ -19,7 +19,8 @@
     "share": "Share",
     "copy": "Copy",
     "cancel": "Cancel",
-    "save": "Save"
+    "save": "Save",
+    "ok": "OK"
   },
   "chat": {
     "direct": "Direct",
@@ -92,13 +93,12 @@
     "scheduledFor": "Scheduled for {time}",
     "scheduleNote": "It goes from this phone at that time, if the phone is on; delete it here before to cancel it.",
     "hookFailed": "{plugin} did not answer",
-    "yourOriginal": "Your original",
-    "restoreOriginal": "Back to your text",
     "sentAsIs": "Sent as written: {plugin} could not translate",
     "hookWorking": "{plugin} is working…",
     "showOriginal": "Show original",
     "sentIn": "Sent in {language}",
-    "view": "View"
+    "view": "View",
+    "translating": "Translating · {language}"
   },
   "status": {
     "pending": "Waiting for device",
