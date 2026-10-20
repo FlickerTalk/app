@@ -12,6 +12,12 @@ import {
   pluginChat,
   pluginLiveSend,
   pluginLocation,
+  translateDetect,
+  translateLanguages,
+  translatePrepare,
+  translateRemove,
+  translateStatus,
+  translateText,
   pluginMade,
   pluginOpen,
   pluginOpenChat,
@@ -303,6 +309,13 @@ const SILENT_WHILE_CLOSING = new Set<FrameMessage["type"]>([
   "ft.save",
   "ft.location",
   "ft.notify",
+  // The phone's translator (2026-10-20): a download may put the phone's own sheet over the app.
+  "ft.translateLanguages",
+  "ft.translateDetect",
+  "ft.translateStatus",
+  "ft.translatePrepare",
+  "ft.translateRemove",
+  "ft.translateText",
 ]);
 
 function close(): Promise<void> {
@@ -397,6 +410,12 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
         value = Boolean(target);
       } else if (said.type === "ft.drive") value = await drive(said);
       else if (said.type === "ft.location") value = await pluginLocation(id);
+      else if (said.type === "ft.translateLanguages") value = await translateLanguages(id);
+      else if (said.type === "ft.translateDetect") value = await translateDetect(id, said.text);
+      else if (said.type === "ft.translateStatus") value = await translateStatus(id, said.from, said.to);
+      else if (said.type === "ft.translatePrepare") value = await translatePrepare(id, said.from, said.to);
+      else if (said.type === "ft.translateRemove") value = await translateRemove(id, said.from, said.to);
+      else if (said.type === "ft.translateText") value = await translateText(id, said.text, said.from, said.to);
       tell({ type: "ft.done", id: said.id, answer: value ?? null });
     } catch {
       tell({ type: "ft.done", id: said.id, answer: refusal(said) });
@@ -404,9 +423,24 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
   });
 }
 
-/** A position the plugin may not have is no position: `null`, as the contract says; else `false`. */
-function refusal(said: { type: string }): null | false {
-  return said.type === "ft.location" ? null : false;
+/**
+ * What a plugin gets when it may not, or the core could not: each question's empty answer, as the
+ * contract says. No position is `null`; the translator's (2026-10-20): no languages, no guess, an
+ * unsupported pair, no download, nothing removed, no translation. Anything else is `false`.
+ */
+function refusal(said: { type: string }): null | false | [] | "unsupported" {
+  switch (said.type) {
+    case "ft.location":
+    case "ft.translateDetect":
+    case "ft.translateText":
+      return null;
+    case "ft.translateLanguages":
+      return [];
+    case "ft.translateStatus":
+      return "unsupported";
+    default:
+      return false;
+  }
 }
 
 // ---- Asking for a permission on the spot (decision of 2026-10-08) ----
@@ -441,6 +475,13 @@ async function needed(said: Extract<FrameMessage, { id: string }>): Promise<stri
   switch (said.type) {
     case "ft.location":
       return ["location"];
+    case "ft.translateLanguages":
+    case "ft.translateDetect":
+    case "ft.translateStatus":
+    case "ft.translatePrepare":
+    case "ft.translateRemove":
+    case "ft.translateText":
+      return ["translate"];
     case "ft.remindSet":
       return ["remind"];
     case "ft.liveSend":

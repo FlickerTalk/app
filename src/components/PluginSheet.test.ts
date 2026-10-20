@@ -994,6 +994,49 @@ describe("PluginSheet", () => {
     expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "l3", answer: null }, "*");
   });
 
+  // 2026-10-20 (app#177): the translator. The core checks the grant and asks the phone; the
+  // plugin gets the answer, or each question's empty answer when the core says no or fails.
+  describe("the phone's translator", () => {
+    const QUESTIONS = [
+      { said: { type: "ft.translateLanguages" }, command: "core_translate_languages", args: {}, answer: ["en", "es"], empty: [] },
+      { said: { type: "ft.translateDetect", text: "hola" }, command: "core_translate_detect", args: { text: "hola" }, answer: "es", empty: null },
+      { said: { type: "ft.translateStatus", from: "es", to: "en" }, command: "core_translate_status", args: { from: "es", to: "en" }, answer: "downloadable", empty: "unsupported" },
+      { said: { type: "ft.translatePrepare", from: "es", to: "en" }, command: "core_translate_prepare", args: { from: "es", to: "en" }, answer: true, empty: false },
+      { said: { type: "ft.translateRemove", from: "es", to: "en" }, command: "core_translate_remove", args: { from: "es", to: "en" }, answer: true, empty: false },
+      { said: { type: "ft.translateText", text: "hola", from: "es", to: "en" }, command: "core_translate_text", args: { text: "hola", from: "es", to: "en" }, answer: "hello", empty: null },
+    ];
+
+    it("asks the core for each question and hands the plugin its answer", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      for (const [index, question] of QUESTIONS.entries()) {
+        tauri.invoke.mockResolvedValue(question.answer);
+        says({ ...question.said, id: `t${index}` });
+        await flushPromises();
+        expect(tauri.invoke).toHaveBeenCalledWith(question.command, { plugin: plugin.id, ...question.args });
+        expect(post).toHaveBeenCalledWith({ type: "ft.done", id: `t${index}`, answer: question.answer }, "*");
+      }
+    });
+
+    // Not granted, a text too long, a phone that failed or took too long: the core says no, and
+    // the plugin gets the empty answer of that question, never an error, and stays open.
+    it("answers each question's empty answer when the core says no", async () => {
+      tauri.invoke.mockImplementation((command: string) =>
+        command.startsWith("core_translate_") ? Promise.reject(new Error("may not translate")) : Promise.resolve(undefined),
+      );
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      for (const [index, question] of QUESTIONS.entries()) {
+        says({ ...question.said, id: `n${index}` });
+        await flushPromises();
+        expect(post).toHaveBeenCalledWith({ type: "ft.done", id: `n${index}`, answer: question.empty }, "*");
+      }
+      expect(wrapper.emitted("closed")).toBeUndefined();
+    });
+  });
+
   it("makes the call the plugin asked for through the core, never itself", async () => {
     tauri.invoke.mockResolvedValue({ status: 200, body: "QUJD" });
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
@@ -1156,6 +1199,13 @@ describe("PluginSheet", () => {
       says({ type: "ft.location", id: "q6" });
       says({ type: "ft.takePhoto", id: "q7" });
       says({ type: "ft.notify", text: "Bye" });
+      // 2026-10-20: nor the phone's translator (a download could put a sheet over the app).
+      says({ type: "ft.translateLanguages", id: "q8" });
+      says({ type: "ft.translateDetect", id: "q9", text: "hola" });
+      says({ type: "ft.translateStatus", id: "q10", from: "es", to: "en" });
+      says({ type: "ft.translatePrepare", id: "q11", from: "es", to: "en" });
+      says({ type: "ft.translateRemove", id: "q12", from: "es", to: "en" });
+      says({ type: "ft.translateText", id: "q13", text: "hola", from: "es", to: "en" });
       await flushPromises();
       expect(tauri.invoke).not.toHaveBeenCalled();
       expect(toast.create).not.toHaveBeenCalled();
@@ -1408,6 +1458,44 @@ describe("PluginSheet", () => {
       await flushPromises();
       expect(needs(second.wrapper)).toHaveLength(0);
       expect(second.post).toHaveBeenCalledWith({ type: "ft.done", id: "l2", answer: FIX }, "*");
+    });
+
+    // 2026-10-20 (app#177): the phone's translator is asked for on the spot like the rest.
+    it("asks for the translator it lacks, and after a yes hands the plugin the translation", async () => {
+      const TRANSLATOR = { ...TOOL, asks: { ...TOOL.asks, translate: true } };
+      const kept = core({ core_translate_text: () => (kept.granted().translate ? "hello" : Promise.reject(new Error("may not translate"))) }, TRANSLATOR);
+      const { wrapper, post, says } = await open();
+
+      says({ type: "ft.translateText", id: "t1", text: "hola", from: "es", to: "en" });
+      await flushPromises();
+      const [need] = needs(wrapper);
+      expect(need).toMatchObject({ key: "translate", label: "Translate text on this phone" });
+      expect(invoked("core_translate_text")).toHaveLength(0);
+
+      need.answer(true);
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_grant", { plugin: plugin.id, granted: expect.objectContaining({ translate: true, location: false }) });
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "t1", answer: "hello" }, "*");
+    });
+
+    it("hands the plugin each translate question's empty answer when the user says no", async () => {
+      core({ core_translate_languages: ["en"], core_translate_status: "installed", core_translate_prepare: true, core_translate_text: "hello" }, { ...TOOL, asks: { ...TOOL.asks, translate: true } });
+      const { wrapper, post, says } = await open();
+      const asked = [
+        [{ type: "ft.translateLanguages", id: "t1" }, []],
+        [{ type: "ft.translateStatus", id: "t2", from: "es", to: "en" }, "unsupported"],
+        [{ type: "ft.translatePrepare", id: "t3", from: "es", to: "en" }, false],
+        [{ type: "ft.translateText", id: "t4", text: "hola", from: "es", to: "en" }, null],
+      ] as const;
+      for (const [said, empty] of asked) {
+        says(said);
+        await flushPromises();
+        needs(wrapper).at(-1)?.answer(false);
+        await flushPromises();
+        expect(post).toHaveBeenCalledWith({ type: "ft.done", id: said.id, answer: empty }, "*");
+      }
+      expect(invoked("core_plugin_grant")).toHaveLength(0);
+      expect(tauri.invoke.mock.calls.filter(([one]) => String(one).startsWith("core_translate_")), "the phone is never asked").toHaveLength(0);
     });
 
     it("asks to write in the chat, then stages what the plugin made", async () => {
