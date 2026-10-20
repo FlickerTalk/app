@@ -1140,11 +1140,15 @@ export async function clearMessageNote(message: string, plugin: string): Promise
   await invoke("core_message_note_clear", { message, plugin });
 }
 
-/** Whether a tool runs by itself in a conversation: on each message received, on each text sent. */
+/**
+ * Whether a tool runs by itself in a conversation: on each message received, on each text sent; and
+ * the conversation's language as the tool found it (§8.2c), when it has said.
+ */
 export interface ChatHookState {
   plugin: string;
   autoMessage: boolean;
   autoComposer: boolean;
+  lang?: string;
 }
 
 /** The tools that run by themselves in the conversation; none when the core cannot say. */
@@ -1156,9 +1160,9 @@ export async function chatHooks(contact: string): Promise<ChatHookState[]> {
   }
 }
 
-/** What a tool's chat hook answered for the conversation. */
-export async function setChatHooks(contact: string, plugin: string, auto: { message: boolean; composer: boolean }): Promise<void> {
-  await invoke("core_chat_hooks_set", { contact, plugin, autoMessage: auto.message, autoComposer: auto.composer });
+/** What a tool's chat hook answered for the conversation: its switches and the chat's language. */
+export async function setChatHooks(contact: string, plugin: string, said: { message: boolean; composer: boolean; lang?: string }): Promise<void> {
+  await invoke("core_chat_hooks_set", { contact, plugin, autoMessage: said.message, autoComposer: said.composer, lang: said.lang ?? null });
 }
 
 /** One emoji on a message of the conversation (2026-10-05); `null` takes it back. */

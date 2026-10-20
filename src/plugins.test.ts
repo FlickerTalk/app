@@ -442,6 +442,7 @@ describe("plugins in the app", () => {
     // §8.2c: the chat's language as the tool found it, and a question the app asks for it.
     expect(said({ type: "ft.hookDone", id: "h6", result: { lang: "es", auto: { message: true } } })).toEqual({ type: "ft.hookDone", id: "h6", result: { lang: "es", auto: { message: true } } });
     expect(said({ type: "ft.hookDone", id: "h7", result: { lang: "x".repeat(36) } })).toEqual({ type: "ft.hookDone", id: "h7", result: null });
+    expect(said({ type: "ft.hookDone", id: "h10", result: { lang: "" } }), "no language any more").toEqual({ type: "ft.hookDone", id: "h10", result: { lang: "" } });
     expect(said({ type: "ft.hookDone", id: "h8", result: { ask: { text: "Download Spanish,\nabout 30 MB?" } } })).toEqual({
       type: "ft.hookDone",
       id: "h8",

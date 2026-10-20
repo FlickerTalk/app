@@ -866,7 +866,7 @@ describe("ChatThread", () => {
       const window = sheets.find((one) => one.props.hook === "chat");
       expect(window?.props.hidden, "its window, on screen").toBe(false);
       expect(window?.runHook).toHaveBeenCalledWith({ name: "chat", text: "", chat: KEY, ref: null, lang: "en", manual: true });
-      expect(kept("core_chat_hooks_set")).toEqual([{ contact: "c1", plugin: ID, autoMessage: true, autoComposer: true }]);
+      expect(kept("core_chat_hooks_set")).toEqual([{ contact: "c1", plugin: ID, autoMessage: true, autoComposer: true, lang: null }]);
       expect(wrapper.find("[data-test='plugin-window']").exists(), "closed once it answered").toBe(false);
     });
 

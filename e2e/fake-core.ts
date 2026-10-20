@@ -41,6 +41,12 @@
  * A plugin opened in a chat gets a deterministic id of it (`core_plugin_chat`, 2026-10-02), its own
  * for each plugin and contact, refused for a contact that is blocked or in a closed session.
  *
+ * The chat's hooks (2026-10-20): the Translator (`__ftFakeTranslateTool`) binds to the message,
+ * composer and chat hooks; `__ftFakeTranslateReads` installs it already allowed to read what it is
+ * handed. Notes under messages (`core_message_note_set`/`_clear`) come back with the messages, and
+ * the conversation's switches (`core_chat_hooks_set`) with `core_chat_hooks`; `__ftFakeChatHooks`
+ * (switches by contact) starts with some on.
+ *
  * Games (plan 10, app 1.3.0): one game is installed (Tic-tac-toe, granted nothing yet) and the
  * catalogue offers another (Chess); installing, granting and removing change the fake's lists as
  * the core would. `window.__ftFakeInstallFails` makes installing fail, as a download would offline.
@@ -228,7 +234,19 @@ export function installFakeCore() {
     asks: { network: [], messages: true, send: "propose", translate: true, storage: "small" },
     granted: { network: [], messages: false, send: "nothing", translate: false, storage: "small" },
     installedAt: 4,
+    hooks: {
+      message: { label: "Translate", icon: "language-outline" },
+      composer: { label: "Translate", icon: "language-outline" },
+      chat: { label: "Chat language", icon: "language-outline" },
+    },
   };
+  /** Notes tools left under messages, by message id (2026-10-20). */
+  const notes: Record<string, { plugin: string; text: string }[]> = {};
+  /** Which tools run by themselves in each conversation, by contact (2026-10-20). */
+  const chatHooks: Record<string, { plugin: string; autoMessage: boolean; autoComposer: boolean }[]> = {
+    ...((window as unknown as Record<string, unknown>).__ftFakeChatHooks as Record<string, { plugin: string; autoMessage: boolean; autoComposer: boolean }[]> | undefined),
+  };
+  const withNotes = (message: Record<string, unknown>) => (notes[String(message.id)]?.length ? { ...message, notes: notes[String(message.id)] } : message);
   const callEvent = (payload: Record<string, unknown>) =>
     emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
   /** The other phone answering the outgoing native call, until it has. */
@@ -415,12 +433,16 @@ export function installFakeCore() {
           state: "delivered",
           file: { name: one.name, size: 3_000, mime: one.mime, progress: 1, state: one.state, path: `/x/${one.name}` },
         }));
-        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra, ...sent, ...shared];
+        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra, ...sent, ...shared].map((one) => withNotes(one as Record<string, unknown>));
       }
       case "core_plugins": {
         grantLive();
         if (flag("__ftFakeLocationTool") && !state.plugins.some((p) => p.id === LOCATION_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(LOCATION_TOOL)));
-        if (flag("__ftFakeTranslateTool") && !state.plugins.some((p) => p.id === TRANSLATE_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(TRANSLATE_TOOL)));
+        if (flag("__ftFakeTranslateTool") && !state.plugins.some((p) => p.id === TRANSLATE_TOOL.id)) {
+          const tool = JSON.parse(JSON.stringify(TRANSLATE_TOOL));
+          if (flag("__ftFakeTranslateReads")) tool.granted.messages = true;
+          state.plugins.push(tool);
+        }
         const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
         const extra = Array.from({ length: many }, (_, at) => String(at).padStart(2, "0")).flatMap((n) => [
           { id: `com.example.tool${n}`, name: `Tool ${n} with a rather long name to see it cut`, version: "1.0.0", asks: { network: [], messages: false, send: "nothing" }, granted: { network: [], messages: false, send: "nothing" }, installedAt: 1 },
@@ -663,6 +685,30 @@ export function installFakeCore() {
         if (!plugin?.granted.location) throw new Error(`${String(a.plugin)} may not ask where the phone is`);
         return FAKE_FIX;
       }
+      // The chat's hooks (2026-10-20), as the core keeps them: notes by message and tool, switches
+      // by contact and tool; the screen hears of a note as of any change to the messages.
+      case "core_message_note_set": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.messages) throw new Error(`${String(a.plugin)} may not read messages`);
+        const message = String(a.message);
+        notes[message] = [...(notes[message] ?? []).filter((note) => note.plugin !== a.plugin), { plugin: String(a.plugin), text: String(a.text) }];
+        setTimeout(() => emit("ft://changed", { contact: "ft_bob123456789" }), 10);
+        return undefined;
+      }
+      case "core_message_note_clear":
+        notes[String(a.message)] = (notes[String(a.message)] ?? []).filter((note) => note.plugin !== a.plugin);
+        setTimeout(() => emit("ft://changed", { contact: "ft_bob123456789" }), 10);
+        return undefined;
+      case "core_chat_hooks":
+        return chatHooks[String(a.contact)] ?? [];
+      case "core_chat_hooks_set": {
+        const contact = String(a.contact);
+        const others = (chatHooks[contact] ?? []).filter((one) => one.plugin !== a.plugin);
+        chatHooks[contact] = a.autoMessage || a.autoComposer ? [...others, { plugin: String(a.plugin), autoMessage: Boolean(a.autoMessage), autoComposer: Boolean(a.autoComposer) }] : others;
+        return undefined;
+      }
+      case "core_plugin_ref":
+        return `ref_${String(a.message)}`;
       case "core_translate_languages":
       case "core_translate_detect":
       case "core_translate_status":

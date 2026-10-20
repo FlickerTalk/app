@@ -159,7 +159,7 @@ describe("the chat's hooks", () => {
     await flushPromises();
     await hooks.chooseForChat(TRANSLATOR, window);
     expect(window.handed).toEqual([{ name: "chat", text: "", chat: KEY, ref: null, lang: "en", manual: true }]);
-    expect(invoked("core_chat_hooks_set")).toEqual([{ contact: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false }]);
+    expect(invoked("core_chat_hooks_set")).toEqual([{ contact: "ft_bob", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: null }]);
     await hooks.chooseForChat(TRANSLATOR, runner(() => null));
     await hooks.chooseForChat(TRANSLATOR, runner(() => ({ text: "not switches" })));
     expect(invoked("core_chat_hooks_set")).toHaveLength(1);

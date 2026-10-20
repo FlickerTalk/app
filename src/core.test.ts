@@ -583,12 +583,14 @@ describe("circles", () => {
 
   it("reads and sets the tools that run by themselves in a conversation", async () => {
     tauri.invoke.mockImplementation((command: string) =>
-      Promise.resolve(command === "core_chat_hooks" ? [{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false }] : undefined),
+      Promise.resolve(command === "core_chat_hooks" ? [{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false, lang: "es" }] : undefined),
     );
-    expect(await core.chatHooks("ft_bob")).toEqual([{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false }]);
+    expect(await core.chatHooks("ft_bob")).toEqual([{ plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: false, lang: "es" }]);
     expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks", { contact: "ft_bob" });
-    await core.setChatHooks("ft_bob", "com.flickertalk.translate", { message: true, composer: true });
-    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks_set", { contact: "ft_bob", plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: true });
+    await core.setChatHooks("ft_bob", "com.flickertalk.translate", { message: true, composer: true, lang: "de" });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks_set", { contact: "ft_bob", plugin: "com.flickertalk.translate", autoMessage: true, autoComposer: true, lang: "de" });
+    await core.setChatHooks("ft_bob", "com.flickertalk.translate", { message: false, composer: false });
+    expect(tauri.invoke).toHaveBeenCalledWith("core_chat_hooks_set", { contact: "ft_bob", plugin: "com.flickertalk.translate", autoMessage: false, autoComposer: false, lang: null });
     tauri.invoke.mockImplementation(() => Promise.reject(new Error("no core")));
     expect(await core.chatHooks("ft_bob"), "a core that cannot say runs nothing by itself").toEqual([]);
   });

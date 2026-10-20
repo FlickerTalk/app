@@ -378,7 +378,8 @@ function hookResult(said: unknown): PluginHookResult | null {
     if (Array.from(given.text).length > HOOK_TEXT_LIMIT) return null;
     result.text = given.text;
   }
-  if (typeof given.lang === "string" && given.lang && given.lang.length <= HOOK_LANG_LIMIT) result.lang = given.lang;
+  // An empty one: the tool no longer knows the chat's language (the user removed it).
+  if (typeof given.lang === "string" && given.lang.length <= HOOK_LANG_LIMIT) result.lang = given.lang;
   const asked = given.ask && typeof given.ask === "object" ? (given.ask as { text?: unknown }).text : undefined;
   // Shown in the app's own alert: cleaned and cut as a notice is.
   if (typeof asked === "string" && noticeText(asked)) result.ask = { text: noticeText(asked) };
