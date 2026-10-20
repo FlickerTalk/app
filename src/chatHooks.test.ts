@@ -16,7 +16,7 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
   alertController: { create: alert.create },
 }));
 
-import { CATCH_UP, HOOK_LIMIT, useChatHooks, type HookRunner } from "./chatHooks";
+import { CATCH_UP, HOOK_LIMIT, capitalized, useChatHooks, type HookRunner } from "./chatHooks";
 import { installed, premiumLocked, type PluginHook, type PluginHookResult } from "./plugins";
 import { setLocale } from "./i18n";
 import type { ChatHookState, ChatMessage, PluginView } from "./core";
@@ -229,11 +229,25 @@ describe("the chat's hooks", () => {
       }
     });
 
-    it("names the language in the app's language", async () => {
+    // QA of the translator (2026-10-20, O4): the phone names a language as its language writes it
+    // inside a sentence ("francés" on Android, "Francés" on an iPhone). Standing on its own, in the
+    // chip and in "Sent in …", the name starts with a capital on both.
+    it("names the language in the app's language, with a capital", async () => {
       await setLocale("es");
-      const { hooks } = conversation({ flags: WITH("fr") });
+      const { hooks } = conversation({ flags: [{ plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" }] });
       await flushPromises();
-      expect(hooks.languageName.value).toBe("francés");
+      expect(hooks.languageName.value).toBe("Francés");
+      expect(hooks.translating.value).toBe("Francés");
+    });
+
+    it("starts a name with a capital as the app's language writes one, on its first letter", () => {
+      expect(capitalized("francés", "es")).toBe("Francés");
+      expect(capitalized("Französisch", "de"), "already one").toBe("Französisch");
+      expect(capitalized("ingilizce", "tr"), "Turkish's dotted capital I").toBe("İngilizce");
+      expect(capitalized("ingilizce", "en")).toBe("Ingilizce");
+      expect(capitalized("e\u0301spañol", "es"), "a letter with its accent written apart").toBe("E\u0301spañol");
+      expect(capitalized("日本語", "ja"), "a script without capitals").toBe("日本語");
+      expect(capitalized("", "es")).toBe("");
     });
 
     // Android's WebView names no language for be, cy, eo, ga, ht, mt (2026-10-21): the tool's own
@@ -257,6 +271,15 @@ describe("the chat's hooks", () => {
         await hooks.readSettings(TRANSLATOR);
         expect(hooks.translating.value).toBe("Welsh");
         expect(hooks.languageName.value).toBe("Welsh");
+      });
+
+      it("starts the tool's name with a capital too", async () => {
+        await setLocale("es");
+        const frame = runner(() => ({ options: { lang: [{ value: "cy", label: "galés" }] } }));
+        const { hooks } = conversation({ flags: ON_WELSH, frame, active: false });
+        await flushPromises();
+        await hooks.readSettings(TRANSLATOR);
+        expect(hooks.translating.value).toBe("Galés");
       });
 
       it("keeps the tool's names for the conversation opened again", async () => {

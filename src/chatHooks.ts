@@ -70,13 +70,25 @@ function phoneName(tag: string): string {
 }
 
 /**
- * A language's name in the app's language: the phone's own; else the tool's, from the choices its
- * settings hook gave (`named`, not preferred: it says "(detected)" beside a language it found);
- * else the tag.
+ * `text` with its first letter (a grapheme: a letter with its accent written apart is one) as a
+ * capital, as the language `locale` writes one (Turkish "i" → "İ").
+ */
+export function capitalized(text: string, locale: string): string {
+  const [first] = new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(text);
+  return first ? first.segment.toLocaleUpperCase(locale) + text.slice(first.segment.length) : text;
+}
+
+/**
+ * A language's name in the app's language, standing on its own (the chip, "Sent in …") and so
+ * with a capital: the phone gives it as written inside a sentence, "francés" on Android and
+ * "Francés" on an iPhone (QA 2026-10-20). The phone's own name; else the tool's, from the choices
+ * its settings hook gave (`named`, not preferred: it says "(detected)" beside a language it
+ * found); else the tag, as it is.
  */
 export function languageName(tag: string | undefined, named: Record<string, string> = {}): string {
   if (!tag) return "";
-  return phoneName(tag) || named[tag] || tag;
+  const name = phoneName(tag) || named[tag];
+  return name ? capitalized(name, i18n.global.locale.value) : tag;
 }
 
 /** The tools' names for languages, by conversation, from the choices their settings hook gave. */
