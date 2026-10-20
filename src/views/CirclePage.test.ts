@@ -72,6 +72,8 @@ describe("CirclePage", () => {
       },
     ];
     const wrapper = mount(CirclePage, { shallow: true, global: { stubs: { CircleThread: false } } });
-    expect(pageShape(wrapper)).toEqual(["ion-header", "ion-content", "ion-footer"]);
+    // The circle's hooks' frames (2026-10-20) are overlays: fixed windows out of sight, and the
+    // permission sheet Ionic presents over the page.
+    expect(pageShape(wrapper, ["hook-frames", "permission-ask"])).toEqual(["ion-header", "ion-content", "ion-footer"]);
   });
 });

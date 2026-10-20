@@ -277,7 +277,8 @@ describe("ChatsPage", () => {
       const pane = wide.find(".ft-chats__detail");
       expect(childTags(pane.element)).toEqual(["div"]);
       expect(pane.find(".ft-thread").exists()).toBe(true);
-      expect(childTags(pane.find(".ft-thread").element)).toEqual(["ion-header", "ion-content", "ion-footer"]);
+      // Its hooks' frames and its permission sheet (2026-10-20) are overlays, as in its own page.
+      expect(childTags(pane.find(".ft-thread").element, ["hook-frames", "permission-ask"])).toEqual(["ion-header", "ion-content", "ion-footer"]);
     });
 
     it("tells the circle beside the list whether Chats is on screen", async () => {
