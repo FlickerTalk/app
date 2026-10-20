@@ -4798,7 +4798,7 @@ mod tests {
         assert_eq!((seed["locales"]["es"]["summary"].as_str(), seed["carried"].as_bool()), (Some("Una lista."), Some(true)));
 
         let spanish = |name: &str| {
-            [("es".to_owned(), ft_plugins::Localized { name: Some(name.to_owned()), summary: None })].into_iter().collect()
+            [("es".to_owned(), ft_plugins::Localized { name: Some(name.to_owned()), ..Default::default() })].into_iter().collect()
         };
         let seeds = vec![
             OfferedPlugin { locales: spanish("Dibujo"), ..carried("com.flickertalk.sketch", "1.0.0") },

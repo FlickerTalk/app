@@ -988,7 +988,7 @@ mod tests {
                     // Chinese, Japanese and Korean say it in about half the characters.
                     let dense = matches!(*code, "ja" | "ko" | "zh-CN" | "zh-TW");
                     let (name, summary) = if dense { (6, summary * 6 / 10) } else { (18, summary * 13 / 10) };
-                    let said = ft_plugins::Localized { name: Some(text(word, name)), summary: Some(text(word, summary.min(200))) };
+                    let said = ft_plugins::Localized { name: Some(text(word, name)), summary: Some(text(word, summary.min(200))), ..Default::default() };
                     ((*code).to_owned(), said)
                 })
                 .collect()
@@ -996,7 +996,7 @@ mod tests {
         let longest = served_index(|_| {
             LANGUAGES
                 .iter()
-                .map(|(code, _)| ((*code).to_owned(), ft_plugins::Localized { name: Some("न".repeat(64)), summary: Some("न".repeat(200)) }))
+                .map(|(code, _)| ((*code).to_owned(), ft_plugins::Localized { name: Some("न".repeat(64)), summary: Some("न".repeat(200)), ..Default::default() }))
                 .collect()
         }, &svg(ft_plugins::icon::IMAGE_LIMIT, '"'));
         eprintln!("catalogue.json: {} bytes translated, {} bytes at the limits", realistic.len(), longest.len());

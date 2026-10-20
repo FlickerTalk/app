@@ -73,6 +73,44 @@ pub struct Manifest {
     /// `image-outline`. Empty means the app's own: a puzzle piece for a tool, a controller for a game.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub icon: String,
+    /// The chat's hooks this tool binds to (2026-10-20, plan of the translator §8): a button on a
+    /// message, one by the composer, one in the chat's header. A hook this app does not know
+    /// refuses the package; a game binds to none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub hooks: BTreeMap<HookName, HookDeclaration>,
+}
+
+/// The places in a conversation a tool can bind to (2026-10-20). The app knows nothing of what the
+/// tool does there: it hands it the text and shows what comes back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HookName {
+    /// A long press on a text: what the tool says comes back as a note under the bubble.
+    Message,
+    /// The draft in the composer: what the tool says takes its place, for the user to send.
+    Composer,
+    /// The chat's header: the tool's window for this conversation, which may switch the other two
+    /// on for every message.
+    Chat,
+}
+
+impl HookName {
+    /// The name as `module.json` writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Message => "message",
+            Self::Composer => "composer",
+            Self::Chat => "chat",
+        }
+    }
+}
+
+/// What the app shows for a hook: its label, in English (other languages in `locales`), and an
+/// Ionicon's name, as the tile's `icon`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookDeclaration {
+    pub label: String,
+    pub icon: String,
 }
 
 /// A plugin's name and summary in one language; either may be left out, and then the English one
@@ -83,6 +121,11 @@ pub struct Localized {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// The labels of its hooks (2026-10-20), by the hook's name. Kept by name, not checked here: a
+    /// catalogue that lists a hook a newer FlickerTalk knows is still read (§14); the package is
+    /// checked when it is opened.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub hooks: BTreeMap<String, String>,
 }
 
 /// The longest a name and a summary may be, in characters, in English or in any other language.
@@ -448,8 +491,14 @@ fn check(manifest: &Manifest) -> Result<()> {
         };
         ensure!(fits(&said.name, NAME_LIMIT), "the name in '{code}' is empty or too long");
         ensure!(fits(&said.summary, SUMMARY_LIMIT), "the summary in '{code}' is empty or too long");
+        for (hook, label) in &said.hooks {
+            let bound = manifest.hooks.keys().any(|name| name.as_str() == hook);
+            ensure!(bound, "a label in '{code}' for '{hook}', a hook it does not bind to");
+            ensure!(fits(&Some(label.clone()), NAME_LIMIT), "the label of '{hook}' in '{code}' is empty or too long");
+        }
     }
     ensure!(manifest.icon.is_empty() || is_icon(&manifest.icon), "'{}' is not the name of an icon", manifest.icon);
+    check_hooks(manifest)?;
     match manifest.kind {
         Kind::Tool => {}
         Kind::Game => {
@@ -465,6 +514,29 @@ fn check(manifest: &Manifest) -> Result<()> {
             );
         }
         Kind::Unknown => bail!("this FlickerTalk does not know that kind of plugin"),
+    }
+    Ok(())
+}
+
+/// The chat's hooks a tool binds to (2026-10-20, plan of the translator §8.1): only a tool's, each
+/// with a label and an icon, and only with what the hook needs asked for. `message` and `composer`
+/// read the text they are handed (`messages: given`); `composer` puts its answer in the composer
+/// (`send: propose`). `chat` needs nothing: it opens the tool's window for the conversation.
+fn check_hooks(manifest: &Manifest) -> Result<()> {
+    ensure!(manifest.hooks.is_empty() || manifest.kind == Kind::Tool, "only a tool binds to the chat's hooks");
+    let asks = &manifest.permissions;
+    for (name, hook) in &manifest.hooks {
+        let label = hook.label.trim();
+        ensure!(!label.is_empty() && hook.label.chars().count() <= NAME_LIMIT, "the label of '{}' is empty or too long", name.as_str());
+        ensure!(is_icon(&hook.icon), "'{}' is not the name of an icon", hook.icon);
+        match name {
+            HookName::Message => ensure!(asks.reads_given_messages, "the message hook reads the message: it needs messages: given"),
+            HookName::Composer => {
+                ensure!(asks.reads_given_messages, "the composer hook reads the draft: it needs messages: given");
+                ensure!(asks.send == Sending::Propose, "the composer hook proposes a text: it needs send: propose");
+            }
+            HookName::Chat => {}
+        }
     }
     Ok(())
 }
@@ -1130,6 +1202,107 @@ mod tests {
         // A grant written before this permission existed reads as no translator.
         let before: Permissions = serde_json::from_str(r#"{"network":[],"messages":"none","send":"nothing"}"#).unwrap();
         assert_eq!(serde_json::to_value(&before).unwrap()["translate"], serde_json::json!(false));
+    }
+
+    /// A tool that binds to the chat's hooks (2026-10-20, plan of the translator §8): `hooks` and
+    /// the permissions it asks for.
+    fn hooked(hooks: &str, permissions: &str) -> String {
+        format!(
+            r#"{{"id":"com.example.translate","name":"Translator","version":"1.1.0","minCoreVersion":"1.7.0","components":["ft-translate"],"permissions":{permissions},"hooks":{hooks}}}"#
+        )
+    }
+
+    const EVERY_HOOK: &str = r#"{"message":{"label":"Translate","icon":"language-outline"},"composer":{"label":"Translate","icon":"language-outline"},"chat":{"label":"Chat language","icon":"language-outline"}}"#;
+    const READS_AND_PROPOSES: &str = r#"{"messages":"given","send":"propose","translate":true}"#;
+
+    // 2026-10-20 (plan of the translator §8.1): a tool says which of the chat's hooks it binds to,
+    // each with the label and the icon the app shows. A manifest that says nothing binds to none.
+    #[test]
+    fn a_tool_may_bind_to_the_chats_hooks() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let tool = opens(&hooked(EVERY_HOOK, READS_AND_PROPOSES)).expect("a tool with its hooks").manifest;
+        assert_eq!(tool.hooks.len(), 3);
+        assert_eq!(tool.hooks[&HookName::Message], HookDeclaration { label: "Translate".to_owned(), icon: "language-outline".to_owned() });
+        assert_eq!(tool.hooks[&HookName::Chat].label, "Chat language");
+        let said = serde_json::to_value(&tool).unwrap();
+        assert_eq!(said["hooks"]["composer"]["icon"], "language-outline", "{said}");
+
+        let plain = opens(&manifest_of("com.example.code")).unwrap().manifest;
+        assert!(plain.hooks.is_empty(), "no hooks unless it says so");
+        assert!(serde_json::to_value(&plain).unwrap().get("hooks").is_none(), "none, nothing written");
+        // `chat` needs nothing: it only opens the tool's window for this chat.
+        let chat_only = hooked(r#"{"chat":{"label":"Chat language","icon":"language-outline"}}"#, "{}");
+        assert_eq!(opens(&chat_only).unwrap().manifest.hooks.len(), 1);
+    }
+
+    // `message` and `composer` read the text they are given, so they need `messages: given`;
+    // `composer` puts its text in the composer, so it needs `send: propose`. A hook this app does not
+    // know, a game with hooks, an empty or long label and an icon that is no icon's name are refused.
+    #[test]
+    fn a_hook_the_app_does_not_know_or_whose_needs_are_not_asked_for_is_refused() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let message = r#"{"message":{"label":"Translate","icon":"language-outline"}}"#;
+        let composer = r#"{"composer":{"label":"Translate","icon":"language-outline"}}"#;
+        assert!(opens(&hooked(message, r#"{"messages":"given"}"#)).is_ok());
+        assert!(opens(&hooked(composer, r#"{"messages":"given","send":"propose"}"#)).is_ok());
+        for (hooks, permissions) in [
+            (message, "{}"),
+            (composer, r#"{"send":"propose"}"#),
+            (composer, r#"{"messages":"given"}"#),
+            (composer, r#"{"messages":"given","send":"auto"}"#),
+            (r#"{"reaction":{"label":"React","icon":"happy-outline"}}"#, READS_AND_PROPOSES),
+            (r#"{"chat":{"label":"","icon":"language-outline"}}"#, "{}"),
+            (r#"{"chat":{"label":"   ","icon":"language-outline"}}"#, "{}"),
+            (&format!(r#"{{"chat":{{"label":"{}","icon":"language-outline"}}}}"#, "x".repeat(65)), "{}"),
+            (r#"{"chat":{"label":"Chat language","icon":"Language Outline"}}"#, "{}"),
+            (r#"{"chat":{"label":"Chat language","icon":""}}"#, "{}"),
+            (r#"{"chat":{"label":"Chat language"}}"#, "{}"),
+            (r#"{"chat":"Chat language"}"#, "{}"),
+        ] {
+            assert!(opens(&hooked(hooks, permissions)).is_err(), "{hooks} with {permissions} should be refused");
+        }
+        let game = game_with(r#","permissions":{"live":true},"hooks":{"chat":{"label":"Chat language","icon":"language-outline"}}"#);
+        assert!(opens(&game).is_err(), "a game binds to no hook of the chat");
+    }
+
+    // The labels in other languages, as the name and the summary (`locales.<lang>.hooks`): only for
+    // a hook the tool binds to, with the same limits as the English one.
+    #[test]
+    fn a_hooks_label_may_come_in_other_languages() {
+        let catalogue = Ed25519SecretKey::new();
+        let opens = |manifest: &str| open(&package(manifest, b"", &catalogue), &catalogue.public_key());
+        let with = |locales: &str| hooked(EVERY_HOOK, READS_AND_PROPOSES).replacen('{', &format!(r#"{{"locales":{locales},"#), 1);
+        let tool = opens(&with(r#"{"es":{"name":"Traductor","hooks":{"message":"Traducir","chat":"Idioma del chat"}}}"#)).unwrap().manifest;
+        assert_eq!(tool.locales["es"].hooks["message"], "Traducir");
+        assert_eq!(tool.locales["es"].hooks["chat"], "Idioma del chat");
+        assert!(!tool.locales["es"].hooks.contains_key("composer"), "a label left out is the English one");
+        assert_eq!(serde_json::to_value(&tool).unwrap()["locales"]["es"]["hooks"]["chat"], "Idioma del chat");
+        assert!(serde_json::to_value(&opens(&manifest_in(r#"{"es":{"name":"Traductor"}}"#)).unwrap().manifest).unwrap()["locales"]["es"].get("hooks").is_none());
+        for wrong in [
+            r#"{"es":{"hooks":{"reaction":"Reaccionar"}}}"#.to_owned(),
+            r#"{"es":{"hooks":{"message":""}}}"#.to_owned(),
+            format!(r#"{{"es":{{"hooks":{{"chat":"{}"}}}}}}"#, "x".repeat(65)),
+            r#"{"es":{"hooks":{"message":7}}}"#.to_owned(),
+        ] {
+            assert!(opens(&with(&wrong)).is_err(), "{wrong} should be refused");
+        }
+        // A label for a hook it does not bind to.
+        let unbound = hooked(r#"{"chat":{"label":"Chat language","icon":"language-outline"}}"#, "{}")
+            .replacen('{', r#"{"locales":{"es":{"hooks":{"message":"Traducir"}}},"#, 1);
+        assert!(opens(&unbound).is_err());
+    }
+
+    // §14: a catalogue whose entries carry the labels of a hook this app does not know yet is still
+    // read; only the package of such a plugin is refused, when it is opened.
+    #[test]
+    fn the_catalogue_is_read_with_labels_of_hooks_this_app_does_not_know() {
+        let catalogue = Ed25519SecretKey::new();
+        let index = index_of(&"ab".repeat(32))
+            .replacen(r#""summary":"#, r#""locales":{"es":{"name":"Traductor","hooks":{"message":"Traducir","reaction":"Reaccionar"}}},"summary":"#, 1);
+        let listed = catalogue_entries(&index, &catalogue.sign(index.as_bytes()).to_base64(), &catalogue.public_key()).expect("still a catalogue");
+        assert_eq!(listed[0].locales["es"].hooks["message"], "Traducir");
     }
 
     // 2026-09-27: the permissions the board, the notes and the drive need are asked for one by
