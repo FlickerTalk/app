@@ -31,14 +31,16 @@ use tokio_tungstenite::tungstenite::Message;
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
 /// How often the client pings the router's socket (app#200, 2026-10-20). The router answers
-/// every ping; it pings only once a minute itself, far too seldom to notice a dead socket.
-pub const PING_EVERY: Duration = Duration::from_secs(5);
+/// every ping; it pings only once a minute itself, too seldom to notice a dead socket. Every phone
+/// with the app open pings, so not more often: a network change the phone can see is followed at
+/// once by the core, and these are for a path that dies without one.
+pub const PING_EVERY: Duration = Duration::from_secs(20);
 
-/// A socket nothing has come from for this long, two pings in a row unanswered, is taken for dead
-/// and opened again; opening one is bounded by the same limit. After a network change the socket
-/// is left on a path that is gone: nothing closes it, it just goes quiet, and the router goes on
-/// handing it what comes for this phone.
-pub const SILENT_FOR: Duration = Duration::from_secs(10);
+/// A socket that has said nothing since a ping sent this long ago, two pings in a row unanswered,
+/// is taken for dead and opened again: 40 to 60 s after it went quiet. Opening one is bounded by
+/// the same limit. After a network change the socket is left on a path that is gone: nothing
+/// closes it, it just goes quiet, and the router goes on handing it what comes for this phone.
+pub const SILENT_FOR: Duration = Duration::from_secs(40);
 
 /// The router refuses a blob for good (403): the recipient is no longer registered or the route
 /// capability we hold was withdrawn (they deleted their phone, or renewed their link). Trying
@@ -166,6 +168,8 @@ pub struct RouterClient {
     closed: tokio::sync::watch::Sender<bool>,
     /// The app is away from the foreground (`set_away`): no socket until it is back.
     away: tokio::sync::watch::Sender<bool>,
+    /// `PING_EVERY` and `SILENT_FOR`, unless a test says otherwise.
+    liveness: std::sync::Mutex<(Duration, Duration)>,
 }
 
 /// The router's socket, and since when (wall clock).
@@ -208,6 +212,7 @@ impl RouterClient {
             link: std::sync::Mutex::new(Link::Down),
             closed: tokio::sync::watch::Sender::new(false),
             away: tokio::sync::watch::Sender::new(false),
+            liveness: std::sync::Mutex::new((PING_EVERY, SILENT_FOR)),
         })
     }
 
@@ -259,6 +264,13 @@ impl RouterClient {
 
     pub fn is_away(&self) -> bool {
         *self.away.borrow()
+    }
+
+    /// How often this client pings the router and how long a socket may say nothing, from the
+    /// next socket on (`PING_EVERY`, `SILENT_FOR`). For tests.
+    #[doc(hidden)]
+    pub fn set_liveness(&self, ping_every: Duration, silent_for: Duration) {
+        *self.liveness.lock().unwrap_or_else(PoisonError::into_inner) = (ping_every, silent_for);
     }
 
     async fn send(&self, request: RequestBuilder) -> Result<reqwest::Response> {
@@ -469,24 +481,28 @@ impl RouterClient {
             .map(|(name, value)| format!("{name}={}", query_escape(&value)))
             .collect();
         let url = format!("{}{path}?{}", websocket_base(&self.base), query.join("&"));
-        let opening = tokio::time::timeout(SILENT_FOR, connect_async(url.as_str()));
+        let (ping_every, silent_for) = *self.liveness.lock().unwrap_or_else(PoisonError::into_inner);
+        let opening = tokio::time::timeout(silent_for, connect_async(url.as_str()));
         let (mut socket, _) = opening.await.map_err(|_| anyhow!("the router did not answer"))?.context("cannot reach the router")?;
-        // Anything that comes proves the socket alive: a frame, the router's ping, a pong.
-        let mut heard = tokio::time::Instant::now();
-        let mut ping = tokio::time::interval_at(heard + PING_EVERY, PING_EVERY);
+        let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + ping_every, ping_every);
+        // When the first ping nothing has come since was due. Anything that comes proves the
+        // socket alive: a frame, the router's ping, a pong.
+        let mut unanswered: Option<tokio::time::Instant> = None;
         loop {
             let message = tokio::select! {
                 message = socket.next() => message,
-                _ = ping.tick() => {
-                    if heard.elapsed() >= SILENT_FOR {
-                        bail!("the router stopped answering");
+                due = ping.tick() => {
+                    match unanswered {
+                        Some(since) if due.duration_since(since) >= silent_for => bail!("the router stopped answering"),
+                        Some(_) => {}
+                        None => unanswered = Some(due),
                     }
                     socket.send(Message::Ping(Default::default())).await?;
                     continue;
                 }
             };
             let Some(message) = message else { return Ok(()) };
-            heard = tokio::time::Instant::now();
+            unanswered = None;
             let Message::Text(text) = message? else { continue };
             let event = match serde_json::from_str::<Frame>(text.as_str()) {
                 Ok(Frame::Welcome { stun, turn }) => {
