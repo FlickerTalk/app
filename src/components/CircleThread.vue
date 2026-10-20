@@ -1,14 +1,30 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { IonBackButton, IonButtons, IonContent, IonFooter, IonHeader, IonIcon, IonTextarea, IonToolbar } from "@ionic/vue";
-import { arrowUp, happyOutline, peopleOutline } from "ionicons/icons";
+import { IonBackButton, IonButtons, IonChip, IonContent, IonFooter, IonHeader, IonIcon, IonLabel, IonTextarea, IonToolbar } from "@ionic/vue";
+import { arrowUp, extensionPuzzleOutline, happyOutline, lockClosedOutline, peopleOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
 import EmojiPicker from "./EmojiPicker.vue";
+import HookFrames from "./HookFrames.vue";
 import MessageBubble from "./MessageBubble.vue";
+import PermissionAsk from "./PermissionAsk.vue";
 import { closeOnBackWhile } from "../back";
-import { circle as circleOf, loadCircleMessages, markCircleRead, sendCircleText, type CircleMessage } from "../core";
+import { useChatHooks } from "../chatHooks";
+import {
+  circle as circleOf,
+  circleHome,
+  grantPlugin,
+  loadCircleMessages,
+  markCircleRead,
+  PREMIUM_PAGE,
+  sendCircleText,
+  type ChatMessage,
+  type CircleMessage,
+  type PluginView,
+} from "../core";
 import { t } from "../i18n";
+import { missingPermission, withPermission, type PermissionNeed } from "../permissions";
+import { hookIcon, hookLabel, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins } from "../plugins";
 import { useStickToEnd, type Scrollable } from "../viewport";
 
 // A circle's conversation (2026-09-27): like a chat, with who said what over each bubble that is
@@ -46,9 +62,11 @@ async function show() {
   await loadCircleMessages(props.circleId);
   if (seen()) await markCircleRead(props.circleId);
 }
-/** Back in front of the user: what arrived meanwhile is read now. */
+/** Back in front of the user: what arrived meanwhile is read now, and translated (2026-10-20). */
 function onVisible() {
-  if (seen()) void markCircleRead(props.circleId);
+  if (!seen()) return;
+  void markCircleRead(props.circleId);
+  hooks.catchUp();
 }
 
 async function send() {
@@ -56,7 +74,90 @@ async function send() {
   if (!text) return;
   draft.value = "";
   emoji.value = false;
-  await sendCircleText(props.circleId, text);
+  // With the circle's composer switch on, what the tool answers goes (2026-10-20, §8.2d), and the
+  // user's own words are kept under the message that went.
+  const out = await hooks.outgoing(text);
+  const sent: unknown = await sendCircleText(props.circleId, out.text);
+  if (out.original) await hooks.keepOriginal(typeof sent === "string" ? sent : undefined, out.original);
+}
+
+// ---- The chat's hooks (2026-10-20, plan of the translator §8.2d, screen G of the mockup) ----
+//
+// As in a 1:1 chat: the header and the composer stay as they were. Each text others said offers the
+// message hook's link in its bubble while the circle's language is not the app's; the tool's answer
+// takes the text's place. With the circle's switches on (set in its info page), a chip under the
+// header says so, what arrives is translated by itself while the circle is seen, and what is sent
+// goes in the circle's language with the user's own words kept under it. The runs go in a frame of
+// the tool's own, out of sight (`HookFrames`); the circle's id is the conversation.
+
+/** The circle's texts, as the hooks read a conversation's messages: what happened is no text. */
+const texts = computed<ChatMessage[]>(() =>
+  messages.value
+    .filter((one) => one.kind === "text")
+    .map((one) => ({ id: one.id, mine: one.mine, text: one.text, time: one.time, sentAt: 0, status: one.status, notes: one.notes })),
+);
+const hooks = useChatHooks({
+  conversation: () => props.circleId,
+  messages: () => texts.value,
+  active: () => props.active && seen(),
+});
+/** The message hook's link under a text others said: its label and icon (a padlock while locked). */
+const messageHook = computed(() => {
+  const tool = hooks.messageTool.value;
+  if (!tool || !hooks.offersHook.value) return undefined;
+  return { label: hookLabel(tool, "message"), icon: isLocked(tool) ? lockClosedOutline : hookIcon(tool, "message") };
+});
+/** The chip's icon: the message hook's own. */
+const translatingIcon = computed(() => (hooks.messageTool.value ? hookIcon(hooks.messageTool.value, "message") : extensionPuzzleOutline));
+
+/** A tap on the link: the tool's answer for the text, asked to read it first if need be. */
+async function runMessageHook(id: string) {
+  const message = texts.value.find((one) => one.id === id);
+  let chosen = hooks.messageTool.value;
+  if (!message || !chosen) return;
+  if (isLocked(chosen)) return void router.push(PREMIUM_PAGE);
+  if (!chosen.granted.messages) chosen = await allowedToRead(chosen);
+  if (chosen) await hooks.noteMessage(chosen, message);
+}
+
+/** The permission asked on the spot, and for which tool. */
+const needing = ref<{ tool: PluginView; need: PermissionNeed } | null>(null);
+function answerNeed(allowed: boolean) {
+  const asked = needing.value;
+  needing.value = null;
+  asked?.need.answer(allowed);
+}
+closeOnBackWhile(() => props.active && Boolean(needing.value), () => answerNeed(false));
+
+/**
+ * Asks the user to let `chosen` read what it is handed, in the same sheet as any permission asked
+ * on the spot (decision of 2026-10-20, app#177), as a chat does. The tool as the core says it is
+ * once allowed, or nothing: a no, or a grant that did not take, runs nothing and grants nothing.
+ */
+function allowedToRead(chosen: PluginView): Promise<PluginView | undefined> {
+  const line = missingPermission(chosen, "messages");
+  if (!line) return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    let answered = false;
+    needing.value = {
+      tool: chosen,
+      need: {
+        ...line,
+        answer: async (allowed) => {
+          if (answered) return;
+          answered = true;
+          if (!allowed) return resolve(undefined);
+          try {
+            await grantPlugin(chosen.id, withPermission(chosen, "messages", true));
+            const now = (await refreshPlugins()).find((one) => one.id === chosen.id);
+            resolve(now?.granted.messages ? now : undefined);
+          } catch {
+            resolve(undefined);
+          }
+        },
+      },
+    };
+  });
 }
 
 /**
@@ -132,13 +233,32 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
       </ion-toolbar>
     </ion-header>
 
+    <!-- 2026-10-20: the tools running the circle's hooks, one frame each, out of sight. -->
+    <HookFrames :hooks="hooks" :contact="circle.id" :session="circleHome(circle.id).session" :active="active" />
+
     <ion-content ref="content" class="ft-thread__content">
+      <!-- 2026-10-20 (§8.2d): translated by itself here, into what; a tap goes to the switches in
+           the circle's info. It floats over the content's top (Ionic's fixed slot): nothing moves. -->
+      <div v-if="hooks.translating.value" slot="fixed" class="ft-translating">
+        <ion-chip data-test="translating" @click="router.push(`/circle/${circle.id}/info`)">
+          <ion-icon :icon="translatingIcon" aria-hidden="true" />
+          <ion-label>{{ $t("chat.translating", { language: hooks.translating.value }) }}</ion-label>
+        </ion-chip>
+      </div>
       <p class="ft-thread__note">{{ $t("circle.noHistory") }}</p>
       <template v-for="message in messages" :key="message.id">
         <div v-if="message.kind !== 'text'" class="ft-thread__event" data-test="circle-event">
           <span>{{ eventText(message) }}</span>
         </div>
-        <MessageBubble v-else :message="message" :sender="message.senderName" />
+        <MessageBubble
+          v-else
+          :message="message"
+          :sender="message.senderName"
+          :hook="messageHook"
+          :noting="hooks.noting.get(message.id)"
+          :language="hooks.languageName.value"
+          @hook="runMessageHook"
+        />
       </template>
       <div class="ft-thread__end" />
     </ion-content>
@@ -174,6 +294,16 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
       </div>
       <emoji-picker v-if="emoji && mayWrite" @pick="draft += $event" />
     </ion-footer>
+
+    <PermissionAsk
+      :open="Boolean(needing)"
+      :name="needing ? pluginName(needing.tool) : ''"
+      :permission="needing?.need"
+      :icon="needing ? pluginIcon(needing.tool) : undefined"
+      :image="needing ? pluginImage(needing.tool) : undefined"
+      @allow="answerNeed(true)"
+      @cancel="answerNeed(false)"
+    />
   </template>
 </template>
 
@@ -245,6 +375,21 @@ onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
 }
 .ft-thread__end {
   height: var(--ft-space-3);
+}
+/* 2026-10-20 (§8.2d): "Translating · French", centred over the top of the messages, as in a chat. */
+.ft-translating {
+  inset-block-start: 4px;
+  inset-inline: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.ft-translating ion-chip {
+  pointer-events: auto;
+  margin: 0;
+  background: var(--ion-color-light);
+  color: var(--ion-text-color);
+  font-size: var(--ft-font-meta);
 }
 .ft-composer {
   padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
