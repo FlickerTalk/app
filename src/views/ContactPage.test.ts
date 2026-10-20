@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
+import { defineComponent, h } from "vue";
 import ContactPage from "./ContactPage.vue";
+import PluginSettingsGroup from "../components/PluginSettingsGroup.vue";
+import HookFrames from "../components/HookFrames.vue";
+import { installed, premiumLocked } from "../plugins";
+import type { PluginView } from "../core";
 import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { store } from "../core";
@@ -217,9 +222,83 @@ describe("ContactPage", () => {
     expect(calls).toContainEqual(["core_set_rules", { contact: "c1", rules: { muted: true, acceptsChat: true, acceptsCalls: false, receipts: true, typing: false } }]);
   });
 
+  // 2026-10-20 (plan of the translator §8.2d, F1): after the rules, a native group for each tool
+  // with a settings hook, drawn from what it declares; its hook runs out of sight, in a frame the
+  // page hosts, with the conversation's latest texts received.
+  describe("tools' settings for the conversation", () => {
+    const TRANSLATOR: PluginView = {
+      id: "com.flickertalk.translate",
+      name: "Translator",
+      version: "1.1.0",
+      kind: "tool",
+      asks: { network: [], messages: true, send: "propose", translate: true },
+      granted: { network: [], messages: true, send: "propose", translate: true },
+      installedAt: 1,
+      hooks: {
+        message: { label: "Translate", icon: "language-outline" },
+        settings: { label: "Translation", icon: "language-outline", fields: [{ key: "receive", type: "toggle", label: "Translate what I receive" }] },
+      },
+    };
+    const PLAIN: PluginView = { ...TRANSLATOR, id: "com.example.plain", hooks: { message: TRANSLATOR.hooks!.message } };
+    afterEach(() => {
+      installed.value = [];
+      premiumLocked.value = false;
+    });
+
+    it("draws a group for each tool with a settings hook, after the rules, with the frames to run them", async () => {
+      installed.value = [PLAIN, TRANSLATOR, { ...TRANSLATOR, id: "com.example.game", kind: "game" }];
+      const wrapper = mount(ContactPage, { shallow: true });
+      await flushPromises();
+      const groups = wrapper.findAllComponents(PluginSettingsGroup);
+      expect(groups.map((one) => (one.props("plugin") as PluginView).id)).toEqual([TRANSLATOR.id]);
+      const rules = wrapper.find("[data-test='typing']").element;
+      expect(rules.compareDocumentPosition(groups[0].element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(groups[0].element.compareDocumentPosition(wrapper.find("[data-test='block']").element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(wrapper.findComponent(HookFrames).props("contact")).toBe("c1");
+      expect(groups[0].props("hooks")).toBe(wrapper.findComponent(HookFrames).props("hooks"));
+    });
+
+    it("draws none for a locked tool", async () => {
+      installed.value = [TRANSLATOR];
+      premiumLocked.value = true;
+      const wrapper = mount(ContactPage, { shallow: true });
+      await flushPromises();
+      expect(wrapper.findAllComponents(PluginSettingsGroup)).toHaveLength(0);
+    });
+
+    it("runs the settings hook out of sight as the page opens, with the latest texts received", async () => {
+      const handed: unknown[] = [];
+      const HookSheet = defineComponent({
+        name: "PluginSheet",
+        props: { plugin: { type: Object, default: undefined }, contact: { type: String, default: "" }, hidden: Boolean, sending: { type: String, default: "" }, session: { type: String, default: undefined }, fill: Boolean },
+        setup(_props, { expose }) {
+          expose({ runHook: async (hook: unknown) => (handed.push(hook), { values: { receive: true } }) });
+          return () => h("div");
+        },
+      });
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const fallback = internals.invoke;
+      internals.invoke = (command, args) => {
+        if (command === "core_hook_sample") return Promise.resolve("ciao");
+        if (command === "core_plugin_chat") return Promise.resolve("key");
+        return fallback(command, args);
+      };
+      installed.value = [TRANSLATOR];
+      try {
+        const wrapper = mount(ContactPage, { global: { stubs: { PluginSheet: HookSheet, IonIcon: true } } });
+        await vi.waitFor(() => expect(handed).toEqual([{ name: "settings", text: "ciao", chat: "key", ref: null, lang: "en", manual: false }]));
+        await flushPromises();
+        expect(wrapper.find(`[data-test='settings-${TRANSLATOR.id}'] [data-test='setting-receive']`).exists()).toBe(true);
+      } finally {
+        internals.invoke = fallback;
+      }
+    });
+  });
+
   // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
   // Ionic's transitions look for them, with nothing of ours in between.
   it("is an Ionic page: a header with its back button, then the contact's page", () => {
-    expect(pageShape(mount(ContactPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
+    // The tools' hooks' frames (2026-10-20) are overlays: fixed windows out of sight and their sheet.
+    expect(pageShape(mount(ContactPage, { shallow: true }), ["hook-frames"])).toEqual(["ion-header", "ion-content"]);
   });
 });

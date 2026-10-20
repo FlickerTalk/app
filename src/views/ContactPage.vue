@@ -34,6 +34,10 @@ import {
 } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
+import HookFrames from "../components/HookFrames.vue";
+import PluginSettingsGroup from "../components/PluginSettingsGroup.vue";
+import { useChatHooks } from "../chatHooks";
+import { installed, isLocked } from "../plugins";
 import {
   block,
   chat,
@@ -42,6 +46,7 @@ import {
   reportContact,
   removeContact,
   requestPending,
+  sessionOf,
   setHistory,
   setRules,
   type ContactDetails,
@@ -111,6 +116,12 @@ const RULES = [
   // 2026-10-05: whether they see "typing…"; it goes only over the direct connection.
   { key: "typing", label: "contact.typing", icon: chatbubbleEllipsesOutline, test: "typing" },
 ] as const;
+
+// 2026-10-20 (plan of the translator §8.2d, F1): after the rules, a native group for each tool with
+// a settings hook (the Translator's language and switches), drawn from what it declares. Its hook
+// runs out of sight in a frame this page hosts; nothing runs by itself here (`active` off).
+const hooks = useChatHooks({ conversation: () => id, messages: () => chat(id)?.messages ?? [], active: () => false });
+const settingsTools = computed(() => installed.value.filter((one) => one.kind !== "game" && one.hooks?.settings && !isLocked(one)));
 
 async function changeRule(key: keyof ContactRules, on: boolean) {
   rules.value = { ...rules.value, [key]: on };
@@ -300,6 +311,8 @@ const deleteButtons = computed(() => [
           </ion-item>
         </ion-list>
 
+        <PluginSettingsGroup v-for="tool in settingsTools" :key="tool.id" class="ft-group" :plugin="tool" :hooks="hooks" />
+
         <ion-list inset class="ft-group">
           <ion-item button detail lines="none" data-test="block" @click="toggleBlock">
             <span slot="start" class="ft-tile"><ion-icon :icon="banOutline" aria-hidden="true" /></span>
@@ -355,6 +368,8 @@ const deleteButtons = computed(() => [
         </section>
       </div>
     </ion-content>
+    <!-- The tools' settings hooks run here, out of sight. -->
+    <HookFrames :hooks="hooks" :contact="id" :session="sessionOf(id)" />
   </ion-page>
 </template>
 
