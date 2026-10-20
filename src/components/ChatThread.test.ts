@@ -773,6 +773,218 @@ describe("ChatThread", () => {
     });
   });
 
+  // 2026-10-20 (plan of the translator §8): the chat's hooks. A tool bound to the chat has a button
+  // in the header that opens its window for this conversation; what it answers switches it on by
+  // itself here. A tool bound to messages is a button on a long press, and its answer a note under
+  // the text; one bound to the composer is a button by Send, and its answer the new draft, with the
+  // user's original over it. The tools run out of sight, in a frame each (stubbed here: what it is
+  // handed, and what the test says it answers).
+  describe("the chat's hooks", () => {
+    const ID = "com.flickertalk.translate";
+    const KEY = "k".repeat(43);
+    const TRANSLATOR = {
+      id: ID,
+      name: "Translator",
+      version: "1.1.0",
+      kind: "tool",
+      asks: { network: [], messages: true, send: "propose", translate: true },
+      granted: { network: [], messages: true, send: "propose", translate: true },
+      installedAt: 1,
+      hooks: {
+        message: { label: "Translate", icon: "language-outline" },
+        composer: { label: "Translate", icon: "language-outline" },
+        chat: { label: "Chat language", icon: "language-outline" },
+      },
+    };
+    type Hook = { name: string; text: string; chat: string; ref: string | null; lang: string; manual: boolean };
+    let answer: (hook: Hook) => unknown = () => null;
+    const sheets: { props: Record<string, unknown>; runHook: ReturnType<typeof vi.fn> }[] = [];
+    const HookSheet = defineComponent({
+      name: "PluginSheet",
+      props: {
+        plugin: { type: Object, default: undefined },
+        contact: { type: String, default: "" },
+        hidden: Boolean,
+        hook: { type: String, default: undefined },
+        text: { type: String, default: undefined },
+        sending: { type: String, default: "nothing" },
+        live: Boolean,
+        session: { type: String, default: undefined },
+        fill: Boolean,
+        file: { type: Object, default: undefined },
+        reference: { type: String, default: undefined },
+      },
+      emits: ["text", "attach", "done", "closed", "needs", "openChat", "shown", "refused", "pick", "sendTo"],
+      setup(props, { expose, emit }) {
+        const runHook = vi.fn(async (hook: Hook) => answer(hook));
+        sheets.push({ props, runHook });
+        expose({ runHook, close: async () => emit("closed") });
+        return () => h("div", { "data-test": props.hidden ? "hook-frame" : "plugin-window" });
+      },
+    });
+    const hookStubs = { ...stubs, PluginSheet: HookSheet };
+    let view: Record<string, unknown> = TRANSLATOR;
+    let flags: unknown[] = [];
+
+    beforeEach(() => {
+      sheets.length = 0;
+      answer = () => null;
+      view = JSON.parse(JSON.stringify(TRANSLATOR));
+      flags = [];
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const fallback = internals.invoke;
+      internals.invoke = (command, args) => {
+        if (command === "core_plugins") return Promise.resolve([view]);
+        if (command === "core_chat_hooks") return Promise.resolve(flags);
+        if (command === "core_plugin_chat") return Promise.resolve(KEY);
+        if (command === "core_plugin_ref") return Promise.resolve("ref_1");
+        if (command === "core_plugin_grant") view = { ...view, granted: args?.granted };
+        return fallback(command, args);
+      };
+    });
+    afterEach(() => {
+      premiumLocked.value = false;
+    });
+
+    async function thread() {
+      await refreshPlugins();
+      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs: hookStubs } });
+      await flushPromises();
+      return wrapper;
+    }
+    const kept = (command: string) => calls.filter(([one]) => one === command).map(([, args]) => args);
+    const frames = () => sheets.filter((one) => one.props.hidden);
+
+    it("puts a button for the tool bound to the chat in the header, and keeps what its window answers", async () => {
+      answer = (hook) => (hook.name === "chat" ? { auto: { message: true, composer: true } } : null);
+      const wrapper = await thread();
+      const button = wrapper.find(`ion-header [data-test='chat-hook-${ID}']`);
+      expect(button.exists()).toBe(true);
+      expect(button.attributes("aria-label")).toBe("Chat language");
+      await button.trigger("click");
+      await flushPromises();
+      const window = sheets.find((one) => one.props.hook === "chat");
+      expect(window?.props.hidden, "its window, on screen").toBe(false);
+      expect(window?.runHook).toHaveBeenCalledWith({ name: "chat", text: "", chat: KEY, ref: null, lang: "en", manual: true });
+      expect(kept("core_chat_hooks_set")).toEqual([{ contact: "c1", plugin: ID, autoMessage: true, autoComposer: true }]);
+      expect(wrapper.find("[data-test='plugin-window']").exists(), "closed once it answered").toBe(false);
+    });
+
+    it("keeps nothing when the window is closed before it answers", async () => {
+      answer = () => new Promise(() => {});
+      const wrapper = await thread();
+      await wrapper.find(`[data-test='chat-hook-${ID}']`).trigger("click");
+      await flushPromises();
+      await wrapper.find("[data-test='close-app']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='plugin-window']").exists()).toBe(false);
+      expect(kept("core_chat_hooks_set")).toEqual([]);
+    });
+
+    it("leads a locked tool's button to Premium", async () => {
+      premiumLocked.value = true;
+      const wrapper = await thread();
+      premiumLocked.value = true;
+      await wrapper.find(`[data-test='chat-hook-${ID}']`).trigger("click");
+      await flushPromises();
+      expect(push).toHaveBeenCalledWith("/tabs/settings#premium");
+      expect(sheets).toHaveLength(0);
+    });
+
+    it("offers the tool bound to messages on a long press, and keeps its answer under the message", async () => {
+      answer = (hook) => (hook.name === "message" ? { text: "¿Vienes esta noche?" } : null);
+      const wrapper = await thread();
+      await pressed(wrapper);
+      const button = wrapper.find(`[data-test='hook-message-${ID}']`);
+      expect(button.text()).toContain("Translate");
+      await button.trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(false);
+      expect(frames()).toHaveLength(1);
+      expect(frames()[0].runHook).toHaveBeenCalledWith({ name: "message", text: "Are you coming tonight?", chat: KEY, ref: "ref_1", lang: "en", manual: true });
+      expect(kept("core_message_note_set")).toEqual([{ message: "m1", plugin: ID, text: "¿Vienes esta noche?" }]);
+    });
+
+    it("asks first when the tool may not read the message yet, and runs only after a yes", async () => {
+      view = { ...TRANSLATOR, granted: { ...TRANSLATOR.granted, messages: false } };
+      answer = () => ({ text: "hola" });
+      const wrapper = await thread();
+      await pressed(wrapper);
+      await wrapper.find(`[data-test='hook-message-${ID}']`).trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='permission-ask']").html()).toContain("Read what you send it");
+      expect(frames()).toHaveLength(0);
+      await wrapper.find("[data-test='permission-allow']").trigger("click");
+      await flushPromises();
+      expect(frames()[0].runHook).toHaveBeenCalledWith(expect.objectContaining({ name: "message", manual: true }));
+      expect(kept("core_message_note_set")).toHaveLength(1);
+    });
+
+    it("has no hook button for a file", async () => {
+      const wrapper = await thread();
+      const file = wrapper.findAll("[data-test='bubble']")[3];
+      await file.trigger("pointerdown");
+      await new Promise((wake) => setTimeout(wake, 550));
+      await flushPromises();
+      expect(wrapper.find("[data-test='actions']").exists()).toBe(true);
+      expect(wrapper.find(`[data-test='hook-message-${ID}']`).exists()).toBe(false);
+    });
+
+    it("puts the composer hook's answer in the composer, with the user's original over it to go back to", async () => {
+      answer = (hook) => (hook.name === "composer" ? { text: "hola" } : null);
+      const wrapper = await thread();
+      const composer = () => wrapper.findComponent(IonTextarea);
+      expect(wrapper.find(`[data-test='hook-composer-${ID}']`).exists(), "nothing to translate yet").toBe(false);
+      composer().vm.$emit("update:modelValue", "hello");
+      await flushPromises();
+      const button = wrapper.find(`[data-test='hook-composer-${ID}']`);
+      expect(button.attributes("aria-label")).toBe("Translate");
+      await button.trigger("click");
+      await flushPromises();
+      expect(frames()[0].runHook).toHaveBeenCalledWith({ name: "composer", text: "hello", chat: KEY, ref: null, lang: "en", manual: true });
+      expect(composer().props("modelValue")).toBe("hola");
+      const strip = wrapper.find("[data-test='your-original']");
+      expect(strip.text()).toContain("Your original");
+      expect(strip.text()).toContain("hello");
+      await wrapper.find("[data-test='restore-original']").trigger("click");
+      await flushPromises();
+      expect(composer().props("modelValue")).toBe("hello");
+      expect(wrapper.find("[data-test='your-original']").exists()).toBe(false);
+
+      await wrapper.find(`[data-test='hook-composer-${ID}']`).trigger("click");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hola" }]);
+      expect(wrapper.find("[data-test='your-original']").exists()).toBe(false);
+    });
+
+    it("translates what is sent by itself with the conversation's composer switch on", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true }];
+      answer = (hook) => (hook.name === "composer" ? { text: "hola" } : null);
+      const wrapper = await thread();
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(frames()[0].runHook).toHaveBeenCalledWith(expect.objectContaining({ name: "composer", text: "hello", manual: false }));
+      expect(calls).toContainEqual(["core_send", { contact: "c1", text: "hola" }]);
+      expect(calls).not.toContainEqual(["core_send", { contact: "c1", text: "hello" }]);
+    });
+
+    it("translates the texts received by itself with the conversation's message switch on, the newest first", async () => {
+      flags = [{ plugin: ID, autoMessage: true, autoComposer: false }];
+      answer = (hook) => ({ text: `[${hook.text}]` });
+      await thread();
+      await vi.waitFor(() => expect(kept("core_message_note_set")).toHaveLength(3));
+      expect(frames()[0].runHook.mock.calls.map(([hook]) => [hook.text, hook.manual])).toEqual([
+        ["See you at 6 then ✨", false],
+        ["Perfect, I'll book the table 🍝", false],
+        ["Are you coming tonight?", false],
+      ]);
+    });
+  });
+
   // 2026-10-02 (plan of the catalogue's translations): a Spanish phone names a tool in Spanish in
   // the apps sheet, in "open with" and in its window, from its package.
   it("names a tool in the phone's language wherever it is shown", async () => {

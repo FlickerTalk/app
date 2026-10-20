@@ -275,5 +275,5 @@ export function useChatHooks(options: { contact: () => string; messages: () => C
   watch(() => [options.messages(), autoMessage.value, options.active()], catchUp);
   onScopeDispose(forgetAll);
 
-  return { frames, shown, noting, attach, setShown, noteMessage, compose, outgoing, chooseForChat, isOn, refresh };
+  return { frames, shown, noting, attach, setShown, dismiss: drop, noteMessage, compose, outgoing, chooseForChat, isOn, refresh, catchUp };
 }
