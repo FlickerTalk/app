@@ -41,7 +41,7 @@ ft.onHook(async (hook) => {
 });
 `;
 
-async function circle(app: Page, options: { downloaded?: boolean; flags?: Record<string, unknown>[]; page?: string } = {}) {
+async function circle(app: Page, options: { downloaded?: boolean; flags?: Record<string, unknown>[] } = {}) {
   await app.addInitScript(
     ({ flags, circle }) => {
       const fake = window as unknown as Record<string, unknown>;
@@ -53,7 +53,7 @@ async function circle(app: Page, options: { downloaded?: boolean; flags?: Record
   );
   await app.addInitScript(installFakeCore);
   await serveRealPluginFrames(app, plugin(options.downloaded ?? false));
-  await app.goto(options.page ?? `/circle/${CIRCLE}`);
+  await app.goto(`/circle/${CIRCLE}`);
 }
 
 /** The bubble of the text Bob said in the circle. */
@@ -122,7 +122,13 @@ test("with the circle's sending switch on, the text goes translated and my words
 });
 
 test("the circle's info page sets it to translate what arrives, and the circle does so", async ({ page: app }) => {
-  await circle(app, { downloaded: true, page: `/circle/${CIRCLE}/info` });
+  await circle(app, { downloaded: true });
+  // The language found as the circle opened; nothing by itself yet.
+  await expect(bobsBubble(app).getByTestId("translate")).toBeVisible();
+  await expect(app.getByTestId("translating")).toHaveCount(0);
+
+  await app.getByTestId("circle-peer").click();
+  await expect(app).toHaveURL(new RegExp(`/circle/${CIRCLE}/info$`));
   const group = app.getByTestId(`settings-${TRANSLATOR}`);
   await expect(group).toContainText("Translation");
   await expect(group).toContainText("Language packs are downloaded once; translation happens on the phone.");
@@ -133,8 +139,8 @@ test("the circle's info page sets it to translate what arrives, and the circle d
     .poll(async () => (await callsTo(app)).filter(([command]) => command === "core_chat_hooks_set").at(-1)?.[1])
     .toEqual({ conversation: CIRCLE, plugin: TRANSLATOR, autoMessage: true, autoComposer: false, lang: "fr" });
 
-  // The page's own way back (the hidden frames' window has one too, out of sight).
-  await app.locator("ion-back-button").click();
+  // Back to the circle Ionic kept under the info page: it reads its switches again.
+  await app.locator("ion-back-button:visible").click();
   await expect(app).toHaveURL(new RegExp(`/circle/${CIRCLE}$`));
   await expect(app.getByTestId("translating")).toHaveText("Translating · French");
   await expect(bobsBubble(app)).toContainText(TRANSLATED);

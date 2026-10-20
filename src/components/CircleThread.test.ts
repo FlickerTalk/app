@@ -481,6 +481,18 @@ describe("CircleThread", () => {
       expect(push).toHaveBeenCalledWith("/circle/circle1/info");
     });
 
+    // Ionic keeps the circle mounted under its info page, where the switches change: back on
+    // screen, the circle reads them again.
+    it("reads the circle's switches again when it is back on screen from its info", async () => {
+      const wrapper = await thread({ active: true });
+      expect(wrapper.find("[data-test='translating']").exists()).toBe(false);
+      await wrapper.setProps({ active: false });
+      flags = [{ plugin: ID, autoMessage: true, autoComposer: false, lang: "fr" }];
+      await wrapper.setProps({ active: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='translating']").html()).toContain("Translating · French");
+    });
+
     it("sends in the circle's language with its composer switch on, and keeps my words under it", async () => {
       flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
       sentId = "m9";
