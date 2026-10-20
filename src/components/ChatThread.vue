@@ -126,7 +126,7 @@ import {
 } from "../core";
 import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
 import { closeOnBack, closeOnBackWhile } from "../back";
-import type { PermissionNeed } from "../permissions";
+import { missingPermission, withPermission, type PermissionNeed } from "../permissions";
 import { firstDayOfWeek, i18n, t } from "../i18n";
 import { takeSend } from "../pending-send";
 import { dayLabels } from "../days";
@@ -886,11 +886,52 @@ const openers = computed(() => {
 
 async function openWith(id: string) {
   const message = messages.value.find((one) => one.id === acting.value);
-  const chosen = installed.value.find((one) => one.id === id);
+  let chosen = installed.value.find((one) => one.id === id);
   closeActions();
   if (!message || !chosen) return;
   if (isLocked(chosen)) return toPremium();
-  await openIn(chosen, message);
+  // A text needs `messages` (decision of 2026-10-20): asked for here, the first time.
+  if (message.kind !== "file" && !chosen.granted.messages) chosen = await allowedToRead(chosen);
+  if (chosen) await openIn(chosen, message);
+}
+
+// The tool "open with" asks the user about (2026-10-20): the sheet names it, as it names an open tool.
+const askingFor = ref<PluginView | null>(null);
+const askingView = computed(() => askingFor.value ?? openView.value);
+
+/**
+ * Asks the user to let `chosen` read what it is handed, in the same sheet as any permission asked
+ * on the spot (decision of 2026-10-20, app#177). The tool as the core says it is once allowed, or
+ * nothing: a no, or a grant that did not take, opens nothing and grants nothing.
+ */
+function allowedToRead(chosen: PluginView): Promise<PluginView | undefined> {
+  const line = missingPermission(chosen, "messages");
+  if (!line) return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    let answered = false;
+    askingFor.value = chosen;
+    needing.value = {
+      ...line,
+      answer: async (allowed) => {
+        if (answered) return;
+        answered = true;
+        if (!allowed) return resolve(undefined);
+        try {
+          await grantPlugin(chosen.id, withPermission(chosen, "messages", true));
+          const now = (await refreshPlugins()).find((one) => one.id === chosen.id);
+          resolve(now?.granted.messages ? now : undefined);
+        } catch {
+          resolve(undefined);
+        }
+      },
+    };
+  });
+}
+
+/** A permission the open tool or game asks for, named after it in the sheet. */
+function needFromApp(need: PermissionNeed) {
+  askingFor.value = null;
+  needing.value = need;
 }
 
 /**
@@ -1185,7 +1226,7 @@ watch(
           @open-chat="openChatFromPlugin"
           @done="pluginDone"
           @closed="pluginClosed"
-          @needs="(need) => (needing = need)"
+          @needs="needFromApp"
         />
       </div>
     </section>
@@ -1221,7 +1262,7 @@ watch(
           @open-chat="openChatFromPlugin"
           @done="pluginDone"
           @closed="pluginClosed"
-          @needs="(need) => (needing = need)"
+          @needs="needFromApp"
         />
       </div>
     </div>
@@ -1296,10 +1337,10 @@ watch(
     <PermissionAsk
       :class="sheetPane"
       :open="Boolean(needing)"
-      :name="plugin?.name ?? ''"
+      :name="askingFor ? pluginName(askingFor) : (plugin?.name ?? '')"
       :permission="needing ?? undefined"
-      :icon="openView && pluginIcon(openView)"
-      :image="openView && pluginImage(openView)"
+      :icon="askingView && pluginIcon(askingView)"
+      :image="askingView && pluginImage(askingView)"
       @allow="answerNeed(true)"
       @cancel="answerNeed(false)"
     />

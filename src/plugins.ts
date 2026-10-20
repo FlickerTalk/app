@@ -438,7 +438,9 @@ export function opensKind(opens: string[] | undefined, mime: string): boolean {
 
 /**
  * The plugins that can open a message (2026-09-27): a text goes to those that open `text/plain`
- * and were granted reading what they are handed; a file, to those that open its kind.
+ * and ask to read what they are handed; a file, to those that open its kind. Asking is enough to
+ * be offered (decision of 2026-10-20, app#177): the permission is asked for when the user picks
+ * one, so a tool just installed is found where it is needed.
  */
 export function openersOf(plugins: PluginView[], message: { kind?: string; text?: string; file?: { mime?: string } }): PluginView[] {
   const candidates = plugins.filter((one) => !isGame(one));
@@ -446,7 +448,7 @@ export function openersOf(plugins: PluginView[], message: { kind?: string; text?
     const mime = message.file?.mime || "application/octet-stream";
     return candidates.filter((one) => opensKind(one.opens, mime));
   }
-  return candidates.filter((one) => one.granted.messages && opensKind(one.opens, "text/plain"));
+  return candidates.filter((one) => one.asks.messages && opensKind(one.opens, "text/plain"));
 }
 
 /**

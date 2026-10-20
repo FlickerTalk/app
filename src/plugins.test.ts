@@ -284,7 +284,8 @@ describe("plugins in the app", () => {
   });
 
   // 2026-09-27: "open with": a plugin says which kinds of file it opens; a text goes only to
-  // one that may read what it is handed.
+  // one that asks to read what it is handed. Decision of 2026-10-20 (app#177): asking is enough to
+  // be offered; the permission is asked for when the user picks it, so a new tool is found.
   it("knows which plugins open a message", () => {
     expect(opensKind(["image/*"], "image/png")).toBe(true);
     expect(opensKind(["image/*"], "IMAGE/JPEG; charset=x")).toBe(true);
@@ -296,9 +297,12 @@ describe("plugins in the app", () => {
     const board = { ...CODE, id: "com.flickertalk.board", opens: ["application/x-ftboard", "image/*"] };
     const notes = { ...CODE, id: "com.flickertalk.notes", opens: ["text/plain"] };
     const deaf = { ...LOCKED, opens: ["text/plain"] };
-    const drive = { ...LOCKED, id: "com.flickertalk.drive", opens: ["*/*"] };
+    const blind = { ...CODE, id: "com.example.blind", opens: ["text/plain"], asks: { ...CODE.asks, messages: false }, granted: { ...CODE.granted, messages: false } };
+    // As the real Drive: it opens any file and never asks to read a message.
+    const drive = { ...LOCKED, id: "com.flickertalk.drive", opens: ["*/*"], asks: { ...LOCKED.asks, messages: false } };
     const ids = (list: { id: string }[]) => list.map((one) => one.id);
-    expect(ids(openersOf([board, notes, deaf, drive], { text: "hi" }))).toEqual([notes.id]);
+    // Not granted yet but asking for it: offered. Never asking: never handed a text.
+    expect(ids(openersOf([board, notes, deaf, blind, drive], { text: "hi" }))).toEqual([notes.id, deaf.id]);
     expect(ids(openersOf([board, notes, deaf, drive], { kind: "file", file: { mime: "image/png" } }))).toEqual([board.id, drive.id]);
     expect(ids(openersOf([board, notes, deaf, drive], { kind: "file", file: { mime: "application/x-ftboard" } }))).toEqual([board.id, drive.id]);
     expect(ids(openersOf([board, notes], { kind: "file", file: {} }))).toEqual([]);
