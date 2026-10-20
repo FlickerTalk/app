@@ -269,9 +269,11 @@ impl Network {
         self.ice.lock().expect("ice poisoned").clone()
     }
 
+    /// A new session's setup: listening on the interfaces there are now (app#200), with the
+    /// router's STUN and TURN.
     fn session_config(&self) -> SessionConfig {
         let (stun, turn) = self.ice.lock().expect("ice poisoned").clone();
-        ice_config(&self.base, stun, turn)
+        ice_config(&self.base.clone().listening_now(), stun, turn)
     }
 
     async fn collect_mail(&self) {
@@ -916,5 +918,40 @@ mod tests {
     fn without_a_welcome_the_base_configuration_stays() {
         let base = SessionConfig::with_stun(["stun:fallback:19302".to_owned()]);
         assert_eq!(ice_config(&base, vec![], None).stun_servers, ["stun:fallback:19302"]);
+    }
+
+    struct NoRouter;
+
+    #[async_trait]
+    impl Relay for NoRouter {
+        async fn signal(&self, _: &str, _: &[u8; 32], _: Vec<u8>) -> Result<bool> {
+            Ok(false)
+        }
+
+        async fn deposit(&self, _: &str, _: &[u8; 32], _: Vec<u8>) -> Result<()> {
+            Ok(())
+        }
+
+        async fn collect(&self) -> Result<Vec<(String, Vec<u8>)>> {
+            Ok(Vec::new())
+        }
+
+        async fn acknowledge(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    // The phone changed networks with the app open (app#200, 2026-10-20): the addresses it had
+    // when the app started may be gone. A direct connection or a call's media made afterwards
+    // listens on the interfaces there are now; before, nothing could bind once they were all gone.
+    #[test]
+    fn new_connections_and_calls_listen_on_the_interfaces_there_are_now() {
+        let started = SessionConfig { bind: vec!["192.0.2.1:0".to_owned()], ..SessionConfig::default() };
+        let network = Network::new(Arc::new(NoRouter), started);
+        assert_eq!(network.session_config().bind, ft_webrtc::interface_addresses());
+        assert_eq!(network.media_config().bind, ft_webrtc::interface_addresses());
+
+        let offline = Network::new(Arc::new(NoRouter), SessionConfig::offline());
+        assert_eq!(offline.session_config().bind, ["127.0.0.1:0"], "the tests' loopback stays");
     }
 }
