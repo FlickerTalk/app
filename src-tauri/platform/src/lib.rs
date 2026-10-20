@@ -21,6 +21,8 @@
 //! - `share_text`: the system share sheet (WhatsApp, Signal, mail…) with a text, such as the
 //!   Contact Card link (§32).
 //! - `current_location`: the phone's position, once, for the location plugin (2026-10-02).
+//! - `translate_*`: translation on the phone for the translator plugin (2026-10-20, app#177): ML
+//!   Kit on Android, Apple's Translation on iOS 18 and up; the text never leaves the phone.
 //! - `restart_app`: starts the app again (after moving to a new phone, §60); Tauri's own restart
 //!   only exits on Android.
 
@@ -397,6 +399,100 @@ struct Located {
 impl Located {
     fn location(self) -> Option<Location> {
         self.found.then_some(Location { lat: self.lat, lon: self.lon, accuracy: self.accuracy, at: self.at as i64 })
+    }
+}
+
+/// Whether a language pair can be used now, after a download, or not at all (2026-10-20). Apple
+/// only tells it per pair, so ML Kit's per-language models are read the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TranslateStatus {
+    Installed,
+    Downloadable,
+    Unsupported,
+}
+
+/// Arguments of `translateStatus`, `translatePrepare` and `translateRemove`.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct TranslatePair<'a> {
+    from: &'a str,
+    to: &'a str,
+}
+
+/// Arguments of `translateDetect`.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct TranslateSource<'a> {
+    text: &'a str,
+}
+
+/// Arguments of `translateText`.
+#[derive(Serialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct TranslateRequest<'a> {
+    text: &'a str,
+    from: &'a str,
+    to: &'a str,
+}
+
+/// What `translateLanguages` resolves with: the BCP-47 tags this phone translates between.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct TranslateLanguages {
+    languages: Vec<String>,
+}
+
+/// What `translateDetect` resolves with: `found` and, when found, the language's tag.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Detected {
+    found: bool,
+    #[serde(default)]
+    tag: Option<String>,
+}
+
+#[cfg_attr(not(mobile), allow(dead_code))]
+impl Detected {
+    fn tag(self) -> Option<String> {
+        self.tag.filter(|tag| self.found && !tag.is_empty())
+    }
+}
+
+/// What `translateStatus` resolves with.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct PairState {
+    status: TranslateStatus,
+}
+
+/// What `translatePrepare` resolves with: whether the pair can be used now.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Prepared {
+    ready: bool,
+}
+
+/// What `translateRemove` resolves with: whether the pair's packs are off the phone.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Removed {
+    removed: bool,
+}
+
+/// What `translateText` resolves with: `found` and, when found, the translation.
+#[derive(Deserialize)]
+#[cfg_attr(not(mobile), allow(dead_code))]
+struct Translated {
+    found: bool,
+    #[serde(default)]
+    text: Option<String>,
+}
+
+#[cfg_attr(not(mobile), allow(dead_code))]
+impl Translated {
+    fn text(self) -> Option<String> {
+        self.text.filter(|_| self.found)
     }
 }
 
@@ -893,6 +989,91 @@ impl<R: Runtime> Platform<R> {
         }
     }
 
+    /// The languages this phone translates between, as BCP-47 tags ("es", "zh-TW"), downloaded
+    /// or not (2026-10-20). Empty where there is no translator: a desktop, or iOS before 18.
+    /// Like every `translate_*`, it blocks until the phone answers: never on the main thread.
+    pub fn translate_languages(&self) -> Result<Vec<String>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<TranslateLanguages>("translateLanguages", ())?.languages)
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(vec![])
+        }
+    }
+
+    /// Guesses the language of a text on the phone; `None` when it cannot tell.
+    pub fn translate_detect(&self, text: &str) -> Result<Option<String>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Detected>("translateDetect", TranslateSource { text })?.tag())
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = text;
+            Ok(None)
+        }
+    }
+
+    /// Whether a pair is on the phone, needs a download, or cannot be translated here. A tag the
+    /// phone does not list is `Unsupported`.
+    pub fn translate_status(&self, from: &str, to: &str) -> Result<TranslateStatus> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<PairState>("translateStatus", TranslatePair { from, to })?.status)
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = (from, to);
+            Ok(TranslateStatus::Unsupported)
+        }
+    }
+
+    /// Downloads what a pair needs, from Google (Android, in the background) or Apple (iOS shows
+    /// its own sheet); `true` once the pair can be used. Only after the user agreed to it.
+    pub fn translate_prepare(&self, from: &str, to: &str) -> Result<bool> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Prepared>("translatePrepare", TranslatePair { from, to })?.ready)
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = (from, to);
+            Ok(false)
+        }
+    }
+
+    /// Removes the downloaded packs of a pair's languages other than English, the pivot, which is
+    /// never removed: `remove(tag, "en")` frees one language (Android). `true` once they are off
+    /// the phone; `false` for a pair with nothing but English, and on iOS, where the user removes
+    /// them in Settings.
+    pub fn translate_remove(&self, from: &str, to: &str) -> Result<bool> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Removed>("translateRemove", TranslatePair { from, to })?.removed)
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = (from, to);
+            Ok(false)
+        }
+    }
+
+    /// Translates a text on the phone, only with a pair already on it (never downloads); `None`
+    /// when it could not.
+    pub fn translate_text(&self, text: &str, from: &str, to: &str) -> Result<Option<String>> {
+        #[cfg(mobile)]
+        {
+            Ok(self.handle.run_mobile_plugin::<Translated>("translateText", TranslateRequest { text, from, to })?.text())
+        }
+        #[cfg(not(mobile))]
+        {
+            let _ = (text, from, to);
+            Ok(None)
+        }
+    }
+
     /// Whether this phone lets a call take the whole screen (Android 14 asks the user).
     pub fn can_show_full_screen(&self) -> Result<bool> {
         #[cfg(mobile)]
@@ -1038,6 +1219,66 @@ mod tests {
         assert_eq!(found.location(), Some(Location { lat: 40.41678, lon: -3.70379, accuracy: 35.0, at: 1_790_000_000_000 }));
         let nothing: Located = serde_json::from_value(serde_json::json!({ "found": false })).unwrap();
         assert_eq!(nothing.location(), None);
+    }
+
+    // 2026-10-20: on-device translation (app#177). Swift and Kotlin read `{from, to}`, `{text}`
+    // and `{text, from, to}`, and resolve with the shapes below; a pair's state is one of three
+    // words, and anything else is not read as a state.
+    #[test]
+    fn a_translation_travels_as_swift_and_kotlin_read_and_resolve_it() {
+        assert_eq!(serde_json::to_value(TranslatePair { from: "es", to: "en" }).unwrap(), serde_json::json!({ "from": "es", "to": "en" }));
+        assert_eq!(serde_json::to_value(TranslateSource { text: "hola" }).unwrap(), serde_json::json!({ "text": "hola" }));
+        assert_eq!(
+            serde_json::to_value(TranslateRequest { text: "hola", from: "es", to: "en" }).unwrap(),
+            serde_json::json!({ "text": "hola", "from": "es", "to": "en" })
+        );
+        let listed: TranslateLanguages = serde_json::from_value(serde_json::json!({ "languages": ["en", "es", "zh-TW"] })).unwrap();
+        assert_eq!(listed.languages, ["en", "es", "zh-TW"]);
+        for (word, status) in [("installed", TranslateStatus::Installed), ("downloadable", TranslateStatus::Downloadable), ("unsupported", TranslateStatus::Unsupported)] {
+            let pair: PairState = serde_json::from_value(serde_json::json!({ "status": word })).unwrap();
+            assert_eq!(pair.status, status);
+        }
+        assert!(serde_json::from_value::<PairState>(serde_json::json!({ "status": "supported" })).is_err());
+        let ready: Prepared = serde_json::from_value(serde_json::json!({ "ready": true })).unwrap();
+        assert!(ready.ready);
+        let removed: Removed = serde_json::from_value(serde_json::json!({ "removed": false })).unwrap();
+        assert!(!removed.removed);
+    }
+
+    // A guess or a translation counts only when the native side found one, and it says something.
+    #[test]
+    fn a_detected_language_and_a_translation_count_only_when_found() {
+        let detected = |json| serde_json::from_value::<Detected>(json).unwrap().tag();
+        assert_eq!(detected(serde_json::json!({ "found": true, "tag": "es" })), Some("es".to_owned()));
+        assert_eq!(detected(serde_json::json!({ "found": false })), None);
+        assert_eq!(detected(serde_json::json!({ "found": false, "tag": "es" })), None);
+        assert_eq!(detected(serde_json::json!({ "found": true })), None);
+        assert_eq!(detected(serde_json::json!({ "found": true, "tag": "" })), None);
+        let translated = |json| serde_json::from_value::<Translated>(json).unwrap().text();
+        assert_eq!(translated(serde_json::json!({ "found": true, "text": "hello" })), Some("hello".to_owned()));
+        assert_eq!(translated(serde_json::json!({ "found": false })), None);
+        assert_eq!(translated(serde_json::json!({ "found": true, "text": null })), None);
+    }
+
+    // A desktop has no translator: no languages, every pair unsupported, nothing to download or
+    // remove, and no guess or translation; never an error. The six methods are the surface the
+    // core's `PlatformTranslator` calls.
+    #[cfg(not(mobile))]
+    #[test]
+    fn a_desktop_cannot_translate() {
+        let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
+        let languages: Result<Vec<String>> = platform.translate_languages();
+        assert_eq!(languages.ok(), Some(vec![]));
+        let detected: Result<Option<String>> = platform.translate_detect("hola");
+        assert_eq!(detected.ok(), Some(None));
+        let status: Result<TranslateStatus> = platform.translate_status("es", "en");
+        assert_eq!(status.ok(), Some(TranslateStatus::Unsupported));
+        let prepared: Result<bool> = platform.translate_prepare("es", "en");
+        assert_eq!(prepared.ok(), Some(false));
+        let removed: Result<bool> = platform.translate_remove("es", "en");
+        assert_eq!(removed.ok(), Some(false));
+        let translated: Result<Option<String>> = platform.translate_text("hola", "es", "en");
+        assert_eq!(translated.ok(), Some(None));
     }
 
     #[test]

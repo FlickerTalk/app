@@ -1277,6 +1277,64 @@ class PlatformPlugin: Plugin {
         }
     }
 
+    /// On-device translation (2026-10-20, app#177, Translate.swift): the core already checked that
+    /// the plugin was granted `translate`. iOS 18 and up; before, no languages and nothing ready. A
+    /// tag the bridge does not list is unsupported, never an error.
+    @objc public func translateLanguages(_ invoke: Invoke) throws {
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["languages": [String]()])
+            return
+        }
+        Task { invoke.resolve(["languages": await supportedTags()]) }
+    }
+
+    @objc public func translateDetect(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslateSourceArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["found": false])
+            return
+        }
+        invoke.resolve(detectLanguage(args.text).mapValues { $0 as Any? })
+    }
+
+    @objc public func translateStatus(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslatePairArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["status": "unsupported"])
+            return
+        }
+        Task { invoke.resolve(await pairStatus(from: args.from, to: args.to).mapValues { $0 as Any? }) }
+    }
+
+    /// Apple's sheet asks the user to download the pair's packs, over the app's screen.
+    @objc public func translatePrepare(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslatePairArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["ready": false])
+            return
+        }
+        Task { @MainActor [manager] in
+            invoke.resolve(await preparePair(from: args.from, to: args.to, on: manager.viewController).mapValues { $0 as Any? })
+        }
+    }
+
+    /// iOS keeps the language packs: the user removes them in Settings, never the app.
+    @objc public func translateRemove(_ invoke: Invoke) throws {
+        _ = try invoke.parseArgs(TranslatePairArgs.self)
+        invoke.resolve(["removed": false])
+    }
+
+    @objc public func translateText(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslateTextArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["found": false])
+            return
+        }
+        Task { @MainActor [manager] in
+            invoke.resolve(await translateOnPhone(args.text, from: args.from, to: args.to, on: manager.viewController).mapValues { $0 as Any? })
+        }
+    }
+
     /// This phone calls: CallKit takes the call and its audio session (native calls, 2026-09-28).
     @objc public func callStartedOutgoing(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(OutgoingArgs.self)

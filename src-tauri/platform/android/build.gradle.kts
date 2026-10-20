@@ -36,6 +36,11 @@ dependencies {
     // The yearly subscription (§40-42, §47). Play Console only lets a subscription product be
     // created once it finds this library in an uploaded bundle.
     implementation("com.android.billingclient:billing:9.1.0")
+    // On-device translation (2026-10-20, app#177): ML Kit translates and identifies the language
+    // on the phone, only when the translator plugin asks; the text never leaves the phone.
+    // Language models (~30 MB each) are downloaded from Google once, after the user agrees.
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
     implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
