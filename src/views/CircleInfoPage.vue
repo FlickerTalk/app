@@ -8,6 +8,7 @@ import HookFrames from "../components/HookFrames.vue";
 import PluginSettingsGroup from "../components/PluginSettingsGroup.vue";
 import { useChatHooks } from "../chatHooks";
 import { installed, isLocked } from "../plugins";
+import { useOnScreen } from "../on-screen";
 import {
   circle as circleOf,
   circleHome,
@@ -92,8 +93,10 @@ async function toggleAdmin(contact: string, isAdmin: boolean) {
 // 2026-10-20 (plan of the translator §8.2d, screen G): as on a contact's page, a native group for
 // each tool with a settings hook (the Translator's language and switches), drawn from what it
 // declares, for this circle. Its hook runs out of sight in a frame this page hosts, in the circle's
-// hidden session if it lives in one; nothing runs by itself here (`active` off).
+// hidden session if it lives in one; nothing runs by itself here (`active` off). The group reads and
+// the frames ask only while this page is on screen (QA 2026-10-20).
 const hooks = useChatHooks({ conversation: () => id, messages: () => [], active: () => false });
+const onScreen = useOnScreen();
 const settingsTools = computed(() => installed.value.filter((one) => one.kind !== "game" && one.hooks?.settings && !isLocked(one)));
 </script>
 
@@ -200,7 +203,7 @@ const settingsTools = computed(() => installed.value.filter((one) => one.kind !=
           </ion-item>
         </ion-list>
 
-        <PluginSettingsGroup v-for="tool in settingsTools" :key="tool.id" class="ft-group" :plugin="tool" :hooks="hooks" />
+        <PluginSettingsGroup v-for="tool in settingsTools" :key="tool.id" class="ft-group" :plugin="tool" :hooks="hooks" :active="onScreen" />
 
         <ion-list inset class="ft-group">
           <ion-item v-if="!circle.left" button lines="none" :data-test="sure === 'leave' ? 'circle-leave-sure' : 'circle-leave'" @click="leave">
@@ -215,7 +218,7 @@ const settingsTools = computed(() => installed.value.filter((one) => one.kind !=
       </div>
     </ion-content>
     <!-- The tools' settings hooks run here, out of sight. -->
-    <HookFrames :hooks="hooks" :contact="id" :session="circleHome(id).session" />
+    <HookFrames :hooks="hooks" :contact="id" :session="circleHome(id).session" :active="onScreen" />
   </ion-page>
 </template>
 

@@ -54,6 +54,7 @@ import {
 } from "../core";
 import { t } from "../i18n";
 import { askSearch, inPane } from "../pending-search";
+import { useOnScreen } from "../on-screen";
 
 const route = useRoute();
 const router = useRouter();
@@ -119,8 +120,10 @@ const RULES = [
 
 // 2026-10-20 (plan of the translator §8.2d, F1): after the rules, a native group for each tool with
 // a settings hook (the Translator's language and switches), drawn from what it declares. Its hook
-// runs out of sight in a frame this page hosts; nothing runs by itself here (`active` off).
+// runs out of sight in a frame this page hosts; nothing runs by itself here (`active` off). The
+// group reads and the frames ask only while this page is on screen (QA 2026-10-20).
 const hooks = useChatHooks({ conversation: () => id, messages: () => chat(id)?.messages ?? [], active: () => false });
+const onScreen = useOnScreen();
 const settingsTools = computed(() => installed.value.filter((one) => one.kind !== "game" && one.hooks?.settings && !isLocked(one)));
 
 async function changeRule(key: keyof ContactRules, on: boolean) {
@@ -311,7 +314,7 @@ const deleteButtons = computed(() => [
           </ion-item>
         </ion-list>
 
-        <PluginSettingsGroup v-for="tool in settingsTools" :key="tool.id" class="ft-group" :plugin="tool" :hooks="hooks" />
+        <PluginSettingsGroup v-for="tool in settingsTools" :key="tool.id" class="ft-group" :plugin="tool" :hooks="hooks" :active="onScreen" />
 
         <ion-list inset class="ft-group">
           <ion-item button detail lines="none" data-test="block" @click="toggleBlock">
@@ -369,7 +372,7 @@ const deleteButtons = computed(() => [
       </div>
     </ion-content>
     <!-- The tools' settings hooks run here, out of sight. -->
-    <HookFrames :hooks="hooks" :contact="id" :session="sessionOf(id)" />
+    <HookFrames :hooks="hooks" :contact="id" :session="sessionOf(id)" :active="onScreen" />
   </ion-page>
 </template>
 

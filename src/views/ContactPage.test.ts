@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flushPromises, mount } from "@vue/test-utils";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
 import { defineComponent, h } from "vue";
 import ContactPage from "./ContactPage.vue";
@@ -18,6 +18,9 @@ vi.mock("vue-router", () => ({
   useRoute: () => ({ params: { id: routing.id } }),
   useRouter: () => ({ push: routing.push, back: routing.back, replace: vi.fn(), options: { history: { get state() { return routing.state; } } } }),
 }));
+
+// Each page goes when its test ends, as a page does: the hooks of a stale one must not run on.
+enableAutoUnmount(afterEach);
 
 describe("ContactPage", () => {
   beforeEach(() => {
@@ -289,6 +292,45 @@ describe("ContactPage", () => {
         await vi.waitFor(() => expect(handed).toEqual([{ name: "settings", text: "ciao", chat: "key", ref: null, lang: "en", manual: false }]));
         await flushPromises();
         expect(wrapper.find(`[data-test='settings-${TRANSLATOR.id}'] [data-test='setting-receive']`).exists()).toBe(true);
+      } finally {
+        internals.invoke = fallback;
+      }
+    });
+
+    // QA of the translator (2026-10-20, D5): installed again from Apps with this page left in the
+    // stack, its group, drawn again, ran the hook out of sight and asked for a permission over the
+    // page on screen. Nothing runs, and nothing asks, until the page is on screen again.
+    it("runs no hook while the page is under another one, and runs it once it is back", async () => {
+      const handed: unknown[] = [];
+      const HookSheet = defineComponent({
+        name: "PluginSheet",
+        props: { plugin: { type: Object, default: undefined }, contact: { type: String, default: "" }, hidden: Boolean, sending: { type: String, default: "" }, session: { type: String, default: undefined }, fill: Boolean },
+        setup(_props, { expose }) {
+          expose({ runHook: async (hook: unknown) => (handed.push(hook), { values: { receive: true } }) });
+          return () => h("div");
+        },
+      });
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const fallback = internals.invoke;
+      internals.invoke = (command, args) => {
+        if (command === "core_hook_sample") return Promise.resolve("ciao");
+        if (command === "core_plugin_chat") return Promise.resolve("key");
+        return fallback(command, args);
+      };
+      try {
+        const wrapper = mount(ContactPage, { global: { stubs: { PluginSheet: HookSheet, IonIcon: true } } });
+        const view = (name: string) => ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+        view("onIonViewWillLeave");
+        installed.value = [TRANSLATOR];
+        await flushPromises();
+        expect(wrapper.findComponent(PluginSettingsGroup).exists()).toBe(true);
+        expect(handed).toEqual([]);
+        expect(wrapper.findComponent(HookFrames).props("active")).toBe(false);
+
+        view("onIonViewWillEnter");
+        view("onIonViewDidEnter");
+        await vi.waitFor(() => expect(handed).toHaveLength(1));
+        expect(wrapper.findComponent(HookFrames).props("active")).toBe(true);
       } finally {
         internals.invoke = fallback;
       }

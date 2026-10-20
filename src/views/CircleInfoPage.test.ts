@@ -235,6 +235,26 @@ describe("CircleInfoPage", () => {
       expect(calls).toContainEqual(["core_chat_hooks_set", { conversation: "circle1", plugin: TRANSLATOR.id, autoMessage: true, autoComposer: false, lang: "fr" }]);
     });
 
+    // QA of the translator (2026-10-20, D5): installed again from Apps with this page left in the
+    // stack, its group, drawn again, ran the hook out of sight and asked for a permission over the
+    // page on screen. Nothing runs, and nothing asks, until the page is on screen again.
+    it("runs no hook while the page is under another one, and runs it once it is back", async () => {
+      answer = () => ({ values: { lang: "fr", receive: false } });
+      const wrapper = mount(CircleInfoPage, { global: { stubs: { PluginSheet: HookSheet, IonIcon: true } } });
+      const view = (name: string) => ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+      view("onIonViewWillLeave");
+      installed.value = [TRANSLATOR];
+      await flushPromises();
+      expect(wrapper.findComponent(PluginSettingsGroup).exists()).toBe(true);
+      expect(handed).toEqual([]);
+      expect(wrapper.findComponent(HookFrames).props("active")).toBe(false);
+
+      view("onIonViewWillEnter");
+      view("onIonViewDidEnter");
+      await vi.waitFor(() => expect(handed).toHaveLength(1));
+      expect(wrapper.findComponent(HookFrames).props("active")).toBe(true);
+    });
+
     it("runs the frames in the circle's hidden session when it lives in one", async () => {
       store.circles = [];
       store.sessions = [{ id: "s7", chats: [], requests: [], circles: [friends()] } as unknown as (typeof store.sessions)[number]];

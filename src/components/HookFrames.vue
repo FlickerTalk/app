@@ -4,7 +4,9 @@
  * §8.1): one per tool, as `useChatHooks` asks for them, shared by a conversation, the contact's page
  * and a circle's. Each is laid out as the tool's window, so one that asks the user something
  * (`ft.show`) shows where it is (a frame moved would reload), with a way out; otherwise it is there,
- * neither seen nor touched. A permission a tool needs is asked on the spot, named after it.
+ * neither seen nor touched. A permission a tool needs is asked on the spot, named after it, and only
+ * while the page holding the frames is on screen: a page left in the stack under others never puts
+ * its sheet over the one on screen (QA 2026-10-20); the question waits for its page.
  */
 import { computed, ref } from "vue";
 import { IonButton, IonButtons, IonIcon, IonTitle, IonToolbar } from "@ionic/vue";
@@ -20,7 +22,8 @@ import type { PluginView } from "../core";
 /**
  * `hooks`: the conversation's (`useChatHooks`). `contact` and `session`: handed to each frame, as a
  * window opened in that conversation gets them. `active`: whether the page holding them is the one
- * on screen, for Android's Back. `paneClass`: the pane the permission sheet covers on a wide screen.
+ * on screen, for the permission sheet and Android's Back. `paneClass`: the pane the permission sheet
+ * covers on a wide screen.
  */
 const props = withDefaults(
   defineProps<{
@@ -92,7 +95,7 @@ closeOnBackWhile(() => props.active && props.hooks.shown.size > 0, dismissShown)
   </div>
   <PermissionAsk
     :class="paneClass"
-    :open="Boolean(needing)"
+    :open="active && Boolean(needing)"
     :name="needing ? pluginName(needing.tool) : ''"
     :permission="needing?.need"
     :icon="needing ? pluginIcon(needing.tool) : undefined"

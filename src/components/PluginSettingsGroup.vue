@@ -10,14 +10,19 @@
  *
  * The group is drawn whole at once, its rows waiting until the tool says what is set: nothing moves
  * when the values come.
+ *
+ * `active`: whether the page holding it is the one on screen. A page left in the stack under others
+ * runs nothing (QA 2026-10-20: drawn again there after the tool was installed again, the group ran
+ * the hook and its permission sheet came up over the page on screen); the group reads the tool's
+ * settings once its page is on screen.
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { IonIcon, IonItem, IonLabel, IonList, IonListHeader, IonNote, IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
 import { hookIcon, hookLabel, settingsFields, settingsNote, type PluginHookResult } from "../plugins";
 import type { ChatHooks, SettingsValues } from "../chatHooks";
 import type { PluginView } from "../core";
 
-const props = defineProps<{ plugin: PluginView; hooks: Pick<ChatHooks, "readSettings" | "settings"> }>();
+const props = withDefaults(defineProps<{ plugin: PluginView; hooks: Pick<ChatHooks, "readSettings" | "settings">; active?: boolean }>(), { active: true });
 
 const fields = computed(() => settingsFields(props.plugin));
 const note = computed(() => settingsNote(props.plugin));
@@ -44,12 +49,18 @@ async function change(key: string, value: string | boolean) {
   else values.value = before;
 }
 
-onMounted(async () => {
+/** The tool has been asked what is set: once, the first time the group is on screen. */
+let asked = false;
+async function read() {
+  if (asked || !props.active) return;
+  asked = true;
   const result = await props.hooks.readSettings(props.plugin).catch(() => null);
   if (!result) return;
   show(result);
   ready.value = true;
-});
+}
+onMounted(read);
+watch(() => props.active, read);
 </script>
 
 <template>
