@@ -104,6 +104,8 @@ pub struct Contact {
     /// Known only because they are in a circle with this phone: in no list, in no requests
     /// unless they write on their own.
     pub via_circle: bool,
+    /// When this phone last unblocked them, by its own clock (app#146); `None` if it never did.
+    pub unblocked_at: Option<i64>,
 }
 
 /// A local reminder a plugin set (2026-09-27).
@@ -634,8 +636,19 @@ impl Store {
         self.update_contact("UPDATE contacts SET name = ? WHERE device_id = ?", name, device_id).await
     }
 
+    /// Blocks or unblocks the contact. A real unblock, of a contact who was blocked, also notes
+    /// when it happened (`unblocked_at`, app#146).
     pub async fn set_blocked(&self, device_id: &str, blocked: bool) -> Result<()> {
-        sqlx::query("UPDATE contacts SET blocked = ? WHERE device_id = ?").bind(blocked).bind(device_id).execute(&self.pool).await?;
+        sqlx::query(
+            "UPDATE contacts SET unblocked_at = CASE WHEN blocked AND NOT ? THEN ? ELSE unblocked_at END, blocked = ?
+             WHERE device_id = ?",
+        )
+        .bind(blocked)
+        .bind(now())
+        .bind(blocked)
+        .bind(device_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1809,6 +1822,7 @@ fn contact_from(row: &SqliteRow) -> Contact {
         },
         accepted: row.get("accepted"),
         via_circle: row.get("via_circle"),
+        unblocked_at: row.get("unblocked_at"),
     }
 }
 
@@ -2314,6 +2328,45 @@ mod tests {
         assert_eq!(bob.name, "Robert");
         assert!(bob.blocked);
         assert_eq!(store.contacts().await.expect("lists").len(), 1);
+    }
+
+    // app#146: when a contact was last unblocked, so what they wrote while blocked can be told
+    // apart. Only a real unblock sets it: one of a contact who was not blocked changes nothing.
+    #[tokio::test]
+    async fn unblocking_a_contact_remembers_when() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        async fn unblocked_at(store: &Store) -> Option<i64> {
+            store.contact("ft_bob").await.expect("reads").expect("present").unblocked_at
+        }
+        assert_eq!(unblocked_at(&store).await, None, "never blocked");
+        store.set_blocked("ft_bob", false).await.expect("not blocked to begin with");
+        assert_eq!(unblocked_at(&store).await, None, "nothing was unblocked");
+
+        store.set_blocked("ft_bob", true).await.expect("blocks");
+        assert_eq!(unblocked_at(&store).await, None, "blocking leaves it");
+        let before = now();
+        store.set_blocked("ft_bob", false).await.expect("unblocks");
+        let at = unblocked_at(&store).await.expect("remembered");
+        assert!((before..=now()).contains(&at), "this phone's clock at the unblock");
+
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        store.set_blocked("ft_bob", false).await.expect("unblocks again");
+        assert_eq!(unblocked_at(&store).await, Some(at), "already unblocked: kept");
+        store.set_blocked("ft_bob", true).await.expect("blocks again");
+        assert_eq!(unblocked_at(&store).await, Some(at), "the last unblock stays while blocked");
+    }
+
+    // A database from before the column: its contacts were never unblocked since.
+    #[tokio::test]
+    async fn a_contact_from_before_has_no_unblock() {
+        let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.expect("opens");
+        sqlx::migrate!("./migrations").run_to(21, &pool).await.expect("migrates to 0021");
+        sqlx::query("INSERT INTO contacts (device_id, name, card, mailbox, added_at) VALUES ('ft_bob', 'Bob', x'01', 1, 1)").execute(&pool).await.expect("a contact");
+
+        let store = Store::with(pool, None).await.expect("migrates the rest");
+        assert_eq!(store.contact("ft_bob").await.expect("reads").expect("present").unblocked_at, None);
     }
 
     // 2026-10-05: an answer remembers what it answers, and forgets it with the message.

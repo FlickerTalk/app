@@ -4822,6 +4822,7 @@ mod tests {
             rules: Default::default(),
             accepted: true,
             via_circle: false,
+            unblocked_at: None,
         };
         let conversation = Conversation { contact, last: Some(message(MessageState::Pending, true)), unread: 2 };
         let view = serde_json::to_value(ConversationView::new(&conversation, true)).unwrap();
