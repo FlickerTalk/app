@@ -48,6 +48,12 @@ describe("avatar initials", () => {
     expect(initials("#2 Pepe")).toBe("2P");
     expect(initials("🙂 Luis")).toBe("🙂L");
   });
+
+  // A name with no letter, digit or emoji anywhere must not leave the avatar blank (app#158).
+  it("falls back to the first character of a name with no letter, digit or emoji", () => {
+    expect(initials("(—)")).toBe("(");
+    expect(initials("  (—) ...")).toBe("(");
+  });
 });
 
 describe("first character of a word", () => {
