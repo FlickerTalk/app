@@ -563,8 +563,10 @@ const dragging = ref(false);
 const SETTLE_MS = 200;
 /** The frame of the glide under way, if one is. */
 let settling = 0;
-/** The button at the top that leaves the screen: the small picture settles under it. */
+/** The top of the screen: the button that leaves it and their name with the timer, on its
+ *  backdrop. The small picture settles under both (the name reaches lower on the iPhone). */
 const minimize = ref<{ $el?: Element } | null>(null);
+const peer = ref<HTMLElement | null>(null);
 const thumbStyle = computed(() => ((localThumb.value || remoteThumb.value) && (drag.x || drag.y) ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined));
 // A new small picture starts in its corner, and a drag cut short (the picture went) is forgotten.
 watch([localThumb, remoteThumb], () => {
@@ -620,8 +622,8 @@ function dropThumb(event: PointerEvent) {
   if (box && screen && screen.width > 0 && screen.height > 0) {
     // Undragged, it sits in its corner (the stylesheet's, mirrored right to left): the margins it keeps.
     const home = { left: box.left - drag.x, top: box.top - drag.y, right: box.right - drag.x, bottom: box.bottom - drag.y };
-    const buttons = rectOf(minimize.value?.$el);
-    const corner = nearestCorner(box, thumbArea(screen, home, buttons ? buttons.y + buttons.height : screen.top));
+    const above = [rectOf(minimize.value?.$el), rectOf(peer.value)].map((rect) => (rect ? rect.y + rect.height : screen.top));
+    const corner = nearestCorner(box, thumbArea(screen, home, Math.max(screen.top, ...above)));
     settle({ x: Math.round(drag.x + corner.x - box.left), y: Math.round(drag.y + corner.y - box.top) });
   }
   relayout();
@@ -860,7 +862,7 @@ watch(
         <audio v-else ref="remoteAudio" autoplay />
 
         <!-- Hidden, not taken out: the notices and the controls keep their place under the presentation. -->
-        <div class="ft-call__peer" :style="presentArea ? { visibility: 'hidden' } : undefined">
+        <div ref="peer" class="ft-call__peer" :style="presentArea ? { visibility: 'hidden' } : undefined">
           <Avatar v-if="native ? !stage : !isVideo || !call.remote" :name="contact.name" :hue="contact.hue" :size="132" />
           <h1 class="ft-call__name" dir="auto">{{ contact.name }}</h1>
           <span class="ft-call__state" :class="{ 'is-live': call.phase === 'active' }">{{ state }}</span>

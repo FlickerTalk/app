@@ -620,11 +620,13 @@ describe("CallPage with native video", () => {
       const [, x = "0", y = "0"] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(thumb.attributes("style") ?? "") ?? [];
       return { x: Number(x), y: Number(y) };
     };
-    /** Mounted with my picture over theirs, dragged by (dx, dy) from where it starts and let go. */
-    const letGo = async (dx: number, dy: number) => {
+    /** Mounted with my picture over theirs, dragged by (dx, dy) from where it starts and let go;
+     *  `name` is where their name and the timer show, with their backdrop. */
+    const letGo = async (dx: number, dy: number, name?: { x: number; y: number; width: number; height: number }) => {
       live({ remote: true, camera: true });
       const wrapper = mount(CallPage, { shallow: true });
       const thumb = screen(wrapper);
+      if (name) place(wrapper.find(".ft-call__peer").element, name);
       await thumb.trigger("pointerdown", { clientX: 330, clientY: 580, pointerId: 1 });
       await thumb.trigger("pointermove", { clientX: 330 + dx, clientY: 580 + dy, pointerId: 1 });
       await thumb.trigger("pointerup", { clientX: 330 + dx, clientY: 580 + dy, pointerId: 1 });
@@ -638,6 +640,21 @@ describe("CallPage with native video", () => {
       await run();
       expect(thumb.attributes("style")).toContain("translate(-272px, -401px)");
       expect(lastMeasure()()).toMatchObject({ local: { x: 16, y: 115, width: 96, height: 140 } });
+    });
+
+    // Seen on the iPhone (QA of #184, 2026-10-20): their name and the timer, on a rounded backdrop,
+    // reach lower than the buttons at the top, and the backdrop covered the picture's inner corner.
+    it("settles the top corners under their name and timer when these reach lower than the buttons", async () => {
+      const run = frames();
+      const name = { x: 120, y: 32, width: 160, height: 98 };
+      const left = await letGo(-200, -250, name);
+      await run();
+      expect(lastMeasure()()).toMatchObject({ local: { x: 16, y: 146 } });
+      expect(offset(left)).toEqual({ x: -272, y: -370 });
+      const right = await letGo(0, -300, name);
+      await run();
+      expect(lastMeasure()()).toMatchObject({ local: { x: 288, y: 146 } });
+      expect(offset(right)).toEqual({ x: 0, y: -370 });
     });
 
     it("glides there rather than jumping", async () => {
