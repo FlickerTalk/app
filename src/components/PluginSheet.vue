@@ -395,6 +395,8 @@ function runHook(hook: PluginHook): Promise<PluginHookResult | null> {
         lang: hook.lang,
         manual: hook.manual,
         ...(hook.answer ? { answer: true } : {}),
+        // A plain copy: the values may be reactive state, which postMessage cannot clone.
+        ...(hook.values ? { values: { ...hook.values } } : {}),
       });
     });
   });

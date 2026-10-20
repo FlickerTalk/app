@@ -394,7 +394,7 @@ describe("the frame", () => {
 
     // §8.2c: the chat's language as the plugin found it, and a question for the user (a download)
     // the app asks in its own alert before running the hook again with the answer.
-    it("hands the chat hook's switches and language back, a question for the user, and only what a result can say", async () => {
+    it("hands the settings hook's switches and language back, a question for the user, and only what a result can say", async () => {
       const answers: unknown[] = [
         { auto: { message: true, composer: false }, lang: "es" },
         { text: 7, auto: { message: "yes", composer: true }, lang: 5, secret: "x" },
@@ -413,7 +413,7 @@ describe("the frame", () => {
       );
       await says({ type: "ft.theme", dark: false, theme: {} });
       await ran;
-      for (const id of ["a", "b", "c", "d", "e", "f", "g"]) await says({ ...hook, id, name: "chat", text: "", ref: null, manual: false, answer: id === "c" });
+      for (const id of ["a", "b", "c", "d", "e", "f", "g"]) await says({ ...hook, id, name: "settings", text: "", ref: null, manual: false, answer: id === "c" });
       await vi.waitFor(() => expect(done(posted)).toHaveLength(7));
       expect(done(posted).map((one) => one.result)).toEqual([
         { auto: { message: true, composer: false }, lang: "es" },
@@ -426,6 +426,41 @@ describe("the frame", () => {
       ]);
       expect(heard[2]).toMatchObject({ answer: true });
       expect(heard[0]).not.toHaveProperty("answer");
+    });
+
+    // §8.2d: the settings hook. The app hands the values the user changed and takes back the
+    // group as it is: values, the options of each select, the conversation's language (null: none).
+    it("hands the settings hook the values the user changed, and takes back values, options and language", async () => {
+      const heard: Said[] = [];
+      const answers: unknown[] = [
+        {
+          values: { lang: "fr", receive: true, send: "yes", nested: { no: 1 } },
+          options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French" }, { value: 7, label: "Seven" }], bad: "x" },
+          lang: null,
+          auto: { message: true, composer: false },
+        },
+      ];
+      const { posted, says, ran } = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          return answers.shift() ?? null;
+        }),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      await says({ ...hook, name: "settings", text: "", ref: null, values: { lang: "fr", receive: true, bad: { x: 1 } } });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(1));
+      expect(heard[0]).toMatchObject({ name: "settings", values: { lang: "fr", receive: true } });
+      expect((heard[0].values as Record<string, unknown>).bad).toBeUndefined();
+      expect(done(posted)[0].result).toEqual({
+        values: { lang: "fr", receive: true, send: "yes" },
+        options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French" }] },
+        lang: null,
+        auto: { message: true, composer: false },
+      });
+      await says({ ...hook, id: "h2" });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(2));
+      expect(heard[1]).not.toHaveProperty("values");
     });
 
     it("answers nothing for a plugin without a handler, a handler that fails or a hook it cannot know", async () => {
@@ -458,9 +493,9 @@ describe("the frame", () => {
       await ran;
       hooks().show();
       expect(posted).toContainEqual({ type: "ft.show" });
-      await says({ type: "ft.open", hook: "chat", chat: "c".repeat(43) });
-      await says({ type: "ft.open", hook: "boss" });
-      expect(opened[0]).toMatchObject({ hook: "chat", chat: "c".repeat(43) });
+      await says({ type: "ft.open", hook: "settings", chat: "c".repeat(43) });
+      await says({ type: "ft.open", hook: "chat" });
+      expect(opened[0]).toMatchObject({ hook: "settings", chat: "c".repeat(43) });
       expect(opened[1]).not.toHaveProperty("hook");
     });
   });

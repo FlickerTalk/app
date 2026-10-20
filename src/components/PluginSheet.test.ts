@@ -1071,6 +1071,11 @@ describe("PluginSheet", () => {
       void vm(wrapper).runHook({ ...HOOK, answer: true });
       await flushPromises();
       expect(hookCalls(post)[1]).toMatchObject({ type: "ft.hook", ...HOOK, answer: true });
+      // The settings the user changed (§8.2d), handed as they are.
+      void vm(wrapper).runHook({ ...HOOK, name: "settings", text: "", ref: null, values: { lang: "fr", receive: true } });
+      await flushPromises();
+      expect(hookCalls(post)[2]).toMatchObject({ type: "ft.hook", name: "settings", values: { lang: "fr", receive: true } });
+      expect(hookCalls(post)[1]).not.toHaveProperty("values");
     });
 
     it("comes back with nothing once it is closing, and runs nothing more", async () => {

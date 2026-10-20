@@ -113,6 +113,8 @@ export interface CircleMessage {
   kind: CircleKind;
   sender: string;
   senderName: string;
+  /** What tools said about it (2026-10-20), as for a contact's message. */
+  notes?: MessageNote[];
 }
 
 /**
@@ -229,6 +231,7 @@ interface CircleMessageView {
   text: string;
   sentAt: number;
   state: Status;
+  notes?: MessageNote[];
 }
 
 interface CircleView {
@@ -437,6 +440,7 @@ function toCircleMessage(view: CircleMessageView): CircleMessage {
     kind: view.kind,
     sender: view.sender,
     senderName: view.senderName,
+    ...(view.notes?.length ? { notes: view.notes } : {}),
   };
 }
 
@@ -633,9 +637,12 @@ export async function loadMessages(contact: string): Promise<void> {
   }
 }
 
-/** Sends a text; `replyTo` (2026-10-05) is the id of the message it answers, quoted over it. */
-export async function sendText(contact: string, text: string, replyTo?: string): Promise<void> {
-  await invoke("core_send", replyTo ? { contact, text, replyTo } : { contact, text });
+/**
+ * Sends a text; `replyTo` (2026-10-05) is the id of the message it answers, quoted over it. The
+ * message's id comes back (2026-10-20) once it is stored, before it is delivered.
+ */
+export async function sendText(contact: string, text: string, replyTo?: string): Promise<string> {
+  return invoke<string>("core_send", replyTo ? { contact, text, replyTo } : { contact, text });
 }
 
 // ---- Circles (2026-09-27) ----
@@ -647,8 +654,9 @@ export async function loadCircleMessages(id: string): Promise<void> {
   if (target) target.messages = views.map(toCircleMessage);
 }
 
-export async function sendCircleText(id: string, text: string): Promise<void> {
-  await invoke("core_circle_send", { circle: id, text });
+/** Sends a text in a circle; its id comes back once it is stored (2026-10-20). */
+export async function sendCircleText(id: string, text: string): Promise<string> {
+  return invoke<string>("core_circle_send", { circle: id, text });
 }
 
 /** What others said has been shown. Nothing travels: a circle tells nobody when you read. */
@@ -929,22 +937,48 @@ export interface PluginView {
   hooks?: PluginHooks;
 }
 
-/** The places in a conversation a tool can bind to (2026-10-20, plan of the translator §8). */
-export type PluginHookName = "message" | "composer" | "chat";
+/**
+ * The places in a conversation a tool can bind to (2026-10-20, plan of the translator §8.2d): a link
+ * in a received text's bubble (`message`), the text being sent (`composer`, only by itself) and a
+ * group of settings in the contact's or circle's page (`settings`). `chat` is no hook any more (the
+ * core refuses a manifest with it): it stays here only until the screens built on it are replaced.
+ */
+export type PluginHookName = "message" | "composer" | "settings" | "chat";
 
 /** What the app shows for a hook: its label and an Ionicon's name, as `module.json` says them. */
 export interface PluginHookDeclaration {
   label: string;
   icon: string;
+  /** The settings the app draws, in order (`settings` only). */
+  fields?: PluginSettingsField[];
+  /** A line under them (`settings` only). */
+  note?: string;
+}
+
+/** One setting of the settings hook: a choice among the options the tool gives, or a switch. */
+export interface PluginSettingsField {
+  key: string;
+  type: "select" | "toggle";
+  label: string;
 }
 
 export type PluginHooks = Partial<Record<PluginHookName, PluginHookDeclaration>>;
 
+/** The settings hook's labels in one language: its own, its fields' by key, and its note. */
+export interface PluginSettingsLabels {
+  label?: string;
+  fields?: Partial<Record<string, string>>;
+  note?: string;
+}
+
 /**
  * A plugin's name and summary by language code (`es`, `zh-TW`…), as `module.json` gives them, and
- * the labels of its hooks (2026-10-20).
+ * the labels of its hooks (2026-10-20): a label, or the settings hook's labels.
  */
-export type PluginLocales = Record<string, { name?: string; summary?: string; hooks?: Partial<Record<string, string>> }>;
+export type PluginLocales = Record<
+  string,
+  { name?: string; summary?: string; hooks?: Partial<Record<string, string | PluginSettingsLabels>> }
+>;
 
 /** What a plugin is for: a tool of the chat, or a game in its own section (plan 10.1). */
 export type PluginKind = "tool" | "game";
@@ -1103,8 +1137,9 @@ export async function restoreSubscription(): Promise<RestoreOutcome> {
 
 /** What the user does with one message of theirs (§61). */
 /** A text written now to go at `sendAt` (2026-10-06, ms), from this phone; `replyTo` quotes a message. */
-export async function scheduleText(contact: string, text: string, sendAt: number, replyTo?: string): Promise<void> {
-  await invoke("core_schedule", replyTo ? { contact, text, sendAt, replyTo } : { contact, text, sendAt });
+export async function scheduleText(contact: string, text: string, sendAt: number, replyTo?: string): Promise<string> {
+  // The message's id (2026-10-20): the screen keeps the user's own words under a text sent translated.
+  return invoke<string>("core_schedule", replyTo ? { contact, text, sendAt, replyTo } : { contact, text, sendAt });
 }
 
 /** The messages of a conversation with these words (2026-10-05), newest first; on this phone only. */
@@ -1151,18 +1186,41 @@ export interface ChatHookState {
   lang?: string;
 }
 
-/** The tools that run by themselves in the conversation; none when the core cannot say. */
-export async function chatHooks(contact: string): Promise<ChatHookState[]> {
+/**
+ * The tools that run by themselves in a conversation (a contact's or a circle's id); none when the
+ * core cannot say.
+ */
+export async function chatHooks(conversation: string): Promise<ChatHookState[]> {
   try {
-    return (await invoke<ChatHookState[] | undefined>("core_chat_hooks", { contact })) ?? [];
+    return (await invoke<ChatHookState[] | undefined>("core_chat_hooks", { conversation })) ?? [];
   } catch {
     return [];
   }
 }
 
-/** What a tool's chat hook answered for the conversation: its switches and the chat's language. */
-export async function setChatHooks(contact: string, plugin: string, said: { message: boolean; composer: boolean; lang?: string }): Promise<void> {
-  await invoke("core_chat_hooks_set", { contact, plugin, autoMessage: said.message, autoComposer: said.composer, lang: said.lang ?? null });
+/**
+ * What a tool's settings hook answered for a conversation (a contact's or a circle's id): its two
+ * switches and the conversation's language (`null` or "" for none).
+ */
+export async function setChatHooks(
+  conversation: string,
+  plugin: string,
+  said: { message: boolean; composer: boolean; lang?: string | null },
+): Promise<void> {
+  await invoke("core_chat_hooks_set", { conversation, plugin, autoMessage: said.message, autoComposer: said.composer, lang: said.lang || null });
+}
+
+/**
+ * What the settings hook's hidden run is handed (§8.2d): the last texts received in the
+ * conversation, one per line, as the core gives them; nothing when the tool may not read them, or
+ * the core cannot say.
+ */
+export async function hookSample(plugin: string, conversation: string): Promise<string> {
+  try {
+    return (await invoke<string | undefined>("core_hook_sample", { plugin, conversation })) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 /** One emoji on a message of the conversation (2026-10-05); `null` takes it back. */

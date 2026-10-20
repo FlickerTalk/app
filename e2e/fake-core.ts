@@ -41,11 +41,15 @@
  * A plugin opened in a chat gets a deterministic id of it (`core_plugin_chat`, 2026-10-02), its own
  * for each plugin and contact, refused for a contact that is blocked or in a closed session.
  *
- * The chat's hooks (2026-10-20): the Translator (`__ftFakeTranslateTool`) binds to the message,
- * composer and chat hooks; `__ftFakeTranslateReads` installs it already allowed to read what it is
- * handed. Notes under messages (`core_message_note_set`/`_clear`) come back with the messages, and
- * the conversation's switches (`core_chat_hooks_set`) with `core_chat_hooks`; `__ftFakeChatHooks`
- * (switches by contact) starts with some on.
+ * The conversation's hooks (2026-10-20, plan of the translator §8.2d): the Translator
+ * (`__ftFakeTranslateTool`) binds to the message, composer and settings hooks (fields `lang`,
+ * `receive`, `send` and a note); `__ftFakeTranslateReads` installs it already allowed to read what it
+ * is handed. Notes under messages (`core_message_note_set`/`_clear`), of a contact or of a circle,
+ * come back with the messages; the conversation's switches and language (`core_chat_hooks_set`, by
+ * contact or circle id) with `core_chat_hooks`; `__ftFakeChatHooks` (by conversation) starts with
+ * some on. `core_hook_sample` hands the last five texts received to a tool allowed to read them.
+ * What is sent (`core_send`, `core_schedule`, `core_circle_send`) joins the conversation and its id
+ * comes back.
  *
  * Games (plan 10, app 1.3.0): one game is installed (Tic-tac-toe, granted nothing yet) and the
  * catalogue offers another (Chess); installing, granting and removing change the fake's lists as
@@ -237,14 +241,46 @@ export function installFakeCore() {
     hooks: {
       message: { label: "Translate", icon: "language-outline" },
       composer: { label: "Translate", icon: "language-outline" },
-      chat: { label: "Chat language", icon: "language-outline" },
+      settings: {
+        label: "Translation",
+        icon: "language-outline",
+        fields: [
+          { key: "lang", type: "select", label: "Language" },
+          { key: "receive", type: "toggle", label: "Translate what I receive" },
+          { key: "send", type: "toggle", label: "Send translated" },
+        ],
+        note: "Language packs are downloaded once; translation happens on the phone.",
+      },
+    },
+    locales: {
+      es: {
+        name: "Traductor",
+        hooks: {
+          message: "Traducir",
+          composer: "Traducir",
+          settings: {
+            label: "Traducción",
+            fields: { lang: "Idioma", receive: "Traducir lo que recibo", send: "Enviar traducido" },
+            note: "Los paquetes de idioma se descargan una vez; la traducción se hace en el teléfono.",
+          },
+        },
+      },
     },
   };
   /** Notes tools left under messages, by message id (2026-10-20). */
   const notes: Record<string, { plugin: string; text: string }[]> = {};
   /** Which tools run by themselves in each conversation, by contact (2026-10-20). */
-  const chatHooks: Record<string, { plugin: string; autoMessage: boolean; autoComposer: boolean }[]> = {
-    ...((window as unknown as Record<string, unknown>).__ftFakeChatHooks as Record<string, { plugin: string; autoMessage: boolean; autoComposer: boolean }[]> | undefined),
+  type FakeChatHook = { plugin: string; autoMessage: boolean; autoComposer: boolean; lang?: string };
+  const chatHooks: Record<string, FakeChatHook[]> = {
+    ...((window as unknown as Record<string, unknown>).__ftFakeChatHooks as Record<string, FakeChatHook[]> | undefined),
+  };
+  /** What this phone sent in this run, by conversation, after what was there (2026-10-20). */
+  const sentHere: Record<string, Record<string, unknown>[]> = {};
+  let sentCount = 0;
+  /** Where a message is: a contact's conversation or a circle's, for the event a change sends. */
+  const changedFor = (message: string) => {
+    const circle = Object.entries(state.circleMessages).find(([, list]) => list.some((one) => (one as { id: string }).id === message))?.[0];
+    return circle ? { contact: null, circle } : { contact: Object.entries(sentHere).find(([, list]) => list.some((one) => one.id === message))?.[0] ?? "ft_bob123456789" };
   };
   const withNotes = (message: Record<string, unknown>) => (notes[String(message.id)]?.length ? { ...message, notes: notes[String(message.id)] } : message);
   const callEvent = (payload: Record<string, unknown>) =>
@@ -433,7 +469,8 @@ export function installFakeCore() {
           state: "delivered",
           file: { name: one.name, size: 3_000, mime: one.mime, progress: 1, state: one.state, path: `/x/${one.name}` },
         }));
-        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra, ...sent, ...shared].map((one) => withNotes(one as Record<string, unknown>));
+        const here = sentHere[String(a.contact)] ?? [];
+        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra, ...sent, ...shared, ...here].map((one) => withNotes(one as Record<string, unknown>));
       }
       case "core_plugins": {
         grantLive();
@@ -604,7 +641,8 @@ export function installFakeCore() {
       case "core_plugin_chat": {
         const contact = String(a.contact);
         const here = [...state.conversations, ...state.open.flatMap((id) => state.sessionChats[id] ?? [])];
-        if (!here.some((one) => one.id === contact && !one.blocked)) throw new Error("that is not a contact of yours");
+        const aCircle = state.circles.some((one) => one.id === contact);
+        if (!aCircle && !here.some((one) => one.id === contact && !one.blocked)) throw new Error("that is not a contact of yours");
         const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         let hash = 2166136261;
         let chat = "";
@@ -692,20 +730,32 @@ export function installFakeCore() {
         if (!plugin?.granted.messages) throw new Error(`${String(a.plugin)} may not read messages`);
         const message = String(a.message);
         notes[message] = [...(notes[message] ?? []).filter((note) => note.plugin !== a.plugin), { plugin: String(a.plugin), text: String(a.text) }];
-        setTimeout(() => emit("ft://changed", { contact: "ft_bob123456789" }), 10);
+        setTimeout(() => emit("ft://changed", changedFor(message)), 10);
         return undefined;
       }
       case "core_message_note_clear":
         notes[String(a.message)] = (notes[String(a.message)] ?? []).filter((note) => note.plugin !== a.plugin);
-        setTimeout(() => emit("ft://changed", { contact: "ft_bob123456789" }), 10);
+        setTimeout(() => emit("ft://changed", changedFor(String(a.message))), 10);
         return undefined;
       case "core_chat_hooks":
-        return chatHooks[String(a.contact)] ?? [];
+        return chatHooks[String(a.conversation)] ?? [];
       case "core_chat_hooks_set": {
-        const contact = String(a.contact);
-        const others = (chatHooks[contact] ?? []).filter((one) => one.plugin !== a.plugin);
-        chatHooks[contact] = a.autoMessage || a.autoComposer ? [...others, { plugin: String(a.plugin), autoMessage: Boolean(a.autoMessage), autoComposer: Boolean(a.autoComposer) }] : others;
+        const conversation = String(a.conversation);
+        const others = (chatHooks[conversation] ?? []).filter((one) => one.plugin !== a.plugin);
+        const lang = typeof a.lang === "string" && a.lang ? a.lang : undefined;
+        const kept: FakeChatHook = { plugin: String(a.plugin), autoMessage: Boolean(a.autoMessage), autoComposer: Boolean(a.autoComposer), ...(lang ? { lang } : {}) };
+        chatHooks[conversation] = a.autoMessage || a.autoComposer || lang ? [...others, kept] : others;
         return undefined;
+      }
+      case "core_hook_sample": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.messages) return "";
+        const conversation = String(a.conversation);
+        type Said = { outgoing: boolean; text: string; kind?: string; file?: unknown };
+        const said = ((state.circleMessages[conversation] ?? state.messages[conversation] ?? []) as Said[]).filter(
+          (one) => !one.outgoing && !one.file && (one.kind === undefined || one.kind === "text"),
+        );
+        return said.slice(-5).map((one) => one.text).join("\n");
       }
       case "core_plugin_ref":
         return `ref_${String(a.message)}`;
@@ -742,7 +792,7 @@ export function installFakeCore() {
       case "core_circles":
         return state.circles;
       case "core_circle_messages":
-        return state.circleMessages[String(a.circle)] ?? [];
+        return (state.circleMessages[String(a.circle)] ?? []).map((one) => withNotes(one as Record<string, unknown>));
       case "core_circle_create": {
         const id = `circle${state.nextCircle++}`;
         const members = (args?.members as string[]).map((member) => ({
@@ -771,7 +821,7 @@ export function installFakeCore() {
         const circle = state.circles.find((c) => c.id === id);
         if (circle) circle.last = message;
         setTimeout(() => emit("ft://changed", { contact: null, circle: id }), 10);
-        return undefined;
+        return message.id;
       }
       case "core_circle_leave": {
         const circle = state.circles.find((c) => c.id === a.circle);
@@ -802,8 +852,17 @@ export function installFakeCore() {
         if (circle) circle.unread = 0;
         return undefined;
       }
-      case "core_send_picked":
+      // What is sent joins the conversation, and its id comes back (2026-10-20).
       case "core_send":
+      case "core_schedule": {
+        const contact = String(a.contact);
+        const id = `sent${(sentCount += 1)}`;
+        const message = { id, outgoing: true, text: String(a.text), sentAt: Date.now(), state: "sent", ...(command === "core_schedule" ? { scheduledFor: Number(a.sendAt) } : {}) };
+        sentHere[contact] = [...(sentHere[contact] ?? []), message];
+        setTimeout(() => emit("ft://changed", { contact }), 10);
+        return id;
+      }
+      case "core_send_picked":
       case "core_mark_read":
       case "core_enable_push":
       case "core_typing":
