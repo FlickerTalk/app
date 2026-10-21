@@ -79,16 +79,22 @@ export function capitalized(text: string, locale: string): string {
 }
 
 /**
- * A language's name in the app's language, standing on its own (the chip, "Sent in …") and so
- * with a capital: the phone gives it as written inside a sentence, "francés" on Android and
- * "Francés" on an iPhone (QA 2026-10-20). The phone's own name; else the tool's, from the choices
- * its settings hook gave (`named`, not preferred: it says "(detected)" beside a language it
- * found); else the tag, as it is.
+ * A language's name in the app's language, as written inside a sentence ("Sent in …"): the phone's
+ * own; else the tool's, from the choices its settings hook gave (`named`, not preferred: it says
+ * "(detected)" beside a language it found); else the tag.
  */
 export function languageName(tag: string | undefined, named: Record<string, string> = {}): string {
   if (!tag) return "";
-  const name = phoneName(tag) || named[tag];
-  return name ? capitalized(name, i18n.global.locale.value) : tag;
+  return phoneName(tag) || named[tag] || tag;
+}
+
+/**
+ * A language's name standing on its own (the chip): with a capital, as the app's language writes
+ * one (QA 2026-10-20: "Traduciendo · francés"). A bare tag stays as it is.
+ */
+function aloneName(tag: string | undefined, named: Record<string, string>): string {
+  const name = languageName(tag, named);
+  return name && name !== tag ? capitalized(name, i18n.global.locale.value) : name;
 }
 
 /** The tools' names for languages, by conversation, from the choices their settings hook gave. */
@@ -304,7 +310,7 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
   );
 
   /** The language the conversation is translated into by itself, by name; "" while nothing is. */
-  const translating = computed(() => (language.value && (autoComposer.value || autoMessage.value.length) ? languageNameNow.value : ""));
+  const translating = computed(() => (language.value && (autoComposer.value || autoMessage.value.length) ? aloneName(language.value, named.value) : ""));
 
   /**
    * What goes out for a text the user sends: with the conversation's composer switch on, what the
