@@ -159,11 +159,11 @@ globalThis.ft = {
     closers.push(handler);
   },
   /** The conversation's hooks this tool binds to in its manifest (2026-10-20): called once per run
-   *  with {name, text, chat, ref, lang, manual} (and `answer: true` when the user said yes to the
-   *  question it asked, `values` when the user changed its settings); resolve with {text}, the
-   *  settings' {values, options, lang, auto}, {ask: {text}} (a question the app asks the user, then
-   *  runs the hook again), or null. Register at load: the app may run a hook as soon as the plugin
-   *  is up. */
+   *  with {name, text, chat, ref, lang, manual, platform} (and `answer: true` when the user said
+   *  yes to the question it asked, `values` when the user changed its settings); resolve with
+   *  {text}, the settings' {values, options, lang, auto}, {ask: {text}} (a question the app asks the
+   *  user, then runs the hook again), or null. Register at load: the app may run a hook as soon as
+   *  the plugin is up. */
   onHook(handler) {
     hooked = handler;
   },
@@ -178,6 +178,8 @@ const closers = [];
 /** The plugin's hook handler, if it bound to any. */
 let hooked;
 const HOOKS = ["message", "composer", "settings"];
+/** What a tool may be told it runs on (2026-10-21): an iPhone asks before a download by itself. */
+const PLATFORMS = ["android", "ios", "desktop"];
 
 /** Settings' values by key: only strings and yes-or-noes (a select's value, a toggle's state). */
 const settingValues = (said) => {
@@ -231,6 +233,7 @@ const runHook = async (said) => {
       ref: said.ref ? String(said.ref) : null,
       lang: String(said.lang ?? "en"),
       manual: said.manual === true,
+      ...(PLATFORMS.includes(said.platform) ? { platform: said.platform } : {}),
       ...(said.answer === true ? { answer: true } : {}),
       // The settings the user changed (`settings`, by hand).
       ...(settingValues(said.values) ? { values: settingValues(said.values) } : {}),

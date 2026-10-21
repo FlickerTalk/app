@@ -383,6 +383,19 @@ export interface PluginHook {
   values?: Record<string, string | boolean>;
 }
 
+/** What a tool runs on, as a hook tells it (`ft.hook`'s `platform`, 2026-10-21). */
+export type PluginPlatform = "android" | "ios" | "desktop";
+
+/**
+ * What a tool runs on, as Ionic tells it (`isPlatform`, the same that picks the app's mode): `ios`
+ * for an iPhone or an iPad, `android`, else `desktop`. A hook says it so a tool asks before a
+ * download only where the phone does not: an iPhone shows its own sheet, Android none.
+ */
+export function hookPlatform(is: (platform: "ios" | "android") => boolean): PluginPlatform {
+  if (is("ios")) return "ios";
+  return is("android") ? "android" : "desktop";
+}
+
 /**
  * A hook's answer: a text (a note, a new draft), the chat's language as the tool found it, the chat
  * hook's two switches, or a question for the user (a download) that the app asks in its own alert,

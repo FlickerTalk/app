@@ -11,10 +11,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 // Ionic's toasts and alerts are overlays of the real app; here, what the sheet asks of them.
 const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
 const alert = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+// What Ionic says the phone is (`isPlatform`): nothing here, a desktop, unless a test says otherwise.
+const platforms = vi.hoisted(() => ({ on: [] as string[] }));
 vi.mock("@ionic/vue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@ionic/vue")>()),
   toastController: { create: toast.create },
   alertController: { create: alert.create },
+  isPlatform: (name: string) => platforms.on.includes(name),
 }));
 
 import PluginSheet from "./PluginSheet.vue";
@@ -40,6 +43,7 @@ function framed(wrapper: ReturnType<typeof mount>) {
 describe("PluginSheet", () => {
   beforeEach(() => {
     tauri.invoke.mockReset();
+    platforms.on = [];
     // Every test gets a toast that shows: a plugin refused for want of a permission says so (app#76).
     // A toast is an element (the sheet fits it to the plugin's pane) that presents and dismisses.
     toast.create
@@ -1076,6 +1080,22 @@ describe("PluginSheet", () => {
       await flushPromises();
       expect(hookCalls(post)[2]).toMatchObject({ type: "ft.hook", name: "settings", values: { lang: "fr", receive: true } });
       expect(hookCalls(post)[1]).not.toHaveProperty("values");
+    });
+
+    // 2026-10-21 (device QA of the translator): each run says what the tool runs on, as Ionic tells
+    // it, so the tool asks before a download only where the phone does not (an iPhone has its sheet).
+    it("tells the plugin what it runs on with each run: an iPhone, an Android phone or a desktop", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      for (const [on, platform] of [[["ios", "iphone", "mobile"], "ios"], [["android", "mobile"], "android"], [["desktop"], "desktop"]] as const) {
+        platforms.on = [...on];
+        void vm(wrapper).runHook(HOOK);
+        await flushPromises();
+        expect(hookCalls(post).at(-1)).toMatchObject({ type: "ft.hook", ...HOOK, platform });
+      }
     });
 
     it("comes back with nothing once it is closing, and runs nothing more", async () => {

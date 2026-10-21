@@ -392,6 +392,24 @@ describe("the frame", () => {
       expect(done(posted)[0]).toEqual({ type: "ft.hookDone", id: "h1", result: { text: "nos vemos a las seis" } });
     });
 
+    // 2026-10-21 (device QA of the translator): the run says what the tool runs on, so it asks
+    // before a download only where the phone does not; anything but the three names is left out.
+    it("tells the plugin's handler what it runs on, and nothing but android, ios or desktop", async () => {
+      const heard: Said[] = [];
+      const { posted, says, ran } = await frame(() =>
+        hooks().onHook(async (one) => {
+          heard.push(one);
+          return null;
+        }),
+      );
+      await says({ type: "ft.theme", dark: false, theme: {} });
+      await ran;
+      for (const [id, platform] of [["a", "ios"], ["b", "android"], ["c", "desktop"], ["d", "windows"], ["e", 7]]) await says({ ...hook, id, platform });
+      await vi.waitFor(() => expect(done(posted)).toHaveLength(5));
+      expect(heard.map((one) => one.platform)).toEqual(["ios", "android", "desktop", undefined, undefined]);
+      expect(heard[3]).not.toHaveProperty("platform");
+    });
+
     // §8.2c: the chat's language as the plugin found it, and a question for the user (a download)
     // the app asks in its own alert before running the hook again with the answer.
     it("hands the settings hook's switches and language back, a question for the user, and only what a result can say", async () => {

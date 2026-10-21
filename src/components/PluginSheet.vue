@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
-import { toastController } from "@ionic/vue";
+import { isPlatform, toastController } from "@ionic/vue";
 import {
   grantPlugin,
   pickForPlugin,
@@ -64,6 +64,7 @@ import {
   NOTICE_DURATION,
   frameUrl,
   fromFrame,
+  hookPlatform,
   installed,
   pluginName,
   refreshPlugins,
@@ -395,6 +396,8 @@ function runHook(hook: PluginHook): Promise<PluginHookResult | null> {
         ref: hook.ref,
         lang: hook.lang,
         manual: hook.manual,
+        // What the tool runs on: an iPhone asks before a download by itself, Android does not.
+        platform: hookPlatform((name) => isPlatform(name)),
         ...(hook.answer ? { answer: true } : {}),
         // A plain copy: the values may be reactive state, which postMessage cannot clone.
         ...(hook.values ? { values: { ...hook.values } } : {}),
