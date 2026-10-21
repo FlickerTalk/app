@@ -21,8 +21,17 @@ let detectConfidence = 0.5
 /// How long a translation may take before the request gives up (the core's own limit).
 let translateWait: TimeInterval = 30
 
-/// How long a download may take, the user's time on Apple's sheet included.
+/// How long a `prepare` may keep Apple's sheet up: the user's time on it (the core's own limit).
 let prepareWait: TimeInterval = 300
+
+/// How long the pair may take to show as installed once Apple's sheet is gone. Closing the sheet
+/// with ✕ returns as a download does, so a longer wait would hold the plugin's request (and the
+/// conversation's queue behind it) for minutes. After it the pair is not ready: the user can tap
+/// again, and `translateStatus` says installed once a download behind the sheet has finished.
+let prepareInstalledWait: TimeInterval = 30
+
+/// How often the pair's state is asked meanwhile.
+let installedPoll: TimeInterval = 0.5
 
 class TranslatePairArgs: Decodable {
     let from: String
@@ -134,19 +143,23 @@ func preparePair(from: String, to: String, on screen: UIViewController?) async -
         } catch {
             return ["ready": false] // declined, or the download failed
         }
-        return ["ready": await becomesInstalled(source, target, within: prepareWait)]
+        let availability = LanguageAvailability()
+        return ["ready": await becomesInstalled { await availability.status(from: source, to: target) == .installed }]
     }
 }
 
-/// Apple's sheet may return while the download goes on: the pair is ready once it is installed.
-@available(iOS 18, *)
-private func becomesInstalled(_ source: Locale.Language, _ target: Locale.Language, within seconds: TimeInterval) async -> Bool {
-    let availability = LanguageAvailability()
-    let deadline = Date().addingTimeInterval(seconds)
+/// Apple's sheet may return while the download goes on, or because the user closed it: the pair
+/// is ready once it is installed, within `prepareInstalledWait`.
+func becomesInstalled(
+    now: () -> Date = { Date() },
+    sleep: (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) },
+    isInstalled: () async -> Bool
+) async -> Bool {
+    let deadline = now().addingTimeInterval(prepareInstalledWait)
     while true {
-        if await availability.status(from: source, to: target) == .installed { return true }
-        if Date() >= deadline || Task.isCancelled { return false }
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        if await isInstalled() { return true }
+        if now() >= deadline || Task.isCancelled { return false }
+        await sleep(installedPoll)
     }
 }
 
