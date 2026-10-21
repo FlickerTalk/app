@@ -71,6 +71,10 @@ pub struct SessionConfig {
     pub relay_only: bool,
     /// Local UDP addresses to listen on, one per network interface.
     pub bind: Vec<String>,
+    /// `bind` is this device's interfaces as they were when the configuration was made
+    /// (`interface_addresses`), and a session started later listens on the ones there are then
+    /// (`listening_now`): a phone changes networks with the app open (app#200).
+    pub follow_interfaces: bool,
     /// How long to wait for ICE gathering before sending what was gathered so far.
     pub gather_timeout: Duration,
 }
@@ -82,6 +86,7 @@ impl Default for SessionConfig {
             turn_servers: Vec::new(),
             relay_only: false,
             bind: interface_addresses(),
+            follow_interfaces: true,
             gather_timeout: Duration::from_secs(3),
         }
     }
@@ -90,11 +95,20 @@ impl Default for SessionConfig {
 impl SessionConfig {
     /// Loopback only and no STUN. Used by the tests, which must not touch the network.
     pub fn offline() -> Self {
-        Self { bind: vec!["127.0.0.1:0".to_owned()], ..Self::default() }
+        Self { bind: vec!["127.0.0.1:0".to_owned()], follow_interfaces: false, ..Self::default() }
     }
 
     pub fn with_stun(servers: impl IntoIterator<Item = String>) -> Self {
         Self { stun_servers: servers.into_iter().collect(), ..Self::default() }
+    }
+
+    /// This configuration for a session that starts now: on the interfaces the device has now,
+    /// if it follows them.
+    pub fn listening_now(mut self) -> Self {
+        if self.follow_interfaces {
+            self.bind = interface_addresses();
+        }
+        self
     }
 }
 
@@ -649,6 +663,19 @@ mod tests {
         let config = SessionConfig::with_stun(["stun:one:3478".to_owned()]);
         assert!(!config.bind.is_empty());
         assert!(config.bind.iter().all(|address| !address.starts_with("0.0.0.0")));
+    }
+
+    // A phone changes networks with the app open (app#200, 2026-10-20): a session started after
+    // that listens on the interfaces the phone has then, not on the ones it had when the app
+    // started, which may be gone. A configuration made for loopback (the tests) stays as it is.
+    #[test]
+    fn a_session_started_later_listens_on_the_interfaces_there_are_then() {
+        let stale = SessionConfig { bind: vec!["192.0.2.1:0".to_owned()], ..SessionConfig::with_stun(["stun:one:3478".to_owned()]) };
+        assert_eq!(stale.clone().listening_now().bind, interface_addresses());
+        assert_eq!(stale.listening_now().stun_servers, ["stun:one:3478"], "only where it listens changes");
+
+        let offline = SessionConfig::offline();
+        assert_eq!(offline.clone().listening_now().bind, offline.bind);
     }
 
     #[test]
