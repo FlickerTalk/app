@@ -115,4 +115,24 @@ describe("HookFrames", () => {
     expect(answer).toHaveBeenCalledWith(true);
     expect(wrapper.find("[data-test='permission-ask']").exists()).toBe(false);
   });
+
+  // QA of the translator (2026-10-20, D5): the pages left in the stack under the one on screen
+  // stacked their permission sheets over it. A page not on screen never asks; the question waits
+  // for its page to be on screen again.
+  it("asks for a permission only while its page is on screen", async () => {
+    const hooks = hooksWith([TRANSLATOR.id]);
+    const wrapper = mount(HookFrames, { props: { hooks, contact: "c1", active: false }, global: { stubs } });
+    await flushPromises();
+    const answer = vi.fn();
+    sheets[0].emit("needs", { label: "Translate text on this phone", icon: "language", answer });
+    await flushPromises();
+    expect(wrapper.find("[data-test='permission-ask']").exists()).toBe(false);
+    expect(answer).not.toHaveBeenCalled();
+
+    await wrapper.setProps({ active: true });
+    expect(wrapper.find("[data-test='permission-ask']").text()).toContain("Translator");
+    await wrapper.setProps({ active: false });
+    expect(wrapper.find("[data-test='permission-ask']").exists()).toBe(false);
+    expect(answer).not.toHaveBeenCalled();
+  });
 });

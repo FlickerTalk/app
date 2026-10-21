@@ -10,14 +10,19 @@
  *
  * The group is drawn whole at once, its rows waiting until the tool says what is set: nothing moves
  * when the values come.
+ *
+ * `active`: whether the page holding it is the one on screen. A page left in the stack under others
+ * runs nothing (QA 2026-10-20: drawn again there after the tool was installed again, the group ran
+ * the hook and its permission sheet came up over the page on screen); the group reads the tool's
+ * settings once its page is on screen.
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { IonIcon, IonItem, IonLabel, IonList, IonListHeader, IonNote, IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
 import { hookIcon, hookLabel, settingsFields, settingsNote, type PluginHookResult } from "../plugins";
 import type { ChatHooks, SettingsValues } from "../chatHooks";
 import type { PluginView } from "../core";
 
-const props = defineProps<{ plugin: PluginView; hooks: Pick<ChatHooks, "readSettings" | "settings"> }>();
+const props = withDefaults(defineProps<{ plugin: PluginView; hooks: Pick<ChatHooks, "readSettings" | "settings">; active?: boolean }>(), { active: true });
 
 const fields = computed(() => settingsFields(props.plugin));
 const note = computed(() => settingsNote(props.plugin));
@@ -44,17 +49,23 @@ async function change(key: string, value: string | boolean) {
   else values.value = before;
 }
 
-onMounted(async () => {
+/** The tool has been asked what is set: once, the first time the group is on screen. */
+let asked = false;
+async function read() {
+  if (asked || !props.active) return;
+  asked = true;
   const result = await props.hooks.readSettings(props.plugin).catch(() => null);
   if (!result) return;
   show(result);
   ready.value = true;
-});
+}
+onMounted(read);
+watch(() => props.active, read);
 </script>
 
 <template>
   <ion-list inset :data-test="`settings-${plugin.id}`">
-    <ion-list-header>
+    <ion-list-header class="ft-settings__header">
       <ion-icon :icon="hookIcon(plugin, 'settings')" class="ft-settings__icon" aria-hidden="true" />
       <ion-label>{{ hookLabel(plugin, "settings") }}</ion-label>
     </ion-list-header>
@@ -87,6 +98,21 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/*
+ * The header in both modes as Android draws it (QA 2026-10-20): on an iPhone Ionic makes a list
+ * header a large title with its content at the bottom, which stood out from the page's other groups
+ * and put the icon below the middle of the title.
+ */
+.ft-settings__header {
+  --color: var(--ion-text-color);
+  align-items: center;
+  min-height: 45px;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+.ft-settings__header ion-label {
+  margin-block: 0;
+}
 .ft-settings__icon {
   margin-inline-end: 8px;
   font-size: 18px;

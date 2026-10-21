@@ -70,13 +70,31 @@ function phoneName(tag: string): string {
 }
 
 /**
- * A language's name in the app's language: the phone's own; else the tool's, from the choices its
- * settings hook gave (`named`, not preferred: it says "(detected)" beside a language it found);
- * else the tag.
+ * `text` with its first letter (a grapheme: a letter with its accent written apart is one) as a
+ * capital, as the language `locale` writes one (Turkish "i" → "İ").
+ */
+export function capitalized(text: string, locale: string): string {
+  const [first] = new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(text);
+  return first ? first.segment.toLocaleUpperCase(locale) + text.slice(first.segment.length) : text;
+}
+
+/**
+ * A language's name in the app's language, as written inside a sentence ("Sent in …"): the phone's
+ * own; else the tool's, from the choices its settings hook gave (`named`, not preferred: it says
+ * "(detected)" beside a language it found); else the tag.
  */
 export function languageName(tag: string | undefined, named: Record<string, string> = {}): string {
   if (!tag) return "";
   return phoneName(tag) || named[tag] || tag;
+}
+
+/**
+ * A language's name standing on its own (the chip): with a capital, as the app's language writes
+ * one (QA 2026-10-20: "Traduciendo · francés"). A bare tag stays as it is.
+ */
+function aloneName(tag: string | undefined, named: Record<string, string>): string {
+  const name = languageName(tag, named);
+  return name && name !== tag ? capitalized(name, i18n.global.locale.value) : name;
 }
 
 /** The tools' names for languages, by conversation, from the choices their settings hook gave. */
@@ -292,7 +310,7 @@ export function useChatHooks(options: { conversation: () => string; messages: ()
   );
 
   /** The language the conversation is translated into by itself, by name; "" while nothing is. */
-  const translating = computed(() => (language.value && (autoComposer.value || autoMessage.value.length) ? languageNameNow.value : ""));
+  const translating = computed(() => (language.value && (autoComposer.value || autoMessage.value.length) ? aloneName(language.value, named.value) : ""));
 
   /**
    * What goes out for a text the user sends: with the conversation's composer switch on, what the

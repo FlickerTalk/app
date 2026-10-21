@@ -39,12 +39,12 @@ const READ: PluginHookResult = {
   options: { lang: [{ value: "", label: "None" }, { value: "fr", label: "French (detected)" }] },
 };
 
-function group(answers: { read?: () => Promise<PluginHookResult | null>; change?: () => Promise<PluginHookResult | null> } = {}) {
+function group(answers: { read?: () => Promise<PluginHookResult | null>; change?: () => Promise<PluginHookResult | null> } = {}, props: { active?: boolean } = {}) {
   const hooks = {
     readSettings: vi.fn(answers.read ?? (async () => READ)),
     settings: vi.fn(answers.change ?? (async () => null)),
   };
-  const wrapper = mount(PluginSettingsGroup, { props: { plugin: TRANSLATOR, hooks }, shallow: true });
+  const wrapper = mount(PluginSettingsGroup, { props: { plugin: TRANSLATOR, hooks, ...props }, shallow: true });
   return { wrapper, hooks };
 }
 const select = (wrapper: ReturnType<typeof mount>) => wrapper.findComponent(IonSelect);
@@ -82,6 +82,23 @@ describe("PluginSettingsGroup", () => {
     expect(toggle(wrapper, "receive").attributes("checked")).toBe("true");
     expect(toggle(wrapper, "send").attributes("checked")).toBe("false");
     expect(toggle(wrapper, "send").attributes("disabled")).toBe("false");
+  });
+
+  // QA of the translator (2026-10-20, D5): drawn again on a page left in the stack (the tool was
+  // installed again meanwhile), the group ran the hook out of sight there. It reads nothing until
+  // its page is on screen, and then once.
+  it("reads the tool's settings only once its page is on screen", async () => {
+    const { wrapper, hooks } = group({}, { active: false });
+    await flushPromises();
+    expect(hooks.readSettings).not.toHaveBeenCalled();
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+    expect(hooks.readSettings).toHaveBeenCalledTimes(1);
+    expect(toggle(wrapper, "receive").attributes("checked")).toBe("true");
+    await wrapper.setProps({ active: false });
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+    expect(hooks.readSettings).toHaveBeenCalledTimes(1);
   });
 
   it("runs the hook with the values changed and shows what it answers", async () => {
