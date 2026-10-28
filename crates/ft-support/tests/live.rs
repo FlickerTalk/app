@@ -271,6 +271,83 @@ async fn calls_in_a_row_through_the_live_cluster_connect_within_the_app_s_limit(
     assert_eq!(connected, calls);
 }
 
+/// How long the phone's TURN user still lives, from the expiry in its name (`<expiry>:<random>`,
+/// coturn's REST scheme): negative once it expired.
+fn turn_user_left(phone: &Online) -> String {
+    let Some(turn) = phone.network.ice().1 else { return "no TURN user".to_owned() };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    match turn.username.split_once(':').and_then(|(expiry, _)| expiry.parse::<i64>().ok()) {
+        Some(expiry) => format!("TURN user lives {} s more", expiry - now),
+        None => "TURN user without an expiry".to_owned(),
+    }
+}
+
+/// A native call that only goes through this phone's own relay (`CallRouting::Always`): it
+/// connects only if the phone's TURN user works. Whether it connected within the app's 30 s.
+async fn relay_only_call(phone: &Online, support: &str, label: &str) -> bool {
+    let mut events = phone.core.events();
+    let started = std::time::Instant::now();
+    let call = phone.core.start_native_call(support, CallRouting::Always, false).await.expect("calls");
+    let (mut up, mut ended) = (None, None);
+    let limit = tokio::time::Instant::now() + Duration::from_secs(30);
+    while up.is_none() && ended.is_none() {
+        match tokio::time::timeout_at(limit, events.recv()).await {
+            Ok(Ok(ft_core::Event::Call { call: id, update, .. })) if id == call => match update {
+                ft_core::CallUpdate::Connected => up = Some(started.elapsed()),
+                ft_core::CallUpdate::Ended { outcome } => ended = Some(format!("{outcome:?}")),
+                _ => {}
+            },
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    let timings = phone.core.call_timings().map(|timings| timings.line()).unwrap_or_default();
+    println!("{label}: connected {up:?}, ended {ended:?}\n  timings: {timings}");
+    if phone.core.current_call().await.unwrap().is_some() {
+        phone.core.end_current_call().await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    up.is_some()
+}
+
+/// A phone that stays connected for longer than its TURN user lives (ten minutes, 2026-10-28) and
+/// then calls through its own relay only. Before, the app kept the welcome's user: the second call
+/// gathered no relay and never connected. The first call, with the welcome's user still young, is
+/// the control. `FT_SUPPORT_LIVE_IDLE_SECS` (660 by default) is how long it stays connected.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs api.flickertalk.com and the internet; takes more than ten minutes"]
+async fn a_call_after_more_than_ten_minutes_connected_still_has_a_relay() {
+    let idle: u64 = std::env::var("FT_SUPPORT_LIVE_IDLE_SECS").ok().and_then(|secs| secs.parse().ok()).unwrap_or(660);
+    let heard = DeviceProbe::default();
+    let (support_card, local) = support_contact().await;
+    let (phone, _files) = throwaway_phone(&heard).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let support = phone.core.add_contact(&support_card, None).await.expect("adds the support contact");
+    phone.core.send_text(&support.device_id, "hello, calls are coming").await.unwrap();
+    until("the welcome arrives", 60, || async { !texts_from(&phone, &support.device_id).await.is_empty() }).await;
+
+    println!("at start: {}", turn_user_left(&phone));
+    let control = relay_only_call(&phone, &support.device_id, "relay-only call at start").await;
+    println!("staying connected for {idle} s");
+    let connected = std::time::Instant::now();
+    let then = connected + Duration::from_secs(idle);
+    while std::time::Instant::now() < then {
+        tokio::time::sleep(then.saturating_duration_since(std::time::Instant::now()).min(Duration::from_secs(60))).await;
+        println!("  {} s connected; {}", connected.elapsed().as_secs(), turn_user_left(&phone));
+    }
+    println!("before the call: {}", turn_user_left(&phone));
+    let late = relay_only_call(&phone, &support.device_id, &format!("relay-only call after {idle} s connected")).await;
+    println!("after the call: {}", turn_user_left(&phone));
+
+    phone.router.forget().await.ok();
+    if let Some((running, _dir)) = local {
+        running.online.router.forget().await.ok();
+        running.stop().await;
+    }
+    assert!(control, "a relay-only call with a young TURN user connects");
+    assert!(late, "a relay-only call after {idle} s connected connects");
+}
+
 /// The support contact renews its TURN user every minute (`ft_support::turn`): the router hands a
 /// fresh one to a registered device, a different one each time.
 #[tokio::test(flavor = "multi_thread")]

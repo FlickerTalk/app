@@ -13,6 +13,9 @@ use ft_push::{RouterEvent, Signalled, TurnGrant};
 use ft_storage::{MessageState, Store};
 use ft_webrtc::SessionConfig;
 use tokio::sync::mpsc;
+use turn_spy::TurnSpy;
+
+mod turn_spy;
 
 /// Each device's mailbox: (id, blob).
 type Mailboxes = HashMap<String, Vec<(String, Vec<u8>)>>;
@@ -40,6 +43,11 @@ struct Bus {
     mail_held: std::sync::atomic::AtomicBool,
     /// While set, what waited for a device is not handed over when it connects (`release`).
     signals_held: std::sync::atomic::AtomicBool,
+    /// The TURN user `GET /v1/turn-credentials` hands out (2026-10-28), and how many times it was
+    /// asked for; while `turn_hangs` is set, it never answers.
+    turn: Mutex<Option<TurnGrant>>,
+    turn_asked: AtomicUsize,
+    turn_hangs: std::sync::atomic::AtomicBool,
 }
 
 impl Bus {
@@ -119,6 +127,14 @@ impl Relay for FakeRelay {
             mail.retain(|(stored, _)| stored != id);
         }
         Ok(())
+    }
+
+    async fn turn_credentials(&self) -> anyhow::Result<TurnGrant> {
+        self.bus.turn_asked.fetch_add(1, Ordering::SeqCst);
+        if self.bus.turn_hangs.load(Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
+        self.bus.turn.lock().unwrap().clone().ok_or_else(|| anyhow::anyhow!("no TURN users here"))
     }
 }
 
@@ -978,4 +994,64 @@ async fn behind_servers_that_never_answer_a_text_reaches_the_mailbox_within_a_se
         assert!(second < Duration::from_millis(400), "retaining {retaining}: {second:?}");
         assert_eq!(bus.mail_for(&bob.id()), 2);
     }
+}
+
+/// Alice and Bob paired, with no connection open between them; Alice has had the welcome's TURN
+/// user, on `turn`, for its whole life (2026-10-28), and the router hands out `new`.
+async fn paired_with_an_expired_turn_user(bus: &Arc<Bus>, turn: &TurnSpy) -> (Phone, Phone) {
+    *bus.turn.lock().unwrap() = Some(turn.grant("new"));
+    let (alice, bob) = (phone(bus, "Alice").await, phone(bus, "Bob").await);
+    alice.go_online_with(bus, vec![], Some(turn.grant("welcome")));
+    bob.go_online(bus);
+    pair(&alice, &bob).await;
+    until("the first connection signed in with the welcome's user", || async { turn.users().contains(&"welcome".to_owned()) }).await;
+    alice.network.disconnect(&bob.id()).await;
+    until("no connection is left", || async { !bob.network.is_connected(&alice.id()).await }).await;
+    alice.network.age_turn(ft_core::net::TURN_LIFE);
+    (alice, bob)
+}
+
+// The router's TURN users live ten minutes (2026-10-28), and a phone kept the welcome's for as long
+// as it stayed connected: after that, a call whose path needed a relay never connected. A call
+// made with a user that old asks the router for a new one, and its connection signs in with it at
+// the TURN server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_after_the_turn_user_expired_gathers_with_a_new_one() {
+    let turn = TurnSpy::start().await;
+    let bus = Arc::new(Bus::default());
+    let (alice, bob) = paired_with_an_expired_turn_user(&bus, &turn).await;
+    let before = turn.users().len();
+    let mut bob_events = bob.core.events();
+
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let (core, id) = (alice.core.clone(), call.clone());
+    tokio::spawn(async move { core.offer_call(&id, "offer").await });
+    rings(&mut bob_events, Duration::from_secs(15)).await;
+    until("the call's connection signed in at the TURN server", || async { turn.users().len() > before }).await;
+    assert_eq!(bus.turn_asked.load(Ordering::SeqCst), 1, "one new user");
+    let since: Vec<String> = turn.users().split_off(before);
+    assert!(since.iter().all(|user| user == "new"), "{since:?}");
+    let _ = alice.core.end_call(&call, false).await;
+}
+
+// A router that does not answer for a new TURN user holds a call back `TURN_WAIT` at most: the
+// call goes on with the user there is, and still rings.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_router_that_does_not_hand_out_a_turn_user_does_not_hold_a_call_back() {
+    let turn = TurnSpy::start().await;
+    let bus = Arc::new(Bus::default());
+    bus.turn_hangs.store(true, Ordering::SeqCst);
+    let (alice, bob) = paired_with_an_expired_turn_user(&bus, &turn).await;
+    let mut bob_events = bob.core.events();
+
+    let placed = std::time::Instant::now();
+    let call = alice.core.place_call(&bob.id(), false).await.unwrap();
+    let (core, id) = (alice.core.clone(), call.clone());
+    tokio::spawn(async move { core.offer_call(&id, "offer").await });
+    rings(&mut bob_events, Duration::from_secs(15)).await;
+    let rang = placed.elapsed();
+    eprintln!("router not answering for TURN: the call rang after {} ms", rang.as_millis());
+    assert_eq!(bus.turn_asked.load(Ordering::SeqCst), 1, "the router was asked");
+    assert!(rang < ft_core::net::TURN_WAIT + Duration::from_secs(5), "{} ms", rang.as_millis());
+    let _ = alice.core.end_call(&call, false).await;
 }

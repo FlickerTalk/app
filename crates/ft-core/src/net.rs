@@ -15,14 +15,14 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use ft_protocol::{Body, Signal, SignalKind, PROTOCOL_VERSION};
 use ft_push::{RouterClient, RouterEvent, Signalled, TurnGrant};
 use ft_webrtc::{Inbox, Role, Session, SessionConfig, Signal as Description, TurnServer};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 
 use crate::timings::CallStage;
 use crate::{Core, Event, Peer, Transport};
@@ -43,6 +43,28 @@ const ANSWER_GRACE: Duration = Duration::from_secs(5);
 /// An offer nobody got (a router before 0.4 loses it) is kept this long for the next attempt.
 const SPARE_FOR: Duration = Duration::from_secs(20);
 
+/// The router's TURN users live this long (`TURN_TTL` in ft-router, 2026-10-28).
+pub const TURN_LIFE: Duration = Duration::from_secs(10 * 60);
+
+/// While the router's socket is up, a TURN user this old is renewed (half its life), looked at
+/// every `TURN_LOOK`.
+pub const TURN_RENEW_AFTER: Duration = Duration::from_secs(5 * 60);
+/// How often the TURN user's age is looked at while the router's socket is up.
+pub const TURN_LOOK: Duration = Duration::from_secs(60);
+
+/// A connection or a call about to gather with a TURN user this old asks for a new one first: it
+/// could expire before the gathering is done. Past `TURN_RENEW_AFTER`, so that a call only waits
+/// when the periodic renewal could not run (the router did not answer, the phone slept).
+pub const TURN_STALE_AFTER: Duration = Duration::from_secs(8 * 60);
+
+/// How long a connection or a call waits for that new user, counted from when it was asked for:
+/// then it goes on with the user there is. A call never waits on the router.
+pub const TURN_WAIT: Duration = Duration::from_secs(2);
+
+/// After asking for a TURN user, the router is not asked again for this long, whether the ask is
+/// still going on or failed: a burst of connections asks once.
+pub const TURN_ASK_AGAIN: Duration = Duration::from_secs(30);
+
 /// The router, as the network uses it (ft-push's `RouterClient` in the app, a fake in tests).
 #[async_trait]
 pub trait Relay: Send + Sync {
@@ -62,6 +84,11 @@ pub trait Relay: Send + Sync {
     /// This device's mail: (id, blob), oldest first.
     async fn collect(&self) -> Result<Vec<(String, Vec<u8>)>>;
     async fn acknowledge(&self, id: &str) -> Result<()>;
+    /// A new TURN user (`GET /v1/turn-credentials`, 2026-10-28): the welcome's lives `TURN_LIFE`.
+    /// A relay that has none to hand out says so.
+    async fn turn_credentials(&self) -> Result<TurnGrant> {
+        bail!("this relay hands out no TURN users")
+    }
 }
 
 #[async_trait]
@@ -92,6 +119,10 @@ impl Relay for RouterClient {
 
     async fn acknowledge(&self, id: &str) -> Result<()> {
         RouterClient::acknowledge(self, id).await
+    }
+
+    async fn turn_credentials(&self) -> Result<TurnGrant> {
+        RouterClient::turn_credentials(self).await
     }
 }
 
@@ -158,11 +189,41 @@ struct Retained {
     call: bool,
 }
 
+/// The router's STUN servers and TURN user, and when that user came.
+struct Ice {
+    stun: Vec<String>,
+    turn: Option<TurnGrant>,
+    /// Wall-clock time: a sleeping phone's monotonic clock stops, and a night asleep must count.
+    turn_at: SystemTime,
+}
+
+impl Default for Ice {
+    fn default() -> Self {
+        Self { stun: Vec::new(), turn: None, turn_at: SystemTime::now() }
+    }
+}
+
+impl Ice {
+    /// Whether there is a TURN user at least `age` old. With the clock set back, its age is
+    /// unknown: old.
+    fn turn_older_than(&self, age: Duration) -> bool {
+        self.turn.is_some() && !SystemTime::now().duration_since(self.turn_at).is_ok_and(|since| since < age)
+    }
+}
+
+/// The last ask for a new TURN user: when it began, and whether it is over.
+struct Renewal {
+    began: tokio::time::Instant,
+    over: watch::Receiver<bool>,
+}
+
 pub struct Network {
     relay: Arc<dyn Relay>,
-    /// Where to listen; STUN and TURN come from the router's welcome.
+    /// Where to listen; STUN and TURN come from the router's welcome, and newer TURN users from
+    /// the router on demand (2026-10-28).
     base: SessionConfig,
-    ice: std::sync::Mutex<(Vec<String>, Option<TurnGrant>)>,
+    ice: std::sync::Mutex<Ice>,
+    renewal: std::sync::Mutex<Option<Renewal>>,
     core: OnceLock<Weak<Core>>,
     this: OnceLock<Weak<Network>>,
     links: Mutex<HashMap<String, Link>>,
@@ -194,6 +255,7 @@ impl Network {
             relay,
             base,
             ice: std::sync::Mutex::default(),
+            renewal: std::sync::Mutex::default(),
             core: OnceLock::new(),
             this: OnceLock::new(),
             links: Mutex::default(),
@@ -215,13 +277,32 @@ impl Network {
     }
 
     /// Feeds the router's events until the channel closes (each is handled in the background).
+    /// Meanwhile, while the router's socket is up, a TURN user past `TURN_RENEW_AFTER` is renewed
+    /// (2026-10-28): the welcome's lives `TURN_LIFE`, and a phone stays connected for longer.
     pub fn listen(self: &Arc<Self>, mut events: mpsc::Receiver<RouterEvent>) {
         let network = self.clone();
         tokio::spawn(async move {
-            while let Some(event) = events.recv().await {
-                network.handle(event).await;
+            let mut look = tokio::time::interval(TURN_LOOK);
+            look.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    event = events.recv() => match event {
+                        Some(event) => network.handle(event).await,
+                        None => break,
+                    },
+                    _ = look.tick() => network.keep_turn_fresh(),
+                }
             }
         });
+    }
+
+    /// Renews the TURN user in the background if it is past `TURN_RENEW_AFTER` and the router's
+    /// socket is up. Down, the next welcome brings a new one.
+    fn keep_turn_fresh(&self) {
+        let up = self.redial.lock().expect("redial poisoned").router_up;
+        if up && self.turn_older_than(TURN_RENEW_AFTER) {
+            let _ = self.renew_turn();
+        }
     }
 
     /// Returns at once: the work runs in the background, so that an answer arriving meanwhile
@@ -230,7 +311,7 @@ impl Network {
         let Some(network) = self.this.get().and_then(Weak::upgrade) else { return };
         match event {
             RouterEvent::Connected { stun, turn } => {
-                *self.ice.lock().expect("ice poisoned") = (stun, turn);
+                self.welcome(stun, turn);
                 let redial = {
                     let mut redial = self.redial.lock().expect("redial poisoned");
                     redial.router_up = true;
@@ -264,22 +345,80 @@ impl Network {
         self.core.get().and_then(Weak::upgrade).ok_or_else(|| anyhow!("the core is gone"))
     }
 
-    /// The router's STUN servers and TURN user, from its last welcome.
+    /// The router's welcome: its STUN servers and a TURN user, new.
+    fn welcome(&self, stun: Vec<String>, turn: Option<TurnGrant>) {
+        *self.ice.lock().expect("ice poisoned") = Ice { stun, turn, turn_at: SystemTime::now() };
+    }
+
+    /// The router's STUN servers and TURN user, from its last welcome or a newer one.
     pub fn ice(&self) -> (Vec<String>, Option<TurnGrant>) {
-        self.ice.lock().expect("ice poisoned").clone()
+        let ice = self.ice.lock().expect("ice poisoned");
+        (ice.stun.clone(), ice.turn.clone())
     }
 
     /// A fresh TURN user (`RouterClient::turn_credentials`) for the connections and calls made from
     /// now on (2026-10-28). The welcome's lives ten minutes: a device that stays connected longer
-    /// (the support contact) would otherwise gather no relay at all. The STUN servers stay.
+    /// would otherwise gather no relay at all. The STUN servers stay.
     pub fn set_turn(&self, turn: TurnGrant) {
-        self.ice.lock().expect("ice poisoned").1 = Some(turn);
+        let mut ice = self.ice.lock().expect("ice poisoned");
+        ice.turn = Some(turn);
+        ice.turn_at = SystemTime::now();
+    }
+
+    /// The router's STUN servers and a TURN user young enough for a call (2026-10-28): the WebView's
+    /// calls gather with them. Waits for a new user `TURN_WAIT` at most.
+    pub async fn fresh_ice(&self) -> (Vec<String>, Option<TurnGrant>) {
+        self.fresh_turn().await;
+        self.ice()
+    }
+
+    /// The TURN user came `by` earlier than it did. For tests.
+    #[doc(hidden)]
+    pub fn age_turn(&self, by: Duration) {
+        let mut ice = self.ice.lock().expect("ice poisoned");
+        ice.turn_at = ice.turn_at.checked_sub(by).unwrap_or(UNIX_EPOCH);
+    }
+
+    fn turn_older_than(&self, age: Duration) -> bool {
+        self.ice.lock().expect("ice poisoned").turn_older_than(age)
+    }
+
+    /// Before a connection or a call gathers (2026-10-28): a TURN user past `TURN_STALE_AFTER` is
+    /// replaced by a new one from the router, waited for until `TURN_WAIT` after it was asked for.
+    /// Then it goes on with the user there is: a call never waits on the router.
+    async fn fresh_turn(&self) {
+        if !self.turn_older_than(TURN_STALE_AFTER) {
+            return;
+        }
+        let Some((began, mut over)) = self.renew_turn() else { return };
+        let _ = tokio::time::timeout_at(began + TURN_WAIT, over.wait_for(|over| *over)).await;
+    }
+
+    /// Asks the router for a new TURN user in the background, unless an ask began less than
+    /// `TURN_ASK_AGAIN` ago, still going on or failed: then that one stands. When the ask began,
+    /// and when it is over.
+    fn renew_turn(&self) -> Option<(tokio::time::Instant, watch::Receiver<bool>)> {
+        let network = self.this.get().and_then(Weak::upgrade)?;
+        let mut renewal = self.renewal.lock().expect("renewal poisoned");
+        if let Some(last) = renewal.as_ref().filter(|last| last.began.elapsed() < TURN_ASK_AGAIN) {
+            return Some((last.began, last.over.clone()));
+        }
+        let (done, over) = watch::channel(false);
+        let began = tokio::time::Instant::now();
+        *renewal = Some(Renewal { began, over: over.clone() });
+        tokio::spawn(async move {
+            if let Ok(turn) = network.relay.turn_credentials().await {
+                network.set_turn(turn);
+            }
+            done.send_replace(true);
+        });
+        Some((began, over))
     }
 
     /// A new session's setup: listening on the interfaces there are now (app#200), with the
     /// router's STUN and TURN.
     fn session_config(&self) -> SessionConfig {
-        let (stun, turn) = self.ice.lock().expect("ice poisoned").clone();
+        let (stun, turn) = self.ice();
         ice_config(&self.base.clone().listening_now(), stun, turn)
     }
 
@@ -489,6 +628,7 @@ impl Network {
         let (session, inbox, sdp) = match self.take_spare(&peer.device_id).await {
             Some(spare) => (spare.session, spare.inbox, spare.sdp),
             None => {
+                self.fresh_turn().await;
                 let (signals, mut descriptions) = mpsc::channel(8);
                 let (session, inbox) = Session::start(self.session_config(), Role::Caller, signals).await?;
                 session.invite().await?;
@@ -677,6 +817,7 @@ impl Network {
     }
 
     async fn answer(&self, core: &Core, from: &str, session_id: String, offer: String) -> Result<()> {
+        self.fresh_turn().await;
         let (signals, mut descriptions) = mpsc::channel(8);
         let (session, inbox) = Session::start(self.session_config(), Role::Callee, signals).await?;
         session.handle_signal(Description::Sdp(offer)).await?;
@@ -770,6 +911,11 @@ impl Network {
 impl Transport for Network {
     fn media_config(&self) -> ft_media::MediaConfig {
         media_config(&self.session_config())
+    }
+
+    async fn fresh_media_config(&self) -> ft_media::MediaConfig {
+        self.fresh_turn().await;
+        self.media_config()
     }
 
     async fn send_direct(&self, to: &Peer, bytes: Vec<u8>) -> Result<bool> {
@@ -984,12 +1130,190 @@ mod tests {
     fn fresh_turn_credentials_replace_the_welcome_s_for_what_comes_next() {
         let network = Network::new(Arc::new(NoRouter), SessionConfig::offline());
         let welcome = TurnGrant { urls: vec!["turn:t:3478".to_owned()], username: "old".to_owned(), credential: "c1".to_owned() };
-        network.ice.lock().unwrap().clone_from(&(vec!["stun:t:3478".to_owned()], Some(welcome)));
+        network.welcome(vec!["stun:t:3478".to_owned()], Some(welcome));
         let fresh = TurnGrant { urls: vec!["turn:t:3478".to_owned()], username: "new".to_owned(), credential: "c2".to_owned() };
         network.set_turn(fresh);
         assert_eq!(network.session_config().turn_servers[0].username, "new");
         assert_eq!(network.media_config().turn.expect("a relay").credential, "c2");
         assert_eq!(network.ice().0, ["stun:t:3478"]);
+    }
+
+    fn grant(username: &str) -> TurnGrant {
+        TurnGrant { urls: vec!["turn:t:3478".to_owned()], username: username.to_owned(), credential: format!("{username}-key") }
+    }
+
+    /// A router that hands out TURN users, `fresh-0`, `fresh-1`…, and counts the asks. It may take
+    /// its time, never answer, or refuse.
+    #[derive(Default)]
+    struct TurnDesk {
+        asked: std::sync::atomic::AtomicUsize,
+        takes: Duration,
+        hangs: bool,
+        refuses: bool,
+    }
+
+    impl TurnDesk {
+        fn asked(&self) -> usize {
+            self.asked.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl Relay for TurnDesk {
+        async fn signal(&self, _: &str, _: &[u8; 32], _: Vec<u8>) -> Result<bool> {
+            Ok(false)
+        }
+
+        async fn deposit(&self, _: &str, _: &[u8; 32], _: Vec<u8>) -> Result<()> {
+            Ok(())
+        }
+
+        async fn collect(&self) -> Result<Vec<(String, Vec<u8>)>> {
+            Ok(Vec::new())
+        }
+
+        async fn acknowledge(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn turn_credentials(&self) -> Result<TurnGrant> {
+            let n = self.asked.fetch_add(1, Ordering::SeqCst);
+            if self.hangs {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(self.takes).await;
+            if self.refuses {
+                bail!("too many requests");
+            }
+            Ok(grant(&format!("fresh-{n}")))
+        }
+    }
+
+    /// A network over `desk`, welcomed by the router with the TURN user `welcome`.
+    async fn welcomed(desk: &Arc<TurnDesk>) -> Arc<Network> {
+        let network = Network::new(desk.clone(), SessionConfig::offline());
+        network.handle(RouterEvent::Connected { stun: vec!["stun:t:3478".to_owned()], turn: Some(grant("welcome")) }).await;
+        network
+    }
+
+    fn turn_user(media: ft_media::MediaConfig) -> String {
+        media.turn.expect("a relay").username
+    }
+
+    // The router's TURN users live ten minutes (2026-10-28) and the app kept the welcome's: a phone
+    // connected for longer called with an expired one, gathered no relay, and a call whose path
+    // needed one never connected. A connection or a call about to gather with a user that old asks
+    // the router for a new one first. A younger one is used as it is, without waiting.
+    #[tokio::test]
+    async fn a_connection_or_a_call_with_an_old_turn_user_takes_a_new_one_first() {
+        let desk = Arc::new(TurnDesk::default());
+        let network = welcomed(&desk).await;
+        network.age_turn(TURN_RENEW_AFTER);
+        assert_eq!(turn_user(network.fresh_media_config().await), "welcome", "young enough for a call");
+        assert_eq!(desk.asked(), 0);
+
+        network.age_turn(TURN_LIFE);
+        assert_eq!(turn_user(network.fresh_media_config().await), "fresh-0", "a native call's media");
+        assert_eq!(network.session_config().turn_servers[0].username, "fresh-0", "the direct connections");
+        assert_eq!(network.fresh_ice().await.1.expect("a relay").username, "fresh-0", "the WebView's calls");
+        assert_eq!(network.ice().0, ["stun:t:3478"], "the STUN servers stay");
+        assert_eq!(desk.asked(), 1, "once: the new one is young");
+    }
+
+    // A router that does not answer holds a call back `TURN_WAIT` at most: it goes on with the user
+    // there is. The next one, while that ask still hangs, does not wait for it again.
+    #[tokio::test(start_paused = true)]
+    async fn a_router_that_does_not_answer_holds_a_call_back_two_seconds_at_most() {
+        let desk = Arc::new(TurnDesk { hangs: true, ..TurnDesk::default() });
+        let network = welcomed(&desk).await;
+        network.age_turn(TURN_LIFE);
+        let started = tokio::time::Instant::now();
+        let media = tokio::time::timeout(Duration::from_secs(60), network.fresh_media_config()).await.expect("never stuck");
+        assert_eq!(turn_user(media), "welcome", "what there is");
+        assert!(started.elapsed() <= TURN_WAIT, "{:?}", started.elapsed());
+        assert_eq!(desk.asked(), 1, "the router was asked");
+
+        let again = tokio::time::Instant::now();
+        network.fresh_media_config().await;
+        assert!(again.elapsed() < Duration::from_millis(10), "{:?}", again.elapsed());
+        assert_eq!(desk.asked(), 1);
+    }
+
+    // A burst of connections and calls with an old user (a phone back with many contacts to dial)
+    // asks the router once, and each of them gathers with the new user.
+    #[tokio::test(start_paused = true)]
+    async fn a_burst_of_connections_asks_the_router_once() {
+        let desk = Arc::new(TurnDesk { takes: Duration::from_millis(300), ..TurnDesk::default() });
+        let network = welcomed(&desk).await;
+        network.age_turn(TURN_LIFE);
+        let burst: Vec<_> = (0..10)
+            .map(|_| {
+                let network = network.clone();
+                tokio::spawn(async move { turn_user(network.fresh_media_config().await) })
+            })
+            .collect();
+        for each in burst {
+            assert_eq!(each.await.unwrap(), "fresh-0");
+        }
+        assert_eq!(desk.asked(), 1);
+    }
+
+    // A router that refuses (too many requests, no TURN) is not asked again for `TURN_ASK_AGAIN`:
+    // the connections in between go at once with the user there is.
+    #[tokio::test(start_paused = true)]
+    async fn a_router_that_refuses_is_not_asked_again_at_once() {
+        let desk = Arc::new(TurnDesk { refuses: true, ..TurnDesk::default() });
+        let network = welcomed(&desk).await;
+        network.age_turn(TURN_LIFE);
+        for _ in 0..5 {
+            assert_eq!(turn_user(network.fresh_media_config().await), "welcome");
+        }
+        assert_eq!(desk.asked(), 1);
+        tokio::time::sleep(TURN_ASK_AGAIN).await;
+        network.fresh_media_config().await;
+        assert_eq!(desk.asked(), 2);
+    }
+
+    // While the router's socket is up, the TURN user is renewed before it expires (past
+    // `TURN_RENEW_AFTER`, looked at every `TURN_LOOK`), so that a call seldom waits for one. Not
+    // while the socket is down: the next welcome brings one.
+    #[tokio::test(start_paused = true)]
+    async fn while_connected_to_the_router_the_turn_user_is_renewed_before_it_expires() {
+        let desk = Arc::new(TurnDesk::default());
+        let network = Network::new(desk.clone(), SessionConfig::offline());
+        let (events, incoming) = mpsc::channel(8);
+        network.listen(incoming);
+        events.send(RouterEvent::Connected { stun: vec![], turn: Some(grant("welcome")) }).await.unwrap();
+        tokio::time::sleep(TURN_LOOK * 3).await;
+        assert_eq!(desk.asked(), 0, "a young one stays");
+
+        network.age_turn(TURN_RENEW_AFTER);
+        tokio::time::sleep(TURN_LOOK).await;
+        assert_eq!(desk.asked(), 1);
+        assert_eq!(network.ice().1.expect("a relay").username, "fresh-0");
+        tokio::time::sleep(TURN_LOOK * 3).await;
+        assert_eq!(desk.asked(), 1, "the new one is young");
+
+        events.send(RouterEvent::Disconnected).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        network.age_turn(TURN_LIFE);
+        tokio::time::sleep(TURN_LOOK * 3).await;
+        assert_eq!(desk.asked(), 1, "not while the socket is down");
+    }
+
+    // A router with no TURN (none in its welcome) has none to hand out either: nothing is asked.
+    #[tokio::test(start_paused = true)]
+    async fn without_turn_in_the_welcome_none_is_asked_for() {
+        let desk = Arc::new(TurnDesk::default());
+        let network = Network::new(desk.clone(), SessionConfig::offline());
+        let (events, incoming) = mpsc::channel(8);
+        network.listen(incoming);
+        events.send(RouterEvent::Connected { stun: vec![], turn: None }).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        network.age_turn(TURN_LIFE);
+        assert!(network.fresh_media_config().await.turn.is_none());
+        tokio::time::sleep(TURN_LOOK * 3).await;
+        assert_eq!(desk.asked(), 0);
     }
 
     // The phone changed networks with the app open (app#200, 2026-10-20): the addresses it had
