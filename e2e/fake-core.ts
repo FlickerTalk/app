@@ -81,6 +81,10 @@
  * `translate`, as the core: English and Spanish installed, Spanish guessed, "hola" as the
  * translation; any other plugin is refused.
  *
+ * A reminder on a message (2026-10-28): `window.__ftFakeRemindTool` installs Reminders
+ * (`com.flickertalk.remind`), which opens a text, asks to read what it is handed and to set
+ * reminders, and was granted neither, as just installed from the catalogue.
+ *
  * Links that open the app (2026-10-08): `window.__ftFakeOpenedLink` (a URL) is the link the phone
  * opened the app with, handed over once (`core_opened_link`); `window.__ftFake.openLink(url)` is a
  * link opening the app that runs already (the core's `ft://opened-link`). `core_read_link` reads
@@ -266,6 +270,16 @@ export function installFakeCore() {
         },
       },
     },
+  };
+  const REMIND_TOOL = {
+    id: "com.flickertalk.remind",
+    icon: "alarm-outline",
+    name: "Reminders",
+    version: "1.0.0",
+    opens: ["text/plain"],
+    asks: { network: [], messages: true, send: "nothing", remind: true, storage: "small" },
+    granted: { network: [], messages: false, send: "nothing", remind: false, storage: "small" },
+    installedAt: 5,
   };
   /** Notes tools left under messages, by message id (2026-10-20). */
   const notes: Record<string, { plugin: string; text: string }[]> = {};
@@ -480,6 +494,7 @@ export function installFakeCore() {
           if (flag("__ftFakeTranslateReads")) tool.granted.messages = true;
           state.plugins.push(tool);
         }
+        if (flag("__ftFakeRemindTool") && !state.plugins.some((p) => p.id === REMIND_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(REMIND_TOOL)));
         const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
         const extra = Array.from({ length: many }, (_, at) => String(at).padStart(2, "0")).flatMap((n) => [
           { id: `com.example.tool${n}`, name: `Tool ${n} with a rather long name to see it cut`, version: "1.0.0", asks: { network: [], messages: false, send: "nothing" }, granted: { network: [], messages: false, send: "nothing" }, installedAt: 1 },

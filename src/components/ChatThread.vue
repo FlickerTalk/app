@@ -888,8 +888,9 @@ watch(invitedToUnknown, (now) => {
 });
 
 // 2026-09-27: "open with": a message goes to a plugin that says it opens its kind. A text only
-// to one granted to read what it is handed; a file with its bytes, once it is here whole. The
-// plugin also gets a way back to the message (`ref`) that says nothing of the contact.
+// to one that asks to read what it is handed, allowed on the spot the first time (2026-10-20); a
+// file with its bytes, once it is here whole. The plugin also gets a way back to the message
+// (`ref`) that says nothing of the contact.
 const openingWith = ref(false);
 const openers = computed(() => {
   const message = messages.value.find((one) => one.id === acting.value);
