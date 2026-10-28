@@ -1422,6 +1422,13 @@ impl Store {
         Ok(())
     }
 
+    /// Forgets the calls that ended before `at`, for a device that keeps no call history (the
+    /// support contact). A call still going on stays. Returns how many went.
+    pub async fn forget_calls_before(&self, at: i64) -> Result<u64> {
+        let gone = sqlx::query("DELETE FROM calls WHERE ended_at IS NOT NULL AND ended_at < ?").bind(at).execute(&self.pool).await?;
+        Ok(gone.rows_affected())
+    }
+
     /// Writes a consistent copy of the whole database to `path`, which must not exist (§60).
     /// Installs a plugin, or moves it to a new version. An update keeps what was granted: the
     /// user said yes to this plugin, not to this build of it (§53).
@@ -2375,6 +2382,23 @@ mod tests {
         assert_eq!(outcome("calling").await, Some(CallOutcome::Cancelled));
         assert_eq!(outcome("ringing").await, Some(CallOutcome::Missed));
         assert_eq!(outcome("done").await, Some(CallOutcome::Declined), "finished calls are left alone");
+    }
+
+    // A device that keeps no history (the support contact, 2026-10-28) drops ended calls once
+    // they are old enough; one still going on stays, whatever its age.
+    #[tokio::test]
+    async fn ended_calls_before_a_time_can_be_forgotten() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        for (id, at) in [("old", 1), ("going", 2), ("new", 9)] {
+            store.insert_call(&call(id, "ft_bob", false, at)).await.unwrap();
+        }
+        store.finish_call("old", 3, CallOutcome::Answered).await.unwrap();
+        store.finish_call("new", 10, CallOutcome::Missed).await.unwrap();
+
+        assert_eq!(store.forget_calls_before(5).await.expect("forgets"), 1);
+        let left: Vec<_> = store.calls(10).await.unwrap().into_iter().map(|c| c.call_id).collect();
+        assert_eq!(left, ["new", "going"]);
     }
 
     #[test]

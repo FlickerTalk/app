@@ -1,0 +1,10 @@
+# The build context is the repository's root; only the Rust workspace matters.
+.git
+**/node_modules
+**/target
+dist
+docs
+e2e
+test-results
+playwright-report
+src-tauri/gen

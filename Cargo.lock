@@ -1959,6 +1959,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ft-support"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "blake3",
+ "ft-contacts",
+ "ft-core",
+ "ft-identity",
+ "ft-media",
+ "ft-push",
+ "ft-storage",
+ "ft-webrtc",
+ "hex",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "webrtc-engine",
+]
+
+[[package]]
 name = "ft-vault"
 version = "0.1.0"
 dependencies = [
@@ -6073,6 +6097,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
