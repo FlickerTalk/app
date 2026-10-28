@@ -12,6 +12,7 @@ phone, not on our servers. [flickertalk.com](https://flickertalk.com)
 - **iPhone:** coming soon on the App Store.
 - **Video:** [the trailer](https://youtu.be/QNMZLA05s7c) (1 min) and
   [the full manual](https://youtu.be/rQNRywOx_P8) (24 min).
+- **News:** [@FlickerTalk on X](https://x.com/FlickerTalk).
 
 <p>
   <img src="docs/readme/chat.png" width="240" alt="A chat with a video, a PDF, two voice messages and a quoted reply, all delivered">
