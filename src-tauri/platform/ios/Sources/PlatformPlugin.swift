@@ -375,6 +375,8 @@ enum CallEvent: Equatable {
     case orientation(Int)
     /// CallKit's "Video" button opened the app with a video call intent: our camera turns on.
     case videoRequested
+    /// Where the call's voice plays now (2026-10-28), for the call screen's speaker button.
+    case route(CallOutput)
 }
 
 /// The event as the channel carries it: `{"event": "mute", "muted": true}`.
@@ -390,6 +392,7 @@ func callEventPayload(_ event: CallEvent) -> JsonObject {
     case .visible(let visible): return ["event": "visible", "visible": visible]
     case .orientation(let orientation): return ["event": "orientation", "orientation": orientation]
     case .videoRequested: return ["event": "video"]
+    case .route(let output): return ["event": "route", "route": output.rawValue]
     }
 }
 
@@ -577,8 +580,18 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private var sessionGeneration: UInt64 = 0
     /// Whether CallKit activated the session again since the last interruption ended.
     private var reactivated = false
-    /// The user's choice for this call: speaker, or the receiver.
-    private var speaker = false
+    /// The user's choice for this call: the speaker (`true`), or not (`false`): headphones if there
+    /// are any, else the receiver. `nil` until the user chooses (2026-10-28, `speakerOn`).
+    private var speakerChoice: Bool?
+    /// The call had video: with no choice of the user's, it plays on the speaker rather than the
+    /// receiver, never instead of headphones.
+    private var prefersSpeaker = false
+    /// The system activated this call's audio session and has not taken it away.
+    private var sessionActive = false
+    /// The route the call screen was told last.
+    private var reportedRoute: CallOutput?
+    /// The call's category was set back once already (`applyRoute`).
+    private var sessionRestored = false
     /// When the incoming call was reported, and when it was answered: for `callOverdue`.
     private var ringingSince: Date?
     private var answeredAt: Date?
@@ -609,6 +622,9 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             self?.interrupted(note)
         }
+        NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            self?.routeChanged(note)
+        }
     }
 
     /// An interruption (Siri, an alarm…) stops the audio unit. If it ends with "should resume" and
@@ -624,20 +640,69 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
             guard let self else { return }
             let live = call != nil && self.current == call && (self.live || self.outgoing)
             guard restartAfterInterruption(shouldResume: options.contains(.shouldResume), reactivated: self.reactivated, callLive: live) else { return }
+            self.applyRoute()
+            self.reportRoute()
             CallEvents.shared.emit(.audioDeactivated(self.sessionGeneration))
             CallEvents.shared.emit(.audioActivated(self.sessionGeneration))
         }
     }
 
-    /// Speaker or receiver, as the user chose (2026-09-28). Applied now and again each time the
-    /// system activates the session: an override lasts only while the session is active.
+    /// Speaker or not, as the user chose (2026-09-28): not the speaker is the headphones if there
+    /// are any, else the receiver (2026-10-28). Applied now and again each time the system
+    /// activates the session: an override lasts only while the session is active.
     func setSpeaker(_ on: Bool) {
-        speaker = on
-        applySpeaker()
+        speakerChoice = on
+        applyRoute()
     }
 
-    private func applySpeaker() {
-        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(outputOverride(speaker: speaker))
+    /// Where the voice plays, as `speakerOn` decides, while the call's session is active. The
+    /// speaker is an override of the output. Otherwise there is none, and a headset's microphone is
+    /// preferred, which takes the voice to the headset both ways: iOS may leave a Bluetooth headset
+    /// out of a call that starts on the receiver, and dropping the override lands on the receiver.
+    private func applyRoute() {
+        guard current != nil, sessionActive else { return }
+        let session = AVAudioSession.sharedInstance()
+        if !isCallSession(category: session.category, mode: session.mode) {
+            routeLog("the session changed under the call: \(describeSession(session))")
+            // Once per call: if something keeps changing it, the log says so and nothing loops.
+            if !sessionRestored {
+                sessionRestored = true
+                configureCallAudio()
+            }
+        }
+        let route = session.currentRoute
+        let available = session.availableInputs ?? []
+        let ports = available.map(\.portType)
+        let speaker = speakerOn(choice: speakerChoice, prefersSpeaker: prefersSpeaker, headset: hasHeadset(outputs: route.outputs.map(\.portType), available: ports))
+        if !speaker {
+            let port = headsetInput(inRoute: route.inputs.map(\.portType), available: ports)
+            let input = port.flatMap { port in available.first { $0.portType == port } }
+            if input != nil || session.preferredInput != nil {
+                try? session.setPreferredInput(input)
+            }
+        }
+        try? session.overrideOutputAudioPort(outputOverride(speaker: speaker))
+        routeLog("apply speaker=\(speaker) choice=\(speakerChoice.map { "\($0)" } ?? "none") video=\(prefersSpeaker) \(describeSession(session))")
+    }
+
+    /// Tells the call screen where the voice plays, when it changed.
+    private func reportRoute() {
+        guard current != nil, sessionActive else { return }
+        let output = callOutput(of: AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType))
+        guard output != reportedRoute else { return }
+        reportedRoute = output
+        CallEvents.shared.emit(.route(output))
+    }
+
+    /// Headphones plugged in or taken out, a Bluetooth headset connected or gone (2026-10-28): the
+    /// route is decided again (`reroutes`), and the call screen hears where the voice went.
+    private func routeChanged(_ note: Notification) {
+        guard current != nil, sessionActive else { return }
+        let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:)) ?? .unknown
+        routeLog("change reason=\(reason.rawValue) \(describeSession(AVAudioSession.sharedInstance()))")
+        speakerChoice = choiceAfterRouteChange(speakerChoice, reason: reason)
+        if reroutes(after: reason) { applyRoute() }
+        reportRoute()
     }
 
     /// The app's own answer button (2026-09-28): CallKit is asked to answer, so the audio session
@@ -710,7 +775,10 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         voiceConnected = false
         ringingSince = nil
         answeredAt = nil
-        speaker = false
+        speakerChoice = nil
+        prefersSpeaker = false
+        reportedRoute = nil
+        sessionRestored = false
         named = false
         generation += 1
         self.outgoing = outgoing
@@ -810,6 +878,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     func answering(caller: String, video: Bool) {
         guard let current else { return }
         named = true
+        if video { preferSpeaker() }
         provider.reportCall(with: current, updated: answeringUpdate(caller: caller, video: video, openAppOnAnswer: openAppOnAnswer.on))
     }
 
@@ -830,6 +899,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
         begin(uuid, outgoing: true)
         configureProvider()
         let shown = name.isEmpty ? "FlickerTalk" : name
+        if video { preferSpeaker() }
         let action = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: shown))
         action.isVideo = video
         controller.request(CXTransaction(action: action)) { [weak self] error in
@@ -861,6 +931,15 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     func setVideo(_ on: Bool) {
         guard let current else { return }
         provider.reportCall(with: current, updated: videoUpdate(on, outgoing: outgoing, openAppOnAnswer: openAppOnAnswer.on))
+        if on { preferSpeaker() }
+    }
+
+    /// A video call: nobody holds the phone to the ear to watch. The speaker rather than the
+    /// receiver for the rest of the call, unless headphones are in (2026-10-28, `speakerOn`).
+    private func preferSpeaker() {
+        guard !prefersSpeaker else { return }
+        prefersSpeaker = true
+        applyRoute()
     }
 
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
@@ -982,11 +1061,15 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         sessionGeneration = generation
         reactivated = true
-        applySpeaker()
+        sessionActive = true
+        routeLog("activated \(describeSession(audioSession))")
+        applyRoute()
+        reportRoute()
         CallEvents.shared.emit(.audioActivated(sessionGeneration))
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+        sessionActive = false
         CallEvents.shared.emit(.audioDeactivated(sessionGeneration))
     }
 }

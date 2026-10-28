@@ -119,6 +119,40 @@ pub enum NativeCallEvent {
     /// button opens the app with a video call intent; the ongoing call notification's camera
     /// action on Android. Our camera turns on.
     VideoRequested,
+    /// Where the call's voice plays now, as the native side decided it (2026-10-28): headphones
+    /// take the call, the speaker is the user's choice. For the call screen's speaker button.
+    Route(CallRoute),
+}
+
+/// Where a native call's voice plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallRoute {
+    /// The phone's earpiece.
+    Receiver,
+    /// The phone's loudspeaker.
+    Speaker,
+    /// Headphones: wired, Bluetooth, USB, a car.
+    Headset,
+}
+
+impl CallRoute {
+    fn parse(wire: &str) -> Option<Self> {
+        match wire {
+            "receiver" => Some(Self::Receiver),
+            "speaker" => Some(Self::Speaker),
+            "headset" => Some(Self::Headset),
+            _ => None,
+        }
+    }
+
+    /// As the call screen hears it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Receiver => "receiver",
+            Self::Speaker => "speaker",
+            Self::Headset => "headset",
+        }
+    }
 }
 
 /// One event as Swift and Kotlin send it: `{"event": "mute", "muted": true}`.
@@ -130,6 +164,7 @@ struct CallEventWire {
     generation: u64,
     visible: Option<bool>,
     orientation: Option<i32>,
+    route: Option<String>,
 }
 
 /// One event through the channel.
@@ -156,6 +191,7 @@ fn call_event_of(wire: CallEventWire) -> Option<NativeCallEvent> {
         ("mute", Some(muted)) => Some(NativeCallEvent::Mute(muted)),
         ("audioActivated", _) => Some(NativeCallEvent::AudioActivated(wire.generation)),
         ("audioDeactivated", _) => Some(NativeCallEvent::AudioDeactivated(wire.generation)),
+        ("route", _) => wire.route.as_deref().and_then(CallRoute::parse).map(NativeCallEvent::Route),
         _ => None,
     }
 }
@@ -1442,6 +1478,22 @@ mod tests {
         assert_eq!(parse_call_event(r#"{"event":"mute","muted":true}"#), Some(NativeCallEvent::Mute(true)));
         assert_eq!(parse_call_event(r#"{"event":"hold"}"#), None);
         assert_eq!(parse_call_event("not json"), None);
+    }
+
+    // 2026-10-28: where the call's voice plays, as the native side decided it (headphones take the
+    // call; the speaker is the user's choice), for the call screen's speaker button.
+    #[test]
+    fn the_call_route_travels_as_the_native_side_says_it() {
+        let read = |json: &str| call_event(tauri::ipc::InvokeResponseBody::Json(json.into()));
+        assert_eq!(read(r#"{"event":"route","route":"headset"}"#), Some(NativeCallEvent::Route(CallRoute::Headset)));
+        assert_eq!(read(r#"{"event":"route","route":"speaker"}"#), Some(NativeCallEvent::Route(CallRoute::Speaker)));
+        assert_eq!(read(r#"{"event":"route","route":"receiver"}"#), Some(NativeCallEvent::Route(CallRoute::Receiver)));
+        assert_eq!(read(r#"{"event":"route","route":"car"}"#), None);
+        assert_eq!(read(r#"{"event":"route"}"#), None);
+        assert_eq!(parse_call_event(r#"{"event":"route","route":"headset"}"#), Some(NativeCallEvent::Route(CallRoute::Headset)));
+        assert_eq!(CallRoute::Headset.as_str(), "headset");
+        assert_eq!(CallRoute::Speaker.as_str(), "speaker");
+        assert_eq!(CallRoute::Receiver.as_str(), "receiver");
     }
 
     // Anything else is ignored, never a panic on the phone's main thread.

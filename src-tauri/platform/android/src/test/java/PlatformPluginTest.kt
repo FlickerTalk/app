@@ -708,16 +708,6 @@ class PlatformPluginTest {
         assertEquals(listOf<CallEvent>(CallEvent.Incoming), heard)
     }
 
-    // Speaker or receiver (2026-09-28): Android 12 chooses the communication device; before, the
-    // speakerphone switch.
-    @Test
-    fun theSpeakerIsTheCommunicationDeviceFromAndroid12() {
-        assertEquals(SpeakerRoute.SPEAKER_DEVICE, speakerRoute(31, on = true))
-        assertEquals(SpeakerRoute.CLEAR_DEVICE, speakerRoute(34, on = false))
-        assertEquals(SpeakerRoute.SPEAKERPHONE_ON, speakerRoute(30, on = true))
-        assertEquals(SpeakerRoute.SPEAKERPHONE_OFF, speakerRoute(30, on = false))
-    }
-
     // A call shows over the lock screen and turns the screen on while it rings or goes on.
     @Test
     fun aCallShowsOverTheLockScreenWhileItRingsOrGoesOn() {

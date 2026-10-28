@@ -449,14 +449,59 @@ describe("native calls", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: false });
   });
 
-  it("puts a video call on the speaker once it is live", async () => {
+  // Bug of 2026-10-28: the WebView told the phone "speaker" when a video call went live, and the
+  // speaker override beats any headphones, so a video call never played on them. The phone itself
+  // now prefers the speaker to the receiver for video, never to headphones (CallAudioRoute.swift,
+  // CallRoute.kt); the WebView only shows where the voice is.
+  it("leaves a video call's route to the phone, which keeps headphones", async () => {
     await calls.startCall("ft_bob", true);
     expect(calls.call.speaker).toBe(true);
-    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_speaker", expect.anything());
     event({ kind: "answered", sdp: "their-answer" });
     event({ kind: "connected" });
     await flushPromises();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_speaker", expect.anything());
+    event({ kind: "route", route: "headset" });
+    await flushPromises();
+    expect(calls.call).toMatchObject({ speaker: false, route: "headset" });
+  });
+
+  // The speaker button shows where the voice really is (2026-10-28): headphones plugged in or
+  // taken out during the call move it, and the phone says so.
+  it("follows the phone's route: headphones, speaker or receiver", async () => {
+    await calls.startCall("ft_bob", false);
+    event({ kind: "route", route: "headset" });
+    await flushPromises();
+    expect(calls.call).toMatchObject({ speaker: false, route: "headset" });
+    calls.toggleSpeaker();
     expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: true });
+    event({ kind: "route", route: "speaker" });
+    await flushPromises();
+    expect(calls.call).toMatchObject({ speaker: true, route: "speaker" });
+    // Wired headphones plugged in: they take the call from the speaker.
+    event({ kind: "route", route: "headset" });
+    await flushPromises();
+    expect(calls.call).toMatchObject({ speaker: false, route: "headset" });
+    calls.toggleSpeaker();
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_call_speaker", { on: true });
+    event({ kind: "route", route: "receiver" });
+    await flushPromises();
+    expect(calls.call).toMatchObject({ speaker: false, route: "receiver" });
+  });
+
+  it("ignores the route of another call", async () => {
+    await calls.startCall("ft_bob", false);
+    tauri.handlers["ft://call"]({ payload: { contact: "ft_carol", call: "other", kind: "route", route: "speaker" } });
+    await flushPromises();
+    expect(calls.call.speaker).toBe(false);
+    expect(calls.call.route).toBeNull();
+  });
+
+  // A WebView that comes back (or starts) during the call shows the route the phone said last.
+  it("shows the route the core keeps when the call is shown again", async () => {
+    current = { call: "call-1", contact: "ft_bob", video: false, outgoing: true, phase: "active", native: true, muted: false, route: "headset" };
+    calls.reset();
+    await calls.startCalls();
+    expect(calls.call).toMatchObject({ phase: "active", speaker: false, route: "headset" });
   });
 
   it("leaves a voice call on the receiver when it goes live", async () => {
@@ -807,18 +852,18 @@ describe("native video", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_end", expect.anything());
   });
 
-  // With pictures on the screen nobody holds the phone to the ear.
-  it("moves the voice to the speaker when video comes in", async () => {
+  // With pictures on the screen nobody holds the phone to the ear: the phone moves the voice to the
+  // speaker by itself, unless headphones are in (2026-10-28). The WebView does not force it, as the
+  // speaker override beats headphones; it shows what the phone says.
+  it("lets the phone move the voice to the speaker when video comes in", async () => {
     await live();
     expect(calls.call.speaker).toBe(false);
     video({ remote: true });
     await flushPromises();
-    expect(calls.call.speaker).toBe(true);
-    expect(tauri.invoke).toHaveBeenCalledWith("core_call_speaker", { on: true });
-    tauri.invoke.mockClear();
-    video({ remote: true, camera: true });
-    await flushPromises();
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_call_speaker", expect.anything());
+    event({ kind: "route", route: "speaker" });
+    await flushPromises();
+    expect(calls.call.speaker).toBe(true);
   });
 
   it("measures a video's place in CSS pixels", () => {
