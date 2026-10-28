@@ -158,16 +158,20 @@ for (const locale of ["en", "ar"] as const) {
       if (locale === "ar") expect(after.x).toBeLessThan(at.x);
       else expect(after.x).toBeGreaterThan(at.x);
 
-      // A finger swipe across the step (towards the inline start), as a touch screen sends it.
+      // A finger dragged across the step towards the inline start, as a touch screen sends it: touch
+      // events, since CDP's synthesized scroll gesture scrolls nothing in headless Chromium on Linux
+      // (the CI), not even a bare scroll-snap row.
+      const across = locale === "ar" ? 260 : -260;
+      const from = { x: Math.round(at.x + at.width / 2 - across / 2), y: Math.round(at.y + at.height / 2) };
       const cdp = await app.context().newCDPSession(app);
-      await cdp.send("Input.synthesizeScrollGesture", {
-        x: Math.round(at.x + at.width / 2),
-        y: Math.round(at.y + at.height / 2),
-        xDistance: locale === "ar" ? 260 : -260,
-        yDistance: 0,
-        gestureSourceType: "touch",
-        speed: 1200,
-      });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
+      for (let move = 1; move <= 10; move++) {
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x: from.x + Math.round((across * move) / 10), y: from.y }],
+        });
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
       await expect(second).toBeInViewport({ ratio: 0.9 });
       // The dots follow; each is a tab named for screen readers (Ionic puts the name on its button).
       await expect(tour(app).locator("ion-segment-button").nth(1)).toHaveClass(/segment-button-checked/);
