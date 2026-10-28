@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import WelcomePage from "./WelcomePage.vue";
 import { pageShape } from "../__tests__/page-shape";
-import { isOnboarded } from "../preferences";
+import { isOnboarded, isTourDue } from "../preferences";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { checkOpenedLink, startOpenedLinks, takeOpened } from "../opened";
@@ -65,6 +65,22 @@ describe("WelcomePage", () => {
     await flushPromises();
     expect(isOnboarded()).toBe(true);
     expect(replace).toHaveBeenCalledWith("/tabs/chats");
+  });
+
+  // 2026-10-28: a new identity sees the quick tour once, when the chats open. An identity brought
+  // from the old phone never goes through Start, so it is not owed one.
+  it("owes the quick tour to the identity made with Start, and not before", async () => {
+    const wrapper = mount(WelcomePage, { shallow: true });
+    expect(isTourDue()).toBe(false);
+    await wrapper.find("[data-test='move-from-old']").trigger("click");
+    expect(isTourDue()).toBe(false);
+    let dueBeforeChats = false;
+    replace.mockImplementationOnce(() => {
+      dueBeforeChats = isTourDue();
+    });
+    await wrapper.find("[data-test='start']").trigger("click");
+    await flushPromises();
+    expect(dueBeforeChats).toBe(true);
   });
 
   // M4: once the user starts, the phone can be woken when the app is closed.

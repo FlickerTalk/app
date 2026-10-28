@@ -6,7 +6,7 @@ import { useRouter } from "vue-router";
 import { addSupportContact, enablePush, setName, store } from "../core";
 import { PRIVACY_URL, TERMS_URL, openOutside } from "../legal";
 import { releaseKept } from "../opened";
-import { setOnboarded } from "../preferences";
+import { setOnboarded, setTourDue } from "../preferences";
 
 const router = useRouter();
 const name = ref("");
@@ -21,6 +21,8 @@ async function start() {
   // before the welcome counts as seen: an app stopped in between adds it at the next Start.
   await addSupportContact();
   setOnboarded();
+  // 2026-10-28: the identity just made sees the quick tour once the chats open.
+  setTourDue();
   // M4: from now on the phone can be woken when the app is closed (asks for notifications).
   void enablePush();
   await router.replace("/tabs/chats");
