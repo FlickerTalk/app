@@ -6,8 +6,13 @@ import { onBackButtonPress } from "@tauri-apps/api/app";
 import type { Router } from "vue-router";
 
 type Listener = { unregister: () => Promise<void> };
-/** Closes something; one that goes somewhere (a page that goes back) is over when it gets there. */
-type Close = () => unknown;
+/**
+ * Closes something; one that goes somewhere (a page that goes back) is over when it gets there. It
+ * hears why: the user pressed Back, or everything on top closes at once for a page to come (a link
+ * that opened the app). Most close the same either way; the quick tour only counts Back as seen.
+ */
+export type CloseReason = "back" | "all";
+type Close = (why: CloseReason) => unknown;
 
 const open: Array<Close> = [];
 let listening: Promise<Listener | undefined> | undefined;
@@ -27,7 +32,7 @@ function sync(): void {
 function pressed(): void {
   const close = open.pop();
   sync();
-  void close?.();
+  void close?.("back");
 }
 
 /**
@@ -40,7 +45,7 @@ function pressed(): void {
 export async function closeAll(): Promise<void> {
   const closing = open.splice(0).reverse();
   sync();
-  for (const close of closing) await close();
+  for (const close of closing) await close("all");
 }
 
 /** Goes back, and is over once the router has landed (the browser's popstate comes later). */
