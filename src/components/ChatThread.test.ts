@@ -740,27 +740,60 @@ describe("ChatThread", () => {
       opens: ["text/plain"],
     };
 
-    /** Long press on the first message, "open with", then the Translator. */
-    async function chooseTranslator() {
+    // Already allowed to read what it is handed, as Notes once its switch is on.
+    const NOTES = {
+      id: "com.flickertalk.notes",
+      name: "Notes",
+      version: "1.0.0",
+      asks: { network: [], messages: true, send: "nothing" },
+      granted: { network: [], messages: true, send: "nothing" },
+      installedAt: 1,
+      opens: ["text/plain"],
+    };
+    // Opens no text, as Markdown.
+    const MARKDOWN = {
+      id: "com.flickertalk.markdown",
+      name: "Markdown",
+      version: "1.0.0",
+      asks: { network: [], messages: false, send: "propose" },
+      granted: { network: [], messages: false, send: "nothing" },
+      installedAt: 1,
+    };
+    // Says it opens a text but never asks to read one: it is never handed it.
+    const BLIND = { ...NOTES, id: "com.example.blind", name: "Blind", asks: { ...NOTES.asks, messages: false }, granted: { ...NOTES.granted, messages: false } };
+
+    /** The core with the Translator and `others` in it; only a grant changes what they have. */
+    async function withTools(...others: object[]) {
       const bridge = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
       const fallback = bridge.invoke;
-      let view: Record<string, unknown> = JSON.parse(JSON.stringify(TRANSLATOR));
+      let views: Array<Record<string, unknown>> = JSON.parse(JSON.stringify([TRANSLATOR, ...others]));
       bridge.invoke = (command, args) => {
-        if (command === "core_plugins") return Promise.resolve([view]);
+        // A copy, as the real bridge hands over.
+        if (command === "core_plugins") return Promise.resolve(JSON.parse(JSON.stringify(views)));
         if (command === "core_plugin_grant") {
           calls.push([command, args]);
-          view = { ...view, granted: args?.granted };
+          views = views.map((one) => (one.id === args?.plugin ? { ...one, granted: args?.granted } : one));
           return Promise.resolve(undefined);
         }
         if (command === "core_plugin_ref") return Promise.resolve("ref_1");
         return fallback(command, args);
       };
       await refreshPlugins();
-      const wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } });
+    }
+
+    /** Long press on the first message of `wrapper` (a new thread if none), then "open with". */
+    async function openWithList(wrapper = mount(ChatThread, { props: { chatId: "c1" }, shallow: false, global: { stubs } })) {
       await flushPromises();
       await pressed(wrapper);
       await wrapper.find("[data-test='open-with']").trigger("click");
       await flushPromises();
+      return wrapper;
+    }
+
+    /** Long press on the first message, "open with", then the Translator. */
+    async function chooseTranslator() {
+      await withTools();
+      const wrapper = await openWithList();
       expect(wrapper.find("[data-test='open-with-com.flickertalk.translate']").text()).toBe("Translator");
       await wrapper.find("[data-test='open-with-com.flickertalk.translate']").trigger("click");
       await flushPromises();
@@ -794,6 +827,50 @@ describe("ChatThread", () => {
       expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
       expect(grants()).toHaveLength(0);
       expect(asks(wrapper).exists()).toBe(false);
+    });
+
+    // Decision of 2026-10-28 (Ioan): Reminders and Notes, just installed, are in "open with" with
+    // the tools already allowed, the same way.
+    it("is listed with the tools already allowed, never with one that opens no text or reads none", async () => {
+      await withTools(NOTES, MARKDOWN, BLIND);
+      const wrapper = await openWithList();
+      const listed = wrapper.findAll("[data-test^='open-with-']").map((one) => one.attributes("data-test"));
+      expect(listed).toEqual(["open-with-com.flickertalk.notes", "open-with-com.flickertalk.translate"]);
+    });
+
+    // The yes is a grant like the switch in Apps: the core keeps it, and nothing is asked again.
+    it("asks once: read again from the core, the tool opens at once the next time", async () => {
+      const wrapper = await chooseTranslator();
+      await wrapper.find("[data-test='permission-allow']").trigger("click");
+      await flushPromises();
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+      await wrapper.find("[data-test='close-app']").trigger("click");
+      await flushPromises();
+
+      await refreshPlugins();
+      await openWithList(wrapper);
+      await wrapper.find("[data-test='open-with-com.flickertalk.translate']").trigger("click");
+      await flushPromises();
+      expect(asks(wrapper).exists()).toBe(false);
+      const sheet = wrapper.findComponent({ name: "PluginSheet" });
+      expect(sheet.exists()).toBe(true);
+      expect(sheet.props("text")).toBe(fixture.chats[0].messages[0].text);
+      expect(sheet.props("reference")).toBe("ref_1");
+      expect(grants()).toHaveLength(1);
+    });
+
+    // A no is not remembered: the next time the tool is chosen, the user is asked again.
+    it("asks again the next time after a no", async () => {
+      const wrapper = await chooseTranslator();
+      await wrapper.find("[data-test='permission-cancel']").trigger("click");
+      await flushPromises();
+
+      await openWithList(wrapper);
+      await wrapper.find("[data-test='open-with-com.flickertalk.translate']").trigger("click");
+      await flushPromises();
+      expect(asks(wrapper).exists()).toBe(true);
+      expect(wrapper.findComponent({ name: "PluginSheet" }).exists()).toBe(false);
+      expect(grants()).toHaveLength(0);
     });
   });
 
