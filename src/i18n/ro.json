@@ -347,7 +347,7 @@
     "location": "Locația ta, doar când o ceri",
     "translate": "Să traducă text pe acest telefon",
     "askPermission": "{name} are nevoie de o permisiune",
-    "allow": "Permite",
+    "allow": "Continuă",
     "opens": "Deschide: {kinds}",
     "locked": "Abonează-te pentru a folosi instrumentele",
     "lockedHint": "Zilele gratuite s-au încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",

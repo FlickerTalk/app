@@ -347,7 +347,7 @@
     "location": "Konumunuz, yalnızca siz istediğinizde",
     "translate": "Bu telefonda metin çevirmek",
     "askPermission": "{name} bir izne ihtiyaç duyuyor",
-    "allow": "İzin ver",
+    "allow": "Devam",
     "opens": "Açar: {kinds}",
     "locked": "Araçları kullanmak için abone ol",
     "lockedHint": "Ücretsiz günler sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",

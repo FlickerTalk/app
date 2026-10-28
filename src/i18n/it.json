@@ -347,7 +347,7 @@
     "location": "La tua posizione, solo quando la chiedi",
     "translate": "Tradurre testo su questo telefono",
     "askPermission": "{name} ha bisogno di un permesso",
-    "allow": "Consenti",
+    "allow": "Continua",
     "opens": "Apre: {kinds}",
     "locked": "Abbonati per usare gli strumenti",
     "lockedHint": "I giorni gratuiti sono finiti: gli strumenti richiedono l'abbonamento. Chat, chiamate, file e giochi restano gratis.",

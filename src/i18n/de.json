@@ -347,7 +347,7 @@
     "location": "Dein Standort, nur wenn du ihn anforderst",
     "translate": "Text auf diesem Telefon übersetzen",
     "askPermission": "{name} braucht eine Berechtigung",
-    "allow": "Erlauben",
+    "allow": "Weiter",
     "opens": "Öffnet: {kinds}",
     "locked": "Abonnieren, um die Werkzeuge zu nutzen",
     "lockedHint": "Die kostenlosen Tage sind vorbei: Werkzeuge brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
