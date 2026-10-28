@@ -166,7 +166,10 @@
     "noAccount": "No account, no phone number, no email",
     "start": "Start",
     "name": "Your name",
-    "nameHint": "Contacts see it when they add you. Optional."
+    "nameHint": "Contacts see it when they add you. Optional.",
+    "acceptTerms": "By tapping {start} you accept the {terms} and the {privacy}.",
+    "terms": "Terms of Use",
+    "privacy": "Privacy Policy"
   },
   "addContact": {
     "title": "Add contact",
@@ -286,7 +289,10 @@
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
     "renewed": "Link renewed",
-    "feedback": "Suggest something"
+    "feedback": "Suggest something",
+    "terms": "Terms of Use",
+    "privacyPolicy": "Privacy Policy",
+    "contact": "Contact"
   },
   "hours": {
     "title": "Hours",
@@ -347,7 +353,7 @@
     "location": "Your location, only when you ask",
     "translate": "Translate text on this phone",
     "askPermission": "{name} needs a permission",
-    "allow": "Allow",
+    "allow": "Continue",
     "opens": "Opens: {kinds}",
     "locked": "Subscribe to use the tools",
     "lockedHint": "The free days are over: tools need the subscription. Chat, calls, files and games stay free.",

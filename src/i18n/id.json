@@ -166,7 +166,10 @@
     "noAccount": "Tanpa akun, tanpa nomor telepon, tanpa email",
     "start": "Mulai",
     "name": "Nama Anda",
-    "nameHint": "Kontak melihatnya saat menambahkan Anda. Opsional."
+    "nameHint": "Kontak melihatnya saat menambahkan Anda. Opsional.",
+    "acceptTerms": "Dengan mengetuk “{start}”, Anda menyetujui {terms} dan {privacy}.",
+    "terms": "Ketentuan Penggunaan",
+    "privacy": "Kebijakan Privasi"
   },
   "addContact": {
     "title": "Tambah kontak",
@@ -286,7 +289,10 @@
     "renewLinkHint": "Siapa pun yang punya tautan lama Anda tidak bisa lagi menghubungi Anda; kontak Anda mendapatkan yang baru",
     "renewLinkConfirm": "Perbarui",
     "renewed": "Tautan diperbarui",
-    "feedback": "Usulkan sesuatu"
+    "feedback": "Usulkan sesuatu",
+    "terms": "Ketentuan Penggunaan",
+    "privacyPolicy": "Kebijakan Privasi",
+    "contact": "Kontak"
   },
   "hours": {
     "title": "Jam aktif",
@@ -347,7 +353,7 @@
     "location": "Lokasi Anda, hanya saat Anda memintanya",
     "translate": "Menerjemahkan teks di ponsel ini",
     "askPermission": "{name} memerlukan izin",
-    "allow": "Izinkan",
+    "allow": "Lanjutkan",
     "opens": "Membuka: {kinds}",
     "locked": "Berlangganan untuk memakai alat",
     "lockedHint": "Hari gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",

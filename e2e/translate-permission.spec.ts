@@ -1,6 +1,6 @@
 // 2026-10-20 (app#177): the phone's own translator is a permission like the others. Installing
 // grants nothing (§53), so the Translator asks for it on the spot, in Ionic's sheet, the first
-// time it asks the phone anything; Allow grants it and the tool gets the real answer, Cancel gives
+// time it asks the phone anything; Continue grants it and the tool gets the real answer, Cancel gives
 // it each question's empty answer and grants nothing.
 import type { Page } from "@playwright/test";
 import { callsTo, expect, frameHeard, servePluginFrames, test } from "./helpers";

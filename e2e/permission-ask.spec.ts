@@ -1,7 +1,7 @@
 // Decision of 2026-10-08: a missing permission is always asked for on the spot. Installing grants
 // nothing (§53), so Location, opened with its permission off, used to answer «Location not
 // available» and nothing offered to turn it on. Now the app asks for that one permission on the
-// spot, in Ionic's sheet; Allow grants it and the tool gets the real answer, Cancel gives it the
+// spot, in Ionic's sheet; Continue grants it and the tool gets the real answer, Cancel gives it the
 // refusal as before.
 import type { Page } from "@playwright/test";
 import { callsTo, expect, frameHeard, holdTile, servePluginFrames, test } from "./helpers";
