@@ -728,7 +728,7 @@ fn unpack(package: &[u8]) -> Result<BTreeMap<String, Vec<u8>>> {
         // What the header claims, and then what really comes out: neither may pass the limit.
         total = total.saturating_add(entry.size());
         ensure!(total <= UNPACKED_LIMIT, "the package inflates beyond what a plugin may weigh");
-        let name = entry.name().to_owned();
+        let name = entry.name()?.into_owned();
         let mut bytes = Vec::new();
         let allowed = UNPACKED_LIMIT - (total - entry.size());
         std::io::Read::take(&mut entry, allowed + 1).read_to_end(&mut bytes)?;
