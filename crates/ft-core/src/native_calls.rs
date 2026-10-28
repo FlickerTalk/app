@@ -764,7 +764,8 @@ impl Core {
     /// The call's media, made but not yet the call's: nothing runs, nothing is followed.
     async fn build_native(&self, call: &str, routing: CallRouting, platform: AudioPlatform, peer_media: Option<u16>) -> Result<Arc<NativeCall>> {
         let Some(record) = self.store.call(call).await? else { bail!("no such call") };
-        let mut config = self.transport.media_config();
+        // With a TURN user young enough for the call (2026-10-28).
+        let mut config = self.transport.fresh_media_config().await;
         config.routing = routing;
         let session = MediaSession::open(&config).await?;
         self.mark_call_stage(CallStage::ConnectionBuilt);

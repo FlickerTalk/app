@@ -3572,10 +3572,10 @@ pub async fn core_move_to(link: String, client: State<'_, Client>) -> Result<(),
     client.core().await?.move_to(&link).await.map_err(failed)
 }
 
-/// STUN and TURN for the WebView's calls.
+/// STUN and TURN for the WebView's calls, with a TURN user young enough for the call (2026-10-28).
 #[tauri::command]
 pub async fn core_call_ice(client: State<'_, Client>) -> Result<Vec<IceServer>, String> {
-    let (stun, turn) = client.online().await?.network.ice();
+    let (stun, turn) = client.online().await?.network.fresh_ice().await;
     Ok(ice_servers(stun, turn))
 }
 

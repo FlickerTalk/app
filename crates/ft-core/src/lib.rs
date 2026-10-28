@@ -150,6 +150,11 @@ pub trait Transport: Send + Sync {
     fn media_config(&self) -> ft_media::MediaConfig {
         ft_media::MediaConfig::default()
     }
+    /// `media_config` for a call's media about to gather (2026-10-28): with a TURN user young
+    /// enough, which may mean waiting a moment for the router.
+    async fn fresh_media_config(&self) -> ft_media::MediaConfig {
+        self.media_config()
+    }
 }
 
 pub use calls::CallUpdate;

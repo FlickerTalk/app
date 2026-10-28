@@ -17,6 +17,9 @@ use ft_push::{RouterEvent, Signalled, TurnGrant};
 use ft_storage::{CallOutcome, Store};
 use ft_webrtc::SessionConfig;
 use tokio::sync::{broadcast, mpsc};
+use turn_spy::TurnSpy;
+
+mod turn_spy;
 
 /// The fake router: who is connected and their capabilities. Calls never use the mailbox.
 #[derive(Default)]
@@ -27,6 +30,8 @@ struct Bus {
     /// connection. Off: a router before 0.4, which loses it.
     retaining: std::sync::atomic::AtomicBool,
     held: Mutex<HashMap<String, Vec<Vec<u8>>>>,
+    /// The TURN user `GET /v1/turn-credentials` hands out (2026-10-28).
+    turn: Mutex<Option<TurnGrant>>,
 }
 
 struct FakeRelay {
@@ -66,6 +71,10 @@ impl Relay for FakeRelay {
 
     async fn acknowledge(&self, _id: &str) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    async fn turn_credentials(&self) -> anyhow::Result<TurnGrant> {
+        self.bus.turn.lock().unwrap().clone().ok_or_else(|| anyhow::anyhow!("no TURN users here"))
     }
 }
 
@@ -1075,4 +1084,29 @@ async fn an_answer_while_the_prepared_answer_is_made_again_takes_the_one_ready()
     tokio::time::sleep(Duration::from_millis(1_200)).await;
     assert_eq!(bob.core.prepared_call(), None);
     bob.core.end_call(&call, false).await.unwrap();
+}
+
+// A native call made with a TURN user past its life (2026-10-28; the router's live ten minutes and
+// the app kept the welcome's) gathers its media with a new one from the router, as the TURN server
+// sees: the call's media signs in with the new user, never with the expired one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_native_call_after_the_turn_user_expired_gathers_its_media_with_a_new_one() {
+    let turn = TurnSpy::start().await;
+    let bus = Arc::new(Bus::default());
+    *bus.turn.lock().unwrap() = Some(turn.grant("new"));
+    let alice = phone(&bus, "Alice", false, Activation::Immediate).await;
+    let bob = phone(&bus, "Bob", true, Activation::Immediate).await;
+    alice.go_online_with(&bus, vec![], Some(turn.grant("welcome")));
+    bob.go_online(&bus);
+    pair(&alice, &bob).await;
+    until("the first connection signed in with the welcome's user", || async { turn.users().contains(&"welcome".to_owned()) }).await;
+    alice.network.age_turn(ft_core::net::TURN_LIFE);
+    let before = turn.users().len();
+
+    let call = alice.core.start_native_call(&bob.id(), CallRouting::Auto, false).await.expect("alice calls");
+    assert_eq!(ringing_call(&bob).await, call);
+    until("the call's media signed in at the TURN server", || async { turn.users().len() > before }).await;
+    let since: Vec<String> = turn.users().split_off(before);
+    assert!(since.iter().all(|user| user == "new"), "{since:?}");
+    let _ = alice.core.end_current_call().await;
 }

@@ -64,6 +64,10 @@ struct Inner {
     /// A device whose network is down: its socket does not get through, nor do signals (they name
     /// no sender, so while it is down none gets through: in those tests only it would signal).
     unreachable: Option<String>,
+    /// The TURN user in the welcome (none unless a test says so), and who asked for a new one
+    /// (`GET /v1/turn-credentials`, 2026-10-28).
+    welcome_turn: Option<Value>,
+    turn_asked: Vec<String>,
 }
 
 #[derive(Default)]
@@ -114,7 +118,8 @@ impl Fake {
             *inner.opened.entry(device.clone()).or_default() += 1;
             inner.held.remove(&device).unwrap_or_default()
         });
-        let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+        let turn = self.with(|inner| inner.welcome_turn.clone()).unwrap_or(Value::Null);
+        let welcome = json!({ "kind": "welcome", "stun": [], "turn": turn }).to_string();
         let mut open = socket.send(Message::Text(welcome.into())).await.is_ok();
         for signal in held {
             open = open && socket.send(Message::Text(signal.into())).await.is_ok();
@@ -168,6 +173,13 @@ async fn fake_router() -> (String, Arc<Fake>) {
             }),
         )
         .route("/v1/device/push", put(|| async { StatusCode::NO_CONTENT }))
+        .route(
+            "/v1/turn-credentials",
+            get(|State(fake): State<Arc<Fake>>, headers: HeaderMap| async move {
+                fake.with(|inner| inner.turn_asked.push(device_of(&headers)));
+                Json(json!({ "urls": ["turn:127.0.0.1:9?transport=udp"], "username": "fresh", "credential": "c2" }))
+            }),
+        )
         .route(
             "/v1/signal/{to}",
             post(|State(fake): State<Arc<Fake>>, Path(to): Path<String>, headers: HeaderMap, body: Bytes| async move {
@@ -884,4 +896,22 @@ async fn a_suggestion_reaches_the_router_with_the_app_version_and_the_platform()
     assert_eq!(phone.online.send_feedback("one more", "1.3.0").await, Feedback::TooMany);
     fake.with(|inner| inner.feedback_answer = Some(StatusCode::SERVICE_UNAVAILABLE));
     assert_eq!(phone.online.send_feedback("one more", "1.3.0").await, Feedback::Failed);
+}
+
+// The router's TURN users live ten minutes (2026-10-28): once the welcome's is too old for a call,
+// the app asks the router itself for a new one, signed (`GET /v1/turn-credentials`).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_app_asks_the_router_for_a_new_turn_user_once_the_welcome_s_is_old() {
+    let (base, fake) = fake_router().await;
+    fake.with(|inner| {
+        inner.welcome_turn = Some(json!({ "urls": ["turn:127.0.0.1:9?transport=udp"], "username": "welcome", "credential": "c1" }));
+    });
+    let alice = phone(&base, "Alice", true).await;
+    until("welcomed with a TURN user", || async { alice.online.network.ice().1.is_some() }).await;
+    assert_eq!(alice.online.network.fresh_ice().await.1.expect("a relay").username, "welcome");
+    assert!(fake.with(|inner| inner.turn_asked.is_empty()), "a young one is kept");
+
+    alice.online.network.age_turn(ft_core::net::TURN_LIFE);
+    assert_eq!(alice.online.network.fresh_ice().await.1.expect("a relay").username, "fresh");
+    assert_eq!(fake.with(|inner| inner.turn_asked.clone()), [alice.id()], "asked once, signed by the phone");
 }
