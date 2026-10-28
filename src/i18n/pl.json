@@ -539,5 +539,47 @@
     "sent": "Wysłano. Dziękujemy",
     "tooMany": "Wysłano już dziś kilka. Spróbuj jutro",
     "failed": "Nie udało się wysłać. Spróbuj później"
+  },
+  "tour": {
+    "title": "Krótki przewodnik",
+    "link": "Jak działa FlickerTalk",
+    "skip": "Pomiń",
+    "next": "Dalej",
+    "done": "Gotowe",
+    "step": "Krok {step} z {total}",
+    "steps": {
+      "contact": {
+        "title": "Dodaj kontakt",
+        "body": "Pokaż swój kod QR osobie obok albo udostępnij swój link. Ktoś, kto napisze do ciebie, zanim go dodasz, czeka w sekcji „{requests}”, aż go przyjmiesz."
+      },
+      "messages": {
+        "title": "Pisz i wysyłaj",
+        "body": "Wysyłaj teksty, zdjęcia, pliki i wiadomości głosowe. Aby nagrać wiadomość głosową, dotknij mikrofonu."
+      },
+      "calls": {
+        "title": "Połączenia głosowe i wideo",
+        "body": "W czacie dotknij słuchawki albo kamery u góry. Połączenia dzwonią nawet wtedy, gdy telefon jest zablokowany."
+      },
+      "apps": {
+        "title": "Narzędzia i gry",
+        "body": "Na karcie „{apps}” są narzędzia i gry stworzone i sprawdzone przez FlickerTalk. Narzędzia są darmowe przez 15 dni, potem wchodzą w skład subskrypcji rocznej."
+      },
+      "safety": {
+        "title": "Blokowanie i zgłaszanie",
+        "body": "Na stronie kontaktu możesz go zablokować albo zgłosić. Zgłoszenie otwiera e-mail do {address} z dowodami, które wybierzesz."
+      },
+      "privacy": {
+        "title": "Prywatność",
+        "body": "Bez konta i bez numeru telefonu. Wiadomości są szyfrowane end-to-end, a nasz serwer nie przechowuje czatów ani historii: wiadomość, której nie da się jeszcze dostarczyć, czeka tam zaszyfrowana tylko wtedy, gdy masz włączoną skrzynkę offline."
+      },
+      "support": {
+        "title": "Kontakt FlickerTalk",
+        "body": "Każda nowa instalacja ma kontakt o nazwie FlickerTalk. Prowadzi go FlickerTalk i automatycznie odpowiada na teksty, pliki, wiadomości głosowe i połączenia."
+      },
+      "move": {
+        "title": "Nowy telefon",
+        "body": "Zmieniasz telefon? W „{settings}” dotknij „{move}” i trzymaj oba telefony blisko siebie."
+      }
+    }
   }
 }

@@ -539,5 +539,47 @@
     "sent": "Terkirim. Terima kasih",
     "tooMany": "Kamu sudah mengirim beberapa hari ini. Coba lagi besok",
     "failed": "Tidak dapat mengirim. Coba lagi nanti"
+  },
+  "tour": {
+    "title": "Tur singkat",
+    "link": "Cara kerja FlickerTalk",
+    "skip": "Lewati",
+    "next": "Lanjut",
+    "done": "Selesai",
+    "step": "Langkah {step} dari {total}",
+    "steps": {
+      "contact": {
+        "title": "Tambahkan kontak",
+        "body": "Tunjukkan kode QR Anda kepada orang di dekat Anda, atau bagikan tautan Anda. Siapa pun yang menulis kepada Anda sebelum Anda tambahkan akan menunggu di {requests} sampai Anda menerimanya."
+      },
+      "messages": {
+        "title": "Tulis dan kirim",
+        "body": "Kirim teks, foto, file, dan pesan suara. Untuk merekam pesan suara, ketuk mikrofon."
+      },
+      "calls": {
+        "title": "Panggilan suara dan video",
+        "body": "Di chat, ketuk telepon atau kamera di bagian atas. Panggilan tetap berdering meski ponsel terkunci."
+      },
+      "apps": {
+        "title": "Alat dan game",
+        "body": "Tab {apps} berisi alat dan game yang dibuat dan ditinjau oleh FlickerTalk. Alat gratis selama 15 hari, lalu menjadi bagian dari langganan tahunan."
+      },
+      "safety": {
+        "title": "Blokir dan laporkan",
+        "body": "Di halaman kontak, Anda bisa memblokir atau melaporkannya. Laporan membuka email ke {address} berisi bukti yang Anda pilih."
+      },
+      "privacy": {
+        "title": "Privasi",
+        "body": "Tanpa akun dan tanpa nomor telepon. Pesan dienkripsi end-to-end dan server kami tidak menyimpan chat maupun riwayat: pesan yang belum bisa dikirim menunggu di sana dalam keadaan terenkripsi hanya jika Anda tetap mengaktifkan kotak surat offline."
+      },
+      "support": {
+        "title": "Kontak FlickerTalk",
+        "body": "Setiap instalasi baru memiliki kontak bernama FlickerTalk. Kontak ini dikelola oleh FlickerTalk dan menjawab teks, file, pesan suara, dan panggilan secara otomatis."
+      },
+      "move": {
+        "title": "Ponsel baru",
+        "body": "Ganti ponsel? Di {settings}, ketuk {move} dan dekatkan kedua ponsel."
+      }
+    }
   }
 }

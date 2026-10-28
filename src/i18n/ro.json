@@ -539,5 +539,47 @@
     "sent": "Trimis. Mulțumim",
     "tooMany": "Ai trimis deja mai multe azi. Încearcă mâine",
     "failed": "Nu s-a putut trimite. Încearcă mai târziu"
+  },
+  "tour": {
+    "title": "Tur rapid",
+    "link": "Cum funcționează FlickerTalk",
+    "skip": "Sari peste",
+    "next": "Înainte",
+    "done": "Gata",
+    "step": "Pasul {step} din {total}",
+    "steps": {
+      "contact": {
+        "title": "Adaugă un contact",
+        "body": "Arată codul tău QR cuiva de lângă tine sau trimite-i linkul tău. Cine îți scrie înainte să-l adaugi așteaptă în secțiunea „{requests}” până îl accepți."
+      },
+      "messages": {
+        "title": "Scrie și trimite",
+        "body": "Trimite texte, fotografii, fișiere și mesaje vocale. Ca să înregistrezi un mesaj vocal, atinge microfonul."
+      },
+      "calls": {
+        "title": "Apeluri vocale și video",
+        "body": "Într-un chat, atinge telefonul sau camera de sus. Apelurile sună chiar și când telefonul e blocat."
+      },
+      "apps": {
+        "title": "Instrumente și jocuri",
+        "body": "Fila {apps} are instrumente și jocuri create și verificate de FlickerTalk. Instrumentele sunt gratuite 15 zile, apoi fac parte din abonamentul anual."
+      },
+      "safety": {
+        "title": "Blochează și raportează",
+        "body": "Pe pagina unui contact îl poți bloca sau raporta. Un raport deschide un email către {address} cu dovezile pe care le alegi."
+      },
+      "privacy": {
+        "title": "Confidențialitate",
+        "body": "Fără cont și fără număr de telefon. Mesajele sunt criptate end-to-end, iar serverul nostru nu păstrează conversații sau istoric: un mesaj care nu poate fi livrat încă așteaptă acolo criptat doar dacă ții activată cutia poștală offline."
+      },
+      "support": {
+        "title": "Contactul FlickerTalk",
+        "body": "Fiecare instalare nouă are un contact numit FlickerTalk. Este administrat de FlickerTalk și răspunde automat la texte, fișiere, mesaje vocale și apeluri."
+      },
+      "move": {
+        "title": "Un telefon nou",
+        "body": "Îți schimbi telefonul? În {settings}, atinge „{move}” și ține cele două telefoane aproape."
+      }
+    }
   }
 }

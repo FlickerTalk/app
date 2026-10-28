@@ -539,5 +539,47 @@
     "sent": "Đã gửi. Cảm ơn bạn",
     "tooMany": "Hôm nay bạn đã gửi vài lần rồi. Hãy thử lại vào ngày mai",
     "failed": "Không thể gửi. Hãy thử lại sau"
+  },
+  "tour": {
+    "title": "Giới thiệu nhanh",
+    "link": "FlickerTalk hoạt động thế nào",
+    "skip": "Bỏ qua",
+    "next": "Tiếp",
+    "done": "Xong",
+    "step": "Bước {step}/{total}",
+    "steps": {
+      "contact": {
+        "title": "Thêm liên hệ",
+        "body": "Cho người bên cạnh xem mã QR của bạn, hoặc chia sẻ liên kết của bạn. Ai nhắn cho bạn trước khi bạn thêm họ sẽ chờ trong {requests} cho đến khi bạn chấp nhận."
+      },
+      "messages": {
+        "title": "Viết và gửi",
+        "body": "Gửi tin nhắn văn bản, ảnh, tệp và tin nhắn thoại. Để ghi âm tin nhắn thoại, hãy chạm vào micrô."
+      },
+      "calls": {
+        "title": "Cuộc gọi thoại và video",
+        "body": "Trong cuộc trò chuyện, chạm vào biểu tượng điện thoại hoặc máy ảnh ở trên cùng. Cuộc gọi vẫn đổ chuông ngay cả khi điện thoại đang khóa."
+      },
+      "apps": {
+        "title": "Công cụ và trò chơi",
+        "body": "Thẻ {apps} có các công cụ và trò chơi do FlickerTalk tạo và kiểm duyệt. Công cụ miễn phí trong 15 ngày, sau đó thuộc gói đăng ký năm."
+      },
+      "safety": {
+        "title": "Chặn và báo cáo",
+        "body": "Trên trang của một liên hệ, bạn có thể chặn hoặc báo cáo họ. Báo cáo sẽ mở một email gửi đến {address} kèm bằng chứng bạn chọn."
+      },
+      "privacy": {
+        "title": "Quyền riêng tư",
+        "body": "Không tài khoản, không số điện thoại. Tin nhắn được mã hóa đầu cuối và máy chủ của chúng tôi không lưu cuộc trò chuyện hay lịch sử: tin nhắn chưa thể gửi đến chỉ chờ ở đó dưới dạng mã hóa nếu bạn bật hộp thư ngoại tuyến."
+      },
+      "support": {
+        "title": "Liên hệ FlickerTalk",
+        "body": "Mỗi bản cài đặt mới đều có một liên hệ tên FlickerTalk. Liên hệ này do FlickerTalk vận hành và tự động trả lời tin nhắn văn bản, tệp, tin nhắn thoại và cuộc gọi."
+      },
+      "move": {
+        "title": "Điện thoại mới",
+        "body": "Đổi điện thoại? Trong {settings}, chạm vào {move} và giữ hai điện thoại ở gần nhau."
+      }
+    }
   }
 }
