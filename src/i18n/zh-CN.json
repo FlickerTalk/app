@@ -167,7 +167,10 @@
     "noAccount": "无需账号、手机号或邮箱",
     "start": "开始",
     "name": "你的名字",
-    "nameHint": "联系人添加你时会看到。选填。"
+    "nameHint": "联系人添加你时会看到。选填。",
+    "acceptTerms": "点按“{start}”即表示你同意{terms}和{privacy}。",
+    "terms": "使用条款",
+    "privacy": "隐私政策"
   },
   "addContact": {
     "title": "添加联系人",
@@ -287,7 +290,10 @@
     "renewLinkHint": "持有你旧链接的人将无法再联系你；你的联系人会收到新链接",
     "renewLinkConfirm": "更新",
     "renewed": "链接已更新",
-    "feedback": "提个建议"
+    "feedback": "提个建议",
+    "terms": "使用条款",
+    "privacyPolicy": "隐私政策",
+    "contact": "联系我们"
   },
   "hours": {
     "title": "时段",
@@ -348,7 +354,7 @@
     "location": "你的位置，仅在你请求时",
     "translate": "在这部手机上翻译文字",
     "askPermission": "{name} 需要一项权限",
-    "allow": "允许",
+    "allow": "继续",
     "opens": "可打开：{kinds}",
     "locked": "订阅以使用工具",
     "lockedHint": "免费天数已结束：工具需要订阅。聊天、通话、文件和游戏依然免费。",

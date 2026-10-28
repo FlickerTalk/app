@@ -167,7 +167,10 @@
     "noAccount": "Không tài khoản, không số điện thoại, không email",
     "start": "Bắt đầu",
     "name": "Tên của bạn",
-    "nameHint": "Liên hệ sẽ thấy tên này khi thêm bạn. Không bắt buộc."
+    "nameHint": "Liên hệ sẽ thấy tên này khi thêm bạn. Không bắt buộc.",
+    "acceptTerms": "Khi nhấn “{start}”, bạn đồng ý với {terms} và {privacy}.",
+    "terms": "Điều khoản sử dụng",
+    "privacy": "Chính sách quyền riêng tư"
   },
   "addContact": {
     "title": "Thêm liên hệ",
@@ -287,7 +290,10 @@
     "renewLinkHint": "Ai có liên kết cũ của bạn sẽ không liên lạc được với bạn nữa; liên hệ của bạn sẽ nhận liên kết mới",
     "renewLinkConfirm": "Làm mới",
     "renewed": "Đã làm mới liên kết",
-    "feedback": "Góp ý"
+    "feedback": "Góp ý",
+    "terms": "Điều khoản sử dụng",
+    "privacyPolicy": "Chính sách quyền riêng tư",
+    "contact": "Liên hệ"
   },
   "hours": {
     "title": "Giờ nhận",
@@ -348,7 +354,7 @@
     "location": "Vị trí của bạn, chỉ khi bạn yêu cầu",
     "translate": "Dịch văn bản trên điện thoại này",
     "askPermission": "{name} cần một quyền",
-    "allow": "Cho phép",
+    "allow": "Tiếp tục",
     "opens": "Mở: {kinds}",
     "locked": "Đăng ký để dùng công cụ",
     "lockedHint": "Những ngày miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",

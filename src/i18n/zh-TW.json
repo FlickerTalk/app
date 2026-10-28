@@ -167,7 +167,10 @@
     "noAccount": "不需要帳號、電話號碼或電子郵件",
     "start": "開始",
     "name": "你的名字",
-    "nameHint": "聯絡人加你時會看到。選填。"
+    "nameHint": "聯絡人加你時會看到。選填。",
+    "acceptTerms": "點按「{start}」即表示你同意{terms}和{privacy}。",
+    "terms": "使用條款",
+    "privacy": "隱私權政策"
   },
   "addContact": {
     "title": "新增聯絡人",
@@ -287,7 +290,10 @@
     "renewLinkHint": "持有你舊連結的人將無法再聯絡你；你的聯絡人會收到新連結",
     "renewLinkConfirm": "更新",
     "renewed": "已更新連結",
-    "feedback": "提出建議"
+    "feedback": "提出建議",
+    "terms": "使用條款",
+    "privacyPolicy": "隱私權政策",
+    "contact": "聯絡我們"
   },
   "hours": {
     "title": "時段",
@@ -348,7 +354,7 @@
     "location": "你的位置，僅在你要求時",
     "translate": "在這支手機上翻譯文字",
     "askPermission": "{name} 需要一項權限",
-    "allow": "允許",
+    "allow": "繼續",
     "opens": "可開啟：{kinds}",
     "locked": "訂閱以使用工具",
     "lockedHint": "免費天數已結束：工具需要訂閱。聊天、通話、檔案和遊戲依然免費。",

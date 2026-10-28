@@ -6,10 +6,16 @@ import { isOnboarded } from "../preferences";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { checkOpenedLink, startOpenedLinks, takeOpened } from "../opened";
+import { PRIVACY_URL, TERMS_URL } from "../legal";
 
 const replace = vi.fn();
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ replace, push }) }));
+const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => opener);
+
+/** The welcome as the phone draws it, with vue-i18n's own `<i18n-t>` putting the links in the sentence. */
+const welcome = () => mount(WelcomePage, { shallow: true, global: { stubs: { "i18n-t": false } } });
 
 describe("WelcomePage", () => {
   beforeEach(() => {
@@ -93,6 +99,41 @@ describe("WelcomePage", () => {
   it("offers bringing everything from an old phone", async () => {
     await mount(WelcomePage, { shallow: true }).find("[data-test='move-from-old']").trigger("click");
     expect(push).toHaveBeenCalledWith("/move?role=new");
+  });
+
+  // App Review guideline 1.2 (2026-10-28): tapping Start accepts the Terms of Use (the EULA) and
+  // the Privacy Policy. The sentence says so right under the button, both named as links.
+  it("says under Start that starting accepts the Terms of Use and the Privacy Policy", () => {
+    const wrapper = welcome();
+    const terms = wrapper.find("[data-test='terms']");
+    expect(terms.text()).toBe("By tapping Start you accept the Terms of Use and the Privacy Policy.");
+    const html = wrapper.html();
+    expect(html.indexOf('data-test="terms"')).toBeGreaterThan(html.indexOf('data-test="start"'));
+    expect(html.indexOf('data-test="terms"')).toBeLessThan(html.indexOf('data-test="move-from-old"'));
+    const links = terms.findAll("a");
+    expect(links.map((link) => [link.text(), link.attributes("href")])).toEqual([
+      ["Terms of Use", TERMS_URL],
+      ["Privacy Policy", PRIVACY_URL],
+    ]);
+  });
+
+  // The website opens in the phone's browser; reading the terms is not starting.
+  it("opens the terms and the privacy policy in the phone's browser, without starting", async () => {
+    opener.openUrl.mockReset();
+    const wrapper = welcome();
+    await wrapper.find("[data-test='terms-link']").trigger("click");
+    await wrapper.find("[data-test='privacy-link']").trigger("click");
+    expect(opener.openUrl.mock.calls).toEqual([[TERMS_URL], [PRIVACY_URL]]);
+    await flushPromises();
+    expect(replace).not.toHaveBeenCalled();
+    expect(isOnboarded()).toBe(false);
+  });
+
+  // Start stays the one gesture: there is no box to tick before it.
+  it("asks for nothing more than Start", () => {
+    const wrapper = welcome();
+    expect(wrapper.find("input[type='checkbox']").exists()).toBe(false);
+    expect(wrapper.find("ion-checkbox-stub").exists()).toBe(false);
   });
 
   // Ionic's own shape (2026-10-09): the page's header and content are its own children, where

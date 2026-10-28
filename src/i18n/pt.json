@@ -167,7 +167,10 @@
     "noAccount": "Sem conta, sem número de telefone, sem e-mail",
     "start": "Começar",
     "name": "Seu nome",
-    "nameHint": "Seus contatos veem quando adicionam você. Opcional."
+    "nameHint": "Seus contatos veem quando adicionam você. Opcional.",
+    "acceptTerms": "Ao tocar em “{start}”, você aceita os {terms} e a {privacy}.",
+    "terms": "Termos de Uso",
+    "privacy": "Política de Privacidade"
   },
   "addContact": {
     "title": "Adicionar contato",
@@ -287,7 +290,10 @@
     "renewLinkHint": "Quem tiver o teu link antigo já não te alcança; os teus contactos recebem o novo",
     "renewLinkConfirm": "Renovar",
     "renewed": "Link renovado",
-    "feedback": "Sugerir algo"
+    "feedback": "Sugerir algo",
+    "terms": "Termos de Uso",
+    "privacyPolicy": "Política de Privacidade",
+    "contact": "Contato"
   },
   "hours": {
     "title": "Horário",
@@ -348,7 +354,7 @@
     "location": "A sua localização, só quando você pedir",
     "translate": "Traduzir texto neste telemóvel",
     "askPermission": "{name} precisa de uma permissão",
-    "allow": "Permitir",
+    "allow": "Continuar",
     "opens": "Abre: {kinds}",
     "locked": "Assine para usar as ferramentas",
     "lockedHint": "Os dias grátis terminaram: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",

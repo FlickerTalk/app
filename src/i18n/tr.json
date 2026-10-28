@@ -167,7 +167,10 @@
     "noAccount": "Hesap yok, telefon numarası yok, e-posta yok",
     "start": "Başla",
     "name": "Adınız",
-    "nameHint": "Kişiler sizi eklediklerinde bunu görür. İsteğe bağlı."
+    "nameHint": "Kişiler sizi eklediklerinde bunu görür. İsteğe bağlı.",
+    "acceptTerms": "“{start}” düğmesine dokunarak {terms} ve {privacy} kabul etmiş olursunuz.",
+    "terms": "Kullanım Koşullarını",
+    "privacy": "Gizlilik Politikasını"
   },
   "addContact": {
     "title": "Kişi ekle",
@@ -287,7 +290,10 @@
     "renewLinkHint": "Eski bağlantınız kimdeyse artık size ulaşamaz; kişileriniz yenisini alır",
     "renewLinkConfirm": "Yenile",
     "renewed": "Bağlantı yenilendi",
-    "feedback": "Bir şey önerin"
+    "feedback": "Bir şey önerin",
+    "terms": "Kullanım Koşulları",
+    "privacyPolicy": "Gizlilik Politikası",
+    "contact": "İletişim"
   },
   "hours": {
     "title": "Saatler",
@@ -348,7 +354,7 @@
     "location": "Konumunuz, yalnızca siz istediğinizde",
     "translate": "Bu telefonda metin çevirmek",
     "askPermission": "{name} bir izne ihtiyaç duyuyor",
-    "allow": "İzin ver",
+    "allow": "Devam",
     "opens": "Açar: {kinds}",
     "locked": "Araçları kullanmak için abone ol",
     "lockedHint": "Ücretsiz günler sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",

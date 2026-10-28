@@ -34,14 +34,18 @@ import {
   constructOutline,
   contrastOutline,
   copyOutline,
+  documentTextOutline,
   fileTrayOutline,
   informationCircleOutline,
   keypadOutline,
   lockClosedOutline,
+  mailOutline,
   moonOutline,
   notificationsOffOutline,
+  openOutline,
   phonePortraitOutline,
   qrCodeOutline,
+  shieldCheckmarkOutline,
   sparklesOutline,
   sunnyOutline,
   swapHorizontalOutline,
@@ -74,6 +78,7 @@ import {
   subscriptionPrice,
   type PlanView,
 } from "../core";
+import { PRIVACY_URL, SUPPORT_ADDRESS, TERMS_URL, mailSupport, openOutside } from "../legal";
 import { setCallRouting, storedCallRouting, type CallRouting } from "../preferences";
 import { t } from "../i18n";
 import {
@@ -620,6 +625,33 @@ function chooseAppearance(id: Appearance) {
                 {{ $t("settings.eraseConfirm") }}
               </button>
             </span>
+          </ion-item>
+        </ion-list>
+
+        <!-- App Review guideline 1.2 (2026-10-28): the terms accepted on Start, the privacy policy
+             and a person to write to. The pages live on the website; all three leave the app. -->
+        <ion-list inset class="ft-group">
+          <ion-item button detail :detail-icon="openOutline" lines="none" data-test="terms" @click="openOutside(TERMS_URL)">
+            <span slot="start" class="ft-tile"><ion-icon :icon="documentTextOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.terms") }}</ion-label>
+          </ion-item>
+          <ion-item
+            button
+            detail
+            :detail-icon="openOutline"
+            lines="none"
+            data-test="privacy-policy"
+            @click="openOutside(PRIVACY_URL)"
+          >
+            <span slot="start" class="ft-tile"><ion-icon :icon="shieldCheckmarkOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("settings.privacyPolicy") }}</ion-label>
+          </ion-item>
+          <ion-item button detail :detail-icon="openOutline" lines="none" data-test="contact" @click="mailSupport">
+            <span slot="start" class="ft-tile"><ion-icon :icon="mailOutline" aria-hidden="true" /></span>
+            <ion-label>
+              {{ $t("settings.contact") }}
+              <p>{{ SUPPORT_ADDRESS }}</p>
+            </ion-label>
           </ion-item>
         </ion-list>
 
