@@ -12,6 +12,7 @@ pub mod identity;
 pub mod limit;
 pub mod peer;
 pub mod policy;
+pub mod turn;
 
 use std::sync::Arc;
 
@@ -55,6 +56,17 @@ pub async fn start(config: &Config) -> Result<Running> {
     Support::prepare(&online.core, &config.files).await?;
     let support = Support::new(online.core.clone(), Settings::default(), &config.files);
     support.spawn();
+    // A fresh TURN user every minute: the welcome's expires in ten (`turn`).
+    let (router, network) = (online.router.clone(), online.network.clone());
+    tokio::spawn(turn::keep_fresh(
+        turn::REFRESH_EVERY,
+        move || {
+            let router = router.clone();
+            async move { router.turn_credentials().await }
+        },
+        move |grant| network.set_turn(grant),
+        online.stopped(),
+    ));
     // After the name is set, and after the first card made the fallback key the bundle must carry.
     let card = write_out(&online.core, config).await?;
     Ok(Running { online, support, card })
