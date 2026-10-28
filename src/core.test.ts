@@ -141,6 +141,40 @@ describe("core bridge", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_set_quiet_hours", { hours: null });
   });
 
+  // 2026-10-28: every install carries FlickerTalk's support peer as a contact.
+  // Only the welcome's Start adds it; the app's start never does, new install or not.
+  it("adds the support contact through the core and shows it at once", async () => {
+    await core.addSupportContact();
+    const commands = tauri.invoke.mock.calls.map(([command]) => command);
+    expect(commands).toContain("core_add_support_contact");
+    expect(commands.indexOf("core_conversations")).toBeGreaterThan(commands.indexOf("core_add_support_contact"));
+  });
+
+  it("goes on when the support contact cannot be added", async () => {
+    tauri.invoke.mockImplementation((command: string) =>
+      command === "core_add_support_contact" ? Promise.reject(new Error("no core")) : Promise.resolve(answers[command]),
+    );
+    await expect(core.addSupportContact()).resolves.toBeUndefined();
+  });
+
+  it("never adds the support contact as the app starts", async () => {
+    await core.start();
+    expect(tauri.invoke).not.toHaveBeenCalledWith("core_add_support_contact", undefined);
+    expect(tauri.invoke.mock.calls.map(([command]) => command)).not.toContain("core_add_support_contact");
+  });
+
+  it("knows the support peer when the app carries its card", async () => {
+    tauri.invoke.mockImplementation((command: string) => Promise.resolve(command === "core_support_id" ? "ft_support" : answers[command]));
+    await core.start();
+    expect(core.isSupport("ft_support")).toBe(true);
+    expect(core.isSupport("ft_bob")).toBe(false);
+
+    tauri.invoke.mockImplementation((command: string) => Promise.resolve(command === "core_support_id" ? null : answers[command]));
+    await core.start();
+    expect(core.isSupport("")).toBe(false);
+    expect(core.isSupport("ft_support")).toBe(false);
+  });
+
   it("adds a contact from a pasted link", async () => {
     expect(await core.addContact("  https://flickertalk.com/add#x  ")).toBe("ft_dave");
     expect(tauri.invoke).toHaveBeenCalledWith("core_add_contact", { link: "https://flickertalk.com/add#x" });

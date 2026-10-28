@@ -98,7 +98,8 @@
     "showOriginal": "Lihat asli",
     "sentIn": "Dikirim dalam bahasa {language}",
     "view": "Lihat",
-    "translating": "Menerjemahkan · {language}"
+    "translating": "Menerjemahkan · {language}",
+    "supportHint": "Dukungan otomatis. Tulis pesan dan akan dijawab."
   },
   "status": {
     "pending": "Menunggu perangkat",

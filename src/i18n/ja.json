@@ -98,7 +98,8 @@
     "showOriginal": "原文を表示",
     "sentIn": "{language}で送信",
     "view": "表示",
-    "translating": "翻訳中 · {language}"
+    "translating": "翻訳中 · {language}",
+    "supportHint": "自動サポートです。メッセージを送ると返信します。"
   },
   "status": {
     "pending": "相手の端末を待っています",

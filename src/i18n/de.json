@@ -98,7 +98,8 @@
     "showOriginal": "Original anzeigen",
     "sentIn": "Gesendet auf {language}",
     "view": "Ansehen",
-    "translating": "Wird übersetzt · {language}"
+    "translating": "Wird übersetzt · {language}",
+    "supportHint": "Automatischer Support. Schreib, und er antwortet."
   },
   "status": {
     "pending": "Warte auf Gerät",

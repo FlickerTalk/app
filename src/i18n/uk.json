@@ -98,7 +98,8 @@
     "showOriginal": "Показати оригінал",
     "sentIn": "Надіслано мовою: {language}",
     "view": "Показати",
-    "translating": "Переклад · {language}"
+    "translating": "Переклад · {language}",
+    "supportHint": "Автоматична підтримка. Напишіть — і вона відповість."
   },
   "status": {
     "pending": "Очікування пристрою",

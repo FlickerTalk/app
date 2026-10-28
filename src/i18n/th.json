@@ -98,7 +98,8 @@
     "showOriginal": "ดูต้นฉบับ",
     "sentIn": "ส่งเป็นภาษา{language}",
     "view": "ดู",
-    "translating": "กำลังแปล · {language}"
+    "translating": "กำลังแปล · {language}",
+    "supportHint": "ฝ่ายช่วยเหลืออัตโนมัติ เขียนมาแล้วจะได้รับคำตอบ"
   },
   "status": {
     "pending": "รออุปกรณ์",

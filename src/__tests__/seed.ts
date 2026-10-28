@@ -38,6 +38,7 @@ export function seed(): void {
   );
   store.sessions = [];
   store.requests = [];
+  store.supportId = "";
   store.ready = true;
   calls.length = 0;
   installTauri((command, args) => {

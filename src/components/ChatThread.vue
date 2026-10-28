@@ -97,6 +97,7 @@ import {
   forwardMessage,
   grantPlugin,
   installPlugin,
+  isSupport,
   isTyping,
   loadMessages,
   markRead,
@@ -1416,6 +1417,10 @@ watch(
       </div>
       <!-- One box for the messages: its size is followed to keep the end in sight (app#81). -->
       <div ref="list">
+        <!-- 2026-10-28: the support peer's empty chat says what it is. -->
+        <ion-text v-if="!messages.length && isSupport(chatId)" color="medium">
+          <p class="ft-thread__support" data-test="support-hint">{{ $t("chat.supportHint") }}</p>
+        </ion-text>
         <template v-for="(message, index) in messages" :key="message.id">
           <div v-if="days[index]" class="ft-thread__day"><span>{{ days[index] }}</span></div>
           <MessageBubble
@@ -2178,6 +2183,12 @@ watch(
 }
 .ft-thread__end {
   height: var(--ft-space-3);
+}
+.ft-thread__support {
+  margin: 0;
+  padding: var(--ft-space-4) var(--ft-space-4) var(--ft-space-2);
+  font-size: 13px;
+  text-align: center;
 }
 
 .ft-composer {

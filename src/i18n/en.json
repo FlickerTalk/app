@@ -98,7 +98,8 @@
     "showOriginal": "Show original",
     "sentIn": "Sent in {language}",
     "view": "View",
-    "translating": "Translating · {language}"
+    "translating": "Translating · {language}",
+    "supportHint": "Automated support. Write and it answers."
   },
   "status": {
     "pending": "Waiting for device",
