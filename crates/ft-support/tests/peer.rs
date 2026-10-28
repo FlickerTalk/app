@@ -381,3 +381,32 @@ async fn a_call_before_any_message_is_answered_too() {
     assert!(support.core.store().contact(&user.id()).await.unwrap().expect("known").accepted);
     until("the support contact hangs up", || async { user.core.current_call().await.unwrap().is_none() }).await;
 }
+
+// The app's own path (app#217): a new phone adds the card it carries without a word
+// (`add_bundled_contact`). The support contact hears nothing until the user writes; then the first
+// message brings the phone's card, and the support contact answers it and takes its calls.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_contact_the_app_carries_is_answered_once_the_user_writes() {
+    let settings = Settings { max_call: Duration::from_secs(3), ..quick() };
+    let bus = Arc::new(Bus::default());
+    let support = phone(&bus, "anything").await;
+    Support::prepare(&support.core, support._files.path()).await.expect("prepares");
+    Support::new(support.core.clone(), settings, support._files.path()).spawn();
+    let user = user(&bus).await;
+    let link = support.core.my_card().await.unwrap().to_link();
+    let bundled = user.core.add_bundled_contact(&link, Some("FlickerTalk".to_owned())).await.unwrap().expect("a new phone adds it");
+    let (s, u) = (support.id(), user.id());
+    assert_eq!(bundled.device_id, s);
+
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(support.core.store().contact(&u).await.unwrap().is_none(), "nothing reached the support contact before the user wrote");
+
+    user.core.send_text(&s, "hello").await.unwrap();
+    until("the welcome arrives", || async { user.texts_from(&s).await.len() == 1 }).await;
+    let call = user.core.start_native_call(&s, CallRouting::Auto, false).await.expect("calls");
+    until("the call connects", || async {
+        user.core.current_call().await.unwrap().is_some_and(|current| current.call == call && current.connected_at.is_some())
+    })
+    .await;
+    until("the support contact hangs up", || async { user.core.current_call().await.unwrap().is_none() }).await;
+}
