@@ -1,0 +1,32 @@
+[package]
+name = "ft-support"
+version = "0.1.0"
+edition = "2021"
+description = "The FlickerTalk support contact: a headless peer on ft-core that answers texts, files, voice messages and calls"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+ft-core = { path = "../ft-core" }
+ft-identity = { path = "../ft-identity" }
+ft-media = { path = "../ft-media" }
+ft-storage = { path = "../ft-storage" }
+ft-webrtc = { path = "../ft-webrtc" }
+hex = "0.4"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "time"] }
+# The same revision ft-media builds on: its Opus decoder, audio backend and video contracts.
+webrtc-engine = { git = "https://github.com/FlickerTalk/webrtc-engine-rs", rev = "f05bd29c6e73fe71d77df1199bb316f2b38869a8" }
+
+[dev-dependencies]
+blake3 = "1"
+ft-contacts = { path = "../ft-contacts" }
+ft-media = { path = "../ft-media", features = ["testing"] }
+ft-push = { path = "../ft-push" }
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "test-util", "time"] }
