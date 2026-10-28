@@ -17,7 +17,7 @@ use ft_storage::{CallOutcome, CallRecord, Conversation, FileRecord, Message, Mes
 use ft_webrtc::SessionConfig;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_ft_platform::{NativeCallEvent, PlatformExt, VideoLayout};
+use tauri_plugin_ft_platform::{CallRoute, NativeCallEvent, PlatformExt, VideoLayout};
 
 use crate::push_core::{may_start_from_push, CallScreen, Host, PushSide};
 
@@ -423,6 +423,9 @@ pub struct CallEvent {
     /// `connected`: whether a presentation can start (both apps at call media version 2).
     #[serde(rename = "canPresent", skip_serializing_if = "Option::is_none")]
     can_present: Option<bool>,
+    /// `route` (2026-10-28): where the voice plays, `receiver`, `speaker` or `headset`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    route: Option<&'static str>,
 }
 
 impl CallEvent {
@@ -462,6 +465,28 @@ impl CallEvent {
             file,
             by,
             can_present: None,
+            route: None,
+        }
+    }
+
+    /// Where the call's voice plays now, as the native side says it (2026-10-28): the call
+    /// screen's speaker button follows it.
+    pub fn route(contact: &str, call: &str, route: CallRoute) -> Self {
+        Self {
+            contact: contact.to_owned(),
+            call: call.to_owned(),
+            kind: "route",
+            video: None,
+            sdp: None,
+            outcome: None,
+            muted: None,
+            view: None,
+            answered: false,
+            plugin: None,
+            file: None,
+            by: None,
+            can_present: None,
+            route: Some(route.as_str()),
         }
     }
 
@@ -511,6 +536,26 @@ pub fn native_screen(update: &CallUpdate) -> NativeScreen {
     }
 }
 
+/// The route the native side said last, and for which call (2026-10-28): a WebView that comes
+/// back to the screen, or starts during the call, shows it (`CurrentCallView::route`).
+#[derive(Default)]
+pub struct CallRoutes {
+    last: Option<(String, CallRoute)>,
+}
+
+impl CallRoutes {
+    pub fn set(&mut self, call: &str, route: CallRoute) {
+        self.last = Some((call.to_owned(), route));
+    }
+
+    /// The route of `call`, if the native side said one for it.
+    pub fn of(&self, call: &str) -> Option<CallRoute> {
+        self.last.as_ref().filter(|(said, _)| said == call).map(|(_, route)| *route)
+    }
+}
+
+static CALL_ROUTES: Mutex<CallRoutes> = Mutex::new(CallRoutes { last: None });
+
 /// The call going on, for a WebView that comes up after it started (2026-09-28).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -534,6 +579,16 @@ pub struct CurrentCallView {
     can_present: bool,
     /// What is presented in the call, `null` when nothing is.
     presenting: Option<PresentingView>,
+    /// Where the voice plays, as the native side said it last (2026-10-28); none until it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    route: Option<&'static str>,
+}
+
+impl CurrentCallView {
+    /// With the route the native side said for this call.
+    pub fn route(self, route: Option<CallRoute>) -> Self {
+        Self { route: route.map(CallRoute::as_str), ..self }
+    }
 }
 
 impl From<ft_core::CurrentCall> for CurrentCallView {
@@ -556,6 +611,7 @@ impl From<ft_core::CurrentCall> for CurrentCallView {
             connected_at: current.connected_at,
             can_present: current.can_present,
             presenting: current.presenting.map(PresentingView::from),
+            route: None,
         }
     }
 }
@@ -1485,6 +1541,13 @@ fn native_call_queue(online: &Online, app: Option<AppHandle>) -> tokio::sync::mp
                     let _ = core.set_app_visible(visible).await;
                 }
                 NativeCallEvent::Orientation(raw) => ft_media::views::set_orientation(raw),
+                // Where the voice plays (2026-10-28): the call screen's speaker button follows it.
+                NativeCallEvent::Route(route) => {
+                    let Some(app) = app.clone() else { continue };
+                    let Ok(Some(current)) = core.current_call().await else { continue };
+                    CALL_ROUTES.lock().unwrap_or_else(PoisonError::into_inner).set(&current.call, route);
+                    let _ = app.emit(CALL_EVENT, CallEvent::route(&current.contact, &current.call, route));
+                }
                 // CallKit's video button, the notification's camera action: our camera, if allowed.
                 NativeCallEvent::VideoRequested => {
                     let Some(app) = app.clone() else { continue };
@@ -1620,7 +1683,8 @@ fn reconnect_for(event: NativeCallEvent) -> Reconnect {
         | NativeCallEvent::AudioDeactivated(_)
         | NativeCallEvent::Visible(_)
         | NativeCallEvent::Orientation(_)
-        | NativeCallEvent::VideoRequested => Reconnect::No,
+        | NativeCallEvent::VideoRequested
+        | NativeCallEvent::Route(_) => Reconnect::No,
     }
 }
 
@@ -3769,7 +3833,11 @@ pub async fn core_set_call_routing(routing: String, client: State<'_, Client>) -
 /// before the WebView was there.
 #[tauri::command]
 pub async fn core_current_call(client: State<'_, Client>) -> Result<Option<CurrentCallView>, String> {
-    Ok(client.core().await?.current_call().await.map_err(failed)?.map(CurrentCallView::from))
+    let current = client.core().await?.current_call().await.map_err(failed)?;
+    Ok(current.map(|current| {
+        let route = CALL_ROUTES.lock().unwrap_or_else(PoisonError::into_inner).of(&current.call);
+        CurrentCallView::from(current).route(route)
+    }))
 }
 
 /// Hangs up, declines or gives up; `failed` when the media could not connect. A native call's
@@ -5351,6 +5419,45 @@ mod tests {
         assert_eq!(reconnect_for(NativeCallEvent::Orientation(3)), Reconnect::No);
         assert_eq!(reconnect_for(NativeCallEvent::VideoRequested), Reconnect::No);
         assert!(CALL_SOCKET_FRESH <= std::time::Duration::from_secs(15), "a socket from before the sleep is never fresh");
+    }
+
+    // 2026-10-28: where the call's voice plays (headphones, the speaker or the receiver, as the
+    // native side decided it) reaches the call screen's speaker button for the call going on, and
+    // the current call carries it for a WebView that comes back to the screen.
+    #[test]
+    fn the_call_route_reaches_the_call_screen() {
+        use tauri_plugin_ft_platform::CallRoute;
+        assert_eq!(
+            serde_json::to_value(CallEvent::route("ft_bob", "c1", CallRoute::Headset)).unwrap(),
+            serde_json::json!({ "contact": "ft_bob", "call": "c1", "kind": "route", "route": "headset" })
+        );
+        assert_eq!(reconnect_for(NativeCallEvent::Route(CallRoute::Speaker)), Reconnect::No);
+        let mut routes = CallRoutes::default();
+        assert_eq!(routes.of("c1"), None);
+        routes.set("c1", CallRoute::Headset);
+        assert_eq!(routes.of("c1"), Some(CallRoute::Headset));
+        assert_eq!(routes.of("c2"), None, "another call's route is not this one's");
+        routes.set("c2", CallRoute::Speaker);
+        assert_eq!(routes.of("c1"), None);
+        assert_eq!(routes.of("c2"), Some(CallRoute::Speaker));
+        let active = ft_core::CurrentCall {
+            call: "c2".to_owned(),
+            contact: "ft_bob".to_owned(),
+            video: false,
+            outgoing: true,
+            phase: ft_core::CallPhase::Active,
+            offer: None,
+            native: true,
+            muted: false,
+            connected_at: Some(7),
+            video_state: None,
+            presenting: None,
+            can_present: false,
+        };
+        let view = serde_json::to_value(CurrentCallView::from(active.clone()).route(routes.of("c2"))).unwrap();
+        assert_eq!(view["route"], "speaker");
+        let unknown = serde_json::to_value(CurrentCallView::from(active).route(None)).unwrap();
+        assert!(unknown.get("route").is_none(), "no route heard yet");
     }
 
     // 2026-10-01: whether the app is in the foreground comes from the platform's own lifecycle, the

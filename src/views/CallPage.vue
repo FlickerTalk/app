@@ -8,6 +8,7 @@ import {
   documentOutline,
   downloadOutline,
   easelOutline,
+  headsetOutline,
   micOffOutline,
   micOutline,
   pauseCircleOutline,
@@ -917,8 +918,8 @@ watch(
             @click="toggleSpeaker"
           >
             <ion-icon
-              :key="call.speaker ? 'speaker-on' : 'speaker-off'"
-              :icon="call.speaker ? volumeHighOutline : phonePortraitOutline"
+              :key="call.speaker ? 'speaker-on' : call.route === 'headset' ? 'speaker-headset' : 'speaker-off'"
+              :icon="call.speaker ? volumeHighOutline : call.route === 'headset' ? headsetOutline : phonePortraitOutline"
               aria-hidden="true"
             />
           </button>

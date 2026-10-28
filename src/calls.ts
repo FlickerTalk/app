@@ -51,6 +51,11 @@ export interface VideoLayout {
   localRadius: number;
 }
 
+/** Where a native call's voice plays, as the phone says it (2026-10-28). */
+export type CallRoute = "receiver" | "speaker" | "headset";
+
+const CALL_ROUTES: readonly string[] = ["receiver", "speaker", "headset"];
+
 /** What is presented in a call (2026-10-08): a plugin on both screens, and who leads it. */
 export interface Presenting {
   plugin: string;
@@ -70,8 +75,10 @@ export interface CallState {
   /** When the media connected (ms), for the call's clock. */
   since: number;
   muted: boolean;
-  /** The voice on the speaker; otherwise on the receiver, like a phone call. */
+  /** The voice on the speaker; otherwise on headphones or the receiver, like a phone call. */
   speaker: boolean;
+  /** Where the voice plays, as the phone said it last; null until it did (2026-10-28). */
+  route: CallRoute | null;
   /** The WebView's camera is off (the desktop). */
   cameraOff: boolean;
   local: MediaStream | null;
@@ -104,7 +111,7 @@ export interface CallEntry {
 interface CallEvent extends Partial<CallVideo> {
   contact: string;
   call: string;
-  kind: "incoming" | "answering" | "answered" | "connected" | "muted" | "ended" | "video" | "camera_failed" | "presenting";
+  kind: "incoming" | "answering" | "answered" | "connected" | "muted" | "ended" | "video" | "camera_failed" | "presenting" | "route";
   video?: boolean;
   /** `incoming`: the core answered it already, on the phone's own screen, before its offer came. */
   answered?: boolean;
@@ -117,6 +124,8 @@ interface CallEvent extends Partial<CallVideo> {
   plugin?: string;
   file?: string;
   by?: "me" | "them";
+  /** `route`: where the voice plays now. */
+  route?: CallRoute;
 }
 
 /** The call the core has going on, for a WebView that comes up after it started. */
@@ -133,6 +142,8 @@ interface CurrentCall {
   connectedAt?: number;
   canPresent?: boolean;
   presenting?: Presenting | null;
+  /** Where the voice plays, as the phone said it last (2026-10-28). */
+  route?: CallRoute;
 }
 
 export const CALL_EVENT = "ft://call";
@@ -199,6 +210,7 @@ const idle = (): CallState => ({
   since: 0,
   muted: false,
   speaker: false,
+  route: null,
   cameraOff: false,
   local: null,
   remote: null,
@@ -239,11 +251,21 @@ const cameraDenied = (error: unknown) => String(error).includes("camera_denied")
  */
 const webViewMayPlay = () => !(nativeCall && /iPhone|iPad/.test(navigator.userAgent));
 
-/** The call goes live: a video call's voice goes to the speaker (a voice call stays on the receiver). */
+/**
+ * The call goes live. Where its voice plays is the phone's to decide (2026-10-28): headphones
+ * first, and a video call on the speaker rather than the receiver. The speaker override beats any
+ * headphones, so the WebView never asks for it on its own; it shows the route the phone says.
+ */
 function goLive() {
   call.phase = "active";
   call.since = Date.now();
-  if (call.speaker) void invoke("core_call_speaker", { on: true }).catch(() => undefined);
+}
+
+/** Where the phone says the voice plays: the speaker button follows it. */
+function followRoute(route: string | undefined) {
+  if (!route || !CALL_ROUTES.includes(route)) return;
+  call.route = route as CallRoute;
+  call.speaker = route === "speaker";
 }
 
 function busy(): boolean {
@@ -446,7 +468,10 @@ export function toggleMute() {
   else call.local?.getAudioTracks().forEach((track) => (track.enabled = !call.muted));
 }
 
-/** Speaker or receiver: the phone moves the call's voice (2026-09-28). */
+/**
+ * Speaker, or not (2026-09-28): the phone moves the call's voice, to headphones if there are any,
+ * else to the receiver, and says where it went (`route`).
+ */
 export function toggleSpeaker() {
   call.speaker = !call.speaker;
   void invoke("core_call_speaker", { on: call.speaker }).catch(() => undefined);
@@ -520,22 +545,17 @@ export async function stopPresenting(callId: string): Promise<void> {
 const anyVideo = (view: CallVideo) => view.camera || view.remote;
 
 /**
- * The core's snapshot of both cameras. When pictures come into a call the voice goes to the
- * speaker, if it was on the receiver: nobody holds the phone to the ear to watch. The native
- * views may have come up only now, so the layout goes again.
+ * The core's snapshot of both cameras. The native views may have come up only now, so the layout
+ * goes again. When pictures come into a call the phone moves the voice to the speaker, unless
+ * headphones are in (2026-10-28): nobody holds the phone to the ear to watch.
  */
 function applyVideo(update: Partial<CallVideo>) {
-  const before = anyVideo(call.view);
   const view: CallVideo = { ...call.view };
   for (const key of Object.keys(view) as (keyof CallVideo)[]) {
     if (update[key] !== undefined) (view as unknown as Record<string, unknown>)[key] = update[key];
   }
   call.view = view;
   sentLayout = undefined;
-  if (!before && anyVideo(view) && !call.speaker) {
-    call.speaker = true;
-    void invoke("core_call_speaker", { on: true }).catch(() => undefined);
-  }
 }
 
 /**
@@ -554,6 +574,7 @@ async function followCore(): Promise<void> {
   if (call.phase === "ringing" && live) await answeredByTheCore();
   if (typeof current.video === "object" && current.video) applyVideo(current.video);
   call.canPresent = Boolean(current.canPresent);
+  followRoute(current.route);
   // A presenting event heard meanwhile is newer than this read.
   if (heard === presentingHeard) call.presenting = presentingOf(current.presenting);
 }
@@ -636,6 +657,8 @@ async function onEvent(event: CallEvent) {
     call.cameraFailed = true;
   } else if (event.call === call.id && event.kind === "muted") {
     call.muted = Boolean(event.muted);
+  } else if (event.call === call.id && event.kind === "route" && !late) {
+    followRoute(event.route);
   } else if (event.call === call.id && event.kind === "presenting" && !late) {
     presentingHeard += 1;
     call.presenting = presentingOf(event);
@@ -675,6 +698,7 @@ async function restoreCall(): Promise<void> {
     canPresent: Boolean(current.canPresent),
     presenting: presentingOf(current.presenting),
   });
+  followRoute(current.route);
   offer = current.offer ?? "";
   setNative(current.native);
   if (current.phase === "calling") giveUpUnanswered();

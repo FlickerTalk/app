@@ -17,6 +17,7 @@ export function idleCall(): CallState {
     since: 0,
     muted: false,
     speaker: false,
+    route: null,
     cameraOff: false,
     local: null,
     remote: null,

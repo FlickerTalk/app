@@ -5,10 +5,13 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Notification
 import android.app.Service
+import android.content.pm.ApplicationInfo
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.view.WindowManager
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.view.WindowCompat
 import android.graphics.Color
@@ -37,6 +40,8 @@ import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -289,6 +294,8 @@ sealed class CallEvent {
     data class Orientation(val degrees: Int) : CallEvent()
     /** The ongoing call notification's camera action: the core turns our camera on. */
     object VideoRequested : CallEvent()
+    /** Where the call's voice plays now (2026-10-28), for the call screen's speaker button. */
+    data class Route(val output: CallOutput) : CallEvent()
 }
 
 /** The event as the channel carries it: `{"event": "mute", "muted": true}`. */
@@ -303,6 +310,7 @@ fun callEventPayload(event: CallEvent): Map<String, Any> = when (event) {
     is CallEvent.Visible -> mapOf("event" to "visible", "visible" to event.visible)
     is CallEvent.Orientation -> mapOf("event" to "orientation", "orientation" to event.degrees)
     CallEvent.VideoRequested -> mapOf("event" to "video")
+    is CallEvent.Route -> mapOf("event" to "route", "route" to event.output.wire)
 }
 
 /**
@@ -388,15 +396,6 @@ class CallEventQueue(private val limit: Int = 16) {
  */
 fun reconnectsOnPush(data: Map<String, String>, open: Set<Int>): Boolean =
     (isCall(data) || isWake(data)) && wakeIsHeard(data["s"], open)
-
-/** How the call's voice goes to the speaker or back to the earpiece. */
-enum class SpeakerRoute { SPEAKER_DEVICE, CLEAR_DEVICE, SPEAKERPHONE_ON, SPEAKERPHONE_OFF }
-
-/** Android 12 picks the communication device; before, the speakerphone switch. */
-fun speakerRoute(sdk: Int, on: Boolean): SpeakerRoute = when {
-    sdk >= Build.VERSION_CODES.S -> if (on) SpeakerRoute.SPEAKER_DEVICE else SpeakerRoute.CLEAR_DEVICE
-    else -> if (on) SpeakerRoute.SPEAKERPHONE_ON else SpeakerRoute.SPEAKERPHONE_OFF
-}
 
 /** The app shows over the lock screen, and turns the screen on, while a call rings or goes on. */
 fun overLockScreen(ringing: Boolean, inCall: Boolean): Boolean = ringing || inCall
@@ -706,11 +705,16 @@ object InCall {
     var service: FtCallService? = null
 
     /** Starts the call's audio and service; again, only makes sure the service holds what it may. */
-    fun start(context: Context, name: String) {
+    fun start(context: Context, name: String, video: Boolean = false) {
         if (!active) {
             this.name = name
             active = true
             muted = false
+            speakerChoice = null
+            // The call's video may have been told before it started (`callVideo`).
+            prefersSpeaker = video || this.video
+            newest = null
+            reported = null
             CallEvents.forget()
             IncomingCall.dismiss(context)
             takeAudio(context)
@@ -743,6 +747,8 @@ object InCall {
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         previousMode = audio.mode
         audio.mode = AudioManager.MODE_IN_COMMUNICATION
+        watchDevices(context.applicationContext, audio)
+        route(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(
@@ -770,29 +776,102 @@ object InCall {
             audio.abandonAudioFocus(null)
         }
         focus = null
-        speaker(audio, false)
+        devices?.let { audio.unregisterAudioDeviceCallback(it) }
+        devices = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audio.clearCommunicationDevice() else legacy(audio, LegacyRoute.SYSTEM)
         audio.mode = modeAfterCall(previousMode)
         previousMode = null
     }
 
-    /** The call's voice on the speaker, or back on the earpiece (2026-09-28). */
+    /** The user's speaker choice in this call; `null` until they choose (2026-10-28, `callDevice`). */
+    private var speakerChoice: Boolean? = null
+    /** The call had video: with no choice, the speaker rather than the earpiece, never headphones. */
+    private var prefersSpeaker = false
+    /** The headphones that came in last during the call: they win over others already there. */
+    private var newest: Int? = null
+    /** The route the call screen was told last. */
+    private var reported: CallOutput? = null
+    private var devices: AudioDeviceCallback? = null
+
+    /** The speaker, or not (2026-09-28): not the speaker is headphones if there are any, else the earpiece. */
     fun setSpeaker(context: Context, on: Boolean) {
-        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-        speaker(audio, on)
+        speakerChoice = on
+        route(context)
     }
 
-    private fun speaker(audio: AudioManager, on: Boolean) {
-        when (speakerRoute(Build.VERSION.SDK_INT, on)) {
-            SpeakerRoute.SPEAKER_DEVICE -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let { audio.setCommunicationDevice(it) }
-            }
-            SpeakerRoute.CLEAR_DEVICE -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audio.clearCommunicationDevice()
-            SpeakerRoute.SPEAKERPHONE_ON, SpeakerRoute.SPEAKERPHONE_OFF -> {
-                @Suppress("DEPRECATION")
-                audio.isSpeakerphoneOn = on
-            }
+    /** The call has video (`callVideo`): nobody holds the phone to the ear to watch. */
+    fun preferSpeaker(context: Context) {
+        if (prefersSpeaker) return
+        prefersSpeaker = true
+        route(context)
+    }
+
+    /**
+     * Puts the voice where `callDevice` says and tells the call screen (2026-10-28). From Android
+     * 12 it is the communication device, which also brings Bluetooth SCO up; before, the
+     * speakerphone switch and SCO by hand.
+     */
+    private fun route(context: Context) {
+        if (!active) return
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val output = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val available = audio.availableCommunicationDevices
+            val type = callDevice(speakerChoice, prefersSpeaker, available.map { it.type }, newest)
+            val device = available.firstOrNull { it.type == type }
+            if (device == null || !audio.setCommunicationDevice(device)) audio.clearCommunicationDevice()
+            routeLog(context, "device=$type available=${available.map { it.type }} choice=$speakerChoice video=$prefersSpeaker")
+            outputOf(audio.communicationDevice?.type ?: type)
+        } else {
+            val available = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+            val type = callDevice(speakerChoice, prefersSpeaker, available, newest)
+            legacy(audio, legacyRoute(type))
+            routeLog(context, "legacy device=$type available=$available choice=$speakerChoice video=$prefersSpeaker")
+            outputOf(type)
+        }
+        if (output != reported) {
+            reported = output
+            CallEvents.emit(CallEvent.Route(output))
         }
     }
+
+    @Suppress("DEPRECATION")
+    private fun legacy(audio: AudioManager, route: LegacyRoute) {
+        audio.isSpeakerphoneOn = route == LegacyRoute.SPEAKERPHONE
+        if (route == LegacyRoute.BLUETOOTH_SCO && !audio.isBluetoothScoOn) {
+            audio.startBluetoothSco()
+            audio.isBluetoothScoOn = true
+        } else if (route != LegacyRoute.BLUETOOTH_SCO && audio.isBluetoothScoOn) {
+            audio.isBluetoothScoOn = false
+            audio.stopBluetoothSco()
+        }
+    }
+
+    /**
+     * Headphones plugged in or taken out, a Bluetooth headset connected or gone, during the call:
+     * the route is decided again. Headphones that come in take the call (`choiceAfterDevicesAdded`).
+     */
+    private fun watchDevices(context: Context, audio: AudioManager) {
+        if (devices != null) return
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) {
+                val types = added.map { it.type }
+                speakerChoice = choiceAfterDevicesAdded(speakerChoice, types)
+                types.lastOrNull(::isHeadset)?.let { newest = it }
+                route(context)
+            }
+
+            override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
+                route(context)
+            }
+        }
+        audio.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+        devices = callback
+    }
+}
+
+/** One line per route decision in a debuggable build (`adb logcat -s FtCallRoute`): device types only. */
+fun routeLog(context: Context, line: String) {
+    if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) Log.i("FtCallRoute", line)
 }
 
 /** The ongoing call's notification: who, hang up and mute; tapping it opens the app. */
@@ -1645,7 +1724,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun callStartedOutgoing(invoke: Invoke) {
         val args = invoke.parseArgs(OutgoingArgs::class.java)
-        activity.runOnUiThread { InCall.start(activity, args.name) }
+        activity.runOnUiThread { InCall.start(activity, args.name, args.video) }
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
         invoke.resolve()
     }
@@ -1869,6 +1948,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                 if (!on) InCall.videoByTap = false
                 if (InCall.active) InCall.service?.promote()
             }
+            if (on && InCall.active) InCall.preferSpeaker(activity)
             invoke.resolve()
         }
     }

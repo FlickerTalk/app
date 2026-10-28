@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { IonActionSheet, IonIcon } from "@ionic/vue";
+import { headsetOutline, phonePortraitOutline, volumeHighOutline } from "ionicons/icons";
 import { seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
 import { actions, call, resetCalls } from "../__tests__/calls-mock";
@@ -151,6 +152,22 @@ describe("CallPage", () => {
     expect(speaker.attributes("aria-pressed")).toBe("false");
     await speaker.trigger("click");
     expect(actions.toggleSpeaker).toHaveBeenCalled();
+  });
+
+  // 2026-10-28: the button shows where the voice really is, as the phone says it: headphones,
+  // the speaker or the receiver. On headphones it is not pressed: tapping it asks for the speaker.
+  it("shows headphones on the speaker button while the voice is on them", async () => {
+    const icon = (wrapper: VueWrapper) => wrapper.find("[aria-label='Speaker']").findComponent(IonIcon).props("icon");
+    Object.assign(call, { id: "x", contact: "c1", phase: "active", video: false, speaker: false, route: "headset" });
+    const headset = mount(CallPage, { shallow: true });
+    expect(headset.find("[aria-label='Speaker']").attributes("aria-pressed")).toBe("false");
+    expect(icon(headset)).toBe(headsetOutline);
+    Object.assign(call, { speaker: true, route: "speaker" });
+    await nextTick();
+    expect(icon(headset)).toBe(volumeHighOutline);
+    Object.assign(call, { speaker: false, route: "receiver" });
+    await nextTick();
+    expect(icon(headset)).toBe(phonePortraitOutline);
   });
 
   // Until the contact's video arrives there is no empty player (Android paints a grey poster):
