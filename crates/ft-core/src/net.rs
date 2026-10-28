@@ -269,6 +269,13 @@ impl Network {
         self.ice.lock().expect("ice poisoned").clone()
     }
 
+    /// A fresh TURN user (`RouterClient::turn_credentials`) for the connections and calls made from
+    /// now on (2026-10-28). The welcome's lives ten minutes: a device that stays connected longer
+    /// (the support contact) would otherwise gather no relay at all. The STUN servers stay.
+    pub fn set_turn(&self, turn: TurnGrant) {
+        self.ice.lock().expect("ice poisoned").1 = Some(turn);
+    }
+
     /// A new session's setup: listening on the interfaces there are now (app#200), with the
     /// router's STUN and TURN.
     fn session_config(&self) -> SessionConfig {
@@ -968,6 +975,21 @@ mod tests {
         async fn acknowledge(&self, _: &str) -> Result<()> {
             Ok(())
         }
+    }
+
+    // The router's TURN users live ten minutes (2026-10-28): a device connected for longer (the
+    // support contact) takes fresh ones, and every connection and call made afterwards uses them.
+    // The STUN servers of the welcome stay.
+    #[test]
+    fn fresh_turn_credentials_replace_the_welcome_s_for_what_comes_next() {
+        let network = Network::new(Arc::new(NoRouter), SessionConfig::offline());
+        let welcome = TurnGrant { urls: vec!["turn:t:3478".to_owned()], username: "old".to_owned(), credential: "c1".to_owned() };
+        network.ice.lock().unwrap().clone_from(&(vec!["stun:t:3478".to_owned()], Some(welcome)));
+        let fresh = TurnGrant { urls: vec!["turn:t:3478".to_owned()], username: "new".to_owned(), credential: "c2".to_owned() };
+        network.set_turn(fresh);
+        assert_eq!(network.session_config().turn_servers[0].username, "new");
+        assert_eq!(network.media_config().turn.expect("a relay").credential, "c2");
+        assert_eq!(network.ice().0, ["stun:t:3478"]);
     }
 
     // The phone changed networks with the app open (app#200, 2026-10-20): the addresses it had
