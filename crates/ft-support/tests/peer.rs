@@ -365,3 +365,19 @@ async fn a_caller_while_another_call_goes_on_is_told_to_try_later() {
     })
     .await;
 }
+
+// A reviewer may call before writing anything: the call's own connection brings the card, the
+// stranger is accepted at once, and the call is answered, not refused as a stranger's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_before_any_message_is_answered_too() {
+    let settings = Settings { max_call: Duration::from_secs(3), ..quick() };
+    let World { support, user, .. } = World::new(settings).await;
+    let s = support.id();
+    let call = user.core.start_native_call(&s, CallRouting::Auto, false).await.expect("calls");
+    until("the call connects", || async {
+        user.core.current_call().await.unwrap().is_some_and(|current| current.call == call && current.connected_at.is_some())
+    })
+    .await;
+    assert!(support.core.store().contact(&user.id()).await.unwrap().expect("known").accepted);
+    until("the support contact hangs up", || async { user.core.current_call().await.unwrap().is_none() }).await;
+}
