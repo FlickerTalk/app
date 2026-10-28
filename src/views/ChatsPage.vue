@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import {
   IonButton,
   IonButtons,
@@ -20,6 +20,7 @@ import {
   checkmarkOutline,
   chevronForwardOutline,
   ellipsisVerticalOutline,
+  helpCircleOutline,
   logOutOutline,
   micOutline,
   peopleOutline,
@@ -31,11 +32,13 @@ import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
 import ChatThread from "../components/ChatThread.vue";
 import CircleThread from "../components/CircleThread.vue";
+import QuickTour from "../components/QuickTour.vue";
 import { t } from "../i18n";
 import { previewOf } from "../links";
 import { closeSession, removeSession, store, type Chat, type Circle, type Session } from "../core";
 import { useOnScreen } from "../on-screen";
 import { showInPane, takeSearch } from "../pending-search";
+import { isTourDue } from "../preferences";
 
 const router = useRouter();
 
@@ -47,9 +50,22 @@ const onWidthChange = (event: MediaQueryListEvent) => {
 onMounted(() => wideQuery.addEventListener("change", onWidthChange));
 onBeforeUnmount(() => wideQuery.removeEventListener("change", onWidthChange));
 
+// The quick tour (2026-10-28): a new identity sees it once Chats is on screen after Start, and the
+// empty list opens it whenever asked. It goes with Chats when a page covers them (a link that
+// opened the app, a call) and comes back with them, until the user closes it.
+const touring = ref(false);
+function offerTour() {
+  if (isTourDue()) touring.value = true;
+}
+
 // On another tab, what the conversation beside the list left open lets go of Android's back
 // button; back on Chats it takes it again (2026-10-02).
-const onScreen = useOnScreen();
+const onScreen = useOnScreen(offerTour);
+// A page that covered the tabs before Chats came in (the link that opened the app on its first
+// run): Ionic never says Chats came in, only that the tabs page is back.
+watch(onScreen, (now) => {
+  if (now) offerTour();
+});
 onIonViewDidEnter(() => {
   // Back from the contact page's search on a tablet (2026-10-06): the pane searches now it is seen.
   if (wide.value && selectedId.value && !selectedCircle.value && takeSearch(selectedId.value)) paneThread.value?.openSearch();
@@ -164,6 +180,10 @@ const STATUS_ICON: Record<string, string> = {
           <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
           {{ $t("addContact.title") }}
         </button>
+        <ion-button fill="clear" size="small" class="ft-empty__tour" data-test="tour-link" @click="touring = true">
+          <ion-icon slot="start" :icon="helpCircleOutline" aria-hidden="true" />
+          {{ $t("tour.link") }}
+        </ion-button>
       </div>
 
       <!-- A5: the requests come first, apart from the list; the yes and the no are in the conversation (2026-09-28). -->
@@ -457,6 +477,8 @@ const STATUS_ICON: Record<string, string> = {
         <ChatThread ref="paneThread" :chat-id="selectedId" split :active="onScreen" />
       </div>
     </section>
+
+    <QuickTour class="ft-sheet--tab" :open="touring && onScreen" @close="touring = false" />
   </ion-page>
 </template>
 
@@ -479,6 +501,10 @@ const STATUS_ICON: Record<string, string> = {
   max-width: 28ch;
   color: var(--ft-muted);
   line-height: 1.4;
+}
+/* As the app's buttons: the words as written, not in Material's capitals. */
+.ft-empty__tour {
+  text-transform: none;
 }
 .ft-empty__action {
   appearance: none;
