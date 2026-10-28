@@ -289,7 +289,10 @@
     "renewLinkHint": "Whoever has your old link can no longer reach you; your contacts get the new one",
     "renewLinkConfirm": "Renew",
     "renewed": "Link renewed",
-    "feedback": "Suggest something"
+    "feedback": "Suggest something",
+    "terms": "Terms of Use",
+    "privacyPolicy": "Privacy Policy",
+    "contact": "Contact"
   },
   "hours": {
     "title": "Hours",

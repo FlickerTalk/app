@@ -289,7 +289,10 @@
     "renewLinkHint": "古いリンクを持っている人は、もうあなたに連絡できません。連絡先には新しいリンクが届きます",
     "renewLinkConfirm": "更新",
     "renewed": "リンクを更新しました",
-    "feedback": "提案する"
+    "feedback": "提案する",
+    "terms": "利用規約",
+    "privacyPolicy": "プライバシーポリシー",
+    "contact": "お問い合わせ"
   },
   "hours": {
     "title": "時間帯",

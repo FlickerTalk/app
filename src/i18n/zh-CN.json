@@ -289,7 +289,10 @@
     "renewLinkHint": "持有你旧链接的人将无法再联系你；你的联系人会收到新链接",
     "renewLinkConfirm": "更新",
     "renewed": "链接已更新",
-    "feedback": "提个建议"
+    "feedback": "提个建议",
+    "terms": "使用条款",
+    "privacyPolicy": "隐私政策",
+    "contact": "联系我们"
   },
   "hours": {
     "title": "时段",

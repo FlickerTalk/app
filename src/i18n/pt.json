@@ -289,7 +289,10 @@
     "renewLinkHint": "Quem tiver o teu link antigo já não te alcança; os teus contactos recebem o novo",
     "renewLinkConfirm": "Renovar",
     "renewed": "Link renovado",
-    "feedback": "Sugerir algo"
+    "feedback": "Sugerir algo",
+    "terms": "Termos de Uso",
+    "privacyPolicy": "Política de Privacidade",
+    "contact": "Contato"
   },
   "hours": {
     "title": "Horário",

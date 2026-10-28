@@ -289,7 +289,10 @@
     "renewLinkHint": "Cine are linkul tău vechi nu te mai poate contacta; contactele tale îl primesc pe cel nou",
     "renewLinkConfirm": "Reînnoiește",
     "renewed": "Link reînnoit",
-    "feedback": "Propune ceva"
+    "feedback": "Propune ceva",
+    "terms": "Termeni de utilizare",
+    "privacyPolicy": "Politica de confidențialitate",
+    "contact": "Contactează-ne"
   },
   "hours": {
     "title": "Program",
