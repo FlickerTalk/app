@@ -1,29 +1,41 @@
 #!/usr/bin/env bash
-# Rebuilds the media the support peer carries inside its binary (`src/clips.rs`), from the texts
-# below and the app's icon. Run it from anywhere; it needs espeak-ng and an ffmpeg with libx264
-# and libopus. The voices are espeak-ng's own (no MBROLA voices: their licences forbid commercial
-# use). Commit the four files it writes.
+# Rebuilds the media the support peer carries inside its binary (`src/clips.rs`) and the app's
+# icon. Run it from anywhere; it needs an ffmpeg with libx264 and libopus. Commit the four files it
+# writes.
+#
+# The two recordings (English, then Spanish) are spoken by Kokoro, a local neural TTS under the
+# Apache 2.0 licence, in the voices of the user manual's narration: make_voice.py says what and
+# how. It needs a Python with kokoro_onnx, numpy and soundfile (FT_KOKORO_PYTHON, python3 by
+# default) and the model and voices (FT_KOKORO_MODEL, FT_KOKORO_VOICES; make_voice.py has the
+# defaults). Without them, espeak-ng speaks the English lines alone, as a last resort. Never the
+# voices of macOS's `say`: Apple licenses them for personal, non-commercial use only.
 set -euo pipefail
 cd "$(dirname "$0")"
 icon=../../../src-tauri/icons/Square284x284Logo.png
+python="${FT_KOKORO_PYTHON:-python3}"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-say() { # say <wav> <text>
-  espeak-ng -v en-us -s 145 -p 45 -w "$1" "$2"
-}
+# Both recordings into $work/call.wav and $work/voice.wav.
+if "$python" -c "import kokoro_onnx, numpy, soundfile" 2>/dev/null && "$python" make_voice.py "$work"; then
+  echo "voices: Kokoro (af_heart, ef_dora)"
+else
+  echo "voices: espeak-ng (Kokoro is not available)" >&2
+  espeak-ng -v en-us -s 145 -p 45 -w "$work/voice.wav" "Hi, this is FlickerTalk support. Your voice message arrived. This is an automatic reply so you can hear that voice messages work."
+  espeak-ng -v en-us -s 145 -p 45 -w "$work/call.wav" "Hi, this is FlickerTalk's automated support contact. You've reached a recording, so your call works: audio and video are flowing end to end. Try sending a message, a file or a voice message, and they get answered. This call hangs up by itself in a couple of minutes. Thanks for trying FlickerTalk."
+fi
+# The same loudness as the manual's narration.
+level="loudnorm=I=-16:TP=-1.5:LRA=11"
 
 # The sample file sent back for any file: the app's icon.
 cp "$icon" sample.png
 
 # The voice message sent back for a voice message: AAC in MP4, what the app records itself, so
 # it plays in the WebView of iOS and Android.
-say "$work/voice.wav" "Hi! This is the FlickerTalk support contact. Your voice message arrived, end to end encrypted. This answer is automatic: a program sends it, not a person."
-ffmpeg -loglevel error -y -i "$work/voice.wav" -ac 1 -ar 44100 -c:a aac -b:a 48k -movflags +faststart voice.m4a
+ffmpeg -loglevel error -y -i "$work/voice.wav" -af "$level" -ac 1 -ar 44100 -c:a aac -b:a 48k -movflags +faststart voice.m4a
 
 # What a call hears, on a loop: Ogg Opus, 48 kHz mono, 20 ms packets, as the call sends them.
-say "$work/call.wav" "Hello, and thanks for calling. This is the FlickerTalk automated support line. Your call is end to end encrypted, and nothing is recorded. I cannot hear you: this message repeats until you hang up, and the call ends by itself after two minutes. For help from a person, visit flickertalk dot com slash support."
-ffmpeg -loglevel error -y -i "$work/call.wav" -ac 1 -ar 48000 -c:a libopus -b:a 24k -frame_duration 20 -application voip call.opus
+ffmpeg -loglevel error -y -i "$work/call.wav" -af "$level" -ac 1 -ar 48000 -c:a libopus -b:a 24k -frame_duration 20 -application voip call.opus
 
 # What a video call sees: the icon gliding over a dark background. Four seconds that loop without
 # a seam (the motion's period is the clip's length), H.264 Constrained Baseline in Annex-B,

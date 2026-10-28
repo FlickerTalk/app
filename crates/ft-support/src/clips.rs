@@ -152,10 +152,11 @@ mod tests {
     }
 
     #[test]
-    fn the_call_voice_decodes_to_some_twenty_seconds_of_sound() {
+    fn the_call_voice_decodes_to_half_a_minute_or_so_of_sound() {
+        // English, then Spanish (2026-10-28): some 30 to 40 seconds before it loops.
         let voice = call_voice().expect("decodes");
         let seconds = voice.len() as f64 / f64::from(SAMPLE_RATE);
-        assert!((15.0..40.0).contains(&seconds), "{seconds} s");
+        assert!((25.0..50.0).contains(&seconds), "{seconds} s");
         let loud = voice.iter().filter(|sample| sample.unsigned_abs() > 1_000).count();
         assert!(loud > voice.len() / 20, "it is speech, not silence");
     }
