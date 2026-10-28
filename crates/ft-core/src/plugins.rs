@@ -68,7 +68,9 @@ pub const LIVE_LIMIT: usize = 48 * 1024;
 /// the tools closed may still open the presented tool).
 /// 1.7.0 (2026-10-20, app#177): `translate`, the phone's own translator (`ft.translate.languages`,
 /// `detect`, `status`, `prepare`, `remove`, `translate`): ML Kit on Android, Translation on iOS 18+.
-pub const CORE_VERSION: &str = "1.7.0";
+/// 1.7.1 (2026-10-28): no new call in the Plugin API; the app carries the FlickerTalk support
+/// contact (app#217) and shows the terms and the privacy policy (app#216).
+pub const CORE_VERSION: &str = "1.7.1";
 /// The most a reminder's text may run to.
 const REMINDER_TEXT: usize = 200;
 /// What the key of a plugin's chat ids is derived for, from the storage key (2026-10-02).
