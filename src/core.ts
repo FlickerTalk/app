@@ -292,6 +292,8 @@ export const store = reactive({
   circles: [] as Circle[],
   /** Contacts writing to this phone right now (2026-10-05), by id. */
   typing: {} as Record<string, boolean>,
+  /** FlickerTalk's support peer (2026-10-28), when the app carries its card; empty otherwise. */
+  supportId: "",
 });
 
 const typingFades = new Map<string, ReturnType<typeof setTimeout>>();
@@ -545,6 +547,25 @@ export async function declineContact(contact: string): Promise<void> {
   await refreshChats();
 }
 
+/**
+ * Adds the contact every install carries, FlickerTalk's support peer (2026-10-28), and shows it
+ * at once. The core adds it once, on a phone whose identity was just made, and sends nothing to
+ * it until the user writes. It never holds up the start.
+ */
+export async function addSupportContact(): Promise<void> {
+  try {
+    await invoke("core_add_support_contact");
+    await refreshChats();
+  } catch {
+    // Without it the phone starts as before: with no contacts.
+  }
+}
+
+/** Whether the contact is FlickerTalk's support peer (2026-10-28). */
+export function isSupport(contact: string): boolean {
+  return store.supportId !== "" && contact === store.supportId;
+}
+
 /** Removes a contact and its local conversation from this phone. */
 export async function removeContact(contact: string): Promise<void> {
   await invoke("core_remove_contact", { contact });
@@ -592,6 +613,7 @@ export async function setAutoDownload(bytes: number): Promise<void> {
 export async function start(): Promise<void> {
   const me = await invoke<Omit<Me, "hue">>("core_me");
   store.me = { ...me, hue: hueOf(me.id) };
+  store.supportId = (await invoke<string | null>("core_support_id").catch(() => null)) ?? "";
   await refreshChats();
   await listen<{ contact: string }>(TYPING_EVENT, ({ payload }) => heardTyping(payload.contact));
   await listen<{ contact: string | null; circle?: string | null; all?: boolean }>(CHANGED_EVENT, ({ payload }) => {

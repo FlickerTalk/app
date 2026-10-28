@@ -98,7 +98,8 @@
     "showOriginal": "Mostra originale",
     "sentIn": "Inviato in {language}",
     "view": "Vedi",
-    "translating": "Traduzione · {language}"
+    "translating": "Traduzione · {language}",
+    "supportHint": "Assistenza automatica. Scrivi e ti risponde."
   },
   "status": {
     "pending": "In attesa del dispositivo",

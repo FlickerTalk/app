@@ -98,7 +98,8 @@
     "showOriginal": "মূল দেখুন",
     "sentIn": "{language} ভাষায় পাঠানো হয়েছে",
     "view": "দেখুন",
-    "translating": "অনুবাদ হচ্ছে · {language}"
+    "translating": "অনুবাদ হচ্ছে · {language}",
+    "supportHint": "স্বয়ংক্রিয় সহায়তা। লিখুন, উত্তর দেবে।"
   },
   "status": {
     "pending": "ডিভাইসের অপেক্ষায়",

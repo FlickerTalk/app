@@ -98,7 +98,8 @@
     "showOriginal": "Orijinali göster",
     "sentIn": "{language} gönderildi",
     "view": "Görüntüle",
-    "translating": "Çevriliyor · {language}"
+    "translating": "Çevriliyor · {language}",
+    "supportHint": "Otomatik destek. Yazdığınızda yanıt verir."
   },
   "status": {
     "pending": "Cihaz bekleniyor",

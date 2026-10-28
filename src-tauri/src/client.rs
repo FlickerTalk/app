@@ -1935,6 +1935,22 @@ pub async fn core_add_contact(link: String, session: Option<String>, client: Sta
     Ok(id)
 }
 
+/// Adds the contact every install carries, FlickerTalk's support peer (2026-10-28), when the user
+/// starts on a phone whose identity was just made; once, and only there (`crate::support`). It is
+/// stored on this phone and nothing goes out until the user writes to it (§100).
+#[tauri::command]
+pub async fn core_add_support_contact(client: State<'_, Client>) -> Result<(), String> {
+    let core = client.core().await?;
+    core.add_bundled_contact(crate::support::support_link(), Some(crate::support::SUPPORT_NAME.to_owned())).await.map_err(failed)?;
+    Ok(())
+}
+
+/// The support peer's id, when this build carries its card: its empty chat says what it is.
+#[tauri::command]
+pub fn core_support_id() -> Option<String> {
+    crate::support::support_id()
+}
+
 #[tauri::command]
 pub async fn core_conversations(client: State<'_, Client>) -> Result<Vec<ConversationView>, String> {
     let online = client.online().await?;

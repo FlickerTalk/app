@@ -75,6 +75,26 @@ describe("WelcomePage", () => {
     expect(calls.map(([command]) => command)).toContain("core_enable_push");
   });
 
+  // 2026-10-28: a new phone starts with the FlickerTalk contact in its chats,
+  // there before the list shows.
+  it("adds the FlickerTalk contact on Start, before the chats open", async () => {
+    let addedBeforeChats = false;
+    replace.mockImplementationOnce(() => {
+      addedBeforeChats = calls.some(([command]) => command === "core_add_support_contact");
+    });
+    const wrapper = mount(WelcomePage, { shallow: true });
+    await wrapper.find("[data-test='start']").trigger("click");
+    await flushPromises();
+    expect(addedBeforeChats).toBe(true);
+  });
+
+  it("adds nothing until Start, nor for a phone that brings everything from an old one", async () => {
+    const wrapper = mount(WelcomePage, { shallow: true });
+    await wrapper.find("[data-test='move-from-old']").trigger("click");
+    await flushPromises();
+    expect(calls.map(([command]) => command)).not.toContain("core_add_support_contact");
+  });
+
   // §60: a new phone can take the identity of the old one instead of starting from scratch.
   it("offers bringing everything from an old phone", async () => {
     await mount(WelcomePage, { shallow: true }).find("[data-test='move-from-old']").trigger("click");

@@ -313,6 +313,11 @@ const CARD_STALE: &str = "card_stale";
 /// sessions are those of the day it was made, behind every contact's, so the first start renews
 /// them.
 pub(crate) const SESSIONS_BEHIND: &str = "sessions_behind";
+/// The contact the app carries (2026-10-28): `due` from the moment this phone
+/// makes its identity until the app adds it, then the contact's id, for good. An install from
+/// before this version has neither, and never gets it.
+const BUNDLED_CONTACT: &str = "bundled_contact";
+const BUNDLED_DUE: &str = "due";
 
 impl Core {
     /// Opens the device's core; the first run creates the identity and route capability.
@@ -343,6 +348,7 @@ impl Core {
                 let envelope = EnvelopeKey::generate();
                 store.save_identity(&identity.seal(&key), capability.as_bytes()).await?;
                 store.save_envelope(&envelope.seal_at_rest(&key)).await?;
+                store.set_setting(BUNDLED_CONTACT, BUNDLED_DUE).await?;
                 (identity, capability, envelope)
             }
         };
@@ -462,7 +468,7 @@ impl Core {
     /// cannot be reached now gets it with the next message anyway.
     pub async fn reintroduce(&self) -> Result<()> {
         for contact in self.store.all_contacts().await? {
-            if contact.blocked {
+            if contact.blocked || self.quiet_until_written(&contact).await {
                 continue;
             }
             let _ = self.introduce(&contact).await;
@@ -504,6 +510,9 @@ impl Core {
             }
         }
         for contact in contacts {
+            if self.quiet_until_written(&contact).await {
+                continue;
+            }
             let _ = self.introduce(&contact).await;
         }
         let _ = self.events.send(Event::ContactsChanged);
@@ -647,6 +656,9 @@ impl Core {
     pub async fn set_mailbox(&self, enabled: bool) -> Result<()> {
         self.store.set_setting(MAILBOX, if enabled { "1" } else { "0" }).await?;
         for contact in self.store.all_contacts().await? {
+            if self.quiet_until_written(&contact).await {
+                continue;
+            }
             let _ = self.send_control(&contact, Body::MailboxPreference { enabled }).await;
         }
         Ok(())
@@ -692,10 +704,46 @@ impl Core {
             ensure!(self.open_sessions.lock().expect("sessions poisoned").contains_key(session), "that session is not open");
         }
         let card = ContactCard::from_link(link)?;
-        let device_id = card.device_id();
-        if device_id == self.device_id {
+        if card.device_id() == self.device_id {
             bail!("that is your own contact card");
         }
+        let contact = self.keep_contact(&card, name, session).await?;
+        self.introduce(&contact).await?;
+        let _ = self.events.send(Event::ContactsChanged);
+        Ok(contact)
+    }
+
+    /// Adds the contact the app carries (the support peer's card, 2026-10-28) to a phone whose
+    /// identity this version made, once: an install from before, or a phone that had it already
+    /// (and maybe removed it since), gets nothing. It is kept on this phone only: nothing goes
+    /// out, not even our card, until the user writes to it (§100). A missing or broken card adds
+    /// nothing. Returns the contact, if it was added now.
+    pub async fn add_bundled_contact(&self, link: &str, name: Option<String>) -> Result<Option<Contact>> {
+        if self.store.setting(BUNDLED_CONTACT).await?.as_deref() != Some(BUNDLED_DUE) {
+            return Ok(None);
+        }
+        let Ok(card) = ContactCard::from_link(link) else { return Ok(None) };
+        if card.device_id() == self.device_id {
+            return Ok(None);
+        }
+        let contact = self.keep_contact(&card, name, None).await?;
+        self.store.set_setting(BUNDLED_CONTACT, &contact.device_id).await?;
+        let _ = self.events.send(Event::ContactsChanged);
+        Ok(Some(contact))
+    }
+
+    /// The contact the app carries, while it has never answered (2026-10-28): what this phone
+    /// tells every contact (its mailbox preference, a new card) skips it, so that nothing reaches
+    /// it until the user writes to it (§100). Writing introduces us, and every packet says the
+    /// mailbox preference (app#190).
+    async fn quiet_until_written(&self, contact: &Contact) -> bool {
+        !contact.introduced && matches!(self.store.setting(BUNDLED_CONTACT).await, Ok(Some(id)) if id == contact.device_id)
+    }
+
+    /// Stores the owner of a card as an accepted contact, with a channel to write to them, and
+    /// sends nothing. A contact already known stays where they were.
+    async fn keep_contact(&self, card: &ContactCard, name: Option<String>, session: Option<&str>) -> Result<Contact> {
+        let device_id = card.device_id();
         let name = name
             .map(|name| clean_name(&name))
             .filter(|name| !name.is_empty())
@@ -721,10 +769,7 @@ impl Core {
                 self.store.save_channel(device_id.as_str(), &channel.seal(&self.key)).await?;
             }
         }
-        let contact = self.contact(device_id.as_str()).await?;
-        self.introduce(&contact).await?;
-        let _ = self.events.send(Event::ContactsChanged);
-        Ok(contact)
+        self.contact(device_id.as_str()).await
     }
 
     fn pin_hash(&self, pin: &str) -> Result<[u8; 32]> {

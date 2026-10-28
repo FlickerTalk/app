@@ -98,7 +98,8 @@
     "showOriginal": "عرض الأصل",
     "sentIn": "أُرسلت باللغة {language}",
     "view": "عرض",
-    "translating": "جارٍ الترجمة · {language}"
+    "translating": "جارٍ الترجمة · {language}",
+    "supportHint": "دعم آلي. اكتب وسيردّ عليك."
   },
   "status": {
     "pending": "بانتظار الجهاز",

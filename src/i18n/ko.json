@@ -98,7 +98,8 @@
     "showOriginal": "원문 보기",
     "sentIn": "{language}(으)로 보냄",
     "view": "보기",
-    "translating": "번역 중 · {language}"
+    "translating": "번역 중 · {language}",
+    "supportHint": "자동 지원입니다. 메시지를 보내면 답장합니다."
   },
   "status": {
     "pending": "상대 기기 대기 중",
