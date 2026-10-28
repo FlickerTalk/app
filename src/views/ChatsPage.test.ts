@@ -10,6 +10,9 @@ import { calls } from "../__tests__/seed";
 import { store, type Circle } from "../core";
 import { defineComponent, h } from "vue";
 import { askSearch, inPane, takeSearch } from "../pending-search";
+import QuickTour from "../components/QuickTour.vue";
+import { IonModalStub } from "../__tests__/ionic";
+import { isTourDue, setOnboarded, setTourDue } from "../preferences";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -208,6 +211,104 @@ describe("ChatsPage", () => {
     expect(wrapper.find("[data-test='empty']").exists()).toBe(true);
     await wrapper.find("[data-test='empty'] button").trigger("click");
     expect(push).toHaveBeenCalledWith("/add-contact");
+  });
+
+  // 2026-10-28 (Ioan: "the typical quick tour"): a new identity sees the quick tour once, when the
+  // chats open after Start; an install set up before never does on its own. It is a sheet over the
+  // list, so nothing on the page moves under it.
+  describe("the quick tour", () => {
+    /** Ionic brings a page in: "will enter" as the transition starts, "did enter" once it is over. */
+    const enters = (page: { vm: unknown }) => {
+      const hooks = page.vm as unknown as Record<string, Array<() => void> | undefined>;
+      (hooks.onIonViewWillEnter ?? []).forEach((hook) => hook());
+      (hooks.onIonViewDidEnter ?? []).forEach((hook) => hook());
+    };
+    const tour = (wrapper: { findComponent: ReturnType<typeof mount>["findComponent"] }) => wrapper.findComponent(QuickTour);
+
+    beforeEach(() => {
+      localStorage.clear();
+      setOnboarded();
+      screen(false);
+    });
+
+    it("opens once Chats is on screen after Start, over the tab", async () => {
+      setTourDue();
+      const wrapper = mount(ChatsPage, { shallow: true });
+      expect(tour(wrapper).props("open")).toBe(false);
+      enters(wrapper);
+      await flushPromises();
+      expect(tour(wrapper).props("open")).toBe(true);
+      expect(tour(wrapper).classes()).toContain("ft-sheet--tab");
+    });
+
+    it("never opens on its own on an install that was set up before", async () => {
+      const wrapper = mount(ChatsPage, { shallow: true });
+      enters(wrapper);
+      await flushPromises();
+      expect(tour(wrapper).props("open")).toBe(false);
+    });
+
+    // A page pushed over the tabs (a link that opened the app, a call) covers Chats: the tour goes
+    // with Chats and comes back with it, still owed until the user closes it.
+    it("goes with Chats under a page pushed over the tabs, and comes back with it", async () => {
+      setTourDue();
+      const view = chatsInTabs();
+      await flushPromises();
+      enters(view.tabs.findComponent(ChatsPage));
+      await flushPromises();
+      expect(tour(view.tabs).props("open")).toBe(true);
+      view.covered();
+      await flushPromises();
+      expect(tour(view.tabs).props("open")).toBe(false);
+      view.uncovered();
+      await flushPromises();
+      expect(tour(view.tabs).props("open")).toBe(true);
+    });
+
+    // The link that opened the app on its first run: Add contact goes over the tabs before Chats has
+    // come in, so Ionic never says Chats came in; it only says the tabs page is back.
+    it("opens when the tabs come back, if a page covered them before Chats came in", async () => {
+      setTourDue();
+      const view = chatsInTabs();
+      await flushPromises();
+      view.covered();
+      await flushPromises();
+      expect(tour(view.tabs).props("open")).toBe(false);
+      view.uncovered();
+      await flushPromises();
+      expect(tour(view.tabs).props("open")).toBe(true);
+    });
+
+    it("does not come back once closed", async () => {
+      setTourDue();
+      const wrapper = mount(ChatsPage, { shallow: true, global: { stubs: { QuickTour: false, IonModal: IonModalStub } } });
+      enters(wrapper);
+      await flushPromises();
+      await wrapper.find("[data-test='tour-skip']").trigger("click");
+      await flushPromises();
+      expect(tour(wrapper).props("open")).toBe(false);
+      expect(isTourDue()).toBe(false);
+      enters(wrapper);
+      await flushPromises();
+      expect(tour(wrapper).props("open")).toBe(false);
+    });
+
+    // A phone with no conversations says how FlickerTalk works, a small link under how to start.
+    it("opens from the empty list, as often as asked", async () => {
+      store.chats = [];
+      const wrapper = mount(ChatsPage, { shallow: true });
+      const link = wrapper.find("[data-test='empty'] [data-test='tour-link']");
+      expect(link.exists()).toBe(true);
+      expect(link.html()).toContain("How FlickerTalk works");
+      await link.trigger("click");
+      expect(tour(wrapper).props("open")).toBe(true);
+      expect(push).not.toHaveBeenCalled();
+      tour(wrapper).vm.$emit("close");
+      await flushPromises();
+      expect(tour(wrapper).props("open")).toBe(false);
+      await link.trigger("click");
+      expect(tour(wrapper).props("open")).toBe(true);
+    });
   });
 
   // Circles (2026-09-27): a row like any other, with who said the last thing, and a button to
@@ -524,11 +625,12 @@ describe("ChatsPage", () => {
   // with the conversation sits beside them, and only the pane has a frame.
   it("is an Ionic page: the list's header and content, and the pane beside them on wide screens", () => {
     screen(false);
-    expect(pageShape(mount(ChatsPage, { shallow: true }))).toEqual(["ion-header", "ion-content"]);
+    // The quick tour is a sheet: Ionic presents it over the page, which keeps its own shape.
+    expect(pageShape(mount(ChatsPage, { shallow: true }), ["quick-tour"])).toEqual(["ion-header", "ion-content"]);
 
     screen(true);
     const wide = mount(ChatsPage, { shallow: true });
-    expect(pageShape(wide)).toEqual(["ion-header", "ion-content", "section"]);
+    expect(pageShape(wide, ["quick-tour"])).toEqual(["ion-header", "ion-content", "section"]);
     const pane = wide.find(".ft-chats__detail");
     expect(childTags(pane.find(".ft-thread").element)).toEqual(["chat-thread"]);
   });

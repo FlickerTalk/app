@@ -539,5 +539,47 @@
     "sent": "Gesendet. Danke",
     "tooMany": "Du hast heute schon mehrere gesendet. Versuch es morgen wieder",
     "failed": "Senden fehlgeschlagen. Versuch es später noch einmal"
+  },
+  "tour": {
+    "title": "Kurze Tour",
+    "link": "So funktioniert FlickerTalk",
+    "skip": "Überspringen",
+    "next": "Weiter",
+    "done": "Fertig",
+    "step": "Schritt {step} von {total}",
+    "steps": {
+      "contact": {
+        "title": "Kontakt hinzufügen",
+        "body": "Zeig deinen QR-Code jemandem neben dir oder teile deinen Link. Wer dir schreibt, bevor du ihn hinzufügst, wartet unter „{requests}“, bis du ihn annimmst."
+      },
+      "messages": {
+        "title": "Schreiben und senden",
+        "body": "Sende Texte, Fotos, Dateien und Sprachnachrichten. Für eine Sprachnachricht tippst du auf das Mikrofon."
+      },
+      "calls": {
+        "title": "Sprach- und Videoanrufe",
+        "body": "Tippe in einem Chat oben auf das Telefon oder die Kamera. Anrufe klingeln auch, wenn das Telefon gesperrt ist."
+      },
+      "apps": {
+        "title": "Werkzeuge und Spiele",
+        "body": "Im Tab {apps} findest du Werkzeuge und Spiele, die FlickerTalk entwickelt und geprüft hat. Werkzeuge sind 15 Tage kostenlos, danach Teil des Jahresabos."
+      },
+      "safety": {
+        "title": "Blockieren und melden",
+        "body": "Auf der Seite eines Kontakts kannst du ihn blockieren oder melden. Eine Meldung öffnet eine E-Mail an {address} mit den Belegen, die du auswählst."
+      },
+      "privacy": {
+        "title": "Datenschutz",
+        "body": "Kein Konto und keine Telefonnummer. Nachrichten sind Ende-zu-Ende-verschlüsselt und unser Server speichert keine Chats und keinen Verlauf: Eine Nachricht, die noch nicht zugestellt werden kann, wartet dort nur dann verschlüsselt, wenn du das Offline-Postfach eingeschaltet lässt."
+      },
+      "support": {
+        "title": "Der Kontakt FlickerTalk",
+        "body": "Jede neue Installation hat einen Kontakt namens FlickerTalk. Er wird von FlickerTalk betrieben und beantwortet Texte, Dateien, Sprachnachrichten und Anrufe automatisch."
+      },
+      "move": {
+        "title": "Ein neues Telefon",
+        "body": "Du wechselst das Telefon? Tippe in {settings} auf „{move}“ und halte beide Telefone nah beieinander."
+      }
+    }
   }
 }

@@ -162,12 +162,12 @@ test.describe("on a tablet, where the modal floats over Settings", () => {
     const modal = await openModal(app);
     const outside = { position: { x: 20, y: 20 } };
     await box(modal).fill("A long idea I would hate to lose");
-    await app.locator("ion-modal ion-backdrop").click(outside);
+    await modal.locator("ion-backdrop").click(outside);
     await expect(modal.getByTestId("send")).toBeInViewport();
     await expect(box(modal)).toHaveValue("A long idea I would hate to lose");
 
     await box(modal).fill("");
-    await app.locator("ion-modal ion-backdrop").click(outside);
+    await modal.locator("ion-backdrop").click(outside);
     await expect(modal).toBeHidden();
   });
 });

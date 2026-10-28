@@ -539,5 +539,47 @@
     "sent": "Gönderildi. Teşekkürler",
     "tooMany": "Bugün zaten birkaç tane gönderdiniz. Yarın tekrar deneyin",
     "failed": "Gönderilemedi. Daha sonra tekrar deneyin"
+  },
+  "tour": {
+    "title": "Hızlı tur",
+    "link": "FlickerTalk nasıl çalışır",
+    "skip": "Atla",
+    "next": "İleri",
+    "done": "Bitti",
+    "step": "Adım {step} / {total}",
+    "steps": {
+      "contact": {
+        "title": "Kişi ekleyin",
+        "body": "QR kodunuzu yanınızdaki birine gösterin ya da bağlantınızı paylaşın. Siz eklemeden önce size yazan biri, siz kabul edene kadar “{requests}” bölümünde bekler."
+      },
+      "messages": {
+        "title": "Yazın ve gönderin",
+        "body": "Metin, fotoğraf, dosya ve sesli mesaj gönderin. Sesli mesaj kaydetmek için mikrofona dokunun."
+      },
+      "calls": {
+        "title": "Sesli ve görüntülü aramalar",
+        "body": "Bir sohbette üstteki telefona ya da kameraya dokunun. Telefon kilitliyken de aramalar çalar."
+      },
+      "apps": {
+        "title": "Araçlar ve oyunlar",
+        "body": "{apps} sekmesinde FlickerTalk'un yaptığı ve incelediği araçlar ve oyunlar var. Araçlar 15 gün ücretsizdir, sonra yıllık aboneliğe dahildir."
+      },
+      "safety": {
+        "title": "Engelleme ve şikâyet",
+        "body": "Bir kişinin sayfasında onu engelleyebilir ya da şikâyet edebilirsiniz. Şikâyet, seçtiğiniz kanıtlarla {address} adresine bir e-posta açar."
+      },
+      "privacy": {
+        "title": "Gizlilik",
+        "body": "Hesap yok, telefon numarası yok. Mesajlar uçtan uca şifrelidir ve sunucumuz sohbet ya da geçmiş tutmaz: henüz teslim edilemeyen bir mesaj, yalnızca çevrimdışı posta kutusunu açık tutarsanız orada şifreli olarak bekler."
+      },
+      "support": {
+        "title": "FlickerTalk kişisi",
+        "body": "Her yeni kurulumda FlickerTalk adında bir kişi bulunur. FlickerTalk tarafından işletilir ve metinlere, dosyalara, sesli mesajlara ve aramalara otomatik yanıt verir."
+      },
+      "move": {
+        "title": "Yeni bir telefon",
+        "body": "Telefon mu değiştiriyorsunuz? {settings} bölümünde “{move}” seçeneğine dokunun ve iki telefonu yakın tutun."
+      }
+    }
   }
 }

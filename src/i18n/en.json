@@ -539,5 +539,47 @@
     "sent": "Sent. Thank you",
     "tooMany": "You have already sent several today. Try again tomorrow",
     "failed": "Could not send. Try again later"
+  },
+  "tour": {
+    "title": "Quick tour",
+    "link": "How FlickerTalk works",
+    "skip": "Skip",
+    "next": "Next",
+    "done": "Done",
+    "step": "Step {step} of {total}",
+    "steps": {
+      "contact": {
+        "title": "Add a contact",
+        "body": "Show your QR code to someone next to you, or share your link. Anyone who writes to you before you add them waits in {requests} until you accept them."
+      },
+      "messages": {
+        "title": "Write and send",
+        "body": "Send texts, photos, files and voice messages. To record a voice message, tap the microphone."
+      },
+      "calls": {
+        "title": "Voice and video calls",
+        "body": "In a chat, tap the phone or the camera at the top. Calls ring even when the phone is locked."
+      },
+      "apps": {
+        "title": "Tools and games",
+        "body": "The {apps} tab has tools and games made and reviewed by FlickerTalk. Tools are free for 15 days, then part of the yearly subscription."
+      },
+      "safety": {
+        "title": "Block and report",
+        "body": "On a contact's page you can block or report them. A report opens an email to {address} with the evidence you choose."
+      },
+      "privacy": {
+        "title": "Privacy",
+        "body": "No account and no phone number. Messages are end-to-end encrypted and our server keeps no chats or history: a message that cannot be delivered yet waits there encrypted only if you keep the offline mailbox on."
+      },
+      "support": {
+        "title": "The FlickerTalk contact",
+        "body": "Every new install has a contact called FlickerTalk. It is run by FlickerTalk and answers texts, files, voice messages and calls automatically."
+      },
+      "move": {
+        "title": "A new phone",
+        "body": "Changing phones? In {settings}, tap {move} and keep both phones close together."
+      }
+    }
   }
 }

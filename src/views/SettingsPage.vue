@@ -36,6 +36,7 @@ import {
   copyOutline,
   documentTextOutline,
   fileTrayOutline,
+  helpCircleOutline,
   informationCircleOutline,
   keypadOutline,
   lockClosedOutline,
@@ -56,6 +57,7 @@ import {
 } from "ionicons/icons";
 import Avatar from "../components/Avatar.vue";
 import FeedbackModal from "../components/FeedbackModal.vue";
+import QuickTour from "../components/QuickTour.vue";
 import { closeOnBackWhile } from "../back";
 import { useOnScreen } from "../on-screen";
 import {
@@ -369,6 +371,9 @@ const suggesting = ref(false);
 const onScreen = useOnScreen();
 closeOnBackWhile(() => onScreen.value && suggesting.value, () => (suggesting.value = false));
 
+// 2026-10-28: the quick tour, again whenever asked, in a sheet over Settings (it closes Back itself).
+const touring = ref(false);
+
 function chooseColor(id: Direction) {
   direction.value = id;
   applyDirection(id);
@@ -629,8 +634,13 @@ function chooseAppearance(id: Appearance) {
         </ion-list>
 
         <!-- App Review guideline 1.2 (2026-10-28): the terms accepted on Start, the privacy policy
-             and a person to write to. The pages live on the website; all three leave the app. -->
+             and a person to write to. The pages live on the website; all three leave the app.
+             First, the quick tour (2026-10-28), which stays in the app. -->
         <ion-list inset class="ft-group">
+          <ion-item button detail lines="none" data-test="tour" @click="touring = true">
+            <span slot="start" class="ft-tile"><ion-icon :icon="helpCircleOutline" aria-hidden="true" /></span>
+            <ion-label>{{ $t("tour.title") }}</ion-label>
+          </ion-item>
           <ion-item button detail :detail-icon="openOutline" lines="none" data-test="terms" @click="openOutside(TERMS_URL)">
             <span slot="start" class="ft-tile"><ion-icon :icon="documentTextOutline" aria-hidden="true" /></span>
             <ion-label>{{ $t("settings.terms") }}</ion-label>
@@ -671,6 +681,7 @@ function chooseAppearance(id: Appearance) {
     </ion-content>
 
     <FeedbackModal :open="suggesting" @close="suggesting = false" />
+    <QuickTour class="ft-sheet--tab" :open="touring && onScreen" @close="touring = false" />
   </ion-page>
 </template>
 

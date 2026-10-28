@@ -5,12 +5,14 @@ import {
   checkmarkOutline,
   copyOutline,
   documentTextOutline,
+  helpCircleOutline,
   mailOutline,
   openOutline,
   shieldCheckmarkOutline,
   sparklesOutline,
 } from "ionicons/icons";
 import SettingsPage from "./SettingsPage.vue";
+import QuickTour from "../components/QuickTour.vue";
 import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
 import { PREMIUM_PAGE } from "../core";
@@ -869,7 +871,58 @@ describe("SettingsPage", () => {
       expect(contact.text()).toContain("Contact");
       expect(contact.text()).toContain("info@flickertalk.com");
       expect(new Set(rows(wrapper).map((row) => row.element.parentElement)).size).toBe(1);
-      expect(terms.element.parentElement?.children).toHaveLength(3);
+      // 2026-10-28: and the quick tour, first.
+      expect(terms.element.parentElement?.children).toHaveLength(4);
+    });
+
+    // 2026-10-28: the quick tour a new identity sees once, again whenever asked. It is the group's
+    // first row and the only one that stays in the app: a sheet over Settings.
+    const tourRow = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.findAllComponents(IonItem).find((item) => item.attributes("data-test") === "tour")!;
+
+    it("starts with the quick tour, which stays in the app", () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const row = tourRow(wrapper);
+      const [terms] = rows(wrapper);
+      expect(row.text()).toBe("Quick tour");
+      expect(row.findComponent(IonIcon).props("icon")).toBe(helpCircleOutline);
+      expect(row.element.parentElement).toBe(terms.element.parentElement);
+      expect(row.element.parentElement?.firstElementChild).toBe(row.element);
+      expect(row.props("button")).toBeDefined();
+      expect(row.props("button")).not.toBe(false);
+      // Not the sign of leaving the app the other three rows carry.
+      expect(row.props("detailIcon")).not.toBe(openOutline);
+    });
+
+    it("opens the quick tour over Settings, as often as asked", async () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const tour = () => wrapper.findComponent(QuickTour);
+      expect(tour().props("open")).toBe(false);
+      expect(tour().classes()).toContain("ft-sheet--tab");
+      await tourRow(wrapper).trigger("click");
+      expect(tour().props("open")).toBe(true);
+      expect(push).not.toHaveBeenCalled();
+      expect(opener.openUrl).not.toHaveBeenCalled();
+      tour().vm.$emit("close");
+      await flushPromises();
+      expect(tour().props("open")).toBe(false);
+      await tourRow(wrapper).trigger("click");
+      expect(tour().props("open")).toBe(true);
+    });
+
+    // A page over Settings (a reminder tapped, a call) takes the tour with it; it comes back with Settings.
+    it("takes the tour away with Settings when a page covers it", async () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const hooks = (name: string) =>
+        ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+      await tourRow(wrapper).trigger("click");
+      hooks("onIonViewWillLeave");
+      await flushPromises();
+      expect(wrapper.findComponent(QuickTour).props("open")).toBe(false);
+      hooks("onIonViewWillEnter");
+      hooks("onIonViewDidEnter");
+      await flushPromises();
+      expect(wrapper.findComponent(QuickTour).props("open")).toBe(true);
     });
 
     it("draws each row with its Ionicon, and the sign of leaving the app", () => {
@@ -912,6 +965,6 @@ describe("SettingsPage", () => {
   // Ionic's own shape (2026-10-09): the page's header and content are its own children, where
   // Ionic's transitions look for them, with nothing of ours in between.
   it("is an Ionic page: a header with the title, then the settings", () => {
-    expect(pageShape(mount(SettingsPage, { shallow: true }), ["feedback-modal"])).toEqual(["ion-header", "ion-content"]);
+    expect(pageShape(mount(SettingsPage, { shallow: true }), ["feedback-modal", "quick-tour"])).toEqual(["ion-header", "ion-content"]);
   });
 });

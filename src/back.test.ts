@@ -109,6 +109,19 @@ describe("the back button", () => {
     expect(closed).toEqual(["page", "landed", "apps"]);
   });
 
+  // The quick tour (2026-10-28): Back is the user closing it, a link that opened the app closing
+  // everything on top is not. Each closer hears which one it was.
+  it("tells a closer whether Back closed it or everything closed at once", async () => {
+    const heard: unknown[] = [];
+    closeOnBack((why) => void heard.push(why));
+    await settle();
+    await press();
+    closeOnBack((why) => void heard.push(why));
+    await settle();
+    await closeAll();
+    expect(heard).toEqual(["back", "all"]);
+  });
+
   it("closes nothing when nothing is open", async () => {
     await expect(closeAll()).resolves.toBeUndefined();
     await settle();

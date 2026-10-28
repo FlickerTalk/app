@@ -539,5 +539,47 @@
     "sent": "Envoyé. Merci",
     "tooMany": "Vous en avez déjà envoyé plusieurs aujourd’hui. Réessayez demain",
     "failed": "Envoi impossible. Réessayez plus tard"
+  },
+  "tour": {
+    "title": "Visite rapide",
+    "link": "Comment fonctionne FlickerTalk",
+    "skip": "Passer",
+    "next": "Suivant",
+    "done": "Terminé",
+    "step": "Étape {step} sur {total}",
+    "steps": {
+      "contact": {
+        "title": "Ajouter un contact",
+        "body": "Montrez votre code QR à une personne à côté de vous, ou partagez votre lien. Toute personne qui vous écrit avant que vous l’ajoutiez attend dans « {requests} » jusqu’à ce que vous l’acceptiez."
+      },
+      "messages": {
+        "title": "Écrire et envoyer",
+        "body": "Envoyez des textes, des photos, des fichiers et des messages vocaux. Pour enregistrer un message vocal, touchez le micro."
+      },
+      "calls": {
+        "title": "Appels vocaux et vidéo",
+        "body": "Dans une discussion, touchez le téléphone ou la caméra en haut. Les appels sonnent même quand le téléphone est verrouillé."
+      },
+      "apps": {
+        "title": "Outils et jeux",
+        "body": "L’onglet {apps} propose des outils et des jeux conçus et vérifiés par FlickerTalk. Les outils sont gratuits pendant 15 jours, puis inclus dans l’abonnement annuel."
+      },
+      "safety": {
+        "title": "Bloquer et signaler",
+        "body": "Sur la page d’un contact, vous pouvez le bloquer ou le signaler. Un signalement ouvre un e-mail à {address} avec les preuves que vous choisissez."
+      },
+      "privacy": {
+        "title": "Confidentialité",
+        "body": "Pas de compte ni de numéro de téléphone. Les messages sont chiffrés de bout en bout et notre serveur ne garde ni conversations ni historique : un message qui ne peut pas encore être remis y attend, chiffré, seulement si vous gardez la boîte aux lettres hors ligne activée."
+      },
+      "support": {
+        "title": "Le contact FlickerTalk",
+        "body": "Chaque nouvelle installation comporte un contact nommé FlickerTalk. Il est géré par FlickerTalk et répond automatiquement aux textes, fichiers, messages vocaux et appels."
+      },
+      "move": {
+        "title": "Un nouveau téléphone",
+        "body": "Vous changez de téléphone ? Dans {settings}, touchez « {move} » et gardez les deux téléphones proches."
+      }
+    }
   }
 }

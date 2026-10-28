@@ -42,3 +42,23 @@ export function setOnboarded() {
 export function clearOnboarded() {
   localStorage.removeItem(ONBOARDED_KEY);
 }
+
+// The quick tour (2026-10-28): a new identity sees it once, when the chats open after Start. Start
+// makes it due; skipping, finishing or dismissing it marks it seen. An install set up before it
+// existed has nothing stored, so it never shows on its own there (Settings opens it on demand).
+const TOUR_KEY = "ft-tour";
+
+/** Start on the welcome: the identity just made is owed the quick tour. */
+export function setTourDue() {
+  localStorage.setItem(TOUR_KEY, "due");
+}
+
+/** Whether the quick tour waits to be shown on this phone. */
+export function isTourDue(): boolean {
+  return localStorage.getItem(TOUR_KEY) === "due";
+}
+
+/** The quick tour was skipped, finished or dismissed: it does not show on its own again. */
+export function setTourSeen() {
+  localStorage.setItem(TOUR_KEY, "seen");
+}

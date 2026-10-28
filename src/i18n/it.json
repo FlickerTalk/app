@@ -539,5 +539,47 @@
     "sent": "Inviato. Grazie",
     "tooMany": "Ne hai già inviati diversi oggi. Riprova domani",
     "failed": "Impossibile inviare. Riprova più tardi"
+  },
+  "tour": {
+    "title": "Tour rapido",
+    "link": "Come funziona FlickerTalk",
+    "skip": "Salta",
+    "next": "Avanti",
+    "done": "Fine",
+    "step": "Passo {step} di {total}",
+    "steps": {
+      "contact": {
+        "title": "Aggiungi un contatto",
+        "body": "Mostra il tuo codice QR a chi hai accanto oppure condividi il tuo link. Chi ti scrive prima che tu lo aggiunga aspetta in «{requests}» finché non lo accetti."
+      },
+      "messages": {
+        "title": "Scrivi e invia",
+        "body": "Invia testi, foto, file e messaggi vocali. Per registrare un messaggio vocale, tocca il microfono."
+      },
+      "calls": {
+        "title": "Chiamate vocali e video",
+        "body": "In una chat, tocca il telefono o la videocamera in alto. Le chiamate squillano anche con il telefono bloccato."
+      },
+      "apps": {
+        "title": "Strumenti e giochi",
+        "body": "La scheda {apps} contiene strumenti e giochi creati e verificati da FlickerTalk. Gli strumenti sono gratis per 15 giorni, poi fanno parte dell’abbonamento annuale."
+      },
+      "safety": {
+        "title": "Blocca e segnala",
+        "body": "Nella pagina di un contatto puoi bloccarlo o segnalarlo. Una segnalazione apre un’email a {address} con le prove che scegli."
+      },
+      "privacy": {
+        "title": "La tua privacy",
+        "body": "Nessun account e nessun numero di telefono. I messaggi sono cifrati end-to-end e il nostro server non conserva chat né cronologia: un messaggio che non si può ancora consegnare aspetta lì cifrato solo se tieni attiva la casella offline."
+      },
+      "support": {
+        "title": "Il contatto FlickerTalk",
+        "body": "Ogni nuova installazione ha un contatto chiamato FlickerTalk. È gestito da FlickerTalk e risponde in automatico a testi, file, messaggi vocali e chiamate."
+      },
+      "move": {
+        "title": "Un nuovo telefono",
+        "body": "Cambi telefono? In {settings}, tocca «{move}» e tieni i due telefoni vicini."
+      }
+    }
   }
 }
