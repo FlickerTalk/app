@@ -166,7 +166,10 @@
     "noAccount": "계정, 전화번호, 이메일 모두 필요 없습니다",
     "start": "시작하기",
     "name": "내 이름",
-    "nameHint": "연락처가 나를 추가할 때 보입니다. 선택 사항입니다."
+    "nameHint": "연락처가 나를 추가할 때 보입니다. 선택 사항입니다.",
+    "acceptTerms": "‘{start}’를 누르면 {terms} 및 {privacy}에 동의하게 됩니다.",
+    "terms": "이용약관",
+    "privacy": "개인정보 처리방침"
   },
   "addContact": {
     "title": "연락처 추가",
@@ -286,7 +289,10 @@
     "renewLinkHint": "이전 링크를 가진 사람은 더 이상 나에게 연락할 수 없으며, 내 연락처에는 새 링크가 전달됩니다",
     "renewLinkConfirm": "갱신",
     "renewed": "링크가 갱신되었습니다",
-    "feedback": "제안하기"
+    "feedback": "제안하기",
+    "terms": "이용약관",
+    "privacyPolicy": "개인정보 처리방침",
+    "contact": "문의하기"
   },
   "hours": {
     "title": "수신 시간",
@@ -347,7 +353,7 @@
     "location": "내 위치, 요청할 때만",
     "translate": "이 휴대폰에서 텍스트 번역",
     "askPermission": "{name}에 권한이 필요합니다",
-    "allow": "허용",
+    "allow": "계속",
     "opens": "여는 형식: {kinds}",
     "locked": "도구를 쓰려면 구독하세요",
     "lockedHint": "무료 기간이 끝났어요: 도구는 구독이 필요해요. 채팅, 통화, 파일, 게임은 계속 무료예요.",

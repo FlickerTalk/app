@@ -166,7 +166,10 @@
     "noAccount": "Pas de compte, pas de numéro de téléphone, pas d’e-mail",
     "start": "Commencer",
     "name": "Votre nom",
-    "nameHint": "Vos contacts le voient quand ils vous ajoutent. Facultatif."
+    "nameHint": "Vos contacts le voient quand ils vous ajoutent. Facultatif.",
+    "acceptTerms": "En appuyant sur « {start} », vous acceptez les {terms} et la {privacy}.",
+    "terms": "Conditions d’utilisation",
+    "privacy": "Politique de confidentialité"
   },
   "addContact": {
     "title": "Ajouter un contact",
@@ -286,7 +289,10 @@
     "renewLinkHint": "Qui a votre ancien lien ne peut plus vous joindre ; vos contacts reçoivent le nouveau",
     "renewLinkConfirm": "Renouveler",
     "renewed": "Lien renouvelé",
-    "feedback": "Suggérer quelque chose"
+    "feedback": "Suggérer quelque chose",
+    "terms": "Conditions d’utilisation",
+    "privacyPolicy": "Politique de confidentialité",
+    "contact": "Nous contacter"
   },
   "hours": {
     "title": "Horaires",
@@ -347,7 +353,7 @@
     "location": "Votre position, seulement quand vous la demandez",
     "translate": "Traduire du texte sur ce téléphone",
     "askPermission": "{name} a besoin d’une autorisation",
-    "allow": "Autoriser",
+    "allow": "Continuer",
     "opens": "Ouvre : {kinds}",
     "locked": "Abonnez-vous pour utiliser les outils",
     "lockedHint": "Les jours gratuits sont terminés : les outils nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",

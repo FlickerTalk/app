@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonIcon, IonModal, IonNote, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
-import { checkmarkOutline, copyOutline, sparklesOutline } from "ionicons/icons";
+import { IonIcon, IonItem, IonModal, IonNote, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
+import {
+  checkmarkOutline,
+  copyOutline,
+  documentTextOutline,
+  mailOutline,
+  openOutline,
+  shieldCheckmarkOutline,
+  sparklesOutline,
+} from "ionicons/icons";
 import SettingsPage from "./SettingsPage.vue";
 import { pageShape } from "../__tests__/page-shape";
 import { calls, seed } from "../__tests__/seed";
@@ -9,6 +17,7 @@ import { PREMIUM_PAGE } from "../core";
 import { installTauri } from "../__tests__/tauri";
 import { store } from "../core";
 import en from "../i18n/en.json";
+import { PRIVACY_URL, SUPPORT_ADDRESS, TERMS_URL } from "../legal";
 
 // Android's back button: the handler the app listens with while something is open on top.
 const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
@@ -27,6 +36,9 @@ vi.mock("@tauri-apps/api/event", () => ({
     return events.unlisten;
   },
 }));
+// The phone's browser and mail app, which the terms, the privacy policy and the contact open.
+const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => opener);
 const push = vi.fn();
 // Where the app is: `/plan` and every locked premium thing land on Settings at `#premium`. Reactive,
 // as the router's own route is, so a test can walk the app to another page and back.
@@ -91,7 +103,8 @@ describe("SettingsPage", () => {
     expect(text).toContain("Move to a new phone");
     // 2026-09-27: a sealed copy of the phone in the user's own cloud (§61).
     expect(text).toContain("Backup");
-    expect(text).not.toContain("Privacy");
+    // No privacy screen of its own; the Privacy Policy link (App Review 1.2, 2026-10-28) is not one.
+    expect(text.replaceAll(en.settings.privacyPolicy, "")).not.toContain("Privacy");
     expect(text).not.toContain("Export identity");
   });
 
@@ -834,6 +847,66 @@ describe("SettingsPage", () => {
       const said = [catalogue.plan, catalogue.premium, catalogue.session, catalogue.plugins].flatMap(texts);
       for (const text of said) expect(text, path).not.toMatch(forever);
     }
+  });
+
+  // App Review guideline 1.2 (2026-10-28): the Terms of Use, the Privacy Policy and a person to
+  // write to are always a tap away from Settings, in a group of their own. All three leave the app.
+  describe("the terms, privacy and contact group", () => {
+    const ROWS = ["terms", "privacy-policy", "contact"];
+    const rows = (wrapper: ReturnType<typeof mount>) =>
+      ROWS.map((test) => wrapper.findAllComponents(IonItem).find((item) => item.attributes("data-test") === test)!);
+
+    beforeEach(() => {
+      opener.openUrl.mockReset();
+      push.mockClear();
+    });
+
+    it("lists the Terms of Use, the Privacy Policy and the support address together", () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const [terms, privacy, contact] = rows(wrapper);
+      expect(terms.text()).toBe("Terms of Use");
+      expect(privacy.text()).toBe("Privacy Policy");
+      expect(contact.text()).toContain("Contact");
+      expect(contact.text()).toContain("info@flickertalk.com");
+      expect(new Set(rows(wrapper).map((row) => row.element.parentElement)).size).toBe(1);
+      expect(terms.element.parentElement?.children).toHaveLength(3);
+    });
+
+    it("draws each row with its Ionicon, and the sign of leaving the app", () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      expect(rows(wrapper).map((row) => row.findComponent(IonIcon).props("icon"))).toEqual([
+        documentTextOutline,
+        shieldCheckmarkOutline,
+        mailOutline,
+      ]);
+      for (const row of rows(wrapper)) {
+        // Ionic's proxies take `button` as written: a bare attribute is "", which Ionic reads as on.
+        expect(row.props("button")).toBeDefined();
+        expect(row.props("button")).not.toBe(false);
+        expect(row.props("detailIcon")).toBe(openOutline);
+      }
+    });
+
+    it("opens the terms and the privacy policy in the phone's browser", async () => {
+      const [terms, privacy] = rows(mount(SettingsPage, { shallow: true }));
+      await terms.trigger("click");
+      await privacy.trigger("click");
+      expect(opener.openUrl.mock.calls).toEqual([[TERMS_URL], [PRIVACY_URL]]);
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("writes to support in the phone's mail app", async () => {
+      const [, , contact] = rows(mount(SettingsPage, { shallow: true }));
+      await contact.trigger("click");
+      expect(opener.openUrl).toHaveBeenCalledWith(`mailto:${SUPPORT_ADDRESS}`);
+    });
+
+    it("sits after erasing the phone, before the suggestion and the version", () => {
+      const html = mount(SettingsPage, { shallow: true }).html();
+      const at = (test: string) => html.indexOf(`data-test="${test}"`);
+      expect(at("terms")).toBeGreaterThan(at("erase"));
+      expect(at("contact")).toBeLessThan(at("feedback"));
+    });
   });
 
   // Ionic's own shape (2026-10-09): the page's header and content are its own children, where

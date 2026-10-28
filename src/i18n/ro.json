@@ -166,7 +166,10 @@
     "noAccount": "Fără cont, fără număr de telefon, fără email",
     "start": "Începe",
     "name": "Numele tău",
-    "nameHint": "Contactele îl văd când te adaugă. Opțional."
+    "nameHint": "Contactele îl văd când te adaugă. Opțional.",
+    "acceptTerms": "Atingând „{start}”, accepți {terms} și {privacy}.",
+    "terms": "Termenii de utilizare",
+    "privacy": "Politica de confidențialitate"
   },
   "addContact": {
     "title": "Adaugă contact",
@@ -286,7 +289,10 @@
     "renewLinkHint": "Cine are linkul tău vechi nu te mai poate contacta; contactele tale îl primesc pe cel nou",
     "renewLinkConfirm": "Reînnoiește",
     "renewed": "Link reînnoit",
-    "feedback": "Propune ceva"
+    "feedback": "Propune ceva",
+    "terms": "Termeni de utilizare",
+    "privacyPolicy": "Politica de confidențialitate",
+    "contact": "Contactează-ne"
   },
   "hours": {
     "title": "Program",
@@ -347,7 +353,7 @@
     "location": "Locația ta, doar când o ceri",
     "translate": "Să traducă text pe acest telefon",
     "askPermission": "{name} are nevoie de o permisiune",
-    "allow": "Permite",
+    "allow": "Continuă",
     "opens": "Deschide: {kinds}",
     "locked": "Abonează-te pentru a folosi instrumentele",
     "lockedHint": "Zilele gratuite s-au încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",

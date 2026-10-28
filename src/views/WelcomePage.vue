@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { IonContent, IonIcon, IonPage } from "@ionic/vue";
+import { IonContent, IonIcon, IonPage, IonText } from "@ionic/vue";
 import { arrowForward } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import { enablePush, setName, store } from "../core";
+import { PRIVACY_URL, TERMS_URL, openOutside } from "../legal";
 import { releaseKept } from "../opened";
 import { setOnboarded } from "../preferences";
 
@@ -68,6 +69,22 @@ async function start() {
           {{ $t("welcome.start") }}
           <ion-icon :icon="arrowForward" aria-hidden="true" />
         </button>
+        <!-- App Review guideline 1.2 (2026-10-28): Start accepts the Terms of Use (the EULA) and the
+             Privacy Policy; both open on the website, in the phone's browser. There from the first
+             frame, so nothing moves. -->
+        <ion-text color="medium">
+          <i18n-t keypath="welcome.acceptTerms" tag="p" scope="global" class="ft-welcome__terms" data-test="terms">
+            <template #start>{{ $t("welcome.start") }}</template>
+            <template #terms>
+              <a :href="TERMS_URL" data-test="terms-link" @click.prevent="openOutside(TERMS_URL)">{{ $t("welcome.terms") }}</a>
+            </template>
+            <template #privacy>
+              <a :href="PRIVACY_URL" data-test="privacy-link" @click.prevent="openOutside(PRIVACY_URL)">{{
+                $t("welcome.privacy")
+              }}</a>
+            </template>
+          </i18n-t>
+        </ion-text>
         <!-- Plan §60: take the identity, contacts and history of the old phone instead. -->
         <button type="button" class="ft-welcome__move" data-test="move-from-old" @click="router.push('/move?role=new')">
           {{ $t("welcome.fromOld") }}
@@ -169,6 +186,19 @@ async function start() {
 }
 .ft-welcome__start:active {
   transform: scale(0.97);
+}
+.ft-welcome__terms {
+  max-width: 34ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+/* Links in a sentence: the sentence's colour, underlined; a little taller to be easier to tap. */
+.ft-welcome__terms a {
+  padding-block: 6px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
 }
 .ft-welcome__move {
   margin-top: 4px;

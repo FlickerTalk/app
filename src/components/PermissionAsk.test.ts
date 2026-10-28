@@ -5,15 +5,17 @@ import { constructOutline, locationOutline } from "ionicons/icons";
 import PermissionAsk from "./PermissionAsk.vue";
 import source from "./PermissionAsk.vue?raw";
 import { IonModalStub } from "../__tests__/ionic";
+import en from "../i18n/en.json";
 
 const LOCATION = { label: "Your location, only when you ask", icon: locationOutline };
+const catalogues = import.meta.glob<{ plugins: { allow: string } }>("../i18n/*.json", { eager: true, import: "default" });
 type Stubs = NonNullable<NonNullable<Parameters<typeof mount>[1]>["global"]>["stubs"];
 const sheet = (props: Record<string, unknown>, stubs: Stubs = { IonModal: IonModalStub, IonIcon: true }) =>
   mount(PermissionAsk, { props: { open: true, name: "Location", permission: LOCATION, ...props }, global: { stubs } });
 
 describe("PermissionAsk", () => {
   // Decision of 2026-10-08: a tool that lacks a permission asks for it on the spot, in Ionic's
-  // sheet modal, as the game's permissions sheet: the tool, the one permission and Cancel / Allow.
+  // sheet modal, as the game's permissions sheet: the tool, the one permission and Cancel / Continue.
   it("is an Ionic sheet that names the tool and the one permission it needs", async () => {
     const wrapper = sheet({});
     const modal = wrapper.findComponent(IonModalStub);
@@ -27,7 +29,8 @@ describe("PermissionAsk", () => {
     expect(line.attributes("data-test")).toBe("permission-asked");
     expect(line.html()).toContain("Your location, only when you ask");
     const allow = wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === "permission-allow")!;
-    expect(allow.element.innerHTML).toContain("Allow");
+    expect(allow.element.innerHTML).toContain("Continue");
+    expect(allow.element.innerHTML).not.toContain("Allow");
     const cancel = wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === "permission-cancel")!;
     expect(cancel.element.innerHTML).toContain("Cancel");
 
@@ -62,6 +65,18 @@ describe("PermissionAsk", () => {
     allowed.findComponent(IonModalStub).vm.$emit("didDismiss");
     expect(allowed.emitted("allow")).toHaveLength(1);
     expect(allowed.emitted("cancel")).toBeUndefined();
+  });
+
+  // App Review guideline 5.1.1(iv) (2026-10-28): a message shown before the system's own
+  // permission request (the location a tool asks for, say) may only go on with "Continue" or
+  // "Next", never "Allow": the phone itself asks right after. In every language.
+  it("goes on with Continue, never Allow, in every language", () => {
+    expect(en.plugins.allow).toBe("Continue");
+    const allow =
+      /\ballow\b|permitir|erlauben|autoriser|consenti|izinkan|zezw[oó]l|\bpermite\b|разрешить|дозволити|[iİ]zin ver|cho phép|อนุญาต|السماح|অনুমতি দিন|अनुमति दें|許可|허용|允许|允許/i;
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      expect(catalogue.plugins.allow, path).not.toMatch(allow);
+    }
   });
 
   it("shows nothing while closed", () => {

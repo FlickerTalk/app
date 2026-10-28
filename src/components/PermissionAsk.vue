@@ -7,8 +7,9 @@ import { t } from "../i18n";
 // Decision of 2026-10-08: a missing permission is always asked for on the spot. A tool that asks
 // for something it was not granted (installing grants nothing, §53) asks for that one permission on
 // the spot, in Ionic's sheet modal as the game's permissions sheet: the tool's icon or image, its
-// name, the permission with its label and icon, and Cancel / Allow. Dismissing it (dragging it
-// down, a tap outside, the back button) is a no.
+// name, the permission with its label and icon, and Cancel / Continue (App Review 5.1.1(iv): the
+// phone's own request may come right after, so the sheet never says "Allow"). Dismissing it
+// (dragging it down, a tap outside, the back button) is a no.
 const props = defineProps<{
   open: boolean;
   name: string;
