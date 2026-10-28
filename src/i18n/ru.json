@@ -98,7 +98,8 @@
     "showOriginal": "Показать оригинал",
     "sentIn": "Отправлено на языке: {language}",
     "view": "Показать",
-    "translating": "Перевод · {language}"
+    "translating": "Перевод · {language}",
+    "supportHint": "Автоматическая поддержка. Напишите — и она ответит."
   },
   "status": {
     "pending": "Ожидание устройства",

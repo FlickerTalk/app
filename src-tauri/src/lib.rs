@@ -3,6 +3,7 @@ mod core_events;
 mod opened_links;
 mod plugins;
 mod push_core;
+mod support;
 mod video_surfaces;
 
 // The store-build check of `build.rs` (2026-09-30), tested with the app.
@@ -81,6 +82,8 @@ pub fn run() {
             client::core_set_mailbox,
             client::core_card,
             client::core_add_contact,
+            client::core_add_support_contact,
+            client::core_support_id,
             client::core_conversations,
             client::core_session_open,
             client::core_session_remove,

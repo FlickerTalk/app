@@ -3,7 +3,7 @@ import { ref } from "vue";
 import { IonContent, IonIcon, IonPage } from "@ionic/vue";
 import { arrowForward } from "ionicons/icons";
 import { useRouter } from "vue-router";
-import { enablePush, setName, store } from "../core";
+import { addSupportContact, enablePush, setName, store } from "../core";
 import { releaseKept } from "../opened";
 import { setOnboarded } from "../preferences";
 
@@ -16,6 +16,9 @@ async function start() {
   if (name.value.trim()) {
     await setName(name.value);
   }
+  // 2026-10-28: the FlickerTalk contact every install carries, in the list before it shows. Added
+  // before the welcome counts as seen: an app stopped in between adds it at the next Start.
+  await addSupportContact();
   setOnboarded();
   // M4: from now on the phone can be woken when the app is closed (asks for notifications).
   void enablePush();

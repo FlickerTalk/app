@@ -133,6 +133,30 @@ describe("ChatThread", () => {
     });
   });
 
+  // 2026-10-28: the support peer's empty chat says what it is, in one line.
+  describe("the support contact", () => {
+    afterEach(() => (store.supportId = ""));
+    const hint = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='support-hint']");
+
+    it("says in its empty chat that it is automated support", async () => {
+      store.chats.push({ ...store.chats[0], id: "ft_support", name: "FlickerTalk", messages: [] });
+      store.supportId = "ft_support";
+      const wrapper = mount(ChatThread, { props: { chatId: "ft_support" }, shallow: true });
+      await flushPromises();
+      expect(hint(wrapper).text()).toBe("Automated support. Write and it answers.");
+    });
+
+    it("says nothing once the chat has messages, nor in anyone else's empty chat", async () => {
+      store.supportId = "c1";
+      const withMessages = mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
+      store.chats.push({ ...store.chats[0], id: "c9", messages: [] });
+      const someoneElse = mount(ChatThread, { props: { chatId: "c9" }, shallow: true });
+      await flushPromises();
+      expect(hint(withMessages).exists()).toBe(false);
+      expect(hint(someoneElse).exists()).toBe(false);
+    });
+  });
+
   it("loads the conversation from the core and marks it read", async () => {
     mount(ChatThread, { props: { chatId: "c1" }, shallow: true });
     await flushPromises();

@@ -98,7 +98,8 @@
     "showOriginal": "Xem bản gốc",
     "sentIn": "Đã gửi bằng {language}",
     "view": "Xem",
-    "translating": "Đang dịch · {language}"
+    "translating": "Đang dịch · {language}",
+    "supportHint": "Hỗ trợ tự động. Hãy nhắn tin và sẽ được trả lời."
   },
   "status": {
     "pending": "Đang chờ thiết bị",

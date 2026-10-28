@@ -98,7 +98,8 @@
     "showOriginal": "查看原文",
     "sentIn": "以{language}傳送",
     "view": "查看",
-    "translating": "翻譯中 · {language}"
+    "translating": "翻譯中 · {language}",
+    "supportHint": "自動客服。傳訊息即可收到回覆。"
   },
   "status": {
     "pending": "等待對方裝置",

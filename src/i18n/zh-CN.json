@@ -98,7 +98,8 @@
     "showOriginal": "查看原文",
     "sentIn": "以{language}发送",
     "view": "查看",
-    "translating": "正在翻译 · {language}"
+    "translating": "正在翻译 · {language}",
+    "supportHint": "自动客服。发消息即可收到回复。"
   },
   "status": {
     "pending": "等待对方设备",

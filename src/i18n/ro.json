@@ -98,7 +98,8 @@
     "showOriginal": "Vezi originalul",
     "sentIn": "Trimis în {language}",
     "view": "Vezi",
-    "translating": "Se traduce · {language}"
+    "translating": "Se traduce · {language}",
+    "supportHint": "Asistență automată. Scrie și îți răspunde."
   },
   "status": {
     "pending": "Se așteaptă dispozitivul",
