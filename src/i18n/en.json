@@ -166,7 +166,10 @@
     "noAccount": "No account, no phone number, no email",
     "start": "Start",
     "name": "Your name",
-    "nameHint": "Contacts see it when they add you. Optional."
+    "nameHint": "Contacts see it when they add you. Optional.",
+    "acceptTerms": "By tapping {start} you accept the {terms} and the {privacy}.",
+    "terms": "Terms of Use",
+    "privacy": "Privacy Policy"
   },
   "addContact": {
     "title": "Add contact",

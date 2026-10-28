@@ -166,7 +166,10 @@
     "noAccount": "Hesap yok, telefon numarası yok, e-posta yok",
     "start": "Başla",
     "name": "Adınız",
-    "nameHint": "Kişiler sizi eklediklerinde bunu görür. İsteğe bağlı."
+    "nameHint": "Kişiler sizi eklediklerinde bunu görür. İsteğe bağlı.",
+    "acceptTerms": "“{start}” düğmesine dokunarak {terms} ve {privacy} kabul etmiş olursunuz.",
+    "terms": "Kullanım Koşullarını",
+    "privacy": "Gizlilik Politikasını"
   },
   "addContact": {
     "title": "Kişi ekle",

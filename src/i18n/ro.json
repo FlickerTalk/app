@@ -166,7 +166,10 @@
     "noAccount": "Fără cont, fără număr de telefon, fără email",
     "start": "Începe",
     "name": "Numele tău",
-    "nameHint": "Contactele îl văd când te adaugă. Opțional."
+    "nameHint": "Contactele îl văd când te adaugă. Opțional.",
+    "acceptTerms": "Atingând „{start}”, accepți {terms} și {privacy}.",
+    "terms": "Termenii de utilizare",
+    "privacy": "Politica de confidențialitate"
   },
   "addContact": {
     "title": "Adaugă contact",

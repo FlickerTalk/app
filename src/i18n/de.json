@@ -166,7 +166,10 @@
     "noAccount": "Kein Konto, keine Telefonnummer, keine E-Mail",
     "start": "Starten",
     "name": "Dein Name",
-    "nameHint": "Kontakte sehen ihn, wenn sie dich hinzufügen. Optional."
+    "nameHint": "Kontakte sehen ihn, wenn sie dich hinzufügen. Optional.",
+    "acceptTerms": "Wenn du auf „{start}“ tippst, akzeptierst du die {terms} und die {privacy}.",
+    "terms": "Nutzungsbedingungen",
+    "privacy": "Datenschutzerklärung"
   },
   "addContact": {
     "title": "Kontakt hinzufügen",

@@ -166,7 +166,10 @@
     "noAccount": "Nessun account, nessun numero di telefono, nessuna email",
     "start": "Inizia",
     "name": "Il tuo nome",
-    "nameHint": "I contatti lo vedono quando ti aggiungono. Facoltativo."
+    "nameHint": "I contatti lo vedono quando ti aggiungono. Facoltativo.",
+    "acceptTerms": "Toccando «{start}» accetti i {terms} e l’{privacy}.",
+    "terms": "Termini di utilizzo",
+    "privacy": "Informativa sulla privacy"
   },
   "addContact": {
     "title": "Aggiungi contatto",

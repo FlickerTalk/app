@@ -166,7 +166,10 @@
     "noAccount": "无需账号、手机号或邮箱",
     "start": "开始",
     "name": "你的名字",
-    "nameHint": "联系人添加你时会看到。选填。"
+    "nameHint": "联系人添加你时会看到。选填。",
+    "acceptTerms": "点按“{start}”即表示你同意{terms}和{privacy}。",
+    "terms": "使用条款",
+    "privacy": "隐私政策"
   },
   "addContact": {
     "title": "添加联系人",

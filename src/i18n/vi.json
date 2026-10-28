@@ -166,7 +166,10 @@
     "noAccount": "Không tài khoản, không số điện thoại, không email",
     "start": "Bắt đầu",
     "name": "Tên của bạn",
-    "nameHint": "Liên hệ sẽ thấy tên này khi thêm bạn. Không bắt buộc."
+    "nameHint": "Liên hệ sẽ thấy tên này khi thêm bạn. Không bắt buộc.",
+    "acceptTerms": "Khi nhấn “{start}”, bạn đồng ý với {terms} và {privacy}.",
+    "terms": "Điều khoản sử dụng",
+    "privacy": "Chính sách quyền riêng tư"
   },
   "addContact": {
     "title": "Thêm liên hệ",
