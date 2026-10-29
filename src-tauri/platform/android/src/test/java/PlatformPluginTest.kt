@@ -3,6 +3,7 @@ package com.flickertalk.platform
 import android.app.ActivityManager
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
+import android.view.WindowManager
 import com.android.billingclient.api.Purchase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -714,6 +715,21 @@ class PlatformPluginTest {
         assertTrue(overLockScreen(ringing = true, inCall = false))
         assertTrue(overLockScreen(ringing = false, inCall = true))
         assertFalse(overLockScreen(ringing = false, inCall = false))
+    }
+
+    // The screen stays on for the whole call (2026-10-29): with the call's video native, nothing
+    // kept it on and the phone dimmed and locked mid-call. The flag goes on with the call and
+    // comes off when it ends, also when the call never started here (clearing is harmless).
+    @Test
+    fun theScreenStaysOnWhileACallGoesOn() {
+        val added = mutableListOf<Int>()
+        val cleared = mutableListOf<Int>()
+        keepScreenOnFlags(inCall = true, add = { added += it }, clear = { cleared += it })
+        assertEquals(listOf(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON), added)
+        assertEquals(emptyList<Int>(), cleared)
+        keepScreenOnFlags(inCall = false, add = { added += it }, clear = { cleared += it })
+        assertEquals("nothing more is added", listOf(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON), added)
+        assertEquals(listOf(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON), cleared)
     }
 
     // Android 14 lets a foreground service take the microphone only while the app is on the
