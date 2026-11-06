@@ -2776,6 +2776,7 @@ const BUNDLED_PLUGINS: &[&[u8]] = &[
     include_bytes!("../resources/plugins/split.ftplugin"),
     include_bytes!("../resources/plugins/pdfviewer.ftplugin"),
     include_bytes!("../resources/plugins/translate.ftplugin"),
+    include_bytes!("../resources/plugins/remind.ftplugin"),
     include_bytes!("../resources/plugins/game.tictactoe.ftplugin"),
     include_bytes!("../resources/plugins/game.fourinarow.ftplugin"),
     include_bytes!("../resources/plugins/game.chess.ftplugin"),
@@ -4849,11 +4850,12 @@ mod tests {
     /// 2026-10-08 (Plan §56): all our tools travel, so presenting in a call works on every phone.
     /// 2026-10-20 (app#177): and the Translator, which an iPhone could not download (it uses a
     /// native capability, §52).
+    /// 2026-11-06: and Reminders, the one tool of the catalogue an iPhone still did not have.
     #[test]
     fn the_app_carries_its_tools_and_games() {
-        const TOOLS: [&str; 18] = [
+        const TOOLS: [&str; 19] = [
             "markdown", "images", "pdf", "redact", "sketch", "scanner", "countdown", "board", "clean", "drive", "list", "location",
-            "notes", "poll", "sign", "split", "pdfviewer", "translate",
+            "notes", "poll", "sign", "split", "pdfviewer", "translate", "remind",
         ];
         const GAMES: [&str; 13] = [
             "tictactoe", "fourinarow", "chess", "backgammon", "checkers", "dotsandboxes", "eights", "gomoku", "mancala", "reversi",
