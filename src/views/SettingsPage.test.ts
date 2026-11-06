@@ -783,12 +783,21 @@ describe("SettingsPage", () => {
     });
 
     // Decision of 2026-10-08: no age rule; nothing in the section asks it or speaks of it.
+    // The clock is pinned (2026-11-06): on the real one, "Paid until" 15 days on could be the 21st,
+    // and a date's 21 is not an age. Only Date is faked, so the promises still flush.
     it("never speaks of an age", async () => {
-      for (const state of ["trial", "limited", "subscribed"]) {
-        planning({ state, until: Date.now() + 15 * DAY });
-        const wrapper = await settings();
-        expect(section(wrapper).text(), state).not.toMatch(/\b21\b|under|minor|birth/i);
-        expect(wrapper.find("[data-test='young']").exists()).toBe(false);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      // 15 days on is 2026-03-17: no 21 in the day, the month or the year.
+      vi.setSystemTime(new Date("2026-03-02T10:00:00Z"));
+      try {
+        for (const state of ["trial", "limited", "subscribed"]) {
+          planning({ state, until: Date.now() + 15 * DAY });
+          const wrapper = await settings();
+          expect(section(wrapper).text(), state).not.toMatch(/\b21\b|under|minor|birth/i);
+          expect(wrapper.find("[data-test='young']").exists()).toBe(false);
+        }
+      } finally {
+        vi.useRealTimers();
       }
     });
 

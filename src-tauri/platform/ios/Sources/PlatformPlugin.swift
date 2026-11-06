@@ -599,6 +599,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private var voiceConnected = false
     /// Whether incoming calls are reported as video calls, so that answering opens the app.
     private let openAppOnAnswer = OpenAppOnAnswerSetting()
+    /// The screen stays on while the call is live (2026-10-29).
+    private let screen = CallScreen()
     /// The core said who this incoming call is (it rings it, or it is being answered): a refusal
     /// is about another call (2026-10-01).
     private var named = false
@@ -908,6 +910,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
                 if self.current == uuid { self.finish() }
             } else if self.current == uuid {
                 self.provider.reportCall(with: uuid, updated: self.update(caller: shown, video: video))
+                self.screen.callIs(.started)
             }
             done(error)
         }
@@ -917,6 +920,7 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// (in the app too, through `requestAnswer`) and is live already.
     func connected() {
         voiceConnected = true
+        screen.callIs(.connected)
         switch connectWith(outgoing: outgoing) {
         case .reportConnected:
             live = true
@@ -945,6 +949,8 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     /// The core ended the call, whoever hung up: CallKit lets go, whatever its state.
     func ended() {
         stopQuiet()
+        // Always, even when CallKit already let the call go (`finish` came first).
+        screen.callIs(.ended)
         guard let call = current else {
             finish()
             return
