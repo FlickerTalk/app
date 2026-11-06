@@ -421,6 +421,24 @@ fun showOverLockScreen(activity: Activity, on: Boolean) {
     }
 }
 
+/** What the window does with `FLAG_KEEP_SCREEN_ON`: added while a call goes on, cleared after. */
+fun keepScreenOnFlags(inCall: Boolean, add: (Int) -> Unit, clear: (Int) -> Unit) {
+    val flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+    if (inCall) add(flag) else clear(flag)
+}
+
+/**
+ * Keeps the screen on for the whole call, voice or video (2026-10-29), or lets it time out again.
+ * The WebView kept it on while it played a call's video; the video is native now (FtVideo.kt), so
+ * nothing did and the phone dimmed and locked mid-call. The flag only acts while the window shows.
+ */
+fun keepScreenOn(activity: Activity, inCall: Boolean) {
+    activity.runOnUiThread {
+        val window = activity.window
+        keepScreenOnFlags(inCall, window::addFlags, window::clearFlags)
+    }
+}
+
 /** The audio mode to go back to after a call: what it was, unless that was a call's mode too. */
 fun modeAfterCall(previous: Int?): Int = when (previous) {
     null, AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> AudioManager.MODE_NORMAL
@@ -1726,6 +1744,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(OutgoingArgs::class.java)
         activity.runOnUiThread { InCall.start(activity, args.name, args.video) }
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+        keepScreenOn(activity, inCall = true)
         invoke.resolve()
     }
 
@@ -1734,6 +1753,7 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun callConnected(invoke: Invoke) {
         activity.runOnUiThread { InCall.start(activity, InCall.ringingName) }
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = true))
+        keepScreenOn(activity, inCall = true)
         invoke.resolve()
     }
 
@@ -1742,6 +1762,8 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun callEnded(invoke: Invoke) {
         activity.runOnUiThread { InCall.end(activity) }
         showOverLockScreen(activity, overLockScreen(ringing = false, inCall = false))
+        // Always, even when the call already ended from its notification (`InCall.end` found it done).
+        keepScreenOn(activity, inCall = false)
         invoke.resolve()
     }
 
