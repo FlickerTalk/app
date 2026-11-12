@@ -165,6 +165,19 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked   # Rust tests, no network
 ```
 
+Tests that need the real network are `#[ignore]`. Those of the support contact (`crates/ft-support`,
+a peer without a screen that answers by itself) go through the live cluster, `api.flickertalk.com`
+with its STUN and TURN: a throwaway phone writes to the support contact and calls it.
+
+```sh
+cargo test -p ft-support --test live -- --ignored --nocapture
+# against a support contact that is already running:
+FT_SUPPORT_LIVE_CARD='https://flickertalk.com/add#…' cargo test -p ft-support --test live -- --ignored --nocapture
+```
+
+Without `FT_SUPPORT_LIVE_CARD`, a throwaway support contact runs on your machine, in a temporary
+folder. At the end, the test deletes the router registration of every identity it made.
+
 Android:
 
 ```sh
