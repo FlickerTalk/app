@@ -74,4 +74,21 @@ final class CallAudioRouteTests: XCTestCase {
         XCTAssertEqual(callEventPayload(.route(.speaker)) as NSDictionary, ["event": "route", "route": "speaker"] as NSDictionary)
         XCTAssertEqual(callEventPayload(.route(.receiver)) as NSDictionary, ["event": "route", "route": "receiver"] as NSDictionary)
     }
+
+    func testTheSpeakerIsAnOverrideOfTheOutput() {
+        XCTAssertEqual(outputOverride(speaker: true), .speaker)
+        XCTAssertEqual(outputOverride(speaker: false), AVAudioSession.PortOverride.none)
+    }
+
+    func testTheVoiceComesBackAfterAnInterruption() {
+        XCTAssertTrue(restartAfterInterruption(shouldResume: true, reactivated: false, callLive: true))
+        XCTAssertFalse(restartAfterInterruption(shouldResume: true, reactivated: true, callLive: true), "CallKit gave it back")
+        XCTAssertFalse(restartAfterInterruption(shouldResume: false, reactivated: false, callLive: true))
+        XCTAssertFalse(restartAfterInterruption(shouldResume: true, reactivated: false, callLive: false))
+    }
+
+    func testCallAudioWorksWithBluetooth() {
+        XCTAssertTrue(callAudioOptions().contains(.allowBluetoothHFP))
+        XCTAssertTrue(callAudioOptions().contains(.allowBluetoothA2DP))
+    }
 }

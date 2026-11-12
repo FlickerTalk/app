@@ -1,5 +1,6 @@
 import CallKit
 import Foundation
+import Tauri
 
 // An app can't bring itself to the screen, CallKit only opens it after answering a video call.
 // With the switch on, incoming calls are reported with hasVideo whatever their real media.
@@ -53,4 +54,14 @@ struct OpenAppOnAnswerSetting {
 
 struct OpenAppOnAnswerArgs: Decodable {
     let on: Bool
+}
+
+extension PlatformPlugin {
+    @objc public func setOpenAppOnAnswer(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OpenAppOnAnswerArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.setOpenAppOnAnswer(args.on)
+            invoke.resolve()
+        }
+    }
 }

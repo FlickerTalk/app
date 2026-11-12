@@ -2,6 +2,7 @@ import AVFoundation
 import CallKit
 import Intents
 import ObjectiveC
+import Tauri
 import UIKit
 import WebKit
 
@@ -396,5 +397,62 @@ enum CallIntentActivities {
             return original(this, selector, app, activity, restore) || ours
         }
         method_setImplementation(method, imp_implementationWithBlock(wrapped))
+    }
+}
+
+extension PlatformPlugin {
+    @objc public func attachVideo(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(AttachVideoArgs.self)
+        DispatchQueue.main.async { [weak self] in
+            guard let web = self?.webView else {
+                invoke.reject("no webview")
+                return
+            }
+            CallVideoViews.shared.attach(webView: web, remote: rustLayer(args.remoteLayer), local: rustLayer(args.localLayer))
+            CallVideoViews.shared.startOrientation()
+            invoke.resolve()
+        }
+    }
+
+    @objc public func videoLayout(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(VideoLayoutArgs.self)
+        DispatchQueue.main.async {
+            CallVideoViews.shared.layout(args)
+            invoke.resolve()
+        }
+    }
+
+    @objc public func videoShape(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(VideoShapeArgs.self)
+        DispatchQueue.main.async {
+            CallVideoViews.shared.shape(rotation: args.rotation)
+            invoke.resolve()
+        }
+    }
+
+    @objc public func detachVideo(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            CallVideoViews.shared.detach()
+            invoke.resolve()
+        }
+    }
+
+    @objc public func callVideo(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(CallVideoArgs.self)
+        DispatchQueue.main.async {
+            Calls.shared.setVideo(args.on)
+            invoke.resolve()
+        }
+    }
+
+    @objc public func requestCamera(_ invoke: Invoke) throws {
+        switch cameraAccess(AVCaptureDevice.authorizationStatus(for: .video)) {
+        case .granted:
+            invoke.resolve(["granted": true])
+        case .denied:
+            invoke.resolve(["granted": false])
+        case .ask:
+            AVCaptureDevice.requestAccess(for: .video) { invoke.resolve(["granted": $0]) }
+        }
     }
 }
