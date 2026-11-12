@@ -80,7 +80,7 @@ const SCREENS: Array<Screen & { file: string }> = [
   { file: "views/NewCirclePage.vue", name: "new circle", open: (app, mode) => page(app, "/new-circle", mode) },
 ];
 
-const NOT_CATALOGUE = ["components/ChatThread.vue", "components/HookFrames.vue", "views/PluginPage.vue"];
+const NOT_CATALOGUE = ["components/PluginWindow.vue", "components/HookFrames.vue", "views/PluginPage.vue"];
 
 type Place = "bar" | "large" | "sheet";
 type Title = { text: string; place: Place; lines: number; bar: number; offCentre: number; cut: string[] };
