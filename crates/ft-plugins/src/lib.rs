@@ -9,7 +9,7 @@ use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use vodozemac::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature};
 use zip::write::SimpleFileOptions;
-use zip::{ZipArchive, ZipWriter};
+use zip::{CompressionMethod, DateTime, System, ZipArchive, ZipWriter};
 
 // the only key trusted for plugins and the index
 pub const CATALOGUE_KEY: &str = "4XXrMhV2sRZSK/RpFoheNAposE119EfQE8bqdRP8JcA";
@@ -626,9 +626,17 @@ fn unpack(package: &[u8]) -> Result<BTreeMap<String, Vec<u8>>> {
 }
 
 fn pack(files: impl IntoIterator<Item = (String, Vec<u8>)>) -> Vec<u8> {
+    // the catalogue lists packages by hash, so every byte must come out as it did when published
+    let options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .compression_level(Some(6))
+        .last_modified_time(DateTime::default())
+        .unix_permissions(0o644)
+        .system(System::Unix)
+        .large_file(false);
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     for (path, bytes) in files {
-        writer.start_file(path, SimpleFileOptions::default()).expect("writes the entry");
+        writer.start_file(path, options).expect("writes the entry");
         writer.write_all(&bytes).expect("writes the bytes");
     }
     writer.finish().expect("closes the package").into_inner()
@@ -1348,6 +1356,24 @@ mod tests {
         let bytes = package(&manifest_of("com.example.translator"), b"export default {}", &catalogue);
         let tampered = replace_file(&bytes, "dist/index.js", b"steal_everything()");
         assert!(open(&tampered, &catalogue.public_key()).is_err(), "the bytes are not the signed ones");
+    }
+
+    #[test]
+    fn packs_the_same_bytes_the_published_packages_were_packed_with() {
+        let script: String =
+            (0..64).map(|n| format!("export const tile{n} = {{ row: {}, column: {} }};\n", n / 8, n % 8)).collect();
+        let files = [
+            ("dist/index.js".to_owned(), script.into_bytes()),
+            (
+                "module.json".to_owned(),
+                br#"{"id":"com.flickertalk.sketch","name":"Sketch","version":"1.0.0","minCoreVersion":"1.0.0","components":["ft-sketch"]}"#.to_vec(),
+            ),
+            ("signature".to_owned(), vec![7; 64]),
+        ];
+        assert_eq!(
+            blake3::hash(&pack(files)).to_hex().as_str(),
+            "6fc841b8fe08143ebfea5f9994770be15d56ceea7ce4431cd35e80a1f6ef568f"
+        );
     }
 
     #[test]
