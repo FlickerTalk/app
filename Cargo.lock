@@ -1831,6 +1831,7 @@ dependencies = [
  "ring",
  "serde",
  "serde_json",
+ "sqlx",
  "tokio",
  "vodozemac",
 ]
