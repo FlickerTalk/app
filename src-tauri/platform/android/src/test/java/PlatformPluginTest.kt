@@ -4,6 +4,11 @@ import android.app.ActivityManager
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.view.WindowManager
+import app.tauri.annotation.ActivityCallback
+import app.tauri.annotation.Command
+import app.tauri.annotation.PermissionCallback
+import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Invoke
 import com.android.billingclient.api.Purchase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.w3c.dom.Element
 import java.io.File
+import java.lang.reflect.Modifier
 import javax.xml.parsers.DocumentBuilderFactory
 
 class PlatformPluginTest {
@@ -699,6 +705,65 @@ class PlatformPluginTest {
         assertEquals(SystemBarsLook(darkIcons = true, navigationBarColor = NAVIGATION_SCRIM), systemBarsLook(dark = false, sdk = 25))
         assertEquals(SystemBarsLook(darkIcons = false, navigationBarColor = 0), systemBarsLook(dark = true, sdk = 24))
         assertEquals(0x801B1B1B.toInt(), NAVIGATION_SCRIM)
+    }
+
+    @Test
+    fun thePluginKeepsEveryCommandRustCalls() {
+        val expected = setOf(
+            "pendingReminder", "openedLink", "registerLinkEvents", "setReminders", "exactAlarms", "requestExactAlarms",
+            "authorize", "callAnswering", "registerCallEvents", "callStartedOutgoing", "callConnected", "callEnded",
+            "setSystemBars", "setSpeaker", "requestMicrophone", "currentLocation", "translateLanguages", "translateDetect",
+            "translateStatus", "translatePrepare", "translateRemove", "translateText", "requestCamera", "attachVideo",
+            "videoLayout", "videoShape", "detachVideo", "callVideo", "canShowFullScreen", "askFullScreen", "startRinging",
+            "sealKey", "forgetKey", "openKey", "pushToken", "requestNotifications", "restartApp", "setOpenSlots",
+            "setQuietHours", "callRefused", "stopRinging", "shareText", "pickFiles", "takePhoto", "openFile", "shareFile",
+            "subscriptionPrice", "subscribe", "subscription", "registerEntitlementEvents", "restoreSubscription",
+            "saveToDownloads", "printFile",
+        )
+        val commands = PlatformPlugin::class.java.declaredMethods
+            .filter { it.isAnnotationPresent(Command::class.java) }
+        assertTrue(commands.all { it.parameterTypes.toList() == listOf(Invoke::class.java) && Modifier.isPublic(it.modifiers) })
+        assertEquals(expected, commands.map { it.name }.toSet())
+        val rust = File("../src/lib.rs").readText()
+        for (name in expected) assertTrue(name, rust.contains("\"$name\""))
+    }
+
+    @Test
+    fun thePluginKeepsItsCallbacksAndPermissionAliases() {
+        fun annotated(type: Class<out Annotation>) =
+            PlatformPlugin::class.java.declaredMethods.filter { it.isAnnotationPresent(type) }.map { it.name }.toSet()
+        assertEquals(setOf("microphoneAnswered", "locationAnswered", "cameraAnswered"), annotated(PermissionCallback::class.java))
+        assertEquals(setOf("photoTaken", "picked"), annotated(ActivityCallback::class.java))
+        val aliases = PlatformPlugin::class.java.getAnnotation(TauriPlugin::class.java)!!.permissions
+            .associate { it.alias to it.strings.toList() }
+        assertEquals(
+            mapOf(
+                "microphone" to listOf("android.permission.RECORD_AUDIO"),
+                "camera" to listOf("android.permission.CAMERA"),
+                "location" to listOf("android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION"),
+            ),
+            aliases,
+        )
+    }
+
+    @Test
+    fun theCommandArgumentsKeepTheFieldsRustSends() {
+        fun fields(type: Class<*>) = type.declaredFields.map { it.name }.toSet()
+        assertEquals(setOf("reminders"), fields(RemindersArgs::class.java))
+        assertEquals(setOf("url", "scheme"), fields(AuthorizeArgs::class.java))
+        assertEquals(setOf("value"), fields(KeyArgs::class.java))
+        assertEquals(setOf("caller", "video", "muted"), fields(RingingArgs::class.java))
+        assertEquals(setOf("caller", "video"), fields(AnsweringArgs::class.java))
+        assertEquals(setOf("channel"), fields(CallEventsArgs::class.java))
+        assertEquals(setOf("name", "video"), fields(OutgoingArgs::class.java))
+        assertEquals(setOf("dark"), fields(SystemBarsArgs::class.java))
+        assertEquals(setOf("on"), fields(SpeakerArgs::class.java))
+        assertEquals(setOf("week"), fields(QuietHoursArgs::class.java))
+        assertEquals(setOf("slots"), fields(OpenSlotsArgs::class.java))
+        assertEquals(setOf("text"), fields(ShareTextArgs::class.java))
+        assertEquals(setOf("accept"), fields(PickArgs::class.java))
+        assertEquals(setOf("path", "mime"), fields(OpenFileArgs::class.java))
+        assertEquals(setOf("path", "name", "mime"), fields(SaveFileArgs::class.java))
     }
 
     private fun mainActivityConfigChanges(): Set<String> {

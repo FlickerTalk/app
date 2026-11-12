@@ -1,6 +1,7 @@
 import Foundation
 import NaturalLanguage
 import SwiftUI
+import Tauri
 import Translation
 import UIKit
 
@@ -229,5 +230,61 @@ final class TranslationHost {
         current.view.removeFromParent()
         current.request.done(answer)
         next()
+    }
+}
+
+extension PlatformPlugin {
+    @objc public func translateLanguages(_ invoke: Invoke) throws {
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["languages": [String]()])
+            return
+        }
+        Task { invoke.resolve(["languages": await supportedTags()]) }
+    }
+
+    @objc public func translateDetect(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslateSourceArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["found": false])
+            return
+        }
+        invoke.resolve(detectLanguage(args.text).mapValues { $0 as Any? })
+    }
+
+    @objc public func translateStatus(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslatePairArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["status": "unsupported"])
+            return
+        }
+        Task { invoke.resolve(await pairStatus(from: args.from, to: args.to).mapValues { $0 as Any? }) }
+    }
+
+    @objc public func translatePrepare(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslatePairArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["ready": false])
+            return
+        }
+        Task { @MainActor [manager] in
+            invoke.resolve(await preparePair(from: args.from, to: args.to, on: manager.viewController).mapValues { $0 as Any? })
+        }
+    }
+
+    // iOS keeps language packs, only the user can remove them in Settings
+    @objc public func translateRemove(_ invoke: Invoke) throws {
+        _ = try invoke.parseArgs(TranslatePairArgs.self)
+        invoke.resolve(["removed": false])
+    }
+
+    @objc public func translateText(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(TranslateTextArgs.self)
+        guard #available(iOS 18, *) else {
+            invoke.resolve(["found": false])
+            return
+        }
+        Task { @MainActor [manager] in
+            invoke.resolve(await translateOnPhone(args.text, from: args.from, to: args.to, on: manager.viewController).mapValues { $0 as Any? })
+        }
     }
 }

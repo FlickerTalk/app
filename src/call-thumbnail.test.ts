@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { effectScope, nextTick, ref } from "vue";
 
-import { nearestCorner, thumbArea } from "./call-thumbnail";
+import { nearestCorner, thumbArea, useThumbDrag } from "./call-thumbnail";
 
 const picture = (x: number, y: number) => ({ left: x, top: y, right: x + 96, bottom: y + 140 });
 const area = { left: 16, top: 115, right: 384, bottom: 656 };
@@ -55,5 +56,75 @@ describe("where the small picture may settle", () => {
   it("follows the screen where it is", () => {
     const shifted = { left: 20, top: 30, right: 420, bottom: 830 };
     expect(thumbArea(shifted, picture(308, 546), 129)).toEqual({ left: 36, top: 145, right: 404, bottom: 686 });
+  });
+});
+
+describe("dragging the small picture", () => {
+  const rect = (x: number, y: number, width: number, height: number) => () =>
+    ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+  const pointer = (type: string, x: number, y: number) => new PointerEvent(type, { clientX: x, clientY: y, pointerId: 1 });
+
+  function setUp(small: "local" | "remote" = "local") {
+    const body = ref<HTMLElement | null>(document.createElement("div"));
+    const localSlot = ref<HTMLElement | null>(document.createElement("div"));
+    const remoteSlot = ref<HTMLElement | null>(document.createElement("div"));
+    const localThumb = ref(small === "local");
+    const remoteThumb = ref(small === "remote");
+    const moved = vi.fn();
+    const scope = effectScope();
+    const drag = scope.run(() =>
+      useThumbDrag({ body, localSlot, remoteSlot, localThumb, remoteThumb, above: () => [{ x: 8, y: 55, width: 44, height: 44 }], moved }),
+    )!;
+    onTestFinished(() => {
+      drag.endDrag();
+      scope.stop();
+    });
+    for (const slot of [localSlot.value!, remoteSlot.value!]) {
+      slot.addEventListener("pointerdown", drag.grabThumb);
+      slot.addEventListener("pointermove", drag.moveThumb);
+      slot.addEventListener("pointerup", drag.dropThumb);
+    }
+    return { body, localSlot, remoteSlot, localThumb, moved, drag };
+  }
+
+  it("follows the finger from where it took the small picture", () => {
+    const { localSlot, moved, drag } = setUp();
+    localSlot.value!.dispatchEvent(pointer("pointerdown", 300, 600));
+    expect(drag.dragging.value).toBe(true);
+    window.dispatchEvent(pointer("pointermove", 200, 500));
+    expect(drag.thumbStyle.value).toEqual({ transform: "translate(-100px, -100px)" });
+    expect(moved).toHaveBeenCalled();
+  });
+
+  it("does not take a picture that is not the small one", () => {
+    const { remoteSlot, drag } = setUp("local");
+    remoteSlot.value!.dispatchEvent(pointer("pointerdown", 300, 600));
+    expect(drag.dragging.value).toBe(false);
+  });
+
+  it("settles it in the nearest corner, under what sits above it, once let go", () => {
+    const query = { matches: true, media: "(prefers-reduced-motion: reduce)", addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    vi.spyOn(window, "matchMedia").mockImplementation((media) => ({ ...query, matches: media === query.media }) as unknown as MediaQueryList);
+    onTestFinished(() => vi.mocked(window.matchMedia).mockRestore());
+    const { body, localSlot, drag } = setUp();
+    body.value!.getBoundingClientRect = rect(0, 0, 400, 800);
+    localSlot.value!.getBoundingClientRect = rect(88, 266, 96, 140);
+    localSlot.value!.dispatchEvent(pointer("pointerdown", 330, 580));
+    window.dispatchEvent(pointer("pointermove", 130, 330));
+    localSlot.value!.dispatchEvent(pointer("pointerup", 130, 330));
+    expect(drag.dragging.value).toBe(false);
+    expect(drag.thumbStyle.value).toEqual({ transform: "translate(-272px, -401px)" });
+  });
+
+  it("forgets a drag cut short when the small picture changes", async () => {
+    const { localSlot, localThumb, drag } = setUp();
+    localSlot.value!.dispatchEvent(pointer("pointerdown", 300, 600));
+    window.dispatchEvent(pointer("pointermove", 200, 500));
+    localThumb.value = false;
+    await nextTick();
+    expect(drag.dragging.value).toBe(false);
+    localThumb.value = true;
+    await nextTick();
+    expect(drag.thumbStyle.value).toBeUndefined();
   });
 });
