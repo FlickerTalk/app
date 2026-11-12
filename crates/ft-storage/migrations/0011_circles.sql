@@ -1,4 +1,3 @@
--- Circles (2026-09-27): a small closed group of contacts, held as its signed card (ft-circles).
 -- Nothing of this reaches the server: it never learns a circle exists.
 CREATE TABLE circles (
     id          TEXT    PRIMARY KEY,        -- the card's random id
@@ -20,9 +19,7 @@ CREATE TABLE circle_members (
     PRIMARY KEY (circle, device_id)
 );
 
--- What was said in a circle. `sender` is a device id, this phone's for outgoing. `kind` is
--- `text`, or something that happened (`joined`, `left`, `removed`, `renamed`, `created`), or a
--- control packet that travels through the outbox and is never shown (`card`, `leave`).
+-- kind: text, an event (joined, left, removed, renamed, created) or a hidden control packet (card, leave).
 CREATE TABLE circle_messages (
     message_id  TEXT    PRIMARY KEY,
     circle      TEXT    NOT NULL REFERENCES circles (id) ON DELETE CASCADE,
@@ -48,6 +45,5 @@ CREATE TABLE circle_outbox (
     PRIMARY KEY (message_id, contact)
 );
 
--- A contact known only because they are in a circle with this phone: reachable, but in no list
--- and in no requests until they write on their own or the user chooses them.
+-- Known only through a circle: reachable, but in no list or requests until they write or are chosen.
 ALTER TABLE contacts ADD COLUMN via_circle INTEGER NOT NULL DEFAULT 0;

@@ -1,11 +1,4 @@
--- Hidden sessions and plugins (2026-10-01, Plan §108): what a plugin keeps while it is open inside
--- a hidden session belongs to that session. Its records, its settings and its reminders say which
--- session they belong to (NULL for the main list), the same key in two places is two things, and
--- they go with the session. What was kept before this says nothing of where it came from: it
--- stays in the main list.
---
--- SQLite cannot change a primary key, so each table is made again. A NULL session cannot be
--- told apart in a primary key, so the key is a unique index that reads it as ''.
+-- SQLite cannot change a primary key, so each table is rebuilt; a NULL session is keyed as ''.
 
 CREATE TABLE plugin_records_by_session (
     plugin     TEXT    NOT NULL,

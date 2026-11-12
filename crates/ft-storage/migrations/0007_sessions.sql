@@ -1,6 +1,4 @@
--- Hidden sessions (Plan, 2026-09-23): a space of its own, opened with a 6-digit PIN and nothing
--- else. Only the PIN's keyed hash is kept: the key lives in the phone's key store, so a copy of
--- this database alone cannot try the million PINs. Nothing here has a name: nothing to read.
+-- Only the PIN's keyed hash, with the key in the phone's key store: this file alone cannot try PINs.
 CREATE TABLE sessions (
     id         TEXT    PRIMARY KEY,
     pin_hash   BLOB    NOT NULL UNIQUE,

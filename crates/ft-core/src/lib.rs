@@ -1091,24 +1091,19 @@ impl Core {
             None => None,
         };
         let packet = Packet::new(Body::Message { text: text.to_owned(), reply_to });
-        let message_id = packet.id.to_string();
-        self.store
-            .insert_message(&Message {
-                message_id: message_id.clone(),
-                contact: contact.to_owned(),
-                outgoing: true,
-                body: text.to_owned(),
-                sent_at: packet.sent_at as i64,
-                received_at: packet.sent_at as i64,
-                state: MessageState::Pending,
-            })
-            .await?;
-        if let Some(quoted) = reply_to {
-            self.store.set_reply(&message_id, &quoted.to_string()).await?;
-        }
-        self.store.enqueue(&message_id, contact, now()).await?;
+        let message = Message {
+            message_id: packet.id.to_string(),
+            contact: contact.to_owned(),
+            outgoing: true,
+            body: text.to_owned(),
+            sent_at: packet.sent_at as i64,
+            received_at: packet.sent_at as i64,
+            state: MessageState::Pending,
+        };
+        let quoted = reply_to.map(|quoted| quoted.to_string());
+        self.store.queue_message(&message, quoted.as_deref(), now()).await?;
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
-        Ok(message_id)
+        Ok(message.message_id)
     }
 
     pub async fn resend(&self, message_id: &str) -> Result<()> {

@@ -33,4 +33,5 @@ tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
 axum = { version = "0.8", features = ["ws"] }
 ring = "0.17"
 ft-media = { path = "../ft-media", features = ["testing"] }
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "test-util"] }

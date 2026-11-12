@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import PhotosUI
+import QuickLook
 import Tauri
 import UIKit
 import UniformTypeIdentifiers
@@ -125,10 +126,9 @@ func pickedEntry(_ url: URL, name: String) -> [String: Any] {
     return ["path": url.path, "name": name, "mime": pickedMime(fileExtension: url.pathExtension), "size": size]
 }
 
-// the Keychain survives even uninstalling the app
-func forgetStoredKey() throws {
-    let status = SecItemDelete(keyQuery() as CFDictionary)
-    guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.status(status) }
+func shareableText(_ text: String) -> String? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
 }
 
 struct PickArgs: Decodable {
@@ -139,6 +139,15 @@ struct SaveFileArgs: Decodable {
     let path: String
     let name: String
     let mime: String
+}
+
+struct OpenFileArgs: Decodable {
+    let path: String
+    let mime: String
+}
+
+class ShareArgs: Decodable {
+    let text: String
 }
 
 // UIKit holds delegates weakly
@@ -276,6 +285,26 @@ final class FileSaver: NSObject, UIDocumentPickerDelegate {
     }
 }
 
+final class PreviewItem: NSObject, QLPreviewControllerDataSource, QLPreviewItem {
+    let previewItemURL: URL?
+    let previewItemTitle: String?
+
+    init(url: URL) {
+        previewItemURL = url
+        previewItemTitle = url.lastPathComponent
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { self }
+}
+
+func previewable(path: String) -> PreviewItem? {
+    guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return nil }
+    let item = PreviewItem(url: URL(fileURLWithPath: path))
+    return QLPreviewController.canPreview(item) ? item : nil
+}
+
 extension PlatformPlugin {
     @objc public func pickFiles(_ invoke: Invoke) throws {
         let accept = (try? invoke.parseArgs(PickArgs.self))?.accept ?? ""
@@ -395,12 +424,42 @@ extension PlatformPlugin {
         }
     }
 
-    @objc public func forgetKey(_ invoke: Invoke) throws {
-        do {
-            try forgetStoredKey()
+    @objc public func shareText(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(ShareArgs.self)
+        guard let text = shareableText(args.text) else {
+            invoke.reject("nothing to share")
+            return
+        }
+        DispatchQueue.main.async { [manager] in
+            guard let screen = manager.viewController else {
+                invoke.reject("no screen to share from")
+                return
+            }
+            let sheet = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+            // on iPad the sheet is a popover and needs an anchor
+            UIUtils.centerPopover(rootViewController: screen, popoverController: sheet)
+            screen.present(sheet, animated: true)
             invoke.resolve()
-        } catch {
-            invoke.reject("the Keychain kept the key: \(error)")
+        }
+    }
+
+    @objc public func openFile(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OpenFileArgs.self)
+        guard let item = previewable(path: args.path) else {
+            invoke.reject("that file cannot be shown here")
+            return
+        }
+        DispatchQueue.main.async { [manager] in
+            guard let screen = manager.viewController else {
+                invoke.reject("no screen to show it on")
+                return
+            }
+            let preview = QLPreviewController()
+            preview.dataSource = item
+            // QLPreviewController holds its data source weakly
+            objc_setAssociatedObject(preview, "ft.preview.item", item, .OBJC_ASSOCIATION_RETAIN)
+            screen.present(preview, animated: true)
+            invoke.resolve()
         }
     }
 }
