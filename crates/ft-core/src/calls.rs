@@ -387,6 +387,20 @@ impl Core {
     pub(crate) fn announce_call(&self, record: &CallRecord, update: CallUpdate) {
         let _ = self.events.send(Event::Call { contact: record.contact.clone(), call: record.call_id.clone(), update });
     }
+
+    pub async fn visible_calls(&self, limit: i64) -> Result<Vec<ft_storage::CallRecord>> {
+        let mut visible = Vec::new();
+        for call in self.store.calls(limit).await? {
+            let shown = match self.store.contact(&call.contact).await? {
+                Some(contact) => !self.silent(&contact),
+                None => true,
+            };
+            if shown {
+                visible.push(call);
+            }
+        }
+        Ok(visible)
+    }
 }
 
 #[cfg(test)]
