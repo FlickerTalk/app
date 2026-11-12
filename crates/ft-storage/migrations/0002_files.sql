@@ -1,5 +1,4 @@
--- Files (Plan §62–63): the message carries the name; this row, what the transfer needs. The bytes
--- are in a file of the app's storage, never in the database.
+-- The bytes are in a file of the app's storage, never in the database.
 CREATE TABLE files (
     message_id  TEXT    PRIMARY KEY REFERENCES messages (message_id) ON DELETE CASCADE,
     name        TEXT    NOT NULL,
