@@ -13,9 +13,10 @@ function laterIn({ text = "", outgoing = async (words: string) => ({ text: words
   const editing = ref<ChatMessage | null>(null);
   const replying = ref<ChatMessage | null>(null);
   const hooks = { outgoing: vi.fn(outgoing), keepOriginal: vi.fn(async () => {}) };
+  const chat = ref("c1");
   const scope = effectScope();
-  const later = scope.run(() => useSendLater({ chatId: () => "c1", draft, emoji, editing, replying, hooks }))!;
-  return { later, draft, emoji, editing, replying, hooks, stop: () => scope.stop() };
+  const later = scope.run(() => useSendLater({ chatId: () => chat.value, draft, emoji, editing, replying, hooks }))!;
+  return { later, chat, draft, emoji, editing, replying, hooks, stop: () => scope.stop() };
 }
 
 describe("localInput", () => {
@@ -87,6 +88,19 @@ describe("useSendLater", () => {
     await later.schedule();
     expect(calls).toContainEqual(["core_schedule", expect.objectContaining({ text: "bonjour" })]);
     expect(hooks.keepOriginal).toHaveBeenCalledWith(undefined, original);
+    stop();
+  });
+
+  it("schedules for the conversation it was written in when another chat opens while the tool translates", async () => {
+    let translated: (value: { text: string }) => void = () => {};
+    const { later, chat, stop } = laterIn({ text: "hello", outgoing: () => new Promise<{ text: string }>((resolve) => (translated = resolve)) });
+    later.openSchedule();
+    later.schedulePresented.value = true;
+    const scheduled = later.schedule();
+    chat.value = "c2";
+    translated({ text: "hello" });
+    await scheduled;
+    expect(calls.filter(([command]) => command === "core_schedule").map(([, args]) => args?.contact)).toEqual(["c1"]);
     stop();
   });
 

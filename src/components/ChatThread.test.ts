@@ -975,6 +975,23 @@ describe("ChatThread", () => {
       expect(kept("core_send")).toEqual([{ contact: "c1", text: "bonjour" }]);
     });
 
+    it("sends to the conversation it was written in when another chat opens while the tool translates", async () => {
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      let translated: (value: unknown) => void = () => {};
+      answer = (hook) => (hook.name === "composer" ? new Promise((resolve) => (translated = resolve)) : null);
+      const wrapper = await thread();
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
+      await flushPromises();
+      await wrapper.find("[aria-label='Send']").trigger("click");
+      await flushPromises();
+      expect(frames()[0].runHook).toHaveBeenCalledWith(expect.objectContaining({ name: "composer", text: "hello" }));
+      await wrapper.setProps({ chatId: "c2" });
+      await flushPromises();
+      translated({ text: "bonjour" });
+      await flushPromises();
+      expect(kept("core_send")).toEqual([{ contact: "c1", text: "hello" }]);
+    });
+
     it("keeps the user's words under the message sent in the conversation's language", async () => {
       flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
       sentId = "sent1";

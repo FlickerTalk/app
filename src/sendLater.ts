@@ -45,13 +45,14 @@ export function useSendLater(options: {
     const text = options.draft.value.trim();
     const when = new Date(sendAt.value).getTime();
     if (!text || !canSchedule.value) return;
+    const to = options.chatId();
     const answering = options.replying.value?.id;
     options.draft.value = "";
     options.emoji.value = false;
     options.replying.value = null;
     scheduling.value = false;
     const out = await options.hooks.outgoing(text);
-    const sent = await scheduleText(options.chatId(), out.text, when, answering).catch(() => undefined);
+    const sent = await scheduleText(to, out.text, when, answering).catch(() => undefined);
     if (out.original) await options.hooks.keepOriginal(sent, out.original);
   }
 

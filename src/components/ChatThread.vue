@@ -140,12 +140,13 @@ async function send() {
     await editMessage(id, text).catch(() => {});
     return;
   }
+  const to = props.chatId;
   const answering = replying.value?.id;
   draft.value = "";
   emoji.value = false;
   replying.value = null;
   const out = await hooks.outgoing(text);
-  const sent = await sendText(props.chatId, out.text, answering);
+  const sent = await sendText(to, out.text, answering);
   if (out.original) await hooks.keepOriginal(sent, out.original);
 }
 
