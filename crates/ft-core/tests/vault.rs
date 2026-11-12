@@ -180,6 +180,24 @@ async fn the_phone_is_backed_up_and_a_new_phone_brings_it_down_ready_to_swap_in(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_backup_that_does_not_open_with_its_key_is_never_left_to_swap_in() {
+    let cloud = Memory::new();
+    let (old, _) = phone("old-wrong-key", &cloud).await;
+    let browser = Browser { opened: Default::default(), refuses: false };
+    old.vault_connect("memory", &browser).await.unwrap();
+    old.vault_setup(PHRASE).await.unwrap();
+    old.store().save_identity(&ft_identity::Identity::generate().seal(&[7; 32]), &[0; 32]).await.unwrap();
+    old.vault_backup().await.unwrap();
+
+    let (new, new_dir) = phone("new-wrong-key", &cloud).await;
+    new.vault_connect("memory", &browser).await.unwrap();
+    new.vault_unlock(PHRASE).await.unwrap();
+    assert!(new.vault_restore().await.is_err());
+    assert!(ft_core::moving::received_move(&new_dir.join("move")).is_none(), "nothing to swap in on the next start");
+    assert_eq!(std::fs::read_dir(new_dir.join("move")).unwrap().count(), 0, "nothing of the backup stays behind");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_backup_leaves_out_what_no_message_points_to() {
     let cloud = Memory::new();
     let (core, dir) = phone("leftovers", &cloud).await;
