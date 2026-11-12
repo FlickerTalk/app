@@ -781,6 +781,26 @@ async fn the_conversation_survives_a_restart() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_text_that_cannot_wait_in_the_outbox_is_not_kept() {
+    let net = Net::new();
+    let path = std::env::temp_dir().join(format!("ft-core-unqueued-{}.db", ft_protocol::MessageId::new()));
+    let bob = device(&net, "Bob").await;
+    let alice = device_with(&net, "Alice", Store::open(&path).await.unwrap(), [1; 32]).await;
+    pair(&alice, &bob).await;
+    let database = sqlx::SqlitePool::connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path)).await.expect("opens the same database");
+    sqlx::query("CREATE TRIGGER forced_failure BEFORE INSERT ON pending_outbox BEGIN SELECT RAISE(ABORT, 'forced'); END")
+        .execute(&database)
+        .await
+        .expect("creates the trigger");
+
+    assert!(alice.queue_text(&id(&bob), "lost", None).await.is_err());
+    assert!(texts(&alice, &id(&bob)).await.is_empty(), "no message left without its place in the outbox");
+    assert!(alice.store().outbox().await.unwrap().is_empty());
+    database.close().await;
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_file_crosses_in_chunks_and_is_verified() {
     let net = Net::new();
     let (alice, bob) = (device(&net, "Alice").await, device(&net, "Bob").await);

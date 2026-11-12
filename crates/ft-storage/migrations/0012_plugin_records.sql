@@ -1,6 +1,4 @@
--- Plugins, phase 3 (2026-09-27): what a plugin keeps beyond its settings (notes, boards), still
--- apart from every other plugin and within the room the user granted it. Bytes, not text: a
--- board or a picture goes in as it is. Taking the plugin out takes its records with it.
+-- Bytes, so a board or a picture goes in as it is; removing the plugin removes its records.
 CREATE TABLE plugin_records (
     plugin     TEXT    NOT NULL,
     key        TEXT    NOT NULL,
@@ -9,8 +7,7 @@ CREATE TABLE plugin_records (
     PRIMARY KEY (plugin, key)
 );
 
--- Local reminders (2026-09-27): a notification on this phone at a time a plugin picked. This
--- table is the truth; the OS is only the alarm clock, and is told again from here at every start.
+-- This table is the truth; the OS is only the alarm clock and is told again from here at every start.
 CREATE TABLE reminders (
     plugin TEXT    NOT NULL,
     id     TEXT    NOT NULL,
@@ -21,8 +18,7 @@ CREATE TABLE reminders (
 
 CREATE INDEX reminders_by_time ON reminders (at);
 
--- An opaque handle a plugin gets for the message it was opened with: it can ask the app to go
--- back to that conversation, and learns nothing of who it is with.
+-- An opaque handle for the message a plugin was opened with; it learns nothing of who it is with.
 CREATE TABLE plugin_refs (
     ref        TEXT    PRIMARY KEY,
     plugin     TEXT    NOT NULL,

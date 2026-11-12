@@ -147,18 +147,27 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::io::Write::write_all(&mut options.open(path)?, bytes)
 }
 
-/// If the sealed key won't open, fail. Making a new key would lose the identity.
+fn read_if_there(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Never replace a key that cannot be read or opened, or make one next to an existing database, because the identity would be lost.
 pub fn storage_key(dir: &Path, vault: Option<&dyn KeyVault>) -> anyhow::Result<[u8; 32]> {
     std::fs::create_dir_all(dir)?;
     let (clear, sealed) = (dir.join(KEY_FILE), dir.join(SEALED_KEY_FILE));
     if let Some(vault) = vault {
-        if let Ok(bytes) = std::fs::read(&sealed) {
+        if let Some(bytes) = read_if_there(&sealed)? {
             return vault.open(&bytes).context("the key store cannot open the storage key");
         }
     }
-    let key: [u8; 32] = match std::fs::read(&clear) {
-        Ok(bytes) => bytes.try_into().map_err(|_| anyhow::anyhow!("the storage key is corrupt"))?,
-        Err(_) => {
+    let key: [u8; 32] = match read_if_there(&clear)? {
+        Some(bytes) => bytes.try_into().map_err(|_| anyhow::anyhow!("the storage key is corrupt"))?,
+        None => {
+            anyhow::ensure!(!dir.join(DATABASE).try_exists()?, "the storage key is missing");
             let key: [u8; 32] = rand::random();
             if vault.is_none() {
                 write_private(&clear, &key)?;
@@ -881,6 +890,57 @@ mod tests {
         assert!(storage_key(&dir, Some(&FakeVault { broken: true, ..Default::default() })).is_err());
         assert_eq!(std::fs::read(dir.join("storage.key.sealed")).unwrap(), sealed, "left as it was");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_key_next_to_a_database_is_an_error_never_replaced() {
+        let dir = scratch("missing-key");
+        std::fs::write(dir.join("flickertalk.db"), b"history").unwrap();
+        assert!(storage_key(&dir, None).is_err());
+        assert!(storage_key(&dir, Some(&FakeVault::default())).is_err());
+        assert!(!dir.join("storage.key").exists());
+        assert!(!dir.join("storage.key.sealed").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_key_that_cannot_be_read_is_an_error_never_replaced() {
+        let dir = scratch("unreadable-key");
+        std::fs::create_dir_all(dir.join("storage.key")).unwrap();
+        assert!(storage_key(&dir, Some(&FakeVault::default())).is_err());
+        assert!(storage_key(&dir, None).is_err());
+        assert!(dir.join("storage.key").is_dir());
+        assert!(!dir.join("storage.key.sealed").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sealed_key_that_cannot_be_read_is_an_error_never_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("unreadable-sealed-key");
+        let vault = FakeVault::default();
+        storage_key(&dir, Some(&vault)).expect("creates");
+        let path = dir.join("storage.key.sealed");
+        let sealed = std::fs::read(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o200)).unwrap();
+        let opened = storage_key(&dir, Some(&vault));
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(opened.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), sealed, "left as it was");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_new_install_and_an_erased_phone_start_with_a_new_key() {
+        let root = scratch("first-key");
+        let dir = root.join("app-data");
+        let vault = FakeVault::default();
+        let first = opened_key(&dir, Some(&vault)).expect("a new install");
+        std::fs::write(dir.join("flickertalk.db"), b"history").unwrap();
+        erase(&dir).unwrap();
+        assert_ne!(opened_key(&dir, Some(&vault)).expect("an erased phone"), first);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
