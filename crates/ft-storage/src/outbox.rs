@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use sqlx::sqlite::SqliteRow;
+use sqlx::sqlite::{SqliteExecutor, SqliteRow};
 use sqlx::Row;
 
-use crate::{MessageState, Store};
+use crate::{Message, MessageState, Store};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboxEntry {
@@ -32,13 +32,28 @@ pub struct UpdateEntry {
 
 impl Store {
     pub async fn enqueue(&self, message_id: &str, contact: &str, now: i64) -> Result<()> {
+        Self::enqueue_with(&self.pool, message_id, contact, now).await
+    }
+
+    async fn enqueue_with<'e>(executor: impl SqliteExecutor<'e>, message_id: &str, contact: &str, now: i64) -> Result<()> {
         sqlx::query("INSERT INTO pending_outbox (message_id, contact, created_at, next_attempt) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
             .bind(message_id)
             .bind(contact)
             .bind(now)
             .bind(now)
-            .execute(&self.pool)
+            .execute(executor)
             .await?;
+        Ok(())
+    }
+
+    pub async fn queue_message(&self, message: &Message, reply_to: Option<&str>, now: i64) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        Self::insert_message_with(&mut *tx, message).await?;
+        if let Some(quoted) = reply_to {
+            Self::set_reply_with(&mut *tx, &message.message_id, quoted).await?;
+        }
+        Self::enqueue_with(&mut *tx, &message.message_id, &message.contact, now).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -190,7 +205,8 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
-    use crate::tests::{contact, message, store};
+    use crate::migrator;
+    use crate::tests::{contact, file, message, store};
 
     #[tokio::test]
     async fn a_message_for_later_waits_in_the_outbox_until_its_time() {
@@ -208,6 +224,64 @@ mod tests {
         store.forget_message("m1").await.expect("forgets");
         assert!(store.scheduled_all().await.unwrap().is_empty(), "gone with the message");
         assert!(store.outbox().await.unwrap().is_empty(), "and out of the queue");
+    }
+
+    #[tokio::test]
+    async fn a_message_taken_back_halfway_is_left_as_it_was() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", true, 1)).await.expect("inserts");
+        store.insert_file(&file("m1")).await.expect("attaches");
+        store.set_reaction("m1", false, Some("👍"), 1).await.expect("reacts");
+        store.set_message_note("m1", "com.example.translate", "hola", 1).await.expect("notes");
+        store.enqueue_at("m1", "ft_bob", 1_000, 9_000).await.expect("queues for later");
+        sqlx::query("CREATE TRIGGER forced_failure BEFORE INSERT ON message_deletions BEGIN SELECT RAISE(ABORT, 'forced'); END")
+            .execute(&store.pool)
+            .await
+            .expect("creates the trigger");
+
+        assert!(store.mark_deleted("m1").await.is_err());
+        assert_eq!(store.message("m1").await.unwrap().expect("still here").body, "text m1");
+        assert!(store.file("m1").await.unwrap().is_some(), "the file stays");
+        assert_eq!(store.reactions("ft_bob").await.unwrap().len(), 1, "the reaction stays");
+        assert_eq!(store.notes("ft_bob").await.unwrap().len(), 1, "the note stays");
+        assert_eq!(store.outbox().await.unwrap().len(), 1, "it still waits to be sent");
+        assert_eq!(store.scheduled_all().await.unwrap(), HashMap::from([("m1".to_owned(), 9_000)]));
+        assert!(!store.is_deleted("m1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_queued_message_waits_in_the_outbox_with_its_answer() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+
+        store.queue_message(&message("m2", "ft_bob", true, 2), Some("m1"), 1_000).await.expect("queues");
+        assert_eq!(store.message("m2").await.unwrap().expect("kept").state, MessageState::Pending);
+        assert_eq!(store.reply_to("m2").await.unwrap(), Some("m1".to_owned()));
+        let outbox = store.outbox().await.unwrap();
+        assert_eq!(outbox.len(), 1);
+        assert_eq!((outbox[0].message_id.as_str(), outbox[0].contact.as_str(), outbox[0].created_at, outbox[0].next_attempt), ("m2", "ft_bob", 1_000, 1_000));
+
+        store.queue_message(&message("m3", "ft_bob", true, 3), None, 2_000).await.expect("queues");
+        assert_eq!(store.reply_to("m3").await.unwrap(), None);
+        assert_eq!(store.outbox().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_message_that_cannot_wait_in_the_outbox_is_not_kept() {
+        let store = store().await;
+        store.add_contact(&contact("ft_bob")).await.expect("adds");
+        store.insert_message(&message("m1", "ft_bob", false, 1)).await.expect("inserts");
+        sqlx::query("CREATE TRIGGER forced_failure BEFORE INSERT ON pending_outbox BEGIN SELECT RAISE(ABORT, 'forced'); END")
+            .execute(&store.pool)
+            .await
+            .expect("creates the trigger");
+
+        assert!(store.queue_message(&message("m2", "ft_bob", true, 2), Some("m1"), 1_000).await.is_err());
+        assert!(store.message("m2").await.unwrap().is_none(), "no message left without its place in the outbox");
+        assert_eq!(store.reply_to("m2").await.unwrap(), None);
+        assert!(store.outbox().await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -301,7 +375,7 @@ mod tests {
     async fn an_outbox_from_before_has_no_time_of_its_last_copy() {
         let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
         let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.expect("opens");
-        sqlx::migrate!("./migrations").run_to(12, &pool).await.expect("migrates to 0012");
+        migrator().run_to(12, &pool).await.expect("migrates to 0012");
         sqlx::query("INSERT INTO contacts (device_id, name, card, mailbox, added_at) VALUES ('ft_bob', 'Bob', x'01', 1, 1)").execute(&pool).await.expect("a contact");
         sqlx::query("INSERT INTO messages (message_id, contact, outgoing, body, sent_at, state) VALUES ('m1', 'ft_bob', 1, 'hi', 1, 1)")
             .execute(&pool)

@@ -3,6 +3,7 @@ package com.flickertalk.platform
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import app.tauri.annotation.InvokeArg
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
@@ -137,4 +138,22 @@ fun translateOnPhone(text: String, from: String, to: String, done: (String?) -> 
             .addOnFailureListener { done(null) }
             .addOnCompleteListener { translator.close() }
     }
+}
+
+@InvokeArg
+class TranslatePairArgs {
+    lateinit var from: String
+    lateinit var to: String
+}
+
+@InvokeArg
+class TranslateSourceArgs {
+    lateinit var text: String
+}
+
+@InvokeArg
+class TranslateTextArgs {
+    lateinit var text: String
+    lateinit var from: String
+    lateinit var to: String
 }

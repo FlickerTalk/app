@@ -1,4 +1,4 @@
--- Call history (Plan §66): only on the phone. Times in milliseconds.
+-- Call history stays on the phone; times in milliseconds.
 CREATE TABLE calls (
     call_id     TEXT    PRIMARY KEY,        -- UUIDv7 made by the caller
     contact     TEXT    NOT NULL REFERENCES contacts (device_id) ON DELETE CASCADE,

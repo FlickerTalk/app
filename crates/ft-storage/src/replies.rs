@@ -1,16 +1,21 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use sqlx::sqlite::SqliteExecutor;
 use sqlx::Row;
 
 use crate::Store;
 
 impl Store {
     pub async fn set_reply(&self, message_id: &str, reply_to: &str) -> Result<()> {
+        Self::set_reply_with(&self.pool, message_id, reply_to).await
+    }
+
+    pub(crate) async fn set_reply_with<'e>(executor: impl SqliteExecutor<'e>, message_id: &str, reply_to: &str) -> Result<()> {
         sqlx::query("INSERT INTO message_replies (message_id, reply_to) VALUES (?, ?) ON CONFLICT (message_id) DO UPDATE SET reply_to = excluded.reply_to")
             .bind(message_id)
             .bind(reply_to)
-            .execute(&self.pool)
+            .execute(executor)
             .await?;
         Ok(())
     }

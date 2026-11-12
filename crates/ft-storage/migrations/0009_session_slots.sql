@@ -1,6 +1,4 @@
--- Hidden sessions, phase 2 (app#9): seven spare route capabilities besides the device's own. The
--- router always gets all eight, so it cannot tell how many are in use. A session hands out the
--- capability of its slot in its contact cards, so a wake-up says which session it is for.
+-- Seven spares plus the device's own: the router always gets all eight, so it cannot tell how many are in use.
 CREATE TABLE spare_capabilities (
     slot       INTEGER PRIMARY KEY CHECK (slot BETWEEN 1 AND 7),
     capability BLOB    NOT NULL

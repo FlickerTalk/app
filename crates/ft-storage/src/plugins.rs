@@ -254,6 +254,7 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
+    use crate::migrator;
     use crate::tests::{contact, store};
     use crate::NewContact;
 
@@ -354,7 +355,7 @@ mod tests {
         {
             let options = SqliteConnectOptions::new().filename(&path).create_if_missing(true).foreign_keys(true);
             let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
-            let mut before = sqlx::migrate!("./migrations");
+            let mut before = migrator();
             before.migrations = before.migrations.iter().filter(|migration| migration.version <= 12).cloned().collect::<Vec<_>>().into();
             before.run(&pool).await.unwrap();
             sqlx::query("INSERT INTO plugin_records (plugin, key, value, updated_at) VALUES ('com.example.notes', 'board/1', x'01', 1)").execute(&pool).await.unwrap();

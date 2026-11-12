@@ -229,6 +229,7 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
+    use crate::migrator;
     use crate::tests::{contact, message, store};
 
     #[tokio::test]
@@ -300,7 +301,7 @@ mod tests {
     async fn a_contact_from_before_has_no_unblock() {
         let options = SqliteConnectOptions::new().in_memory(true).foreign_keys(true);
         let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.expect("opens");
-        sqlx::migrate!("./migrations").run_to(21, &pool).await.expect("migrates to 0021");
+        migrator().run_to(21, &pool).await.expect("migrates to 0021");
         sqlx::query("INSERT INTO contacts (device_id, name, card, mailbox, added_at) VALUES ('ft_bob', 'Bob', x'01', 1, 1)").execute(&pool).await.expect("a contact");
 
         let store = Store::with(pool, None).await.expect("migrates the rest");

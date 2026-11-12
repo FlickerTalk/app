@@ -162,7 +162,7 @@ desbloqueado.
 - `replaceTrack()` cambia o quita (`null`) la pista de un emisor **sin renegociar** [DOC]:
   https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpSender/replaceTrack
 - Cambiar `transceiver.direction` **sí** exige renegociar (`negotiationneeded`) [DOC]:
-  https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver/direction y RFC 8829 §4.2.3,
+  https://developer.mozilla.org/en-US/docs/Web/API/RTCRtpTransceiver/direction y RFC 8829, sección 4.2.3,
   https://www.rfc-editor.org/rfc/rfc8829.html
 - Para el *glare* de una renegociación, el patrón *perfect negotiation* (un lado cortés que
   retrocede su oferta): https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation

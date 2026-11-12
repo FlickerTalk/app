@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 const installed = vi.hoisted(() => [] as unknown[]);
 
-vi.mock("@ionic/vue", async (original) => ({
-  ...(await original<typeof import("@ionic/vue")>()),
+vi.mock("@ionic/vue", () => ({
   IonicVue: { install: (_app: unknown, config: unknown) => installed.push(config) },
+  isPlatform: () => false,
 }));
 vi.mock("./App.vue", () => ({ default: { render: () => null } }));
 vi.mock("./router", () => ({ router: { install: () => {}, isReady: () => Promise.resolve() } }));

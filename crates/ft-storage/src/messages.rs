@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sqlx::sqlite::SqliteRow;
+use sqlx::sqlite::{SqliteExecutor, SqliteRow};
 use sqlx::Row;
 
 use crate::{now, Contact, Store};
@@ -47,6 +47,10 @@ pub struct Conversation {
 
 impl Store {
     pub async fn insert_message(&self, message: &Message) -> Result<bool> {
+        Self::insert_message_with(&self.pool, message).await
+    }
+
+    pub(crate) async fn insert_message_with<'e>(executor: impl SqliteExecutor<'e>, message: &Message) -> Result<bool> {
         let result = sqlx::query(
             "INSERT INTO messages (message_id, contact, outgoing, body, sent_at, received_at, state) VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (message_id) DO NOTHING",
@@ -58,7 +62,7 @@ impl Store {
         .bind(message.sent_at)
         .bind(if message.received_at > 0 { message.received_at } else { now() })
         .bind(message.state as i64)
-        .execute(&self.pool)
+        .execute(executor)
         .await?;
         Ok(result.rows_affected() == 1)
     }

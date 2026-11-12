@@ -36,19 +36,21 @@ impl Store {
     }
 
     pub async fn mark_deleted(&self, message_id: &str) -> Result<bool> {
-        let changed = sqlx::query("UPDATE messages SET body = '' WHERE message_id = ?").bind(message_id).execute(&self.pool).await?.rows_affected();
+        let mut tx = self.pool.begin().await?;
+        let changed = sqlx::query("UPDATE messages SET body = '' WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?.rows_affected();
         if changed == 1 {
-            sqlx::query("DELETE FROM files WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
-            sqlx::query("DELETE FROM reactions WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
-            sqlx::query("DELETE FROM message_notes WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
-            sqlx::query("DELETE FROM pending_outbox WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
-            sqlx::query("DELETE FROM scheduled WHERE message_id = ?").bind(message_id).execute(&self.pool).await?;
+            sqlx::query("DELETE FROM files WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM reactions WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM message_notes WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM pending_outbox WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM scheduled WHERE message_id = ?").bind(message_id).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO message_deletions (message_id, deleted_at) VALUES (?, ?) ON CONFLICT (message_id) DO NOTHING")
                 .bind(message_id)
                 .bind(now())
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await?;
         }
+        tx.commit().await?;
         Ok(changed == 1)
     }
 
