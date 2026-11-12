@@ -1075,6 +1075,91 @@ async fn a_move_without_the_secret_is_ignored() {
     assert!(received_move(&dir.join("new-move")).is_none());
 }
 
+async fn move_outcome(events: &mut tokio::sync::broadcast::Receiver<Event>) -> MoveUpdate {
+    let wait = async {
+        loop {
+            if let Ok(Event::Move(update @ (MoveUpdate::Received | MoveUpdate::Failed))) = events.recv().await {
+                return update;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(20), wait).await.expect("the move ends")
+}
+
+async fn assert_nothing_moved(mut at_old: tokio::sync::broadcast::Receiver<Event>, dir: &std::path::Path) {
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    while let Ok(event) = at_old.try_recv() {
+        assert!(!matches!(event, Event::Move(MoveUpdate::Sent)), "the old phone is never told to erase itself");
+    }
+    assert!(received_move(&dir.join("new-move")).is_none());
+    assert_eq!(std::fs::read_dir(dir.join("new-move")).unwrap().count(), 0, "nothing of the copy stays on the new phone");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn leftovers_beside_an_earlier_copy_never_stay_with_the_next_one() {
+    let net = Net::new();
+    let dir = scratch("move-leftovers");
+    let old = device_with(&net, "Alice", Store::open(&dir.join("old.db")).await.unwrap(), [1; 32]).await;
+    old.set_move_dir(dir.join("old-move"));
+    let new = device_with(&net, "", Store::open(&dir.join("new.db")).await.unwrap(), [2; 32]).await;
+    new.set_move_dir(dir.join("new-move"));
+    std::fs::create_dir_all(dir.join("new-move")).unwrap();
+    for side in ["-wal", "-shm", "-journal"] {
+        std::fs::write(dir.join("new-move").join(format!("incoming.db.part{side}")), b"left by a check cut short").unwrap();
+    }
+    let mut at_new = new.events();
+
+    old.move_to(&new.invite_move().await.expect("invites")).await.expect("starts the move");
+    assert_eq!(move_outcome(&mut at_new).await, MoveUpdate::Received);
+    let mut left: Vec<_> = std::fs::read_dir(dir.join("new-move")).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    left.sort();
+    assert_eq!(left, ["incoming.db", "incoming.key"]);
+    let (copy, key) = received_move(&dir.join("new-move")).expect("a copy is ready");
+    let moved = device_with(&net, "Alice", Store::open(&copy).await.unwrap(), key).await;
+    assert_eq!(moved.device_id(), old.device_id());
+}
+
+async fn a_move_whose_offer_did_not_go_out(name: &str) -> (Arc<Net>, PathBuf, Arc<Core>, Arc<Core>, [u8; 32]) {
+    let net = Net::new();
+    let dir = scratch(name);
+    let old = device_with(&net, "Alice", Store::open(&dir.join("old.db")).await.unwrap(), [1; 32]).await;
+    old.set_move_dir(dir.join("old-move"));
+    let new = device_with(&net, "", Store::open(&dir.join("new.db")).await.unwrap(), [2; 32]).await;
+    new.set_move_dir(dir.join("new-move"));
+    let invite = new.invite_move().await.expect("invites");
+    net.set_direct(false);
+    assert!(old.move_to(&invite).await.is_err(), "the offer does not go out");
+    net.set_direct(true);
+    net.collect(&new).await;
+    let secret = ft_contacts::MoveInvite::from_link(&invite).unwrap().secret;
+    let proof = ft_contacts::move_proof(&secret, &id(&old), &id(&new));
+    (net, dir, old, new, proof)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_moved_copy_that_does_not_open_with_its_key_is_refused_and_the_old_phone_keeps_everything() {
+    let (_net, dir, old, new, proof) = a_move_whose_offer_did_not_go_out("move-wrong-key").await;
+    let (at_old, mut at_new) = (old.events(), new.events());
+    let copy = std::fs::read(dir.join("old-move").join("outgoing.db")).unwrap();
+    let offer = ft_protocol::Body::MoveOffer { proof, key: [9; 32], size: copy.len() as u64, hash: *blake3::hash(&copy).as_bytes() };
+    old.send_raw_to(&id(&new), &ft_protocol::Packet::new(offer)).await.expect("sends");
+    assert_eq!(move_outcome(&mut at_new).await, MoveUpdate::Failed);
+    assert_nothing_moved(at_old, &dir).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_moved_copy_that_is_not_a_database_is_refused_and_the_old_phone_keeps_everything() {
+    let (_net, dir, old, new, proof) = a_move_whose_offer_did_not_go_out("move-not-a-database").await;
+    let (at_old, mut at_new) = (old.events(), new.events());
+    let not_a_database = b"not a database at all".repeat(8);
+    let offer = ft_protocol::Body::MoveOffer { proof, key: [1; 32], size: not_a_database.len() as u64, hash: *blake3::hash(&not_a_database).as_bytes() };
+    for body in [offer, ft_protocol::Body::MoveChunk { index: 0, data: not_a_database }] {
+        old.send_raw_to(&id(&new), &ft_protocol::Packet::new(body)).await.expect("sends");
+    }
+    assert_eq!(move_outcome(&mut at_new).await, MoveUpdate::Failed);
+    assert_nothing_moved(at_old, &dir).await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn files_are_found_after_the_app_folder_moves() {
     let net = Net::new();

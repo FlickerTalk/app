@@ -432,9 +432,15 @@ impl Core {
         let move_dir = self.move_dir.get().cloned().context("no directory for moving")?;
         let files = self.files_dir()?.to_owned();
         let backup = vault.restore(&move_dir, &files, self.progress().await).await?;
+        let (copy, key) = crate::moving::received_move(&move_dir).context("the backup did not come down whole")?;
+        let Some(store) = crate::moving::checked_copy(&copy, &key).await else {
+            crate::moving::discard(&copy).await;
+            let _ = tokio::fs::remove_file(move_dir.join(crate::moving::MOVE_KEY)).await;
+            bail!("the backup does not open with its key");
+        };
         // The backup's Olm sessions are stale, the next start renews them
-        let (copy, _) = crate::moving::received_move(&move_dir).context("the backup did not come down whole")?;
-        Store::open(&copy).await?.set_setting(crate::SESSIONS_BEHIND, "1").await?;
+        store.set_setting(crate::SESSIONS_BEHIND, "1").await?;
+        store.close().await;
         let _ = self.events.send(Event::VaultChanged);
         Ok(backup)
     }

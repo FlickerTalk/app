@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use ft_contacts::{move_proof, MoveInvite};
+use ft_identity::Identity;
 use ft_protocol::{Body, Packet, FILE_CHUNK};
 use ft_storage::{Contact, Store};
 
@@ -188,11 +189,13 @@ impl Core {
         let part = dir.join(PARTIAL);
         let checked = part.clone();
         let (size, hash) = tokio::task::spawn_blocking(move || hash_file(&checked)).await??;
-        if size != incoming.size || hash != incoming.hash {
-            let _ = tokio::fs::remove_file(&part).await;
+        let copy = if size == incoming.size && hash == incoming.hash { checked_copy(&part, &incoming.key).await } else { None };
+        let Some(copy) = copy else {
+            discard(&part).await;
             let _ = self.events.send(Event::Move(MoveUpdate::Failed));
             return Ok(());
-        }
+        };
+        copy.close().await;
         write_key(&dir.join(MOVE_KEY), &incoming.key)?;
         tokio::fs::rename(&part, dir.join(MOVE_DB)).await?;
         self.transmit_direct(contact, &Packet::new(Body::MoveDone)).await?;
@@ -213,6 +216,31 @@ impl Core {
             let _ = self.events.send(Event::Move(MoveUpdate::Sent));
         }
         Ok(())
+    }
+}
+
+// Opening runs this app's migrations, so a copy made by a newer app is refused here too
+pub(crate) async fn checked_copy(copy: &Path, key: &[u8; 32]) -> Option<Store> {
+    // The copy was just written whole, so anything beside it is stale and must not be read into it
+    remove_side_files(copy).await;
+    let store = Store::open(copy).await.ok()?;
+    if matches!(store.identity().await, Ok(Some(saved)) if Identity::unseal(&saved.sealed, key).is_ok()) {
+        return Some(store);
+    }
+    store.close().await;
+    None
+}
+
+pub(crate) async fn discard(copy: &Path) {
+    let _ = tokio::fs::remove_file(copy).await;
+    remove_side_files(copy).await;
+}
+
+async fn remove_side_files(database: &Path) {
+    for side in ["-wal", "-shm", "-journal"] {
+        let mut name = database.as_os_str().to_owned();
+        name.push(side);
+        let _ = tokio::fs::remove_file(name).await;
     }
 }
 

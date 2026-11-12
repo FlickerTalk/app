@@ -737,25 +737,42 @@ impl From<MoveUpdate> for MoveEvent {
 const DATABASE: &str = "flickertalk.db";
 const KEY_FILE: &str = "storage.key";
 const MOVE_DIR: &str = "move";
+const REPLACED: &str = "replaced";
 
-fn database_files(dir: &Path) -> [PathBuf; 3] {
-    [dir.join(DATABASE), dir.join(format!("{DATABASE}-wal")), dir.join(format!("{DATABASE}-shm"))]
+fn database_files(dir: &Path) -> [PathBuf; 4] {
+    ["", "-wal", "-shm", "-journal"].map(|side| dir.join(format!("{DATABASE}{side}")))
 }
 
+// The database goes in last, so until then the copy left in move/ makes the next start finish the swap
 pub fn apply_move(dir: &Path) -> std::io::Result<bool> {
     let incoming = dir.join(MOVE_DIR);
-    let Some((database, key)) = ft_core::moving::received_move(&incoming) else { return Ok(false) };
-    for file in database_files(dir) {
-        let _ = std::fs::remove_file(file);
+    let replaced = incoming.join(REPLACED);
+    if let Some((database, key)) = ft_core::moving::received_move(&incoming) {
+        std::fs::create_dir_all(&replaced)?;
+        for file in database_files(dir).into_iter().chain([dir.join(KEY_FILE), dir.join(SEALED_KEY_FILE)]) {
+            set_aside(&file, &replaced)?;
+        }
+        let new_key = incoming.join(KEY_FILE);
+        write_private(&new_key, &key)?;
+        std::fs::rename(new_key, dir.join(KEY_FILE))?;
+        std::fs::rename(database, dir.join(DATABASE))?;
+    } else if !replaced.exists() {
+        return Ok(false);
     }
-    std::fs::rename(database, dir.join(DATABASE))?;
-    // Drop the old sealed key, the moved one replaces it and gets sealed on the next start
-    let _ = std::fs::remove_file(dir.join(SEALED_KEY_FILE));
-    std::fs::write(dir.join(KEY_FILE), key)?;
-    #[cfg(unix)]
-    std::fs::set_permissions(dir.join(KEY_FILE), std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     std::fs::remove_dir_all(incoming)?;
     Ok(true)
+}
+
+// Never overwrite what an earlier start already set aside
+fn set_aside(file: &Path, aside: &Path) -> std::io::Result<()> {
+    let to = aside.join(file.file_name().unwrap_or_default());
+    if to.try_exists()? {
+        return Ok(());
+    }
+    match std::fs::rename(file, to) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
 }
 
 pub fn erase(dir: &Path) -> std::io::Result<()> {
@@ -5378,13 +5395,13 @@ mod tests {
     #[test]
     fn a_moved_phone_is_erased() {
         let dir = scratch("wipe");
-        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key", "storage.key.sealed"] {
+        for name in ["flickertalk.db", "flickertalk.db-shm", "flickertalk.db-journal", "storage.key", "storage.key.sealed"] {
             std::fs::write(dir.join(name), b"x").unwrap();
         }
         std::fs::create_dir_all(dir.join("files").join("m1")).unwrap();
         std::fs::create_dir_all(dir.join("move")).unwrap();
         erase(&dir).unwrap();
-        for name in ["flickertalk.db", "flickertalk.db-shm", "storage.key", "storage.key.sealed", "files", "move"] {
+        for name in ["flickertalk.db", "flickertalk.db-shm", "flickertalk.db-journal", "storage.key", "storage.key.sealed", "files", "move"] {
             assert!(!dir.join(name).exists(), "{name} is gone");
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -5562,6 +5579,114 @@ mod tests {
         assert!(apply_move(&dir).unwrap());
         assert!(!dir.join("storage.key.sealed").exists());
         assert_eq!(storage_key(&dir, Some(&FakeVault::default())).unwrap(), [2; 32]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn a_phone_with_a_received_move(name: &str) -> PathBuf {
+        let dir = scratch(name);
+        std::fs::write(dir.join("flickertalk.db"), b"temporary").unwrap();
+        std::fs::write(dir.join("flickertalk.db-wal"), b"old wal").unwrap();
+        std::fs::write(dir.join("storage.key.sealed"), FakeVault::default().seal(&[1; 32]).unwrap()).unwrap();
+        std::fs::create_dir_all(dir.join("move")).unwrap();
+        std::fs::write(dir.join("move").join(ft_core::moving::MOVE_DB), b"moved").unwrap();
+        std::fs::write(dir.join("move").join(ft_core::moving::MOVE_KEY), [2; 32]).unwrap();
+        dir
+    }
+
+    fn assert_starts_with_the_moved_pair(dir: &Path) {
+        assert_eq!(opened_key(dir, Some(&FakeVault::default())).expect("starts"), [2; 32]);
+        assert_eq!(std::fs::read(dir.join("flickertalk.db")).unwrap(), b"moved");
+        for name in ["flickertalk.db-wal", "flickertalk.db-shm", "flickertalk.db-journal", "move"] {
+            assert!(!dir.join(name).exists(), "{name} is gone");
+        }
+        assert!(!holds(dir, b"temporary"), "the old database is gone once the new one is in");
+    }
+
+    fn holds(dir: &Path, needle: &[u8]) -> bool {
+        std::fs::read_dir(dir).into_iter().flatten().flatten().any(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                holds(&path, needle)
+            } else {
+                std::fs::read(&path).is_ok_and(|bytes| bytes.windows(needle.len()).any(|window| window == needle))
+            }
+        })
+    }
+
+    fn set_aside(dir: &Path, names: &[&str]) {
+        let aside = dir.join("move").join("replaced");
+        std::fs::create_dir_all(&aside).unwrap();
+        for name in names {
+            std::fs::rename(dir.join(name), aside.join(name)).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_stale_journal_of_the_old_database_never_meets_the_moved_one() {
+        let dir = a_phone_with_a_received_move("apply-journal");
+        std::fs::write(dir.join("flickertalk.db-journal"), b"old journal").unwrap();
+        assert_starts_with_the_moved_pair(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_key_that_cannot_be_written_in_place_never_loses_the_moved_pair() {
+        let dir = a_phone_with_a_received_move("apply-key-in-the-way");
+        std::fs::create_dir_all(dir.join("storage.key").join("in the way")).unwrap();
+        let _ = opened_key(&dir, Some(&FakeVault::default()));
+        let _ = std::fs::remove_dir_all(dir.join("storage.key"));
+        assert_starts_with_the_moved_pair(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_swap_that_fails_halfway_keeps_the_old_pair_until_a_start_can_finish_it() {
+        let dir = a_phone_with_a_received_move("apply-fails");
+        let in_the_way = dir.join("move").join("storage.key");
+        std::fs::create_dir_all(in_the_way.join("in the way")).unwrap();
+        let vault = FakeVault::default();
+        assert!(opened_key(&dir, Some(&vault)).is_err());
+        assert!(opened_key(&dir, Some(&vault)).is_err(), "and again on the next start");
+        assert!(holds(&dir, b"temporary"), "the old database is kept");
+        assert!(holds(&dir, &vault.seal(&[1; 32]).unwrap()), "with its key");
+        std::fs::remove_dir_all(&in_the_way).unwrap();
+        assert_starts_with_the_moved_pair(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_swap_cut_while_setting_the_old_pair_aside_is_finished_on_the_next_start() {
+        let dir = a_phone_with_a_received_move("apply-cut-aside");
+        set_aside(&dir, &["flickertalk.db"]);
+        assert_starts_with_the_moved_pair(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_swap_cut_while_writing_the_new_key_is_finished_on_the_next_start() {
+        let dir = a_phone_with_a_received_move("apply-cut-writing-key");
+        set_aside(&dir, &["flickertalk.db", "flickertalk.db-wal", "storage.key.sealed"]);
+        std::fs::write(dir.join("move").join("storage.key"), [2; 16]).unwrap();
+        assert_starts_with_the_moved_pair(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_swap_cut_after_the_new_key_went_in_is_finished_on_the_next_start() {
+        let dir = a_phone_with_a_received_move("apply-cut-key");
+        set_aside(&dir, &["flickertalk.db", "flickertalk.db-wal", "storage.key.sealed"]);
+        std::fs::write(dir.join("storage.key"), [2; 32]).unwrap();
+        assert_starts_with_the_moved_pair(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_swap_cut_after_the_new_database_went_in_only_clears_the_old_pair_away() {
+        let dir = a_phone_with_a_received_move("apply-cut-database");
+        set_aside(&dir, &["flickertalk.db", "flickertalk.db-wal", "storage.key.sealed"]);
+        std::fs::write(dir.join("storage.key"), [2; 32]).unwrap();
+        std::fs::rename(dir.join("move").join(ft_core::moving::MOVE_DB), dir.join("flickertalk.db")).unwrap();
+        assert_starts_with_the_moved_pair(&dir);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
