@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
+import { config, enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { IonButton, IonDatetime, IonSearchbar, IonSegment, IonSegmentButton, IonTextarea } from "@ionic/vue";
-import source from "./ChatThread.vue?raw";
+import threadSource from "./ChatThread.vue?raw";
+import composerSource from "./ChatComposer.vue?raw";
+import searchSource from "./ChatSearch.vue?raw";
+import actionsSource from "./MessageActions.vue?raw";
+import scheduleSource from "./SchedulePicker.vue?raw";
 import ChatThread from "./ChatThread.vue";
 import MessageBubble from "./MessageBubble.vue";
 import AppTile from "./AppTile.vue";
@@ -57,6 +61,8 @@ const IonModalStub = defineComponent({
   },
 });
 const stubs = { IonIcon: true, IonModal: IonModalStub };
+config.global.stubs = { ...config.global.stubs, ChatComposer: false, ChatSearch: false };
+const source = [threadSource, composerSource, searchSource, actionsSource, scheduleSource].map((one) => one.slice(one.indexOf("<style"))).join("\n");
 
 enableAutoUnmount(afterEach);
 

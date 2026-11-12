@@ -6,137 +6,74 @@ import {
   IonButtons,
   IonChip,
   IonContent,
-  IonDatetime,
-  IonFabButton,
-  IonFabList,
   IonFooter,
   IonHeader,
   IonIcon,
   IonItem,
   IonLabel,
-  IonList,
   IonModal,
-  IonSearchbar,
-  IonSegment,
-  IonSegmentButton,
   IonText,
-  IonTextarea,
-  IonTitle,
   IonToolbar,
 } from "@ionic/vue";
 import {
-  add,
   appsOutline,
-  constructOutline,
-  arrowUp,
   banOutline,
   chatbubblesOutline,
   checkmarkOutline,
   chevronDownOutline,
   chevronUpOutline,
   callOutline,
-  contractOutline,
-  expandOutline,
-  cameraOutline,
-  closeOutline,
-  documentOutline,
-  happyOutline,
-  imageOutline,
-  micOutline,
-  shareOutline,
-  arrowRedoOutline,
   extensionPuzzleOutline,
   gameControllerOutline,
   lockClosedOutline,
-  mailOutline,
-  openOutline,
-  trashOutline,
-  videocamOutline,
-  arrowUndoOutline,
-  pin,
   pinOutline,
-  pencilOutline,
-  timeOutline,
+  videocamOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "./Avatar.vue";
-import EmojiPicker from "./EmojiPicker.vue";
-import AppTile from "./AppTile.vue";
+import ChatApps from "./ChatApps.vue";
+import ChatComposer from "./ChatComposer.vue";
+import ChatSearch from "./ChatSearch.vue";
 import GamePermissions from "./GamePermissions.vue";
 import PermissionAsk from "./PermissionAsk.vue";
+import MessageActions from "./MessageActions.vue";
 import MessageBubble from "./MessageBubble.vue";
-import PluginSheet from "./PluginSheet.vue";
+import PluginWindow from "./PluginWindow.vue";
 import HookFrames from "./HookFrames.vue";
-import {
-  games as installedGames,
-  installed,
-  isLocked,
-  offered,
-  offeredOnce,
-  openersOf,
-  byPluginName,
-  hookIcon,
-  hookLabel,
-  pluginIcon,
-  pluginImage,
-  pluginName,
-  pluginsReady,
-  refreshPlugins,
-  refreshPremiumLock,
-  tools,
-  viewerOf,
-  type HandedFile,
-} from "../plugins";
-import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant } from "../games";
+import SchedulePicker from "./SchedulePicker.vue";
+import { hookIcon, hookLabel, isLocked, pluginIcon, pluginImage, pluginName, pluginsReady, refreshPlugins, refreshPremiumLock } from "../plugins";
 import {
   acceptContact,
   acceptFile,
   block,
   chat as chatOf,
-  forgetMessage,
-  forwardMessage,
-  grantPlugin,
-  installPlugin,
   isSupport,
   isTyping,
   loadMessages,
   markRead,
-  openFile,
-  pickFiles,
-  pinMessage,
-  pluginRef,
-  react,
-  readMessageFile,
   resend,
-  takePhoto,
   saveFile,
-  scheduleText,
   requestPending,
-  searchMessages,
-  sendFile,
-  sendPicked,
   sendText,
-  sendTyping,
   sessionOf,
-  shareMessage,
   declineContact,
-  deleteForEveryone,
   editMessage,
-  store,
-  type ChatMessage,
-  type PickedFile,
-  type PluginView,
-  type Sending,
-  PREMIUM_PAGE,
 } from "../core";
 import { useChatHooks } from "../chatHooks";
-import { cancelRecording, recording, startRecording, stopRecording } from "../recorder";
-import { closeOnBack, closeOnBackWhile } from "../back";
-import { missingPermission, withPermission, type PermissionNeed } from "../permissions";
-import { firstDayOfWeek, i18n, t } from "../i18n";
+import { closeOnBackWhile } from "../back";
+import { i18n, t } from "../i18n";
 import { takeSend } from "../pending-send";
 import { dayLabels } from "../days";
-import { useStickToEnd, watchViewport, type Scrollable } from "../viewport";
+import { useStickToEnd, type Scrollable } from "../viewport";
+import { useComposer } from "../composer";
+import { jumpTo, useChatSearch } from "../chatSearch";
+import { usePinnedMessages } from "../pinnedMessages";
+import { useVoiceMessage } from "../voiceMessage";
+import { usePluginWindow } from "../pluginWindow";
+import { useChatApps } from "../chatApps";
+import { useMessageActions } from "../messageActions";
+import { useOpenWith } from "../openWith";
+import { useSendLater } from "../sendLater";
 
 const props = withDefaults(defineProps<{ chatId: string; showBack?: boolean; play?: string; search?: boolean; split?: boolean; active?: boolean }>(), {
   showBack: false,
@@ -171,7 +108,6 @@ async function blockRequest() {
   await declineContact(props.chatId);
   await router.push("/tabs/chats");
 }
-const draft = ref("");
 const router = useRouter();
 
 // Android keeps the page mounted behind the home screen, a message there must not send a read receipt
@@ -185,6 +121,13 @@ function readOnReturn() {
   // behind a game only the latest line shows, read once the thread is back
   if (seen() && !(playing.value && !peeking.value)) void markRead(props.chatId);
 }
+
+const composerView = ref<InstanceType<typeof ChatComposer> | null>(null);
+const { draft, editing, replying, emoji, attaching, staged, composerError, cancelEdit, addEmoji, attach, pick, snap, sendStaged } = useComposer({
+  chatId: () => props.chatId,
+  isRequest: () => isRequest.value,
+  picker: () => composerView.value?.picker,
+});
 
 async function send() {
   const text = draft.value.trim();
@@ -206,654 +149,104 @@ async function send() {
   if (out.original) await hooks.keepOriginal(sent, out.original);
 }
 
-const editing = ref<ChatMessage | null>(null);
-watch(() => props.chatId, () => (editing.value = null));
-const canEdit = computed(() => {
-  const message = actingMessage.value;
-  return message?.mine === true && message.kind !== "file" && !message.deleted && message.status !== "unsent";
+const searchPanel = ref<InstanceType<typeof ChatSearch> | null>(null);
+const { searching, query, hits, searched, lit, openSearch, closeSearch, typeSearch, visitHit } = useChatSearch({
+  chatId: () => props.chatId,
+  asked: () => props.search,
+  active: () => props.active,
+  field: () => searchPanel.value?.searchbar?.$el,
 });
 
-function edit() {
-  const message = actingMessage.value;
-  closeActions();
-  if (!message) return;
-  replying.value = null;
-  editing.value = message;
-  draft.value = message.text;
-}
-
-function cancelEdit() {
-  editing.value = null;
-  draft.value = "";
-}
-
-async function eraseEverywhere() {
-  const id = acting.value;
-  closeActions();
-  folded.delete(id);
-  await deleteForEveryone(id).catch(() => {});
-}
-
-const replying = ref<ChatMessage | null>(null);
-watch(() => props.chatId, () => (replying.value = null));
-
-function reply() {
-  const id = acting.value;
-  closeActions();
-  replying.value = messages.value.find((message) => message.id === id) ?? null;
-}
-
-const scheduling = ref(false);
-const sendAt = ref("");
-// on iOS Ionic's datetime in a sheet not yet presented left its day grid invisible
-const schedulePresented = ref(false);
-
-// Ionic's datetime takes local time without seconds or zone
-function localInput(ms: number): string {
-  const date = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function openSchedule() {
-  if (!draft.value.trim() || editing.value) return;
-  sendAt.value = localInput(Date.now() + 3_600_000);
-  scheduling.value = true;
-}
-
-const soonest = computed(() => localInput(Date.now() + 60_000));
-const weekStart = computed(() => firstDayOfWeek(i18n.global.locale.value));
-// the core takes a year ahead, Ionic's picker would stop at the end of this year
-const latest = computed(() => localInput(Date.now() + 365 * 24 * 3_600_000));
-
-function pickTime(value: unknown) {
-  sendAt.value = typeof value === "string" ? value : "";
-}
-const canSchedule = computed(
-  () => schedulePresented.value && Boolean(sendAt.value) && new Date(sendAt.value).getTime() >= Date.now() + 60_000,
-);
-
-async function schedule() {
-  const text = draft.value.trim();
-  const when = new Date(sendAt.value).getTime();
-  if (!text || !canSchedule.value) return;
-  const answering = replying.value?.id;
-  draft.value = "";
-  emoji.value = false;
-  replying.value = null;
-  scheduling.value = false;
-  const out = await hooks.outgoing(text);
-  const sent = await scheduleText(props.chatId, out.text, when, answering).catch(() => undefined);
-  if (out.original) await hooks.keepOriginal(sent, out.original);
-}
-
-const searching = ref(false);
-const query = ref("");
-const hits = ref<ChatMessage[]>([]);
-const searched = ref(false);
-const lit = ref("");
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
-
-const searchbar = ref<{ $el: HTMLElement & { setFocus?: () => Promise<void>; componentOnReady?: () => Promise<unknown> } } | null>(null);
-
-function openSearch() {
-  searching.value = true;
-  query.value = "";
-  hits.value = [];
-  searched.value = false;
-  void nextTick(focusSearch);
-}
-
-// opened as the page comes in, Ionic's field isn't ready yet, focus it once the page is on screen
-let focusLater = false;
-async function focusSearch() {
-  const field = searchbar.value?.$el;
-  await field?.componentOnReady?.();
-  await field?.setFocus?.();
-  focusLater = searching.value && !field?.contains(document.activeElement);
-}
-watch(
-  () => props.active,
-  (on) => {
-    if (on && focusLater) void focusSearch();
-  },
-);
-
-function typeSearch(value: unknown) {
-  query.value = typeof value === "string" ? value : "";
-}
-
-function closeSearch() {
-  searching.value = false;
-  query.value = "";
-  hits.value = [];
-  searched.value = false;
-}
-
-watch(query, (now) => {
-  clearTimeout(searchTimer);
-  if (!now.trim()) {
-    hits.value = [];
-    searched.value = false;
-    return;
-  }
-  searchTimer = setTimeout(async () => {
-    const asked = now;
-    const found = await searchMessages(props.chatId, asked).catch(() => []);
-    if (query.value === asked) {
-      hits.value = found;
-      searched.value = true;
-    }
-  }, 250);
-});
-watch(() => props.chatId, closeSearch);
-watch(
-  () => props.search,
-  (asked) => {
-    if (asked) openSearch();
-  },
-  { immediate: true },
-);
-
-const hitText = (message: ChatMessage) => (message.kind === "file" ? message.file?.name ?? "" : message.text);
-
-function visitHit(id: string) {
-  jumpTo(id);
-  lit.value = id;
-  setTimeout(() => (lit.value === id && (lit.value = "")), 1600);
-}
-
-const pinned = computed(() => messages.value.filter((message) => message.pinned).reverse());
-const pinnedAt = ref(0);
-const shownPin = computed(() => pinned.value[pinnedAt.value % Math.max(pinned.value.length, 1)]);
-watch(pinned, (now) => (pinnedAt.value = now.length ? pinnedAt.value % now.length : 0));
-
-async function togglePin() {
-  const id = acting.value;
-  const was = actingMessage.value?.pinned === true;
-  closeActions();
-  await pinMessage(id, !was).catch(() => {});
-}
-
-function visitPin() {
-  const target = shownPin.value;
-  if (!target) return;
-  jumpTo(target.id);
-  pinnedAt.value = (pinnedAt.value + 1) % pinned.value.length;
-}
-
-const pinText = (message: ChatMessage) => (message.kind === "file" ? message.file?.name ?? "" : message.text);
-
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
-const actingMessage = computed(() => messages.value.find((message) => message.id === acting.value));
-
-async function reactWith(emoji: string) {
-  const id = acting.value;
-  const same = actingMessage.value?.reactions?.mine === emoji;
-  closeActions();
-  await react(props.chatId, id, same ? null : emoji).catch(() => {});
-}
-
-const replyingText = computed(() => (replying.value?.kind === "file" ? replying.value.file?.name ?? "" : replying.value?.text ?? ""));
-
-function jumpTo(id: string) {
-  const target = document.querySelector(`[data-message="${CSS.escape(id)}"]`);
-  target?.scrollIntoView({ block: "center", behavior: "smooth" });
-}
-
-// no typing signal to a stranger still in the requests
-watch(draft, (now, before) => {
-  if (now.trim() && now !== before && !isRequest.value) void sendTyping(props.chatId);
-});
+const { pinned, pinnedAt, shownPin, visitPin, pinText } = usePinnedMessages(() => messages.value);
 
 const peerStatus = computed(() =>
   isTyping(props.chatId) ? t("chat.typing") : chat.value?.connected ? t("chat.direct") : t("chat.notConnected"),
 );
 
-const emoji = ref(false);
-
-function addEmoji(one: string) {
-  draft.value += one;
-}
-
-const picker = ref<HTMLInputElement | null>(null);
-
-async function attach(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const files = Array.from(input.files ?? []);
-  input.value = "";
-  for (const file of files) {
-    await sendFile(props.chatId, file);
-  }
-}
-
-// never the WebView's file input, it takes the user out of the app with no way back
-const attaching = ref(false);
-
-async function pick(accept: string) {
-  attaching.value = false;
-  try {
-    for (const file of await pickFiles(accept)) {
-      await sendPicked(props.chatId, file);
-    }
-  } catch {
-    picker.value?.click();
-  }
-}
-
-async function snap() {
-  attaching.value = false;
-  composerError.value = "";
-  let taken: Awaited<ReturnType<typeof takePhoto>>;
-  try {
-    taken = await takePhoto();
-  } catch {
-    composerError.value = t("chat.cannotTakePhoto");
-    return;
-  }
-  for (const file of taken) {
-    await sendPicked(props.chatId, file);
-  }
-}
-
-const now = ref(Date.now());
-let ticking: ReturnType<typeof setInterval> | undefined;
-const elapsed = computed(() => {
-  const seconds = Math.max(0, Math.floor((now.value - recording.startedAt) / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-});
-
-const composerError = ref("");
-
-async function record() {
-  composerError.value = "";
-  const started = await startRecording();
-  if (started !== "recording") {
-    composerError.value = started === "unsupported" ? t("chat.cannotRecordHere") : t("chat.cannotRecord");
-    return;
-  }
-  now.value = Date.now();
-  ticking = setInterval(() => (now.value = Date.now()), 500);
-}
-
-async function sendVoice() {
-  clearInterval(ticking);
-  const voice = await stopRecording();
-  if (voice) await sendFile(props.chatId, voice);
-}
-
-function discardVoice() {
-  clearInterval(ticking);
-  cancelRecording();
-}
-
-onUnmounted(() => {
-  if (recording.active) discardVoice();
-});
+const { recording, elapsed, record, sendVoice, discardVoice } = useVoiceMessage({ chatId: () => props.chatId, error: composerError });
 
 const saved = reactive(new Set<string>());
 
-const acting = ref("");
-const folded = reactive(new Set<string>());
-const forwarding = ref(false);
-const erasing = ref(false);
-
-const others = computed(() => store.chats.filter((one) => one.id !== props.chatId));
-
-function act(id: string) {
-  acting.value = id;
-  forwarding.value = false;
-  erasing.value = false;
-  openingWith.value = false;
-}
-
-function closeActions() {
-  acting.value = "";
-  forwarding.value = false;
-  erasing.value = false;
-  openingWith.value = false;
-}
-
-function fold() {
-  const id = acting.value;
-  if (folded.has(id)) folded.delete(id);
-  else folded.add(id);
-  closeActions();
-}
-
-async function share() {
-  const id = acting.value;
-  closeActions();
-  await shareMessage(id).catch(() => {});
-}
-
-async function erase() {
-  const id = acting.value;
-  closeActions();
-  folded.delete(id);
-  await forgetMessage(id).catch(() => {});
-  await loadMessages(props.chatId);
-}
-
-async function forwardTo(contact: string) {
-  const id = acting.value;
-  closeActions();
-  await forwardMessage(id, contact).catch(() => {});
-}
-
-const showApps = ref(false);
-type Opening = {
-  id: string;
-  name: string;
-  sending: Sending;
-  live: boolean;
-  text?: string;
-  file?: HandedFile;
-  reference?: string;
-  game?: boolean;
-};
-const plugin = ref<(Opening & { contact: string; opening: number }) | null>(null);
-const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
-// every way out goes through the sheet's close(), so the other side hears the plugin left
-const leaving = ref(false);
-let next: typeof plugin.value = null;
-let openings = 0;
-
-function openPlugin(chosen: Opening) {
-  const opening = { ...chosen, contact: props.chatId, opening: (openings += 1) };
-  if (!plugin.value) {
-    plugin.value = opening;
-    return;
-  }
-  next = opening;
-  closePlugin();
-}
-
-function closePlugin() {
-  if (!plugin.value || leaving.value) return;
-  answerNeed(false);
-  leaving.value = true;
-  if (sheet.value) void sheet.value.close();
-  else pluginClosed();
-}
-
-function pluginClosed() {
-  leaving.value = false;
-  plugin.value = next;
-  next = null;
-}
+const pluginView = ref<InstanceType<typeof PluginWindow> | null>(null);
+const {
+  plugin,
+  leaving,
+  openPlugin,
+  closePlugin,
+  pluginClosed,
+  playing,
+  peeking,
+  lastFromThem,
+  peek,
+  pluginDone,
+  openChatFromPlugin,
+  needing,
+  askingFor,
+  askingView,
+  answerNeed,
+  allowedToRead,
+  needFromApp,
+  fromPlugin,
+  stage,
+} = usePluginWindow({
+  chatId: () => props.chatId,
+  active: () => props.active,
+  split: () => props.split,
+  messages: () => messages.value,
+  sheet: () => pluginView.value?.sheet,
+  gameArea: () => pluginView.value?.gameArea,
+  scrollToEnd,
+  draft,
+  staged,
+});
 defineExpose({ leave: closePlugin, openSearch });
 
-// Back stays taken while the plugin says goodbye, or a second press leaves the chat
-const holding = () => props.active && leaving.value;
-let releaseHold: (() => void) | undefined;
-function holdBack() {
-  releaseHold = holding() ? closeOnBack(holdBack) : undefined;
-}
-watch(holding, (now) => {
-  releaseHold?.();
-  releaseHold = undefined;
-  if (now) holdBack();
+const { showApps, appsTab, asking, toPremium, useApp, openApps, inviteToPlaying, playGame, allowGame, invite, moreGames, loaded } = useChatApps({
+  messages: () => messages.value,
+  play: () => props.play,
+  draft,
+  error: composerError,
+  plugin,
+  openPlugin,
 });
-onUnmounted(() => releaseHold?.());
 
-const playing = computed(() => Boolean(plugin.value?.game) && !leaving.value);
-const peeking = ref(false);
-const seenUpTo = ref(0);
-const lastFromThem = computed(() =>
-  messages.value
-    .slice(seenUpTo.value)
-    .filter((one) => !one.mine)
-    .at(-1),
-);
-watch(playing, async (now) => {
-  peeking.value = false;
-  seenUpTo.value = messages.value.length;
-  if (now) return;
-  void markRead(props.chatId);
-  await scrollToEnd();
+const {
+  acting,
+  folded,
+  forwarding,
+  erasing,
+  openingWith,
+  others,
+  actingMessage,
+  canEdit,
+  act,
+  closeActions,
+  fold,
+  share,
+  erase,
+  forwardTo,
+  reactWith,
+  togglePin,
+  reply,
+  edit,
+  eraseEverywhere,
+} = useMessageActions({ chatId: () => props.chatId, messages: () => messages.value, draft, editing, replying });
+
+const { openers, viewable, openWith, openElsewhere, tapFile } = useOpenWith({
+  messages: () => messages.value,
+  acting,
+  closeActions,
+  openPlugin,
+  allowedToRead,
+  toPremium,
 });
-async function peek() {
-  peeking.value = !peeking.value;
-  seenUpTo.value = messages.value.length;
-  if (peeking.value) {
-    await markRead(props.chatId);
-    await scrollToEnd();
-  }
-}
-// with the keyboard gone, show the game from its top again
-const gameArea = ref<HTMLElement | null>(null);
-let keyboardWasOpen = false;
-const unwatchKeyboard = watchViewport({
-  before: () => (keyboardWasOpen = document.documentElement.classList.contains("ft-keyboard-open")),
-  after: () => {
-    if (keyboardWasOpen && !document.documentElement.classList.contains("ft-keyboard-open") && gameArea.value) gameArea.value.scrollTop = 0;
-  },
-});
-onUnmounted(unwatchKeyboard);
-
-// the done that follows a staged file doesn't end the game
-let stagedByGame = false;
-function pluginDone() {
-  if (plugin.value?.game && stagedByGame) {
-    stagedByGame = false;
-    return;
-  }
-  closePlugin();
-}
-
-// pushing the address already on screen does nothing, close the window instead
-function openChatFromPlugin(contact: string) {
-  if (contact === props.chatId) closePlugin();
-  else void router.push(`/chat/${contact}`);
-}
-
-const needing = ref<PermissionNeed | null>(null);
-const openView = computed(() => installed.value.find((one) => one.id === plugin.value?.id));
-function answerNeed(allowed: boolean) {
-  const need = needing.value;
-  needing.value = null;
-  need?.answer(allowed);
-}
 
 closeOnBackWhile(() => props.active && emoji.value, () => (emoji.value = false));
 closeOnBackWhile(() => props.active && Boolean(acting.value), () => closeActions());
 closeOnBackWhile(() => props.active && showApps.value, () => (showApps.value = false));
 closeOnBackWhile(() => props.active && Boolean(plugin.value) && !leaving.value, () => closePlugin());
 closeOnBackWhile(() => props.active && Boolean(needing.value), () => answerNeed(false));
-
-function toPremium() {
-  void router.push(PREMIUM_PAGE);
-}
-
-function useApp(id: string) {
-  const chosen = installed.value.find((one) => one.id === id);
-  if (!chosen) return;
-  showApps.value = false;
-  if (isLocked(chosen)) return toPremium();
-  openPlugin({ id: chosen.id, name: pluginName(chosen), sending: chosen.granted.send, live: Boolean(chosen.granted.live) });
-}
-
-type AppsTab = "tools" | "games";
-const appsTab = ref<AppsTab>("tools");
-const APPS_TABS = [
-  { id: "tools", icon: constructOutline, label: "apps.tools" },
-  { id: "games", icon: gameControllerOutline, label: "apps.games" },
-] as const;
-const asking = ref<{ id: string; name: string; size?: number; icon?: string; image?: string } | null>(null);
 closeOnBackWhile(() => props.active && Boolean(asking.value), () => (asking.value = null));
-
-function openApps() {
-  void Promise.all([refreshPlugins(), refreshPremiumLock()]);
-  appsTab.value = tools.value.length ? "tools" : "games";
-  showApps.value = true;
-}
-
-function openGame(game: PluginView) {
-  openPlugin({ id: game.id, name: pluginName(game), sending: game.granted.send, live: Boolean(game.granted.live), game: true });
-}
-
-function inviteToPlaying() {
-  const game = installed.value.find((one) => one.id === plugin.value?.id);
-  if (game) invite(game);
-}
-
-// only games the signed catalogue lists, never a tool
-function playGame(id: string) {
-  showApps.value = false;
-  composerError.value = "";
-  const here = installed.value.find((one) => one.id === id && isGame(one));
-  if (here) {
-    if (needsGameGrant(here)) asking.value = { id, name: pluginName(here), icon: pluginIcon(here), image: pluginImage(here) };
-    else openGame(here);
-    return;
-  }
-  const listed = offered.value.find((one) => one.id === id && isGame(one));
-  if (listed) asking.value = { id, name: pluginName(listed), size: listed.size, icon: pluginIcon(listed), image: pluginImage(listed) };
-}
-
-async function allowGame() {
-  const ask = asking.value;
-  asking.value = null;
-  if (!ask) return;
-  if (ask.size !== undefined) {
-    try {
-      await installPlugin(ask.id);
-    } catch {
-      composerError.value = t("games.installFailed");
-      return;
-    }
-  }
-  await refreshPlugins();
-  let game = installed.value.find((one) => one.id === ask.id && isGame(one));
-  if (game && needsGameGrant(game)) {
-    await grantPlugin(game.id, gameGrant(game)).catch(() => undefined);
-    await refreshPlugins();
-    game = installed.value.find((one) => one.id === ask.id && isGame(one));
-  }
-  if (game && !needsGameGrant(game)) openGame(game);
-}
-
-function invite(game: PluginView) {
-  const url = gameUrl(game.id);
-  showApps.value = false;
-  if (!url) return;
-  // the receiver's Play button names the game in their own language
-  const text = t("games.inviteText", { game: pluginName(game), url });
-  draft.value = draft.value.trim() ? `${draft.value.trimEnd()} ${text}` : text;
-}
-
-function moreGames() {
-  showApps.value = false;
-  void router.push("/tabs/apps?show=games");
-}
-
-// opening a chat alone fetches nothing from the catalogue
-const pluginsLoaded = ref(false);
-const invitedToUnknown = computed(
-  () =>
-    pluginsLoaded.value &&
-    messages.value.some((message) => {
-      if (message.kind === "file") return false;
-      const id = gameIdFromText(message.text ?? "");
-      return Boolean(id) && !installed.value.some((one) => one.id === id && isGame(one));
-    }),
-);
-watch(invitedToUnknown, (now) => {
-  if (now) void offeredOnce();
-});
-
-const openingWith = ref(false);
-const openers = computed(() => {
-  const message = messages.value.find((one) => one.id === acting.value);
-  return message ? byPluginName(openersOf(installed.value, message)) : [];
-});
-
-async function openWith(id: string) {
-  const message = messages.value.find((one) => one.id === acting.value);
-  let chosen = installed.value.find((one) => one.id === id);
-  closeActions();
-  if (!message || !chosen) return;
-  if (isLocked(chosen)) return toPremium();
-  if (message.kind !== "file" && !chosen.granted.messages) chosen = await allowedToRead(chosen);
-  if (chosen) await openIn(chosen, message);
-}
-
-const askingFor = ref<PluginView | null>(null);
-const askingView = computed(() => askingFor.value ?? openView.value);
-
-function allowedToRead(chosen: PluginView): Promise<PluginView | undefined> {
-  const line = missingPermission(chosen, "messages");
-  if (!line) return Promise.resolve(undefined);
-  return new Promise((resolve) => {
-    let answered = false;
-    askingFor.value = chosen;
-    needing.value = {
-      ...line,
-      answer: async (allowed) => {
-        if (answered) return;
-        answered = true;
-        if (!allowed) return resolve(undefined);
-        try {
-          await grantPlugin(chosen.id, withPermission(chosen, "messages", true));
-          const now = (await refreshPlugins()).find((one) => one.id === chosen.id);
-          resolve(now?.granted.messages ? now : undefined);
-        } catch {
-          resolve(undefined);
-        }
-      },
-    };
-  });
-}
-
-function needFromApp(need: PermissionNeed) {
-  askingFor.value = null;
-  needing.value = need;
-}
-
-function viewerFor(message: ChatMessage | undefined): PluginView | undefined {
-  const viewer = message?.kind === "file" ? viewerOf(installed.value, message.file?.mime || "application/octet-stream") : undefined;
-  return viewer && !isLocked(viewer) ? viewer : undefined;
-}
-const viewable = computed(() => Boolean(viewerFor(messages.value.find((one) => one.id === acting.value))));
-
-async function tapFile(id: string) {
-  const message = messages.value.find((one) => one.id === id);
-  const viewer = viewerFor(message);
-  if (message && viewer && (await openIn(viewer, message))) return;
-  await openFile(id);
-}
-
-async function openElsewhere() {
-  const id = acting.value;
-  closeActions();
-  await openFile(id);
-}
-
-async function openIn(chosen: PluginView, message: ChatMessage): Promise<boolean> {
-  try {
-    // a drive-granted plugin gets the ref, the bytes never cross the frame
-    const file =
-      message.kind !== "file"
-        ? undefined
-        : chosen.granted.drive
-          ? { name: message.file?.name ?? "", mime: message.file?.mime ?? "application/octet-stream", data: "" }
-          : await readMessageFile(message.id);
-    const reference = await pluginRef(chosen.id, message.id).catch(() => undefined);
-    openPlugin({
-      id: chosen.id,
-      name: pluginName(chosen),
-      sending: chosen.granted.send,
-      live: Boolean(chosen.granted.live),
-      text: message.kind === "file" ? undefined : message.text,
-      file,
-      reference,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const hooks = useChatHooks({
   conversation: () => props.chatId,
@@ -877,26 +270,14 @@ async function runMessageHook(id: string) {
   if (chosen) await hooks.noteMessage(chosen, message);
 }
 
-// a plugin proposes, the user sends
-function fromPlugin(text: string) {
-  draft.value = text;
-  if (!plugin.value?.game) closePlugin();
-}
-
-const staged = ref<PickedFile | null>(null);
-
-function stage(file: PickedFile) {
-  staged.value = file;
-  if (plugin.value?.game) stagedByGame = true;
-  else closePlugin();
-}
-
-async function sendStaged() {
-  const file = staged.value;
-  if (!file) return;
-  staged.value = null;
-  await sendPicked(props.chatId, file);
-}
+const { scheduling, sendAt, schedulePresented, soonest, latest, weekStart, canSchedule, openSchedule, pickTime, schedule } = useSendLater({
+  chatId: () => props.chatId,
+  draft,
+  emoji,
+  editing,
+  replying,
+  hooks,
+});
 
 watch(
   () => props.active && props.chatId,
@@ -916,34 +297,13 @@ async function resendMessage(id: string) {
   await resend(id).catch(() => {});
 }
 
-// the page drops ?play= from the address as soon as it hands it over
-let toPlay = props.play;
 onMounted(async () => {
   document.addEventListener("visibilitychange", onVisible);
   // reading the list again here cost 30–75 ms mid-transition
   await Promise.all([pluginsReady(), refreshPremiumLock()]);
-  pluginsLoaded.value = true;
-  if (toPlay) playGame(toPlay);
-  toPlay = undefined;
+  loaded();
 });
-watch(
-  () => props.play,
-  (id) => {
-    if (!id) return;
-    if (pluginsLoaded.value) playGame(id);
-    else toPlay = id;
-  },
-);
 onUnmounted(() => document.removeEventListener("visibilitychange", onVisible));
-// split view only, a chat page's chatId follows the address of a page pushed over it
-watch(
-  () => props.chatId,
-  () => {
-    if (!props.split || !props.active) return;
-    next = null;
-    closePlugin();
-  },
-);
 
 function onVisible() {
   if (document.visibilityState !== "visible") return;
@@ -1031,102 +391,39 @@ watch(
       </ion-toolbar>
     </ion-header>
 
-    <div v-if="searching" class="ft-search" data-test="search-panel">
-      <div class="ft-search__row">
-        <ion-searchbar
-          ref="searchbar"
-          class="ft-search__input"
-          :model-value="query"
-          data-test="search-input"
-          :placeholder="$t('chat.searchIn')"
-          :aria-label="$t('chat.searchIn')"
-          enterkeyhint="search"
-          @update:model-value="typeSearch"
-        />
-        <ion-button fill="clear" color="medium" data-test="close-search" :aria-label="$t('chat.closeSearch')" @click="closeSearch">
-          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
-        </ion-button>
-      </div>
-      <ul v-if="hits.length" class="ft-search__hits" data-test="search-hits">
-        <li v-for="hit in hits" :key="hit.id">
-          <button type="button" class="ft-search__hit" :data-test="`hit-${hit.id}`" @click="visitHit(hit.id)">
-            <span class="ft-search__who">{{ hit.mine ? $t("chat.you") : chat.name }} · {{ hit.time }}</span>
-            <span class="ft-search__text" dir="auto">{{ hitText(hit) }}</span>
-          </button>
-        </li>
-      </ul>
-      <p v-else-if="searched" class="ft-search__none" data-test="search-none">{{ $t("chat.nothingFound") }}</p>
-    </div>
+    <ChatSearch
+      v-if="searching"
+      ref="searchPanel"
+      :query="query"
+      :hits="hits"
+      :searched="searched"
+      :contact-name="chat.name"
+      @type="typeSearch"
+      @close="closeSearch"
+      @visit="visitHit"
+    />
     <button v-if="shownPin" type="button" class="ft-pinned" data-test="pinned-strip" :aria-label="$t('chat.pinned')" @click="visitPin">
       <ion-icon :icon="pinOutline" aria-hidden="true" />
       <span class="ft-pinned__text" dir="auto">{{ pinText(shownPin) }}</span>
       <span v-if="pinned.length > 1" class="ft-pinned__count">{{ (pinnedAt % pinned.length) + 1 }}/{{ pinned.length }}</span>
     </button>
 
-    <section v-if="plugin && plugin.game" v-show="!leaving" class="ft-room" data-test="game-room" :aria-label="plugin.name">
-      <ion-toolbar class="ft-room__bar" data-test="game-bar">
-        <ion-buttons slot="start">
-          <ion-button data-test="close-game" :aria-label="$t('common.close')" @click="closePlugin">
-            <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
-          </ion-button>
-        </ion-buttons>
-        <ion-title size="small"><span class="ft-title">{{ plugin.name }}</span></ion-title>
-        <ion-buttons v-if="gameUrl(plugin.id)" slot="end">
-          <ion-button data-test="game-invite" :aria-label="$t('games.invite')" @click="inviteToPlaying">
-            <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
-          </ion-button>
-        </ion-buttons>
-      </ion-toolbar>
-      <div v-show="!peeking" ref="gameArea" class="ft-room__game" data-test="game-area">
-        <PluginSheet
-          ref="sheet"
-          :key="plugin.opening"
-          :plugin="plugin"
-          :contact="plugin.contact"
-          :sending="plugin.sending"
-          :live="plugin.live"
-          :session="sessionOf(plugin.contact)"
-          @text="fromPlugin"
-          @attach="stage"
-          @open-chat="openChatFromPlugin"
-          @done="pluginDone"
-          @closed="pluginClosed"
-          @needs="needFromApp"
-        />
-      </div>
-    </section>
-
-    <div v-if="plugin && !plugin.game" v-show="!leaving" class="ft-app" role="dialog" :aria-label="plugin.name">
-      <ion-toolbar class="ft-app__bar" data-test="app-bar">
-        <ion-buttons slot="start">
-          <ion-button data-test="close-app" :aria-label="$t('common.back')" @click="closePlugin">
-            <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
-          </ion-button>
-        </ion-buttons>
-        <ion-title size="small"><span class="ft-title">{{ plugin.name }}</span></ion-title>
-      </ion-toolbar>
-      <div class="ft-app__body">
-        <PluginSheet
-          ref="sheet"
-          :key="plugin.opening"
-          :plugin="plugin"
-          :contact="plugin.contact"
-          :sending="plugin.sending"
-          :live="plugin.live"
-          :text="plugin.text"
-          :file="plugin.file"
-          :reference="plugin.reference"
-          :session="sessionOf(plugin.contact)"
-          fill
-          @text="fromPlugin"
-          @attach="stage"
-          @open-chat="openChatFromPlugin"
-          @done="pluginDone"
-          @closed="pluginClosed"
-          @needs="needFromApp"
-        />
-      </div>
-    </div>
+    <PluginWindow
+      v-if="plugin"
+      v-show="!leaving"
+      ref="pluginView"
+      :plugin="plugin"
+      :peeking="peeking"
+      :session="sessionOf(plugin.contact)"
+      @close="closePlugin"
+      @invite="inviteToPlaying"
+      @text="fromPlugin"
+      @attach="stage"
+      @open-chat="openChatFromPlugin"
+      @done="pluginDone"
+      @closed="pluginClosed"
+      @needs="needFromApp"
+    />
 
     <!-- expand-to-scroll off, so a long list never gets stuck -->
     <ion-modal
@@ -1139,55 +436,7 @@ watch(
       :expand-to-scroll="false"
       @did-dismiss="showApps = false"
     >
-      <ion-header>
-        <ion-toolbar>
-          <ion-segment :value="appsTab" @ion-change="appsTab = $event.detail.value === 'games' ? 'games' : 'tools'">
-            <ion-segment-button v-for="tab in APPS_TABS" :key="tab.id" :value="tab.id" layout="icon-start" :data-test="`apps-tab-${tab.id}`">
-              <ion-icon :icon="tab.icon" aria-hidden="true" />
-              <ion-label>{{ $t(tab.label) }}</ion-label>
-            </ion-segment-button>
-          </ion-segment>
-        </ion-toolbar>
-      </ion-header>
-      <ion-content class="ft-apps-sheet__content">
-        <template v-if="appsTab === 'tools'">
-          <div v-if="tools.length" class="ft-app-grid" data-test="apps-sheet-tools">
-            <AppTile
-              v-for="one in tools"
-              :key="one.id"
-              :name="pluginName(one)"
-              :icon="pluginIcon(one)"
-              :image="pluginImage(one)"
-              :badge="isLocked(one) ? 'lock' : undefined"
-              :data-test="`app-${one.id}`"
-              @tap="useApp(one.id)"
-            />
-          </div>
-          <p v-else class="ft-apps-sheet__note">{{ $t("apps.noTools") }}</p>
-        </template>
-        <template v-else>
-          <div v-if="installedGames.length" class="ft-app-grid" data-test="games-sheet">
-            <AppTile
-              v-for="one in installedGames"
-              :key="one.id"
-              :name="pluginName(one)"
-              :icon="pluginIcon(one)"
-              :image="pluginImage(one)"
-              :label="gameUrl(one.id) ? $t('apps.inviteLabel', { name: pluginName(one) }) : undefined"
-              :data-test="`game-${one.id}`"
-              @tap="playGame(one.id)"
-              @hold="invite(one)"
-            />
-          </div>
-          <p v-else class="ft-apps-sheet__note" data-test="games-sheet">{{ $t("apps.noGames") }}</p>
-          <ion-list lines="none">
-            <ion-item button :detail="false" lines="none" data-test="more-games-link" @click="moreGames">
-              <ion-icon slot="start" :icon="add" color="primary" aria-hidden="true" />
-              <ion-label color="primary">{{ $t("apps.moreGames") }}</ion-label>
-            </ion-item>
-          </ion-list>
-        </template>
-      </ion-content>
+      <ChatApps v-model:selected="appsTab" @use="useApp" @play="playGame" @invite="invite" @more="moreGames" />
     </ion-modal>
 
     <PermissionAsk
@@ -1252,115 +501,31 @@ watch(
       </div>
     </ion-content>
 
-    <div v-if="acting" class="ft-actions" data-test="actions" @click.self="closeActions">
-      <div v-if="forwarding" class="ft-actions__bar">
-        <span class="ft-actions__title">{{ $t("chat.forwardTo") }}</span>
-        <button
-          v-for="one in others"
-          :key="one.id"
-          type="button"
-          class="ft-actions__to"
-          :data-test="`to-${one.id}`"
-          dir="auto"
-          @click="forwardTo(one.id)"
-        >
-          {{ one.name }}
-        </button>
-        <span v-if="!others.length" class="ft-actions__title">—</span>
-      </div>
-      <div v-else-if="openingWith" class="ft-actions__bar">
-        <span class="ft-actions__title">{{ $t("chat.openWithPlugin") }}</span>
-        <button
-          v-for="one in openers"
-          :key="one.id"
-          type="button"
-          class="ft-actions__to"
-          :data-test="`open-with-${one.id}`"
-          @click="openWith(one.id)"
-        >
-          <ion-icon v-if="isLocked(one)" :icon="lockClosedOutline" :aria-label="$t('plugins.locked')" />
-          {{ pluginName(one) }}
-        </button>
-        <button v-if="viewable" type="button" class="ft-actions__to" data-test="open-elsewhere" @click="openElsewhere">
-          <ion-icon :icon="openOutline" aria-hidden="true" /> {{ $t("chat.otherApp") }}
-        </button>
-      </div>
-      <div v-else class="ft-actions__bar">
-        <span v-if="!isRequest" class="ft-actions__emoji" role="group" :aria-label="$t('chat.react')">
-          <button
-            v-for="emoji in QUICK_REACTIONS"
-            :key="emoji"
-            type="button"
-            class="ft-actions__react"
-            :class="{ 'is-active': actingMessage?.reactions?.mine === emoji }"
-            :data-test="`react-${emoji}`"
-            :aria-label="actingMessage?.reactions?.mine === emoji ? $t('chat.unreact') : $t('chat.reactWith', { emoji })"
-            :aria-pressed="actingMessage?.reactions?.mine === emoji"
-            @click="reactWith(emoji)"
-          >
-            {{ emoji }}
-          </button>
-        </span>
-        <ion-button v-if="canEdit" fill="clear" color="medium" data-test="edit" :aria-label="$t('chat.edit')" @click="edit">
-          <ion-icon slot="icon-only" :icon="pencilOutline" aria-hidden="true" />
-        </ion-button>
-        <ion-button
-          fill="clear"
-          :color="actingMessage?.pinned ? 'primary' : 'medium'"
-          data-test="pin"
-          :aria-label="$t(actingMessage?.pinned ? 'chat.unpin' : 'chat.pin')"
-          @click="togglePin"
-        >
-          <ion-icon slot="icon-only" :icon="actingMessage?.pinned ? pin : pinOutline" aria-hidden="true" />
-        </ion-button>
-        <ion-button v-if="!isRequest" fill="clear" color="medium" data-test="reply" :aria-label="$t('chat.reply')" @click="reply">
-          <ion-icon slot="icon-only" :icon="arrowUndoOutline" aria-hidden="true" />
-        </ion-button>
-        <button type="button" class="ft-round ft-round--ghost" data-test="fold" :aria-label="$t(folded.has(acting) ? 'chat.unfold' : 'chat.fold')" @click="fold">
-          <ion-icon :icon="folded.has(acting) ? expandOutline : contractOutline" aria-hidden="true" />
-        </button>
-        <button type="button" class="ft-round ft-round--ghost" data-test="forward" :aria-label="$t('chat.forward')" @click="forwarding = true">
-          <ion-icon :icon="arrowRedoOutline" aria-hidden="true" />
-        </button>
-        <button type="button" class="ft-round ft-round--ghost" data-test="share" :aria-label="$t('chat.share')" @click="share">
-          <ion-icon :icon="shareOutline" aria-hidden="true" />
-        </button>
-        <button
-          v-if="openers.length"
-          type="button"
-          class="ft-round ft-round--ghost"
-          data-test="open-with"
-          :aria-label="$t('chat.openWithPlugin')"
-          @click="openingWith = true"
-        >
-          <ion-icon :icon="extensionPuzzleOutline" aria-hidden="true" />
-        </button>
-        <button
-          v-if="!erasing"
-          type="button"
-          class="ft-round ft-round--ghost ft-actions__danger"
-          data-test="delete"
-          :aria-label="$t('chat.delete')"
-          @click="erasing = true"
-        >
-          <ion-icon :icon="trashOutline" aria-hidden="true" />
-        </button>
-        <template v-else>
-          <button type="button" class="ft-actions__sure" data-test="delete-sure" @click="erase">
-            {{ $t("chat.deleteSure") }}
-          </button>
-          <button
-            v-if="actingMessage?.mine && !actingMessage.deleted && !actingMessage.scheduledFor"
-            type="button"
-            class="ft-actions__sure"
-            data-test="delete-everyone"
-            @click="eraseEverywhere"
-          >
-            {{ $t("chat.deleteEveryone") }}
-          </button>
-        </template>
-      </div>
-    </div>
+    <MessageActions
+      v-if="acting"
+      v-model:forwarding="forwarding"
+      v-model:opening-with="openingWith"
+      v-model:erasing="erasing"
+      :message="actingMessage"
+      :folded="folded.has(acting)"
+      :can-edit="canEdit"
+      :request="isRequest"
+      :others="others"
+      :openers="openers"
+      :viewable="viewable"
+      @close="closeActions"
+      @react="reactWith"
+      @edit="edit"
+      @pin="togglePin"
+      @reply="reply"
+      @fold="fold"
+      @share="share"
+      @erase="erase"
+      @erase-everywhere="eraseEverywhere"
+      @forward-to="forwardTo"
+      @open-with="openWith"
+      @open-elsewhere="openElsewhere"
+    />
 
     <ion-footer v-if="isRequest" class="ion-no-border">
       <div class="ft-request" data-test="request-panel">
@@ -1421,119 +586,33 @@ watch(
           <ion-icon slot="icon-only" :icon="peeking ? chevronDownOutline : chevronUpOutline" aria-hidden="true" />
         </ion-button>
       </ion-item>
-      <p v-if="composerError" class="ft-composer__error" role="alert">{{ composerError }}</p>
-      <div v-if="staged" class="ft-staged" data-test="staged">
-        <ion-icon :icon="documentOutline" aria-hidden="true" />
-        <span class="ft-staged__name">{{ staged.name }}</span>
-        <button type="button" class="ft-round ft-round--ghost" data-test="staged-discard" :aria-label="$t('chat.discardAttachment')" @click="staged = null">
-          <ion-icon :icon="trashOutline" aria-hidden="true" />
-        </button>
-        <button type="button" class="ft-round ft-round--send" data-test="staged-send" :aria-label="$t('chat.send')" @click="sendStaged">
-          <ion-icon :icon="arrowUp" aria-hidden="true" />
-        </button>
-      </div>
-      <!-- the composer below is not an ion-toolbar, that one clips the «+» menu -->
-      <div v-if="editing" class="ft-replying ft-replying--edit" data-test="editing">
-        <span class="ft-replying__text">
-          <span class="ft-replying__who">{{ $t("chat.editing") }}</span>
-          <span class="ft-replying__quote" dir="auto">{{ editing.text }}</span>
-        </span>
-        <ion-button fill="clear" color="medium" data-test="cancel-edit" :aria-label="$t('chat.cancelEdit')" @click="cancelEdit">
-          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
-        </ion-button>
-      </div>
-      <div v-if="replying" class="ft-replying" data-test="replying">
-        <span class="ft-replying__text">
-          <span class="ft-replying__who">{{ replying.mine ? $t("chat.you") : chat?.name }}</span>
-          <span class="ft-replying__quote" dir="auto">{{ replyingText }}</span>
-        </span>
-        <ion-button fill="clear" color="medium" data-test="cancel-reply" :aria-label="$t('chat.cancelReply')" @click="replying = null">
-          <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
-        </ion-button>
-      </div>
-      <div class="ft-composer">
-        <div class="ft-composer__row">
-          <div v-if="!playing" class="ft-attach">
-            <button
-              type="button"
-              class="ft-round ft-round--ghost"
-              :class="{ 'is-open': attaching }"
-              :aria-label="$t('chat.attach')"
-              :aria-expanded="attaching"
-              @click="attaching = !attaching"
-            >
-              <ion-icon :icon="add" aria-hidden="true" />
-            </button>
-            <!-- no ion-fab around it, it would take the first option for its main button -->
-            <ion-fab-list side="top" class="ft-attach__list" :activated="attaching">
-              <ion-fab-button :aria-label="$t('chat.attachMedia')" @click="pick('image/*,video/*')">
-                <ion-icon :icon="imageOutline" aria-hidden="true" />
-              </ion-fab-button>
-              <ion-fab-button :aria-label="$t('chat.attachCamera')" @click="snap">
-                <ion-icon :icon="cameraOutline" aria-hidden="true" />
-              </ion-fab-button>
-              <ion-fab-button :aria-label="$t('chat.attachFile')" @click="pick('')">
-                <ion-icon :icon="documentOutline" aria-hidden="true" />
-              </ion-fab-button>
-            </ion-fab-list>
-          </div>
-          <input ref="picker" type="file" multiple hidden @change="attach" />
-          <button
-            v-if="!recording.active"
-            type="button"
-            class="ft-round ft-round--ghost"
-            :class="{ 'is-open': emoji }"
-            :aria-label="$t('chat.emoji')"
-            :aria-pressed="emoji"
-            data-test="open-emoji"
-            @click="emoji = !emoji"
-          >
-            <ion-icon :icon="happyOutline" aria-hidden="true" />
-          </button>
-          <div v-if="recording.active" class="ft-recording" data-test="recording">
-            <span class="ft-recording__dot" aria-hidden="true" />
-            <span class="ft-recording__time">{{ elapsed }}</span>
-            <button type="button" class="ft-round ft-round--ghost" :aria-label="$t('chat.discardVoice')" @click="discardVoice">
-              <ion-icon :icon="trashOutline" aria-hidden="true" />
-            </button>
-          </div>
-          <ion-textarea
-            v-else
-            v-model="draft"
-            class="ft-composer__input"
-            :auto-grow="true"
-            :rows="1"
-            :placeholder="$t('chat.message')"
-            :aria-label="$t('chat.message')"
-          />
-          <button
-            v-if="recording.active"
-            type="button"
-            class="ft-round ft-round--send"
-            :aria-label="$t('chat.sendVoice')"
-            @click="sendVoice"
-          >
-            <ion-icon :icon="arrowUp" aria-hidden="true" />
-          </button>
-          <button
-            v-if="!recording.active && draft.trim() && !editing"
-            type="button"
-            class="ft-round ft-round--ghost"
-            data-test="send-later"
-            :aria-label="$t('chat.sendLater')"
-            @click="openSchedule"
-          >
-            <ion-icon :icon="timeOutline" aria-hidden="true" />
-          </button>
-          <button v-if="!recording.active && draft.trim()" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.send')" @click="send">
-            <ion-icon :icon="arrowUp" aria-hidden="true" />
-          </button>
-          <button v-else-if="!recording.active" type="button" class="ft-round ft-round--send" :aria-label="$t('chat.record')" @click="record">
-            <ion-icon :icon="micOutline" aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-      <emoji-picker v-if="emoji" @pick="addEmoji" />
+      <ChatComposer
+        ref="composerView"
+        v-model:draft="draft"
+        v-model:emoji="emoji"
+        v-model:attaching="attaching"
+        :error="composerError"
+        :staged="staged"
+        :editing="editing"
+        :replying="replying"
+        :contact-name="chat?.name"
+        :playing="playing"
+        :recording="recording.active"
+        :elapsed="elapsed"
+        @add-emoji="addEmoji"
+        @send="send"
+        @send-later="openSchedule"
+        @record="record"
+        @send-voice="sendVoice"
+        @discard-voice="discardVoice"
+        @pick="pick"
+        @snap="snap"
+        @attach="attach"
+        @cancel-edit="cancelEdit"
+        @cancel-reply="replying = null"
+        @discard-staged="staged = null"
+        @send-staged="sendStaged"
+      />
     </ion-footer>
 
     <ion-modal
@@ -1545,31 +624,17 @@ watch(
       @did-present="schedulePresented = true"
       @did-dismiss="scheduling = false; schedulePresented = false"
     >
-      <div class="ion-padding ft-schedule" data-test="schedule">
-        <h2 class="ft-schedule__title">{{ $t("chat.sendLater") }}</h2>
-        <!-- Ionic writes «Time» unless given a label -->
-        <div class="ft-schedule__room" data-test="schedule-room">
-          <ion-datetime
-            v-if="schedulePresented"
-            class="ft-schedule__picker"
-            presentation="date-time"
-            :locale="i18n.global.locale.value"
-            :first-day-of-week="weekStart"
-            :model-value="sendAt"
-            :min="soonest"
-            :max="latest"
-            data-test="schedule-at"
-            @update:model-value="pickTime"
-          >
-            <span slot="time-label">{{ $t("chat.scheduleTime") }}</span>
-          </ion-datetime>
-        </div>
-        <p class="ft-schedule__note"><ion-text color="medium">{{ $t("chat.scheduleNote") }}</ion-text></p>
-        <div class="ft-schedule__actions">
-          <ion-button fill="outline" shape="round" data-test="schedule-cancel" @click="scheduling = false">{{ $t("common.cancel") }}</ion-button>
-          <ion-button shape="round" data-test="schedule-go" :disabled="!canSchedule" @click="schedule">{{ $t("chat.schedule") }}</ion-button>
-        </div>
-      </div>
+      <SchedulePicker
+        :presented="schedulePresented"
+        :send-at="sendAt"
+        :soonest="soonest"
+        :latest="latest"
+        :week-start="weekStart"
+        :can-schedule="canSchedule"
+        @pick="pickTime"
+        @cancel="scheduling = false"
+        @schedule="schedule"
+      />
     </ion-modal>
   </template>
 </template>
@@ -1577,97 +642,6 @@ watch(
 <style scoped>
 .ft-schedule-sheet {
   --height: auto;
-}
-.ft-schedule {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--ft-space-2);
-  /* Ionic's iOS calendar is 350 px for every month */
-  --ft-schedule-picker-height: 350px;
-  padding-block-end: calc(var(--ion-padding, 16px) + var(--ion-safe-area-bottom, 0px));
-}
-.ft-schedule__room {
-  min-height: var(--ft-schedule-picker-height);
-}
-.ft-schedule__title {
-  margin: 0;
-  font-size: 17px;
-}
-.ft-schedule__note {
-  margin: 0;
-  font-size: var(--ft-font-meta);
-  text-align: center;
-}
-.ft-schedule__actions {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: var(--ft-space-2);
-}
-.ft-schedule__actions ion-button {
-  text-transform: none;
-}
-.ft-search {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-block: 6px 8px;
-  padding-inline: var(--ft-space-4);
-  border-bottom: 1px solid var(--ion-border-color);
-  background: var(--ion-color-light);
-}
-.ft-search__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ft-search__input {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-}
-.ft-search__hits {
-  max-height: 40vh;
-  margin: 0;
-  padding: 0;
-  overflow: auto;
-  list-style: none;
-}
-.ft-search__hit {
-  appearance: none;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  padding-block: 8px;
-  padding-inline: 10px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--ion-text-color);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-.ft-search__hit:hover {
-  background: var(--ion-color-light-shade);
-}
-.ft-search__who {
-  font-size: var(--ft-font-meta);
-  color: var(--ion-color-medium);
-}
-.ft-search__text {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: var(--ft-font-meta);
-}
-.ft-search__none {
-  margin: 0;
-  padding-block: 4px;
-  padding-inline: 10px;
-  color: var(--ion-color-medium);
-  font-size: var(--ft-font-meta);
 }
 .ft-msg.is-lit :deep(.ft-bubble) {
   outline: 2px solid var(--ion-color-primary);
@@ -1704,110 +678,6 @@ watch(
 .ft-pinned__count {
   flex: none;
   color: var(--ion-color-medium);
-}
-.ft-replying {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-block: 0 6px;
-  margin-inline: var(--ft-space-4);
-  padding-block: 2px;
-  padding-inline: 12px 0;
-  border-inline-start: 3px solid var(--ion-color-primary);
-  border-radius: 10px;
-  background: var(--ion-color-light-shade);
-}
-.ft-replying__text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.ft-replying__who {
-  font-size: var(--ft-font-meta);
-  font-weight: 600;
-  color: var(--ion-color-primary);
-}
-.ft-replying__quote {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: var(--ft-font-meta);
-  color: var(--ion-color-medium);
-}
-.ft-actions {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: end center;
-  padding: var(--ft-space-4);
-  padding-bottom: calc(var(--ft-space-4) + 72px);
-  padding-left: calc(var(--ft-space-4) + var(--ion-safe-area-left, 0px));
-  padding-right: calc(var(--ft-space-4) + var(--ion-safe-area-right, 0px));
-  background: rgba(0, 0, 0, 0.25);
-}
-.ft-actions__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-  border-radius: 18px;
-  background: var(--ft-surface);
-  box-shadow: 0 18px 40px -20px rgba(0, 0, 0, 0.5);
-}
-.ft-actions__title {
-  padding: 0 8px;
-  color: var(--ft-muted);
-  font-size: 13px;
-}
-.ft-actions__emoji {
-  flex-basis: 100%;
-  display: flex;
-  justify-content: space-around;
-  gap: 2px;
-}
-.ft-actions__react {
-  appearance: none;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-}
-.ft-actions__react.is-active {
-  background: rgba(var(--ion-color-primary-rgb), 0.22);
-}
-.ft-actions__to {
-  appearance: none;
-  border: 1px solid var(--ft-border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  border-radius: 14px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
-.ft-actions__danger {
-  color: var(--ion-color-danger);
-}
-.ft-actions__sure {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--ion-color-danger);
-  font: inherit;
-  font-weight: 600;
-  padding: 0 10px;
-  cursor: pointer;
-}
-
-.ft-round--ghost.is-open {
-  color: var(--ft-accent);
 }
 
 .ft-thread__bar {
@@ -1865,42 +735,8 @@ watch(
   font-style: italic;
 }
 
-.ft-room {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-.ft-room__game {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding-left: var(--ion-safe-area-left, 0px);
-  padding-right: var(--ion-safe-area-right, 0px);
-}
-
 .ft-thread__content {
   --background: var(--ft-bg);
-}
-.ft-app {
-  position: fixed;
-  inset: 0;
-  z-index: 25;
-  display: flex;
-  flex-direction: column;
-  background: var(--ft-bg);
-  padding-top: var(--ion-safe-area-top, 0px);
-}
-.ft-app__body {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  padding-bottom: var(--ion-safe-area-bottom, 0px);
-  padding-left: var(--ion-safe-area-left, 0px);
-  padding-right: var(--ion-safe-area-right, 0px);
-}
-.ft-app__bar {
-  flex: none;
 }
 .ft-translating {
   inset-block-start: 4px;
@@ -1915,21 +751,6 @@ watch(
   background: var(--ion-color-light);
   color: var(--ion-text-color);
   font-size: var(--ft-font-meta);
-}
-
-/* Ionic pads a footer for Android's nav bar, not a content */
-.ft-apps-sheet__content {
-  --padding-bottom: var(--ion-safe-area-bottom, 0px);
-}
-.ft-apps-sheet ion-segment-button {
-  text-transform: none;
-  letter-spacing: 0;
-}
-.ft-apps-sheet__note {
-  margin: 16px 20px 4px;
-  text-align: center;
-  color: var(--ion-color-medium);
-  font-size: 14px;
 }
 
 .ft-thread__day {
@@ -1954,84 +775,6 @@ watch(
   text-align: center;
 }
 
-.ft-composer {
-  padding: 6px 8px calc(8px + var(--ion-safe-area-bottom, 0px));
-  background: var(--ft-bg);
-}
-/* sibling selector, iOS 15.0–15.3 has no :has() */
-.ft-composer + .ft-emoji {
-  margin-top: calc(-1 * var(--ion-safe-area-bottom, 0px));
-  padding-bottom: var(--ion-safe-area-bottom, 0px);
-}
-.ft-composer__row {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.ft-attach {
-  position: relative;
-  flex-shrink: 0;
-}
-.ft-attach__list {
-  inset-inline-start: 0;
-  z-index: 3;
-}
-.ft-attach ion-fab-list ion-fab-button {
-  --background: var(--ft-surface-2);
-  --color: var(--ft-accent);
-  --box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.8);
-  font-size: 20px;
-}
-.ft-composer__input {
-  flex: 1;
-  min-height: 44px;
-  margin: 0;
-  overflow: hidden;
-  border-radius: 22px;
-  font-size: 16px;
-  --background: var(--ft-surface-2);
-  --color: var(--ft-text);
-  --placeholder-color: var(--ft-muted);
-  --padding-start: 16px;
-  --padding-end: 16px;
-  --padding-top: 11px;
-  --padding-bottom: 11px;
-}
-
-.ft-recording {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 6px 0 14px;
-  border-radius: 22px;
-  background: var(--ft-surface-2);
-}
-.ft-recording__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--ion-color-danger);
-  animation: ft-recording-blink 1s ease-in-out infinite;
-}
-.ft-recording__time {
-  flex: 1;
-  font-variant-numeric: tabular-nums;
-}
-@keyframes ft-recording-blink {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-.ft-composer__error {
-  margin: 0;
-  padding: 6px 16px;
-  color: var(--ion-color-danger);
-  font-size: 13px;
-  text-align: center;
-}
 .ft-request {
   display: flex;
   flex-direction: column;
@@ -2084,22 +827,5 @@ watch(
   border-color: var(--ion-color-danger);
   color: #fff;
   background: var(--ion-color-danger);
-}
-.ft-staged {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 8px 0;
-  padding: 6px 6px 6px 14px;
-  border-radius: 22px;
-  background: var(--ft-surface-2);
-}
-.ft-staged__name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 14px;
 }
 </style>

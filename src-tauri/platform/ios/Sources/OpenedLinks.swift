@@ -1,4 +1,5 @@
 import Foundation
+import Tauri
 
 // Universal Links arrive as a browsing user activity on scene connect (tao ignores it there) or continue.
 // Nothing acts on a link here, the page waits for the user's tap.
@@ -35,5 +36,17 @@ final class OpenedLinks {
         lock.lock()
         self.listener = listener
         lock.unlock()
+    }
+}
+
+extension PlatformPlugin {
+    @objc public func openedLink(_ invoke: Invoke) throws {
+        invoke.resolve(["url": OpenedLinks.shared.take()])
+    }
+
+    @objc public func registerLinkEvents(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(CallEventsArgs.self)
+        OpenedLinks.shared.register { args.channel.send(["event": "linkOpened"] as JsonObject) }
+        invoke.resolve()
     }
 }
