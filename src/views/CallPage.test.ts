@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from "@vue/test-utils";
+import { config, enableAutoUnmount, flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { IonActionSheet, IonIcon } from "@ionic/vue";
 import { headsetOutline, phonePortraitOutline, volumeHighOutline } from "ionicons/icons";
@@ -45,6 +45,7 @@ vi.mock("@ionic/vue", async (importOriginal) => ({
 }));
 
 enableAutoUnmount(afterEach);
+config.global.stubs = { ...config.global.stubs, CallStage: false, CallPeer: false, CallControls: false };
 
 type ViewHook = "onIonViewWillEnter" | "onIonViewDidEnter" | "onIonViewWillLeave";
 const fireView = (wrapper: { vm: unknown }, hook: ViewHook) =>
