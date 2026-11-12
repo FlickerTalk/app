@@ -32,6 +32,22 @@ func speakerOn(choice: Bool?, prefersSpeaker: Bool, headset: Bool) -> Bool {
     choice ?? (prefersSpeaker && !headset)
 }
 
+// .none is the receiver under .voiceChat
+func outputOverride(speaker: Bool) -> AVAudioSession.PortOverride {
+    speaker ? .speaker : .none
+}
+
+func restartAfterInterruption(shouldResume: Bool, reactivated: Bool, callLive: Bool) -> Bool {
+    shouldResume && !reactivated && callLive
+}
+
+func callAudioOptions() -> AVAudioSession.CategoryOptions { [.allowBluetoothHFP, .allowBluetoothA2DP] }
+
+// don't activate it here, CallKit does and reports it in didActivate
+func configureCallAudio() {
+    try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat, options: callAudioOptions())
+}
+
 // the system has already dropped the override when headphones come in
 func choiceAfterRouteChange(_ choice: Bool?, reason: AVAudioSession.RouteChangeReason) -> Bool? {
     reason == .newDeviceAvailable ? nil : choice

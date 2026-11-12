@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import Tauri
 
 // One fix, "when in use" only. Nothing is kept or logged.
 
@@ -96,5 +97,13 @@ final class LocationRequest: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         finish(nil)
+    }
+}
+
+extension PlatformPlugin {
+    @objc public func currentLocation(_ invoke: Invoke) throws {
+        DispatchQueue.main.async {
+            LocationRequest.start { payload in invoke.resolve(payload.mapValues { $0 as Any? }) }
+        }
     }
 }
