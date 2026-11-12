@@ -1,0 +1,335 @@
+# FlickerTalk: qué hace la app hoy
+
+Descripción funcional de la app, pantalla a pantalla: lo que el usuario ve y lo que pasa por
+debajo. Puede ir por detrás de la última versión de la app.
+
+## Qué es
+
+Mensajería privada de teléfono a teléfono. Texto, ficheros, mensajes de voz y llamadas de voz y de
+vídeo entre dos personas, y **círculos** de texto entre unas pocas. El historial vive **en los
+teléfonos, no en nuestros servidores**. Los mensajes viajan
+cifrados de extremo a extremo (Olm, la biblioteca `vodozemac`) por una conexión directa WebRTC
+entre los dos teléfonos. Si el otro teléfono no está disponible, el mensaje espera cifrado en un
+buzón del servidor hasta que lo recoge (como mucho 7 días). El servidor no puede leer los
+mensajes y no guarda conversaciones ni historiales.
+
+La interfaz va con iconos primero. Todo texto visible sale de un catálogo de traducciones con el
+inglés como fuente; la app está traducida a 20 idiomas.
+
+## Primer arranque
+
+- **Bienvenida:** la identidad se crea en el teléfono al abrir la app. No hay cuenta, ni número de
+  teléfono, ni correo. Solo se pide un nombre, opcional, que ven los contactos al añadirte.
+- **«I have FlickerTalk on another phone»:** en lugar de crear una identidad nueva, trae la del
+  teléfono viejo (ver «Cambiar de teléfono»).
+- La app pide permiso de notificaciones y, cuando hace falta, el de micrófono y cámara.
+
+## Añadir contactos
+
+Pantalla **Add contact** (icono de QR en Chats):
+
+- **My code:** el QR de tu tarjeta de contacto firmada. El otro lo escanea y quedáis emparejados.
+- **Share link:** manda el mismo enlace por cualquier app (WhatsApp, correo…).
+- **Scan:** la cámara lee el QR del otro. También se puede **pegar su enlace**.
+
+No hay agenda ni búsqueda por teléfono: solo te encuentra quien tiene tu código.
+
+- **Solicitudes:** quien te escribe primero con tu enlace, sin que tú lo hayas escaneado, aparece
+  en **Solicitudes**, encima de la lista, con su nombre, su identificador corto y lo que ha dicho.
+  Hasta que aceptes no se descarga ningún fichero suyo, sus llamadas reciben «busy» y no suena
+  nada. Aceptar lo pasa a la lista; rechazar lo bloquea. Escanearlo tú, o contestarle, también es
+  aceptar.
+- **Renovar mi enlace** (Ajustes): retira el enlace actual y hace uno nuevo. Quien guardara el
+  antiguo ya no puede llegar a ti; tus contactos reciben la tarjeta nueva solos. Cada sesión
+  con PIN puede renovar el suyo por separado.
+
+## Chats
+
+- Lista de conversaciones con avatar, último mensaje, hora, estado y número de no leídos. El punto
+  del avatar indica conexión directa abierta.
+- En pantallas anchas (tablet) la conversación se abre al lado de la lista; en el móvil, a pantalla
+  completa.
+- El icono **⋮** de cada fila abre la ficha del contacto.
+
+## Conversación
+
+- **Texto y emoji** (selector propio con recientes y categorías).
+- **Ficheros** (clip): van solo por conexión directa, en trozos y con reanudación; nunca por el
+  buzón. Imágenes y audio se ven dentro del chat; el resto se abre con otra app o se guarda en
+  Descargas. Los que superan el tamaño de **Descargar archivos solos** (Ajustes; 10 MB por
+  defecto) esperan con su tamaño y un botón: no llega ni un byte hasta que lo tocas. Una oferta
+  de más de 2 GB se rechaza sin más.
+- **Mensajes de voz:** mantener pulsado el micrófono, soltar para enviar o descartar. Viajan como
+  un fichero.
+- **Estados de cada mensaje:** esperando al otro teléfono, enviado, entregado, leído. Nunca se marca
+  como entregado algo que no lo está.
+- **Pulsación larga en un mensaje:** responder, plegar, reenviar a otro
+  contacto, compartir con otra app o borrar de este teléfono.
+- **Enviar más tarde**: con texto escrito, el reloj junto a Enviar pide una
+  hora (entre un minuto y un año) y el mensaje espera en la cola de este teléfono hasta entonces,
+  marcado «Programado para…». Sale de este teléfono a esa hora si está encendido: en Android el
+  núcleo corre en segundo plano; en iPhone sale cuando el teléfono despierta la app. Borrarlo aquí
+  antes lo cancela.
+- **Buscar en la conversación**: la lupa de la cabecera abre un campo bajo
+  ella; los mensajes con esas palabras (de los dos, sin distinguir mayúsculas) se listan del más
+  reciente al más antiguo y tocar uno lleva a él. Todo en el teléfono: nada de la búsqueda sale.
+- **Editar y borrar para todos**: en la pulsación larga de un mensaje mío,
+  «Editar» pone el texto en el compositor y Enviar lo cambia en los dos teléfonos (marcado como
+  «editado»; solo textos, hasta un día después). «Borrar» ofrece además «Borrar para todos»: en
+  los dos teléfonos quedan solo las palabras «Mensaje eliminado», y el fichero, si lo había, se
+  borra. Una app anterior conserva lo primero que se dijo.
+- **Fijar mensajes**: desde la pulsación larga; solo en este teléfono, nada
+  viaja. El último fijado se ve en una franja bajo la cabecera; tocarla lleva al mensaje y pasa al
+  siguiente fijado.
+- **Reacciones**: en la pulsación larga, una fila de seis emojis; uno por
+  persona y mensaje, el mismo otra vez lo quita. Se ven bajo la burbuja y viajan como un acuse,
+  en directo o por el buzón; una app anterior los ignora.
+- **Responder citando**: la cita queda sobre el compositor hasta enviar o
+  descartarla, y viaja con el mensaje como el identificador del citado. El otro lado la ve sobre la
+  burbuja (el texto, el nombre de un fichero, o «mensaje ya no disponible» si lo borró) y tocarla
+  lleva al mensaje citado. Una app anterior enseña el texto sin la cita.
+- **Herramientas (plugins):** el botón de apps del chat abre las instaladas (ver «Plugins»).
+- **«Escribiendo…»**: mientras el otro escribe, la cabecera lo dice en lugar
+  del estado de conexión, y se apaga al llegar su mensaje o a los pocos segundos. Viaja solo por la
+  conexión directa ya abierta: nunca por el buzón ni por el servidor, y sin conexión no se envía
+  nada. Cada ficha de contacto tiene su interruptor «Show when I'm typing».
+- **Llamada de voz y de vídeo** desde la cabecera.
+
+## Llamadas
+
+- Voz y vídeo 1 a 1, por WebRTC. La llamada entrante suena con el tono del teléfono y aparece como
+  notificación de llamada con **Answer** y **Decline**, también con la app cerrada o la pantalla
+  bloqueada. Contestar desde la notificación abre la pantalla de llamada.
+- En Android, con la app cerrada, el push de la llamada arranca el núcleo sin abrir la app: la
+  notificación dice «Alguien» mientras suena, a propósito (volver a publicarla con el nombre corta
+  el tono y un tono propio anula las teclas de volumen);
+  si el contacto está silenciado o fuera del horario se calla en cuanto el núcleo sabe quién llama,
+  y desaparece si la llamada se rechaza sin rastro. Deja de sonar en cuanto el que llama cuelga y
+  la llamada perdida queda en el historial, en la lista o la sesión que le toca. Rechazar desde la
+  notificación no abre la app.
+- En llamada: silenciar micrófono, altavoz, cámara y colgar.
+- Una llamada a la vez: si ya estás en una, el otro recibe «busy».
+- Pestaña **Calls:** historial (entrantes, salientes, perdidas) con botón de devolver la llamada.
+- Ajustes → **Calls:** «Only direct» (nunca por el relay), «Relay when needed» o «Always relay»
+  (el otro no ve tu IP durante las llamadas).
+
+## Ficha del contacto
+
+Desde ⋮ en la lista o en la cabecera del chat. Todo lo de aquí es de **este teléfono**: el contacto
+no se entera y el servidor no lo ve.
+
+- **Nombre** con el que aparece en este teléfono.
+- **Security fingerprint:** doce grupos que los dos teléfonos calculan igual; se comparan en
+  persona para confirmar que nadie se ha metido en medio.
+- **Keep history:** siempre, 30 días, 7 días o 1 día.
+- **Delete after reading:** los mensajes leídos se borran al cabo de 1 min, 5 min o 1 h.
+- **Mute:** sus llamadas aparecen en pantalla pero no suenan ni vibran.
+- **Messages:** apagado, sus mensajes y ficheros no se guardan; él solo ve «enviado».
+- **Calls:** apagado, sus llamadas no entran; él recibe «busy» y aquí no queda rastro.
+- **Delivered and read receipts:** apagado, él nunca ve «entregado» ni «leído» (sus mensajes se
+  quedan en «enviado»), aunque sí deja de reintentar.
+- **Show when I'm typing**: apagado, él nunca ve «escribiendo…».
+- **Block:** corta la conexión y descarta todo lo suyo. Se deshace en Ajustes → Blocked.
+- **Report:** abre un correo a FlickerTalk con el motivo y, si quieres, sus últimos mensajes como
+  prueba; además lo bloquea.
+
+## Sesiones con PIN
+
+Espacios aparte, con sus propios contactos y conversaciones, que se abren con un PIN. Sirven para
+separar vidas: un chat con los amigos aparte, o uno de trabajo que se cierra al salir de la
+oficina y no molesta hasta el día siguiente.
+
+- **Ajustes → Sessions with PIN** (en el apartado Premium) abre un teclado numérico con seis
+  puntos. Sin nombre, sin título.
+- **Premium:** pasados los 15 días gratis sin suscripción, en lugar del teclado sale
+  el candado con Suscribirse (ver «Plan y precio»); una sesión ya abierta sigue hasta que se sale.
+- Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se crea una sesión
+  **nueva y vacía**. Todo PIN es válido: no existe «PIN incorrecto» ni espera entre intentos, y
+  nada dice cuál de las dos cosas ha pasado: el teclado no delata si hay sesiones.
+- Una sesión **vacía** (sin contactos, solicitudes ni círculos) se borra al salir de ella: teclear
+  PIN nunca llena los siete huecos. Con algo dentro, se queda.
+- Una sesión que se borra se lleva su enlace: quien guardara su QR ya no llega a nadie, ni a la
+  sesión que ocupe después ese hueco ni a la lista principal.
+- En **Chats**, cada sesión abierta es un panel plegable bajo la lista principal: una flecha a la
+  izquierda y, a la derecha, un botón de **QR** para añadir un contacto a esa sesión, una
+  **papelera** para borrarla (pide confirmación en el mismo sitio; borra sus contactos, historial
+  y ficheros, y libera su hueco) y otro para **salir**. Ningún texto.
+- Un contacto añadido dentro de una sesión pertenece siempre a ella y nunca aparece en la
+  lista principal. Funciona en los dos sentidos: escanear a alguien desde la sesión o que alguien
+  escanee el QR que muestra la sesión.
+- **Sesión cerrada:** sus mensajes y ficheros llegan y se confirman, pero no hay aviso, ni número de
+  no leídos, ni notificación, ni siquiera con la app cerrada. Sus llamadas no suenan (el que llama
+  recibe «busy») y no aparecen en Calls. Todo se ve al abrirla con su PIN.
+- **Una sesión abierta sigue abierta hasta que sales de ella** (o la borras), aunque cierres la
+  app, se reinicie el teléfono o se actualice la app: no se vuelve a pedir el PIN. Mientras está
+  abierta funciona como la lista principal, también con la app cerrada: sus mensajes avisan y sus
+  llamadas suenan. Salir la cierra en el acto; para volver a abrirla hace falta su PIN.
+- El teléfono le dice al servidor qué huecos están **en silencio** (los de las sesiones cerradas),
+  para que no lo despierte por ellos. Los huecos libres se marcan al azar, así que el servidor no
+  puede contar las sesiones por esa marca.
+- **Como mucho siete sesiones.** El teléfono registra siempre ocho direcciones en el servidor, se
+  usen o no, para que el servidor no sepa cuántas sesiones hay.
+- **Lo que un plugin guarda dentro de una sesión es de esa sesión**: una
+  pizarra o una nota guardada desde una conversación de la sesión, los ajustes que se cambien allí
+  y los avisos que se pongan solo existen dentro de ella mientras está abierta. Desde la lista
+  principal u otra sesión no se ven, ni en las listas ni en el espacio usado; con la sesión cerrada
+  sus avisos no suenan, y al borrarla se van con ella. El plugin no sabe que hay sesiones. Lo que
+  se guardó antes de esa versión se queda en la lista principal.
+
+## Círculos
+
+Un círculo es un grupo **pequeño y cerrado** de tus contactos (hasta 32): los amigos, la familia,
+el trabajo. **Nuestro servidor no guarda ningún registro de los círculos**: cada mensaje se cifra
+y se envía a cada miembro por el mismo canal que ya usas con él, directo o por su buzón, así que el
+servidor ve mensajes 1 a 1 y nada más.
+
+- **Crear:** el icono de personas en Chats (o en la cabecera de una sesión con PIN) pide un nombre y
+  a quién meter, de entre tus contactos. Quien lo crea es su administrador.
+- **Conocer a los demás sin escanear a nadie:** la tarjeta del círculo lleva la tarjeta de contacto
+  de cada miembro, así que todos pueden escribirse dentro del círculo. Fuera de él, alguien a quien
+  solo conoces por un círculo **no** aparece en tu lista ni puede llamarte; si te escribe por su
+  cuenta, entra en Solicitudes como cualquier desconocido.
+- **Dentro:** cada mensaje dice quién lo dijo; lo que pasa (quién entró, quién salió, cambios de
+  nombre) sale como una línea. Quien entra después no ve lo dicho antes. Los estados son los de
+  siempre: «entregado» cuando ha llegado a todos. En círculos no se envían acuses de lectura.
+- **Ajustes del círculo** (⋮ en la fila o tocando la cabecera): miembros, añadir a otro contacto,
+  expulsar, nombrar o quitar administradores, cambiar el nombre y **«solo escriben los
+  administradores»** (un boletín: los demás leen). Solo los administradores cambian estas cosas;
+  todo lo irreversible pregunta una vez en el sitio.
+- **Salir** avisa a todos; lo dicho se queda en el teléfono en solo lectura hasta que borras el
+  círculo. Si te expulsan, te enteras y el círculo queda igual, en solo lectura.
+- Solo texto por ahora: ni ficheros, ni notas de voz, ni llamadas en círculos.
+
+## Horario
+
+**Ajustes → Hours.** Apagado por defecto. Encendido, cada día de la semana es **todo el día**,
+**nunca** o un **tramo** de horas (puede pasar de medianoche). Fuera del horario los mensajes llegan
+sin notificación y las llamadas se ven sin sonar. Lo comprueba el teléfono con su propio reloj,
+también con la app cerrada; no sale del teléfono.
+
+## Plugins
+
+**Pestaña Apps.** Las herramientas y los juegos se instalan desde un catálogo firmado; la app
+lleva dentro algunos de ellos para instalarlos sin red.
+
+- Cada plugin corre aislado y empieza sin ningún permiso. El usuario decide qué puede hacer y lo
+  puede quitar: leer lo que tú le entregas, escribir en el chat, enviar mensajes por su cuenta.
+  Sin «escribir en el chat», nada de lo que haga llega a la conversación; con él, lo que haga (un
+  texto o un fichero) queda en el compositor y lo envías tú; solo con «enviar por su cuenta» sale
+  solo.
+- Un plugin nunca ve tu identidad, tus claves, tu agenda ni el historial.
+- **Desde la versión 1.1.0**: un plugin puede pedir, y tú conceder aparte, **hablar
+  con el mismo plugin al otro lado** de la conversación (solo por la conexión directa, nunca por
+  el servidor), **poner avisos** en tu teléfono, **usar tu nube** y **guardar muchos datos** en el
+  teléfono (256 MB). En la pulsación larga de una burbuja aparece **«Abrir con»** para los plugins
+  que abren ese tipo de fichero o un texto. Un plugin se puede abrir solo desde la pestaña Apps.
+- **Notas**: notas personales con un aviso (una notificación en tu teléfono a la hora que
+  elijas, una sola vez). Nacen desde un mensaje («Abrir con» → Notas: llega el texto y un camino
+  de vuelta a la conversación, nunca el contacto) o desde cero. Por defecto la notificación solo
+  dice que tienes un aviso; el texto de la nota se enseña si lo activas.
+- **Pizarra**: lienzo infinito con trazo a mano, texto, fórmulas (LaTeX o con paleta de símbolos)
+  e imágenes; deshacer y rehacer; se guarda o se envía como `.ftboard`, se abre en solo lectura al
+  otro lado y se reproduce trazo a trazo. **En directo**: en una conversación donde los dos tienen
+  el plugin abierto, lo que dibuja uno aparece en el otro al momento, por la conexión directa.
+- **Mi drive**: ver «Copia de seguridad y Mi drive».
+- **Visor de PDF** (versión 1.2.0): con el plugin instalado, tocar un PDF en el chat lo abre
+  **dentro de la app** (páginas en columna, zoom con dos dedos o doble toque, contador, ✕); un PDF
+  roto o con contraseña lo dice. «Abrir con» ofrece además **«Otra app»**. Sin el plugin, tocar
+  sigue mandando el fichero a otra app. En iPhone no hace falta plugin: el toque abre el visor
+  del sistema (Quick Look), que también enseña Word, Excel, PowerPoint y Pages.
+
+## Copia de seguridad y Mi drive
+
+Ver `docs/drive.md`. Una copia sellada de tu teléfono, y tus ficheros, en **tu
+propio Google Drive**. Todo se cifra en el teléfono antes de salir: Google ve ficheros sellados con
+nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
+
+- **Ajustes → Copia de seguridad**: conectar Google Drive (el login se abre en el navegador del
+  sistema; la app no ve los tokens), crear el drive (eliges una **frase de recuperación**, que no
+  se guarda en ningún sitio: apúntala), hacer copia (historial, clave y ficheros), restaurar en un
+  teléfono nuevo (conectar la misma nube + frase; la app reinicia con la copia, como tras una
+  mudanza) y olvidar la nube en este teléfono (los ficheros siguen en tu nube, sellados).
+- **Mi drive** (plugin, permiso «usar tu nube»): carpetas, subir del selector, guardar cualquier
+  fichero de una burbuja («Abrir con» → Mi drive; del tamaño que sea, los bytes no pasan por el
+  plugin), abrir, guardar en Descargas y enviar a la conversación. Lo que espera red se ve con su
+  motivo; nunca se marca como guardado lo que no subió.
+
+## Ajustes
+
+- **Your FlickerTalk ID**, copiar y mostrar tu QR.
+- **Offline mailbox:** buzón cifrado, activado por defecto. Apagado, el buzón no guarda nada tuyo
+  y los mensajes esperan en el teléfono del emisor hasta que haya conexión directa.
+- **Delivered and read receipts:** valor por defecto para los contactos nuevos.
+- **Hours**, **Calls**, **Blocked** (arriba).
+- **Color** (Ember, Aurora, Mono, Lime) y **Appearance** (sistema, oscuro, claro).
+- **Premium**: qué es gratis y qué es premium, y las filas **Tools** (lleva a la pestaña Apps) y
+  **Sessions with PIN** (ver «Plan y precio»).
+- **Move to a new phone**, **Backup** (la nube del usuario), **Erase this phone** (quita el
+  dispositivo del servidor y borra todo el teléfono, con confirmación).
+- **Version**.
+
+## Plan y precio
+
+El chat, las notas de voz, los ficheros, las llamadas de voz y vídeo, los contactos y
+conversaciones nuevos, los círculos y los **juegos** son **gratis**. Lo **premium** son las
+**herramientas** (plugins de tipo `tool`, también las que la app trae de serie) y las **sesiones
+extra con PIN** (todas menos la lista principal): gratis **15 días** desde la instalación,
+contados en el propio teléfono y sin tarjeta, y después con la suscripción anual `yearly`,
+**0,99 €** en España (Google no deja poner 1,00 € exactos). No hay regla de
+edad.
+
+Sin suscripción, pasados los 15 días:
+
+- Cada herramienta enseña un candado (en la pestaña Apps, en la hoja de apps del chat, en «abrir
+  con» y en su propia página) y tocarla lleva al apartado Premium de Ajustes; un fichero cuyo visor
+  es una herramienta bloqueada se abre con otra app. El núcleo no abre ni instala una herramienta
+  bloqueada (`needs_subscription`) y el WebView no la sirve. Una herramienta ya instalada se sigue
+  actualizando.
+- El candado de las sesiones está **delante** del teclado del PIN (la fila de Ajustes pide la
+  suscripción a la tienda y la página del PIN enseña Suscribirse en lugar del teclado), nunca
+  después del sexto dígito: el teclado no puede delatar si una sesión existe. El núcleo rechaza
+  igual cualquier PIN. Una sesión que ya estaba abierta sigue funcionando hasta que el usuario sale
+  de ella; la lista principal funciona siempre.
+- Nada más se limita nunca.
+
+El plan se vigila solo: el núcleo vuelve a mirarlo justo cuando acaban los días gratis o pasa la
+fecha pagada, y al volver la app a la pantalla. Al pasar la fecha pagada pregunta antes a la tienda
+(entitlements actuales de StoreKit, compras de Play): si renovó, sigue de pago con la fecha nueva;
+si no hay nada, pasa a bloqueado; si la tienda no contesta, la fecha sigue valiendo **3 días** de
+gracia y se vuelve a preguntar. El apartado Premium de Ajustes y los candados se ponen al día sin
+reiniciar.
+
+El apartado Premium de Ajustes dice qué es gratis y qué es premium, con el precio **tal como lo da
+la tienda** (Play Billing o StoreKit, con su moneda y su formato), pedido otra vez al entrar, al
+cambiar el plan y al volver la app; si la tienda no puede decirlo (sin red, en escritorio, sin
+producto) se queda el último conocido o, si no hay ninguno, «Suscripción anual» sin cantidad, y el
+botón de pagar funciona igual. La app no escribe ni guarda ningún importe. Suscribirse y Restaurar
+compras aparecen cuando los días gratis han acabado. Ajustes cuenta los días que quedan (un día
+empezado cuenta: recién instalada, 15).
+
+Para probarlo en un teléfono de desarrollo: `FT_DEBUG_TRIAL_OVER=1` (antes
+`FT_DEBUG_FREE_YEAR_OVER`) da los días gratis por acabados sin tocar la base de datos.
+
+## Cambiar de teléfono
+
+En el teléfono nuevo, «I have FlickerTalk on another phone» muestra un QR; en el viejo, Ajustes →
+Move to a new phone lo escanea. La identidad, los contactos y los mensajes pasan directamente de un
+teléfono al otro, cifrados, sin pasar por el servidor. El viejo se borra después. Los ficheros
+enviados o recibidos no se mueven todavía.
+
+## Lo que guarda el servidor
+
+- Por dispositivo: su identificador, su clave pública, los hashes de sus ocho direcciones de
+  entrega, dónde despertarlo (el token de push, cifrado con una clave que no está en la base de
+  datos), ocho bits con los huecos en silencio (ver «Sesiones con PIN») y cuándo cambió su registro
+  por última vez.
+- El buzón: solo mensajes cifrados, metidos además en un sobre sellado para el destinatario
+  (sin remitente, sin clave del remitente y sin tamaño reconocible: van rellenados a bloques). Cada
+  uno lleva el número del hueco (0 a 7) por el que llegó y se borra al recogerlo o a los 7 días.
+  Las señales para conectar van en el mismo sobre.
+- Sin registros de acceso, sin analítica, sin cuentas.
+
+## Plataformas
+
+Android: publicada en Google Play; la última versión es la 1.6.0. iPhone: llega pronto al App
+Store, sin fecha.

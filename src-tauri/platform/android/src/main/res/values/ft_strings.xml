@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification texts; English is the source, values-*/ft_strings.xml translate it. -->
+<resources>
+    <string name="ft_someone">Someone</string>
+    <string name="ft_incoming_call">Incoming call</string>
+    <string name="ft_incoming_video_call">Incoming video call</string>
+    <string name="ft_channel_calls">Calls</string>
+    <string name="ft_channel_messages">Messages and calls</string>
+    <string name="ft_something_new">Something new is waiting for you</string>
+    <string name="ft_channel_reminders">Reminders</string>
+    <string name="ft_reminder">Reminder</string>
+    <string name="ft_reminder_generic">You have a reminder</string>
+    <string name="ft_channel_incoming_calls">Incoming calls</string>
+    <string name="ft_channel_ongoing_calls">Ongoing calls</string>
+    <string name="ft_ongoing_call">Call in progress</string>
+    <string name="ft_mute">Mute</string>
+    <string name="ft_unmute">Unmute</string>
+    <string name="ft_video">Video</string>
+</resources>

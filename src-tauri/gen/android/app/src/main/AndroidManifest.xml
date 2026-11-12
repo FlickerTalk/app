@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice and video calls: asked for only when a call starts. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- AndroidTV support -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <!-- No Android backups: the history and the keys stay on this phone. -->
+    <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.flickertalk"
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!-- The keyboard: never pan the window. Edge to edge, the WebView gets the
+             keyboard as an inset and shrinks its visual viewport, which the app follows
+             (src/viewport.ts); a pan took the whole app, header included, up out of the screen.
+             A change of language never recreates the activity: Android flags
+             locale and layoutDirection together, and a recreated activity got a new WebView while
+             the plugins kept the old one alive. The page follows the language in place (i18n.ts).
+             Nor does a change of font size, display size or bold text. -->
+        <activity
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|smallestScreenSize|screenLayout|uiMode|fontScale|density|fontWeightAdjustment"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- AndroidTV support -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- Links that open the app: a contact's card and a new phone's invite,
+                 only these two pages, verified for this app by flickertalk.com's assetlinks.json.
+                 No scheme of our own: any app could claim it. MainActivity hands the link to the
+                 bridge (OpenedLinks.kt); nothing happens until the user taps on the page. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="flickertalk.com" />
+                <data android:path="/add" />
+                <data android:path="/move" />
+            </intent-filter>
+        </activity>
+
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="${applicationId}.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+          <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

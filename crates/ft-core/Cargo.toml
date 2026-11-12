@@ -1,0 +1,36 @@
+[package]
+name = "ft-core"
+version = "0.1.0"
+edition = "2021"
+description = "Client orchestrator: pairing, sending and receiving over P2P or the mailbox"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+blake3 = "1"
+ft-billing = { path = "../ft-billing" }
+ft-circles = { path = "../ft-circles" }
+ft-contacts = { path = "../ft-contacts" }
+ft-crypto = { path = "../ft-crypto" }
+ft-identity = { path = "../ft-identity" }
+ft-protocol = { path = "../ft-protocol" }
+ft-push = { path = "../ft-push" }
+ft-storage = { path = "../ft-storage" }
+ft-plugins = { path = "../ft-plugins" }
+ft-vault = { path = "../ft-vault" }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+vodozemac = "0.11"
+ft-webrtc = { path = "../ft-webrtc" }
+ft-media = { path = "../ft-media" }
+rand = "0.9"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "fs"] }
+
+[dev-dependencies]
+axum = { version = "0.8", features = ["ws"] }
+ring = "0.17"
+ft-media = { path = "../ft-media", features = ["testing"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "test-util"] }

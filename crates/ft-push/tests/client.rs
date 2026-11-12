@@ -1,0 +1,658 @@
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use async_trait::async_trait;
+use axum::body::Bytes;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
+use axum::routing::{get, post, put};
+use axum::{Json, Router};
+use base64::engine::general_purpose::STANDARD_NO_PAD;
+use base64::Engine;
+use ed25519_dalek::{Signature, VerifyingKey};
+use ft_identity::Identity;
+use ft_push::{canonical, Feedback, MailboxRejected, RouterClient, RouterEvent, Signalled, Signer};
+use serde_json::{json, Value};
+
+struct Device(Mutex<Identity>);
+
+#[async_trait]
+impl Signer for Device {
+    fn device_id(&self) -> String {
+        self.0.lock().unwrap().device_id().to_string()
+    }
+
+    async fn signing_key(&self) -> String {
+        self.0.lock().unwrap().signing_key().to_base64()
+    }
+
+    async fn sign(&self, message: &[u8]) -> String {
+        self.0.lock().unwrap().sign(message).to_base64()
+    }
+}
+
+fn device() -> Arc<Device> {
+    Arc::new(Device(Mutex::new(Identity::generate())))
+}
+
+#[derive(Default)]
+struct Seen {
+    verified: Mutex<Vec<String>>,
+    key: Mutex<Option<[u8; 32]>>,
+    push: Mutex<Vec<Value>>,
+    registration: Mutex<Option<Value>>,
+    feedback: Mutex<Vec<Value>>,
+    feedback_answer: Mutex<Option<StatusCode>>,
+}
+
+fn check(key: &[u8; 32], method: &str, path: &str, headers: &HeaderMap, body: &[u8]) -> bool {
+    let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let (Some(time), Some(nonce), Some(signature)) = (get("ft-time"), get("ft-nonce"), get("ft-signature")) else {
+        return false;
+    };
+    let text = canonical(method, path, time.parse().unwrap(), &nonce, body);
+    let signature: [u8; 64] = STANDARD_NO_PAD.decode(signature).unwrap().try_into().unwrap();
+    VerifyingKey::from_bytes(key).unwrap().verify_strict(&text, &Signature::from_bytes(&signature)).is_ok()
+}
+
+async fn fake_router() -> (String, Arc<Seen>) {
+    let seen = Arc::new(Seen::default());
+    let router = Router::new()
+        .route(
+            "/v1/device/register",
+            post(|State(seen): State<Arc<Seen>>, headers: HeaderMap, body: Bytes| async move {
+                let registration: Value = serde_json::from_slice(&body).unwrap();
+                let key: [u8; 32] = STANDARD_NO_PAD.decode(registration["signing_key"].as_str().unwrap()).unwrap().try_into().unwrap();
+                if check(&key, "POST", "/v1/device/register", &headers, &body) {
+                    seen.verified.lock().unwrap().push("register".to_owned());
+                    *seen.key.lock().unwrap() = Some(key);
+                    *seen.registration.lock().unwrap() = Some(registration.clone());
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::UNAUTHORIZED
+                }
+            }),
+        )
+        .route(
+            "/v1/device/push",
+            put(|State(seen): State<Arc<Seen>>, headers: HeaderMap, body: Bytes| async move {
+                let key = seen.key.lock().unwrap().expect("registered first");
+                if check(&key, "PUT", "/v1/device/push", &headers, &body) {
+                    seen.push.lock().unwrap().push(serde_json::from_slice(&body).unwrap());
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::UNAUTHORIZED
+                }
+            }),
+        )
+        .route(
+            "/v1/signal/{to}",
+            post(|Path(to): Path<String>, headers: HeaderMap| async move {
+                match (to.as_str(), headers.get("ft-capability").is_some()) {
+                    ("ft_online", true) => StatusCode::ACCEPTED.into_response(),
+                    ("ft_sleeping", true) => (StatusCode::NOT_FOUND, [("ft-retained", "1")]).into_response(),
+                    (_, true) => StatusCode::NOT_FOUND.into_response(),
+                    _ => StatusCode::FORBIDDEN.into_response(),
+                }
+            }),
+        )
+        .route(
+            "/v1/mailbox",
+            get(|| async { Json(json!([{ "id": "0190-1", "blob": STANDARD_NO_PAD.encode(b"sealed") }])) }),
+        )
+        .route(
+            "/v1/mailbox/{target}",
+            post(|Path(target): Path<String>| async move {
+                match target.as_str() {
+                    "ft_gone" => StatusCode::FORBIDDEN,
+                    "ft_busy" => StatusCode::TOO_MANY_REQUESTS,
+                    "ft_huge" => StatusCode::PAYLOAD_TOO_LARGE,
+                    "ft_broken" => StatusCode::INTERNAL_SERVER_ERROR,
+                    "ft_full" => StatusCode::INSUFFICIENT_STORAGE,
+                    "ft_moved" => StatusCode::NOT_FOUND,
+                    _ => StatusCode::CREATED,
+                }
+            })
+            .delete(|| async { StatusCode::NO_CONTENT }),
+        )
+        .route(
+            "/v1/feedback",
+            post(|State(seen): State<Arc<Seen>>, headers: HeaderMap, body: Bytes| async move {
+                let key = seen.key.lock().unwrap().expect("registered first");
+                if !check(&key, "POST", "/v1/feedback", &headers, &body) {
+                    return StatusCode::UNAUTHORIZED;
+                }
+                seen.feedback.lock().unwrap().push(serde_json::from_slice(&body).unwrap());
+                seen.feedback_answer.lock().unwrap().unwrap_or(StatusCode::NO_CONTENT)
+            }),
+        )
+        .with_state(seen.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (format!("http://{address}"), seen)
+}
+
+#[tokio::test]
+async fn registration_is_signed_so_the_router_accepts_it() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0).await.expect("registers");
+    assert_eq!(seen.verified.lock().unwrap().as_slice(), ["register"]);
+}
+
+fn eight() -> [[u8; 32]; 8] {
+    std::array::from_fn(|slot| [slot as u8 + 5; 32])
+}
+
+#[tokio::test]
+async fn registration_hands_over_eight_capabilities() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    let hashes = registration["capability_hashes"].as_array().expect("a list").clone();
+    assert_eq!(hashes.len(), 8);
+    assert_eq!(registration["capability_hash"], hashes[0]);
+    assert_eq!(hashes[3], json!(STANDARD_NO_PAD.encode([8u8; 32])));
+}
+
+#[tokio::test]
+async fn registration_says_which_slots_are_silent() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0b1010_0100).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(registration["silent_slots"], json!(0b1010_0100));
+
+    client.register(&eight(), 0).await.expect("registers again");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(registration["silent_slots"], json!(0), "nothing silent is said too");
+}
+
+#[tokio::test]
+async fn the_main_list_is_never_registered_as_silent() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0b1111_1111).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(registration["silent_slots"], json!(0b1111_1110));
+}
+
+#[tokio::test]
+async fn the_push_token_is_left_signed() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0).await.expect("registers");
+    client.set_push("fcm", "fcm-token-1").await.expect("leaves the token");
+    assert_eq!(seen.push.lock().unwrap().as_slice(), [json!({ "provider": "fcm", "token": "fcm-token-1" })]);
+}
+
+#[tokio::test]
+async fn a_signal_reports_whether_the_recipient_is_online() {
+    let (base, _) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    assert_eq!(client.signal("ft_online", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Delivered);
+    assert_eq!(client.signal("ft_away", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::NotConnected);
+}
+
+#[tokio::test]
+async fn a_signal_the_router_keeps_for_later_says_so() {
+    let (base, _) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    assert_eq!(client.signal("ft_sleeping", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Retained);
+    assert_eq!(client.signal_call("ft_sleeping", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Retained);
+    assert!(!Signalled::Retained.delivered() && !Signalled::NotConnected.delivered() && Signalled::Delivered.delivered());
+}
+
+#[tokio::test]
+async fn mail_is_deposited_collected_and_acknowledged() {
+    let (base, _) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.deposit("ft_bob", &[1; 32], b"sealed".to_vec()).await.expect("deposits");
+    let mail = client.collect().await.expect("collects");
+    assert_eq!(mail.len(), 1);
+    assert_eq!(mail[0].blob, b"sealed");
+    client.acknowledge(&mail[0].id).await.expect("acknowledges");
+}
+
+#[tokio::test]
+async fn only_a_refused_recipient_is_a_rejection() {
+    let (base, _) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    let refused = client.deposit("ft_gone", &[1; 32], b"sealed".to_vec()).await.expect_err("refused");
+    assert_eq!(refused.downcast_ref::<MailboxRejected>(), Some(&MailboxRejected));
+    for passing in ["ft_busy", "ft_huge", "ft_broken", "ft_full", "ft_moved"] {
+        let failed = client.deposit(passing, &[1; 32], b"sealed".to_vec()).await.expect_err("fails");
+        assert!(failed.downcast_ref::<MailboxRejected>().is_none(), "{passing} may work later");
+    }
+    let unreachable = RouterClient::new("http://127.0.0.1:9", device()).expect("client");
+    let offline = unreachable.deposit("ft_bob", &[1; 32], b"sealed".to_vec()).await.expect_err("no network");
+    assert!(offline.downcast_ref::<MailboxRejected>().is_none());
+}
+
+#[tokio::test]
+async fn a_suggestion_goes_signed_with_the_text_the_version_and_the_platform() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0).await.expect("registers");
+    assert_eq!(client.feedback("Dark mode for the map, please", "1.3.0", "android").await, Feedback::Sent);
+    assert_eq!(
+        seen.feedback.lock().unwrap().as_slice(),
+        [json!({ "text": "Dark mode for the map, please", "app": "1.3.0", "platform": "android" })]
+    );
+}
+
+#[tokio::test]
+async fn a_suggestion_tells_sent_too_many_and_failed_apart() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0).await.expect("registers");
+    for (answer, outcome) in [
+        (StatusCode::NO_CONTENT, Feedback::Sent),
+        (StatusCode::TOO_MANY_REQUESTS, Feedback::TooMany),
+        (StatusCode::SERVICE_UNAVAILABLE, Feedback::Failed),
+        (StatusCode::BAD_REQUEST, Feedback::Failed),
+        (StatusCode::NOT_FOUND, Feedback::Failed),
+        (StatusCode::OK, Feedback::Failed),
+    ] {
+        *seen.feedback_answer.lock().unwrap() = Some(answer);
+        assert_eq!(client.feedback("an idea", "1.3.0", "ios").await, outcome, "{answer}");
+    }
+    let unreachable = RouterClient::new("http://127.0.0.1:9", device()).expect("client");
+    assert_eq!(unreachable.feedback("an idea", "1.3.0", "ios").await, Feedback::Failed);
+}
+
+#[tokio::test]
+#[ignore = "needs api.flickertalk.com"]
+async fn two_devices_meet_on_the_live_router() {
+    use ft_push::RouterEvent;
+    let base = "https://api.flickertalk.com";
+    let (alice, bob) = (RouterClient::new(base, device()).unwrap(), Arc::new(RouterClient::new(base, device()).unwrap()));
+    let bob_capability = [7u8; 32];
+    alice.register(&[[8; 32]; 8], 0).await.expect("alice registers");
+    bob.register(&[*blake3::hash(&bob_capability).as_bytes(); 8], 0).await.expect("bob registers");
+
+    let mut events = bob.listen();
+    let Some(RouterEvent::Connected { stun, turn }) = events.recv().await else { panic!("a welcome") };
+    assert!(!stun.is_empty());
+    assert!(turn.is_some());
+
+    assert_eq!(alice.signal(&bob.device_id(), &bob_capability, b"offer".to_vec()).await.expect("signals"), Signalled::Delivered);
+    assert_eq!(events.recv().await, Some(RouterEvent::Signal(b"offer".to_vec())));
+
+    alice.deposit(&bob.device_id(), &bob_capability, b"sealed".to_vec()).await.expect("deposits");
+    assert_eq!(events.recv().await, Some(RouterEvent::Mail));
+    let mail = bob.collect().await.expect("collects");
+    assert_eq!(mail[0].blob, b"sealed");
+    bob.acknowledge(&mail[0].id).await.expect("acknowledges");
+    assert!(bob.collect().await.expect("collects").is_empty());
+
+    alice.forget().await.expect("forgets");
+    bob.forget().await.expect("forgets");
+}
+
+#[tokio::test]
+async fn the_socket_is_opened_again_at_once_when_asked() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let counted = counted.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    let connected = |event: Option<RouterEvent>| matches!(event, Some(RouterEvent::Connected { .. }));
+    assert!(connected(tokio::time::timeout(Duration::from_secs(5), events.recv()).await.unwrap()));
+
+    client.reconnect_now();
+    let again = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if connected(events.recv().await) {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(again.is_ok(), "connected again at once, not after the socket died");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+async fn welcomed(events: &mut tokio::sync::mpsc::Receiver<RouterEvent>) -> bool {
+    let waiting = async {
+        loop {
+            if matches!(events.recv().await, Some(RouterEvent::Connected { .. })) {
+                return;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), waiting).await.is_ok()
+}
+
+#[tokio::test]
+async fn a_fresh_socket_is_kept_and_an_old_one_is_opened_again() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let counted = counted.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    client.reconnect_unless_fresh(Duration::from_secs(60));
+    assert!(welcomed(&mut events).await, "the socket being opened goes on");
+    client.reconnect_unless_fresh(Duration::from_secs(60));
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1, "a fresh socket is kept");
+
+    client.reconnect_unless_fresh(Duration::ZERO);
+    assert!(welcomed(&mut events).await, "connected again");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn only_a_call_signal_says_it_is_a_call() {
+    let marked = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let seen = marked.clone();
+    let router = Router::new().route(
+        "/v1/signal/{to}",
+        post(move |headers: HeaderMap| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().unwrap().push(headers.get("ft-call").is_some_and(|value| value == "1"));
+                StatusCode::NOT_FOUND
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let client = RouterClient::new(&format!("http://{address}"), device()).unwrap();
+    assert_eq!(client.signal("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap(), Signalled::NotConnected);
+    assert_eq!(client.signal_call("ft_bob", &[1; 32], b"offer".to_vec()).await.unwrap(), Signalled::NotConnected);
+    assert_eq!(*marked.lock().unwrap(), [false, true]);
+}
+
+#[tokio::test]
+async fn a_closed_client_lets_its_socket_go_and_asks_nothing_more() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (counted, registered) = (connections.clone(), Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    let registrations = registered.clone();
+    let router = Router::new()
+        .route(
+            "/v1/connect",
+            get(move |upgrade: WebSocketUpgrade| {
+                let counted = counted.clone();
+                async move {
+                    upgrade.on_upgrade(move |mut socket| async move {
+                        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                        let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                    })
+                }
+            }),
+        )
+        .route(
+            "/v1/device/register",
+            post(move || {
+                let registrations = registrations.clone();
+                async move {
+                    registrations.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+
+    client.close();
+    assert!(client.is_closed());
+    let ended = tokio::time::timeout(Duration::from_secs(3), async { while events.recv().await.is_some() {} }).await;
+    assert!(ended.is_ok(), "the socket's events end");
+    client.reconnect_now();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1, "never opened again");
+    assert!(client.register(&eight(), 0).await.is_err());
+    assert_eq!(registered.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reaches the router");
+}
+
+#[tokio::test]
+async fn an_away_client_lets_its_socket_go_and_opens_it_again_when_back() {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let (opened, closed) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let (counted, ended) = (opened.clone(), closed.clone());
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let (counted, ended) = (counted.clone(), ended.clone());
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, SeqCst);
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    while let Some(Ok(message)) = socket.recv().await {
+                        if matches!(message, WsMessage::Close(_)) {
+                            break;
+                        }
+                    }
+                    ended.fetch_add(1, SeqCst);
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+    let client = Arc::new(RouterClient::new(&format!("http://{address}"), device()).unwrap());
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+    assert!(!client.is_away());
+
+    assert!(client.set_away(true), "it was here");
+    assert!(!client.set_away(true), "away twice is away");
+    assert!(client.is_away());
+    let gone = tokio::time::timeout(Duration::from_secs(1), async {
+        while closed.load(SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(gone.is_ok(), "the router saw the socket go at once");
+    client.reconnect_now();
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(opened.load(SeqCst), 1, "not opened again while away");
+
+    assert!(client.set_away(false), "back");
+    assert!(!client.set_away(false), "back twice is back");
+    assert!(welcomed(&mut events).await, "connected again at once");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(opened.load(SeqCst), 2, "one socket, not one per call");
+}
+
+async fn router_that(
+    after: fn(axum::extract::ws::WebSocket) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    let router = Router::new().route(
+        "/v1/connect",
+        get(move |upgrade: WebSocketUpgrade| {
+            let counted = counted.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let welcome = json!({ "kind": "welcome", "stun": [], "turn": null }).to_string();
+                    let _ = socket.send(WsMessage::Text(welcome.into())).await;
+                    after(socket).await;
+                })
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (format!("http://{address}"), connections)
+}
+
+#[test]
+fn the_router_is_pinged_every_20_s_and_two_unanswered_pings_are_enough() {
+    assert_eq!(ft_push::PING_EVERY, Duration::from_secs(20));
+    assert_eq!(ft_push::SILENT_FOR, ft_push::PING_EVERY * 2);
+}
+
+const PING: Duration = Duration::from_millis(200);
+const SILENT: Duration = Duration::from_millis(400);
+
+const BACKOFF: Duration = Duration::from_secs(2);
+
+fn quick_client(base: &str) -> Arc<RouterClient> {
+    let client = Arc::new(RouterClient::new(base, device()).unwrap());
+    client.set_liveness(PING, SILENT);
+    client
+}
+
+#[tokio::test]
+async fn a_socket_that_stops_answering_is_opened_again() {
+    let (base, connections) = router_that(|socket| {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            drop(socket);
+        })
+    })
+    .await;
+    let client = quick_client(&base);
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+    let quiet = std::time::Instant::now();
+
+    let again = tokio::time::timeout(SILENT + PING + BACKOFF + Duration::from_secs(1), async {
+        loop {
+            if matches!(events.recv().await, Some(RouterEvent::Connected { .. })) {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(again.is_ok(), "opened again once the router stopped answering");
+    assert!(quiet.elapsed() >= SILENT, "not before two pings went unanswered");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_socket_that_answers_the_pings_is_kept() {
+    let (base, connections) = router_that(|mut socket| {
+        Box::pin(async move { while let Some(Ok(_)) = socket.recv().await {} })
+    })
+    .await;
+    let client = quick_client(&base);
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+
+    let quiet = tokio::time::timeout(SILENT * 10, events.recv()).await;
+    assert!(quiet.is_err(), "nothing happened: {quiet:?}");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn an_opening_that_gets_no_answer_is_tried_again() {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counted = accepted.clone();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            counted.fetch_add(1, SeqCst);
+            held.push(stream);
+        }
+    });
+    let client = quick_client(&format!("http://{address}"));
+    let _events = client.listen();
+
+    let tried_again = tokio::time::timeout(SILENT + BACKOFF + Duration::from_secs(1), async {
+        while accepted.load(SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(tried_again.is_ok(), "tried again instead of waiting for ever");
+}
+
+#[tokio::test]
+async fn a_closed_or_away_client_pings_no_more() {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    static PINGS: AtomicUsize = AtomicUsize::new(0);
+    let (base, _) = router_that(|mut socket| {
+        Box::pin(async move {
+            while let Some(Ok(message)) = socket.recv().await {
+                if matches!(message, axum::extract::ws::Message::Ping(_)) {
+                    PINGS.fetch_add(1, SeqCst);
+                }
+            }
+        })
+    })
+    .await;
+    let client = quick_client(&base);
+    let mut events = client.listen();
+    assert!(welcomed(&mut events).await);
+    tokio::time::sleep(PING * 3).await;
+    assert!(PINGS.load(SeqCst) > 0, "it pings while connected");
+
+    client.set_away(true);
+    tokio::time::sleep(PING).await;
+    let away = PINGS.load(SeqCst);
+    tokio::time::sleep(PING * 5).await;
+    assert_eq!(PINGS.load(SeqCst), away, "away, no pings");
+
+    client.set_away(false);
+    assert!(welcomed(&mut events).await);
+    client.close();
+    tokio::time::sleep(PING).await;
+    let closed = PINGS.load(SeqCst);
+    tokio::time::sleep(PING * 5).await;
+    assert_eq!(PINGS.load(SeqCst), closed, "closed, no pings");
+}

@@ -1,0 +1,229 @@
+import { devices, type Page } from "@playwright/test";
+import { expect, test } from "./helpers";
+
+async function timeAfterTap(app: Page, tap: () => Promise<void>, ready: string): Promise<number> {
+  await app.evaluate((source) => {
+    const clock = { tapped: 0, ready: 0 };
+    (window as unknown as Record<string, unknown>).__ftClock = clock;
+    const holds = new Function(`return (${source})()`) as () => boolean;
+    addEventListener("click", () => (clock.tapped = performance.now()), { capture: true, once: true });
+    const frame = () => {
+      if (clock.tapped && holds()) clock.ready = performance.now();
+      else requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }, ready);
+  await tap();
+  const clock = () => app.evaluate(() => (window as unknown as { __ftClock: { tapped: number; ready: number } }).__ftClock);
+  await expect.poll(async () => (await clock()).ready, { timeout: 5_000 }).toBeGreaterThan(0);
+  const { tapped, ready: at } = await clock();
+  return at - tapped;
+}
+
+const BACK_BUTTON_THERE = `() => {
+  const button = document.querySelector(".ft-thread ion-back-button");
+  if (!button) return false;
+  const box = button.getBoundingClientRect();
+  if (box.width === 0 || box.left < 0 || box.right > innerWidth) return false;
+  for (let el = button; el; el = el.parentElement ?? el.getRootNode().host) {
+    const style = getComputedStyle(el);
+    if (Number(style.opacity) < 0.99 || style.visibility === "hidden" || style.display === "none") return false;
+  }
+  return true;
+}`;
+
+const CHAT_GONE = `() => {
+  const page = document.querySelector(".ft-thread")?.closest(".ion-page");
+  if (!page || getComputedStyle(page).display === "none" || page.classList.contains("ion-page-hidden")) return true;
+  const box = page.getBoundingClientRect();
+  return box.left >= innerWidth || box.right <= 0;
+}`;
+
+const chatPage = (app: Page) => app.locator("div.ion-page", { has: app.getByTestId("peer") });
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+const ROUNDS = 3;
+
+async function enterAndLeave(app: Page) {
+  await app.goto("/tabs/chats");
+  const row = app.locator(".ft-row", { hasText: "see you at six" }).first();
+  await row.click();
+  await expect(app.locator(".ft-thread ion-back-button")).toBeVisible();
+  await app.goBack();
+  await expect(app).toHaveURL(/\/tabs\/chats$/);
+  await expect(app.locator(".ft-thread")).toHaveCount(0);
+
+  const cdp = await app.context().newCDPSession(app);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+
+  const backButtons: number[] = [];
+  const gones: number[] = [];
+  for (let round = 0; round < ROUNDS; round++) {
+    backButtons.push(await timeAfterTap(app, () => row.click(), BACK_BUTTON_THERE));
+    await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+    await expect(chatPage(app)).not.toHaveCSS("pointer-events", "none");
+    gones.push(await timeAfterTap(app, () => app.locator(".ft-thread ion-back-button").click(), CHAT_GONE));
+    await expect(app).toHaveURL(/\/tabs\/chats$/);
+    await expect(app.locator(".ft-thread")).toHaveCount(0);
+  }
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+  return { backButtons, gones };
+}
+
+for (const phone of [
+  { name: "an iPhone", use: { userAgent: devices["iPhone 13"].userAgent, viewport: { width: 375, height: 812 } }, mode: "ios" },
+  { name: "an iPhone, in Arabic", use: { userAgent: devices["iPhone 13"].userAgent, viewport: { width: 375, height: 812 }, locale: "ar" }, mode: "ios" },
+  { name: "an Android phone", use: { viewport: { width: 360, height: 740 } }, mode: "md" },
+]) {
+  test.describe(`on ${phone.name}`, () => {
+    test.use(phone.use);
+
+    test("the back button is there within 200 ms of tapping a chat, and the chat gone within 450 ms of tapping back", { tag: "@timing" }, async ({ app }) => {
+      await app.goto("/tabs/chats");
+      await expect(app.locator("html")).toHaveClass(new RegExp(`\\b${phone.mode}\\b`));
+      const { backButtons, gones } = await enterAndLeave(app);
+      const ms = (values: number[]) => values.map((value) => value.toFixed(0)).join(", ");
+      test.info().annotations.push({ type: "measured", description: `back button there after ${ms(backButtons)} ms, chat gone after ${ms(gones)} ms` });
+      expect(median(backButtons), "ms until the back button is all there (median)").toBeLessThan(200);
+      expect(median(gones), "ms until the chat is off the screen (median)").toBeLessThan(450);
+    });
+  });
+}
+
+function fromEdge(app: Page, distance: number, rtl: boolean) {
+  return rtl ? app.viewportSize()!.width - 5 - distance : 5 + distance;
+}
+
+async function dragTo(app: Page, from: number, distance: number, steps: number, rtl: boolean) {
+  const to = fromEdge(app, distance, rtl);
+  for (let step = 1; step <= steps; step++) await app.mouse.move(from + ((to - from) * step) / steps, 400);
+  return to;
+}
+
+async function dragFromEdge(app: Page, distance: number, steps: number, rtl: boolean) {
+  const from = fromEdge(app, 0, rtl);
+  await app.mouse.move(from, 400);
+  await app.mouse.down();
+  return dragTo(app, from, distance, steps, rtl);
+}
+
+async function openBobsChat(app: Page) {
+  await app.goto("/tabs/chats");
+  await app.locator(".ft-row", { hasText: "see you at six" }).first().click();
+  await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+  await expect(chatPage(app)).not.toHaveCSS("pointer-events", "none");
+  return chatPage(app);
+}
+
+for (const ios of [
+  { name: "an iPhone", use: { userAgent: devices["iPhone 13"].userAgent, viewport: { width: 375, height: 812 } }, rtl: false },
+  { name: "an iPhone, in Arabic", use: { userAgent: devices["iPhone 13"].userAgent, viewport: { width: 375, height: 812 }, locale: "ar" }, rtl: true },
+]) {
+  test.describe(`on ${ios.name}, swiping back`, () => {
+    test.use(ios.use);
+
+    test("a swipe from the edge goes back to the chats", async ({ app }) => {
+      await openBobsChat(app);
+      await dragFromEdge(app, 300, 10, ios.rtl);
+      await app.mouse.up();
+      await expect(app).toHaveURL(/\/tabs\/chats$/);
+      await expect(app.locator(".ft-thread")).toHaveCount(0);
+    });
+
+    test("the chat follows the finger, and goes back in place when the swipe is undone", async ({ app }) => {
+      const page = await openBobsChat(app);
+      const at = await dragFromEdge(app, 150, 15, ios.rtl);
+      await expect.poll(async () => (await page.boundingBox())!.x * (ios.rtl ? -1 : 1)).toBeGreaterThan(50);
+      await dragTo(app, at, 20, 15, ios.rtl);
+      await app.mouse.up();
+      await expect.poll(async () => (await page.boundingBox())!.x).toBe(0);
+      await expect(app).toHaveURL(/\/chat\/ft_bob123456789$/);
+      await expect(app.locator(".ft-thread ion-back-button")).toBeVisible();
+    });
+  });
+}
+
+test.describe("on a phone, switching tabs", () => {
+  test.use({ viewport: { width: 360, height: 740 } });
+
+  test("shows the other tab at once, without sliding", async ({ app }) => {
+    await app.goto("/tabs/chats");
+    await expect(app.locator(".ft-row").first()).toBeVisible();
+    await app.evaluate(() => {
+      const seen: string[] = [];
+      (window as unknown as Record<string, unknown>).__ftMoved = seen;
+      const end = performance.now() + 600;
+      const frame = () => {
+        for (const page of document.querySelectorAll(".ion-page")) {
+          const transform = getComputedStyle(page).transform;
+          if (transform !== "none" && transform !== "matrix(1, 0, 0, 1, 0, 0)") seen.push(transform);
+        }
+        if (performance.now() < end) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+    await app.getByRole("tab", { name: "Settings" }).click();
+    await expect(app).toHaveURL(/\/tabs\/settings$/);
+    await app.waitForTimeout(700);
+    expect(await app.evaluate(() => (window as unknown as { __ftMoved: string[] }).__ftMoved)).toEqual([]);
+  });
+});
+
+test.describe("on an iPhone, going back to the chats", () => {
+  test.use({ userAgent: devices["iPhone 13"].userAgent, viewport: { width: 375, height: 812 } });
+
+  test("the chat slides out whole, and the large «Chats» title comes in with its page", async ({ app }) => {
+    await openBobsChat(app);
+    await app.evaluate(() => {
+      const seen = { frames: 0, chatAt: [] as number[], clones: [] as string[], titleOutside: [] as string[] };
+      (window as unknown as Record<string, unknown>).__ftBack = seen;
+      const chat = document.querySelector(".ft-thread")!.closest(".ion-page")!;
+      const end = performance.now() + 800;
+      const frame = () => {
+        seen.frames++;
+        if (chat.isConnected && getComputedStyle(chat).display !== "none") seen.chatAt.push(chat.getBoundingClientRect().left);
+        for (const clone of document.querySelectorAll(".ion-cloned-element")) {
+          if (getComputedStyle(clone).display !== "none") seen.clones.push(clone.tagName);
+        }
+        const title = document.querySelector("ion-title[size='large']");
+        const page = title?.closest(".ion-page");
+        if (title && page && getComputedStyle(title).opacity !== "0") {
+          const [t, p] = [title.getBoundingClientRect(), page.getBoundingClientRect()];
+          if (t.left < p.left - 1 || t.right > p.right + 1) seen.titleOutside.push(`${t.left} vs page ${p.left}`);
+        }
+        if (performance.now() < end) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+    await app.locator(".ft-thread ion-back-button").click();
+    await expect(app).toHaveURL(/\/tabs\/chats$/);
+    await app.waitForTimeout(900);
+    const seen = await app.evaluate(() => (window as unknown as { __ftBack: { chatAt: number[]; clones: string[]; titleOutside: string[] } }).__ftBack);
+    expect(seen.clones, "copies drawn over the pages").toEqual([]);
+    expect(seen.titleOutside, "the large title away from its page").toEqual([]);
+    const between = seen.chatAt.filter((left) => left > 10 && left < 365);
+    expect(between.length, `the chat's positions ${JSON.stringify(seen.chatAt)}`).toBeGreaterThanOrEqual(3);
+  });
+});
+
+test.describe("on a phone, the pages are Ionic's own shape", () => {
+  test.use({ viewport: { width: 360, height: 740 } });
+
+  test("the chat is header, content and footer, and the tabs' page holds its tabs", async ({ app }) => {
+    await openBobsChat(app);
+    const shape = await app.evaluate(() => {
+      const chat = document.querySelector("[data-test='peer']")!.closest(".ion-page")!;
+      const tabs = document.querySelector("ion-tab-bar")!.closest("ion-tabs")!;
+      return {
+        chat: [...chat.children].map((child) => child.tagName.toLowerCase()).filter((tag) => tag.startsWith("ion-") && tag !== "ion-modal"),
+        tabsInPage: tabs.parentElement!.classList.contains("ion-page"),
+      };
+    });
+    expect(shape.chat).toEqual(["ion-header", "ion-content", "ion-footer"]);
+    expect(shape.tabsInPage).toBe(true);
+  });
+});

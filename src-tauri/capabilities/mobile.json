@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Phone-only permissions: the QR scanner for Contact Cards, asking for the camera and opening the system settings when it was refused for good, and Android's back button while something is open on top",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "permissions": [
+    "barcode-scanner:allow-check-permissions",
+    "barcode-scanner:allow-request-permissions",
+    "barcode-scanner:allow-open-app-settings",
+    "barcode-scanner:allow-scan",
+    "barcode-scanner:allow-cancel",
+    "core:app:allow-register-listener",
+    "core:app:allow-remove-listener"
+  ]
+}

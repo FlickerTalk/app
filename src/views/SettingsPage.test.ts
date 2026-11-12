@@ -1,0 +1,905 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import { IonIcon, IonItem, IonModal, IonNote, IonSelect, IonSelectOption, IonTextarea, IonToggle } from "@ionic/vue";
+import {
+  checkmarkOutline,
+  copyOutline,
+  documentTextOutline,
+  helpCircleOutline,
+  mailOutline,
+  openOutline,
+  shieldCheckmarkOutline,
+  sparklesOutline,
+} from "ionicons/icons";
+import SettingsPage from "./SettingsPage.vue";
+import QuickTour from "../components/QuickTour.vue";
+import { pageShape } from "../__tests__/page-shape";
+import { calls, seed } from "../__tests__/seed";
+import { PREMIUM_PAGE } from "../core";
+import { installTauri } from "../__tests__/tauri";
+import { store } from "../core";
+import en from "../i18n/en.json";
+import { PRIVACY_URL, SUPPORT_ADDRESS, TERMS_URL } from "../legal";
+
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: () => Promise.resolve("0.3.1"),
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
+  },
+}));
+const events = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), unlisten: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, handler: () => void) => {
+    events.handlers.set(name, handler);
+    return events.unlisten;
+  },
+}));
+const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => opener);
+const push = vi.fn();
+const route = await vi.hoisted(async () => {
+  const { reactive } = await import("vue");
+  return reactive({ path: "/tabs/settings", hash: "" });
+});
+vi.mock("vue-router", () => ({ useRouter: () => ({ push }), useRoute: () => route }));
+const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
+vi.mock("@ionic/vue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@ionic/vue")>()),
+  toastController: { create: toast.create },
+}));
+
+const catalogues = import.meta.glob<{
+  plan: Record<string, unknown>;
+  premium: Record<string, unknown>;
+  session: Record<string, unknown>;
+  plugins: Record<string, unknown>;
+}>("../i18n/*.json", {
+  eager: true,
+  import: "default",
+});
+
+const enter = (wrapper: ReturnType<typeof mount>) =>
+  ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
+
+function texts(node: unknown): string[] {
+  if (typeof node === "string") return [node];
+  return typeof node === "object" && node !== null ? Object.values(node).flatMap(texts) : [];
+}
+
+describe("SettingsPage", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    seed();
+  });
+
+  it("shows the FlickerTalk ID of this device", () => {
+    expect(mount(SettingsPage, { shallow: true }).text()).toContain("ft_74MxNcJ8E2kQ");
+  });
+
+  it("has the offline mailbox enabled by default", () => {
+    const toggle = mount(SettingsPage, { shallow: true }).findComponent(IonToggle);
+    expect(toggle.attributes("aria-label")).toBe("Offline mailbox");
+    expect(toggle.attributes("checked")).toBe("true");
+  });
+
+  it("turns the mailbox off through the core", async () => {
+    const toggle = mount(SettingsPage, { shallow: true }).findComponent(IonToggle);
+    toggle.vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_mailbox", { enabled: false }]);
+  });
+
+  it("offers moving the identity to a new phone and the backup, and nothing that does not work yet", () => {
+    const text = mount(SettingsPage, { shallow: true }).text();
+    expect(text).toContain("Move to a new phone");
+    expect(text).toContain("Backup");
+    expect(text.replaceAll(en.settings.privacyPolicy, "")).not.toContain("Privacy");
+    expect(text).not.toContain("Export identity");
+  });
+
+  it("shows the app's real version", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain("0.3.1");
+  });
+
+  it("moves to a new phone from here, as the old phone", async () => {
+    await mount(SettingsPage, { shallow: true }).find("[data-test='move']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/move?role=old");
+  });
+
+  describe("beside the ID", () => {
+    const copy = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='copy-id']");
+
+    it("copies the ID shown, says so for a moment, and is the copy button again after", async () => {
+      vi.useFakeTimers();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      const wrapper = mount(SettingsPage, { shallow: true });
+      expect(copy(wrapper).attributes("aria-label")).toBe("Copy ID");
+      await copy(wrapper).trigger("click");
+      await flushPromises();
+      expect(writeText).toHaveBeenCalledWith(store.me.id);
+      expect(copy(wrapper).attributes("aria-label")).toBe("ID copied");
+      expect(copy(wrapper).findComponent(IonIcon).props("icon")).toBe(checkmarkOutline);
+      vi.advanceTimersByTime(2000);
+      await flushPromises();
+      expect(copy(wrapper).attributes("aria-label")).toBe("Copy ID");
+      expect(copy(wrapper).findComponent(IonIcon).props("icon")).toBe(copyOutline);
+      vi.useRealTimers();
+    });
+
+    it("says nothing was copied when the phone refuses", async () => {
+      const writeText = vi.fn().mockRejectedValue(new Error("not allowed"));
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      const wrapper = mount(SettingsPage, { shallow: true });
+      await copy(wrapper).trigger("click");
+      await flushPromises();
+      expect(writeText).toHaveBeenCalled();
+      expect(copy(wrapper).attributes("aria-label")).toBe("Copy ID");
+    });
+
+    it("shows my QR code, the one that adds me", async () => {
+      push.mockClear();
+      await mount(SettingsPage, { shallow: true }).find("[data-test='show-qr']").trigger("click");
+      expect(push).toHaveBeenCalledWith("/add-contact");
+    });
+  });
+
+  it("lists the blocked contacts", async () => {
+    await mount(SettingsPage, { shallow: true }).find("[data-test='blocked']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/blocked");
+  });
+
+  it("opens the suggestion modal over Settings, without leaving them", async () => {
+    push.mockClear();
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    const modal = () => wrapper.findComponent(IonModal);
+    expect(modal().props("isOpen")).toBe(false);
+    const entry = wrapper.find("[data-test='feedback']");
+    expect(entry.text()).toContain("Suggest something");
+    await entry.trigger("click");
+    expect(modal().props("isOpen")).toBe(true);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("closes the suggestion modal with the back button", async () => {
+    push.mockClear();
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(false);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("leaves Android's back button to a page opened over it while it still came in", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    const hooks = (name: string) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    hooks("onIonViewWillLeave");
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewWillLeave");
+    hooks("onIonViewDidEnter");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(true);
+    hooks("onIonViewWillEnter");
+    hooks("onIonViewDidEnter");
+    await flushPromises();
+    back.handler?.();
+    await flushPromises();
+    expect(wrapper.findComponent(IonModal).props("isOpen")).toBe(false);
+  });
+
+  it("opens the suggestion modal empty again after closing it", async () => {
+    installTauri((command) => (command === "core_send_feedback" ? "failed" : undefined));
+    const wrapper = mount(SettingsPage, { shallow: true, global: { stubs: { FeedbackModal: false } } });
+    const modal = () => wrapper.findComponent(IonModal);
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "Stickers");
+    await flushPromises();
+    await wrapper.find("[data-test='send']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='outcome']").exists()).toBe(true);
+    await wrapper.find("[data-test='feedback-close']").trigger("click");
+    expect(modal().props("isOpen")).toBe(false);
+    modal().vm.$emit("didDismiss", new CustomEvent("didDismiss"));
+    await flushPromises();
+
+    await wrapper.find("[data-test='feedback']").trigger("click");
+    expect(modal().props("isOpen")).toBe(true);
+    expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
+    expect(wrapper.find("[data-test='outcome']").exists()).toBe(false);
+  });
+
+  it("lets the user choose how calls are routed", () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Calls");
+    expect(select?.attributes("value")).toBe("auto");
+    expect(select?.findAllComponents(IonSelectOption)).toHaveLength(3);
+  });
+
+  it("tells the core when the call routing changes", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Calls");
+    select?.vm.$emit("ionChange", { detail: { value: "always" } });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_call_routing", { routing: "always" }]);
+  });
+
+  it("lets the user choose up to what size files download on their own", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const select = wrapper.findAllComponents(IonSelect).find((one) => one.attributes("aria-label") === "Auto-download files");
+    expect(select?.attributes("value")).toBe(String(10_000_000));
+    expect(select?.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual([
+      "Always ask",
+      "Up to 10\u00a0MB",
+      "Up to 100\u00a0MB",
+      "Up to 1\u00a0GB",
+      "Always",
+    ]);
+    select?.vm.$emit("ionChange", { detail: { value: 0 } });
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_auto_download", { bytes: 0 }]);
+  });
+
+  it("renews the link after asking once", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='renew-link']").trigger("click");
+    expect(calls.some(([command]) => command === "core_renew_link")).toBe(false);
+    await wrapper.find("[data-test='renew-confirm']").trigger("click");
+    await flushPromises();
+    expect(calls).toContainEqual(["core_renew_link", {}]);
+    expect(wrapper.text()).toContain("Link renewed");
+  });
+
+  it("has no PoC screen", () => {
+    expect(mount(SettingsPage, { shallow: true }).find("[data-test='poc']").exists()).toBe(false);
+  });
+
+  it("lets the user pick one of the four colors", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    expect(wrapper.findAll(".ft-swatch").map((swatch) => swatch.attributes("aria-label"))).toEqual(["Mono", "Ember", "Aurora", "Lime"]);
+    await wrapper.find("button[aria-label='Aurora']").trigger("click");
+    expect(document.documentElement.dataset.direction).toBe("aurora");
+    expect(wrapper.find("button[aria-label='Aurora']").attributes("aria-pressed")).toBe("true");
+  });
+
+  it("applies the lime colors when they are picked", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("button[aria-label='Lime']").trigger("click");
+    expect(document.documentElement.dataset.direction).toBe("lime");
+    expect(localStorage.getItem("ft-direction")).toBe("lime");
+    expect(wrapper.find("button[aria-label='Lime']").attributes("aria-pressed")).toBe("true");
+  });
+
+  it("lets the user choose a light, dark or system appearance", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("button[aria-label='Light']").trigger("click");
+    expect(document.documentElement.classList.contains("ft-dark")).toBe(false);
+    await wrapper.find("button[aria-label='Dark']").trigger("click");
+    expect(document.documentElement.classList.contains("ft-dark")).toBe(true);
+    expect(wrapper.find("button[aria-label='System']").exists()).toBe(true);
+  });
+
+  it("erases the phone only after a confirmation", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    const erase = wrapper.find("[data-test='erase']");
+    expect(erase.exists()).toBe(true);
+    await erase.trigger("click");
+    expect(calls.map(([command]) => command)).not.toContain("core_erase");
+    expect(wrapper.text()).toContain("Erase everything on this phone?");
+    await wrapper.find("[data-test='erase-confirm']").trigger("click");
+    await flushPromises();
+    expect(calls.map(([command]) => command)).toContain("core_erase");
+  });
+
+  it("says the phone is being erased once it is confirmed", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='erase']").trigger("click");
+    await wrapper.find("[data-test='erase-confirm']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='erasing']").text()).toContain("Erasing this phone");
+    expect(wrapper.find("[data-test='erase']").exists()).toBe(false);
+    expect(wrapper.find("[data-test='erase-confirm']").exists()).toBe(false);
+  });
+
+  it("says so when the phone could not be erased, and lets the user try again", async () => {
+    installTauri((command) => {
+      if (command === "core_erase") throw new Error("disk");
+      return undefined;
+    });
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='erase']").trigger("click");
+    await wrapper.find("[data-test='erase-confirm']").trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-test='erasing']").exists()).toBe(false);
+    expect(wrapper.text()).toContain("This phone could not be erased");
+    expect(wrapper.find("[data-test='erase']").exists()).toBe(true);
+  });
+
+  it("can change its mind about erasing", async () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    await wrapper.find("[data-test='erase']").trigger("click");
+    await wrapper.find("[data-test='erase-cancel']").trigger("click");
+    expect(wrapper.find("[data-test='erase-confirm']").exists()).toBe(false);
+    expect(calls.map(([command]) => command)).not.toContain("core_erase");
+  });
+
+  it("has no choice of what the tab bar shows", () => {
+    const wrapper = mount(SettingsPage, { shallow: true });
+    expect(wrapper.find("[data-test='extra-tab']").exists()).toBe(false);
+    expect(wrapper.html()).not.toContain("Show in the tab bar");
+  });
+
+  it("turns receipts off for new contacts through the core", async () => {
+    const toggle = mount(SettingsPage, { shallow: true })
+      .findAllComponents(IonToggle)
+      .find((one) => one.attributes("data-test") === "receipts")!;
+    expect(toggle.attributes("checked")).toBe("true");
+    toggle.vm.$emit("ionChange", new CustomEvent("ionChange", { detail: { checked: false } }));
+    await flushPromises();
+    expect(calls).toContainEqual(["core_set_receipts", { enabled: false }]);
+  });
+
+  it("goes to the weekly hours from a row", async () => {
+    await mount(SettingsPage, { shallow: true }).find("[data-test='hours']").trigger("click");
+    expect(push).toHaveBeenCalledWith("/hours");
+  });
+
+  describe("the Hours row", () => {
+    const WEEK = JSON.stringify({ days: ["all", "all", "all", "all", "all", "all", "all"] });
+    const state = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='hours']").findComponent(IonNote);
+    let hours: string | null;
+
+    beforeEach(() => {
+      hours = null;
+      route.path = "/tabs/settings";
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        return command === "core_quiet_hours" ? hours : undefined;
+      });
+    });
+
+    async function settings() {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      await flushPromises();
+      return wrapper;
+    }
+
+    it("says nothing until the hours are known", async () => {
+      let answer: (week: string | null) => void = () => undefined;
+      installTauri((command) =>
+        command === "core_quiet_hours" ? new Promise<string | null>((resolve) => (answer = resolve)) : undefined,
+      );
+      const wrapper = await settings();
+      expect(state(wrapper).exists()).toBe(false);
+      answer(null);
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+    });
+
+    it("says Off while the weekly hours are off", async () => {
+      expect(state(await settings()).text()).toBe(en.settings.hoursOff);
+    });
+
+    it("says On while the weekly hours are on", async () => {
+      hours = WEEK;
+      expect(state(await settings()).text()).toBe(en.settings.hoursOn);
+    });
+
+    it("reads the hours again every time the page is entered", async () => {
+      const wrapper = await settings();
+      hours = WEEK;
+      enter(wrapper);
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOn);
+      hours = null;
+      enter(wrapper);
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+    });
+
+    it("reads the hours again when the app comes back to Settings, even without Ionic's enter hook", async () => {
+      route.path = "/tabs/calls";
+      route.path = "/tabs/settings";
+      const wrapper = await settings();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+      route.path = "/hours";
+      await flushPromises();
+      hours = WEEK;
+      route.path = "/tabs/settings";
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOn);
+      route.path = "/hours";
+      await flushPromises();
+      hours = null;
+      route.path = "/tabs/settings";
+      await flushPromises();
+      expect(state(wrapper).text()).toBe(en.settings.hoursOff);
+    });
+  });
+  describe("the Premium section", () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const section = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='premium']");
+    const note = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='premium-note']");
+    const tools = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='plugins']");
+    const sessions = (wrapper: ReturnType<typeof mount>) => wrapper.find("[data-test='session']");
+
+    function planning(plan: Record<string, unknown>, price: string | null = "0,99 €") {
+      installTauri((command, args) => {
+        calls.push([command, args]);
+        if (command === "core_subscription_price") return { price };
+        return command === "core_plan" ? plan : undefined;
+      });
+    }
+
+    async function settings() {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      await flushPromises();
+      return wrapper;
+    }
+
+    beforeEach(() => {
+      push.mockClear();
+      route.hash = "";
+      toast.create.mockReset().mockImplementation(async () => ({ present: toast.present }));
+      toast.present.mockReset();
+    });
+
+    it("sits after the appearance group and before moving and the backup", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const html = (await settings()).html();
+      const at = (test: string) => html.indexOf(`data-test="${test}"`);
+      expect(html.lastIndexOf("ft-segment__option")).toBeGreaterThan(0);
+      expect(at("premium")).toBeGreaterThan(html.lastIndexOf("ft-segment__option"));
+      expect(at("premium")).toBeLessThan(at("move"));
+      expect(at("plugins")).toBeGreaterThan(at("premium"));
+      expect(at("session")).toBeGreaterThan(at("premium"));
+      expect(at("session")).toBeLessThan(at("move"));
+    });
+
+    it("is headed Premium, with the sparkles", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const head = (await settings()).find("[data-test='premium-head']");
+      expect(head.text()).toBe(en.premium.title);
+      expect(head.findComponent(IonIcon).props("icon")).toBe(sparklesOutline);
+    });
+
+    it("has no Plan row any more, nor a lone plugins group", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const wrapper = await settings();
+      expect(wrapper.find("[data-test='plan']").exists()).toBe(false);
+      expect(wrapper.findAll("[data-test='plugins']")).toHaveLength(1);
+      expect(wrapper.findAll("[data-test='session']")).toHaveLength(1);
+    });
+
+    describe("in the 15 free days", () => {
+      it("says what is free and what the trial is, with the Store's price", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.trialNote.replace("{price}", "0,99 €"));
+      });
+
+      it("counts the days left as every screen does, on both rows", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        const wrapper = await settings();
+        const days = en.premium.daysLeft.replace("{days}", "15");
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
+        expect(sessions(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
+        expect(tools(wrapper).find("[data-test='premium-badge']").attributes("color")).toBe("primary");
+      });
+
+      it("opens the tools and the PIN pad", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY });
+        const wrapper = await settings();
+        expect(tools(wrapper).text()).toContain(en.premium.tools);
+        expect(sessions(wrapper).text()).toContain(en.premium.sessions);
+        await tools(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
+        await sessions(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/session");
+      });
+
+      it("asks for nothing", async () => {
+        planning({ state: "trial", until: Date.now() + 15 * DAY });
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='premium-locked']").exists()).toBe(false);
+      });
+    });
+
+    describe("once the free days are over, without paying", () => {
+      const limited = { state: "limited", until: 0 };
+
+      it("says what the subscription is for, at the Store's price", async () => {
+        planning(limited, "0,99 €");
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.limitedNote.replace("{price}", "0,99 €"));
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "0,99 €"));
+      });
+
+      it("subscribes through the Store from the button", async () => {
+        planning(limited);
+        const wrapper = await settings();
+        await wrapper.find("[data-test='pay']").trigger("click");
+        await flushPromises();
+        expect(calls.map(([command]) => command)).toContain("core_subscribe");
+      });
+
+      it("shows both rows locked, with no way in but the subscription", async () => {
+        planning(limited);
+        const wrapper = await settings();
+        for (const [row, label] of [
+          [tools(wrapper), en.plugins.locked],
+          [sessions(wrapper), en.session.subscribeToUse],
+        ] as const) {
+          expect(row.classes()).toContain("ft-premium__locked");
+          expect(row.attributes("detail")).toBe("false");
+          expect(row.attributes("aria-label")).toBe(label);
+          expect(row.find("[data-test='premium-locked']").exists()).toBe(true);
+          expect(row.find("[data-test='premium-badge']").exists()).toBe(false);
+          calls.length = 0;
+          await row.trigger("click");
+          await flushPromises();
+          expect(push).not.toHaveBeenCalled();
+          expect(calls.map(([command]) => command)).toContain("core_subscribe");
+        }
+      });
+
+      it("offers to restore a purchase, and says what the Store found", async () => {
+        installTauri((command, args) => {
+          calls.push([command, args]);
+          if (command === "core_restore_subscription") return "restored";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        const restore = wrapper.find("[data-test='restore']");
+        expect(restore.text()).toBe(en.plan.restore);
+        calls.length = 0;
+        await restore.trigger("click");
+        await flushPromises();
+        expect(calls.map(([command]) => command)).toContain("core_restore_subscription");
+        expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.restored }));
+        expect(toast.present).toHaveBeenCalled();
+        expect(calls.map(([command]) => command)).toContain("core_plan");
+      });
+
+      it("says when the Store has nothing to restore", async () => {
+        installTauri((command) => (command === "core_restore_subscription" ? "nothing" : command === "core_plan" ? limited : undefined));
+        const wrapper = await settings();
+        await wrapper.find("[data-test='restore']").trigger("click");
+        await flushPromises();
+        expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.nothingToRestore }));
+        expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+      });
+
+      it("says a Store that does not answer a restore as it does when paying", async () => {
+        installTauri((command) => {
+          if (command === "core_restore_subscription") throw "store_unavailable";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='restore']").trigger("click");
+        await flushPromises();
+        expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.store_unavailable);
+        expect(toast.create).not.toHaveBeenCalled();
+      });
+
+      it("says in the user's words when the Store will not sell, and keeps unknown answers off", async () => {
+        for (const [thrown, said] of [
+          ["not_on_sale", en.plan.trouble.not_on_sale],
+          ["BillingClient exploded at 0x7f", en.plan.trouble.failed],
+        ]) {
+          installTauri((command) => {
+            if (command === "core_subscribe") throw thrown;
+            return command === "core_plan" ? limited : undefined;
+          });
+          const wrapper = await settings();
+          await wrapper.find("[data-test='pay']").trigger("click");
+          await flushPromises();
+          expect(wrapper.find("[data-test='trouble']").text()).toBe(said);
+          expect(wrapper.text()).not.toContain("0x7f");
+        }
+      });
+
+      it("says nothing when the user backs out of the Store", async () => {
+        installTauri((command) => {
+          if (command === "core_subscribe") throw "cancelled";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='pay']").trigger("click");
+        await flushPromises();
+        expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+      });
+
+      it("names no amount when the Store cannot say the price", async () => {
+        planning(limited, null);
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribeYearly);
+        expect(note(wrapper).text()).toBe(en.premium.limitedNoteYearly);
+        expect(section(wrapper).text()).not.toMatch(/€|\$|euro/i);
+      });
+
+      it("names no amount when asking the Store fails", async () => {
+        installTauri((command) => {
+          if (command === "core_subscription_price") throw "store_unavailable";
+          return command === "core_plan" ? limited : undefined;
+        });
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribeYearly);
+      });
+    });
+
+    describe("subscribed", () => {
+      it("says until when on iOS, where the Store gives a real expiry", async () => {
+        const until = Date.parse("2027-09-23T10:00:00Z");
+        planning({ state: "subscribed", until });
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.paidUntil.replace("{until}", new Date(until).toLocaleDateString()));
+      });
+
+      it("says a Play subscription renews automatically, with no date", async () => {
+        const until = Date.parse("2027-10-07T10:00:00Z");
+        planning({ state: "subscribed", until, renews: true });
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(en.premium.paid);
+        expect(wrapper.text()).not.toContain(new Date(until).toLocaleDateString());
+      });
+
+      it("shows both rows active, open, and asks for nothing", async () => {
+        planning({ state: "subscribed", until: Date.now() + 300 * DAY });
+        const wrapper = await settings();
+        for (const row of [tools(wrapper), sessions(wrapper)]) {
+          const badge = row.find("[data-test='premium-badge']");
+          expect(badge.text()).toBe(en.premium.active);
+          expect(badge.attributes("color")).toBe("success");
+          expect(row.classes()).not.toContain("ft-premium__locked");
+        }
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
+        await tools(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
+        await sessions(wrapper).trigger("click");
+        expect(push).toHaveBeenCalledWith("/session");
+      });
+    });
+
+    it("reads the plan and the price again every time the page is entered", async () => {
+      let state = "limited";
+      let price = "$0.99";
+      installTauri((command) => {
+        if (command === "core_subscription_price") return { price };
+        return command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 300 * DAY } : undefined;
+      });
+      const wrapper = await settings();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "$0.99"));
+      price = "0,99 €";
+      enter(wrapper);
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "0,99 €"));
+      state = "subscribed";
+      enter(wrapper);
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+    });
+
+    it("asks the price again when the app comes back, and keeps the last one known", async () => {
+      let price: string | null = "$0.99";
+      installTauri((command) => {
+        if (command === "core_subscription_price") return { price };
+        return command === "core_plan" ? { state: "limited", until: 0 } : undefined;
+      });
+      const wrapper = await settings();
+      price = "US$0.99";
+      document.dispatchEvent(new Event("visibilitychange"));
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "US$0.99"));
+      price = null;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await flushPromises();
+      expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "US$0.99"));
+    });
+
+    it("follows the plan when the Store changes its mind, and forgets the old trouble", async () => {
+      let state = "limited";
+      installTauri((command) => {
+        if (command === "core_subscribe") throw "pending_approval";
+        return command === "core_plan" ? { state, until: state === "limited" ? 0 : Date.now() + 300 * DAY } : undefined;
+      });
+      const wrapper = await settings();
+      await wrapper.find("[data-test='pay']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='trouble']").text()).toBe(en.plan.trouble.pending_approval);
+      state = "subscribed";
+      events.handlers.get("ft://plan")?.();
+      await flushPromises();
+      expect(wrapper.find("[data-test='trouble']").exists()).toBe(false);
+      expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
+      wrapper.unmount();
+      expect(events.unlisten).toHaveBeenCalled();
+    });
+
+    it("never speaks of an age", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-03-02T10:00:00Z"));
+      try {
+        for (const state of ["trial", "limited", "subscribed"]) {
+          planning({ state, until: Date.now() + 15 * DAY });
+          const wrapper = await settings();
+          expect(section(wrapper).text(), state).not.toMatch(/\b21\b|under|minor|birth/i);
+          expect(wrapper.find("[data-test='young']").exists()).toBe(false);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    function scrollArea(wrapper: ReturnType<typeof mount>, from = 0) {
+      const scrollToPoint = vi.fn().mockResolvedValue(undefined);
+      const area = wrapper.find("ion-content-stub").element as HTMLElement & Record<string, unknown>;
+      area.getScrollElement = async () => ({ scrollTop: from, getBoundingClientRect: () => ({ top: 100 }) });
+      area.scrollToPoint = scrollToPoint;
+      return scrollToPoint;
+    }
+    const entered = async (wrapper: ReturnType<typeof mount>) => {
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewDidEnter ?? []).forEach((hook) => hook());
+      await flushPromises();
+    };
+
+    it("brings the section to the top when the app asks for it", async () => {
+      planning({ state: "limited", until: 0 });
+      route.hash = "#premium";
+      const wrapper = await settings();
+      const scrolled = scrollArea(wrapper, 40);
+      section(wrapper).element.getBoundingClientRect = () => ({ top: 700 }) as DOMRect;
+      await entered(wrapper);
+      expect(scrolled).toHaveBeenCalledWith(0, 640, expect.any(Number));
+      expect(PREMIUM_PAGE).toBe("/tabs/settings#premium");
+    });
+
+    it("stays where it is when nothing asks for the section", async () => {
+      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      const wrapper = await settings();
+      const scrolled = scrollArea(wrapper);
+      await entered(wrapper);
+      expect(scrolled).not.toHaveBeenCalled();
+    });
+  });
+
+  it("has no amount of money nor an age in the Premium and Plan texts of any language", () => {
+    const money = /[€$£¥₹₩₽]|\beuros?\b|ユーロ|유로|欧元|歐元|ยูโร|यूरो|ইউরো|євро|евро|يورو/i;
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      for (const text of [...texts(catalogue.plan), ...texts(catalogue.premium)]) {
+        expect(text, path).not.toMatch(money);
+        expect(text, path).not.toMatch(/\b21\b/);
+      }
+      for (const key of ["young", "iAmYoung", "iAmOlder"]) expect(catalogue.plan, path).not.toHaveProperty(key);
+      for (const key of ["subscribe", "trialNote", "limitedNote"]) expect(String(catalogue.premium[key]), `${path} ${key}`).toContain("{price}");
+    }
+  });
+
+  it("never says 'forever' in the Premium, Plan, session and tools texts of any language", () => {
+    const forever =
+      /\bforever\b|para siempre|para sempre|per sempre|pour toujours|für immer|pentru totdeauna|na zawsze|навсегда|назавжди|sonsuza|selamanya|mãi mãi|ตลอดไป|للأبد|हमेशा के लिए|চিরকাল|ずっと|영원히|永久/i;
+    for (const [path, catalogue] of Object.entries(catalogues)) {
+      const said = [catalogue.plan, catalogue.premium, catalogue.session, catalogue.plugins].flatMap(texts);
+      for (const text of said) expect(text, path).not.toMatch(forever);
+    }
+  });
+
+  describe("the terms, privacy and contact group", () => {
+    const ROWS = ["terms", "privacy-policy", "contact"];
+    const rows = (wrapper: ReturnType<typeof mount>) =>
+      ROWS.map((test) => wrapper.findAllComponents(IonItem).find((item) => item.attributes("data-test") === test)!);
+
+    beforeEach(() => {
+      opener.openUrl.mockReset();
+      push.mockClear();
+    });
+
+    it("lists the Terms of Use, the Privacy Policy and the support address together", () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const [terms, privacy, contact] = rows(wrapper);
+      expect(terms.text()).toBe("Terms of Use");
+      expect(privacy.text()).toBe("Privacy Policy");
+      expect(contact.text()).toContain("Contact");
+      expect(contact.text()).toContain("info@flickertalk.com");
+      expect(new Set(rows(wrapper).map((row) => row.element.parentElement)).size).toBe(1);
+      expect(terms.element.parentElement?.children).toHaveLength(4);
+    });
+
+    const tourRow = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.findAllComponents(IonItem).find((item) => item.attributes("data-test") === "tour")!;
+
+    it("starts with the quick tour, which stays in the app", () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const row = tourRow(wrapper);
+      const [terms] = rows(wrapper);
+      expect(row.text()).toBe("Quick tour");
+      expect(row.findComponent(IonIcon).props("icon")).toBe(helpCircleOutline);
+      expect(row.element.parentElement).toBe(terms.element.parentElement);
+      expect(row.element.parentElement?.firstElementChild).toBe(row.element);
+      expect(row.props("button")).toBeDefined();
+      expect(row.props("button")).not.toBe(false);
+      expect(row.props("detailIcon")).not.toBe(openOutline);
+    });
+
+    it("opens the quick tour over Settings, as often as asked", async () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const tour = () => wrapper.findComponent(QuickTour);
+      expect(tour().props("open")).toBe(false);
+      expect(tour().classes()).toContain("ft-sheet--tab");
+      await tourRow(wrapper).trigger("click");
+      expect(tour().props("open")).toBe(true);
+      expect(push).not.toHaveBeenCalled();
+      expect(opener.openUrl).not.toHaveBeenCalled();
+      tour().vm.$emit("close");
+      await flushPromises();
+      expect(tour().props("open")).toBe(false);
+      await tourRow(wrapper).trigger("click");
+      expect(tour().props("open")).toBe(true);
+    });
+
+    it("takes the tour away with Settings when a page covers it", async () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      const hooks = (name: string) =>
+        ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>)[name] ?? []).forEach((hook) => hook());
+      await tourRow(wrapper).trigger("click");
+      hooks("onIonViewWillLeave");
+      await flushPromises();
+      expect(wrapper.findComponent(QuickTour).props("open")).toBe(false);
+      hooks("onIonViewWillEnter");
+      hooks("onIonViewDidEnter");
+      await flushPromises();
+      expect(wrapper.findComponent(QuickTour).props("open")).toBe(true);
+    });
+
+    it("draws each row with its Ionicon, and the sign of leaving the app", () => {
+      const wrapper = mount(SettingsPage, { shallow: true });
+      expect(rows(wrapper).map((row) => row.findComponent(IonIcon).props("icon"))).toEqual([
+        documentTextOutline,
+        shieldCheckmarkOutline,
+        mailOutline,
+      ]);
+      for (const row of rows(wrapper)) {
+        expect(row.props("button")).toBeDefined();
+        expect(row.props("button")).not.toBe(false);
+        expect(row.props("detailIcon")).toBe(openOutline);
+      }
+    });
+
+    it("opens the terms and the privacy policy in the phone's browser", async () => {
+      const [terms, privacy] = rows(mount(SettingsPage, { shallow: true }));
+      await terms.trigger("click");
+      await privacy.trigger("click");
+      expect(opener.openUrl.mock.calls).toEqual([[TERMS_URL], [PRIVACY_URL]]);
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("writes to support in the phone's mail app", async () => {
+      const [, , contact] = rows(mount(SettingsPage, { shallow: true }));
+      await contact.trigger("click");
+      expect(opener.openUrl).toHaveBeenCalledWith(`mailto:${SUPPORT_ADDRESS}`);
+    });
+
+    it("sits after erasing the phone, before the suggestion and the version", () => {
+      const html = mount(SettingsPage, { shallow: true }).html();
+      const at = (test: string) => html.indexOf(`data-test="${test}"`);
+      expect(at("terms")).toBeGreaterThan(at("erase"));
+      expect(at("contact")).toBeLessThan(at("feedback"));
+    });
+  });
+
+  it("is an Ionic page: a header with the title, then the settings", () => {
+    expect(pageShape(mount(SettingsPage, { shallow: true }), ["feedback-modal", "quick-tour"])).toEqual(["ion-header", "ion-content"]);
+  });
+});

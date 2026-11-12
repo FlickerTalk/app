@@ -1,0 +1,6 @@
+/* Notification texts of the iPhone app (2026-09-28): the same as Android's ft_strings.xml. */
+"FT_PUSH_WAKE" = "Tem algo novo esperando por você";
+"Reminder" = "Lembrete";
+"You have a reminder" = "Tens um lembrete";
+"FT_INCOMING_CALL" = "Chamada recebida";
+"FT_INCOMING_VIDEO_CALL" = "Chamada de vídeo recebida";

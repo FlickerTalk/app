@@ -1,0 +1,224 @@
+html,
+body {
+  background: var(--ft-bg);
+}
+
+/* the WebViews shrink only the visual viewport for the keyboard, see viewport.ts */
+ion-app.ion-page {
+  inset-block-start: var(--ft-viewport-top, 0px);
+  inset-block-end: auto;
+  block-size: var(--ft-viewport-height, 100%);
+}
+html.ft-keyboard-open {
+  --ion-safe-area-bottom: 0px;
+}
+/* the call bar gets its own band above the headers on phones, over a header it covered the name */
+@media (max-width: 767px) {
+  html.ft-call-bar {
+    --ion-safe-area-top: calc(env(safe-area-inset-top) + 44px);
+  }
+}
+/* Android draws its nav bar over the WebView (edge to edge), so the app ends above it and keeps no inset inside */
+html.plt-android {
+  --ft-navigation-bar: var(--ion-safe-area-bottom, 0px);
+}
+html.plt-android ion-app.ion-page {
+  --ion-safe-area-bottom: 0px;
+  block-size: calc(var(--ft-viewport-height, 100%) - var(--ft-navigation-bar));
+  overflow: clip;
+}
+html.plt-android body::after {
+  content: "";
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: var(--ft-navigation-bar);
+  background: var(--ft-bg);
+  pointer-events: none;
+}
+html.plt-android.ft-dark-screen body::after {
+  background: #07090c;
+}
+
+ion-toolbar {
+  --padding-start: 12px;
+  --padding-end: 8px;
+}
+
+/* Ionic's title box sets nowrap inside its shadow root, so only our .ft-title span can wrap */
+ion-toolbar.md > ion-title > .ft-title {
+  white-space: normal;
+}
+ion-toolbar.md > ion-title:not(.title-small) {
+  padding-block: 8px;
+}
+/* On iOS Ionic lays the title over the whole bar 90 px from each edge, so it can't grow and a wide back
+   button covers it. :has() needs iOS 15.4, older iPhones keep Ionic's header. */
+@supports selector(:has(*)) {
+  ion-toolbar.ios > ion-title > .ft-title {
+    white-space: normal;
+  }
+  ion-toolbar.ios > ion-title:not(.title-large, .title-small) {
+    position: relative;
+    padding-inline: calc(90px - var(--padding-start)) calc(90px - var(--padding-end));
+  }
+  ion-toolbar.ios:has(> ion-buttons[slot="start"]) > ion-title:not(.title-large, .title-small) {
+    padding-inline-start: 0;
+  }
+  ion-toolbar.ios:has(> ion-buttons[slot="end"]) > ion-title:not(.title-large, .title-small) {
+    padding-inline-end: 0;
+  }
+  ion-toolbar.ios:has(> ion-title:not(.title-large, .title-small)) > ion-buttons[slot="start"] {
+    min-width: calc(90px - var(--padding-start));
+  }
+  ion-toolbar.ios:has(> ion-title:not(.title-large, .title-small)) > ion-buttons[slot="end"] {
+    min-width: calc(90px - var(--padding-end));
+    justify-content: flex-end;
+  }
+}
+
+/* a Latin name in Arabic stays beside the avatar */
+[dir="auto"] {
+  /* Chromium and WebKit only know the prefixed keyword */
+  text-align: -webkit-match-parent;
+  text-align: match-parent;
+}
+
+.ft-rows {
+  margin: 0;
+  padding: 4px 8px 24px;
+  list-style: none;
+}
+
+/* Ionic draws these on one line with an ellipsis. A select's label property can't wrap, use its slot */
+ion-toggle::part(label),
+ion-select::part(text),
+ion-select > [slot="label"] {
+  white-space: normal;
+}
+ion-select::part(container) {
+  min-width: min-content;
+}
+
+.ft-round {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  font-size: 22px;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    opacity 0.2s ease;
+}
+.ft-round:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.ft-round:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: 2px;
+}
+.ft-round--ghost {
+  background: var(--ft-surface-2);
+  color: var(--ft-text);
+}
+.ft-round--accent,
+.ft-round--send {
+  background: linear-gradient(135deg, var(--ft-accent), var(--ft-accent-2));
+  color: var(--ft-on-accent);
+  box-shadow: 0 8px 20px -10px var(--ft-glow);
+}
+.ft-round--send:disabled {
+  background: var(--ft-surface-2);
+  color: var(--ft-muted);
+  box-shadow: none;
+  cursor: default;
+}
+
+/* the camera sits under the app while scanning */
+html.ft-scanning,
+html.ft-scanning body,
+html.ft-scanning ion-app {
+  background: transparent !important;
+}
+html.ft-scanning ion-router-outlet {
+  visibility: hidden;
+}
+
+@media (min-width: 768px) {
+  ion-modal.ft-sheet--chat-pane {
+    --width: calc(100% - var(--ft-rail-width) - var(--ft-list-width));
+    justify-content: flex-end;
+  }
+  ion-modal.ft-sheet--tab {
+    --width: calc(100% - var(--ft-rail-width));
+    justify-content: flex-end;
+  }
+  ion-modal.ft-sheet--window {
+    --width: 100%;
+  }
+}
+
+/* Ionic zeroes the side insets in sheet modals, held sideways the first column went under the island */
+ion-modal.modal-sheet > .ion-page {
+  --ion-safe-area-left: var(--ft-safe-left);
+  --ion-safe-area-right: var(--ft-safe-right);
+}
+@media (min-width: 768px) {
+  html:not([dir="rtl"]) :is(.ft-tabs-frame, ion-modal.ft-sheet--chat-pane > .ion-page, ion-modal.ft-sheet--tab > .ion-page) {
+    --ion-safe-area-left: 0px;
+  }
+  html[dir="rtl"] :is(.ft-tabs-frame, ion-modal.ft-sheet--chat-pane > .ion-page, ion-modal.ft-sheet--tab > .ion-page) {
+    --ion-safe-area-right: 0px;
+  }
+}
+html:not([dir="rtl"]) .ft-chats.is-wide > :is(.ft-chats__head, .ft-chats__list) {
+  --ion-safe-area-right: 0px;
+}
+html[dir="rtl"] .ft-chats.is-wide > :is(.ft-chats__head, .ft-chats__list) {
+  --ion-safe-area-left: 0px;
+}
+
+/* Ionic's items inside would add the insets again */
+ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) {
+  --padding-start: var(--ion-safe-area-left, 0px);
+  --padding-end: var(--ion-safe-area-right, 0px);
+}
+[dir="rtl"] ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) {
+  --padding-start: var(--ion-safe-area-right, 0px);
+  --padding-end: var(--ion-safe-area-left, 0px);
+}
+ion-footer {
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
+}
+ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) > *,
+ion-footer > * {
+  --ion-safe-area-left: 0px;
+  --ion-safe-area-right: 0px;
+}
+
+/* 76 px fits four columns on a 360 px phone, 84 left three */
+.ft-app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 18px 8px;
+  padding: 12px 16px;
+}
+@media (min-width: 768px) {
+  .ft-app-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 22px 12px;
+    padding: 12px 28px;
+  }
+}
+
+/* Ionic's iOS segment leaves 2 px between icon and label, Android 8 */
+html.ios ion-segment-button.segment-button-layout-icon-start > ion-icon {
+  margin-inline-end: 6px;
+}

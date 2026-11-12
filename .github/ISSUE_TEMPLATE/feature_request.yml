@@ -1,0 +1,46 @@
+name: Feature request
+description: Tell us what you would like FlickerTalk to do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest something. A few short answers are enough.
+
+        **How we weigh requests.** FlickerTalk's server keeps no chat history and cannot read messages: your conversations live on your phone and the other person's phone. An idea that needs our server to store or read conversations will not fit, so we would rather say it now than waste your time.
+
+        **Please do not paste personal data**, contact links, FlickerTalk IDs or screenshots of conversations. This issue is public.
+  - type: textarea
+    id: wish
+    attributes:
+      label: What would you like to do?
+      description: In a sentence or two.
+      placeholder: I would like to…
+    validations:
+      required: true
+  - type: textarea
+    id: situation
+    attributes:
+      label: When do you miss it?
+      description: A concrete situation helps more than an abstract wish.
+      placeholder: Last week I was… and I wanted to…
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How do you get by today?
+      description: Another app, a workaround, or you simply do without.
+    validations:
+      required: false
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Which phone do you use?
+      options:
+        - Android
+        - iPhone (once the iPhone version is out)
+        - Both
+        - I don't use FlickerTalk yet
+    validations:
+      required: false

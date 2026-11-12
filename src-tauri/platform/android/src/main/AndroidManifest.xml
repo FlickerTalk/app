@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Not USE_EXACT_ALARM, Play only allows that one for alarm apps. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Call audio runs in Rust under a phoneCall|microphone foreground service, and the phoneCall
+         type needs MANAGE_OWN_CALLS. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- Foreground location only, never ACCESS_BACKGROUND_LOCATION. required="false" so devices
+         without GPS still get the app. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+    <application>
+        <receiver android:name="com.flickertalk.platform.ReminderReceiver" android:exported="false" />
+        <!-- Sets the kept reminders again after a reboot and when exact alarms get allowed. -->
+        <receiver android:name="com.flickertalk.platform.BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <!-- OAuth redirect target for the drive login. -->
+        <activity
+            android:name="com.flickertalk.platform.AuthRedirectActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.flickertalk.app" />
+                <!-- Google's Android OAuth clients redirect to the reversed client id, filled in from
+                     FT_GOOGLE_CLIENT_ID at build time. -->
+                <data android:scheme="${googleRedirectScheme}" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name="com.flickertalk.platform.FtMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <service
+            android:name="com.flickertalk.platform.FtCallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|camera" />
+        <receiver android:name="com.flickertalk.platform.FtCallActionReceiver" android:exported="false" />
+        <!-- Keeps a process started by a call push awake while the call rings. -->
+        <service
+            android:name="com.flickertalk.platform.FtIncomingCallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall" />
+        <!-- Notification buttons land here instead of in an extra on the launcher intent, which got
+             lost when the process had died. Shown over the lock screen so declining needs no unlock. -->
+        <activity
+            android:name="com.flickertalk.platform.FtNotificationTapActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <provider
+            android:name="com.flickertalk.platform.FtFileProvider"
+            android:authorities="${applicationId}.ft.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/ft_file_paths" />
+        </provider>
+    </application>
+</manifest>

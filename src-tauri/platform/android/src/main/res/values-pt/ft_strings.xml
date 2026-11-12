@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Alguém</string>
+    <string name="ft_incoming_call">Chamada recebida</string>
+    <string name="ft_incoming_video_call">Chamada de vídeo recebida</string>
+    <string name="ft_channel_calls">Chamadas</string>
+    <string name="ft_channel_messages">Mensagens e chamadas</string>
+    <string name="ft_something_new">Tem algo novo esperando por você</string>
+    <string name="ft_channel_reminders">Lembretes</string>
+    <string name="ft_reminder">Lembrete</string>
+    <string name="ft_reminder_generic">Tens um lembrete</string>
+    <string name="ft_channel_incoming_calls">Chamadas recebidas</string>
+    <string name="ft_channel_ongoing_calls">Chamadas em curso</string>
+    <string name="ft_ongoing_call">Chamada em curso</string>
+    <string name="ft_mute">Silenciar</string>
+    <string name="ft_unmute">Ativar microfone</string>
+    <string name="ft_video">Vídeo</string>
+</resources>

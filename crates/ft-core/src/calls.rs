@@ -1,0 +1,444 @@
+//! Call signalling only goes over a direct connection, never through the mailbox.
+
+use std::time::Duration;
+
+use anyhow::{bail, Result};
+use ft_protocol::{Body, EndReason, MessageId, Packet};
+use ft_storage::{CallOutcome, CallRecord, Contact};
+
+use crate::native_calls::{EarlyOutcome, PresentedBy};
+use crate::timings::CallStage;
+use crate::{now, Core, Event};
+
+pub const CALL_REACH: Duration = Duration::from_secs(40);
+// The other phone's router socket can go quiet after a network change while the router keeps feeding it, for up to 60 s
+pub const HANG_UP_REACH: Duration = Duration::from_secs(90);
+const CALL_RETRY: Duration = Duration::from_secs(2);
+
+// A connection to a suspended or killed app still looks open for seconds and swallows the offer.
+// The pong to the ping sent right after it proves the offer arrived.
+pub(crate) const CALL_OFFER_ACK: Duration = Duration::from_secs(3);
+
+pub const RING_LIMIT: Duration = Duration::from_secs(60);
+
+pub(crate) fn stale(record: &CallRecord, now: i64) -> bool {
+    record.answered_at.is_none() && now - record.started_at > RING_LIMIT.as_millis() as i64
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unseen {
+    Nothing,
+    Refused,
+    KeptQuiet,
+    Missed { busy: bool },
+}
+
+pub(crate) fn unseen_end(reason: EndReason, takes_calls: bool, silent: bool, busy: bool) -> Unseen {
+    if reason != EndReason::Cancelled {
+        Unseen::Nothing
+    } else if !takes_calls {
+        Unseen::Refused
+    } else if silent {
+        Unseen::KeptQuiet
+    } else {
+        Unseen::Missed { busy }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallUpdate {
+    Incoming { video: bool, sdp: String },
+    Answered { sdp: String },
+    Answering,
+    Ended { outcome: CallOutcome },
+    Connected,
+    Muted { muted: bool },
+    // Not Ended, which would end the call going on in CallKit along with its audio
+    MissedWhileBusy,
+    Video(ft_media::VideoState),
+    CameraFailed,
+    Presenting { plugin: Option<String>, file: Option<MessageId>, by: Option<PresentedBy> },
+}
+
+impl Core {
+    pub async fn place_call(&self, contact: &str, video: bool) -> Result<String> {
+        let stored = self.chosen(contact).await?;
+        if stored.blocked {
+            bail!("the contact is blocked");
+        }
+        self.drop_stale_call().await?;
+        let call = MessageId::new().to_string();
+        {
+            let mut active = self.active_call.lock().expect("active call poisoned");
+            if active.is_some() {
+                bail!("already in a call");
+            }
+            *active = Some(call.clone());
+        }
+        self.store
+            .insert_call(&CallRecord {
+                call_id: call.clone(),
+                contact: contact.to_owned(),
+                outgoing: true,
+                video,
+                started_at: now(),
+                answered_at: None,
+                ended_at: None,
+                outcome: None,
+            })
+            .await?;
+        Ok(call)
+    }
+
+    pub async fn offer_call(&self, call: &str, sdp: &str) -> Result<()> {
+        self.offer_call_within(call, sdp, CALL_REACH).await
+    }
+
+    pub async fn offer_call_within(&self, call: &str, sdp: &str, reach: Duration) -> Result<()> {
+        // WebView calls are media version 0, no voice/video switching
+        self.offer_call_media(call, sdp, 0, reach).await
+    }
+
+    pub(crate) async fn offer_call_media(&self, call: &str, sdp: &str, media: u16, reach: Duration) -> Result<()> {
+        let Some((record, contact)) = self.open_call(call, true).await? else { bail!("no such call") };
+        let body = Body::CallOffer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), video: record.video, media };
+        let deadline = std::time::Instant::now() + reach;
+        loop {
+            // the caller may have hung up meanwhile
+            if self.store.call(call).await?.is_none_or(|current| current.ended_at.is_some()) {
+                return Ok(());
+            }
+            let (heard, pongs) = self.pongs_from(&contact.device_id);
+            if self.transmit_direct_call(&contact, &Packet::new(body.clone())).await? {
+                if self.acknowledged(&contact, heard, pongs, CALL_OFFER_ACK).await {
+                    self.mark_call_stage(CallStage::OfferSent);
+                    return Ok(());
+                }
+                self.drop_connection(&contact.device_id).await;
+                if std::time::Instant::now() < deadline {
+                    continue;
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return self.close_call(&record, CallOutcome::Unreachable).await;
+            }
+            tokio::time::sleep(CALL_RETRY.min(reach)).await;
+        }
+    }
+
+    pub(crate) async fn hang_up_with(&self, contacts: &[String]) -> Result<()> {
+        let Some(current) = self.current_call().await?.filter(|current| contacts.contains(&current.contact)) else { return Ok(()) };
+        let contact = self.contact(&current.contact).await?;
+        let (heard, pongs) = self.pongs_from(&contact.device_id);
+        self.end_call(&current.call, false).await?;
+        self.acknowledged(&contact, heard, pongs, CALL_OFFER_ACK).await;
+        Ok(())
+    }
+
+    async fn acknowledged(&self, contact: &Contact, heard: u64, mut pongs: tokio::sync::watch::Receiver<std::collections::HashMap<String, u64>>, within: Duration) -> bool {
+        if !self.transmit_open(contact, &Packet::new(Body::Ping)).await.unwrap_or(false) {
+            return false;
+        }
+        let answered = pongs.wait_for(|pongs| pongs.get(&contact.device_id).copied().unwrap_or(0) > heard);
+        tokio::time::timeout(within, answered).await.is_ok_and(|answered| answered.is_ok())
+    }
+
+    pub async fn answer_call(&self, call: &str, sdp: &str) -> Result<()> {
+        self.answer_call_media(call, sdp, 0).await
+    }
+
+    pub(crate) async fn answer_call_media(&self, call: &str, sdp: &str, media: u16) -> Result<()> {
+        let Some((record, contact)) = self.open_call(call, false).await? else { bail!("no such call") };
+        self.discard_prepared(call).await;
+        self.store.answer_call(call, now()).await?;
+        let body = Body::CallAnswer { call: MessageId::parse(call)?, sdp: sdp.to_owned(), media };
+        if self.transmit_direct(&contact, &Packet::new(body)).await? {
+            self.mark_call_stage(CallStage::AnswerSent);
+        } else {
+            self.close_call(&record, CallOutcome::Failed).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn end_call(&self, call: &str, failed: bool) -> Result<()> {
+        let Some(record) = self.store.call(call).await? else { bail!("no such call") };
+        if record.ended_at.is_some() {
+            return Ok(());
+        }
+        let (reason, outcome) = match (failed, record.answered_at.is_some(), record.outgoing) {
+            (true, _, _) => (EndReason::Failed, CallOutcome::Failed),
+            (false, true, _) => (EndReason::Hangup, CallOutcome::Answered),
+            (false, false, true) => (EndReason::Cancelled, CallOutcome::Cancelled),
+            (false, false, false) => (EndReason::Declined, CallOutcome::Declined),
+        };
+        self.close_call(&record, outcome).await?;
+        let contact = self.contact(&record.contact).await?;
+        let packet = Packet::new(Body::CallEnd { call: MessageId::parse(call)?, reason });
+        if !self.transmit_direct(&contact, &packet).await.unwrap_or(false) {
+            let reach = if reason == EndReason::Hangup { HANG_UP_REACH } else { CALL_REACH };
+            if let Some(core) = self.this.upgrade() {
+                tokio::spawn(async move { core.deliver_call_end(&contact, &packet, reach).await });
+            }
+        }
+        Ok(())
+    }
+
+    async fn deliver_call_end(&self, contact: &Contact, packet: &Packet, reach: Duration) {
+        let deadline = std::time::Instant::now() + reach;
+        while std::time::Instant::now() < deadline {
+            tokio::time::sleep(CALL_RETRY).await;
+            if self.transmit_direct(contact, packet).await.unwrap_or(false) {
+                return;
+            }
+        }
+    }
+
+    async fn drop_stale_call(&self) -> Result<()> {
+        let active = self.active_call.lock().expect("active call poisoned").clone();
+        let Some(active) = active else { return Ok(()) };
+        match self.store.call(&active).await? {
+            Some(record) if record.ended_at.is_none() && stale(&record, now()) => {
+                let outcome = if record.outgoing { CallOutcome::Cancelled } else { CallOutcome::Missed };
+                self.close_call(&record, outcome).await
+            }
+            Some(record) if record.ended_at.is_none() => Ok(()),
+            _ => {
+                let mut current = self.active_call.lock().expect("active call poisoned");
+                if current.as_deref() == Some(active.as_str()) {
+                    *current = None;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) async fn call_offered(&self, contact: &Contact, call: MessageId, sdp: String, video: bool, media: u16) -> Result<()> {
+        let call_id = call.to_string();
+        if !contact.rules.accepts_calls || !contact.accepted {
+            // Calls off or a stranger in the requests, so answer busy and keep no trace
+            self.refused_quietly();
+            let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
+            return Ok(());
+        }
+        if self.silent(contact) {
+            // A closed hidden session never rings here, the caller just gets busy
+            let record = CallRecord {
+                call_id: call_id.clone(),
+                contact: contact.device_id.clone(),
+                outgoing: false,
+                video,
+                started_at: now(),
+                answered_at: None,
+                ended_at: Some(now()),
+                outcome: Some(CallOutcome::Missed),
+            };
+            self.store.insert_call(&record).await?;
+            self.refused_quietly();
+            let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
+            return Ok(());
+        }
+        self.drop_stale_call().await?;
+        let busy = {
+            let mut active = self.active_call.lock().expect("active call poisoned");
+            match active.as_deref() {
+                Some(current) if current != call_id => true,
+                Some(_) => return Ok(()),
+                None => {
+                    *active = Some(call_id.clone());
+                    false
+                }
+            }
+        };
+        let record = CallRecord {
+            call_id: call_id.clone(),
+            contact: contact.device_id.clone(),
+            outgoing: false,
+            video,
+            started_at: now(),
+            answered_at: None,
+            ended_at: busy.then(now),
+            outcome: busy.then_some(CallOutcome::Missed),
+        };
+        let fresh = self.store.insert_call(&record).await?;
+        if busy {
+            let _ = self.transmit_direct(contact, &Packet::new(Body::CallEnd { call, reason: EndReason::Busy })).await;
+            if fresh {
+                self.announce_call(&record, CallUpdate::MissedWhileBusy);
+            }
+            return Ok(());
+        }
+        if fresh {
+            self.mark_call_stage(CallStage::OfferReceived);
+            self.remember_offer(&call_id, &sdp, media);
+            // The user may have answered or declined on the system call screen before the offer arrived
+            let early = self.take_early_answer(&call_id);
+            match early {
+                EarlyOutcome::Decline => return self.end_call(&call_id, false).await,
+                EarlyOutcome::Answer => self.answer_offered_early(&call_id),
+                EarlyOutcome::Ring => {}
+            }
+            self.announce_call(&record, CallUpdate::Incoming { video, sdp });
+            self.mark_call_stage(CallStage::Ringing);
+            if early == EarlyOutcome::Ring {
+                self.prepare_while_ringing(&call_id);
+            }
+        }
+        Ok(())
+    }
+
+    // A push may already have the system call screen ringing, before we knew who was calling
+    pub(crate) fn refused_quietly(&self) {
+        self.early_answer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        let _ = self.events.send(Event::CallRefused);
+    }
+
+    pub(crate) async fn call_answered(&self, contact: &Contact, call: MessageId, sdp: String, media: u16) -> Result<()> {
+        let Some((record, _)) = self.open_call(&call.to_string(), true).await? else { return Ok(()) };
+        if record.contact != contact.device_id {
+            return Ok(());
+        }
+        self.mark_call_stage(CallStage::AnswerReceived);
+        self.store.answer_call(&record.call_id, now()).await?;
+        if let Err(error) = self.accept_native_answer(&record.call_id, &sdp, media).await {
+            self.end_call(&record.call_id, true).await?;
+            return Err(error);
+        }
+        self.announce_call(&record, CallUpdate::Answered { sdp });
+        Ok(())
+    }
+
+    pub(crate) async fn call_ended(&self, contact: &Contact, call: MessageId, reason: EndReason) -> Result<()> {
+        let Some(record) = self.store.call(&call.to_string()).await? else { return self.unseen_call_ended(contact, call, reason).await };
+        if record.contact != contact.device_id || record.ended_at.is_some() {
+            return Ok(());
+        }
+        let outcome = match (record.answered_at.is_some(), record.outgoing, reason) {
+            (_, _, EndReason::Failed) => CallOutcome::Failed,
+            (true, _, _) => CallOutcome::Answered,
+            (false, true, EndReason::Busy) => CallOutcome::Busy,
+            (false, true, _) => CallOutcome::Declined,
+            (false, false, _) => CallOutcome::Missed,
+        };
+        self.close_call(&record, outcome).await
+    }
+
+    async fn unseen_call_ended(&self, contact: &Contact, call: MessageId, reason: EndReason) -> Result<()> {
+        let takes_calls = contact.rules.accepts_calls && contact.accepted;
+        let busy = self.active_call.lock().expect("active call poisoned").is_some();
+        let verdict = unseen_end(reason, takes_calls, self.silent(contact), busy);
+        if matches!(verdict, Unseen::Nothing) {
+            return Ok(());
+        }
+        if matches!(verdict, Unseen::Refused) {
+            self.refused_quietly();
+            return Ok(());
+        }
+        let at = now();
+        let record = CallRecord {
+            call_id: call.to_string(),
+            contact: contact.device_id.clone(),
+            outgoing: false,
+            // unknown, the offer never arrived
+            video: false,
+            started_at: at,
+            answered_at: None,
+            ended_at: Some(at),
+            outcome: Some(CallOutcome::Missed),
+        };
+        if !self.store.insert_call(&record).await? {
+            return Ok(());
+        }
+        match verdict {
+            Unseen::Missed { busy: true } => self.announce_call(&record, CallUpdate::MissedWhileBusy),
+            Unseen::Missed { busy: false } => {
+                self.early_answer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+                self.announce_call(&record, CallUpdate::Ended { outcome: CallOutcome::Missed });
+            }
+            _ => self.refused_quietly(),
+        }
+        Ok(())
+    }
+
+    async fn open_call(&self, call: &str, outgoing: bool) -> Result<Option<(CallRecord, Contact)>> {
+        let Some(record) = self.store.call(call).await? else { return Ok(None) };
+        if record.ended_at.is_some() || record.outgoing != outgoing {
+            return Ok(None);
+        }
+        let contact = self.contact(&record.contact).await?;
+        Ok(Some((record, contact)))
+    }
+
+    pub(crate) async fn close_call(&self, record: &CallRecord, outcome: CallOutcome) -> Result<()> {
+        self.store.finish_call(&record.call_id, now(), outcome).await?;
+        if record.outgoing {
+            self.transport.call_over(&record.contact).await;
+        }
+        self.drop_native(&record.call_id).await;
+        {
+            let mut active = self.active_call.lock().expect("active call poisoned");
+            if active.as_deref() == Some(record.call_id.as_str()) {
+                *active = None;
+            }
+        }
+        self.announce_call(record, CallUpdate::Ended { outcome });
+        Ok(())
+    }
+
+    pub(crate) fn announce_call(&self, record: &CallRecord, update: CallUpdate) {
+        let _ = self.events.send(Event::Call { contact: record.contact.clone(), call: record.call_id.clone(), update });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hang_up_outlasts_the_other_phone_noticing_its_socket_went_quiet() {
+        let noticed = ft_push::SILENT_FOR + ft_push::PING_EVERY + Duration::from_secs(2);
+        let attempt = ft_webrtc::SessionConfig::default().gather_timeout + crate::net::CONNECT_WAIT + CALL_RETRY;
+        assert!(HANG_UP_REACH >= noticed + attempt, "{HANG_UP_REACH:?} < {:?}", noticed + attempt);
+        assert!(HANG_UP_REACH >= CALL_REACH, "never shorter than a call's reach");
+    }
+
+    fn ringing(started_at: i64) -> CallRecord {
+        CallRecord {
+            call_id: "c".to_owned(),
+            contact: "ft_bob".to_owned(),
+            outgoing: false,
+            video: false,
+            started_at,
+            answered_at: None,
+            ended_at: None,
+            outcome: None,
+        }
+    }
+
+    #[test]
+    fn an_unanswered_call_goes_stale_after_ringing_too_long() {
+        let limit = RING_LIMIT.as_millis() as i64;
+        assert!(!stale(&ringing(1_000), 1_000 + limit - 1));
+        assert!(stale(&ringing(1_000), 1_000 + limit + 1));
+        let answered = CallRecord { answered_at: Some(2_000), ..ringing(1_000) };
+        assert!(!stale(&answered, 1_000 + 10 * limit), "a call in progress is never stale");
+    }
+
+    #[test]
+    fn a_hang_up_for_a_call_never_seen_follows_the_rules_of_its_offer() {
+        assert_eq!(unseen_end(EndReason::Cancelled, true, false, false), Unseen::Missed { busy: false });
+        assert_eq!(unseen_end(EndReason::Cancelled, true, false, true), Unseen::Missed { busy: true });
+        assert_eq!(unseen_end(EndReason::Cancelled, true, true, false), Unseen::KeptQuiet);
+        assert_eq!(unseen_end(EndReason::Cancelled, false, false, false), Unseen::Refused);
+        assert_eq!(unseen_end(EndReason::Cancelled, false, true, true), Unseen::Refused);
+        for reason in [EndReason::Hangup, EndReason::Declined, EndReason::Busy, EndReason::Failed] {
+            assert_eq!(unseen_end(reason, true, false, false), Unseen::Nothing, "{reason:?} is not a caller giving up");
+        }
+    }
+
+    #[test]
+    fn call_updates_compare_by_content() {
+        let ended = CallUpdate::Ended { outcome: CallOutcome::Busy };
+        assert_eq!(ended.clone(), ended);
+        assert_ne!(CallUpdate::Answered { sdp: "a".to_owned() }, CallUpdate::Answered { sdp: "b".to_owned() });
+    }
+}

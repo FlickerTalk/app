@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "src-tauri/platform", "crates/ft-webrtc", "crates/ft-poc", "crates/ft-identity", "crates/ft-protocol", "crates/ft-crypto", "crates/ft-contacts", "crates/ft-storage", "crates/ft-core", "crates/ft-push", "crates/ft-plugins", "crates/ft-billing", "crates/ft-circles", "crates/ft-vault", "crates/ft-media", "crates/ft-support"]
+
+# Xcode 27 release builds prelink Swift modules, which turns the `@_cdecl` entry points of Tauri and
+# swift-rs into local symbols and the link fails (tauri-apps/tauri#16130). Our fork is swift-rs
+# 1.0.8 plus Brendonovich/swift-rs#80 and needs llvm-tools. Drop it once a swift-rs release has it.
+[patch.crates-io]
+swift-rs = { git = "https://github.com/FlickerTalk/swift-rs", rev = "aaf38d45ab3a4b10a5af3a3dbc64424e998fae8c" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+# Stripping breaks the proc-macro dylibs on macOS with Xcode 27 ("mis-aligned LINKEDIT string pool").
+[profile.release.build-override]
+strip = false
+
+# Argon2id (64 MiB, 3 passes) takes tens of seconds unoptimized, in tests and in debug builds on a
+# phone. Optimized it's about 1 s.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

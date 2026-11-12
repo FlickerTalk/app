@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://flickertalk.com/security/
+    about: Please report vulnerabilities privately, never in a public issue.
+  - name: Help and contact
+    url: https://flickertalk.com/support/
+    about: General questions, feedback and how to reach us.
+  - name: FAQ
+    url: https://flickertalk.com/faq/
+    about: Answers about accounts, the mailbox, privacy and pricing.

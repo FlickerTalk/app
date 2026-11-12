@@ -1,0 +1,282 @@
+name: app
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".github/ISSUE_TEMPLATE/**"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".github/ISSUE_TEMPLATE/**"
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx vite build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: System libraries for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.99.0 # rust-toolchain.toml
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  android:
+    needs: [web, rust]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Pull requests get no environment, so no secrets. '' is falsy in expressions, so the empty
+    # branch has to come last.
+    environment: ${{ github.event_name != 'pull_request' && 'release' || '' }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      # pinned, the runner's newest NDK changes with the image
+      NDK_VERSION: 30.0.16248370
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        name: Version (a tag must match tauri.conf.json)
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version in tauri.conf.json"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.99.0 # rust-toolchain.toml
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: android
+      - run: npm ci
+      - name: Signing key and Firebase
+        if: github.event_name != 'pull_request'
+        env:
+          UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          echo "$UPLOAD_KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          echo "ANDROID_UPLOAD_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+          echo "$GOOGLE_SERVICES" | base64 -d > src-tauri/gen/android/app/google-services.json
+      - name: Build
+        env:
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_PASSWORD: ${{ secrets.ANDROID_UPLOAD_PASSWORD }}
+          # A release won't build without it. Pull requests have no secrets and are never published.
+          FT_GOOGLE_CLIENT_ID: ${{ secrets.FT_GOOGLE_CLIENT_ID }}
+          FT_ALLOW_NO_GOOGLE_CLIENT: ${{ github.event_name == 'pull_request' && '1' || '' }}
+        # ANDROID_HOME is a runner variable, not in the env context, so it comes from the shell.
+        # No --target, so Tauri builds all four ABIs into one universal APK and one AAB.
+        run: |
+          if [[ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
+          fi
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          npm run tauri android build -- --apk --aab --ci
+      - name: Kotlin tests
+        working-directory: src-tauri/gen/android
+        run: ./gradlew --no-daemon :tauri-plugin-ft-platform:testDebugUnitTest
+      - name: Collect
+        run: |
+          mkdir -p out
+          out=src-tauri/gen/android/app/build/outputs
+          apk=$(ls $out/apk/universal/release/*.apk | head -1)
+          cp "$apk" "out/FlickerTalk-${{ steps.version.outputs.version }}.apk"
+          cp $out/bundle/universalRelease/*.aab "out/FlickerTalk-${{ steps.version.outputs.version }}.aab"
+          # Play drops every device whose ABI is missing from the AAB, so fail here. The listings go
+          # to files first because `unzip | grep -q` can die of SIGPIPE under pipefail.
+          unzip -l out/*.aab > "$RUNNER_TEMP/aab.txt"
+          unzip -l out/*.apk > "$RUNNER_TEMP/apk.txt"
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            grep -q " base/lib/$abi/" "$RUNNER_TEMP/aab.txt" || { echo "::error::AAB without $abi"; exit 1; }
+            grep -q " lib/$abi/" "$RUNNER_TEMP/apk.txt" || { echo "::error::APK without $abi"; exit 1; }
+          done
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            "$ANDROID_HOME"/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner verify out/*.apk
+          fi
+          ls -l out
+      - name: Build info
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo "FlickerTalk $VERSION"
+            echo "commit: $(git rev-parse HEAD)"
+            echo "runner image: $ImageOS $ImageVersion"
+            echo "ndk: $NDK_VERSION"
+            echo "node: $(node -v)"
+            echo "java: $(java -version 2>&1 | sed -n 1p)"
+            echo "cargo: $(cargo -V)"
+            rustc -vV
+            echo
+            (cd out && sha256sum -- *.apk *.aab)
+          } > out/BUILDINFO.txt
+          cat out/BUILDINFO.txt
+      - if: always()
+        name: Forget the signing key
+        run: rm -f "$RUNNER_TEMP/upload.jks" src-tauri/gen/android/app/google-services.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: out/
+          retention-days: 14
+
+  # A release build can crash at launch while the debug build runs fine, so launch the release
+  # in the simulator (unsigned, no secrets) and fail if it doesn't stay up.
+  ios:
+    needs: [web, rust]
+    # Xcode 27, as for store builds. With the macos-26 image's Xcode 26.6 the app doesn't link
+    # (VideoToolbox symbols from webrtc-engine stay undefined).
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.99.0 # rust-toolchain.toml
+          targets: aarch64-apple-ios-sim
+          # the patched swift-rs (Cargo.toml) needs llvm-objcopy
+          components: llvm-tools
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ios-sim
+      - run: npm ci
+      - name: Release build for the simulator
+        env:
+          # never published, so no Google client id needed
+          TAURI_FT_ALLOW_NO_GOOGLE_CLIENT: "1"
+        run: npm run tauri ios build -- --target aarch64-sim --ci
+      - name: Launch check
+        run: scripts/ios-sim-smoke.sh "" 30
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-crash-reports
+          path: ~/Library/Logs/DiagnosticReports/FlickerTalk*.ips
+          retention-days: 7
+
+  publish:
+    needs: android
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: android
+          path: out
+      - name: Canary (every push to main)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          (cd out && sha256sum -- *.apk > SHA256SUMS)
+          # The very first time there is no canary to delete.
+          gh release delete canary --cleanup-tag --yes || true
+          gh release create canary out/*.apk out/SHA256SUMS --prerelease --target "$GITHUB_SHA" --title "Canary" \
+            --notes "Latest build of main ($GITHUB_SHA), signed. For testing: it talks to the production router."
+      # separate step, the canary has to exist first
+      - name: Canary build info
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload canary out/BUILDINFO.txt
+      - name: Release (version tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          (cd out && sha256sum -- *.apk *.aab > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" out/* --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+
+  # Only ever uploads to a testing track. Production stays a manual step in the Play Console.
+  play:
+    needs: [android, publish]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    env:
+      READY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' && vars.PLAY_PACKAGE_NAME != '' }}
+    steps:
+      - if: env.READY != 'true'
+        run: echo "::notice::no Play service account yet, skipping the upload"
+      - if: env.READY == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: android
+          path: out
+      - if: env.READY == 'true'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ vars.PLAY_PACKAGE_NAME }}
+          releaseFiles: out/*.aab
+          track: ${{ vars.PLAY_TRACK || 'internal' }}
+          status: completed

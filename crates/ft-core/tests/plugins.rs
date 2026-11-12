@@ -1,0 +1,1437 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use ft_core::{Core, Peer, Transport};
+use ft_plugins::{sign_package, Permissions, Sending};
+use ft_storage::Store;
+use vodozemac::Ed25519SecretKey;
+
+struct Offline;
+
+#[async_trait]
+impl Transport for Offline {
+    async fn send_direct(&self, _to: &Peer, _bytes: Vec<u8>) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    async fn send_mailbox(&self, _to: &Peer, _bytes: Vec<u8>) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ft-plugins-{name}-{}", ft_protocol::MessageId::new()));
+    std::fs::create_dir_all(&dir).expect("creates the directory");
+    dir
+}
+
+async fn core() -> (Arc<Core>, PathBuf) {
+    let core = Core::open(Store::open_in_memory().await.expect("store"), [4; 32], Arc::new(Offline))
+        .await
+        .expect("opens");
+    let dir = scratch("home");
+    core.set_plugins_dir(dir.clone());
+    (core, dir)
+}
+
+fn signed(id: &str, version: &str, permissions: &str, catalogue: &Ed25519SecretKey) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{"id":"{id}","name":"Code","version":"{version}","minCoreVersion":"0.1.0","components":["ft-code"],"permissions":{permissions}}}"#
+    );
+    sign_package(
+        &[
+            ("module.json".to_owned(), manifest.into_bytes()),
+            ("dist/index.js".to_owned(), b"customElements.define('ft-code', class extends HTMLElement {})".to_vec()),
+        ],
+        catalogue,
+    )
+}
+
+#[tokio::test]
+async fn a_plugin_that_needs_a_newer_core_does_not_install() {
+    let (core, _) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.example.future","name":"Future","version":"1.0.0","minCoreVersion":"99.0.0","components":["ft-future"]}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    let refused = core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await;
+    assert!(refused.unwrap_err().to_string().contains("99.0.0"));
+    assert!(core.plugins().await.unwrap().is_empty());
+    let manifest = format!(r#"{{"id":"com.example.now","name":"Now","version":"1.0.0","minCoreVersion":"{}","components":["ft-now"]}}"#, ft_core::plugins::CORE_VERSION);
+    let package = sign_package(&[("module.json".to_owned(), manifest.into_bytes()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+}
+
+#[tokio::test]
+async fn installs_a_signed_plugin_and_grants_it_only_what_the_user_said() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.code", "1.0.0", "{}", &catalogue);
+
+    let installed = core
+        .install_plugin(&package, &catalogue.public_key(), Permissions::default())
+        .await
+        .expect("installs");
+    assert_eq!(installed.id, "com.example.code");
+    assert!(dir.join("com.example.code/dist/index.js").exists(), "its files are on the phone");
+
+    let listed = core.plugins().await.expect("lists");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].manifest.version, "1.0.0");
+    assert_eq!(listed[0].granted, Permissions::default(), "installing grants nothing");
+}
+
+#[tokio::test]
+async fn refuses_a_package_the_catalogue_did_not_sign() {
+    let (core, dir) = core().await;
+    let (catalogue, stranger) = (Ed25519SecretKey::new(), Ed25519SecretKey::new());
+    let package = signed("com.example.code", "1.0.0", "{}", &stranger);
+
+    assert!(core
+        .install_plugin(&package, &catalogue.public_key(), Permissions::default())
+        .await
+        .is_err());
+    assert!(!dir.join("com.example.code").exists(), "nothing was written");
+    assert!(core.plugins().await.expect("lists").is_empty());
+}
+
+#[tokio::test]
+async fn never_grants_more_than_the_plugin_asked_for() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let asked = r#"{"messages":"given","network":["api.openai.com"]}"#;
+    let package = signed("com.example.ai", "1.0.0", asked, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+
+    let granted = Permissions { network: vec!["api.openai.com".to_owned()], reads_given_messages: true, send: Sending::Nothing, ..Permissions::default() };
+    core.grant_plugin("com.example.ai", granted.clone()).await.expect("grants");
+    assert_eq!(core.plugins().await.unwrap()[0].granted, granted);
+
+    let sneaky = Permissions { network: vec!["evil.example".to_owned()], ..Permissions::default() };
+    assert!(core.grant_plugin("com.example.ai", sneaky).await.is_err());
+    let louder = Permissions { send: Sending::Auto, ..granted.clone() };
+    assert!(core.grant_plugin("com.example.ai", louder).await.is_err());
+    assert_eq!(core.plugins().await.unwrap()[0].granted, granted, "what was granted did not change");
+}
+
+#[tokio::test]
+async fn removing_a_plugin_leaves_nothing_behind() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    core.install_plugin(&signed("com.example.code", "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default())
+        .await
+        .expect("installs");
+
+    core.remove_plugin("com.example.code").await.expect("removes");
+    assert!(core.plugins().await.expect("lists").is_empty());
+    assert!(!dir.join("com.example.code").exists());
+}
+
+#[tokio::test]
+async fn a_plugin_remembers_through_the_core_and_only_its_own() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    for id in ["com.example.code", "com.example.ai"] {
+        let package = signed(id, "1.0.0", "{}", &catalogue);
+        core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    }
+
+    assert_eq!(core.plugin_remembers("com.example.code", None, "pen").await.unwrap(), None);
+    core.plugin_remember("com.example.code", None, "pen", "black").await.expect("remembers");
+    core.plugin_remember("com.example.ai", None, "pen", "blue").await.expect("remembers");
+    assert_eq!(core.plugin_remembers("com.example.code", None, "pen").await.unwrap().as_deref(), Some("black"));
+    assert_eq!(core.plugin_memory_keys("com.example.code", None).await.unwrap(), ["pen"]);
+
+    core.plugin_forget("com.example.code", None, "pen").await.expect("forgets");
+    assert_eq!(core.plugin_remembers("com.example.code", None, "pen").await.unwrap(), None);
+    assert_eq!(core.plugin_remembers("com.example.ai", None, "pen").await.unwrap().as_deref(), Some("blue"));
+}
+
+#[tokio::test]
+async fn a_plugin_cannot_fill_the_phone_nor_write_for_another() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.code", "1.0.0", "{}", &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+
+    assert!(core.plugin_remember("com.example.code", None, "big", &"x".repeat(70_000)).await.is_err(), "too much");
+    assert!(core.plugin_remember("com.example.code", None, &"k".repeat(200), "v").await.is_err(), "too long a key");
+    assert!(core.plugin_remember("com.example.never", None, "pen", "black").await.is_err(), "it is not installed");
+
+    for number in 0..64 {
+        core.plugin_remember("com.example.code", None, &format!("key{number}"), "v").await.expect("remembers");
+    }
+    assert!(core.plugin_remember("com.example.code", None, "one-more", "v").await.is_err(), "too many keys");
+    core.plugin_remember("com.example.code", None, "key0", "w").await.expect("remembers");
+}
+
+#[tokio::test]
+async fn a_plugin_keeps_records_within_the_room_it_was_granted() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"storage":"large"}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+
+    let (used, quota) = core.plugin_records_usage("com.example.notes", None).await.unwrap();
+    assert_eq!((used, quota), (0, ft_plugins::Storage::Small.quota()));
+    core.plugin_record_set("com.example.notes", None, "note/1", &vec![7u8; 100_000]).await.expect("keeps");
+    assert_eq!(core.plugin_record("com.example.notes", None, "note/1").await.unwrap().map(|v| v.len()), Some(100_000));
+    assert_eq!(core.plugin_record_keys("com.example.notes", None, "note/").await.unwrap(), ["note/1"]);
+    let big = vec![1u8; 4 * 1024 * 1024];
+    assert!(core.plugin_record_set("com.example.notes", None, "board", &big).await.is_err(), "no room");
+    core.grant_plugin("com.example.notes", Permissions { storage: ft_plugins::Storage::Large, ..Permissions::default() }).await.unwrap();
+    core.plugin_record_set("com.example.notes", None, "board", &big).await.expect("now it fits");
+    let (used, quota) = core.plugin_records_usage("com.example.notes", None).await.unwrap();
+    assert_eq!((used, quota), (100_000 + big.len() as u64, ft_plugins::Storage::Large.quota()));
+    core.plugin_record_set("com.example.notes", None, "board", &big[..10]).await.expect("smaller");
+    assert_eq!(core.plugin_records_usage("com.example.notes", None).await.unwrap().0, 100_010);
+    assert!(core.plugin_record_set("com.example.notes", None, "huge", &vec![0u8; ft_core::plugins::RECORD_VALUE + 1]).await.is_err());
+    assert!(core.plugin_record_set("com.example.never", None, "x", b"y").await.is_err(), "not installed");
+    core.plugin_record_forget("com.example.notes", None, "board").await.unwrap();
+    assert_eq!(core.plugin_record("com.example.notes", None, "board").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn a_plugin_sets_reminders_only_if_granted_and_the_app_hears_of_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    assert!(core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.is_err(), "not granted yet");
+
+    core.grant_plugin("com.example.notes", Permissions { remind: true, ..Permissions::default() }).await.unwrap();
+    let mut events = core.events();
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.expect("sets");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::RemindersChanged));
+    core.set_reminder("com.example.notes", None, "r2", 1_000, &"x".repeat(500)).await.expect("sets");
+    let reminders = core.plugin_reminders("com.example.notes", None).await.unwrap();
+    assert_eq!(reminders.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r2", "r1"], "soonest first");
+    assert_eq!(reminders[0].text.chars().count(), 200, "the text is cut");
+    assert_eq!(core.due_reminders(2_000).await.unwrap().len(), 1);
+    assert_eq!(core.reminders().await.unwrap().len(), 2);
+    assert!(core.cancel_reminder("com.example.notes", None, "r1").await.unwrap());
+    assert!(!core.cancel_reminder("com.example.notes", None, "r1").await.unwrap());
+    assert!(core.set_reminder("com.example.notes", None, "", 5_000, "").await.is_err());
+}
+
+#[tokio::test]
+async fn removing_a_plugin_or_its_remind_permission_takes_its_reminders_off_the_alarm_clock() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let remind = Permissions { remind: true, ..Permissions::default() };
+    let package = signed("com.example.notes", "1.0.0", r#"{"remind":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), remind.clone()).await.expect("installs");
+
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.expect("sets");
+    let mut events = core.events();
+    core.grant_plugin("com.example.notes", Permissions::default()).await.unwrap();
+    assert!(core.reminders().await.unwrap().is_empty(), "revoking remind drops its reminders");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
+
+    core.grant_plugin("com.example.notes", remind).await.unwrap();
+    core.set_reminder("com.example.notes", None, "r2", 5_000, "bread").await.expect("sets");
+    let mut events = core.events();
+    core.remove_plugin("com.example.notes").await.unwrap();
+    assert!(core.reminders().await.unwrap().is_empty());
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
+}
+
+#[derive(Default)]
+struct FakeWeb {
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl ft_core::Fetch for FakeWeb {
+    async fn get(&self, url: &str, _limit: u64) -> anyhow::Result<Vec<u8>> {
+        self.asked.lock().unwrap().push(url.to_owned());
+        Ok(b"{}".to_vec())
+    }
+
+    async fn call(&self, request: &ft_core::WebRequest, _limit: u64) -> anyhow::Result<ft_core::WebAnswer> {
+        self.asked.lock().unwrap().push(request.url.clone());
+        Ok(ft_core::WebAnswer { status: 200, body: b"answered".to_vec() })
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_reaches_only_the_hosts_the_user_granted() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.ai", "1.0.0", r#"{"network":["api.openai.com"]}"#, &catalogue);
+    let asked = Permissions { network: vec!["api.openai.com".to_owned()], ..Permissions::default() };
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    let web = FakeWeb::default();
+
+    let ask = |url: &str| ft_core::WebRequest {
+        url: url.to_owned(),
+        method: "POST".to_owned(),
+        headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+        body: Some(b"{}".to_vec()),
+    };
+
+    assert!(core.plugin_fetch("com.example.ai", ask("https://api.openai.com/v1/chat"), &web).await.is_err());
+
+    core.grant_plugin("com.example.ai", asked).await.expect("granted");
+    let answer = core.plugin_fetch("com.example.ai", ask("https://api.openai.com/v1/chat"), &web).await.expect("reaches");
+    assert_eq!(answer.status, 200);
+    assert_eq!(answer.body, b"answered");
+
+    for refused in [
+        "https://evil.example/steal",
+        "http://api.openai.com/v1/chat",
+        "https://user@evil.example/x",
+        "https://api.openai.com.evil.example/x",
+        "file:///etc/passwd",
+    ] {
+        assert!(core.plugin_fetch("com.example.ai", ask(refused), &web).await.is_err(), "{refused} should be refused");
+    }
+    assert_eq!(web.asked.lock().unwrap().len(), 1, "nothing refused ever left the phone");
+}
+
+struct Shop {
+    files: std::collections::HashMap<String, Vec<u8>>,
+}
+
+#[async_trait]
+impl ft_core::Fetch for Shop {
+    async fn get(&self, url: &str, _limit: u64) -> anyhow::Result<Vec<u8>> {
+        self.files.get(url).cloned().ok_or_else(|| anyhow::anyhow!("{url} is not there"))
+    }
+
+    async fn call(&self, _request: &ft_core::WebRequest, _limit: u64) -> anyhow::Result<ft_core::WebAnswer> {
+        anyhow::bail!("the catalogue is only ever read")
+    }
+}
+
+fn shop(package: &[u8], catalogue: &Ed25519SecretKey) -> (Shop, String) {
+    let url = format!("{}/com.example.code/1.0.0.ftplugin", ft_core::CATALOGUE_HOME);
+    let index = format!(
+        r#"{{"plugins":[{{"id":"com.example.code","name":"Code","version":"1.0.0","minCoreVersion":"0.1.0","size":{},"hash":"{}","url":"{url}","summary":"Shows code."}}]}}"#,
+        package.len(),
+        blake3::hash(package).to_hex()
+    );
+    let mut files = std::collections::HashMap::new();
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+    let legacy = r#"{"plugins":[]}"#;
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::LEGACY_INDEX), legacy.as_bytes().to_vec());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::LEGACY_INDEX),
+        catalogue.sign(legacy.as_bytes()).to_base64().into_bytes(),
+    );
+    files.insert(url.clone(), package.to_vec());
+    (Shop { files }, url)
+}
+
+#[tokio::test]
+async fn installs_from_the_catalogue_only_what_the_catalogue_signed() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.code", "1.0.0", "{}", &catalogue);
+    let (shop, _url) = shop(&package, &catalogue);
+
+    let offered = core.catalogue(&shop, &catalogue.public_key()).await.expect("reads the catalogue");
+    assert_eq!(offered.len(), 1);
+    assert_eq!(offered[0].id, "com.example.code");
+    assert!(core.plugins().await.unwrap().is_empty(), "reading the catalogue installs nothing");
+
+    let manifest = core.add_plugin(&offered[0], &shop, &catalogue.public_key()).await.expect("installs");
+    assert_eq!(manifest.id, "com.example.code");
+    assert!(dir.join("com.example.code/dist/index.js").exists());
+    let installed = core.plugins().await.unwrap();
+    assert_eq!(installed.len(), 1);
+    assert_eq!(installed[0].granted, Permissions::default(), "installing grants nothing");
+}
+
+#[tokio::test]
+async fn refuses_a_listing_that_points_anywhere_else() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.code", "1.0.0", "{}", &catalogue);
+    let (shop, url) = shop(&package, &catalogue);
+    let listed = core.catalogue(&shop, &catalogue.public_key()).await.expect("reads the catalogue");
+
+    let elsewhere = ft_plugins::CatalogueEntry { url: "https://evil.example/a.ftplugin".to_owned(), ..listed[0].clone() };
+    assert!(core.add_plugin(&elsewhere, &shop, &catalogue.public_key()).await.is_err());
+
+    let swapped = ft_plugins::CatalogueEntry { hash: "ab".repeat(32), url, ..listed[0].clone() };
+    assert!(core.add_plugin(&swapped, &shop, &catalogue.public_key()).await.is_err(), "not the bytes listed");
+
+    let theirs = Ed25519SecretKey::new();
+    assert!(core.catalogue(&shop, &theirs.public_key()).await.is_err());
+}
+
+#[tokio::test]
+async fn the_catalogue_offers_tools_and_games_but_no_kind_this_core_does_not_know() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let entry = |id: &str, kind: &str| {
+        format!(
+            r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","size":1,"hash":"{}","url":"{}/{id}/1.0.0.ftplugin","kind":"{kind}"}}"#,
+            "ab".repeat(32),
+            ft_core::CATALOGUE_HOME
+        )
+    };
+    let index = format!(
+        r#"{{"plugins":[{},{},{}]}}"#,
+        entry("com.example.code", "tool"),
+        entry("com.example.chess", "game"),
+        entry("com.example.widget", "widget")
+    );
+    let mut files = std::collections::HashMap::new();
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+
+    let offered = core.catalogue(&Shop { files }, &catalogue.public_key()).await.expect("reads the catalogue");
+    let kinds: Vec<(&str, ft_plugins::Kind)> = offered.iter().map(|entry| (entry.id.as_str(), entry.kind)).collect();
+    assert_eq!(kinds, [("com.example.code", ft_plugins::Kind::Tool), ("com.example.chess", ft_plugins::Kind::Game)]);
+}
+
+#[tokio::test]
+async fn the_icon_of_a_plugin_comes_through_the_catalogue_and_the_install() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.example.code","name":"Code","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-code"],"icon":"code-outline"}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    let (shop, entries) = listing(&[(manifest, &package)]);
+    let index = serde_json::to_string(&serde_json::json!({ "plugins": entries })).unwrap();
+    let mut files = shop.files;
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+    let shop = Shop { files };
+
+    let offered = core.catalogue(&shop, &catalogue.public_key()).await.expect("reads the catalogue");
+    assert_eq!(offered[0].icon, "code-outline");
+    core.add_plugin(&offered[0], &shop, &catalogue.public_key()).await.expect("installs");
+    assert_eq!(core.plugins().await.unwrap()[0].manifest.icon, "code-outline");
+}
+
+#[tokio::test]
+async fn the_image_of_a_plugin_comes_through_the_catalogue_and_the_install() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let image = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a74f0"/></svg>"##;
+    let manifest = r#"{"id":"com.example.code","name":"Code","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-code"]}"#;
+    let package = sign_package(
+        &[
+            ("module.json".to_owned(), manifest.as_bytes().to_vec()),
+            ("icon.svg".to_owned(), image.as_bytes().to_vec()),
+            ("dist/index.js".to_owned(), b"".to_vec()),
+        ],
+        &catalogue,
+    );
+    let (shop, mut entries) = listing(&[(manifest, &package)]);
+    entries[0].image = image.to_owned();
+    let index = serde_json::to_string(&serde_json::json!({ "plugins": entries })).unwrap();
+    let mut files = shop.files;
+    files.insert(format!("{}/{}", ft_core::CATALOGUE_HOME, ft_plugins::INDEX), index.clone().into_bytes());
+    files.insert(
+        format!("{}/{}.sig", ft_core::CATALOGUE_HOME, ft_plugins::INDEX),
+        catalogue.sign(index.as_bytes()).to_base64().into_bytes(),
+    );
+    let shop = Shop { files };
+
+    let offered = core.catalogue(&shop, &catalogue.public_key()).await.expect("reads the catalogue");
+    assert_eq!(offered[0].image, image);
+    core.add_plugin(&offered[0], &shop, &catalogue.public_key()).await.expect("installs");
+    assert_eq!(core.plugins().await.unwrap()[0].image, image);
+}
+
+async fn notes_and_a_session() -> (Arc<Core>, String) {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.notes", "1.0.0", r#"{"storage":"large","remind":true}"#, &catalogue);
+    let granted = Permissions { remind: true, ..Permissions::default() };
+    core.install_plugin(&package, &catalogue.public_key(), granted).await.expect("installs");
+    let session = core.open_session("123456").await.expect("opens").expect("there is room for it");
+    (core, session)
+}
+
+#[tokio::test]
+async fn a_record_kept_inside_a_session_is_not_seen_from_the_main_list() {
+    let (core, session) = notes_and_a_session().await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap(), None, "not its value");
+    assert!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap().is_empty(), "not its key");
+    assert_eq!(core.plugin_records_usage("com.example.notes", None).await.unwrap().0, 0, "not its size");
+}
+
+async fn someone_in(core: &Core, session: &str) -> String {
+    let (bob, _dir) = self::core().await;
+    let link = bob.my_card().await.expect("card").to_link();
+    core.add_contact_in(&link, None, Some(session)).await.expect("adds inside").device_id
+}
+
+#[tokio::test]
+async fn a_record_kept_inside_a_session_is_seen_inside_it_and_nowhere_else() {
+    let (core, session) = notes_and_a_session().await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    assert_eq!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.unwrap().as_deref(), Some(&b"the secret board"[..]));
+    assert_eq!(core.plugin_record_keys("com.example.notes", Some(&session), "board/").await.unwrap(), ["board/1"]);
+    assert_eq!(core.plugin_records_usage("com.example.notes", Some(&session)).await.unwrap().0, 16);
+
+    let other = core.open_session("654321").await.expect("opens").expect("room");
+    assert_eq!(core.plugin_record("com.example.notes", Some(&other), "board/1").await.unwrap(), None);
+    assert!(core.plugin_record_keys("com.example.notes", Some(&other), "").await.unwrap().is_empty());
+    assert_eq!(core.plugin_records_usage("com.example.notes", Some(&other)).await.unwrap().0, 0);
+}
+
+#[tokio::test]
+async fn a_closed_session_lends_its_records_to_nobody_and_has_them_back_when_opened() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    assert!(!core.close_session(&session).await.expect("closes"), "it holds a contact: it stays");
+    assert!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.is_err(), "closed: not even with its id");
+    assert!(core.plugin_record_keys("com.example.notes", Some(&session), "").await.is_err());
+    assert!(core.plugin_records_usage("com.example.notes", Some(&session)).await.is_err());
+    assert!(core.plugin_record_set("com.example.notes", Some(&session), "board/2", b"x").await.is_err());
+    assert!(core.plugin_record_forget("com.example.notes", Some(&session), "board/1").await.is_err());
+    assert!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap().is_empty());
+
+    assert_eq!(core.open_session("123456").await.unwrap().as_deref(), Some(session.as_str()));
+    assert_eq!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.unwrap().as_deref(), Some(&b"the secret board"[..]));
+}
+
+#[tokio::test]
+async fn a_sessions_records_go_with_it() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"the secret board").await.expect("keeps");
+
+    core.remove_session(&session).await.expect("removes");
+    assert_eq!(core.store().plugin_records_size("com.example.notes", Some(&session)).await.unwrap(), 0, "nothing left on the phone");
+    let again = core.open_session("123456").await.expect("opens").expect("room");
+    assert_ne!(again, session, "a new, empty session");
+    assert!(core.plugin_record_keys("com.example.notes", Some(&again), "").await.unwrap().is_empty());
+    assert!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn what_the_main_list_keeps_is_seen_there_as_before_and_not_inside_a_session() {
+    let (core, session) = notes_and_a_session().await;
+    core.plugin_record_set("com.example.notes", None, "board/1", b"a board").await.expect("keeps");
+
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap().as_deref(), Some(&b"a board"[..]));
+    assert_eq!(core.plugin_record_keys("com.example.notes", None, "").await.unwrap(), ["board/1"]);
+    assert_eq!(core.plugin_records_usage("com.example.notes", None).await.unwrap().0, 7);
+    assert_eq!(core.plugin_record("com.example.notes", Some(&session), "board/1").await.unwrap(), None);
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", b"another").await.expect("keeps");
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap().as_deref(), Some(&b"a board"[..]));
+    core.plugin_record_forget("com.example.notes", Some(&session), "board/1").await.unwrap();
+    assert_eq!(core.plugin_record("com.example.notes", None, "board/1").await.unwrap().as_deref(), Some(&b"a board"[..]), "forgetting inside leaves the main list's");
+}
+
+#[tokio::test]
+async fn a_session_using_the_room_does_not_show_in_the_main_lists_counter() {
+    let (core, session) = notes_and_a_session().await;
+    let three_mb = vec![1u8; 3 * 1024 * 1024];
+    core.plugin_record_set("com.example.notes", Some(&session), "board/1", &three_mb).await.expect("keeps");
+
+    let (used, quota) = core.plugin_records_usage("com.example.notes", None).await.unwrap();
+    assert_eq!((used, quota), (0, ft_plugins::Storage::Small.quota()));
+    core.plugin_record_set("com.example.notes", None, "board/1", &three_mb).await.expect("the main list has all its room");
+    assert!(core.plugin_record_set("com.example.notes", Some(&session), "board/2", &three_mb).await.is_err(), "the session's own room is full");
+}
+
+#[tokio::test]
+async fn what_a_plugin_remembers_inside_a_session_stays_inside_it() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    core.plugin_remember("com.example.notes", None, "showText", "0").await.expect("remembers");
+    core.plugin_remember("com.example.notes", Some(&session), "showText", "1").await.expect("remembers");
+    core.plugin_remember("com.example.notes", Some(&session), "lastBoard", "the secret board").await.expect("remembers");
+
+    assert_eq!(core.plugin_remembers("com.example.notes", None, "showText").await.unwrap().as_deref(), Some("0"));
+    assert_eq!(core.plugin_remembers("com.example.notes", None, "lastBoard").await.unwrap(), None);
+    assert_eq!(core.plugin_memory_keys("com.example.notes", None).await.unwrap(), ["showText"]);
+    assert_eq!(core.plugin_remembers("com.example.notes", Some(&session), "showText").await.unwrap().as_deref(), Some("1"));
+    core.plugin_forget("com.example.notes", Some(&session), "showText").await.unwrap();
+    assert_eq!(core.plugin_remembers("com.example.notes", None, "showText").await.unwrap().as_deref(), Some("0"), "the main list's stays");
+
+    core.close_session(&session).await.expect("closes");
+    assert!(core.plugin_remembers("com.example.notes", Some(&session), "lastBoard").await.is_err(), "closed: lent to nobody");
+    assert!(core.plugin_remember("com.example.notes", Some(&session), "x", "y").await.is_err());
+    assert!(core.plugin_memory_keys("com.example.notes", Some(&session)).await.is_err());
+
+    core.open_session("123456").await.expect("opens");
+    core.remove_session(&session).await.expect("removes");
+    assert!(core.store().plugin_keys("com.example.notes", Some(&session)).await.unwrap().is_empty(), "gone with the session");
+}
+
+#[tokio::test]
+async fn a_reminder_set_inside_a_session_never_rings_nor_shows_while_it_is_closed() {
+    let (core, session) = notes_and_a_session().await;
+    someone_in(&core, &session).await;
+    let ids = |reminders: Vec<ft_storage::Reminder>| reminders.into_iter().map(|reminder| reminder.id).collect::<Vec<_>>();
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.expect("sets");
+    core.set_reminder("com.example.notes", Some(&session), "r2", 4_000, "the secret").await.expect("sets");
+    core.set_reminder("com.example.notes", Some(&session), "r1", 6_000, "another secret").await.expect("the same id inside is another");
+
+    assert_eq!(ids(core.plugin_reminders("com.example.notes", None).await.unwrap()), ["r1"]);
+    assert_eq!(core.plugin_reminders("com.example.notes", None).await.unwrap()[0].text, "milk");
+    assert_eq!(ids(core.plugin_reminders("com.example.notes", Some(&session)).await.unwrap()), ["r2", "r1"]);
+    assert_eq!(core.reminders().await.unwrap().len(), 3, "open: all of them ring");
+    assert_eq!(core.ringing_reminder("com.example.notes", "r2").await.unwrap().and_then(|reminder| reminder.session), Some(session.clone()), "a tap opens it where it was set");
+
+    let mut events = core.events();
+    core.close_session(&session).await.expect("closes");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "the alarm clock is told: {heard:?}");
+    let told = core.reminders().await.unwrap();
+    assert_eq!(ids(told.clone()), ["r1"]);
+    assert!(told.iter().all(|reminder| !reminder.text.contains("secret")));
+    assert_eq!(ids(core.due_reminders(10_000).await.unwrap()), ["r1"]);
+    assert_eq!(core.ringing_reminder("com.example.notes", "r2").await.unwrap(), None);
+    assert!(core.plugin_reminders("com.example.notes", Some(&session)).await.is_err());
+    assert!(core.set_reminder("com.example.notes", Some(&session), "r3", 7_000, "x").await.is_err());
+    assert!(core.cancel_reminder("com.example.notes", Some(&session), "r2").await.is_err());
+    assert!(core.cancel_reminder("com.example.notes", None, "r2").await.is_ok_and(|gone| !gone), "nothing of it from outside");
+
+    let mut events = core.events();
+    core.open_session("123456").await.expect("opens");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "opened: the alarm clock is told again: {heard:?}");
+    assert_eq!(core.reminders().await.unwrap().len(), 3);
+    assert!(core.cancel_reminder("com.example.notes", Some(&session), "r1").await.unwrap());
+    assert_eq!(ids(core.plugin_reminders("com.example.notes", None).await.unwrap()), ["r1"], "cancelling inside leaves the main list's");
+
+    let mut events = core.events();
+    core.remove_session(&session).await.expect("removes");
+    let heard: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "removed: the alarm clock is told: {heard:?}");
+    assert_eq!(ids(core.store().reminders(None).await.unwrap()), ["r1"], "its reminders went with it");
+}
+
+#[tokio::test]
+async fn a_ref_to_a_message_inside_a_session_leads_nowhere_from_outside_it() {
+    let (core, session) = notes_and_a_session().await;
+    let bob = someone_in(&core, &session).await;
+    let message = core.send_text(&bob, "hello").await.expect("writes");
+    let reference = core.plugin_ref("com.example.notes", &message).await.expect("a ref");
+
+    assert_eq!(core.plugin_ref_target("com.example.notes", Some(&session), &reference).await.unwrap().map(|target| target.contact), Some(bob.clone()));
+    assert_eq!(core.plugin_ref_target("com.example.notes", None, &reference).await.unwrap(), None, "not from the main list");
+    let other = core.open_session("654321").await.expect("opens").expect("room");
+    assert_eq!(core.plugin_ref_target("com.example.notes", Some(&other), &reference).await.unwrap(), None, "not from another session");
+
+    core.close_session(&session).await.expect("closes");
+    assert!(core.plugin_ref_target("com.example.notes", Some(&session), &reference).await.is_err(), "closed: lent to nobody");
+    assert_eq!(core.plugin_ref_target("com.example.notes", None, &reference).await.unwrap(), None);
+
+    core.open_session("123456").await.expect("opens");
+    core.remove_session(&session).await.expect("removes");
+    assert_eq!(core.store().plugin_ref(&reference).await.unwrap(), None, "gone with the session");
+}
+
+async fn two_plugins_and_two_contacts() -> (Arc<Core>, PathBuf, String, String) {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    for id in ["com.example.chess", "com.example.list"] {
+        core.install_plugin(&signed(id, "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    }
+    let mut contacts = Vec::new();
+    for _ in 0..2 {
+        let (other, _dir) = self::core().await;
+        let link = other.my_card().await.expect("card").to_link();
+        contacts.push(core.add_contact(&link, None).await.expect("adds").device_id);
+    }
+    let bob = contacts.remove(0);
+    (core, dir, bob, contacts.remove(0))
+}
+
+#[tokio::test]
+async fn a_plugin_gets_the_same_chat_id_for_the_same_contact_every_time() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    let first = core.plugin_chat("com.example.chess", &bob).await.expect("an id");
+    assert_eq!(core.plugin_chat("com.example.chess", &bob).await.unwrap(), first);
+}
+
+#[tokio::test]
+async fn the_chat_id_outlives_a_restart() {
+    let home = scratch("restart");
+    let catalogue = Ed25519SecretKey::new();
+    let (first, bob) = {
+        let core = Core::open(Store::open(&home.join("db")).await.expect("store"), [9; 32], Arc::new(Offline)).await.expect("opens");
+        core.set_plugins_dir(home.join("plugins"));
+        core.install_plugin(&signed("com.example.chess", "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("installs");
+        let (other, _dir) = self::core().await;
+        let bob = core.add_contact(&other.my_card().await.unwrap().to_link(), None).await.expect("adds").device_id;
+        (core.plugin_chat("com.example.chess", &bob).await.expect("an id"), bob)
+    };
+    let again = Core::open(Store::open(&home.join("db")).await.expect("store"), [9; 32], Arc::new(Offline)).await.expect("opens");
+    again.set_plugins_dir(home.join("plugins"));
+    assert_eq!(again.plugin_chat("com.example.chess", &bob).await.unwrap(), first);
+}
+
+#[tokio::test]
+async fn the_chat_id_is_its_own_for_each_plugin_and_each_contact_and_says_nothing_of_them() {
+    let (core, _dir, bob, carol) = two_plugins_and_two_contacts().await;
+    let chess_bob = core.plugin_chat("com.example.chess", &bob).await.unwrap();
+    let chess_carol = core.plugin_chat("com.example.chess", &carol).await.unwrap();
+    let list_bob = core.plugin_chat("com.example.list", &bob).await.unwrap();
+    assert_ne!(chess_bob, chess_carol, "another conversation");
+    assert_ne!(chess_bob, list_bob, "two plugins cannot match their ids");
+    for id in [&chess_bob, &chess_carol, &list_bob] {
+        assert_eq!(id.len(), 43, "{id}");
+        assert!(id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'), "{id}");
+        for contact in [&bob, &carol] {
+            assert!(!id.contains(contact.as_str()) && !id.contains(contact.trim_start_matches("ft_")), "{id} names {contact}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn there_is_no_chat_id_for_a_stranger_a_blocked_contact_or_a_plugin_not_installed() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    assert!(core.plugin_chat("com.example.chess", "ft_nobody").await.is_err(), "not a contact");
+    assert!(core.plugin_chat("com.example.missing", &bob).await.is_err(), "not installed");
+    core.block(&bob, true).await.expect("blocks");
+    assert!(core.plugin_chat("com.example.chess", &bob).await.is_err(), "blocked");
+}
+
+#[tokio::test]
+async fn a_hidden_contacts_chat_id_is_there_only_while_the_session_is_open() {
+    let (core, session) = notes_and_a_session().await;
+    let hidden = someone_in(&core, &session).await;
+    let inside = core.plugin_chat("com.example.notes", &hidden).await.expect("open: an id");
+    assert!(!core.close_session(&session).await.expect("closes"));
+    let closed = core.plugin_chat("com.example.notes", &hidden).await.expect_err("closed: no id");
+    let stranger = core.plugin_chat("com.example.notes", "ft_nobody").await.expect_err("no id");
+    assert_eq!(closed.to_string(), stranger.to_string(), "a closed session's contact looks like nobody");
+    core.open_session("123456").await.unwrap();
+    assert_eq!(core.plugin_chat("com.example.notes", &hidden).await.unwrap(), inside);
+}
+
+#[tokio::test]
+async fn a_removed_plugin_has_no_chat_id_and_installed_again_it_finds_its_own() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    let before = core.plugin_chat("com.example.chess", &bob).await.unwrap();
+    core.remove_plugin("com.example.chess").await.expect("removes");
+    assert!(core.plugin_chat("com.example.chess", &bob).await.is_err(), "not installed");
+    let catalogue = Ed25519SecretKey::new();
+    core.install_plugin(&signed("com.example.chess", "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    assert_eq!(core.plugin_chat("com.example.chess", &bob).await.unwrap(), before);
+}
+
+struct FakeLocator {
+    answer: Option<ft_core::plugins::Fix>,
+    asked: std::sync::atomic::AtomicUsize,
+}
+
+impl FakeLocator {
+    fn answering(answer: Option<ft_core::plugins::Fix>) -> Self {
+        Self { answer, asked: std::sync::atomic::AtomicUsize::new(0) }
+    }
+
+    fn asked(&self) -> usize {
+        self.asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl ft_core::plugins::Locator for FakeLocator {
+    async fn locate(&self) -> anyhow::Result<Option<ft_core::plugins::Fix>> {
+        self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(self.answer)
+    }
+}
+
+const MADRID: ft_core::plugins::Fix = ft_core::plugins::Fix { lat: 40.416_78, lon: -3.703_79, accuracy: 35.0, at: 1_790_000_000_000 };
+
+#[tokio::test]
+async fn a_plugin_learns_where_the_phone_is_only_if_the_user_granted_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.location", "1.0.0", r#"{"location":true,"send":"propose"}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    let phone = FakeLocator::answering(Some(MADRID));
+
+    assert!(core.plugin_location("com.example.location", &phone).await.is_err(), "installed is not granted");
+    assert!(core.plugin_location("com.example.never", &phone).await.is_err(), "not installed");
+    assert_eq!(phone.asked(), 0, "the phone is not even asked for a plugin that may not know");
+
+    core.grant_plugin("com.example.location", Permissions { location: true, ..Permissions::default() }).await.expect("grants");
+    assert_eq!(core.plugin_location("com.example.location", &phone).await.unwrap(), Some(MADRID));
+    assert_eq!(phone.asked(), 1);
+
+    core.grant_plugin("com.example.location", Permissions::default()).await.unwrap();
+    assert!(core.plugin_location("com.example.location", &phone).await.is_err());
+    assert_eq!(phone.asked(), 1);
+}
+
+#[tokio::test]
+async fn no_fix_or_a_fix_that_is_no_place_is_nothing() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.location", "1.0.0", r#"{"location":true}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions { location: true, ..Permissions::default() }).await.expect("installs");
+
+    assert_eq!(core.plugin_location("com.example.location", &FakeLocator::answering(None)).await.unwrap(), None);
+    for nowhere in [
+        ft_core::plugins::Fix { lat: 91.0, ..MADRID },
+        ft_core::plugins::Fix { lon: -180.5, ..MADRID },
+        ft_core::plugins::Fix { lat: f64::NAN, ..MADRID },
+        ft_core::plugins::Fix { accuracy: -1.0, ..MADRID },
+        ft_core::plugins::Fix { accuracy: f64::INFINITY, ..MADRID },
+    ] {
+        let phone = FakeLocator::answering(Some(nowhere));
+        assert_eq!(core.plugin_location("com.example.location", &phone).await.unwrap(), None, "{nowhere:?}");
+    }
+
+    struct Broken;
+    #[async_trait]
+    impl ft_core::plugins::Locator for Broken {
+        async fn locate(&self) -> anyhow::Result<Option<ft_core::plugins::Fix>> {
+            anyhow::bail!("the location service is gone")
+        }
+    }
+    assert_eq!(core.plugin_location("com.example.location", &Broken).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn the_location_plugin_installs_on_the_core_that_brought_location() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.flickertalk.location","name":"Location","version":"1.0.0","minCoreVersion":"1.3.0","components":["ft-location"],"permissions":{"location":true,"send":"propose"}}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs on 1.3.0");
+    assert!(!ft_plugins::version_at_least("1.2.2", "1.3.0"), "and not on the core before it");
+}
+
+struct FakeTranslator {
+    languages: Vec<String>,
+    detected: Option<String>,
+    asked: std::sync::atomic::AtomicUsize,
+}
+
+impl FakeTranslator {
+    fn knowing(languages: &[&str]) -> Self {
+        Self { languages: languages.iter().map(|tag| (*tag).to_owned()).collect(), detected: Some("es".to_owned()), asked: Default::default() }
+    }
+
+    fn detecting(tag: &str) -> Self {
+        Self { detected: Some(tag.to_owned()), ..Self::knowing(&["en", "es"]) }
+    }
+
+    fn asked(&self) -> usize {
+        self.asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn ask(&self) {
+        self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl ft_core::plugins::Translator for FakeTranslator {
+    async fn languages(&self) -> anyhow::Result<Vec<String>> {
+        self.ask();
+        Ok(self.languages.clone())
+    }
+    async fn detect(&self, _text: &str) -> anyhow::Result<Option<String>> {
+        self.ask();
+        Ok(self.detected.clone())
+    }
+    async fn status(&self, from: &str, to: &str) -> anyhow::Result<ft_core::plugins::PairStatus> {
+        self.ask();
+        Ok(if from == "fr" || to == "fr" { ft_core::plugins::PairStatus::Downloadable } else { ft_core::plugins::PairStatus::Installed })
+    }
+    async fn prepare(&self, _from: &str, _to: &str) -> anyhow::Result<bool> {
+        self.ask();
+        Ok(true)
+    }
+    async fn remove(&self, _from: &str, _to: &str) -> anyhow::Result<bool> {
+        self.ask();
+        Ok(true)
+    }
+    async fn translate(&self, text: &str, from: &str, to: &str) -> anyhow::Result<Option<String>> {
+        self.ask();
+        Ok(Some(format!("[{from}>{to}] {text}")))
+    }
+}
+
+async fn translator_plugin(granted: Permissions) -> (Arc<Core>, PathBuf) {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let package = signed("com.example.translate", "1.0.0", r#"{"translate":true,"messages":"given","send":"propose"}"#, &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), granted).await.expect("installs");
+    (core, dir)
+}
+
+const TRANSLATOR: &str = "com.example.translate";
+
+#[tokio::test]
+async fn a_plugin_uses_the_phones_translator_only_if_the_user_granted_it() {
+    let (core, _dir) = translator_plugin(Permissions::default()).await;
+    let phone = FakeTranslator::knowing(&["en", "es", "fr"]);
+
+    for id in [TRANSLATOR, "com.example.never"] {
+        assert!(core.plugin_translate_languages(id, &phone).await.is_err(), "{id}: installed is not granted, and never is not installed");
+        assert!(core.plugin_translate_detect(id, &phone, "hola").await.is_err());
+        assert!(core.plugin_translate_status(id, &phone, "es", "en").await.is_err());
+        assert!(core.plugin_translate_prepare(id, &phone, "es", "fr").await.is_err());
+        assert!(core.plugin_translate_remove(id, &phone, "es", "fr").await.is_err());
+        assert!(core.plugin_translate_text(id, &phone, "hola", "es", "en").await.is_err());
+    }
+    assert_eq!(phone.asked(), 0, "the phone is not even asked for a plugin that may not translate");
+
+    core.grant_plugin(TRANSLATOR, Permissions { translate: true, ..Permissions::default() }).await.expect("grants");
+    assert_eq!(core.plugin_translate_languages(TRANSLATOR, &phone).await.unwrap(), ["en", "es", "fr"]);
+    assert_eq!(core.plugin_translate_detect(TRANSLATOR, &phone, "hola").await.unwrap().as_deref(), Some("es"));
+    assert_eq!(core.plugin_translate_status(TRANSLATOR, &phone, "es", "en").await.unwrap(), ft_core::plugins::PairStatus::Installed);
+    assert_eq!(core.plugin_translate_status(TRANSLATOR, &phone, "es", "fr").await.unwrap(), ft_core::plugins::PairStatus::Downloadable);
+    assert!(core.plugin_translate_prepare(TRANSLATOR, &phone, "es", "fr").await.unwrap());
+    assert!(core.plugin_translate_remove(TRANSLATOR, &phone, "es", "fr").await.unwrap());
+    assert_eq!(core.plugin_translate_text(TRANSLATOR, &phone, "hola", "es", "en").await.unwrap().as_deref(), Some("[es>en] hola"));
+    assert_eq!(phone.asked(), 7);
+
+    core.grant_plugin(TRANSLATOR, Permissions::default()).await.unwrap();
+    assert!(core.plugin_translate_text(TRANSLATOR, &phone, "hola", "es", "en").await.is_err());
+    assert_eq!(phone.asked(), 7);
+}
+
+#[tokio::test]
+async fn an_empty_or_too_long_text_is_refused_without_asking_the_phone() {
+    let (core, _dir) = translator_plugin(Permissions { translate: true, ..Permissions::default() }).await;
+    let phone = FakeTranslator::knowing(&["en", "es"]);
+    let too_long = "a".repeat(5_001);
+    for text in ["", "  \n ", too_long.as_str()] {
+        assert!(core.plugin_translate_text(TRANSLATOR, &phone, text, "es", "en").await.is_err(), "{} characters", text.len());
+        assert!(core.plugin_translate_detect(TRANSLATOR, &phone, text).await.is_err(), "{} characters", text.len());
+    }
+    assert_eq!(phone.asked(), 0);
+
+    for wide in ["ñ", "😀"] {
+        let longest = wide.repeat(5_000);
+        assert!(core.plugin_translate_text(TRANSLATOR, &phone, &longest, "es", "en").await.unwrap().is_some(), "5 000 × {wide}");
+        assert!(core.plugin_translate_detect(TRANSLATOR, &phone, &longest).await.unwrap().is_some(), "5 000 × {wide}");
+        let one_more = wide.repeat(5_001);
+        assert!(core.plugin_translate_text(TRANSLATOR, &phone, &one_more, "es", "en").await.is_err(), "5 001 × {wide}");
+        assert!(core.plugin_translate_detect(TRANSLATOR, &phone, &one_more).await.is_err(), "5 001 × {wide}");
+    }
+    assert_eq!(phone.asked(), 4, "only the texts that fit reach the phone");
+}
+
+#[tokio::test]
+async fn a_language_that_is_no_tag_is_unsupported_without_asking_the_phone() {
+    let (core, _dir) = translator_plugin(Permissions { translate: true, ..Permissions::default() }).await;
+    let phone = FakeTranslator::knowing(&["en", "es"]);
+    for (from, to) in [("", "en"), ("es", ""), ("es_ES", "en"), ("es", "../en"), ("español", "en")] {
+        assert_eq!(core.plugin_translate_status(TRANSLATOR, &phone, from, to).await.unwrap(), ft_core::plugins::PairStatus::Unsupported, "{from:?}>{to:?}");
+        assert!(!core.plugin_translate_prepare(TRANSLATOR, &phone, from, to).await.unwrap());
+        assert!(!core.plugin_translate_remove(TRANSLATOR, &phone, from, to).await.unwrap());
+        assert_eq!(core.plugin_translate_text(TRANSLATOR, &phone, "hola", from, to).await.unwrap(), None);
+    }
+    assert_eq!(phone.asked(), 0);
+}
+
+#[tokio::test]
+async fn what_the_phone_says_reaches_the_plugin_only_as_languages() {
+    let (core, _dir) = translator_plugin(Permissions { translate: true, ..Permissions::default() }).await;
+    let listing = FakeTranslator::knowing(&["en", "", "es", "not a tag", "zh-Hans", "en"]);
+    assert_eq!(core.plugin_translate_languages(TRANSLATOR, &listing).await.unwrap(), ["en", "es", "zh-Hans"], "once each, and only tags");
+    for unknown in ["und", "", "?"] {
+        assert_eq!(core.plugin_translate_detect(TRANSLATOR, &FakeTranslator::detecting(unknown), "hmm").await.unwrap(), None, "{unknown:?}");
+    }
+    assert_eq!(core.plugin_translate_detect(TRANSLATOR, &FakeTranslator::detecting("pt"), "olá").await.unwrap().as_deref(), Some("pt"));
+}
+
+#[tokio::test]
+async fn the_translator_installs_on_the_core_that_brought_translate() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let manifest = r#"{"id":"com.flickertalk.translate","name":"Translator","version":"1.0.0","minCoreVersion":"1.7.0","components":["ft-translate"],"opens":["text/plain"],"permissions":{"messages":"given","translate":true,"send":"propose","storage":"small"}}"#;
+    let package = sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), b"".to_vec())], &catalogue);
+    core.install_plugin(&package, &catalogue.public_key(), Permissions::default()).await.expect("installs on 1.7.0");
+    assert!(!ft_plugins::version_at_least("1.6.0", "1.7.0"), "and not on the core before it");
+}
+
+#[tokio::test]
+async fn a_swap_cut_short_is_put_right_when_the_core_starts() {
+    let catalogue = Ed25519SecretKey::new();
+    let dir = scratch("cut-short");
+    let plugin = ft_plugins::open(&signed("com.example.code", "1.0.0", "{}", &catalogue), &catalogue.public_key()).unwrap();
+    ft_plugins::install(&plugin, &dir).unwrap();
+    std::fs::rename(dir.join("com.example.code"), dir.join("com.example.code~old")).unwrap();
+
+    let core = Core::open(Store::open_in_memory().await.expect("store"), [4; 32], Arc::new(Offline)).await.expect("opens");
+    core.set_plugins_dir(dir.clone());
+    assert!(dir.join("com.example.code/dist/index.js").exists(), "the old version is back");
+    assert!(!dir.join("com.example.code~old").exists());
+}
+
+async fn grant_and_version(core: &Core, id: &str) -> (Permissions, String) {
+    let plugin = core.plugins().await.unwrap().into_iter().find(|one| one.manifest.id == id).expect("installed");
+    (plugin.granted, plugin.manifest.version)
+}
+
+#[tokio::test]
+async fn an_update_keeps_the_grant_and_never_widens_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let asks = r#"{"network":["api.example.com"],"send":"propose","live":true}"#;
+    core.install_plugin(&signed("com.example.code", "1.0.0", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    let granted = Permissions { network: vec!["api.example.com".to_owned()], send: Sending::Propose, live: true, ..Permissions::default() };
+    core.grant_plugin("com.example.code", granted.clone()).await.unwrap();
+
+    let more = r#"{"network":["api.example.com","cdn.example.com"],"send":"auto","live":true,"remind":true,"location":true}"#;
+    core.install_plugin(&signed("com.example.code", "1.0.1", more, &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("updates");
+    assert_eq!(grant_and_version(&core, "com.example.code").await, (granted, "1.0.1".to_owned()));
+}
+
+#[tokio::test]
+async fn an_update_that_asks_for_less_still_updates_and_the_grant_shrinks_with_it() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let asks = r#"{"network":["api.example.com","cdn.example.com"],"send":"auto","remind":true,"storage":"large"}"#;
+    core.install_plugin(&signed("com.example.notes", "1.0.0", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    let all = Permissions {
+        network: vec!["api.example.com".to_owned(), "cdn.example.com".to_owned()],
+        send: Sending::Auto,
+        remind: true,
+        storage: ft_plugins::Storage::Large,
+        ..Permissions::default()
+    };
+    core.grant_plugin("com.example.notes", all.clone()).await.unwrap();
+    core.set_reminder("com.example.notes", None, "r1", 5_000, "milk").await.unwrap();
+    let mut events = core.events();
+
+    let less = r#"{"network":["api.example.com"],"send":"propose"}"#;
+    core.install_plugin(&signed("com.example.notes", "1.0.1", less, &catalogue), &catalogue.public_key(), all).await.expect("updates");
+    let narrowed = Permissions { network: vec!["api.example.com".to_owned()], send: Sending::Propose, ..Permissions::default() };
+    assert_eq!(grant_and_version(&core, "com.example.notes").await, (narrowed, "1.0.1".to_owned()));
+    assert!(core.plugin_reminders("com.example.notes", None).await.unwrap().is_empty());
+    let mut heard = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        heard.push(event);
+    }
+    assert!(heard.contains(&ft_core::Event::RemindersChanged), "{heard:?}");
+    assert!(heard.contains(&ft_core::Event::PluginsChanged), "{heard:?}");
+}
+
+#[tokio::test]
+async fn what_a_plugin_keeps_outlives_its_update() {
+    let (core, _dir, bob, _carol) = two_plugins_and_two_contacts().await;
+    let catalogue = Ed25519SecretKey::new();
+    let id = "com.example.list";
+    let asks = r#"{"remind":true}"#;
+    core.install_plugin(&signed(id, "1.0.0", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.unwrap();
+    core.grant_plugin(id, Permissions { remind: true, ..Permissions::default() }).await.unwrap();
+    let chat = core.plugin_chat(id, &bob).await.unwrap();
+    core.plugin_record_set(id, None, &format!("game/{chat}/1"), b"e4 e5").await.unwrap();
+    core.plugin_remember(id, None, "theme", "dark").await.unwrap();
+    core.set_reminder(id, None, "r1", 5_000, "milk").await.unwrap();
+    let installed_at = core.plugins().await.unwrap().into_iter().find(|one| one.manifest.id == id).unwrap().installed_at;
+
+    core.install_plugin(&signed(id, "1.0.1", asks, &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("updates");
+    let now = core.plugins().await.unwrap().into_iter().find(|one| one.manifest.id == id).unwrap();
+    assert_eq!((now.manifest.version.as_str(), now.installed_at), ("1.0.1", installed_at));
+    assert_eq!(core.plugin_chat(id, &bob).await.unwrap(), chat);
+    assert_eq!(core.plugin_record(id, None, &format!("game/{chat}/1")).await.unwrap().as_deref(), Some(&b"e4 e5"[..]));
+    assert_eq!(core.plugin_remembers(id, None, "theme").await.unwrap().as_deref(), Some("dark"));
+    assert_eq!(core.plugin_reminders(id, None).await.unwrap().len(), 1);
+}
+
+fn package_of(manifest: &str, script: &[u8], catalogue: &Ed25519SecretKey) -> Vec<u8> {
+    sign_package(&[("module.json".to_owned(), manifest.as_bytes().to_vec()), ("dist/index.js".to_owned(), script.to_vec())], catalogue)
+}
+
+fn tool(id: &str, version: &str) -> String {
+    format!(r#"{{"id":"{id}","name":"Code","version":"{version}","minCoreVersion":"0.1.0","components":["ft-code"]}}"#)
+}
+
+fn listing(packages: &[(&str, &[u8])]) -> (Shop, Vec<ft_plugins::CatalogueEntry>) {
+    let mut files = std::collections::HashMap::new();
+    let mut entries = Vec::new();
+    for (manifest, package) in packages {
+        let manifest: ft_plugins::Manifest = serde_json::from_str(manifest).expect("a manifest");
+        let url = format!("{}/{}/{}.ftplugin", ft_core::CATALOGUE_HOME, manifest.id, manifest.version);
+        entries.push(ft_plugins::CatalogueEntry {
+            id: manifest.id,
+            name: manifest.name,
+            version: manifest.version,
+            min_core_version: manifest.min_core_version,
+            size: package.len() as u64,
+            hash: blake3::hash(package).to_hex().to_string(),
+            url: url.clone(),
+            summary: String::new(),
+            kind: manifest.kind,
+            locales: manifest.locales,
+            icon: manifest.icon,
+            image: String::new(),
+        });
+        files.insert(url, package.to_vec());
+    }
+    (Shop { files }, entries)
+}
+
+async fn installed_code(core: &Core, catalogue: &Ed25519SecretKey) {
+    core.install_plugin(&package_of(&tool("com.example.code", "1.0.0"), b"old()", catalogue), &catalogue.public_key(), Permissions::default())
+        .await
+        .expect("installs");
+}
+
+fn script(dir: &std::path::Path) -> Vec<u8> {
+    std::fs::read(dir.join("com.example.code/dist/index.js")).unwrap()
+}
+
+#[tokio::test]
+async fn a_downloaded_plugin_is_updated_when_the_catalogue_lists_a_higher_version() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.code", "1.0.1");
+    let newer = package_of(&manifest, b"new()", &catalogue);
+    let (shop, listed) = listing(&[(&manifest, &newer)]);
+    let mut events = core.events();
+
+    let updated = core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await;
+    assert_eq!(updated, ["com.example.code"]);
+    assert_eq!(script(&dir), b"new()");
+    assert_eq!(grant_and_version(&core, "com.example.code").await.1, "1.0.1");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::PluginsChanged));
+}
+
+#[tokio::test]
+async fn the_same_or_a_lower_version_changes_nothing() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    for version in ["1.0.0", "0.9.9"] {
+        let manifest = tool("com.example.code", version);
+        let other = package_of(&manifest, b"other()", &catalogue);
+        let (shop, listed) = listing(&[(&manifest, &other)]);
+        assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "{version}");
+        assert_eq!(script(&dir), b"old()");
+    }
+}
+
+#[tokio::test]
+async fn an_update_never_installs_a_plugin_the_user_did_not_install() {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.other", "2.0.0");
+    let stranger = package_of(&manifest, b"x()", &catalogue);
+    let (shop, listed) = listing(&[(&manifest, &stranger)]);
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty());
+    assert_eq!(core.plugins().await.unwrap().iter().map(|one| one.manifest.id.as_str()).collect::<Vec<_>>(), ["com.example.code"]);
+}
+
+#[tokio::test]
+async fn an_update_that_needs_a_newer_core_changes_kind_or_is_too_big_is_skipped() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let future = tool("com.example.code", "1.0.1").replace("0.1.0", "99.0.0");
+    let game = r#"{"id":"com.example.code","name":"Code","version":"1.0.2","minCoreVersion":"1.3.0","components":["ft-code"],"kind":"game"}"#.to_owned();
+    let big = tool("com.example.code", "1.0.3");
+    for (manifest, size) in [(&future, None), (&game, None), (&big, Some(9 * 1024 * 1024))] {
+        let package = package_of(manifest, b"new()", &catalogue);
+        let (shop, mut listed) = listing(&[(manifest, &package)]);
+        if let Some(size) = size {
+            listed[0].size = size;
+        }
+        let version = listed[0].version.clone();
+        assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "{version}");
+        assert_eq!(script(&dir), b"old()", "{version}");
+    }
+}
+
+#[tokio::test]
+async fn a_failed_download_or_other_bytes_leave_the_installed_version() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.code", "1.0.1");
+    let newer = package_of(&manifest, b"new()", &catalogue);
+    let (mut shop, listed) = listing(&[(&manifest, &newer)]);
+    shop.files.clear();
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "offline");
+    let (mut shop, listed) = listing(&[(&manifest, &newer)]);
+    let swapped = package_of(&tool("com.example.code", "1.0.1"), b"evil()", &catalogue);
+    shop.files.insert(listed[0].url.clone(), swapped);
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await.is_empty(), "other bytes");
+    assert_eq!(script(&dir), b"old()");
+    assert_eq!(grant_and_version(&core, "com.example.code").await.1, "1.0.0");
+}
+
+#[tokio::test]
+async fn an_open_plugin_waits_for_the_next_pass() {
+    let (core, dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    installed_code(&core, &catalogue).await;
+    let manifest = tool("com.example.code", "1.0.1");
+    let newer = package_of(&manifest, b"new()", &catalogue);
+    let (shop, listed) = listing(&[(&manifest, &newer)]);
+    let open: std::collections::HashSet<String> = ["com.example.code".to_owned()].into();
+    assert!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &open).await.is_empty());
+    assert_eq!(script(&dir), b"old()");
+    assert_eq!(core.update_plugins(&listed, &shop, &catalogue.public_key(), &Default::default()).await, ["com.example.code"]);
+    assert_eq!(script(&dir), b"new()");
+}
+
+fn hooked(id: &str, hooks: &str, permissions: &str, catalogue: &Ed25519SecretKey) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{"id":"{id}","name":"Translator","version":"1.1.0","minCoreVersion":"1.7.0","components":["ft-translate"],"permissions":{permissions},"hooks":{hooks}}}"#
+    );
+    sign_package(&[("module.json".to_owned(), manifest.into_bytes()), ("dist/index.js".to_owned(), b"".to_vec())], catalogue)
+}
+
+const EVERY_HOOK: &str = r#"{"message":{"label":"Translate","icon":"language-outline"},"composer":{"label":"Translate","icon":"language-outline"},"settings":{"label":"Translation","icon":"language-outline","fields":[{"key":"lang","type":"select","label":"Language"},{"key":"receive","type":"toggle","label":"Translate what I receive"}]}}"#;
+
+async fn hooks_and_a_message() -> (Arc<Core>, String, String) {
+    let (core, _dir) = core().await;
+    let catalogue = Ed25519SecretKey::new();
+    let asks = r#"{"messages":"given","send":"propose","translate":true}"#;
+    let reads = Permissions { reads_given_messages: true, ..Permissions::default() };
+    core.install_plugin(&hooked(TRANSLATOR, EVERY_HOOK, asks, &catalogue), &catalogue.public_key(), reads).await.expect("installs");
+    core.install_plugin(&signed("com.example.code", "1.0.0", "{}", &catalogue), &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    let (other, _dir) = self::core().await;
+    let bob = core.add_contact(&other.my_card().await.unwrap().to_link(), None).await.expect("adds").device_id;
+    let message = ft_protocol::MessageId::new().to_string();
+    let received = ft_storage::Message {
+        message_id: message.clone(),
+        contact: bob.clone(),
+        outgoing: false,
+        body: "see you at six".to_owned(),
+        sent_at: 1,
+        received_at: 1,
+        state: ft_storage::MessageState::Delivered,
+    };
+    core.store().insert_message(&received).await.expect("a message");
+    (core, bob, message)
+}
+
+#[tokio::test]
+async fn a_tools_note_on_a_message_is_kept_and_the_screen_hears_of_it() {
+    let (core, bob, message) = hooks_and_a_message().await;
+    let mut events = core.events();
+    core.set_message_note(&message, TRANSLATOR, "nos vemos a las seis").await.expect("notes");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::MessagesChanged { contact: bob.clone() }));
+    let notes = core.store().notes(&bob).await.unwrap();
+    assert_eq!((notes[0].message_id.as_str(), notes[0].plugin.as_str(), notes[0].text.as_str()), (message.as_str(), TRANSLATOR, "nos vemos a las seis"));
+
+    core.clear_message_note(&message, TRANSLATOR).await.expect("clears");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::MessagesChanged { contact: bob.clone() }));
+    assert!(core.store().notes(&bob).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_note_is_only_a_short_text_from_a_tool_bound_to_messages_on_a_text_still_there() {
+    let (core, bob, message) = hooks_and_a_message().await;
+    assert!(core.set_message_note(&message, "com.example.code", "x").await.is_err(), "not bound to the message hook");
+    assert!(core.set_message_note(&message, "com.example.missing", "x").await.is_err(), "not installed");
+    assert!(core.set_message_note(&message, TRANSLATOR, "  ").await.is_err(), "nothing to note");
+    let limit = ft_core::plugins::NOTE_MAX_CHARS;
+    assert_eq!(limit, 5_000);
+    assert!(core.set_message_note(&message, TRANSLATOR, &"ñ".repeat(limit + 1)).await.is_err(), "too long");
+    core.set_message_note(&message, TRANSLATOR, &"ñ".repeat(limit)).await.expect("as long as a message");
+    assert!(core.set_message_note("01890a5d-ac96-774b-bcce-b302099a8057", TRANSLATOR, "x").await.is_err(), "no such message");
+    core.grant_plugin(TRANSLATOR, Permissions::default()).await.unwrap();
+    assert!(core.set_message_note(&message, TRANSLATOR, "x").await.is_err(), "it may no longer read messages");
+    core.grant_plugin(TRANSLATOR, Permissions { reads_given_messages: true, ..Permissions::default() }).await.unwrap();
+
+    let file = ft_protocol::MessageId::new().to_string();
+    let photo = ft_storage::Message { message_id: file.clone(), contact: bob.clone(), outgoing: false, body: String::new(), sent_at: 2, received_at: 2, state: ft_storage::MessageState::Delivered };
+    core.store().insert_message(&photo).await.unwrap();
+    core.store()
+        .insert_file(&ft_storage::FileRecord {
+            message_id: file.clone(),
+            name: "photo.jpg".to_owned(),
+            size: 10,
+            mime: "image/jpeg".to_owned(),
+            hash: [1; 32],
+            chunk: 10,
+            path: "/files/photo.jpg".to_owned(),
+            chunks_done: 0,
+            complete: false,
+            failed: false,
+            waiting: false,
+        })
+        .await
+        .unwrap();
+    assert!(core.set_message_note(&file, TRANSLATOR, "x").await.is_err(), "a file has no words");
+    core.store().mark_deleted(&message).await.unwrap();
+    assert!(core.set_message_note(&message, TRANSLATOR, "x").await.is_err(), "taken back");
+}
+
+#[tokio::test]
+async fn a_conversation_lets_a_tool_run_by_itself_only_where_it_binds() {
+    let (core, bob, _message) = hooks_and_a_message().await;
+    assert!(core.chat_hooks(&bob).await.expect("reads").is_empty(), "nothing by itself unless chosen");
+    let mut events = core.events();
+    core.set_chat_hooks(&bob, TRANSLATOR, true, false, None).await.expect("sets");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::ContactsChanged));
+    let hooks = core.chat_hooks(&bob).await.unwrap();
+    assert_eq!((hooks[0].plugin.as_str(), hooks[0].auto_message, hooks[0].auto_composer, hooks[0].lang.as_deref()), (TRANSLATOR, true, false, None));
+    core.set_chat_hooks(&bob, TRANSLATOR, false, false, Some("zh-Hant")).await.expect("a language alone");
+    assert_eq!(core.chat_hooks(&bob).await.unwrap()[0].lang.as_deref(), Some("zh-Hant"));
+    for wrong in ["", "spanish please", "e", "es_ES", "x-y-z-very-long-tag-that-goes-on-and-on"] {
+        assert!(core.set_chat_hooks(&bob, TRANSLATOR, true, false, Some(wrong)).await.is_err(), "{wrong:?} is no language tag");
+    }
+
+    assert!(core.set_chat_hooks(&bob, "com.example.code", true, false, None).await.is_err(), "bound to no settings hook");
+    assert!(core.set_chat_hooks("ft_nobody", TRANSLATOR, true, false, None).await.is_err(), "not a contact");
+    let catalogue = Ed25519SecretKey::new();
+    let chat_only = hooked("com.example.lang", r#"{"settings":{"label":"Language","icon":"language-outline","fields":[{"key":"lang","type":"select","label":"Language"}]}}"#, "{}", &catalogue);
+    core.install_plugin(&chat_only, &catalogue.public_key(), Permissions::default()).await.expect("installs");
+    assert!(core.set_chat_hooks(&bob, "com.example.lang", true, false, None).await.is_err(), "it does not bind to messages");
+    assert!(core.set_chat_hooks(&bob, "com.example.lang", false, true, None).await.is_err(), "nor to the composer");
+    core.set_chat_hooks(&bob, "com.example.lang", false, false, Some("fr")).await.expect("nothing by itself is always fine");
+
+    core.remove_plugin(TRANSLATOR).await.expect("removes");
+    let left = core.chat_hooks(&bob).await.unwrap();
+    assert_eq!(left.iter().map(|hook| hook.plugin.as_str()).collect::<Vec<_>>(), ["com.example.lang"], "its switches went with it");
+}
+
+async fn a_circle(core: &Core, id: &str, session: Option<&str>) -> String {
+    let circle = ft_storage::CircleRecord {
+        id: id.to_owned(),
+        name: "French class".to_owned(),
+        card: vec![1],
+        revision: 1,
+        admins_only: false,
+        session: session.map(str::to_owned),
+        left: false,
+        created_at: 1,
+    };
+    core.store().save_circle(&circle).await.expect("a circle");
+    let message = ft_protocol::MessageId::new().to_string();
+    let said = ft_storage::CircleMessage {
+        message_id: message.clone(),
+        circle: id.to_owned(),
+        sender: "ft_bob".to_owned(),
+        outgoing: false,
+        kind: "text".to_owned(),
+        body: "je peux apporter mes notes".to_owned(),
+        sent_at: 1,
+        received_at: 1,
+        state: ft_storage::MessageState::Delivered,
+    };
+    core.store().insert_circle_message(&said).await.expect("a message");
+    message
+}
+
+#[tokio::test]
+async fn a_circle_message_takes_a_note_and_the_circle_hears_of_it() {
+    let (core, _bob, _message) = hooks_and_a_message().await;
+    let message = a_circle(&core, "circle-1", None).await;
+    let mut events = core.events();
+    core.set_message_note(&message, TRANSLATOR, "puedo traer mis apuntes").await.expect("notes");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::CircleMessagesChanged { circle: "circle-1".to_owned() }));
+    assert_eq!(core.store().notes("circle-1").await.unwrap()[0].text, "puedo traer mis apuntes");
+    core.clear_message_note(&message, TRANSLATOR).await.expect("clears");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::CircleMessagesChanged { circle: "circle-1".to_owned() }));
+    assert!(core.store().notes("circle-1").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_circle_keeps_its_own_switches_and_language() {
+    let (core, bob, _message) = hooks_and_a_message().await;
+    a_circle(&core, "circle-1", None).await;
+    let mut events = core.events();
+    core.set_chat_hooks("circle-1", TRANSLATOR, true, false, Some("fr")).await.expect("sets");
+    assert_eq!(events.try_recv().ok(), Some(ft_core::Event::CirclesChanged));
+    let hooks = core.chat_hooks("circle-1").await.unwrap();
+    assert_eq!((hooks[0].auto_message, hooks[0].lang.as_deref()), (true, Some("fr")));
+    assert!(core.chat_hooks(&bob).await.unwrap().is_empty(), "the contact's are its own");
+    assert!(core.set_chat_hooks("circle-nobody", TRANSLATOR, true, false, None).await.is_err(), "no such conversation");
+}
+
+#[tokio::test]
+async fn a_circle_has_a_chat_key_of_its_own() {
+    let (core, bob, _message) = hooks_and_a_message().await;
+    a_circle(&core, "circle-1", None).await;
+    let circle = core.plugin_chat(TRANSLATOR, "circle-1").await.expect("a key");
+    assert_eq!(circle.len(), 43);
+    assert_ne!(circle, core.plugin_chat(TRANSLATOR, &bob).await.unwrap());
+    assert_eq!(core.plugin_chat(TRANSLATOR, "circle-1").await.unwrap(), circle, "stable");
+    assert!(core.plugin_chat(TRANSLATOR, "circle-nobody").await.is_err());
+
+    let session = core.open_session("123456").await.expect("opens").expect("room");
+    a_circle(&core, "circle-2", Some(&session)).await;
+    let inside = core.plugin_chat(TRANSLATOR, "circle-2").await.expect("open: a key");
+    core.close_session(&session).await.expect("closes");
+    assert!(core.plugin_chat(TRANSLATOR, "circle-2").await.is_err(), "closed: no key");
+    core.open_session("123456").await.unwrap();
+    assert_eq!(core.plugin_chat(TRANSLATOR, "circle-2").await.unwrap(), inside);
+}
+
+#[tokio::test]
+async fn a_circle_message_has_a_ref_that_leads_back_to_its_circle() {
+    let (core, _bob, _message) = hooks_and_a_message().await;
+    let message = a_circle(&core, "circle-1", None).await;
+    let reference = core.plugin_ref(TRANSLATOR, &message).await.expect("a ref");
+    assert_eq!(core.plugin_ref(TRANSLATOR, &message).await.unwrap(), reference, "the same message, the same ref");
+    let target = core.plugin_ref_target(TRANSLATOR, None, &reference).await.unwrap().expect("leads back");
+    assert_eq!((target.contact.as_str(), target.message_id.as_str()), ("circle-1", message.as_str()));
+    assert!(core.plugin_ref_target("com.example.code", None, &reference).await.unwrap().is_none(), "not another tool's");
+}
+
+#[tokio::test]
+async fn a_text_sent_translated_keeps_the_users_words_as_a_note() {
+    let (core, bob, _message) = hooks_and_a_message().await;
+    let sent = core.queue_text(&bob, "à six heures", None).await.expect("queued");
+    let stored = core.store().message(&sent).await.unwrap().expect("there at once");
+    assert_eq!((stored.outgoing, stored.body.as_str(), stored.state), (true, "à six heures", ft_storage::MessageState::Pending));
+    core.set_message_note(&sent, TRANSLATOR, "at six").await.expect("the original as a note");
+    assert_eq!(core.store().notes(&bob).await.unwrap().iter().find(|note| note.message_id == sent).unwrap().text, "at six");
+
+    let catalogue = Ed25519SecretKey::new();
+    let composer = hooked("com.example.compose", r#"{"composer":{"label":"Rewrite","icon":"pencil-outline"}}"#, r#"{"messages":"given","send":"propose"}"#, &catalogue);
+    core.install_plugin(&composer, &catalogue.public_key(), Permissions { reads_given_messages: true, ..Permissions::default() }).await.expect("installs");
+    core.set_message_note(&sent, "com.example.compose", "at six").await.expect("a composer's note");
+    assert!(core.set_message_note(&sent, "com.example.code", "at six").await.is_err());
+}
+
+#[tokio::test]
+async fn the_settings_hook_is_handed_the_last_texts_received_only_if_it_may_read_them() {
+    let (core, bob, first) = hooks_and_a_message().await;
+    let store = core.store();
+    for (at, (body, outgoing)) in [("un", false), ("mine", true), ("deux", false), ("trois", false), ("quatre", false), ("cinq", false), ("taken back", false)]
+        .into_iter()
+        .enumerate()
+    {
+        let message = ft_storage::Message {
+            message_id: ft_protocol::MessageId::new().to_string(),
+            contact: bob.clone(),
+            outgoing,
+            body: body.to_owned(),
+            sent_at: 10 + at as i64,
+            received_at: 10 + at as i64,
+            state: ft_storage::MessageState::Delivered,
+        };
+        store.insert_message(&message).await.unwrap();
+        if body == "taken back" {
+            store.mark_deleted(&message.message_id).await.unwrap();
+        }
+    }
+    assert!(store.message(&first).await.unwrap().is_some());
+    assert_eq!(core.hook_sample(TRANSLATOR, &bob).await.expect("a sample"), "un\ndeux\ntrois\nquatre\ncinq");
+
+    let circle = a_circle(&core, "circle-1", None).await;
+    assert!(store.circle_message(&circle).await.unwrap().is_some());
+    assert_eq!(core.hook_sample(TRANSLATOR, "circle-1").await.unwrap(), "je peux apporter mes notes");
+
+    core.grant_plugin(TRANSLATOR, Permissions::default()).await.unwrap();
+    assert_eq!(core.hook_sample(TRANSLATOR, &bob).await.unwrap(), "", "it may not read them");
+    assert!(core.hook_sample("com.example.code", &bob).await.is_err(), "no settings hook");
+    assert!(core.hook_sample(TRANSLATOR, "ft_nobody").await.is_err(), "no such conversation");
+}

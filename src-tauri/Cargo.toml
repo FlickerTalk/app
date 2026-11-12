@@ -1,0 +1,45 @@
+[package]
+name = "flickertalk"
+version = "1.7.1"
+description = "FlickerTalk: private messages, phone to phone (the Tauri app around ft-core)"
+authors = ["FlickerTalk"]
+license = "AGPL-3.0-only"
+edition = "2021"
+
+[lib]
+# The _lib suffix keeps the lib name from clashing with the bin on Windows (rust-lang/cargo#8519)
+name = "flickertalk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+# At least 2.12 for tao 0.37. With tao 0.35 every iOS release build crashed at launch because the
+# scene configuration was freed before UIKit took it (tauri-apps/tao#1244, #1245).
+tauri = { version = "2.12", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-ft-platform = { path = "platform" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ft-contacts = { path = "../crates/ft-contacts" }
+ft-billing = { path = "../crates/ft-billing" }
+ft-core = { path = "../crates/ft-core" }
+ft-plugins = { path = "../crates/ft-plugins" }
+ft-push = { path = "../crates/ft-push" }
+ft-storage = { path = "../crates/ft-storage" }
+ft-vault = { path = "../crates/ft-vault" }
+ft-webrtc = { path = "../crates/ft-webrtc" }
+ft-media = { path = "../crates/ft-media" }
+anyhow = "1"
+async-trait = "0.1"
+rand = "0.9"
+tokio = { version = "1", features = ["sync", "fs", "io-util", "time"] }
+base64 = "0.22"
+
+# same jni version as Tauri and tao
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">Ai đó</string>
+    <string name="ft_incoming_call">Cuộc gọi đến</string>
+    <string name="ft_incoming_video_call">Cuộc gọi video đến</string>
+    <string name="ft_channel_calls">Cuộc gọi</string>
+    <string name="ft_channel_messages">Tin nhắn và cuộc gọi</string>
+    <string name="ft_something_new">Có điều mới đang chờ bạn</string>
+    <string name="ft_channel_reminders">Lời nhắc</string>
+    <string name="ft_reminder">Lời nhắc</string>
+    <string name="ft_reminder_generic">Bạn có một lời nhắc</string>
+    <string name="ft_channel_incoming_calls">Cuộc gọi đến</string>
+    <string name="ft_channel_ongoing_calls">Cuộc gọi đang diễn ra</string>
+    <string name="ft_ongoing_call">Đang trong cuộc gọi</string>
+    <string name="ft_mute">Tắt tiếng</string>
+    <string name="ft_unmute">Bật tiếng</string>
+    <string name="ft_video">Video</string>
+</resources>

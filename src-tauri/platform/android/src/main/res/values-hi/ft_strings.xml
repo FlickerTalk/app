@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ft_someone">कोई</string>
+    <string name="ft_incoming_call">इनकमिंग कॉल</string>
+    <string name="ft_incoming_video_call">इनकमिंग वीडियो कॉल</string>
+    <string name="ft_channel_calls">कॉल</string>
+    <string name="ft_channel_messages">मैसेज और कॉल</string>
+    <string name="ft_something_new">आपके लिए कुछ नया इंतज़ार कर रहा है</string>
+    <string name="ft_channel_reminders">रिमाइंडर</string>
+    <string name="ft_reminder">रिमाइंडर</string>
+    <string name="ft_reminder_generic">आपके लिए एक रिमाइंडर है</string>
+    <string name="ft_channel_incoming_calls">आने वाली कॉल</string>
+    <string name="ft_channel_ongoing_calls">चल रही कॉल</string>
+    <string name="ft_ongoing_call">कॉल चल रही है</string>
+    <string name="ft_mute">म्यूट करें</string>
+    <string name="ft_unmute">अनम्यूट करें</string>
+    <string name="ft_video">वीडियो</string>
+</resources>

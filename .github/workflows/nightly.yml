@@ -1,0 +1,141 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # stable on purpose, to warn before the next toolchain bump. rustup prefers this variable over
+  # rust-toolchain.toml.
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: System libraries for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: System libraries for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: live
+      - name: Two cores chat through the live cluster
+        run: cargo test --locked -p ft-core --test live two_phones_chat_through_the_live_cluster -- --ignored --nocapture
+      - name: Two devices meet on the live router
+        run: cargo test --locked -p ft-push --test client -- --ignored --nocapture
+      - name: WebRTC through a public STUN server
+        run: cargo test --locked -p ft-webrtc --test handshake two_peers_connect_through_stun_on_the_real_network -- --ignored --nocapture
+      - name: WebRTC through TURN alone
+        env:
+          FT_TURN_URL: ${{ secrets.FT_TURN_URL }}
+          FT_TURN_USERNAME: ${{ secrets.FT_TURN_USERNAME }}
+          FT_TURN_CREDENTIAL: ${{ secrets.FT_TURN_CREDENTIAL }}
+        run: |
+          if [[ -z "$FT_TURN_URL" ]]; then
+            echo "::notice::no TURN secrets in this repo: the relay-only test is skipped"
+            exit 0
+          fi
+          cargo test --locked -p ft-webrtc --test handshake two_peers_connect_through_the_turn_relay_alone -- --ignored --nocapture
+
+  main-ci:
+    name: last push run of main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: The last push run of main succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # With the job time limits a healthy run ends well within three hours. An older one is stuck.
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" -w app.yml -b main -e push -L 1 \
+            --json status,conclusion,startedAt,url \
+            --jq '.[0] | "\(.status)/\(.conclusion) \((now - (.startedAt | fromdate)) / 60 | floor) \(.url)"')
+          read -r state minutes url <<< "$last"
+          if [[ "$state" == completed/success ]]; then
+            exit 0
+          fi
+          if [[ "$state" != completed/* && "$minutes" -lt 180 ]]; then
+            echo "::notice::the last push run of main is still going ($state, $minutes min): $url"
+            exit 0
+          fi
+          echo "::error::the last push run of main did not succeed ($state, started $minutes min ago): $url"
+          exit 1
+
+  report:
+    needs: [suite, live, main-ci]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          # The label already exists after the first failure.
+          gh label create nightly --color B60205 --description "The nightly run failed" 2>/dev/null || true
+          failed=$(jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(", ")' <<< "$NEEDS")
+          open=$(gh issue list --label nightly --state open --json number --jq '.[0].number')
+          if [[ -n "$open" ]]; then
+            gh issue comment "$open" --body "Failed again ($failed): $RUN"
+          else
+            gh issue create --label nightly --title "Nightly run failed" \
+              --body "The nightly run on \`main\` failed ($failed): $RUN. Close this issue once it is green again."
+          fi

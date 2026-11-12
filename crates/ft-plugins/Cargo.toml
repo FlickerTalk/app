@@ -1,0 +1,23 @@
+[package]
+name = "ft-plugins"
+version = "0.1.0"
+edition = "2021"
+description = "Plugin packages: signature, manifest and installation"
+license = "AGPL-3.0-only"
+
+[[bin]]
+name = "ftplugin"
+path = "src/bin/ftplugin.rs"
+
+[[bin]]
+name = "ftcatalogue"
+path = "src/bin/ftcatalogue.rs"
+
+[dependencies]
+base64 = "0.22"
+anyhow = "1"
+blake3 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+vodozemac = "0.11"
+zip = { version = "9", default-features = false, features = ["deflate"] }

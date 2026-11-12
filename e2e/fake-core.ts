@@ -1,0 +1,829 @@
+export function installFakeCore() {
+  type Args = Record<string, unknown> | undefined;
+  type Handler = (event: { event: string; payload: unknown; id: number }) => void;
+
+  const conversation = (id: string, name: string, text: string, unread = 0) => ({
+    id,
+    name,
+    unread,
+    blocked: false,
+    connected: false,
+    last: { id: `${id}-last`, outgoing: false, text, sentAt: Date.now(), state: "delivered" },
+  });
+
+  const state = {
+    autoDownload: 10 * 1024 * 1024,
+    conversations: [conversation("ft_bob123456789", "Bob", "see you at six")],
+    requests: [conversation("ft_stranger12345", "Mamá", "hey, it's me, new number", 1)],
+    sessions: {} as Record<string, { id: string; pin: string }>,
+    open: [] as string[],
+    sessionChats: {} as Record<string, ReturnType<typeof conversation>[]>,
+    seededHidden: false,
+    pluginData: {} as Record<string, string>,
+    messages: {
+      ft_bob123456789: [
+        { id: "m1", outgoing: false, text: "see you at six", sentAt: Date.now() - 60_000, state: "delivered" },
+        {
+          id: "big",
+          outgoing: false,
+          text: "holiday-photos.zip",
+          sentAt: Date.now() - 30_000,
+          state: "delivered",
+          file: { name: "holiday-photos.zip", size: 48_000_000, mime: "application/zip", progress: 0, state: "waiting", path: "/x/big" },
+        },
+      ],
+    } as Record<string, unknown[]>,
+    plugins: [
+      {
+        id: "com.flickertalk.markdown",
+        icon: "logo-markdown",
+        image: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a74f0"/><circle cx="32" cy="32" r="14" fill="#fff"/></svg>',
+        name: "Markdown",
+        version: "1.0.0",
+        asks: { network: [], messages: false, send: "propose" },
+        granted: { network: [], messages: false, send: "propose" },
+        installedAt: Date.now(),
+      },
+      {
+        id: "com.flickertalk.sketch",
+        icon: "brush-outline",
+        name: "Sketch",
+        version: "1.0.0",
+        asks: { network: [], messages: false, send: "propose" },
+        granted: { network: [], messages: false, send: "nothing" },
+        installedAt: Date.now(),
+      },
+      {
+        id: "com.flickertalk.game.tictactoe",
+        icon: "grid-outline",
+        image: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a74f0"/><circle cx="32" cy="32" r="14" fill="#fff"/></svg>',
+        name: "Tic-tac-toe",
+        version: "1.0.0",
+        kind: "game",
+        asks: { network: [], messages: false, send: "propose", live: true },
+        granted: { network: [], messages: false, send: "nothing", live: false },
+        installedAt: Date.now(),
+      },
+    ] as Array<Record<string, unknown> & { id: string; name: string; granted: Record<string, unknown> }>,
+    catalogue: [
+      {
+        id: "com.flickertalk.game.chess",
+        icon: "shield-outline",
+        name: "Chess",
+        version: "1.0.0",
+        summary: "Chess for two, move by move.",
+        size: 412_000,
+        carried: false,
+        kind: "game",
+        locales: { es: { name: "Ajedrez", summary: "Ajedrez para dos, jugada a jugada." } },
+      },
+    ] as Array<Record<string, unknown> & { id: string; name: string; version: string; kind: string }>,
+    nextSession: 1,
+    circles: [
+      {
+        id: "circle1",
+        name: "Friends",
+        members: [
+          { id: "ft_me", name: "Me", admin: true, me: true },
+          { id: "ft_bob123456789", name: "Bob", admin: false, me: false },
+        ],
+        admin: true,
+        adminsOnly: false,
+        left: false,
+        unread: 1,
+        last: { id: "cm1", outgoing: false, sender: "ft_bob123456789", senderName: "Bob", kind: "text", text: "dinner on friday?", sentAt: Date.now(), state: "delivered" },
+      },
+    ] as Array<Record<string, unknown> & { id: string; name: string; members: Array<{ id: string; name: string; admin: boolean; me: boolean }>; left: boolean; adminsOnly: boolean }>,
+    circleMessages: {
+      circle1: [
+        { id: "ce1", outgoing: true, sender: "ft_me", senderName: "Me", kind: "created", text: "Friends", sentAt: Date.now() - 120_000, state: "read" },
+        { id: "cm1", outgoing: false, sender: "ft_bob123456789", senderName: "Bob", kind: "text", text: "dinner on friday?", sentAt: Date.now() - 60_000, state: "delivered" },
+      ],
+    } as Record<string, unknown[]>,
+    nextCircle: 2,
+    nativeContact: "",
+    nativePhase: "",
+    nativeOutgoing: true,
+    connectedAt: 0,
+    video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
+  };
+  const flag = (name: string) => Boolean((window as unknown as Record<string, unknown>)[name]);
+  const catalogue = () => [...state.catalogue, ...(((window as unknown as Record<string, unknown>).__ftFakeCatalogue as typeof state.catalogue) ?? [])];
+  const grantLive = () => {
+    const ids = ((window as unknown as Record<string, unknown>).__ftFakeLivePlugins as string[] | undefined) ?? [];
+    for (const plugin of state.plugins) if (ids.includes(plugin.id)) plugin.granted = { ...plugin.granted, live: true };
+  };
+  const NATIVE_CALL = "call-e2e";
+  const LOCATION_TOOL = {
+    id: "com.flickertalk.location",
+    icon: "location-outline",
+    name: "Location",
+    version: "1.0.1",
+    asks: { network: [], messages: false, send: "propose", live: true, location: true },
+    granted: { network: [], messages: false, send: "nothing", live: false, location: false },
+    installedAt: 3,
+  };
+  const FAKE_FIX = { lat: 40.41678, lon: -3.70379, accuracy: 35, at: 1_790_000_000_000 };
+  const TRANSLATE_TOOL = {
+    id: "com.flickertalk.translate",
+    icon: "language-outline",
+    name: "Translator",
+    version: "1.0.0",
+    opens: ["text/plain"],
+    asks: { network: [], messages: true, send: "propose", translate: true, storage: "small" },
+    granted: { network: [], messages: false, send: "nothing", translate: false, storage: "small" },
+    installedAt: 4,
+    hooks: {
+      message: { label: "Translate", icon: "language-outline" },
+      composer: { label: "Translate", icon: "language-outline" },
+      settings: {
+        label: "Translation",
+        icon: "language-outline",
+        fields: [
+          { key: "lang", type: "select", label: "Language" },
+          { key: "receive", type: "toggle", label: "Translate what I receive" },
+          { key: "send", type: "toggle", label: "Send translated" },
+        ],
+        note: "Language packs are downloaded once; translation happens on the phone.",
+      },
+    },
+    locales: {
+      es: {
+        name: "Traductor",
+        hooks: {
+          message: "Traducir",
+          composer: "Traducir",
+          settings: {
+            label: "Traducción",
+            fields: { lang: "Idioma", receive: "Traducir lo que recibo", send: "Enviar traducido" },
+            note: "Los paquetes de idioma se descargan una vez; la traducción se hace en el teléfono.",
+          },
+        },
+      },
+    },
+  };
+  const REMIND_TOOL = {
+    id: "com.flickertalk.remind",
+    icon: "alarm-outline",
+    name: "Reminders",
+    version: "1.0.0",
+    opens: ["text/plain"],
+    asks: { network: [], messages: true, send: "nothing", remind: true, storage: "small" },
+    granted: { network: [], messages: false, send: "nothing", remind: false, storage: "small" },
+    installedAt: 5,
+  };
+  const notes: Record<string, { plugin: string; text: string }[]> = {};
+  type FakeChatHook = { plugin: string; autoMessage: boolean; autoComposer: boolean; lang?: string };
+  const chatHooks: Record<string, FakeChatHook[]> = {
+    ...((window as unknown as Record<string, unknown>).__ftFakeChatHooks as Record<string, FakeChatHook[]> | undefined),
+  };
+  const sentHere: Record<string, Record<string, unknown>[]> = {};
+  let sentCount = 0;
+  const changedFor = (message: string) => {
+    const circle = Object.entries(state.circleMessages).find(([, list]) => list.some((one) => (one as { id: string }).id === message))?.[0];
+    return circle ? { contact: null, circle } : { contact: Object.entries(sentHere).find(([, list]) => list.some((one) => one.id === message))?.[0] ?? "ft_bob123456789" };
+  };
+  const withNotes = (message: Record<string, unknown>) => (notes[String(message.id)]?.length ? { ...message, notes: notes[String(message.id)] } : message);
+  const callEvent = (payload: Record<string, unknown>) =>
+    emit("ft://call", { contact: String(state.nativeContact), call: NATIVE_CALL, ...payload });
+  let theyAnswer: (() => void) | null = null;
+  const videoReady = (wanted: boolean) => {
+    Object.assign(state.video, { available: true, camera: false });
+    callEvent({ kind: "video", ...state.video });
+    if (!wanted) return;
+    if (flag("__ftFakeCameraFails")) {
+      callEvent({ kind: "camera_failed" });
+      return;
+    }
+    state.video.camera = true;
+    callEvent({ kind: "video", ...state.video });
+  };
+
+  const handlers = new Map<number, Handler>();
+  const listeners = new Map<string, number[]>();
+  let nextCallback = 1;
+  const calls: Array<[string, Args]> = [];
+
+  const scanCamera = () =>
+    ({ before: "granted", answer: "granted", after: "granted", ...((window as unknown as Record<string, unknown>).__ftFakeScanCamera as object) }) as {
+      before: string;
+      answer: string;
+      after: string;
+    };
+  let cameraAsked = false;
+  let scanning: { resolve: (read: unknown) => void; reject: (reason: unknown) => void } | null = null;
+  let back: { channel: number; index: number } | null = null;
+
+  const sessionView = (id: string) => ({ id, conversations: state.sessionChats[id] ?? [], requests: [], circles: [] });
+
+  const place = (a: Record<string, unknown>) => {
+    const session = a.session ? String(a.session) : "";
+    if (session && !state.open.includes(session)) throw new Error("that session is not open");
+    return session;
+  };
+  const dataKey = (kind: string, a: Record<string, unknown>, key: unknown) => `${kind}|${String(a.plugin)}|${place(a)}|${String(key)}`;
+  const dataKeys = (kind: string, a: Record<string, unknown>, prefix = "") => {
+    const start = `${kind}|${String(a.plugin)}|${place(a)}|`;
+    return Object.keys(state.pluginData)
+      .filter((key) => key.startsWith(start + prefix))
+      .map((key) => key.slice(start.length))
+      .sort();
+  };
+  const forgetSession = (id: string) => {
+    delete state.sessions[id];
+    delete state.sessionChats[id];
+    for (const key of Object.keys(state.pluginData)) if (key.split("|")[2] === id) delete state.pluginData[key];
+  };
+
+  const KEPT_SESSIONS = "ft-fake-sessions";
+  const keepSessions = () => {
+    try {
+      localStorage.setItem(
+        KEPT_SESSIONS,
+        JSON.stringify({
+          sessions: state.sessions,
+          open: state.open,
+          next: state.nextSession,
+          chats: state.sessionChats,
+          seeded: state.seededHidden,
+          data: state.pluginData,
+        }),
+      );
+    } catch {
+    }
+  };
+  try {
+    const kept = JSON.parse(localStorage.getItem(KEPT_SESSIONS) ?? "null") as {
+      sessions: typeof state.sessions;
+      open: string[];
+      next: number;
+      chats?: typeof state.sessionChats;
+      seeded?: boolean;
+      data?: typeof state.pluginData;
+    } | null;
+    if (kept) {
+      Object.assign(state, { sessions: kept.sessions, open: kept.open, nextSession: kept.next });
+      Object.assign(state, { sessionChats: kept.chats ?? {}, seededHidden: Boolean(kept.seeded), pluginData: kept.data ?? {} });
+    }
+  } catch {
+  }
+
+  let openedLink: string | null = null;
+  let tappedReminder: { plugin: string; id: string; session: string | null } | null = null;
+  let launchLinkTaken = false;
+  const readLink = (url: string) => {
+    for (const [kind, prefix] of [["add", "https://flickertalk.com/add#"], ["move", "https://flickertalk.com/move#"]] as const) {
+      if (!url.startsWith(prefix)) continue;
+      const fragment = url.slice(prefix.length);
+      return { kind, link: url, valid: /^[A-Za-z0-9_-]{16,}$/.test(fragment) };
+    }
+    return null;
+  };
+
+  const answer = (command: string, args: Args): unknown => {
+    const a = (args ?? {}) as Record<string, string | number | undefined>;
+    switch (command) {
+      case "plugin:event|listen": {
+        const name = String(a.event);
+        listeners.set(name, [...(listeners.get(name) ?? []), Number(a.handler)]);
+        return nextCallback;
+      }
+      case "plugin:event|unlisten":
+        return undefined;
+      case "plugin:barcode-scanner|check_permissions":
+        return { camera: cameraAsked ? scanCamera().after : scanCamera().before };
+      case "plugin:barcode-scanner|request_permissions":
+        cameraAsked = true;
+        return { camera: scanCamera().answer };
+      case "plugin:barcode-scanner|open_app_settings":
+        return undefined;
+      case "plugin:barcode-scanner|scan":
+        return new Promise((resolve, reject) => {
+          scanning = { resolve, reject };
+        });
+      case "plugin:barcode-scanner|cancel":
+        scanning?.reject("cancelled");
+        scanning = null;
+        return undefined;
+      case "plugin:app|register_listener":
+        if (a.event === "back-button") back = { channel: Number((args?.handler as { id: number }).id), index: 0 };
+        return undefined;
+      case "plugin:app|remove_listener":
+        if (a.event === "back-button" && back && Number(a.channelId) === back.channel) back = null;
+        return undefined;
+      case "plugin:app|version":
+        return "1.0.0-e2e";
+      case "core_me":
+        return { id: String((window as unknown as Record<string, unknown>).__ftFakeMeId ?? "ft_me"), name: "Me", mailbox: true, receipts: true, freeUntil: Date.now() + 1e10, autoDownload: state.autoDownload };
+      case "core_conversations": {
+        const name = (window as unknown as Record<string, unknown>).__ftFakeBobName;
+        const lastText = (window as unknown as Record<string, unknown>).__ftFakeBobLast;
+        const all = flag("__ftFakeCarol") ? [...state.conversations, conversation("ft_carol12345678", "Carol", "hi!")] : state.conversations;
+        return all.map((one) =>
+          one.id !== "ft_bob123456789"
+            ? one
+            : {
+                ...one,
+                ...(typeof name === "string" ? { name } : {}),
+                ...(typeof lastText === "string" ? { last: { ...one.last, text: lastText } } : {}),
+              },
+        );
+      }
+      case "core_plugin_open_chat":
+        return flag("__ftFakeCarol") ? { contact: "ft_carol12345678", message: "" } : null;
+      case "core_requests":
+        return state.requests;
+      case "core_sessions":
+        return state.open.map(sessionView);
+      case "core_messages": {
+        const older = Number((window as unknown as Record<string, unknown>).__ftFakeLongChat ?? 0);
+        const filler = Array.from({ length: String(a.contact) === "ft_bob123456789" ? older : 0 }, (_, at) => ({
+          id: `old${at}`,
+          outgoing: at % 2 === 0,
+          text: `older message ${at}`,
+          sentAt: Date.now() - 3_600_000 + at * 1000,
+          state: "read",
+        }));
+        const said = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeBobSays as string[]) ?? []) : [];
+        const extra = said.map((text, at) => ({ id: `said${at}`, outgoing: false, text, sentAt: Date.now() - 1000 + at, state: "delivered" }));
+        const mine = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeISaid as string[]) ?? []) : [];
+        const sent = mine.map((text, at) => ({ id: `mine${at}`, outgoing: true, text, sentAt: Date.now() - 500 + at, state: "read" }));
+        type FakeFile = { outgoing: boolean; name: string; mime: string; state: string };
+        const files = String(a.contact) === "ft_bob123456789" ? (((window as unknown as Record<string, unknown>).__ftFakeFiles as FakeFile[]) ?? []) : [];
+        const shared = files.map((one, at) => ({
+          id: `file${at}`,
+          outgoing: one.outgoing,
+          text: one.name,
+          sentAt: Date.now() - 100 + at,
+          state: "delivered",
+          file: { name: one.name, size: 3_000, mime: one.mime, progress: 1, state: one.state, path: `/x/${one.name}` },
+        }));
+        const here = sentHere[String(a.contact)] ?? [];
+        return [...filler, ...(state.messages[String(a.contact)] ?? []), ...extra, ...sent, ...shared, ...here].map((one) => withNotes(one as Record<string, unknown>));
+      }
+      case "core_plugins": {
+        grantLive();
+        if (flag("__ftFakeLocationTool") && !state.plugins.some((p) => p.id === LOCATION_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(LOCATION_TOOL)));
+        if (flag("__ftFakeTranslateTool") && !state.plugins.some((p) => p.id === TRANSLATE_TOOL.id)) {
+          const tool = JSON.parse(JSON.stringify(TRANSLATE_TOOL));
+          if (flag("__ftFakeTranslateReads")) tool.granted.messages = true;
+          state.plugins.push(tool);
+        }
+        if (flag("__ftFakeRemindTool") && !state.plugins.some((p) => p.id === REMIND_TOOL.id)) state.plugins.push(JSON.parse(JSON.stringify(REMIND_TOOL)));
+        const many = Number((window as unknown as Record<string, unknown>).__ftFakeManyPlugins ?? 0);
+        const extra = Array.from({ length: many }, (_, at) => String(at).padStart(2, "0")).flatMap((n) => [
+          { id: `com.example.tool${n}`, name: `Tool ${n} with a rather long name to see it cut`, version: "1.0.0", asks: { network: [], messages: false, send: "nothing" }, granted: { network: [], messages: false, send: "nothing" }, installedAt: 1 },
+          { id: `com.flickertalk.game.many${n}`, name: `Game ${n}`, version: "1.0.0", kind: "game", asks: { network: [], messages: false, send: "propose", live: true }, granted: { network: [], messages: false, send: "nothing", live: false }, installedAt: 1 },
+        ]);
+        if (extra.length) return JSON.parse(JSON.stringify([...state.plugins, ...extra]));
+        return JSON.parse(JSON.stringify(state.plugins));
+      }
+      case "core_catalogue":
+        return catalogue().map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
+      case "core_plugin_add": {
+        if (flag("__ftFakeInstallFails")) throw new Error("the catalogue could not be reached");
+        const entry = catalogue().find((one) => one.id === a.plugin);
+        if (!entry) throw new Error("that tool is not offered here");
+        if (!state.plugins.some((p) => p.id === entry.id)) {
+          state.plugins.push({
+            id: entry.id,
+            name: entry.name,
+            version: entry.version,
+            kind: entry.kind,
+            asks: { network: [], messages: false, send: "propose", live: true },
+            granted: { network: [], messages: false, send: "nothing", live: false },
+            installedAt: Date.now(),
+          });
+        }
+        return undefined;
+      }
+      case "core_plugin_grant": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (plugin) plugin.granted = JSON.parse(JSON.stringify(args?.granted ?? {}));
+        return undefined;
+      }
+      case "core_plugin_remove":
+        state.plugins = state.plugins.filter((p) => p.id !== a.plugin);
+        return undefined;
+      case "core_calls":
+        return [];
+      case "core_card":
+        return "https://flickertalk.com/add#card";
+      case "core_opened_link": {
+        if (!launchLinkTaken) {
+          launchLinkTaken = true;
+          openedLink ??= ((window as unknown as Record<string, unknown>).__ftFakeOpenedLink as string | undefined) ?? null;
+        }
+        const url = openedLink;
+        openedLink = null;
+        return url ? readLink(url) : null;
+      }
+      case "core_read_link":
+        return readLink(String(a.url));
+      case "core_pending_reminder": {
+        const tapped = tappedReminder;
+        tappedReminder = null;
+        return tapped;
+      }
+      case "core_native_calls":
+        return flag("__ftFakeNative");
+      case "core_current_call":
+        return state.nativePhase
+          ? {
+              call: NATIVE_CALL,
+              contact: state.nativeContact,
+              video: { ...state.video },
+              outgoing: state.nativeOutgoing,
+              phase: state.nativePhase,
+              native: true,
+              muted: false,
+              connectedAt: state.connectedAt || undefined,
+            }
+          : null;
+      case "core_call_start_native": {
+        state.nativeContact = String(a.contact);
+        state.nativePhase = "calling";
+        state.nativeOutgoing = true;
+        const wanted = Boolean(args?.video);
+        Object.assign(state.video, { available: false, camera: wanted, paused: false, facing: "front", remote: false, remotePaused: false });
+        theyAnswer = () => {
+          theyAnswer = null;
+          state.nativePhase = "connecting";
+          callEvent({ kind: "answered" });
+          setTimeout(() => {
+            state.nativePhase = "active";
+            state.connectedAt = Date.now();
+            callEvent({ kind: "connected" });
+          }, 10);
+          setTimeout(() => videoReady(wanted), 20);
+        };
+        if (!flag("__ftFakeAnswerLater")) setTimeout(() => theyAnswer?.(), 10);
+        return NATIVE_CALL;
+      }
+      case "core_call_set_video":
+        if (args?.on && flag("__ftFakeCameraDenied")) throw "camera_denied";
+        if (args?.on && flag("__ftFakeCameraFails")) throw "the camera cannot start: configure failed";
+        state.video.camera = Boolean(args?.on);
+        setTimeout(() => callEvent({ kind: "video", ...state.video }), 5);
+        return { ...state.video };
+      case "core_call_switch_camera":
+        state.video.facing = state.video.facing === "front" ? "back" : "front";
+        return { ...state.video };
+      case "core_call_end":
+        if (a.call === NATIVE_CALL) {
+          state.nativePhase = "";
+          setTimeout(() => callEvent({ kind: "ended", outcome: "answered" }), 5);
+        }
+        return undefined;
+      case "core_call_answer_native":
+        if (a.call === NATIVE_CALL) answerIncoming();
+        return undefined;
+      case "core_set_call_routing":
+      case "core_call_video_layout":
+      case "core_call_mute":
+      case "core_call_speaker":
+        return undefined;
+      case "core_quiet_hours":
+        return null;
+      case "core_plan":
+        return (window as unknown as Record<string, unknown>).__ftFakeLimited ? { state: "limited", until: 0 } : { state: "trial", until: Date.now() + 1e10 };
+      case "core_session_open": {
+        const pin = String(a.pin);
+        let found = Object.values(state.sessions).find((s) => s.pin === pin);
+        if (!found) {
+          if (Object.keys(state.sessions).length >= 7) return null;
+          found = { id: `s${state.nextSession++}`, pin };
+          state.sessions[found.id] = found;
+          if (pin === "777777" && !state.seededHidden) {
+            state.seededHidden = true;
+            state.sessionChats[found.id] = [conversation("ft_hidden1234567", "Ana", "the secret plan")];
+          }
+        }
+        if (!state.open.includes(found.id)) state.open.push(found.id);
+        keepSessions();
+        return sessionView(found.id);
+      }
+      case "core_session_close":
+        if (!state.sessionChats[String(a.session)]?.length) forgetSession(String(a.session));
+        state.open = state.open.filter((id) => id !== a.session);
+        keepSessions();
+        return undefined;
+      case "core_session_remove":
+        forgetSession(String(a.session));
+        state.open = state.open.filter((id) => id !== a.session);
+        keepSessions();
+        return undefined;
+      case "core_plugin_chat": {
+        const contact = String(a.contact);
+        const here = [...state.conversations, ...state.open.flatMap((id) => state.sessionChats[id] ?? [])];
+        const aCircle = state.circles.some((one) => one.id === contact);
+        if (!aCircle && !here.some((one) => one.id === contact && !one.blocked)) throw new Error("that is not a contact of yours");
+        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let hash = 2166136261;
+        let chat = "";
+        for (let round = 0; chat.length < 43; round++) {
+          for (const c of `${round}|${String(a.plugin)}|${contact}`) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619) >>> 0;
+          chat += alphabet[hash & 63];
+        }
+        return chat;
+      }
+      case "core_plugin_record_get":
+        return state.pluginData[dataKey("record", a, a.key)] ?? null;
+      case "core_plugin_record_set":
+        state.pluginData[dataKey("record", a, a.key)] = String(a.value);
+        keepSessions();
+        return undefined;
+      case "core_plugin_record_forget":
+        delete state.pluginData[dataKey("record", a, a.key)];
+        keepSessions();
+        return undefined;
+      case "core_plugin_record_keys":
+        return dataKeys("record", a, String(a.prefix ?? ""));
+      case "core_plugin_record_usage": {
+        const used = dataKeys("record", a).reduce((sum, key) => sum + atob(state.pluginData[dataKey("record", a, key)]).length, 0);
+        return [used, 4 * 1024 * 1024];
+      }
+      case "core_plugin_read":
+        return state.pluginData[dataKey("memory", a, a.key)] ?? null;
+      case "core_plugin_write":
+        state.pluginData[dataKey("memory", a, a.key)] = String(a.value);
+        keepSessions();
+        return undefined;
+      case "core_plugin_forget":
+        delete state.pluginData[dataKey("memory", a, a.key)];
+        keepSessions();
+        return undefined;
+      case "core_remind_set":
+        state.pluginData[dataKey("reminder", a, a.id)] = JSON.stringify({ plugin: a.plugin, id: a.id, at: a.at, text: a.text });
+        keepSessions();
+        return undefined;
+      case "core_remind_cancel": {
+        const key = dataKey("reminder", a, a.id);
+        const had = key in state.pluginData;
+        delete state.pluginData[key];
+        keepSessions();
+        return had;
+      }
+      case "core_remind_list":
+        return dataKeys("reminder", a).map((id) => JSON.parse(state.pluginData[dataKey("reminder", a, id)]));
+      case "core_accept_contact": {
+        const index = state.requests.findIndex((r) => r.id === a.contact);
+        if (index >= 0) state.conversations.push(...state.requests.splice(index, 1));
+        return undefined;
+      }
+      case "core_decline_contact":
+        state.requests = state.requests.filter((r) => r.id !== a.contact);
+        return undefined;
+      case "core_accept_file": {
+        for (const list of Object.values(state.messages)) {
+          for (const message of list as Array<{ id: string; file?: { state: string; progress: number } }>) {
+            if (message.id === a.message && message.file) {
+              message.file.state = "transferring";
+              message.file.progress = 0.25;
+            }
+          }
+        }
+        setTimeout(() => emit("ft://changed", { contact: "ft_bob123456789" }), 10);
+        return undefined;
+      }
+      case "core_set_auto_download":
+        state.autoDownload = Number(a.bytes);
+        return undefined;
+      case "core_renew_link":
+        return "https://flickertalk.com/add#renewed";
+      case "core_plugin_location": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.location) throw new Error(`${String(a.plugin)} may not ask where the phone is`);
+        return FAKE_FIX;
+      }
+      case "core_message_note_set": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.messages) throw new Error(`${String(a.plugin)} may not read messages`);
+        const message = String(a.message);
+        notes[message] = [...(notes[message] ?? []).filter((note) => note.plugin !== a.plugin), { plugin: String(a.plugin), text: String(a.text) }];
+        setTimeout(() => emit("ft://changed", changedFor(message)), 10);
+        return undefined;
+      }
+      case "core_message_note_clear":
+        notes[String(a.message)] = (notes[String(a.message)] ?? []).filter((note) => note.plugin !== a.plugin);
+        setTimeout(() => emit("ft://changed", changedFor(String(a.message))), 10);
+        return undefined;
+      case "core_chat_hooks":
+        return chatHooks[String(a.conversation)] ?? [];
+      case "core_chat_hooks_set": {
+        const conversation = String(a.conversation);
+        const others = (chatHooks[conversation] ?? []).filter((one) => one.plugin !== a.plugin);
+        const lang = typeof a.lang === "string" && a.lang ? a.lang : undefined;
+        const kept: FakeChatHook = { plugin: String(a.plugin), autoMessage: Boolean(a.autoMessage), autoComposer: Boolean(a.autoComposer), ...(lang ? { lang } : {}) };
+        chatHooks[conversation] = a.autoMessage || a.autoComposer || lang ? [...others, kept] : others;
+        return undefined;
+      }
+      case "core_hook_sample": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.messages) return "";
+        const conversation = String(a.conversation);
+        type Said = { outgoing: boolean; text: string; kind?: string; file?: unknown };
+        const said = ((state.circleMessages[conversation] ?? state.messages[conversation] ?? []) as Said[]).filter(
+          (one) => !one.outgoing && !one.file && (one.kind === undefined || one.kind === "text"),
+        );
+        return said.slice(-5).map((one) => one.text).join("\n");
+      }
+      case "core_plugin_ref":
+        return `ref_${String(a.message)}`;
+      case "core_translate_languages":
+      case "core_translate_detect":
+      case "core_translate_status":
+      case "core_translate_prepare":
+      case "core_translate_remove":
+      case "core_translate_text": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.translate) throw new Error(`${String(a.plugin)} may not translate`);
+        const answers: Record<string, unknown> = {
+          core_translate_languages: ["en", "es"],
+          core_translate_detect: "es",
+          core_translate_status: "installed",
+          core_translate_prepare: true,
+          core_translate_remove: true,
+          core_translate_text: "hola",
+        };
+        return answers[command];
+      }
+      case "core_plugin_live_send": {
+        grantLive();
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin?.granted.live) throw new Error("that plugin may not go live");
+        return true;
+      }
+      case "core_plugin_made": {
+        const plugin = state.plugins.find((p) => p.id === a.plugin);
+        if (!plugin || plugin.granted.send === "nothing") throw new Error("that plugin may not write in the chat");
+        if (plugin.granted.send === "auto") return { sent: true };
+        return { sent: false, staged: { path: `/data/files/outgoing/1-${a.name}`, name: a.name, mime: a.mime, size: 3 } };
+      }
+      case "core_circles":
+        return state.circles;
+      case "core_circle_messages":
+        return (state.circleMessages[String(a.circle)] ?? []).map((one) => withNotes(one as Record<string, unknown>));
+      case "core_circle_create": {
+        const id = `circle${state.nextCircle++}`;
+        const members = (args?.members as string[]).map((member) => ({
+          id: member,
+          name: state.conversations.find((c) => c.id === member)?.name ?? member,
+          admin: false,
+          me: false,
+        }));
+        state.circles.push({
+          id,
+          name: String(a.name),
+          members: [{ id: "ft_me", name: "Me", admin: true, me: true }, ...members],
+          admin: true,
+          adminsOnly: false,
+          left: false,
+          unread: 0,
+          last: null,
+        });
+        state.circleMessages[id] = [{ id: `${id}-e1`, outgoing: true, sender: "ft_me", senderName: "Me", kind: "created", text: String(a.name), sentAt: Date.now(), state: "read" }];
+        return id;
+      }
+      case "core_circle_send": {
+        const id = String(a.circle);
+        const message = { id: `${id}-${Date.now()}`, outgoing: true, sender: "ft_me", senderName: "Me", kind: "text", text: String(a.text), sentAt: Date.now(), state: "sent" };
+        state.circleMessages[id] = [...(state.circleMessages[id] ?? []), message];
+        const circle = state.circles.find((c) => c.id === id);
+        if (circle) circle.last = message;
+        setTimeout(() => emit("ft://changed", { contact: null, circle: id }), 10);
+        return message.id;
+      }
+      case "core_circle_leave": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.left = true;
+        return undefined;
+      }
+      case "core_circle_forget":
+        state.circles = state.circles.filter((c) => c.id !== a.circle);
+        return undefined;
+      case "core_circle_admins_only": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.adminsOnly = Boolean(a.adminsOnly);
+        return undefined;
+      }
+      case "core_circle_invite": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        const contact = state.conversations.find((c) => c.id === a.contact);
+        if (circle && contact) circle.members.push({ id: contact.id, name: contact.name, admin: false, me: false });
+        return undefined;
+      }
+      case "core_circle_remove": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.members = circle.members.filter((member) => member.id !== a.contact);
+        return undefined;
+      }
+      case "core_circle_mark_read": {
+        const circle = state.circles.find((c) => c.id === a.circle);
+        if (circle) circle.unread = 0;
+        return undefined;
+      }
+      case "core_send":
+      case "core_schedule": {
+        const contact = String(a.contact);
+        const id = `sent${(sentCount += 1)}`;
+        const message = { id, outgoing: true, text: String(a.text), sentAt: Date.now(), state: "sent", ...(command === "core_schedule" ? { scheduledFor: Number(a.sendAt) } : {}) };
+        sentHere[contact] = [...(sentHere[contact] ?? []), message];
+        setTimeout(() => emit("ft://changed", { contact }), 10);
+        return id;
+      }
+      case "core_send_picked":
+      case "core_mark_read":
+      case "core_enable_push":
+      case "core_typing":
+      default:
+        return undefined;
+    }
+  };
+
+  const emit = (event: string, payload: unknown) => {
+    for (const id of listeners.get(event) ?? []) {
+      handlers.get(id)?.({ event, payload, id });
+    }
+  };
+
+  const connectIncoming = () => {
+    setTimeout(() => {
+      state.nativePhase = "active";
+      state.connectedAt = Date.now();
+      callEvent({ kind: "connected" });
+    }, 300);
+    setTimeout(() => {
+      state.video.available = true;
+      callEvent({ kind: "video", ...state.video });
+    }, 310);
+  };
+
+  const answerIncoming = () => {
+    if (state.nativePhase !== "ringing") return;
+    state.nativePhase = "connecting";
+    setTimeout(() => callEvent({ kind: "answering" }), 1);
+    connectIncoming();
+  };
+
+  const ring = ({ video = false, answered = false }: { video?: boolean; answered?: boolean } = {}) => {
+    state.nativeContact = "ft_bob123456789";
+    state.nativeOutgoing = false;
+    state.nativePhase = answered ? "connecting" : "ringing";
+    Object.assign(state.video, { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false });
+    callEvent({ kind: "incoming", video, sdp: "their-offer", ...(answered ? { answered: true } : {}) });
+    if (answered) connectIncoming();
+  };
+
+  const fake = {
+    calls,
+    state,
+    emit,
+    ring,
+    phoneAnswers: answerIncoming,
+    scanned: (content: string) => {
+      scanning?.resolve({ content, format: "QR_CODE", bounds: null });
+      scanning = null;
+    },
+    openLink: (url: string) => {
+      openedLink = url;
+      emit("ft://opened-link", null);
+    },
+    tapReminder: (plugin: string, id: string) => {
+      tappedReminder = { plugin, id, session: null };
+      document.dispatchEvent(new Event("visibilitychange"));
+    },
+    theyAnswer: () => theyAnswer?.(),
+    listening: () => back !== null,
+    back: () => {
+      if (!back) return false;
+      const channel = handlers.get(back.channel) as unknown as ((raw: { message: unknown; index: number }) => void) | undefined;
+      channel?.({ message: { canGoBack: true }, index: back.index++ });
+      return true;
+    },
+    invoke: (command: string, args?: Args) => {
+      calls.push([command, args]);
+      try {
+        return Promise.resolve(answer(command, args));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    },
+    convertFileSrc: (path: string, protocol = "asset") => `http://${protocol}.localhost/${path}`,
+    transformCallback: (callback: Handler) => {
+      const id = nextCallback++;
+      handlers.set(id, callback);
+      return id;
+    },
+    unregisterCallback: (id: number) => {
+      handlers.delete(id);
+    },
+  };
+
+  (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = fake;
+  (window as unknown as { __ftFake: unknown }).__ftFake = fake;
+  try {
+    localStorage.setItem("ft-onboarded", "1");
+  } catch {
+  }
+}
