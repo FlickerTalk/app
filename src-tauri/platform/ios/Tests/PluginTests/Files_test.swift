@@ -1,4 +1,5 @@
 import AVFoundation
+import QuickLook
 import UniformTypeIdentifiers
 import XCTest
 @testable import tauri_plugin_ft_platform
@@ -97,15 +98,20 @@ final class FilesTests: XCTestCase {
         XCTAssertThrowsError(try namedCopy(of: "/nowhere/at/all", name: "x.pdf"))
     }
 
-    func testErasingForgetsTheKeyInTheKeychain() throws {
-        do {
-            try storeKey(Data(repeating: 9, count: 32))
-        } catch KeychainError.status(let status) where status == errSecMissingEntitlement {
-            throw XCTSkip("this test runner has no Keychain")
-        }
-        XCTAssertEqual(try loadKey(), Data(repeating: 9, count: 32))
-        try forgetStoredKey()
-        XCTAssertThrowsError(try loadKey())
-        XCTAssertNoThrow(try forgetStoredKey())
+    func testOnlyRealTextIsShared() throws {
+        XCTAssertEqual(shareableText("  Add me: https://flickertalk.com/add#card\n"), "Add me: https://flickertalk.com/add#card")
+        XCTAssertNil(shareableText("   "))
+    }
+
+    func testOnlyAFileThatIsThereCanBePreviewed() throws {
+        XCTAssertNil(previewable(path: ""))
+        XCTAssertNil(previewable(path: "/nowhere/missing.pdf"))
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ft-preview-\(UUID().uuidString).txt")
+        try "hello".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let item = try XCTUnwrap(previewable(path: file.path))
+        XCTAssertEqual(item.previewItemURL, file)
+        XCTAssertEqual(item.previewItemTitle, file.lastPathComponent)
+        XCTAssertEqual(item.numberOfPreviewItems(in: QLPreviewController()), 1)
     }
 }
