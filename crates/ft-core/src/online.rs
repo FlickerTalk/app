@@ -30,6 +30,24 @@ impl Registrar for RouterClient {
     }
 }
 
+impl Core {
+    pub fn registration_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.registration.subscribe()
+    }
+
+    pub(crate) fn registration_changed(&self) {
+        self.registration.send_modify(|generation| *generation += 1);
+    }
+
+    pub fn registration_retry(&self) -> Arc<tokio::sync::Notify> {
+        self.registration_retry.clone()
+    }
+
+    pub fn router_reachable(&self) {
+        self.registration_retry.notify_one();
+    }
+}
+
 const REGISTER_RETRY: Duration = Duration::from_secs(2);
 const REGISTER_RETRY_MAX: Duration = Duration::from_secs(60);
 
