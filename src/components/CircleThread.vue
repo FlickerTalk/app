@@ -58,10 +58,11 @@ function onVisible() {
 async function send() {
   const text = draft.value.trim();
   if (!text) return;
+  const to = props.circleId;
   draft.value = "";
   emoji.value = false;
   const out = await hooks.outgoing(text);
-  const sent: unknown = await sendCircleText(props.circleId, out.text);
+  const sent: unknown = await sendCircleText(to, out.text);
   if (out.original) await hooks.keepOriginal(typeof sent === "string" ? sent : undefined, out.original);
 }
 

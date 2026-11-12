@@ -474,6 +474,24 @@ describe("CircleThread", () => {
       expect(kept("core_message_note_set")).toEqual([{ message: "m9", plugin: ID, text: "hello" }]);
     });
 
+    it("sends to the circle it was written in when another circle opens while the tool translates", async () => {
+      store.circles = [friends(), friends({ id: "circle2", name: "Family" })];
+      flags = [{ plugin: ID, autoMessage: false, autoComposer: true, lang: "fr" }];
+      let translated: (value: unknown) => void = () => {};
+      answer = (hook) => (hook.name === "composer" ? new Promise((resolve) => (translated = resolve)) : null);
+      const wrapper = await thread();
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
+      await flushPromises();
+      await wrapper.find("[data-test='circle-send']").trigger("click");
+      await flushPromises();
+      expect(frames()[0].runHook).toHaveBeenCalledWith(expect.objectContaining({ name: "composer", text: "hello" }));
+      await wrapper.setProps({ circleId: "circle2" });
+      await flushPromises();
+      translated({ text: "bonjour" });
+      await flushPromises();
+      expect(kept("core_circle_send")).toEqual([{ circle: "circle1", text: "hello" }]);
+    });
+
     it("sends my words as written without the switch", async () => {
       const wrapper = await thread();
       wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "hello");
