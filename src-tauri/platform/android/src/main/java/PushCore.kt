@@ -10,6 +10,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -23,13 +25,12 @@ fun pushCoreTakes(event: CallEvent): Boolean =
 
 fun callEventJson(event: CallEvent): String = JSONObject(callEventPayload(event)).toString()
 
-enum class PushRing { NONE, QUIET }
+enum class PushRing { NONE, QUIET, RING }
 
-// Don't post the caller's name over a ringing notification, it stopped the ringtone on a Samsung (Android 13).
 fun pushRing(muted: Boolean, mayDisturb: Boolean, answered: Boolean, leftMs: Long): PushRing = when {
     answered || leftMs <= 0 -> PushRing.NONE
     muted || !mayDisturb -> PushRing.QUIET
-    else -> PushRing.NONE
+    else -> PushRing.RING
 }
 
 fun ringLeft(deadline: Long, now: Long): Long = (deadline - now).coerceAtLeast(0)
@@ -56,19 +57,109 @@ object IncomingCall {
     private var generation = 0
     private var service: FtIncomingCallService? = null
     private val main by lazy { Handler(Looper.getMainLooper()) }
+    private val hold = RingHold()
+    private var awake: PowerManager.WakeLock? = null
+    private var holding: Context? = null
+    private val holdEnds = Runnable { holding?.let { holdEnded(it) } }
 
-    fun ring(context: Context, notification: Notification, timeoutMs: Long) {
-        this.notification = notification
-        deadline = System.currentTimeMillis() + timeoutMs
-        showing = true
-        answered = false
-        generation += 1
-        try {
-            ContextCompat.startForegroundService(context, Intent(context, FtIncomingCallService::class.java))
-        } catch (_: Exception) {
-            // Android 12+ can refuse it once FCM's allowance is used up. It still rings.
-            post(context, notification)
+    fun pushed(context: Context, push: CallPush, timeoutMs: Long) {
+        val app = context.applicationContext
+        synchronized(this) {
+            val held = hold.pushed(push, SystemClock.elapsedRealtime(), timeoutMs)
+            if (held == HeldPush.SAME) {
+                pushLog(app, "call push: same call")
+                return
+            }
+            val notification = callNotification(app, app.getString(R.string.ft_someone), app.getString(R.string.ft_incoming_call), timeoutMs = timeoutMs)
+            if (notification == null) {
+                hold.over()
+                return
+            }
+            this.notification = notification
+            deadline = System.currentTimeMillis() + timeoutMs
+            showing = true
+            answered = false
+            generation += 1
+            if (held == HeldPush.HOLD) wait(app, RING_HOLD_MS)
+            pushLog(app, if (held == HeldPush.HOLD) "call push: holding the ring" else "call push: quiet")
+            try {
+                ContextCompat.startForegroundService(app, Intent(app, FtIncomingCallService::class.java))
+            } catch (_: Exception) {
+                // Android 12+ can refuse it once FCM's allowance is used up.
+                unheld(app, notification)
+            }
         }
+    }
+
+    // a process nothing holds can be frozen before the hold ends, so it rings now
+    fun unheld(context: Context, shown: Notification) {
+        synchronized(this) {
+            if (hold.unheld() == RingOrder.RING) {
+                pushLog(context, "call push: ringing, nothing holds the process")
+                ringNow(context)
+            } else if (showing) {
+                post(context, shown)
+            }
+            settle()
+        }
+    }
+
+    fun known(context: Context, shown: PushRing, caller: String, video: Boolean) {
+        synchronized(this) {
+            val order = if (shown == PushRing.NONE) RingOrder.NOTHING else hold.verdict(audible = shown == PushRing.RING)
+            when (order) {
+                RingOrder.RING -> ringNow(context)
+                RingOrder.QUIET -> {
+                    val title = callTitle(caller) ?: context.getString(R.string.ft_someone)
+                    callNotification(context, title, context.getString(callText(video)), timeoutMs = left(System.currentTimeMillis()), video = video, alertOnce = true)
+                        ?.let { update(context, it) }
+                }
+                RingOrder.NOTHING -> {}
+            }
+            settle()
+        }
+    }
+
+    fun appRings(context: Context) {
+        synchronized(this) {
+            hold.appRings(SystemClock.elapsedRealtime())
+            pushLog(context, "hold: the app rings the call")
+            settle()
+        }
+    }
+
+    private fun holdEnded(context: Context) {
+        synchronized(this) {
+            if (hold.due(SystemClock.elapsedRealtime()) == RingOrder.RING) {
+                pushLog(context, "hold: no caller yet, ringing")
+                ringNow(context)
+            }
+            hold.ringAt?.let { wait(context, it - SystemClock.elapsedRealtime()) } ?: settle()
+        }
+    }
+
+    private fun ringNow(context: Context) {
+        callNotification(context, context.getString(R.string.ft_someone), context.getString(R.string.ft_incoming_call), ringing = true, timeoutMs = left(System.currentTimeMillis()))
+            ?.let { update(context, it) }
+    }
+
+    private fun wait(context: Context, delayMs: Long) {
+        holding = context
+        main.removeCallbacks(holdEnds)
+        main.postDelayed(holdEnds, delayMs.coerceAtLeast(0))
+        if (awake?.isHeld != true) {
+            awake = context.getSystemService(PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FlickerTalk:ringHold")?.apply {
+                setReferenceCounted(false)
+                acquire(RING_HOLD_MS + 2_000)
+            }
+        }
+    }
+
+    private fun settle() {
+        if (hold.ringAt != null) return
+        main.removeCallbacks(holdEnds)
+        awake?.let { if (it.isHeld) it.release() }
+        awake = null
     }
 
     fun update(context: Context, notification: Notification) {
@@ -86,6 +177,10 @@ object IncomingCall {
     }
 
     fun dismiss(context: Context) {
+        synchronized(this) {
+            hold.over()
+            settle()
+        }
         showing = false
         notification = null
         val ending = generation
@@ -116,16 +211,19 @@ class FtIncomingCallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // started as a foreground service, so it has to get there even if the call is already gone
-        val notification = IncomingCall.notification
-            ?: callNotification(this, getString(R.string.ft_someone), getString(R.string.ft_incoming_call))
-        if (notification == null) {
-            stopSelf()
-            return START_NOT_STICKY
+        val started = synchronized(IncomingCall) {
+            val notification = IncomingCall.notification
+                ?: callNotification(this, getString(R.string.ft_someone), getString(R.string.ft_incoming_call))
+                ?: return@synchronized false
+            try {
+                ServiceCompat.startForeground(this, CALL_NOTIFICATION, notification, callServiceTypes(Build.VERSION.SDK_INT, microphone = false))
+                true
+            } catch (_: Exception) {
+                IncomingCall.unheld(this, notification)
+                false
+            }
         }
-        try {
-            ServiceCompat.startForeground(this, CALL_NOTIFICATION, notification, callServiceTypes(Build.VERSION.SDK_INT, microphone = false))
-        } catch (_: Exception) {
-            IncomingCall.post(this, notification)
+        if (!started) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -202,13 +300,9 @@ object PushCore {
         val context = context ?: return
         InCall.ringingName = caller
         CallRinger.coreRinging = true
-        val left = IncomingCall.left(System.currentTimeMillis())
-        val shown = pushRing(muted, mayDisturbNow(context), IncomingCall.answered, left)
+        val shown = pushRing(muted, mayDisturbNow(context), IncomingCall.answered, IncomingCall.left(System.currentTimeMillis()))
         pushLog(context, "caller known: " + shown.name.lowercase())
-        if (shown == PushRing.NONE) return
-        val title = callTitle(caller) ?: context.getString(R.string.ft_someone)
-        callNotification(context, title, context.getString(callText(video)), timeoutMs = left, video = video, alertOnce = true)
-            ?.let { IncomingCall.update(context, it) }
+        IncomingCall.known(context, shown, caller, video)
     }
 
     @JvmStatic

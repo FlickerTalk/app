@@ -98,8 +98,14 @@ class PushCoreTest {
     }
 
     @Test
-    fun aNormalCallersRingingNotificationIsLeftAlone() {
-        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 30_000))
+    fun aNormalCallersVerdictLetsTheHeldCallRing() {
+        assertEquals(PushRing.RING, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 30_000))
+    }
+
+    @Test
+    fun theHoldKeepsTheProcessAwakeUntilItsTimerFires() {
+        val permissions = elements("uses-permission").map { it.getAttribute("android:name") }
+        assertTrue(permissions.contains("android.permission.WAKE_LOCK"))
     }
 
     @Test

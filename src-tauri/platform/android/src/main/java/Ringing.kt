@@ -101,6 +101,7 @@ class CoreRinging(private val activity: Activity) {
     )
 
     fun start(args: RingingArgs) {
+        IncomingCall.appRings(activity)
         InCall.ringingName = args.caller
         CallRinger.coreRinging = true
         showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))

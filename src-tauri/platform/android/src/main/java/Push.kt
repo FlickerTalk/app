@@ -82,16 +82,7 @@ class FtMessagingService : FirebaseMessagingService() {
         ActivityManager.getMyMemoryState(state)
         val push = callPush(message.data, openSlots, !shouldNotify(state.importance), mayDisturbNow(this))
         if (push == CallPush.IGNORE) return
-        val left = callRingMillis(message.sentTime, System.currentTimeMillis())
-        val notification = callNotification(
-            this,
-            getString(R.string.ft_someone),
-            getString(R.string.ft_incoming_call),
-            ringing = push == CallPush.RING,
-            timeoutMs = left,
-        ) ?: return
-        IncomingCall.ring(this, notification, left)
-        pushLog(this, if (push == CallPush.RING) "call push: ringing" else "call push: quiet")
+        IncomingCall.pushed(this, push, callRingMillis(message.sentTime, System.currentTimeMillis()))
         PushCore.start(this)
     }
 
