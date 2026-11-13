@@ -396,7 +396,7 @@
     "paidUntil": "Payé jusqu’au {until} · à gérer dans la boutique",
     "tools": "Outils",
     "sessions": "Sessions avec PIN",
-    "daysLeft": "{days} jours restants",
+    "daysLeft": "jours restants : {days}",
     "active": "actif"
   },
   "requests": {

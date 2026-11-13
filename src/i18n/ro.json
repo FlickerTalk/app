@@ -396,7 +396,7 @@
     "paidUntil": "Plătit până la {until} · gestionează în magazin",
     "tools": "Instrumente",
     "sessions": "Sesiuni cu PIN",
-    "daysLeft": "mai sunt {days} zile",
+    "daysLeft": "zile rămase: {days}",
     "active": "activ"
   },
   "requests": {
@@ -460,7 +460,7 @@
     "phraseHint": "Ea deschide copia de siguranță pe un telefon nou. Fără ea, nimeni nu îți poate recupera contul: noi nu o vedem niciodată și nu ți-o putem da înapoi.",
     "phrasePlaceholder": "Frază de recuperare",
     "phraseAgain": "Aceeași frază încă o dată",
-    "phraseRule": "Între {min} și {max} caractere",
+    "phraseRule": "Între {min} și {max} de caractere",
     "phraseMismatch": "Cele două fraze nu sunt la fel",
     "suggest": "Sugerează una",
     "copy": "Copiază",

@@ -232,6 +232,52 @@ describe("i18n", () => {
   });
 });
 
+describe("counts", () => {
+  const entry = (locale: Locale, key: string) => String(new Map(leaves(catalogues[`./i18n/${locale}.json`])).get(key));
+  const filled = (text: string, values: Record<string, number>) => text.replace(/\{(\w+)\}/g, (_, name: string) => String(values[name]));
+
+  const NEVER_ONE: Record<string, string> = { "backup.phraseRule": "always 12 to 100 characters" };
+
+  it("never put an English number straight before a plural noun, which reads wrong for one", () => {
+    const wrong = leaves(en)
+      .filter(([key]) => !(key in NEVER_ONE))
+      .filter(([, text]) => /\{\w+\} (days|hours|minutes|seconds|weeks|months|years|messages|files|members|people|contacts|tries|times|characters)\b/.test(String(text)))
+      .map(([key, text]) => `${key}: ${String(text)}`);
+    expect(wrong).toEqual([]);
+  });
+
+  it("tell the last day of the free trial in correct words in every language", () => {
+    const lastDay = Object.fromEntries(LOCALES.map((locale) => [locale, filled(entry(locale, "premium.daysLeft"), { days: 1 })]));
+    expect(lastDay).toEqual({
+      ar: "الأيام المتبقية: 1",
+      bn: "1 দিন বাকি",
+      de: "verbleibende Tage: 1",
+      en: "days left: 1",
+      es: "días restantes: 1",
+      fr: "jours restants : 1",
+      hi: "1 दिन बाकी",
+      id: "sisa 1 hari",
+      it: "giorni rimasti: 1",
+      ja: "残り1日",
+      ko: "1일 남음",
+      pl: "pozostałe dni: 1",
+      pt: "dias restantes: 1",
+      ro: "zile rămase: 1",
+      ru: "осталось дней: 1",
+      th: "เหลือ 1 วัน",
+      tr: "1 gün kaldı",
+      uk: "залишилося днів: 1",
+      vi: "còn 1 ngày",
+      "zh-CN": "还剩 1 天",
+      "zh-TW": "還剩 1 天",
+    });
+  });
+
+  it("say the passphrase length in Romanian with the \"de\" that 100 needs", () => {
+    expect(filled(entry("ro", "backup.phraseRule"), { min: 12, max: 100 })).toBe("Între 12 și 100 de caractere");
+  });
+});
+
 describe("the Spanish catalogue", () => {
   it("writes \"vídeo\" with its accent", () => {
     const unaccented = leaves(catalogues["./i18n/es.json"])

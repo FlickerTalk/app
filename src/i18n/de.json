@@ -396,7 +396,7 @@
     "paidUntil": "Bezahlt bis {until} · im Store verwalten",
     "tools": "Werkzeuge",
     "sessions": "Sitzungen mit PIN",
-    "daysLeft": "noch {days} Tage",
+    "daysLeft": "verbleibende Tage: {days}",
     "active": "aktiv"
   },
   "requests": {
