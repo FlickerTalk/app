@@ -7,17 +7,22 @@ import app.tauri.annotation.InvokeArg
 
 private const val APPEARANCE = "appearance"
 
-fun launchBackground(appearance: String?, systemDark: Boolean): Int = when (appearance) {
-    "light" -> Color.WHITE
-    "system" -> if (systemDark) Color.BLACK else Color.WHITE
-    else -> Color.BLACK
+fun launchDark(appearance: String?, systemDark: Boolean): Boolean = when (appearance) {
+    "light" -> false
+    "system" -> systemDark
+    else -> true
 }
 
-fun launchBackground(context: Context): Int {
+fun launchBackground(appearance: String?, systemDark: Boolean): Int =
+    if (launchDark(appearance, systemDark)) Color.BLACK else Color.WHITE
+
+fun launchDark(context: Context): Boolean {
     val kept = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(APPEARANCE, null)
     val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-    return launchBackground(kept, systemDark = night == Configuration.UI_MODE_NIGHT_YES)
+    return launchDark(kept, systemDark = night == Configuration.UI_MODE_NIGHT_YES)
 }
+
+fun launchBackground(context: Context): Int = if (launchDark(context)) Color.BLACK else Color.WHITE
 
 fun keepAppearance(context: Context, appearance: String) {
     context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(APPEARANCE, appearance).apply()

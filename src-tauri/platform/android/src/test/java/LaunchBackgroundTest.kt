@@ -38,4 +38,11 @@ class LaunchBackgroundTest {
         assertTrue(activity.contains("override fun onWebViewCreate(webView: WebView)"))
         assertTrue(activity.contains("webView.setBackgroundColor(launchBackground(this))"))
     }
+
+    @Test
+    fun theMainActivityStartsTheBarsWithIconsThatShowOnTheLaunchBackground() {
+        val activity = File("../../gen/android/app/src/main/java/com/flickertalk/app/MainActivity.kt").readText()
+        assertTrue(activity.contains("if (launchDark(this)) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, NAVIGATION_SCRIM)"))
+        assertTrue(activity.contains("enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)"))
+    }
 }
