@@ -9,8 +9,8 @@ class RingHoldTest {
     private val left = 45_000L
 
     @Test
-    fun theWindowIsThreeSeconds() {
-        assertEquals(3_000L, RING_HOLD_MS)
+    fun theWindowIsFiveSeconds() {
+        assertEquals(5_000L, RING_HOLD_MS)
     }
 
     @Test

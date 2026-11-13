@@ -1,6 +1,6 @@
 package com.flickertalk.platform
 
-const val RING_HOLD_MS = 3_000L
+const val RING_HOLD_MS = 5_000L
 
 enum class HeldPush { HOLD, QUIET, SAME }
 
