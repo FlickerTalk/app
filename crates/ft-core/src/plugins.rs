@@ -32,7 +32,7 @@ const MEMORY_KEYS: usize = 64;
 const RECORD_KEY: usize = 128;
 pub const RECORD_VALUE: usize = 16 * 1024 * 1024;
 pub const LIVE_LIMIT: usize = 48 * 1024;
-pub const CORE_VERSION: &str = "1.7.2";
+pub const CORE_VERSION: &str = "1.7.3";
 const REMINDER_TEXT: usize = 200;
 // Changing this changes every chat id plugins have stored
 const PLUGIN_CHAT_CONTEXT: &str = "flickertalk 2026-10-02 plugin chat id";
