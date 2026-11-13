@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use ft_push::{Feedback, RouterClient, Signer};
+use ft_push::{CallerRule, Feedback, RouterClient, Signer};
 use ft_storage::Store;
 use ft_webrtc::SessionConfig;
 
@@ -15,14 +15,14 @@ pub const RETRY_EVERY: Duration = Duration::from_secs(5);
 
 #[async_trait]
 pub trait Registrar: Send + Sync {
-    async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()>;
+    async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8, call_rules: &[CallerRule]) -> Result<()>;
     fn is_closed(&self) -> bool;
 }
 
 #[async_trait]
 impl Registrar for RouterClient {
-    async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()> {
-        RouterClient::register(self, capability_hashes, silent_slots).await
+    async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8, call_rules: &[CallerRule]) -> Result<()> {
+        RouterClient::register(self, capability_hashes, silent_slots, call_rules).await
     }
 
     fn is_closed(&self) -> bool {
@@ -61,10 +61,10 @@ pub async fn keep_registered(core: std::sync::Weak<Core>, router: Arc<dyn Regist
                 return;
             }
             let Some(now) = core.upgrade() else { return };
-            let state = async { anyhow::Ok((now.route_capability_hashes().await?, now.silent_slots().await?)) }.await;
+            let state = async { anyhow::Ok((now.route_capability_hashes().await?, now.silent_slots().await?, now.call_rules().await?)) }.await;
             drop(now);
-            if let Ok((hashes, silent)) = state {
-                if router.register(&hashes, silent).await.is_ok() {
+            if let Ok((hashes, silent, rules)) = state {
+                if router.register(&hashes, silent, &rules).await.is_ok() {
                     break;
                 }
             }
@@ -513,6 +513,8 @@ impl Online {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ft_push::CallRule;
+    use ft_storage::ContactRules;
 
     fn ended() -> Event {
         Event::Call { contact: "ft_a".to_owned(), call: "c".to_owned(), update: CallUpdate::Ended { outcome: ft_storage::CallOutcome::Missed } }
@@ -768,12 +770,13 @@ mod tests {
         failing: std::sync::atomic::AtomicUsize,
         tries: std::sync::atomic::AtomicUsize,
         registered: std::sync::Mutex<Vec<([[u8; 32]; 8], u8)>>,
+        rules: std::sync::Mutex<Vec<Vec<CallerRule>>>,
         closed: std::sync::atomic::AtomicBool,
     }
 
     #[async_trait]
     impl Registrar for Router {
-        async fn register(&self, hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()> {
+        async fn register(&self, hashes: &[[u8; 32]; 8], silent_slots: u8, call_rules: &[CallerRule]) -> Result<()> {
             use std::sync::atomic::Ordering::SeqCst;
             self.tries.fetch_add(1, SeqCst);
             if self.failing.load(SeqCst) > 0 {
@@ -781,6 +784,7 @@ mod tests {
                 anyhow::bail!("no network");
             }
             self.registered.lock().unwrap().push((*hashes, silent_slots));
+            self.rules.lock().unwrap().push(call_rules.to_vec());
             Ok(())
         }
 
@@ -796,6 +800,14 @@ mod tests {
 
         fn count(&self) -> usize {
             self.registered.lock().unwrap().len()
+        }
+
+        fn last_rules(&self) -> Option<Vec<CallerRule>> {
+            self.rules.lock().unwrap().last().cloned()
+        }
+
+        fn rule_for(&self, caller: [u8; 32]) -> Option<CallRule> {
+            self.last_rules()?.iter().find(|rule| rule.caller == caller).map(|rule| rule.rule)
         }
     }
 
@@ -814,6 +826,24 @@ mod tests {
 
     async fn core() -> Arc<Core> {
         Core::open(Store::open_in_memory().await.unwrap(), [7; 32], Arc::new(Nowhere)).await.unwrap()
+    }
+
+    async fn contact_of(core: &Arc<Core>, session: Option<&str>) -> String {
+        let link = self::core().await.my_card().await.unwrap().to_link();
+        core.add_contact_in(&link, None, session).await.unwrap().device_id
+    }
+
+    fn rules(muted: bool, accepts_calls: bool) -> ContactRules {
+        ContactRules { muted, accepts_calls, ..ContactRules::default() }
+    }
+
+    async fn tag_in(core: &Core, session: Option<&str>, contact: &str) -> [u8; 32] {
+        ft_push::caller_tag(core.my_card_in(session).await.unwrap().route_capability().as_bytes(), contact)
+    }
+
+    fn sorted(mut rules: Vec<CallerRule>) -> Vec<CallerRule> {
+        rules.sort_by_key(|rule| rule.caller);
+        rules
     }
 
     async fn until(what: &str, condition: impl Fn() -> bool) {
@@ -904,6 +934,114 @@ mod tests {
         let _stop = registering(&core, &router);
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(router.tries.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn blocked_calls_off_and_muted_contacts_get_call_rules_and_none_wins_over_quiet() {
+        let core = core().await;
+        let plain = contact_of(&core, None).await;
+        let muted = contact_of(&core, None).await;
+        let calls_off = contact_of(&core, None).await;
+        let blocked = contact_of(&core, None).await;
+        let muted_and_blocked = contact_of(&core, None).await;
+        let muted_and_calls_off = contact_of(&core, None).await;
+        core.set_rules(&muted, rules(true, true)).await.unwrap();
+        core.set_rules(&calls_off, rules(false, false)).await.unwrap();
+        core.block(&blocked, true).await.unwrap();
+        core.set_rules(&muted_and_blocked, rules(true, true)).await.unwrap();
+        core.block(&muted_and_blocked, true).await.unwrap();
+        core.set_rules(&muted_and_calls_off, rules(true, false)).await.unwrap();
+
+        let expected = vec![
+            CallerRule { caller: tag_in(&core, None, &muted).await, rule: CallRule::Quiet },
+            CallerRule { caller: tag_in(&core, None, &calls_off).await, rule: CallRule::None },
+            CallerRule { caller: tag_in(&core, None, &blocked).await, rule: CallRule::None },
+            CallerRule { caller: tag_in(&core, None, &muted_and_blocked).await, rule: CallRule::None },
+            CallerRule { caller: tag_in(&core, None, &muted_and_calls_off).await, rule: CallRule::None },
+        ];
+        let listed = core.call_rules().await.unwrap();
+        assert_eq!(sorted(listed.clone()), sorted(expected));
+        let plain = tag_in(&core, None, &plain).await;
+        assert!(listed.iter().all(|rule| rule.caller != plain));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_contact_in_a_hidden_session_is_tagged_with_that_sessions_capability() {
+        let core = core().await;
+        let session = core.open_session("123456").await.unwrap().unwrap();
+        let hidden = contact_of(&core, Some(&session)).await;
+        core.set_rules(&hidden, rules(true, true)).await.unwrap();
+
+        let in_session = tag_in(&core, Some(&session), &hidden).await;
+        assert_ne!(in_session, tag_in(&core, None, &hidden).await);
+        assert_eq!(core.call_rules().await.unwrap(), [CallerRule { caller: in_session, rule: CallRule::Quiet }]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_start_registers_the_call_rules() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let muted = contact_of(&core, None).await;
+        core.set_rules(&muted, rules(true, true)).await.unwrap();
+        let _stop = registering(&core, &router);
+        until("registered", || router.count() == 1).await;
+        assert_eq!(router.last_rules(), Some(core.call_rules().await.unwrap()));
+        assert_eq!(router.rule_for(tag_in(&core, None, &muted).await), Some(CallRule::Quiet));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn muting_blocking_or_turning_calls_off_registers_again() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let contact = contact_of(&core, None).await;
+        let _stop = registering(&core, &router);
+        until("registered", || router.count() == 1).await;
+        let caller = tag_in(&core, None, &contact).await;
+        let registered = |rule: Option<CallRule>| {
+            let router = router.clone();
+            move || router.last_rules().is_some() && router.rule_for(caller) == rule
+        };
+
+        core.set_rules(&contact, rules(true, true)).await.unwrap();
+        until("registered as muted", registered(Some(CallRule::Quiet))).await;
+        core.set_rules(&contact, rules(false, true)).await.unwrap();
+        until("registered as unmuted", registered(None)).await;
+
+        core.block(&contact, true).await.unwrap();
+        until("registered as blocked", registered(Some(CallRule::None))).await;
+        core.block(&contact, false).await.unwrap();
+        until("registered as unblocked", registered(None)).await;
+
+        core.set_rules(&contact, rules(false, false)).await.unwrap();
+        until("registered with calls off", registered(Some(CallRule::None))).await;
+        core.set_rules(&contact, rules(false, true)).await.unwrap();
+        until("registered with calls on", registered(None)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn renewing_the_link_registers_the_rules_under_the_new_capability() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let contact = contact_of(&core, None).await;
+        core.set_rules(&contact, rules(true, true)).await.unwrap();
+        let _stop = registering(&core, &router);
+        let old = tag_in(&core, None, &contact).await;
+        until("registered with the old tag", || router.rule_for(old) == Some(CallRule::Quiet)).await;
+
+        core.renew_link(None).await.unwrap();
+        let new = tag_in(&core, None, &contact).await;
+        assert_ne!(new, old);
+        until("registered with the new tag", || router.last_rules() == Some(vec![CallerRule { caller: new, rule: CallRule::Quiet }])).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn removing_a_contact_registers_again_without_its_rule() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let contact = contact_of(&core, None).await;
+        core.block(&contact, true).await.unwrap();
+        let _stop = registering(&core, &router);
+        let caller = tag_in(&core, None, &contact).await;
+        until("registered as blocked", || router.rule_for(caller) == Some(CallRule::None)).await;
+
+        core.remove_contact(&contact).await.unwrap();
+        until("registered without the rule", || router.last_rules() == Some(Vec::new())).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]

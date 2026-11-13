@@ -5,6 +5,7 @@ use ft_contacts::{ContactCard, RouteCapability};
 use ft_crypto::Channel;
 use ft_identity::DeviceId;
 use ft_protocol::{Body, Packet};
+use ft_push::{caller_tag, CallRule, CallerRule};
 use ft_storage::{Contact, ContactRules, Conversation, NewContact};
 
 use crate::{Core, Event, Peer, BUNDLED_CONTACT, BUNDLED_DUE, CARD_STALE};
@@ -190,7 +191,18 @@ impl Core {
         self.contact(contact).await?;
         self.store.set_rules(contact, &rules).await?;
         let _ = self.events.send(Event::ContactsChanged);
+        self.registration_changed();
         Ok(())
+    }
+
+    pub async fn call_rules(&self) -> Result<Vec<CallerRule>> {
+        let mut listed = Vec::new();
+        for contact in self.store.all_contacts().await? {
+            let Some(rule) = call_rule(&contact) else { continue };
+            let Ok(capability) = self.capability_of(contact.session.as_deref()).await else { continue };
+            listed.push(CallerRule { caller: caller_tag(capability.as_bytes(), &contact.device_id), rule });
+        }
+        Ok(listed)
     }
 
     pub async fn fingerprint(&self, contact: &str) -> Result<String> {
@@ -209,6 +221,7 @@ impl Core {
         self.contact(contact).await?;
         self.store.remove_contact(contact).await?;
         let _ = self.events.send(Event::ContactsChanged);
+        self.registration_changed();
         Ok(())
     }
 
@@ -225,6 +238,7 @@ impl Core {
             self.transport.disconnect(contact).await;
         }
         let _ = self.events.send(Event::ContactsChanged);
+        self.registration_changed();
         Ok(())
     }
 
@@ -247,6 +261,16 @@ impl Core {
 
     pub(crate) async fn contact(&self, device_id: &str) -> Result<Contact> {
         self.store.contact(device_id).await?.ok_or_else(|| anyhow!("unknown contact"))
+    }
+}
+
+fn call_rule(contact: &Contact) -> Option<CallRule> {
+    if contact.blocked || !contact.rules.accepts_calls {
+        Some(CallRule::None)
+    } else if contact.rules.muted {
+        Some(CallRule::Quiet)
+    } else {
+        None
     }
 }
 
