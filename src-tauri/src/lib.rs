@@ -225,6 +225,7 @@ pub fn run() {
             client::call_video::core_call_video_layout,
             client::calls::core_call_speaker,
             client::settings::core_system_bars,
+            client::settings::core_set_appearance,
             client::plugin_api::core_exact_alarms,
             client::plugin_api::core_request_exact_alarms,
             client::calls::core_set_call_routing,

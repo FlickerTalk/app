@@ -468,6 +468,12 @@ struct SystemBars {
     dark: bool,
 }
 
+#[derive(Serialize)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+struct Appearance<'a> {
+    appearance: &'a str,
+}
+
 #[derive(Deserialize)]
 #[cfg_attr(not(mobile), allow(dead_code))]
 struct PushToken {
@@ -565,6 +571,18 @@ impl<R: Runtime> Platform<R> {
         #[cfg(not(target_os = "android"))]
         {
             let _ = dark;
+            Ok(())
+        }
+    }
+
+    pub fn set_appearance(&self, appearance: &str) -> Result<()> {
+        #[cfg(target_os = "android")]
+        {
+            self.run("setAppearance", Appearance { appearance })
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = appearance;
             Ok(())
         }
     }
@@ -1319,6 +1337,20 @@ mod tests {
         let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
         assert!(platform.set_system_bars(true).is_ok());
         assert!(platform.set_system_bars(false).is_ok());
+    }
+
+    #[test]
+    fn the_appearance_travels_as_kotlin_reads_it() {
+        for appearance in ["system", "dark", "light"] {
+            assert_eq!(serde_json::to_value(Appearance { appearance }).unwrap(), serde_json::json!({ "appearance": appearance }));
+        }
+    }
+
+    #[cfg(not(mobile))]
+    #[test]
+    fn a_desktop_keeps_no_appearance() {
+        let platform = Platform::<tauri::Wry> { _runtime: std::marker::PhantomData };
+        assert!(platform.set_appearance("light").is_ok());
     }
 
     #[test]

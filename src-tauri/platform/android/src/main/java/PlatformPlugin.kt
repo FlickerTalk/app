@@ -190,6 +190,13 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun setAppearance(invoke: Invoke) {
+        val args = invoke.parseArgs(AppearanceArgs::class.java)
+        keepAppearance(activity, args.appearance)
+        invoke.resolve()
+    }
+
+    @Command
     fun setSpeaker(invoke: Invoke) {
         val args = invoke.parseArgs(SpeakerArgs::class.java)
         activity.runOnUiThread { InCall.setSpeaker(activity, args.on) }

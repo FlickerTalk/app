@@ -90,6 +90,11 @@ pub async fn core_system_bars(dark: bool, app: AppHandle) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub async fn core_set_appearance(appearance: String, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || app.platform().set_appearance(&appearance)).await.map_err(failed)?.map_err(failed)
+}
+
+#[tauri::command]
 pub async fn core_set_receipts(enabled: bool, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.set_receipts_default(enabled).await.map_err(failed)
 }
