@@ -489,6 +489,7 @@ impl Core {
             })
             .await?;
         self.store.set_via_circle(&member.device_id, true).await?;
+        self.registration_changed();
         let identity = self.identity.lock().await;
         if self.store.channel(&member.device_id).await?.is_none() {
             let channel = Channel::open(&identity, &card.contact_keys())?;

@@ -966,6 +966,44 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn contacts_not_yet_accepted_get_none_even_when_only_muted() {
+        let core = core().await;
+        let request = contact_of(&core, None).await;
+        let muted_request = contact_of(&core, None).await;
+        for contact in [&request, &muted_request] {
+            core.store().set_accepted(contact, false).await.unwrap();
+        }
+        core.set_rules(&muted_request, rules(true, true)).await.unwrap();
+
+        let expected = vec![
+            CallerRule { caller: tag_in(&core, None, &request).await, rule: CallRule::None },
+            CallerRule { caller: tag_in(&core, None, &muted_request).await, rule: CallRule::None },
+        ];
+        assert_eq!(sorted(core.call_rules().await.unwrap()), sorted(expected));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn accepting_or_scanning_a_request_registers_again() {
+        let (core, router) = (core().await, Arc::new(Router::default()));
+        let (first, second) = (self::core().await, self::core().await);
+        let first_link = first.my_card().await.unwrap().to_link();
+        let second_link = second.my_card().await.unwrap().to_link();
+        let accepted = core.add_contact(&first_link, None).await.unwrap().device_id;
+        let scanned = core.add_contact(&second_link, None).await.unwrap().device_id;
+        for contact in [&accepted, &scanned] {
+            core.store().set_accepted(contact, false).await.unwrap();
+        }
+        let _stop = registering(&core, &router);
+        let (accepted_tag, scanned_tag) = (tag_in(&core, None, &accepted).await, tag_in(&core, None, &scanned).await);
+        until("registered as requests", || router.rule_for(accepted_tag) == Some(CallRule::None) && router.rule_for(scanned_tag) == Some(CallRule::None)).await;
+
+        core.accept_contact(&accepted).await.unwrap();
+        until("registered as accepted", || router.last_rules().is_some() && router.rule_for(accepted_tag).is_none()).await;
+        core.add_contact(&second_link, None).await.unwrap();
+        until("registered as scanned", || router.last_rules() == Some(Vec::new())).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_contact_in_a_hidden_session_is_tagged_with_that_sessions_capability() {
         let core = core().await;
         let session = core.open_session("123456").await.unwrap().unwrap();

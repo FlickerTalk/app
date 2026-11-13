@@ -517,6 +517,7 @@ impl Core {
                             accepted: false,
                         })
                         .await?;
+                    self.registration_changed();
                     self.store.save_channel(from.as_str(), &channel.seal(&self.key)).await?;
                     (packet, true)
                 }

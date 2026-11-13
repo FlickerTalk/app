@@ -141,6 +141,7 @@ impl Core {
                 accepted: true,
             })
             .await?;
+        self.registration_changed();
         {
             let identity = self.identity.lock().await;
             if self.store.channel(device_id.as_str()).await?.is_none() {
@@ -165,6 +166,7 @@ impl Core {
             return Ok(());
         }
         self.store.set_accepted(contact, true).await?;
+        self.registration_changed();
         let _ = self.events.send(Event::ContactsChanged);
         let _ = self.events.send(Event::MessagesChanged { contact: contact.to_owned() });
         let accepted = self.contact(contact).await?;
@@ -265,7 +267,7 @@ impl Core {
 }
 
 fn call_rule(contact: &Contact) -> Option<CallRule> {
-    if contact.blocked || !contact.rules.accepts_calls {
+    if contact.blocked || !contact.accepted || !contact.rules.accepts_calls {
         Some(CallRule::None)
     } else if contact.rules.muted {
         Some(CallRule::Quiet)
