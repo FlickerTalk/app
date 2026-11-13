@@ -164,7 +164,7 @@ const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 <style scoped>
 .ft-actions {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 20;
   display: grid;

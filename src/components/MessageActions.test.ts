@@ -4,6 +4,7 @@ import { IonButton } from "@ionic/vue";
 import type { Chat, ChatMessage, PluginView } from "../core";
 import { premiumLocked } from "../plugins";
 import MessageActions from "./MessageActions.vue";
+import source from "./MessageActions.vue?raw";
 
 const THEIRS: ChatMessage = { id: "m1", mine: false, text: "Are you coming tonight?", time: "09:00", sentAt: 1 };
 const MINE: ChatMessage = { id: "m2", mine: true, text: "Yes", time: "09:01", sentAt: 1 };
@@ -130,5 +131,12 @@ describe("MessageActions", () => {
     expect(wrapper.emitted("close")).toBeUndefined();
     await wrapper.find("[data-test='actions']").trigger("click");
     expect(wrapper.emitted("close")).toHaveLength(1);
+  });
+
+  it("dims and centres on the conversation's own box, not on the Ionic page around it", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    const layer = /\.ft-actions\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
+    expect(layer).toMatch(/position:\s*absolute;/);
+    expect(layer).toMatch(/inset:\s*0;/);
   });
 });
