@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
-import { IonAlert, IonSelect, IonToggle } from "@ionic/vue";
+import { IonAlert, IonSelect, IonSelectOption, IonToggle } from "@ionic/vue";
 import { defineComponent, h } from "vue";
 import ContactPage from "./ContactPage.vue";
 import PluginSettingsGroup from "../components/PluginSettingsGroup.vue";
@@ -183,6 +183,13 @@ describe("ContactPage", () => {
     burn.vm.$emit("ionChange", { detail: { value: 300 } });
     await flushPromises();
     expect(calls).toContainEqual(["core_set_history", { contact: "c1", keepFor: 604800, burnAfterRead: 300 }]);
+  });
+
+  it("names every history option in correct English, one day included", async () => {
+    const wrapper = mount(ContactPage, { shallow: true });
+    await flushPromises();
+    const [history] = wrapper.findAllComponents(IonSelect);
+    expect(history.findAllComponents(IonSelectOption).map((option) => option.text())).toEqual(["Forever", "30 d", "7 d", "1 d"]);
   });
 
   it("changes what this phone takes from the contact", async () => {
