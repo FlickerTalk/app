@@ -638,6 +638,11 @@ function chooseAppearance(id: Appearance) {
   margin: 0 auto;
   padding-bottom: var(--ft-space-5);
 }
+/* Ionic swaps the iOS large title for the bar's small one only once it has scrolled wholly out of view */
+ion-content.ios > .ft-settings {
+  box-sizing: content-box;
+  min-height: 100%;
+}
 
 .ft-me {
   display: flex;

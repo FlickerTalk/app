@@ -82,6 +82,7 @@ function open(id: string) {
 function openCircle(id: string) {
   if (wide.value) {
     selectedCircle.value = id;
+    selectedId.value = "";
   } else {
     router.push(`/circle/${id}`);
   }

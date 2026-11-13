@@ -90,6 +90,36 @@ for (const tablet of TABLETS) {
   }
 }
 
+const SPLIT_VIEWS = [
+  { name: "landscape", width: 1280, height: 800 },
+  { name: "portrait", width: 800, height: 1280 },
+];
+
+for (const tablet of SPLIT_VIEWS) {
+  for (const locale of ["en", "ar"]) {
+    test.describe(`message actions, ${tablet.name}, ${locale}`, () => {
+      test.use({ viewport: { width: tablet.width, height: tablet.height }, locale });
+
+      test("beside the list, the message actions dim and centre on the chat pane only", async ({ app }) => {
+        await app.goto("/tabs/chats");
+        await app.locator(".ft-chats__detail .ft-bubble").first().hover();
+        await app.mouse.down();
+        await app.waitForTimeout(700);
+        await app.mouse.up();
+        const layer = await settled(app.getByTestId("actions"));
+        const bar = await settled(app.locator(".ft-actions__bar"));
+        const pane = (await app.locator(".ft-chats__detail").boundingBox())!;
+        expect(Math.abs(layer.x - pane.x), `the dim layer starts at ${pane.x}, not ${layer.x}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(layer.width - pane.width), `the dim layer is ${pane.width} wide, not ${layer.width}`).toBeLessThanOrEqual(1);
+        expect(bar.x, "the bar starts inside the pane").toBeGreaterThanOrEqual(pane.x - 1);
+        expect(bar.x + bar.width, "the bar ends inside the pane").toBeLessThanOrEqual(pane.x + pane.width + 1);
+        expect(Math.abs(bar.x + bar.width / 2 - (pane.x + pane.width / 2)), "the bar is centred on the pane").toBeLessThanOrEqual(1);
+        await shot(app, `${tablet.name}-${locale}-message-actions`);
+      });
+    });
+  }
+}
+
 test.describe("a phone", () => {
   test.use({ viewport: { width: 360, height: 740 } });
 
