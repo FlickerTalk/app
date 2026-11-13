@@ -529,6 +529,19 @@ class PlatformPluginTest {
     }
 
     @Test
+    fun aQuietCallPushIsShownWithoutRingingUnderTheSameRules() {
+        val quiet = mapOf("t" to "call", "s" to "0", "q" to "1")
+        assertEquals(CallPush.SILENT, callPush(quiet, emptySet(), appOnScreen = false, mayDisturb = true))
+        assertEquals(CallPush.SILENT, callPush(quiet, emptySet(), appOnScreen = false, mayDisturb = false))
+        assertEquals(CallPush.IGNORE, callPush(quiet, emptySet(), appOnScreen = true, mayDisturb = true))
+        val hidden = mapOf("t" to "call", "s" to "3", "q" to "1")
+        assertEquals(CallPush.IGNORE, callPush(hidden, emptySet(), appOnScreen = false, mayDisturb = true))
+        assertEquals(CallPush.SILENT, callPush(hidden, setOf(3), appOnScreen = false, mayDisturb = true))
+        assertEquals(CallPush.RING, callPush(mapOf("t" to "call", "s" to "0", "q" to "0"), emptySet(), appOnScreen = false, mayDisturb = true))
+        assertEquals(true, reconnectsOnPush(quiet, emptySet()))
+    }
+
+    @Test
     fun aCallRingsFortyFiveSecondsFromItsPush() {
         assertEquals(45_000L, callRingMillis(sentAt = 1_000_000L, now = 1_000_000L))
         assertEquals(35_000L, callRingMillis(sentAt = 1_000_000L, now = 1_010_000L))
