@@ -341,6 +341,18 @@ describe("ChatsPage", () => {
       expect(wide.findComponent({ name: "CircleThread" }).exists()).toBe(true);
     });
 
+    it("highlights only the row whose conversation the pane shows on wide screens", async () => {
+      screen(true);
+      const wide = mount(ChatsPage, { shallow: true });
+      const selected = () => wide.findAll(".ft-row.is-selected").map((row) => row.attributes("data-test") + ":" + row.find(".ft-row__name").text());
+      await wide.findAll("[data-test='chat-row']")[1].trigger("click");
+      expect(selected()).toEqual([`chat-row:${fixture.chats[1].name}`]);
+      await wide.find("[data-test='circle-row']").trigger("click");
+      expect(selected()).toEqual(["circle-row:Friends"]);
+      await wide.findAll("[data-test='chat-row']")[1].trigger("click");
+      expect(selected()).toEqual([`chat-row:${fixture.chats[1].name}`]);
+    });
+
     it("holds the circle beside the list in the pane's thread frame", async () => {
       screen(true);
       const wide = mount(ChatsPage, { shallow: true, global: { stubs: { CircleThread: false } } });
