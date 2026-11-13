@@ -718,7 +718,7 @@ class PlatformPluginTest {
         val expected = setOf(
             "pendingReminder", "openedLink", "registerLinkEvents", "setReminders", "exactAlarms", "requestExactAlarms",
             "authorize", "callAnswering", "registerCallEvents", "callStartedOutgoing", "callConnected", "callEnded",
-            "setSystemBars", "setSpeaker", "requestMicrophone", "currentLocation", "translateLanguages", "translateDetect",
+            "setSystemBars", "setAppearance", "setSpeaker", "requestMicrophone", "currentLocation", "translateLanguages", "translateDetect",
             "translateStatus", "translatePrepare", "translateRemove", "translateText", "requestCamera", "attachVideo",
             "videoLayout", "videoShape", "detachVideo", "callVideo", "canShowFullScreen", "askFullScreen", "startRinging",
             "sealKey", "forgetKey", "openKey", "pushToken", "requestNotifications", "restartApp", "setOpenSlots",
@@ -763,6 +763,7 @@ class PlatformPluginTest {
         assertEquals(setOf("channel"), fields(CallEventsArgs::class.java))
         assertEquals(setOf("name", "video"), fields(OutgoingArgs::class.java))
         assertEquals(setOf("dark"), fields(SystemBarsArgs::class.java))
+        assertEquals(setOf("appearance"), fields(AppearanceArgs::class.java))
         assertEquals(setOf("on"), fields(SpeakerArgs::class.java))
         assertEquals(setOf("week"), fields(QuietHoursArgs::class.java))
         assertEquals(setOf("slots"), fields(OpenSlotsArgs::class.java))

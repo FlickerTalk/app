@@ -8,6 +8,22 @@
     />
     <meta name="color-scheme" content="dark light" />
     <title>FlickerTalk</title>
+    <!-- the WebView paints before main.ts runs, so this puts the stored look on first, the same way initTheme in theme.ts does -->
+    <script>
+      (() => {
+        const stored = (key, allowed, fallback) => {
+          const value = localStorage.getItem(key);
+          return allowed.includes(value) ? value : fallback;
+        };
+        const root = document.documentElement;
+        const appearance = stored("ft-appearance", ["system", "dark", "light"], "dark");
+        root.dataset.direction = stored("ft-direction", ["mono", "ember", "aurora", "lime"], "mono");
+        root.classList.toggle(
+          "ft-dark",
+          appearance === "system" ? window.matchMedia("(prefers-color-scheme: dark)").matches : appearance === "dark",
+        );
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

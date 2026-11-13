@@ -46,6 +46,10 @@ const SAME_AS_ENGLISH: Record<string, SameAsEnglish> = {
     locales: ["de", "es", "fr", "id", "it", "ja", "pl", "pt", "ro", "tr", "vi"],
     reason: "only a symbol and a unit",
   },
+  "contact.days": {
+    locales: ["es", "pt"],
+    reason: "unit abbreviation shared with English",
+  },
   "contact.hours": {
     locales: ["es", "fr", "it", "pl", "pt", "ro"],
     reason: "unit abbreviation shared with English",

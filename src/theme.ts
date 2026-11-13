@@ -58,6 +58,7 @@ export function applyAppearance(appearance: Appearance) {
   stopFollowingSystem?.();
   stopFollowingSystem = undefined;
   localStorage.setItem(APPEARANCE_KEY, appearance);
+  void invoke("core_set_appearance", { appearance }).catch(() => undefined);
 
   if (appearance !== "system") {
     setDark(appearance === "dark");

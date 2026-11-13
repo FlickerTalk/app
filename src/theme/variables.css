@@ -120,6 +120,10 @@ html.ft-dark[data-direction="mono"] {
 html[data-direction="mono"] .ft-avatar {
   filter: grayscale(1);
 }
+/* Ionic's iOS toggle puts a white knob on a primary track, and this primary is white */
+html.ft-dark[data-direction="mono"] ion-toggle.ios {
+  --handle-background-checked: var(--ion-color-primary-contrast);
+}
 
 /* darkened in the light theme for WCAG AA */
 html[data-direction="lime"] {

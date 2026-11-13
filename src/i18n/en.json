@@ -221,7 +221,7 @@
     "deleteConfirm": "Delete",
     "forever": "Forever",
     "never": "Never",
-    "days": "{days} days",
+    "days": "{days} d",
     "hours": "{hours} h",
     "minutes": "{minutes} min",
     "typing": "Show when I’m typing"

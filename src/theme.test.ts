@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import variablesCss from "./theme/variables.css?raw";
+import indexHtml from "../index.html?raw";
 import { installTauri } from "./__tests__/tauri";
 import {
+  APPEARANCES,
   applyAppearance,
   applyDirection,
   darkScreen,
+  DIRECTIONS,
   initTheme,
   PLUGIN_COLOURS,
   pluginTheme,
@@ -148,6 +151,84 @@ describe("the system bars", () => {
     expect(() => applyAppearance("light")).not.toThrow();
     await settle();
     expect(document.documentElement.classList.contains("ft-dark")).toBe(false);
+  });
+});
+
+describe("the appearance the phone keeps for the next start", () => {
+  let kept: unknown[];
+
+  beforeEach(() => {
+    localStorage.clear();
+    kept = [];
+    installTauri((command, args) => {
+      if (command === "core_set_appearance") kept.push(args?.appearance);
+      return undefined;
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    installTauri();
+  });
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("is the stored one when the app starts, then each one the user picks", async () => {
+    systemPrefersDark(false);
+    localStorage.setItem("ft-appearance", "light");
+    initTheme();
+    applyAppearance("system");
+    applyAppearance("dark");
+    await settle();
+    expect(kept).toEqual(["light", "system", "dark"]);
+  });
+
+  it("never stops the theme without a bridge (a plain browser)", async () => {
+    installTauri(() => {
+      throw new Error("no bridge");
+    });
+    expect(() => applyAppearance("light")).not.toThrow();
+    await settle();
+    expect(document.documentElement.classList.contains("ft-dark")).toBe(false);
+  });
+});
+
+describe("the page before the app's code runs", () => {
+  const boot = [...new DOMParser().parseFromString(indexHtml, "text/html").querySelectorAll("head script:not([src])")];
+  const root = document.documentElement;
+  const look = () => ({ direction: root.dataset.direction, dark: root.classList.contains("ft-dark") });
+  const reset = () => {
+    root.removeAttribute("data-direction");
+    root.classList.remove("ft-dark");
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    reset();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    reset();
+  });
+
+  it("has one inline script in the head that runs before the first paint", () => {
+    expect(boot).toHaveLength(1);
+    expect(boot[0].getAttribute("type")).toBeNull();
+    expect(boot[0].hasAttribute("async") || boot[0].hasAttribute("defer")).toBe(false);
+  });
+
+  const cases = [...DIRECTIONS, "neon", null].flatMap((direction) =>
+    [...APPEARANCES, "dim", null].flatMap((appearance) => [false, true].map((systemDark) => ({ direction, appearance, systemDark }))),
+  );
+
+  it.each(cases)("puts the stored look on the page as the app will: $direction, $appearance, system dark $systemDark", ({ direction, appearance, systemDark }) => {
+    systemPrefersDark(systemDark);
+    if (direction !== null) localStorage.setItem("ft-direction", direction);
+    if (appearance !== null) localStorage.setItem("ft-appearance", appearance);
+    new Function(boot[0]?.textContent ?? "")();
+    const early = look();
+    reset();
+    initTheme();
+    expect(early).toEqual(look());
   });
 });
 
