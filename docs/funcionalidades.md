@@ -305,7 +305,8 @@ la tienda** (Play Billing o StoreKit, con su moneda y su formato), pedido otra v
 cambiar el plan y al volver la app; si la tienda no puede decirlo (sin red, en escritorio, sin
 producto) se queda el último conocido o, si no hay ninguno, «Suscripción anual» sin cantidad, y el
 botón de pagar funciona igual. La app no escribe ni guarda ningún importe. Suscribirse y Restaurar
-compras aparecen cuando los días gratis han acabado. Ajustes cuenta los días que quedan (un día
+compras aparecen durante la prueba y cuando ha acabado; con la suscripción activa, no. Durante la
+prueba las filas de herramientas y sesiones siguen abiertas, sin candado. Ajustes cuenta los días que quedan (un día
 empezado cuenta: recién instalada, 365).
 
 Para probarlo en un teléfono de desarrollo: `FT_DEBUG_TRIAL_OVER=1` (antes

@@ -518,12 +518,70 @@ describe("SettingsPage", () => {
         expect(push).toHaveBeenCalledWith("/session");
       });
 
-      it("asks for nothing", async () => {
+      it("offers the subscription and the restore, with both rows still open", async () => {
         planning({ state: "trial", until: Date.now() + 365 * DAY });
         const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "0,99 €"));
+        expect(wrapper.find("[data-test='restore']").text()).toBe(en.plan.restore);
+        expect(wrapper.find("[data-test='premium-locked']").exists()).toBe(false);
+        for (const row of [tools(wrapper), sessions(wrapper)]) {
+          expect(row.classes()).not.toContain("ft-premium__locked");
+          expect(row.attributes("detail")).toBe("true");
+          expect(row.attributes("aria-label")).toBeUndefined();
+        }
+        calls.length = 0;
+        await tools(wrapper).trigger("click");
+        await flushPromises();
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
+        expect(calls.map(([command]) => command)).not.toContain("core_subscribe");
+      });
+
+      it("shows the plan active and offers nothing more once the Store has sold the subscription", async () => {
+        let state = "trial";
+        installTauri((command, args) => {
+          calls.push([command, args]);
+          if (command === "core_subscribe") state = "subscribed";
+          if (command === "core_subscription_price") return { price: "0,99 €" };
+          return command === "core_plan" ? { state, until: Date.now() + 365 * DAY } : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='pay']").trigger("click");
+        await flushPromises();
+        expect(calls.map(([command]) => command)).toContain("core_subscribe");
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
         expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
         expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
-        expect(wrapper.find("[data-test='premium-locked']").exists()).toBe(false);
+      });
+
+      it("restores a purchase from the trial, and then shows the plan active", async () => {
+        let state = "trial";
+        installTauri((command, args) => {
+          calls.push([command, args]);
+          if (command === "core_restore_subscription") {
+            state = "subscribed";
+            return "restored";
+          }
+          return command === "core_plan" ? { state, until: Date.now() + 365 * DAY } : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='restore']").trigger("click");
+        await flushPromises();
+        expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.restored }));
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
+      });
+
+      it("follows a purchase the core hears of, and takes the offer away", async () => {
+        let state = "trial";
+        installTauri((command) => (command === "core_plan" ? { state, until: Date.now() + 365 * DAY } : undefined));
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(true);
+        state = "subscribed";
+        events.handlers.get("ft://plan")?.();
+        await flushPromises();
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
       });
     });
 
