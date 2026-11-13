@@ -125,10 +125,20 @@ let longPressed = false;
 
 function startPress() {
   longPressed = false;
-  pressing = setTimeout(() => {
-    longPressed = true;
-    emit("actions", props.message.id);
-  }, LONG_PRESS);
+  pressing = setTimeout(longPress, LONG_PRESS);
+}
+
+function longPress() {
+  endPress();
+  if (longPressed) return;
+  longPressed = true;
+  emit("actions", props.message.id);
+}
+
+// Android's WebView cancels the pointer on a long press on a link and then sends this
+function contextMenu(event: Event) {
+  event.preventDefault();
+  longPress();
 }
 
 function tapQuote(id: string) {
@@ -142,6 +152,7 @@ function endPress() {
 }
 
 function openLink(href: string) {
+  if (longPressed) return;
   // our own /add and /move links stay in the app and only fill a field
   if (isAppLink(href)) {
     void openInApp(href).then((handled) => handled || openOutside(href));
@@ -257,6 +268,7 @@ function open() {
       @pointerup="endPress"
       @pointercancel="endPress"
       @pointerleave="endPress"
+      @contextmenu="contextMenu"
     >
       <span v-if="sender && !message.mine" class="ft-bubble__sender" data-test="sender" dir="auto">{{ sender }}</span>
       <button
@@ -428,6 +440,7 @@ function open() {
             class="ft-bubble__link"
             data-test="link"
             :href="piece.href"
+            draggable="false"
             @click.prevent="openLink(piece.href ?? '')"
             >{{ piece.text }}</a
           >
@@ -685,6 +698,7 @@ function open() {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
+  -webkit-touch-callout: none;
 }
 
 .ft-play-game {

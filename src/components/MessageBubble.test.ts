@@ -642,6 +642,100 @@ describe("MessageBubble", () => {
     vi.useRealTimers();
   });
 
+  describe("a long press on a link", () => {
+    const CARD = "https://flickertalk.com/add#card";
+    const LINKS: [kind: string, text: string, href: string][] = [
+      ["a plain address", "the menu is at https://example.org/menu", "https://example.org/menu"],
+      ["an invitation to a game", "🎮 Shall we play Chess? https://flickertalk.com/games/chess", "https://flickertalk.com/games/chess"],
+      ["a contact's card", `add me ${CARD}`, CARD],
+    ];
+    const opening = () => [...opener.openUrl.mock.calls, ...opened.openInApp.mock.calls].map(([url]) => url);
+    const contextMenu = (element: Element) => {
+      const menu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      element.dispatchEvent(menu);
+      return menu;
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      opener.openUrl.mockReset();
+      opened.openInApp.mockClear();
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it.each(LINKS)("on %s asks for the actions and never opens it, and a tap still opens it", async (_kind, text, href) => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false, text }, games: true }, shallow: true });
+      const link = wrapper.find("[data-test='link']");
+
+      await link.trigger("pointerdown");
+      vi.advanceTimersByTime(478);
+      await link.trigger("pointercancel");
+      const menu = contextMenu(link.element);
+      vi.advanceTimersByTime(1000);
+      expect(wrapper.emitted("actions"), "Android cancels the pointer, then sends its context menu").toEqual([["m1"]]);
+      expect(menu.defaultPrevented, "the WebView shows no menu of its own").toBe(true);
+      await link.trigger("click");
+      await Promise.resolve();
+      expect(opening(), "lifting the finger opens nothing").toEqual([]);
+
+      await link.trigger("pointerdown");
+      vi.advanceTimersByTime(600);
+      await link.trigger("pointerup");
+      await link.trigger("click");
+      await Promise.resolve();
+      expect(wrapper.emitted("actions"), "the bubble's own timer, where nothing cancels the pointer").toEqual([["m1"], ["m1"]]);
+      expect(opening()).toEqual([]);
+
+      await link.trigger("pointerdown");
+      vi.advanceTimersByTime(100);
+      await link.trigger("pointerup");
+      await link.trigger("click");
+      await Promise.resolve();
+      expect(opening()).toEqual([href]);
+      expect(wrapper.emitted("actions")).toHaveLength(2);
+    });
+
+    it("on a place asks for the actions and does not open the maps app", async () => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, mine: false, text: "geo:40.41680,-3.70380;u=35" } }, shallow: true });
+      const place = wrapper.find("[data-test='place']");
+      await place.trigger("pointerdown");
+      vi.advanceTimersByTime(600);
+      await place.trigger("pointerup");
+      await place.trigger("click");
+      expect(wrapper.emitted("actions")).toEqual([["m1"]]);
+      expect(opener.openUrl).not.toHaveBeenCalled();
+    });
+
+    it("asks for the actions once when the WebView's menu and the bubble's timer both see it", async () => {
+      const wrapper = mount(MessageBubble, { props: { message: base }, shallow: true });
+      const bubble = wrapper.find("[data-test='bubble']");
+
+      await bubble.trigger("pointerdown");
+      vi.advanceTimersByTime(478);
+      contextMenu(bubble.element);
+      vi.advanceTimersByTime(1000);
+      await bubble.trigger("pointerup");
+      expect(wrapper.emitted("actions")).toEqual([["m1"]]);
+
+      await bubble.trigger("pointerdown");
+      vi.advanceTimersByTime(600);
+      contextMenu(bubble.element);
+      await bubble.trigger("pointerup");
+      expect(wrapper.emitted("actions")).toEqual([["m1"], ["m1"]]);
+    });
+
+    it("leaves the WebView nothing of its own to do with a link", () => {
+      const wrapper = mount(MessageBubble, { props: { message: { ...base, text: "https://example.org" } }, shallow: true });
+      expect(wrapper.find("[data-test='link']").attributes("draggable")).toBe("false");
+      const styles = source.slice(source.indexOf("<style")).replace(/\/\*[\s\S]*?\*\//g, "");
+      const link = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .filter(([, selector]) => selector.trim() === ".ft-bubble__link")
+        .map(([, , body]) => body)
+        .join(";");
+      expect(link, "no callout or link preview on iOS").toMatch(/-webkit-touch-callout:\s*none/);
+    });
+  });
+
   it("folds a message that was folded, and says how to unfold it", () => {
     const long = { ...base, text: "line\n".repeat(40) };
     const open = mount(MessageBubble, { props: { message: long }, shallow: true });
