@@ -406,7 +406,7 @@ export function installFakeCore() {
         state.plugins = state.plugins.filter((p) => p.id !== a.plugin);
         return undefined;
       case "core_calls":
-        return [];
+        return ((window as unknown as Record<string, unknown>).__ftFakeCalls as unknown[] | undefined) ?? [];
       case "core_card":
         return "https://flickertalk.com/add#card";
       case "core_opened_link": {

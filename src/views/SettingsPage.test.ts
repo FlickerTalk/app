@@ -904,14 +904,11 @@ describe("SettingsPage", () => {
     expect(pageShape(mount(SettingsPage, { shallow: true }), ["feedback-modal", "quick-tour"])).toEqual(["ion-header", "ion-content"]);
   });
 
-  it("on iOS fills at least the screen under the large title, its bottom padding on top, so the title can always scroll fully into the bar", () => {
+  it("keeps the settings in one block under the large title, its bottom padding added to the screen it fills on iOS", () => {
     const content = mount(SettingsPage, { shallow: true }).find("ion-content-stub");
     expect([...content.element.children].map((child) => child.tagName.toLowerCase())).toEqual(["ion-header-stub", "div"]);
     expect(content.element.lastElementChild?.classList.contains("ft-settings")).toBe(true);
     const styles = source.slice(source.indexOf("<style"));
-    const rule = /ion-content\.ios\s*>\s*\.ft-settings\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
-    expect(rule).toMatch(/min-height:\s*100%;/);
-    expect(rule).toMatch(/box-sizing:\s*content-box;/);
     expect(/\.ft-settings\s*\{([^}]*)\}/.exec(styles)?.[1]).toMatch(/padding-bottom:\s*var\(--ft-space-5\);/);
   });
 });

@@ -184,6 +184,12 @@ html[dir="rtl"] .ft-chats.is-wide > :is(.ft-chats__head, .ft-chats__list) {
   --ion-safe-area-left: 0px;
 }
 
+/* Ionic swaps the iOS large title for the bar's small one only once it is wholly out of view, touching the edge is not enough */
+ion-content.ios > ion-header.header-collapse-condense + * {
+  box-sizing: content-box;
+  min-height: calc(100% + 1px);
+}
+
 /* Ionic's items inside would add the insets again */
 ion-content:not(.ion-padding, .ion-padding-start, .ion-padding-end, .ion-padding-horizontal) {
   --padding-start: var(--ion-safe-area-left, 0px);

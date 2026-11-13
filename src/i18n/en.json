@@ -396,7 +396,7 @@
     "paidUntil": "Paid until {until} · manage it in the store",
     "tools": "Tools",
     "sessions": "Sessions with PIN",
-    "daysLeft": "{days} days left",
+    "daysLeft": "days left: {days}",
     "active": "active"
   },
   "requests": {

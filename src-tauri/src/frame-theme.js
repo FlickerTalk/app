@@ -102,11 +102,17 @@ function derive() {
   return out;
 }
 
+// Ionic's iOS toggle puts a white knob on a primary track, and the app's Mono dark primary is white.
+function toggles() {
+  const primary = parse(root.style.getPropertyValue("--ion-color-primary"));
+  return primary && primary.every((channel) => channel === 255) ? "ion-toggle.ios{--handle-background-checked:var(--ion-color-primary-contrast)}" : "";
+}
+
 let written;
 function write() {
   const css = `:root{${Object.entries(derive())
     .map(([name, value]) => `${name}: ${value}`)
-    .join(";")}}`;
+    .join(";")}}${toggles()}`;
   if (css !== written) {
     written = css;
     style.textContent = css;

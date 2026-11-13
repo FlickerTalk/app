@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import source from "../src-tauri/src/frame-theme.js?raw";
+import appCss from "./theme/variables.css?raw";
 
 const EMBER_DARK: Record<string, string> = {
   "--ion-background-color": "#0d0b0a",
@@ -155,6 +156,67 @@ describe("the theme of the frame", () => {
       "--ion-background-color-rgb": "0, 0, 0",
       "--ion-text-color-rgb": "255, 255, 255",
       "--ion-color-primary-rgb": "10, 20, 30",
+    });
+  });
+
+  describe("a switched-on toggle", () => {
+    const MONO_DARK: Record<string, string> = {
+      "--ion-background-color": "#000000",
+      "--ion-text-color": "#f5f5f5",
+      "--ion-color-medium": "#8e8e8e",
+      "--ion-item-background": "#0e0e0e",
+      "--ion-border-color": "rgba(255, 255, 255, 0.12)",
+      "--ion-color-primary": "#ffffff",
+      "--ion-color-primary-contrast": "#000000",
+      "--ion-color-success": "#2dd55b",
+      "--ion-color-danger": "#ff4d5e",
+    };
+    const MONO_LIGHT: Record<string, string> = {
+      ...MONO_DARK,
+      "--ion-background-color": "#ffffff",
+      "--ion-text-color": "#0a0a0a",
+      "--ion-color-primary": "#000000",
+      "--ion-color-primary-contrast": "#ffffff",
+    };
+
+    const appKnob = /html\.ft-dark\[data-direction="mono"\] ion-toggle\.ios\s*\{[^}]*--handle-background-checked:\s*([^;}]+)/.exec(appCss)?.[1].trim() ?? "";
+    const inPalette = (value: string, colours: Record<string, string>) => value.replace(/var\((--[\w-]+)\)/g, (_, name: string) => colours[name] ?? "");
+
+    function checkedKnob(mode: "ios" | "md"): string {
+      const toggle = document.createElement("ion-toggle");
+      toggle.className = `${mode} toggle-checked`;
+      document.body.append(toggle);
+      const knob = getComputedStyle(toggle).getPropertyValue("--handle-background-checked").trim();
+      toggle.remove();
+      return knob;
+    }
+
+    it("gets the knob the app gives its own iOS toggles when the primary is white, as in Mono dark", async () => {
+      expect(appKnob).toBe("var(--ion-color-primary-contrast)");
+      paint(MONO_DARK, true);
+      await run();
+      expect(checkedKnob("ios")).toBe(inPalette(appKnob, MONO_DARK));
+      expect(checkedKnob("ios")).toBe("#000000");
+      expect(checkedKnob("md")).toBe("");
+    });
+
+    it.each([
+      ["Ember dark", EMBER_DARK, true],
+      ["Ember light", EMBER_LIGHT, false],
+      ["Mono light", MONO_LIGHT, false],
+    ] as const)("is left as Ionic draws it in %s", async (_, colours, dark) => {
+      paint(colours, dark);
+      await run();
+      expect(checkedKnob("ios")).toBe("");
+      expect(checkedKnob("md")).toBe("");
+    });
+
+    it("follows the app when it turns Mono dark with the plugin open", async () => {
+      paint(EMBER_DARK, true);
+      await run();
+      paint(MONO_DARK, true);
+      await settle();
+      expect(checkedKnob("ios")).toBe(inPalette(appKnob, MONO_DARK));
     });
   });
 

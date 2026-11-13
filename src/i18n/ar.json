@@ -396,7 +396,7 @@
     "paidUntil": "مدفوع حتى {until} · تتم إدارته من المتجر",
     "tools": "الأدوات",
     "sessions": "الجلسات برمز PIN",
-    "daysLeft": "بقي {days} يومًا",
+    "daysLeft": "الأيام المتبقية: {days}",
     "active": "مفعّل"
   },
   "requests": {
