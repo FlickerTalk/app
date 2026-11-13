@@ -124,6 +124,18 @@ class PlatformPluginTest {
     }
 
     @Test
+    fun attachingAKeyboardMouseOrGameControllerDoesNotRecreateTheAppActivity() {
+        val handled = mainActivityConfigChanges()
+        assertTrue(handled.toString(), handled.containsAll(setOf("keyboard", "keyboardHidden", "navigation", "touchscreen")))
+    }
+
+    @Test
+    fun aColourModeOrGrammaticalGenderChangeDoesNotRecreateTheAppActivity() {
+        val handled = mainActivityConfigChanges()
+        assertTrue(handled.toString(), handled.containsAll(setOf("colorMode", "grammaticalGender")))
+    }
+
+    @Test
     fun theWebViewTextZoomFollowsTheFontScale() {
         assertEquals(100, textZoomFor(1.0f))
         assertEquals(130, textZoomFor(1.3f))
