@@ -2,7 +2,7 @@ import { reactive } from "vue";
 
 export type Status = "unsent" | "pending" | "sent" | "delivered" | "read";
 
-export type FileState = "sending" | "receiving" | "paused" | "waiting" | "done" | "failed";
+export type FileState = "sending" | "receiving" | "waiting" | "done" | "failed";
 
 export interface ChatFile {
   name: string;

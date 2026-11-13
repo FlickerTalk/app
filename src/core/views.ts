@@ -83,10 +83,9 @@ export interface SessionView {
   circles?: CircleView[];
 }
 
-function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
+function toFile(view: FileView, mine: boolean): ChatFile {
   let state: FileState;
   if (view.state === "done" || view.state === "failed" || view.state === "waiting") state = view.state;
-  else if (!connected) state = "paused";
   else state = mine ? "sending" : "receiving";
   const playable = ["image/", "audio/", "video/"].some((kind) => view.mime.startsWith(kind));
   const showable = playable && (mine || view.state === "done");
@@ -101,11 +100,11 @@ function toFile(view: FileView, mine: boolean, connected: boolean): ChatFile {
   };
 }
 
-export function toMessage(view: MessageView, connected = false): ChatMessage {
+export function toMessage(view: MessageView): ChatMessage {
   const message: ChatMessage = { id: view.id, mine: view.outgoing, text: view.text, time: clock(view.sentAt), sentAt: view.sentAt, status: view.state };
   if (view.file) {
     message.kind = "file";
-    message.file = toFile(view.file, view.outgoing, connected);
+    message.file = toFile(view.file, view.outgoing);
   }
   if (view.quote) message.quote = view.quote;
   if (view.reactions) message.reactions = view.reactions;

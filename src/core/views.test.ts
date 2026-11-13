@@ -69,20 +69,19 @@ describe("a message from the core", () => {
 });
 
 describe("a file from the core", () => {
-  it("shows the transfer as the connection allows", () => {
+  it("keeps the transfer the core reports, the live connection decides on the screen whether it is paused", () => {
     const states = [
-      toMessage({ ...said("f1", true), file: file("transferring") }, true),
-      toMessage({ ...said("f2"), file: file("transferring") }, true),
-      toMessage({ ...said("f3"), file: file("transferring") }, false),
-      toMessage({ ...said("f4"), file: file("waiting") }, true),
-      toMessage({ ...said("f5"), file: file("failed") }, false),
+      toMessage({ ...said("f1", true), file: file("transferring") }),
+      toMessage({ ...said("f2"), file: file("transferring") }),
+      toMessage({ ...said("f4"), file: file("waiting") }),
+      toMessage({ ...said("f5"), file: file("failed") }),
       toMessage({ ...said("f6"), file: file("done") }),
     ].map((message) => message.file?.state);
-    expect(states).toEqual(["sending", "receiving", "paused", "waiting", "failed", "done"]);
+    expect(states).toEqual(["sending", "receiving", "waiting", "failed", "done"]);
   });
 
   it("gives a url only to a picture, a sound or a video that is mine or whole", () => {
-    const url = (view: MessageView) => toMessage(view, true).file?.url;
+    const url = (view: MessageView) => toMessage(view).file?.url;
     expect(url({ ...said("f1", true), file: file("transferring") })).toBe("asset://localhost/files/a");
     expect(url({ ...said("f2"), file: file("transferring") })).toBeUndefined();
     expect(url({ ...said("f3"), file: file("done", "audio/mp4") })).toBe("asset://localhost/files/a");

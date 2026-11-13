@@ -483,6 +483,7 @@ watch(
             :saved="saved.has(message.id)"
             :folded="folded.has(message.id)"
             :contact-name="chat?.name"
+            :connected="chat?.connected ?? false"
             :hook="messageHook"
             :noting="hooks.noting.get(message.id)"
             :language="hooks.languageName.value"

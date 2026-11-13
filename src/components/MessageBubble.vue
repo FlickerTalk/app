@@ -38,17 +38,21 @@ export interface Message {
   notes?: { plugin: string; text: string }[];
 }
 
-const props = defineProps<{
-  message: Message;
-  saved?: boolean;
-  folded?: boolean;
-  sender?: string;
-  contactName?: string;
-  games?: boolean;
-  hook?: { label: string; icon: string };
-  noting?: string;
-  language?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    message: Message;
+    saved?: boolean;
+    folded?: boolean;
+    sender?: string;
+    contactName?: string;
+    games?: boolean;
+    hook?: { label: string; icon: string };
+    noting?: string;
+    language?: string;
+    connected?: boolean;
+  }>(),
+  { connected: true },
+);
 const emit = defineEmits<{
   open: [id: string];
   save: [id: string];
@@ -184,10 +188,12 @@ const fileState = computed(() => {
   if (!file.value || file.value.state === "done") return "";
   if (file.value.state === "failed") return t("status.failed");
   if (file.value.state === "waiting") return `${t("status.waiting")} · ${file.value.size}`;
-  return file.value.state === "paused" ? t("status.paused") : `${percent.value}%`;
+  return paused.value ? t("status.paused") : `${percent.value}%`;
 });
 const waiting = computed(() => file.value?.state === "waiting");
 const moving = computed(() => file.value && !["done", "failed", "waiting"].includes(file.value.state));
+// files only travel over the direct connection
+const paused = computed(() => Boolean(moving.value) && !props.connected);
 const failed = computed(() => file.value?.state === "failed");
 
 const player = ref<HTMLAudioElement | null>(null);
@@ -293,7 +299,9 @@ function open() {
         <video v-else-if="file.url && isVideo" class="ft-video" :src="`${file.url}#t=0.001`" controls playsinline preload="metadata" @click.stop />
         <span v-else class="ft-media__blank" aria-hidden="true" />
         <span v-if="moving" class="ft-media__veil">
+          <span v-if="paused" class="ft-media__paused">{{ t("status.paused") }}</span>
           <span
+            v-else
             class="ft-ring"
             role="progressbar"
             aria-valuemin="0"
@@ -359,8 +367,9 @@ function open() {
             :style="{ height: `${height}%` }"
           />
         </span>
+        <span v-if="paused" class="ft-voice__meta">{{ t("status.paused") }}</span>
         <span
-          v-if="moving"
+          v-else-if="moving"
           class="ft-voice__meta"
           role="progressbar"
           aria-valuemin="0"
@@ -876,6 +885,13 @@ function open() {
   width: 44px;
   height: 44px;
   border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+}
+.ft-media__paused {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
   background: rgba(0, 0, 0, 0.6);
 }
 .ft-media__failed,

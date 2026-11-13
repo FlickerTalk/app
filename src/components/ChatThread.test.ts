@@ -12,7 +12,7 @@ import AppTile from "./AppTile.vue";
 import { shieldOutline } from "ionicons/icons";
 import { calls, fixture, seed } from "../__tests__/seed";
 import { installTauri } from "../__tests__/tauri";
-import { chat, heardTyping, store, TYPING_EVERY, TYPING_FADE } from "../core";
+import { chat, heardTyping, refreshChats, store, TYPING_EVERY, TYPING_FADE } from "../core";
 import { offered, pluginImage, refreshPlugins, premiumLocked } from "../plugins";
 import { defineComponent, h } from "vue";
 import { startViewportFit } from "../viewport";
@@ -347,6 +347,60 @@ describe("ChatThread", () => {
   it("tells whether the contact is directly connected", () => {
     expect(mount(ChatThread, { props: { chatId: "c1" }, shallow: true }).text()).toContain("Direct");
     expect(mount(ChatThread, { props: { chatId: "c2" }, shallow: true }).text()).toContain("Not connected");
+  });
+
+  describe("files on their way", () => {
+    let connected = true;
+    const transfer = (id: string, outgoing: boolean, name: string, progress: number) => ({
+      id,
+      outgoing,
+      text: "",
+      sentAt: 1,
+      state: "delivered",
+      file: { name, size: 9_000_000, mime: "application/zip", progress, state: "transferring", path: `/data/files/${name}` },
+    });
+
+    beforeEach(() => {
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const answer = internals.invoke;
+      internals.invoke = (command, args) => {
+        if (command === "core_conversations") return Promise.resolve([{ id: "c3", name: "Sam Rivera", unread: 0, blocked: false, connected, last: null }]);
+        if (command === "core_messages") return Promise.resolve([transfer("f1", true, "trip.zip", 0.21), transfer("f2", false, "notes.zip", 0.4)]);
+        return answer(command, args);
+      };
+    });
+
+    const open = async () => {
+      const wrapper = mount(ChatThread, { props: { chatId: "c3" }, shallow: true, global: { stubs: { MessageBubble: false } } });
+      await flushPromises();
+      return wrapper;
+    };
+    const progress = (wrapper: ReturnType<typeof mount>) => wrapper.findAll("[data-test='file'] .ft-file__meta").map((meta) => meta.text());
+    const connection = async (now: boolean) => {
+      connected = now;
+      await refreshChats();
+      await flushPromises();
+    };
+
+    it("are paused for either side as soon as the direct connection drops", async () => {
+      await connection(true);
+      const wrapper = await open();
+      expect(progress(wrapper)).toEqual(["21%", "40%"]);
+
+      await connection(false);
+      expect(wrapper.text()).toContain("Not connected");
+      expect(progress(wrapper)).toEqual(["Paused", "Paused"]);
+    });
+
+    it("show how far they got again as soon as the direct connection is back", async () => {
+      await connection(false);
+      const wrapper = await open();
+      expect(progress(wrapper)).toEqual(["Paused", "Paused"]);
+
+      await connection(true);
+      expect(wrapper.text()).toContain("Direct");
+      expect(progress(wrapper)).toEqual(["21%", "40%"]);
+    });
   });
 
   it("starts a voice or a video call", async () => {

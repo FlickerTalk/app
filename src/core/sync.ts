@@ -30,7 +30,7 @@ export async function start(): Promise<void> {
   await listen<{ contact: string }>(TYPING_EVENT, ({ payload }) => heardTyping(payload.contact));
   await listen<{ contact: string | null; circle?: string | null; all?: boolean }>(CHANGED_EVENT, ({ payload }) => {
     if (payload.contact) quietTyping(payload.contact);
-    // the list first, an open chat's files depend on the connection it reports
+    // the list first, it replaces the chat the messages are loaded into
     void refreshChats().then(() => {
       // events were lost to a burst, refresh everything
       if (payload.all) {
@@ -64,7 +64,7 @@ export async function loadMessages(contact: string): Promise<void> {
   const views = await invoke<MessageView[]>("core_messages", { contact, limit: MESSAGE_LIMIT });
   const target = chat(contact);
   if (target) {
-    target.messages = views.map((view) => toMessage(view, target.connected));
+    target.messages = views.map((view) => toMessage(view));
   }
 }
 

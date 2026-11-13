@@ -250,7 +250,7 @@ describe("core bridge", () => {
     expect(settled.updatePending).toBeUndefined();
   });
 
-  it("shows transfers with a disconnected contact as paused", async () => {
+  it("keeps a transfer with a disconnected contact as the core reports it, the thread is what shows it paused", async () => {
     tauri.invoke.mockImplementation((command: string) =>
       Promise.resolve(
         command === "core_messages"
@@ -261,7 +261,7 @@ describe("core bridge", () => {
     );
     await core.start();
     await core.loadMessages("ft_carol");
-    expect(core.chat("ft_carol")?.messages[0].file?.state).toBe("paused");
+    expect(core.chat("ft_carol")?.messages[0].file?.state).toBe("receiving");
   });
 
   it("sends a picked file in slices", async () => {

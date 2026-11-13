@@ -486,6 +486,34 @@ describe("MessageBubble", () => {
     expect(wrapper.find("[aria-label='Save to Downloads']").exists()).toBe(false);
   });
 
+  it.each([
+    ["a document I send", true, "application/zip"],
+    ["a document I receive", false, "application/pdf"],
+    ["a picture I send", true, "image/jpeg"],
+    ["a picture I receive", false, "image/jpeg"],
+    ["a voice message I receive", false, "audio/mp4"],
+  ])("says %s is paused while there is no direct connection, and how far it got once there is", async (_case, mine, mime) => {
+    const message = { ...base, mine, kind: "file", file: { name: "a", size: "9 MB", progress: 0.21, state: mine ? "sending" : "receiving", mime } };
+    const wrapper = mount(MessageBubble, { props: { message, connected: false }, shallow: true });
+    expect(wrapper.text()).toContain("Paused");
+    expect(wrapper.text()).not.toContain("21%");
+
+    await wrapper.setProps({ connected: true });
+    expect(wrapper.text()).toContain("21%");
+    expect(wrapper.text()).not.toContain("Paused");
+  });
+
+  it.each([
+    ["done", "", true],
+    ["failed", "Failed", false],
+    ["waiting", "Tap to download", false],
+  ])("does not call a %s file paused when there is no direct connection", (state, says, mine) => {
+    const message = { ...base, mine, kind: "file", file: { name: "a.pdf", size: "9 MB", progress: 0, state, mime: "application/pdf" } };
+    const wrapper = mount(MessageBubble, { props: { message, connected: false }, shallow: true });
+    expect(wrapper.text()).not.toContain("Paused");
+    expect(wrapper.text()).toContain(says);
+  });
+
   it("says when a voice message failed to arrive", () => {
     const message = { ...voice, file: { ...voice.file, progress: 0, state: "failed", url: undefined } };
     const wrapper = mount(MessageBubble, { props: { message }, shallow: true });
