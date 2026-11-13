@@ -26,10 +26,11 @@
              A change of language never recreates the activity: Android flags
              locale and layoutDirection together, and a recreated activity got a new WebView while
              the plugins kept the old one alive. The page follows the language in place (i18n.ts).
-             Nor does a change of font size, display size or bold text. -->
+             Nor does a change of font size, display size or bold text, nor a switch between gesture
+             and button navigation, which Android applies as a system overlay (assetsPaths). -->
         <activity
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|smallestScreenSize|screenLayout|uiMode|fontScale|density|fontWeightAdjustment"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|smallestScreenSize|screenLayout|uiMode|fontScale|density|fontWeightAdjustment|assetsPaths"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
             android:name=".MainActivity"

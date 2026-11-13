@@ -118,6 +118,12 @@ class PlatformPluginTest {
     }
 
     @Test
+    fun aNavigationModeChangeDoesNotRecreateTheAppActivity() {
+        val handled = mainActivityConfigChanges()
+        assertTrue(handled.toString(), handled.contains("assetsPaths"))
+    }
+
+    @Test
     fun theWebViewTextZoomFollowsTheFontScale() {
         assertEquals(100, textZoomFor(1.0f))
         assertEquals(130, textZoomFor(1.3f))
