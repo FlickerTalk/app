@@ -295,9 +295,10 @@ Sin suscripción, pasado el año gratis:
 El plan se vigila solo: el núcleo vuelve a mirarlo justo cuando acaban los días gratis o pasa la
 fecha pagada, y al volver la app a la pantalla. Al pasar la fecha pagada pregunta antes a la tienda
 (entitlements actuales de StoreKit, compras de Play): si renovó, sigue de pago con la fecha nueva;
-si no hay nada, pasa a bloqueado; si la tienda no contesta, la fecha sigue valiendo **3 días** de
-gracia y se vuelve a preguntar. El apartado Premium de Ajustes y los candados se ponen al día sin
-reiniciar.
+si no hay nada, vuelve a la prueba si aún le quedan días o pasa a bloqueado; si la tienda no
+contesta, la fecha sigue valiendo **3 días** de gracia y se vuelve a preguntar. Una suscripción
+comprada durante la prueba cuenta como de pago desde ese momento: la fecha pagada manda sobre la de
+la prueba. El apartado Premium de Ajustes y los candados se ponen al día sin reiniciar.
 
 El apartado Premium de Ajustes dice qué es gratis y qué es premium, con el precio **tal como lo da
 la tienda** (Play Billing o StoreKit, con su moneda y su formato), pedido otra vez al entrar, al
