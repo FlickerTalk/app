@@ -1026,13 +1026,13 @@ async fn a_busy_contact_says_so() {
 async fn the_free_days_count_from_the_install() {
     let net = Net::new();
     let path = std::env::temp_dir().join(format!("ft-core-free-{}.db", ft_protocol::MessageId::new()));
-    let free_days = 15 * 24 * 3600 * 1000_i64;
+    let free_period = 365 * 24 * 3600 * 1000_i64;
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
     let first = {
         let alice = device_with(&net, "Alice", Store::open(&path).await.unwrap(), [1; 32]).await;
         alice.free_until().await.expect("reads")
     };
-    assert!((first - (now + free_days)).abs() < 60_000, "15 days from now");
+    assert!((first - (now + free_period)).abs() < 60_000, "a year from now");
     let alice = device_with(&net, "Alice", Store::open(&path).await.unwrap(), [1; 32]).await;
     assert_eq!(alice.free_until().await.unwrap(), first);
     let _ = std::fs::remove_file(&path);

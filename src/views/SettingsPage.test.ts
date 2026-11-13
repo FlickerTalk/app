@@ -455,7 +455,7 @@ describe("SettingsPage", () => {
     });
 
     it("sits after the appearance group and before moving and the backup", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const html = (await settings()).html();
       const at = (test: string) => html.indexOf(`data-test="${test}"`);
       expect(html.lastIndexOf("ft-segment__option")).toBeGreaterThan(0);
@@ -467,38 +467,48 @@ describe("SettingsPage", () => {
     });
 
     it("is headed Premium, with the sparkles", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const head = (await settings()).find("[data-test='premium-head']");
       expect(head.text()).toBe(en.premium.title);
       expect(head.findComponent(IonIcon).props("icon")).toBe(sparklesOutline);
     });
 
     it("has no Plan row any more, nor a lone plugins group", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const wrapper = await settings();
       expect(wrapper.find("[data-test='plan']").exists()).toBe(false);
       expect(wrapper.findAll("[data-test='plugins']")).toHaveLength(1);
       expect(wrapper.findAll("[data-test='session']")).toHaveLength(1);
     });
 
-    describe("in the 15 free days", () => {
+    describe("in the free year", () => {
       it("says what is free and what the trial is, with the Store's price", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        planning({ state: "trial", until: Date.now() + 365 * DAY - 5 });
         const wrapper = await settings();
-        expect(note(wrapper).text()).toBe(en.premium.trialNote.replace("{price}", "0,99 €"));
+        expect(note(wrapper).text()).toBe(
+          "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 1-year free trial, then 0,99 € a year.",
+        );
+      });
+
+      it("says what the trial is without an amount when the Store gives no price", async () => {
+        planning({ state: "trial", until: Date.now() + 365 * DAY - 5 }, null);
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(
+          "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 1-year free trial, then a yearly subscription.",
+        );
       });
 
       it("counts the days left as every screen does, on both rows", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        planning({ state: "trial", until: Date.now() + 365 * DAY - 5 });
         const wrapper = await settings();
-        const days = en.premium.daysLeft.replace("{days}", "15");
+        const days = en.premium.daysLeft.replace("{days}", "365");
         expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
         expect(sessions(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
         expect(tools(wrapper).find("[data-test='premium-badge']").attributes("color")).toBe("primary");
       });
 
       it("opens the tools and the PIN pad", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY });
+        planning({ state: "trial", until: Date.now() + 365 * DAY });
         const wrapper = await settings();
         expect(tools(wrapper).text()).toContain(en.premium.tools);
         expect(sessions(wrapper).text()).toContain(en.premium.sessions);
@@ -509,7 +519,7 @@ describe("SettingsPage", () => {
       });
 
       it("asks for nothing", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY });
+        planning({ state: "trial", until: Date.now() + 365 * DAY });
         const wrapper = await settings();
         expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
         expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
@@ -734,7 +744,7 @@ describe("SettingsPage", () => {
       vi.setSystemTime(new Date("2026-03-02T10:00:00Z"));
       try {
         for (const state of ["trial", "limited", "subscribed"]) {
-          planning({ state, until: Date.now() + 15 * DAY });
+          planning({ state, until: Date.now() + 365 * DAY });
           const wrapper = await settings();
           expect(section(wrapper).text(), state).not.toMatch(/\b21\b|under|minor|birth/i);
           expect(wrapper.find("[data-test='young']").exists()).toBe(false);
@@ -768,7 +778,7 @@ describe("SettingsPage", () => {
     });
 
     it("stays where it is when nothing asks for the section", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const wrapper = await settings();
       const scrolled = scrollArea(wrapper);
       await entered(wrapper);

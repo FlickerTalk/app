@@ -110,7 +110,7 @@ async fn the_free_days_are_over(core: &Core) {
 }
 
 async fn the_free_days_end_in(core: &Core, ms: i64) {
-    let installed = now() - 15 * DAY + ms;
+    let installed = now() - 365 * DAY + ms;
     core.store().set_setting("installed_at", &installed.to_string()).await.expect("sets");
 }
 

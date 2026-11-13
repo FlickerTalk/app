@@ -386,8 +386,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Czat, połączenia, pliki i gry są darmowe. Narzędzia i sesje z PIN-em to Premium: 15 dni próbnych, potem {price} rocznie.",
-    "trialNoteYearly": "Czat, połączenia, pliki i gry są darmowe. Narzędzia i sesje z PIN-em to Premium: 15 dni próbnych, potem w ramach subskrypcji rocznej.",
+    "trialNote": "Czat, połączenia, pliki i gry są darmowe. Narzędzia i sesje z PIN-em to Premium: roczny bezpłatny okres próbny, potem {price} rocznie.",
+    "trialNoteYearly": "Czat, połączenia, pliki i gry są darmowe. Narzędzia i sesje z PIN-em to Premium: roczny bezpłatny okres próbny, potem w ramach subskrypcji rocznej.",
     "limitedNote": "Narzędzia i sesje z PIN-em za {price} rocznie. Czat, połączenia, pliki i gry pozostają darmowe.",
     "limitedNoteYearly": "Narzędzia i sesje z PIN-em w ramach subskrypcji rocznej. Czat, połączenia, pliki i gry pozostają darmowe.",
     "subscribe": "Subskrybuj · {price} rocznie",
@@ -562,7 +562,7 @@
       },
       "apps": {
         "title": "Narzędzia i gry",
-        "body": "Na karcie „{apps}” są narzędzia i gry stworzone i sprawdzone przez FlickerTalk. Narzędzia są darmowe przez 15 dni, potem wchodzą w skład subskrypcji rocznej."
+        "body": "Na karcie „{apps}” są narzędzia i gry stworzone i sprawdzone przez FlickerTalk. Narzędzia są darmowe przez pierwszy rok, potem wchodzą w skład subskrypcji rocznej."
       },
       "safety": {
         "title": "Blokowanie i zgłaszanie",

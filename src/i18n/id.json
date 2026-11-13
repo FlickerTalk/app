@@ -386,8 +386,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, panggilan, file, dan game gratis. Alat dan sesi dengan PIN termasuk Premium: uji coba 15 hari, lalu {price} per tahun.",
-    "trialNoteYearly": "Chat, panggilan, file, dan game gratis. Alat dan sesi dengan PIN termasuk Premium: uji coba 15 hari, lalu dengan langganan tahunan.",
+    "trialNote": "Chat, panggilan, file, dan game gratis. Alat dan sesi dengan PIN termasuk Premium: uji coba gratis 1 tahun, lalu {price} per tahun.",
+    "trialNoteYearly": "Chat, panggilan, file, dan game gratis. Alat dan sesi dengan PIN termasuk Premium: uji coba gratis 1 tahun, lalu dengan langganan tahunan.",
     "limitedNote": "Alat dan sesi dengan PIN seharga {price} per tahun. Chat, panggilan, file, dan game tetap gratis.",
     "limitedNoteYearly": "Alat dan sesi dengan PIN dengan langganan tahunan. Chat, panggilan, file, dan game tetap gratis.",
     "subscribe": "Berlangganan · {price} per tahun",
@@ -562,7 +562,7 @@
       },
       "apps": {
         "title": "Alat dan game",
-        "body": "Tab {apps} berisi alat dan game yang dibuat dan ditinjau oleh FlickerTalk. Alat gratis selama 15 hari, lalu menjadi bagian dari langganan tahunan."
+        "body": "Tab {apps} berisi alat dan game yang dibuat dan ditinjau oleh FlickerTalk. Alat gratis selama tahun pertama, lalu menjadi bagian dari langganan tahunan."
       },
       "safety": {
         "title": "Blokir dan laporkan",

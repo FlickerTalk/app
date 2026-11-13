@@ -386,8 +386,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Sohbet, aramalar, dosyalar ve oyunlar ücretsiz. Araçlar ve PIN'li oturumlar Premium kapsamında: 15 gün deneme, sonra yıllık {price}.",
-    "trialNoteYearly": "Sohbet, aramalar, dosyalar ve oyunlar ücretsiz. Araçlar ve PIN'li oturumlar Premium kapsamında: 15 gün deneme, sonra yıllık abonelikle.",
+    "trialNote": "Sohbet, aramalar, dosyalar ve oyunlar ücretsiz. Araçlar ve PIN'li oturumlar Premium kapsamında: 1 yıl ücretsiz deneme, sonra yıllık {price}.",
+    "trialNoteYearly": "Sohbet, aramalar, dosyalar ve oyunlar ücretsiz. Araçlar ve PIN'li oturumlar Premium kapsamında: 1 yıl ücretsiz deneme, sonra yıllık abonelikle.",
     "limitedNote": "Araçlar ve PIN'li oturumlar yıllık {price}. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
     "limitedNoteYearly": "Araçlar ve PIN'li oturumlar yıllık abonelikle. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
     "subscribe": "Abone ol · yıllık {price}",
@@ -562,7 +562,7 @@
       },
       "apps": {
         "title": "Araçlar ve oyunlar",
-        "body": "{apps} sekmesinde FlickerTalk'un yaptığı ve incelediği araçlar ve oyunlar var. Araçlar 15 gün ücretsizdir, sonra yıllık aboneliğe dahildir."
+        "body": "{apps} sekmesinde FlickerTalk'un yaptığı ve incelediği araçlar ve oyunlar var. Araçlar ilk yıl ücretsizdir, sonra yıllık aboneliğe dahildir."
       },
       "safety": {
         "title": "Engelleme ve şikâyet",

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-pub const FREE_PERIOD: Duration = Duration::from_secs(15 * 24 * 60 * 60);
+pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 60 * 60);
 
 // the Store can renew at period end without telling the open app, so a passed date counts this long
 pub const GRACE_MS: i64 = 3 * 24 * 60 * 60 * 1000;
@@ -132,8 +132,8 @@ mod tests {
     }
 
     #[test]
-    fn the_free_period_is_fifteen_days() {
-        assert_eq!(FREE_PERIOD.as_secs(), 15 * 24 * 60 * 60);
+    fn the_free_period_is_a_year() {
+        assert_eq!(FREE_PERIOD.as_secs(), 365 * 24 * 60 * 60);
     }
 
     #[test]
