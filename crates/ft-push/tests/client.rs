@@ -12,7 +12,7 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 use ft_identity::Identity;
-use ft_push::{canonical, Feedback, MailboxRejected, RouterClient, RouterEvent, Signalled, Signer};
+use ft_push::{canonical, CallRule, CallerRule, Feedback, MailboxRejected, RouterClient, RouterEvent, Signalled, Signer};
 use serde_json::{json, Value};
 
 struct Device(Mutex<Identity>);
@@ -44,6 +44,14 @@ struct Seen {
     registration: Mutex<Option<Value>>,
     feedback: Mutex<Vec<Value>>,
     feedback_answer: Mutex<Option<StatusCode>>,
+    signals: Mutex<Vec<SignalSeen>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SignalSeen {
+    call: bool,
+    device: Option<String>,
+    signed: bool,
 }
 
 fn check(key: &[u8; 32], method: &str, path: &str, headers: &HeaderMap, body: &[u8]) -> bool {
@@ -88,7 +96,13 @@ async fn fake_router() -> (String, Arc<Seen>) {
         )
         .route(
             "/v1/signal/{to}",
-            post(|Path(to): Path<String>, headers: HeaderMap| async move {
+            post(|State(seen): State<Arc<Seen>>, Path(to): Path<String>, headers: HeaderMap, body: Bytes| async move {
+                let key = *seen.key.lock().unwrap();
+                seen.signals.lock().unwrap().push(SignalSeen {
+                    call: headers.get("ft-call").is_some_and(|value| value == "1"),
+                    device: headers.get("ft-device").and_then(|value| value.to_str().ok()).map(str::to_owned),
+                    signed: key.is_some_and(|key| check(&key, "POST", &format!("/v1/signal/{to}"), &headers, &body)),
+                });
                 match (to.as_str(), headers.get("ft-capability").is_some()) {
                     ("ft_online", true) => StatusCode::ACCEPTED.into_response(),
                     ("ft_sleeping", true) => (StatusCode::NOT_FOUND, [("ft-retained", "1")]).into_response(),
@@ -138,7 +152,7 @@ async fn fake_router() -> (String, Arc<Seen>) {
 async fn registration_is_signed_so_the_router_accepts_it() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight(), 0).await.expect("registers");
+    client.register(&eight(), 0, &[]).await.expect("registers");
     assert_eq!(seen.verified.lock().unwrap().as_slice(), ["register"]);
 }
 
@@ -150,7 +164,7 @@ fn eight() -> [[u8; 32]; 8] {
 async fn registration_hands_over_eight_capabilities() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight(), 0).await.expect("registers");
+    client.register(&eight(), 0, &[]).await.expect("registers");
     let registration = seen.registration.lock().unwrap().clone().expect("registered");
     let hashes = registration["capability_hashes"].as_array().expect("a list").clone();
     assert_eq!(hashes.len(), 8);
@@ -162,11 +176,11 @@ async fn registration_hands_over_eight_capabilities() {
 async fn registration_says_which_slots_are_silent() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight(), 0b1010_0100).await.expect("registers");
+    client.register(&eight(), 0b1010_0100, &[]).await.expect("registers");
     let registration = seen.registration.lock().unwrap().clone().expect("registered");
     assert_eq!(registration["silent_slots"], json!(0b1010_0100));
 
-    client.register(&eight(), 0).await.expect("registers again");
+    client.register(&eight(), 0, &[]).await.expect("registers again");
     let registration = seen.registration.lock().unwrap().clone().expect("registered");
     assert_eq!(registration["silent_slots"], json!(0), "nothing silent is said too");
 }
@@ -175,16 +189,80 @@ async fn registration_says_which_slots_are_silent() {
 async fn the_main_list_is_never_registered_as_silent() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight(), 0b1111_1111).await.expect("registers");
+    client.register(&eight(), 0b1111_1111, &[]).await.expect("registers");
     let registration = seen.registration.lock().unwrap().clone().expect("registered");
     assert_eq!(registration["silent_slots"], json!(0b1111_1110));
+}
+
+#[tokio::test]
+async fn registration_hands_over_the_call_rules() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    let rules = [CallerRule { caller: [3; 32], rule: CallRule::None }, CallerRule { caller: [4; 32], rule: CallRule::Quiet }];
+    client.register(&eight(), 0, &rules).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(
+        registration["call_rules"],
+        json!([
+            { "caller": STANDARD_NO_PAD.encode([3u8; 32]), "rule": "none" },
+            { "caller": STANDARD_NO_PAD.encode([4u8; 32]), "rule": "quiet" },
+        ])
+    );
+}
+
+#[tokio::test]
+async fn registration_without_call_rules_still_replaces_the_list() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0, &[]).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    assert_eq!(registration["call_rules"], json!([]));
+}
+
+#[tokio::test]
+async fn at_most_1024_call_rules_go_and_none_rules_go_first() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    let caller = |index: usize| {
+        let mut caller = [0u8; 32];
+        caller[..2].copy_from_slice(&(index as u16).to_be_bytes());
+        caller
+    };
+    let mut rules: Vec<CallerRule> = (0..1000).map(|index| CallerRule { caller: caller(index), rule: CallRule::Quiet }).collect();
+    rules.extend((1000..1100).map(|index| CallerRule { caller: caller(index), rule: CallRule::None }));
+    client.register(&eight(), 0, &rules).await.expect("registers");
+    let registration = seen.registration.lock().unwrap().clone().expect("registered");
+    let sent = registration["call_rules"].as_array().expect("a list").clone();
+    assert_eq!(sent.len(), ft_push::MAX_CALL_RULES);
+    assert_eq!(ft_push::MAX_CALL_RULES, 1024);
+    let refused: Vec<&Value> = sent.iter().filter(|rule| rule["rule"] == "none").collect();
+    assert_eq!(refused.len(), 100);
+    for index in 1000..1100 {
+        assert!(refused.iter().any(|rule| rule["caller"] == STANDARD_NO_PAD.encode(caller(index))), "caller {index} is kept");
+    }
+}
+
+#[tokio::test]
+async fn a_call_is_signed_and_a_plain_signal_is_not() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0, &[]).await.expect("registers");
+    client.signal("ft_away", &[1; 32], b"offer".to_vec()).await.expect("answers");
+    client.signal_call("ft_away", &[1; 32], b"call offer".to_vec()).await.expect("answers");
+    assert_eq!(
+        *seen.signals.lock().unwrap(),
+        [
+            SignalSeen { call: false, device: None, signed: false },
+            SignalSeen { call: true, device: Some(client.device_id()), signed: true },
+        ]
+    );
 }
 
 #[tokio::test]
 async fn the_push_token_is_left_signed() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight(), 0).await.expect("registers");
+    client.register(&eight(), 0, &[]).await.expect("registers");
     client.set_push("fcm", "fcm-token-1").await.expect("leaves the token");
     assert_eq!(seen.push.lock().unwrap().as_slice(), [json!({ "provider": "fcm", "token": "fcm-token-1" })]);
 }
@@ -236,7 +314,7 @@ async fn only_a_refused_recipient_is_a_rejection() {
 async fn a_suggestion_goes_signed_with_the_text_the_version_and_the_platform() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight(), 0).await.expect("registers");
+    client.register(&eight(), 0, &[]).await.expect("registers");
     assert_eq!(client.feedback("Dark mode for the map, please", "1.3.0", "android").await, Feedback::Sent);
     assert_eq!(
         seen.feedback.lock().unwrap().as_slice(),
@@ -248,7 +326,7 @@ async fn a_suggestion_goes_signed_with_the_text_the_version_and_the_platform() {
 async fn a_suggestion_tells_sent_too_many_and_failed_apart() {
     let (base, seen) = fake_router().await;
     let client = RouterClient::new(&base, device()).expect("client");
-    client.register(&eight(), 0).await.expect("registers");
+    client.register(&eight(), 0, &[]).await.expect("registers");
     for (answer, outcome) in [
         (StatusCode::NO_CONTENT, Feedback::Sent),
         (StatusCode::TOO_MANY_REQUESTS, Feedback::TooMany),
@@ -271,8 +349,8 @@ async fn two_devices_meet_on_the_live_router() {
     let base = "https://api.flickertalk.com";
     let (alice, bob) = (RouterClient::new(base, device()).unwrap(), Arc::new(RouterClient::new(base, device()).unwrap()));
     let bob_capability = [7u8; 32];
-    alice.register(&[[8; 32]; 8], 0).await.expect("alice registers");
-    bob.register(&[*blake3::hash(&bob_capability).as_bytes(); 8], 0).await.expect("bob registers");
+    alice.register(&[[8; 32]; 8], 0, &[]).await.expect("alice registers");
+    bob.register(&[*blake3::hash(&bob_capability).as_bytes(); 8], 0, &[]).await.expect("bob registers");
 
     let mut events = bob.listen();
     let Some(RouterEvent::Connected { stun, turn }) = events.recv().await else { panic!("a welcome") };
@@ -452,7 +530,7 @@ async fn a_closed_client_lets_its_socket_go_and_asks_nothing_more() {
     client.reconnect_now();
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1, "never opened again");
-    assert!(client.register(&eight(), 0).await.is_err());
+    assert!(client.register(&eight(), 0, &[]).await.is_err());
     assert_eq!(registered.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reaches the router");
 }
 

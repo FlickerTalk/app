@@ -90,16 +90,24 @@ class PushCoreTest {
 
     @Test
     fun thePushsCallIsShownAsTheCallerAndTheHoursSay() {
-        assertEquals(PushRing.QUIET, pushRing(muted = true, mayDisturb = true, answered = false, leftMs = 30_000))
-        assertEquals(PushRing.QUIET, pushRing(muted = false, mayDisturb = false, answered = false, leftMs = 30_000))
-        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = true, leftMs = 30_000))
-        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 0))
-        assertEquals(PushRing.NONE, pushRing(muted = true, mayDisturb = false, answered = true, leftMs = 30_000))
+        assertEquals(PushRing.QUIET, pushRing(muted = true, mayDisturb = true, answered = false, leftMs = 30_000, startedQuiet = false))
+        assertEquals(PushRing.QUIET, pushRing(muted = false, mayDisturb = false, answered = false, leftMs = 30_000, startedQuiet = false))
+        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = true, leftMs = 30_000, startedQuiet = false))
+        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 0, startedQuiet = false))
+        assertEquals(PushRing.NONE, pushRing(muted = true, mayDisturb = false, answered = true, leftMs = 30_000, startedQuiet = false))
+    }
+
+    @Test
+    fun aCallThatStartedQuietStaysQuietOnceTheCallerIsKnown() {
+        assertEquals(PushRing.QUIET, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 30_000, startedQuiet = true))
+        assertEquals(PushRing.QUIET, pushRing(muted = true, mayDisturb = true, answered = false, leftMs = 30_000, startedQuiet = true))
+        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = true, leftMs = 30_000, startedQuiet = true))
+        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 0, startedQuiet = true))
     }
 
     @Test
     fun aNormalCallersRingingNotificationIsLeftAlone() {
-        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 30_000))
+        assertEquals(PushRing.NONE, pushRing(muted = false, mayDisturb = true, answered = false, leftMs = 30_000, startedQuiet = false))
     }
 
     @Test

@@ -196,6 +196,19 @@ async fn a_circle_reaches_everyone_and_members_meet_through_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_member_met_only_through_a_circle_is_registered_as_unable_to_call() {
+    let net = Net::new();
+    let (alice, bob, carol) = three(&net).await;
+    let mut changes = bob.registration_changes();
+    changes.borrow_and_update();
+    friends(&alice, &bob, &carol).await;
+
+    assert!(changes.has_changed().unwrap());
+    let tag = ft_push::caller_tag(bob.my_card().await.unwrap().route_capability().as_bytes(), &id(&carol));
+    assert!(bob.call_rules().await.unwrap().contains(&ft_push::CallerRule { caller: tag, rule: ft_push::CallRule::None }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_text_queued_in_a_circle_is_there_at_once_and_goes_to_everyone() {
     let net = Net::new();
     let (alice, bob, carol) = three(&net).await;

@@ -26,9 +26,9 @@ fun callEventJson(event: CallEvent): String = JSONObject(callEventPayload(event)
 enum class PushRing { NONE, QUIET }
 
 // Don't post the caller's name over a ringing notification, it stopped the ringtone on a Samsung (Android 13).
-fun pushRing(muted: Boolean, mayDisturb: Boolean, answered: Boolean, leftMs: Long): PushRing = when {
+fun pushRing(muted: Boolean, mayDisturb: Boolean, answered: Boolean, leftMs: Long, startedQuiet: Boolean): PushRing = when {
     answered || leftMs <= 0 -> PushRing.NONE
-    muted || !mayDisturb -> PushRing.QUIET
+    muted || !mayDisturb || startedQuiet -> PushRing.QUIET
     else -> PushRing.NONE
 }
 
@@ -51,17 +51,21 @@ object IncomingCall {
         private set
     @Volatile
     var answered = false
+    @Volatile
+    var startedQuiet = false
+        private set
     // a late end from an older push must leave a newer one alone
     @Volatile
     private var generation = 0
     private var service: FtIncomingCallService? = null
     private val main by lazy { Handler(Looper.getMainLooper()) }
 
-    fun ring(context: Context, notification: Notification, timeoutMs: Long) {
+    fun ring(context: Context, notification: Notification, timeoutMs: Long, startedQuiet: Boolean) {
         this.notification = notification
         deadline = System.currentTimeMillis() + timeoutMs
         showing = true
         answered = false
+        this.startedQuiet = startedQuiet
         generation += 1
         try {
             ContextCompat.startForegroundService(context, Intent(context, FtIncomingCallService::class.java))
@@ -203,7 +207,7 @@ object PushCore {
         InCall.ringingName = caller
         CallRinger.coreRinging = true
         val left = IncomingCall.left(System.currentTimeMillis())
-        val shown = pushRing(muted, mayDisturbNow(context), IncomingCall.answered, left)
+        val shown = pushRing(muted, mayDisturbNow(context), IncomingCall.answered, left, IncomingCall.startedQuiet)
         pushLog(context, "caller known: " + shown.name.lowercase())
         if (shown == PushRing.NONE) return
         val title = callTitle(caller) ?: context.getString(R.string.ft_someone)

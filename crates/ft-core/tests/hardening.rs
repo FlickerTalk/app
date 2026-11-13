@@ -680,6 +680,21 @@ async fn a_stranger_waits_in_requests_until_accepted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_stranger_who_writes_first_is_registered_as_unable_to_call() {
+    let net = Net::new();
+    let (alice, mallory) = (device(&net, "Alice").await, device(&net, "Mallory").await);
+    let mut changes = alice.registration_changes();
+    changes.borrow_and_update();
+    let link = alice.my_card().await.expect("card").to_link();
+    mallory.add_contact(&link, None).await.expect("adds");
+    until("alice has the request", || async { alice.requests().await.unwrap().len() == 1 }).await;
+
+    assert!(changes.has_changed().unwrap());
+    let tag = ft_push::caller_tag(alice.my_card().await.unwrap().route_capability().as_bytes(), &id(&mallory));
+    assert_eq!(alice.call_rules().await.unwrap(), [ft_push::CallerRule { caller: tag, rule: ft_push::CallRule::None }]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_declined_stranger_is_blocked_and_gone_from_requests() {
     let net = Net::new();
     let (alice, mallory) = (device(&net, "Alice").await, device(&net, "Mallory").await);

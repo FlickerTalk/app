@@ -90,7 +90,7 @@ class FtMessagingService : FirebaseMessagingService() {
             ringing = push == CallPush.RING,
             timeoutMs = left,
         ) ?: return
-        IncomingCall.ring(this, notification, left)
+        IncomingCall.ring(this, notification, left, startedQuiet = push == CallPush.SILENT)
         pushLog(this, if (push == CallPush.RING) "call push: ringing" else "call push: quiet")
         PushCore.start(this)
     }
@@ -100,12 +100,15 @@ class FtMessagingService : FirebaseMessagingService() {
 
 fun isCall(data: Map<String, String>): Boolean = data["t"] == "call"
 
+// the router marks a call from a contact the user muted, without saying who
+fun isQuietCall(data: Map<String, String>): Boolean = data["q"] == "1"
+
 enum class CallPush { IGNORE, RING, SILENT }
 
 fun callPush(data: Map<String, String>, open: Set<Int>, appOnScreen: Boolean, mayDisturb: Boolean): CallPush = when {
     !isCall(data) || !wakeIsHeard(data["s"], open) -> CallPush.IGNORE
     appOnScreen -> CallPush.IGNORE
-    !mayDisturb -> CallPush.SILENT
+    !mayDisturb || isQuietCall(data) -> CallPush.SILENT
     else -> CallPush.RING
 }
 

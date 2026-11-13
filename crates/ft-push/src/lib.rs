@@ -1,5 +1,5 @@
 //! Anything addressed to another device carries its route capability, never our identity, so the
-//! router can't tell who sent it.
+//! router can't tell who sent it. Calls are the one exception: they are signed.
 
 use std::sync::{Arc, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -46,6 +46,35 @@ pub trait Signer: Send + Sync {
 
 pub fn canonical(method: &str, path: &str, time_ms: i64, nonce: &str, body: &[u8]) -> Vec<u8> {
     format!("FT1\n{method}\n{path}\n{time_ms}\n{nonce}\n{}", blake3::hash(body).to_hex()).into_bytes()
+}
+
+pub const MAX_CALL_RULES: usize = 1024;
+
+// The router derives the same tag from the capability the caller presents and the signed caller id,
+// so it can match a caller without the list naming anyone
+pub fn caller_tag(capability: &[u8; 32], caller: &str) -> [u8; 32] {
+    *blake3::keyed_hash(capability, format!("ft-call-rule\n{caller}").as_bytes()).as_bytes()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallRule {
+    Quiet,
+    None,
+}
+
+impl CallRule {
+    fn word(self) -> &'static str {
+        match self {
+            CallRule::Quiet => "quiet",
+            CallRule::None => "none",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CallerRule {
+    pub caller: [u8; 32],
+    pub rule: CallRule,
 }
 
 pub fn websocket_base(base: &str) -> String {
@@ -256,13 +285,16 @@ impl RouterClient {
     }
 
     // bit i of silent_slots mutes pushes for slot i, bit 0 is the main list and never muted
-    pub async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8) -> Result<()> {
+    pub async fn register(&self, capability_hashes: &[[u8; 32]; 8], silent_slots: u8, call_rules: &[CallerRule]) -> Result<()> {
         let hashes: Vec<String> = capability_hashes.iter().map(|hash| encode(hash)).collect();
+        let none_first = call_rules.iter().filter(|rule| rule.rule == CallRule::None).chain(call_rules.iter().filter(|rule| rule.rule != CallRule::None));
+        let rules: Vec<_> = none_first.take(MAX_CALL_RULES).map(|rule| json!({ "caller": encode(&rule.caller), "rule": rule.rule.word() })).collect();
         let body = json!({
             "signing_key": self.signer.signing_key().await,
             "capability_hash": hashes[0],
             "capability_hashes": hashes,
             "silent_slots": silent_slots & !1,
+            "call_rules": rules,
         });
         expect(self.signed(Method::POST, "/v1/device/register", serde_json::to_vec(&body)?).await?, StatusCode::NO_CONTENT)
     }
@@ -288,15 +320,20 @@ impl RouterClient {
         self.signal_as(to, capability, bytes, false).await
     }
 
-    // the router only learns that it's a call
+    // Signed so the router can apply the recipient's call rules, which tells it who calls whom.
+    // It still doesn't learn whether it's voice or video
     pub async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
         self.signal_as(to, capability, bytes, true).await
     }
 
     async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<Signalled> {
-        let mut request = self.http.post(format!("{}/v1/signal/{to}", self.base)).header("ft-capability", encode(capability));
+        let path = format!("/v1/signal/{to}");
+        let mut request = self.http.post(format!("{}{path}", self.base)).header("ft-capability", encode(capability));
         if call {
             request = request.header("ft-call", "1");
+            for (name, value) in self.signed_headers("POST", &path, &bytes).await {
+                request = request.header(name, value);
+            }
         }
         let response = self.send(request.body(bytes)).await?;
         let retained = response.headers().get("ft-retained").is_some_and(|value| value == "1");
@@ -482,6 +519,19 @@ mod tests {
     fn the_signed_text_is_pinned() {
         let expected = format!("FT1\nPOST\n/v1/mailbox/ft_x\n1700000000000\nn1\n{}", blake3::hash(b"blob").to_hex());
         assert_eq!(canonical("POST", "/v1/mailbox/ft_x", 1_700_000_000_000, "n1", b"blob"), expected.as_bytes());
+    }
+
+    #[test]
+    fn the_caller_tag_is_pinned() {
+        let tag = caller_tag(&[2; 32], "ft_caller");
+        assert_eq!(blake3::Hash::from_bytes(tag).to_hex().as_str(), "4470c37775236bc8cfd32b4f18c2d6fc272e3de23a86fb8a12cc88916cfa28a0");
+    }
+
+    #[test]
+    fn the_caller_tag_depends_on_the_capability_and_the_caller() {
+        let tag = caller_tag(&[2; 32], "ft_caller");
+        assert_ne!(caller_tag(&[3; 32], "ft_caller"), tag);
+        assert_ne!(caller_tag(&[2; 32], "ft_other"), tag);
     }
 
     #[test]
