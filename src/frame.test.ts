@@ -68,6 +68,19 @@ describe("the frame", () => {
     expect(opened[1]).not.toHaveProperty("presenting");
   });
 
+  it("tells a game it plays alone only when the app says exactly that", async () => {
+    const opened: Said[] = [];
+    const { says, ran } = await frame(() => ft().onOpen((one) => opened.push(one)));
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    await ran;
+    await says({ type: "ft.open", live: false, solo: true, chat: "c".repeat(43) });
+    await says({ type: "ft.open", live: false, solo: "yes" });
+    await says({ type: "ft.open", live: true });
+    expect(opened[0]).toMatchObject({ live: false, solo: true, chat: "c".repeat(43) });
+    expect(opened[1]).not.toHaveProperty("solo");
+    expect(opened[2]).not.toHaveProperty("solo");
+  });
+
   const dark = {
     "--ion-background-color": "#000000",
     "--ion-text-color": "#f5f5f5",

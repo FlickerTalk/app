@@ -2050,6 +2050,22 @@ describe("ChatThread", () => {
       expect(sheet.props("contact")).toBe("c1");
     });
 
+    it("plays a game in the FlickerTalk conversation too, though it is never connected", async () => {
+      store.chats.push({ ...store.chats[0], id: "ft_support", name: "FlickerTalk", connected: false, messages: [] });
+      store.supportId = "ft_support";
+      try {
+        bridge({ installed: [CHESS] });
+        const wrapper = await thread({ chatId: "ft_support" });
+        await openGames(wrapper);
+        await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+        await flushPromises();
+        expect(wrapper.find("[data-test='game-room']").exists()).toBe(true);
+        expect(wrapper.findComponent({ name: "PluginSheet" }).props()).toMatchObject({ plugin: { id: CHESS.id }, contact: "ft_support" });
+      } finally {
+        store.supportId = "";
+      }
+    });
+
     it("plays a game when the tools are locked", async () => {
       bridge({ installed: [CODE, CHESS] });
       const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;

@@ -75,6 +75,7 @@ import {
 } from "../plugins";
 import { hostOf, missingPermission, permissionsOf, withPermission, type PermissionNeed } from "../permissions";
 import { offerExactAlarms } from "../exact-alarms";
+import { playsAlone } from "../games";
 import { pluginTheme } from "../theme";
 import type { ContactAsk, Proposal } from "../pending-send";
 
@@ -180,13 +181,11 @@ async function onMessage(event: MessageEvent) {
     const contact = props.contact || (await pickContact());
     if (!contact) return;
     await busy(async () => {
-      try {
-        const made = await pluginMade(props.plugin.id, contact, said.name, said.mime, said.data);
-        if (!props.contact) return emit("sendTo", contact, made.staged ? { kind: "file", file: made.staged } : null);
-        if (made.staged) emit("attach", made.staged);
-        emit("done");
-      } catch {
-      }
+      const made = await pluginMade(props.plugin.id, contact, said.name, said.mime, said.data).catch(() => null);
+      if (!made) return;
+      if (!props.contact) return emit("sendTo", contact, made.staged ? { kind: "file", file: made.staged } : null);
+      if (made.staged) emit("attach", made.staged);
+      emit("done");
     });
   } else if (said.type === "ft.text") {
     if (!(await mayWrite())) return;
@@ -369,7 +368,7 @@ function opening() {
     file: props.file ? { name: props.file.name, mime: props.file.mime, data: props.file.data } : null,
     ref: props.reference ?? null,
     reminder: props.reminder ?? null,
-    live: Boolean(props.live && props.contact),
+    ...(solo.value ? { live: false, solo: true } : { live: Boolean(props.live && props.contact) }),
     ...(props.presenting ? { presenting: props.presenting } : {}),
     ...(props.hook ? { hook: props.hook } : {}),
   };
@@ -409,7 +408,7 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
       else if (said.type === "ft.remindSet") await remindSet(id, said.reminder, said.at, said.text, session);
       else if (said.type === "ft.remindCancel") value = await remindCancel(id, said.reminder, session);
       else if (said.type === "ft.remindList") value = await remindList(id, session);
-      else if (said.type === "ft.liveSend") value = live.value && props.contact ? await pluginLiveSend(id, props.contact, said.data) : false;
+      else if (said.type === "ft.liveSend") value = live.value && props.contact && !solo.value ? await pluginLiveSend(id, props.contact, said.data) : false;
       else if (said.type === "ft.openChat") {
         const target = await pluginOpenChat(id, said.ref, session);
         if (target) emit("openChat", target.contact);
@@ -448,6 +447,7 @@ function refusal(said: { type: string }): null | false | [] | "unsupported" {
 
 const sending = ref<Sending>(props.sending);
 const live = ref(props.live);
+const solo = computed(() => playsAlone(installed.value.find((one) => one.id === props.plugin.id), props.contact));
 watch(
   () => props.sending,
   (now) => (sending.value = now),
@@ -476,7 +476,7 @@ async function needed(said: Extract<FrameMessage, { id: string }>): Promise<stri
     case "ft.remindSet":
       return ["remind"];
     case "ft.liveSend":
-      return props.contact && !live.value ? ["live"] : [];
+      return props.contact && !live.value && !solo.value ? ["live"] : [];
     case "ft.fetch": {
       const host = hostOf(said.url);
       return host ? [`network:${host}`] : [];
@@ -569,7 +569,6 @@ async function ask(key: string): Promise<boolean> {
   return true;
 }
 
-
 // the plugin sees names and sizes, never bytes, tokens or the code
 async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise<unknown> {
   const id = props.plugin.id;
@@ -647,7 +646,7 @@ async function drive(said: Extract<FrameMessage, { type: "ft.drive" }>): Promise
 
 // only this plugin and this conversation
 function onLive(event: PluginEvent) {
-  if (live.value && event.plugin === props.plugin.id && event.contact === props.contact) {
+  if (live.value && !solo.value && event.plugin === props.plugin.id && event.contact === props.contact) {
     tell({ type: "ft.live", data: event.data });
   }
 }

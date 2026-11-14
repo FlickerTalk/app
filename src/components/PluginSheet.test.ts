@@ -8,6 +8,19 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string, protocol: string) => `http://${protocol}.localhost/${path}`,
 }));
 
+type Heard = { name: string; handler: (event: { payload: unknown }) => void };
+const events = vi.hoisted(() => ({ heard: [] as Heard[] }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, handler: Heard["handler"]) => {
+    const one = { name, handler };
+    events.heard.push(one);
+    return () => void events.heard.splice(events.heard.indexOf(one), 1);
+  },
+}));
+const fromCore = (payload: unknown) => {
+  for (const one of events.heard.filter(({ name }) => name === "ft://plugin")) one.handler({ payload });
+};
+
 const toast = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
 const alert = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
 const platforms = vi.hoisted(() => ({ on: [] as string[] }));
@@ -22,7 +35,7 @@ import PluginSheet from "./PluginSheet.vue";
 import source from "./PluginSheet.vue?raw";
 import { setLocale } from "../i18n";
 import { CLOSING_WAIT, NOTICE_DURATION, installed } from "../plugins";
-import type { PluginView, Sending } from "../core";
+import { store, type PluginView, type Sending } from "../core";
 import type { PermissionNeed } from "../permissions";
 import type { ContactAsk } from "../pending-send";
 
@@ -40,6 +53,7 @@ function framed(wrapper: ReturnType<typeof mount>) {
 describe("PluginSheet", () => {
   beforeEach(() => {
     tauri.invoke.mockReset();
+    events.heard.length = 0;
     platforms.on = [];
     toast.create
       .mockReset()
@@ -406,6 +420,94 @@ describe("PluginSheet", () => {
     expect(other.post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: false }, "*");
   });
 
+  describe("a game opened with the FlickerTalk contact", () => {
+    const CHAT = "c".repeat(43);
+    const GAME: PluginView = {
+      id: "com.flickertalk.game.tictactoe",
+      name: "Tic-tac-toe",
+      version: "1.0.0",
+      kind: "game",
+      asks: { network: [], messages: false, send: "propose", live: true },
+      granted: { network: [], messages: false, send: "propose", live: true },
+      installedAt: 1,
+    };
+    const TOOL: PluginView = { ...GAME, id: plugin.id, name: plugin.name, kind: "tool" };
+    const game = { id: GAME.id, name: GAME.name };
+
+    beforeEach(() => {
+      store.supportId = "ft_support";
+      installed.value = [GAME, TOOL];
+      tauri.invoke.mockImplementation(async (command: string) => (command === "core_plugin_chat" ? CHAT : true));
+    });
+    afterEach(() => {
+      store.supportId = "";
+      installed.value = [];
+    });
+
+    async function open(props: { plugin: { id: string; name: string }; contact: string; live?: boolean }) {
+      const wrapper = mount(PluginSheet, { props: { live: true, ...props }, shallow: true });
+      await flushPromises();
+      const frame = framed(wrapper);
+      frame.says({ type: "ft.ready" });
+      await flushPromises();
+      const opening = frame.post.mock.calls.map(([message]) => message).find((message) => message.type === "ft.open");
+      return { wrapper, opening, ...frame };
+    }
+    const sentLive = () => tauri.invoke.mock.calls.filter(([command]) => command === "core_plugin_live_send");
+
+    it("tells the game it plays alone, with the live channel off and the chat's usual key", async () => {
+      const { opening } = await open({ plugin: game, contact: "ft_support" });
+      expect(opening).toMatchObject({ type: "ft.open", live: false, solo: true, chat: CHAT });
+    });
+
+    it("answers false to what the game sends live, without reaching the core or asking for the channel", async () => {
+      const { post, says } = await open({ plugin: game, contact: "ft_support" });
+      says({ type: "ft.liveSend", id: "q1", data: "AQID" });
+      await flushPromises();
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "q1", answer: false }, "*");
+
+      installed.value = [{ ...GAME, granted: { ...GAME.granted, live: false } }];
+      const ungranted = await open({ plugin: game, contact: "ft_support", live: false });
+      ungranted.says({ type: "ft.liveSend", id: "q2", data: "AQID" });
+      await flushPromises();
+      expect(ungranted.post).toHaveBeenCalledWith({ type: "ft.done", id: "q2", answer: false }, "*");
+      expect(ungranted.wrapper.emitted("needs")).toBeUndefined();
+      expect(sentLive()).toHaveLength(0);
+    });
+
+    it("hands the game nothing that arrives live from the FlickerTalk contact", async () => {
+      const { post } = await open({ plugin: game, contact: "ft_support" });
+      post.mockClear();
+      fromCore({ plugin: game.id, contact: "ft_support", data: "AQID" });
+      await flushPromises();
+      expect(post).not.toHaveBeenCalledWith(expect.objectContaining({ type: "ft.live" }), "*");
+    });
+
+    it("changes nothing for a tool in that conversation", async () => {
+      const { opening, post, says } = await open({ plugin, contact: "ft_support" });
+      expect(opening).toMatchObject({ live: true, chat: CHAT });
+      expect(opening).not.toHaveProperty("solo");
+      says({ type: "ft.liveSend", id: "q1", data: "AQID" });
+      await flushPromises();
+      expect(sentLive()).toEqual([["core_plugin_live_send", { plugin: plugin.id, contact: "ft_support", data: "AQID" }]]);
+      fromCore({ plugin: plugin.id, contact: "ft_support", data: "Ynll" });
+      expect(post).toHaveBeenCalledWith({ type: "ft.live", data: "Ynll" }, "*");
+    });
+
+    it("changes nothing for a game with anyone else", async () => {
+      const { opening, post, says } = await open({ plugin: game, contact: "ft_bob" });
+      expect(opening).toMatchObject({ live: true, chat: CHAT });
+      expect(opening).not.toHaveProperty("solo");
+      says({ type: "ft.liveSend", id: "q1", data: "AQID" });
+      await flushPromises();
+      expect(sentLive()).toEqual([["core_plugin_live_send", { plugin: game.id, contact: "ft_bob", data: "AQID" }]]);
+      fromCore({ plugin: game.id, contact: "ft_bob", data: "Ynll" });
+      fromCore({ plugin: game.id, contact: "ft_support", data: "AQID" });
+      expect(post).toHaveBeenCalledWith({ type: "ft.live", data: "Ynll" }, "*");
+      expect(post).not.toHaveBeenCalledWith({ type: "ft.live", data: "AQID" }, "*");
+    });
+  });
+
   it("asks the user for a file when the plugin wants one", async () => {
     tauri.invoke.mockImplementation((command: string) =>
       Promise.resolve(command === "core_pick_for_plugin" ? { name: "a.jpg", mime: "image/jpeg", data: "QUJD" } : undefined),
@@ -510,6 +612,20 @@ describe("PluginSheet", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", expect.objectContaining({ plugin: plugin.id }));
     expect(wrapper.emitted("attach")).toEqual([[staged]]);
     expect(tauri.invoke).not.toHaveBeenCalledWith("core_send_picked", expect.anything());
+  });
+
+  it("leaves the chat alone when the core refuses what the plugin made", async () => {
+    tauri.invoke.mockImplementation(async (command: string) => {
+      if (command === "core_plugin_made") throw "that plugin may not write in the chat";
+    });
+    const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", sending: "propose" }, shallow: true });
+    await flushPromises();
+    framed(wrapper).says({ type: "ft.made", name: "clean.jpg", mime: "image/jpeg", data: "QUJD" });
+    await flushPromises();
+    expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", expect.objectContaining({ plugin: plugin.id }));
+    expect(wrapper.emitted("attach")).toBeUndefined();
+    expect(wrapper.emitted("sendTo")).toBeUndefined();
+    expect(wrapper.emitted("done")).toBeUndefined();
   });
 
   it("answers the drive for a plugin granted it, never bytes, and stages what it sends", async () => {

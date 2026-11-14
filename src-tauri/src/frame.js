@@ -277,6 +277,7 @@ addEventListener("message", (event) => {
       ...(typeof said.chat === "string" ? { chat: said.chat } : {}),
       ...(lent ? { ionic: { version: lent } } : {}),
       ...(said.presenting === "lead" || said.presenting === "follow" ? { presenting: said.presenting } : {}),
+      ...(said.solo === true ? { solo: true } : {}),
       ...(HOOKS.includes(said.hook) ? { hook: said.hook } : {}),
     };
     for (const handler of opened) handler(opening);
