@@ -145,8 +145,8 @@ are the target platforms; desktop builds but is not published.
 What CI uses; other versions may work:
 
 - Node.js 22 and npm.
-- Rust 1.99.0, pinned in `rust-toolchain.toml`: rustup installs it on first use, with clippy and
-  the Android targets.
+- Rust 1.99.0, pinned in `rust-toolchain.toml`: rustup installs it on first use, with clippy,
+  rustfmt and the Android targets.
 - On Linux, for the Rust tests:
   `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev`.
 - Android: JDK 17, the Android SDK (API 36) and the Android NDK, with `ANDROID_HOME` and `NDK_HOME`
@@ -164,6 +164,11 @@ npm run test:e2e                  # the real UI against a fake core (Playwright)
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked   # Rust tests, no network
 ```
+
+Before opening a pull request, run `scripts/quality-check.sh`. It checks only the files your branch
+changes: Rust must be formatted with `cargo fmt`, TypeScript and Vue must pass ESLint, no function may
+run over 100 lines or nest blocks more than 5 deep, and a file outside the tests may not pass 500
+lines, nor grow if it already has more. `npm run lint` runs ESLint on everything, old code included.
 
 Tests that need the real network are `#[ignore]`. Those of the support contact (`crates/ft-support`,
 a peer without a screen that answers by itself) go through the live cluster, `api.flickertalk.com`
