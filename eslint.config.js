@@ -11,11 +11,19 @@ export default defineConfig(
   {
     files: ["**/*.vue"],
     languageOptions: { parserOptions: { parser: tseslint.parser } },
-    // TypeScript already checks names, and this rule does not know the browser globals.
-    rules: { "no-undef": "off" },
+    rules: {
+      // TypeScript already checks names, and this rule does not know the browser globals.
+      "no-undef": "off",
+      // Ionic components take the native slot attribute; the rule's autofix to v-slot breaks them.
+      "vue/no-deprecated-slot-attribute": "off",
+    },
   },
   {
     rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+      ],
       "max-lines-per-function": ["error", { max: 100, skipBlankLines: true, skipComments: true }],
       "max-depth": ["error", 5],
       "max-params": ["error", 7],
