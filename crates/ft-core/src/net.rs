@@ -50,6 +50,9 @@ pub trait Relay: Send + Sync {
         let delivered = if call { self.signal_call(to, capability, bytes).await? } else { self.signal(to, capability, bytes).await? };
         Ok(if delivered { Signalled::Delivered } else { Signalled::NotConnected })
     }
+    async fn signal_without_waking(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
+        self.signal_as(to, capability, bytes, false).await
+    }
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()>;
     async fn collect(&self) -> Result<Vec<(String, Vec<u8>)>>;
     async fn acknowledge(&self, id: &str) -> Result<()>;
@@ -74,6 +77,10 @@ impl Relay for RouterClient {
         } else {
             RouterClient::signal(self, to, capability, bytes).await
         }
+    }
+
+    async fn signal_without_waking(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
+        RouterClient::signal_without_waking(self, to, capability, bytes).await
     }
 
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> Result<()> {
@@ -104,6 +111,8 @@ enum Reach {
     // files, call answers and ends, plugins, none of which may go to the mailbox
     Direct,
     Fallback,
+    // a reconnection with nothing to deliver, which must not wake the other phone
+    IfAwake,
 }
 
 enum Attempt {
@@ -137,6 +146,7 @@ struct Retained {
     window: Instant,
     until: Instant,
     call: bool,
+    wakes: bool,
 }
 
 struct Ice {
@@ -458,8 +468,11 @@ impl Network {
                 if stored.blocked || core.silent(&stored) {
                     return;
                 }
+                let reach = if core.something_waits_for(&contact).await.unwrap_or(true) { Reach::Fallback } else { Reach::IfAwake };
                 if let Ok(peer) = core.peer(&contact).await {
-                    let _ = network.reach(&peer, true).await;
+                    if network.open_link(&contact).await.is_none() {
+                        let _ = network.reach_as(&peer, reach).await;
+                    }
                 }
             });
         }
@@ -492,16 +505,19 @@ impl Network {
 
     // A call never waits on an offer that wasn't sent as a call. An iPhone woken for that only shows
     // a notice without starting the app, so the call would never ring.
+    // Nor does anything that has to wake the other phone wait on an offer that woke nobody.
     async fn connect(&self, peer: &Peer, reach: Reach) -> Result<Attempt> {
         let call = reach == Reach::Call;
+        let wake = reach != Reach::IfAwake;
         if let Some(retained) = self.retained_offer(&peer.device_id).await {
-            if call && !retained.call && !retained.session.is_open() {
+            let weaker = (call && !retained.call) || (wake && !retained.wakes);
+            if weaker && !retained.session.is_open() {
                 self.drop_retained(&peer.device_id, &retained).await;
             } else {
                 let limit = match reach {
                     Reach::Call => CONNECT_WAIT,
                     Reach::Direct => retained.window.saturating_duration_since(Instant::now()),
-                    Reach::Fallback => Duration::ZERO,
+                    Reach::Fallback | Reach::IfAwake => Duration::ZERO,
                 };
                 return Ok(Attempt::Waiting(retained.session, limit));
             }
@@ -546,13 +562,17 @@ impl Network {
         self.pending.lock().await.insert(session_id.clone(), session.clone());
         // Sealed so only the recipient learns who sent it
         let wrapped = core.wrap_for(&peer.device_id, signal.encode()).await?;
-        let signalled = self.relay.signal_as(&peer.device_id, peer.capability.as_bytes(), wrapped, call).await;
+        let signalled = if wake {
+            self.relay.signal_as(&peer.device_id, peer.capability.as_bytes(), wrapped, call).await
+        } else {
+            self.relay.signal_without_waking(&peer.device_id, peer.capability.as_bytes(), wrapped).await
+        };
         if matches!(signalled, Ok(Signalled::Retained)) {
             if call {
                 core.mark_call_stage(CallStage::LinkOfferRetained);
             }
-            self.keep_retained(&peer.device_id, session_id, session.clone(), inbox, Instant::now(), call).await;
-            let limit = if reach == Reach::Fallback { Duration::ZERO } else { CONNECT_WAIT };
+            self.keep_retained(&peer.device_id, session_id, session.clone(), inbox, Instant::now(), reach).await;
+            let limit = if matches!(reach, Reach::Fallback | Reach::IfAwake) { Duration::ZERO } else { CONNECT_WAIT };
             return Ok(Attempt::Waiting(session, limit));
         }
         let opened = match signalled {
@@ -615,9 +635,10 @@ impl Network {
         retained.get(contact).filter(|retained| retained.until > Instant::now()).cloned()
     }
 
-    async fn keep_retained(&self, contact: &str, id: String, session: Session, inbox: Inbox, signalled_at: Instant, call: bool) {
+    async fn keep_retained(&self, contact: &str, id: String, session: Session, inbox: Inbox, signalled_at: Instant, reach: Reach) {
         let until = signalled_at + RETAINED_FOR;
-        let retained = Retained { id: id.clone(), session: session.clone(), window: signalled_at + CONNECT_WAIT, until, call };
+        let (call, wakes) = (reach == Reach::Call, reach != Reach::IfAwake);
+        let retained = Retained { id: id.clone(), session: session.clone(), window: signalled_at + CONNECT_WAIT, until, call, wakes };
         self.retained.lock().await.insert(contact.to_owned(), retained);
         let network = self.this.get().cloned().unwrap_or_default();
         let contact = contact.to_owned();
@@ -850,7 +871,7 @@ impl Network {
 
     async fn reach_as(&self, to: &Peer, reach: Reach) -> Result<Option<Session>> {
         let gate = self.gate(&to.device_id).await;
-        let one_at_a_time = if reach == Reach::Fallback {
+        let one_at_a_time = if matches!(reach, Reach::Fallback | Reach::IfAwake) {
             loop {
                 if let Ok(guard) = tokio::time::timeout(GATE_LOOK, gate.clone().lock_owned()).await {
                     break guard;
@@ -1141,6 +1162,76 @@ mod tests {
         assert!(network.fresh_media_config().await.turn.is_none());
         tokio::time::sleep(TURN_LOOK * 3).await;
         assert_eq!(desk.asked(), 0);
+    }
+
+    #[derive(Default)]
+    struct Offers(std::sync::Mutex<Vec<bool>>);
+
+    impl Offers {
+        fn waking(&self) -> Vec<bool> {
+            self.0.lock().expect("offers poisoned").clone()
+        }
+
+        async fn until_more_than(&self, count: usize) -> Vec<bool> {
+            for _ in 0..500 {
+                if self.waking().len() > count {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            self.waking()
+        }
+    }
+
+    #[async_trait]
+    impl Relay for Offers {
+        async fn signal(&self, _: &str, _: &[u8; 32], _: Vec<u8>) -> Result<bool> {
+            self.0.lock().expect("offers poisoned").push(true);
+            Ok(false)
+        }
+
+        async fn signal_without_waking(&self, _: &str, _: &[u8; 32], _: Vec<u8>) -> Result<Signalled> {
+            self.0.lock().expect("offers poisoned").push(false);
+            Ok(Signalled::NotConnected)
+        }
+
+        async fn deposit(&self, _: &str, _: &[u8; 32], _: Vec<u8>) -> Result<()> {
+            Ok(())
+        }
+
+        async fn collect(&self) -> Result<Vec<(String, Vec<u8>)>> {
+            Ok(Vec::new())
+        }
+
+        async fn acknowledge(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_redial_wakes_the_contact_only_when_something_waits_for_it() {
+        let offers = Arc::new(Offers::default());
+        let network = Network::new(offers.clone(), SessionConfig::offline());
+        let core = Core::open(ft_storage::Store::open_in_memory().await.unwrap(), [4; 32], network.clone()).await.unwrap();
+        network.attach(&core);
+        let other = Core::open(ft_storage::Store::open_in_memory().await.unwrap(), [4; 32], Network::new(Arc::new(NoRouter), SessionConfig::offline()))
+            .await
+            .unwrap();
+        let contact = core.add_contact(&other.my_card().await.unwrap().to_link(), None).await.unwrap().device_id;
+        network.handle(RouterEvent::Connected { stun: vec![], turn: None }).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let before = offers.waking().len();
+
+        network.redial(vec![contact.clone()]);
+        assert_eq!(offers.until_more_than(before).await[before..], [false], "nothing waits for the contact");
+
+        core.schedule_text(&contact, "later", crate::now() + 3_600_000, None).await.unwrap();
+        network.redial(vec![contact.clone()]);
+        assert_eq!(offers.until_more_than(before + 1).await[before..], [false, false], "a text for later is not due");
+
+        core.queue_text(&contact, "hello", None).await.unwrap();
+        network.redial(vec![contact.clone()]);
+        assert_eq!(offers.until_more_than(before + 2).await[before..], [false, false, true], "a text waits for the contact");
     }
 
     #[test]

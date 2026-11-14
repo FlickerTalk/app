@@ -32,6 +32,7 @@ struct Inner {
     pushes: Vec<Push>,
     held: HashMap<String, Vec<String>>,
     signalled: HashMap<String, usize>,
+    unwoken: HashMap<String, usize>,
     mail: HashMap<String, Vec<(String, Vec<u8>)>>,
     registrations: Vec<(String, u8, Instant)>,
     refused: Vec<(String, Instant)>,
@@ -70,15 +71,21 @@ impl Fake {
         self.with(|inner| inner.signalled.get(device).copied().unwrap_or(0))
     }
 
+    fn signalled_without_waking(&self, device: &str) -> usize {
+        self.with(|inner| inner.unwoken.get(device).copied().unwrap_or(0))
+    }
+
     fn mail_for(&self, device: &str) -> usize {
         self.with(|inner| inner.mail.get(device).map_or(0, Vec::len))
     }
 
-    fn deliver(inner: &mut Inner, to: &str, frame: String, call: bool) -> bool {
+    fn deliver(inner: &mut Inner, to: &str, frame: String, call: bool, wake: bool) -> bool {
         if inner.connected.get(to).is_some_and(|(_, frames)| frames.send(frame).is_ok()) {
             return true;
         }
-        inner.pushes.push(Push { to: to.to_owned(), call });
+        if wake {
+            inner.pushes.push(Push { to: to.to_owned(), call });
+        }
         false
     }
 
@@ -156,13 +163,17 @@ async fn fake_router() -> (String, Arc<Fake>) {
             "/v1/signal/{to}",
             post(|State(fake): State<Arc<Fake>>, Path(to): Path<String>, headers: HeaderMap, body: Bytes| async move {
                 let call = headers.get("ft-call").is_some_and(|value| value == "1");
+                let wake = headers.get("ft-wake").is_none_or(|value| value != "0");
                 let frame = json!({ "kind": "signal", "signal": STANDARD_NO_PAD.encode(&body) }).to_string();
                 fake.with(|inner| {
                     if inner.unreachable.is_some() {
                         return StatusCode::SERVICE_UNAVAILABLE.into_response();
                     }
                     *inner.signalled.entry(to.clone()).or_default() += 1;
-                    if Fake::deliver(inner, &to, frame.clone(), call) {
+                    if !wake {
+                        *inner.unwoken.entry(to.clone()).or_default() += 1;
+                    }
+                    if Fake::deliver(inner, &to, frame.clone(), call, wake) {
                         return StatusCode::ACCEPTED.into_response();
                     }
                     inner.held.entry(to).or_default().push(frame);
@@ -183,7 +194,7 @@ async fn fake_router() -> (String, Arc<Fake>) {
                 let id = fake.next.fetch_add(1, SeqCst).to_string();
                 fake.with(|inner| {
                     inner.mail.entry(to.clone()).or_default().push((id, body.to_vec()));
-                    Fake::deliver(inner, &to, json!({ "kind": "mail" }).to_string(), false);
+                    Fake::deliver(inner, &to, json!({ "kind": "mail" }).to_string(), false, true);
                 });
                 StatusCode::CREATED
             })
@@ -386,6 +397,88 @@ async fn coming_back_dials_again_the_contacts_it_was_connected_to() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(fake.signalled_to(&carol.id()), carol_signalled, "carol was not dialled");
     assert!(!bob.online.network.is_connected(&carol.id()).await);
+}
+
+async fn bob_then_alice_leave(fake: &Fake, alice: &Phone, bob: &Phone) {
+    bob.online.set_foreground(false).await;
+    until("alice sees bob's connection closed", || async { !alice.online.network.is_connected(&bob.id()).await }).await;
+    alice.online.set_foreground(false).await;
+    until("the router sees alice gone", || async { !fake.is_connected(&alice.id()) }).await;
+}
+
+fn woken(fake: &Fake, phone: &Phone) -> usize {
+    fake.pushes_to(&phone.id()).iter().filter(|push| !push.call).count()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn coming_back_with_nothing_to_send_dials_again_without_waking_anyone() {
+    let (fake, alice, bob) = two_phones().await;
+    linked(&bob, &alice).await;
+    until("nothing waits to be sent", || nothing_waits([&alice, &bob])).await;
+    bob_then_alice_leave(&fake, &alice, &bob).await;
+    let (signalled, pushed) = (fake.signalled_to(&alice.id()), fake.pushes_to(&alice.id()).len());
+
+    bob.online.set_foreground(true).await;
+    until("bob dials alice again", || async { fake.signalled_to(&alice.id()) > signalled }).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(fake.pushes_to(&alice.id()).len(), pushed, "alice's phone was not woken");
+    assert!(fake.signalled_without_waking(&alice.id()) > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn coming_back_with_a_text_waiting_for_a_contact_still_wakes_it() {
+    let (fake, alice, bob) = two_phones().await;
+    linked(&bob, &alice).await;
+    bob.core().set_mailbox(false).await.unwrap();
+    until("nothing waits to be sent", || nothing_waits([&alice, &bob])).await;
+    bob_then_alice_leave(&fake, &alice, &bob).await;
+    let sent = bob.core().queue_text(&alice.id(), "while you were out", None).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let pushed = woken(&fake, &alice);
+
+    bob.online.set_foreground(true).await;
+    until("alice's phone is woken", || async { woken(&fake, &alice) > pushed }).await;
+    alice.online.set_foreground(true).await;
+    until("alice has it", || async { texts(&alice, &bob.id()).await.contains(&"while you were out".to_owned()) }).await;
+    until("bob sees it delivered", || async { state(&bob, &sent).await == MessageState::Delivered }).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn after_coming_back_without_waking_anyone_a_text_still_wakes_the_contact() {
+    let (fake, alice, bob) = two_phones().await;
+    linked(&bob, &alice).await;
+    bob.core().set_mailbox(false).await.unwrap();
+    until("nothing waits to be sent", || nothing_waits([&alice, &bob])).await;
+    bob_then_alice_leave(&fake, &alice, &bob).await;
+    let (signalled, pushed) = (fake.signalled_to(&alice.id()), woken(&fake, &alice));
+    bob.online.set_foreground(true).await;
+    until("bob dials alice again", || async { fake.signalled_to(&alice.id()) > signalled }).await;
+
+    let (core, to) = (bob.core().clone(), alice.id());
+    let sending = tokio::spawn(async move { core.send_text(&to, "are you there?").await });
+    until_within("alice's phone is woken", Duration::from_secs(5), || async { woken(&fake, &alice) > pushed }).await;
+    let sent = sending.await.unwrap().unwrap();
+    alice.online.set_foreground(true).await;
+    until("alice has it", || async { texts(&alice, &bob.id()).await.contains(&"are you there?".to_owned()) }).await;
+    until("bob sees it delivered", || async { state(&bob, &sent).await == MessageState::Delivered }).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn after_coming_back_without_waking_anyone_a_call_still_rings() {
+    let (fake, alice, bob) = two_phones().await;
+    linked(&bob, &alice).await;
+    until("nothing waits to be sent", || nothing_waits([&alice, &bob])).await;
+    bob_then_alice_leave(&fake, &alice, &bob).await;
+    let signalled = fake.signalled_to(&alice.id());
+    bob.online.set_foreground(true).await;
+    until("bob dials alice again", || async { fake.signalled_to(&alice.id()) > signalled }).await;
+
+    let call = call(&bob, &alice).await;
+    until_within("alice's phone rings through the push", Duration::from_secs(5), || async {
+        fake.pushes_to(&alice.id()).contains(&Push { to: alice.id(), call: true })
+    })
+    .await;
+    bob.core().end_call(&call, false).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
