@@ -50,6 +50,7 @@ struct Seen {
 #[derive(Debug, PartialEq, Eq)]
 struct SignalSeen {
     call: bool,
+    wake: Option<String>,
     device: Option<String>,
     signed: bool,
 }
@@ -100,6 +101,7 @@ async fn fake_router() -> (String, Arc<Seen>) {
                 let key = *seen.key.lock().unwrap();
                 seen.signals.lock().unwrap().push(SignalSeen {
                     call: headers.get("ft-call").is_some_and(|value| value == "1"),
+                    wake: headers.get("ft-wake").and_then(|value| value.to_str().ok()).map(str::to_owned),
                     device: headers.get("ft-device").and_then(|value| value.to_str().ok()).map(str::to_owned),
                     signed: key.is_some_and(|key| check(&key, "POST", &format!("/v1/signal/{to}"), &headers, &body)),
                 });
@@ -252,8 +254,26 @@ async fn a_call_is_signed_and_a_plain_signal_is_not() {
     assert_eq!(
         *seen.signals.lock().unwrap(),
         [
-            SignalSeen { call: false, device: None, signed: false },
-            SignalSeen { call: true, device: Some(client.device_id()), signed: true },
+            SignalSeen { call: false, wake: None, device: None, signed: false },
+            SignalSeen { call: true, wake: None, device: Some(client.device_id()), signed: true },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn only_a_signal_sent_without_waking_asks_the_router_for_no_push() {
+    let (base, seen) = fake_router().await;
+    let client = RouterClient::new(&base, device()).expect("client");
+    client.register(&eight(), 0, &[]).await.expect("registers");
+    client.signal("ft_away", &[1; 32], b"offer".to_vec()).await.expect("answers");
+    client.signal_without_waking("ft_away", &[1; 32], b"offer".to_vec()).await.expect("answers");
+    client.signal_call("ft_away", &[1; 32], b"call offer".to_vec()).await.expect("answers");
+    assert_eq!(
+        *seen.signals.lock().unwrap(),
+        [
+            SignalSeen { call: false, wake: None, device: None, signed: false },
+            SignalSeen { call: false, wake: Some("0".to_owned()), device: None, signed: false },
+            SignalSeen { call: true, wake: None, device: Some(client.device_id()), signed: true },
         ]
     );
 }
@@ -281,6 +301,8 @@ async fn a_signal_the_router_keeps_for_later_says_so() {
     let client = RouterClient::new(&base, device()).expect("client");
     assert_eq!(client.signal("ft_sleeping", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Retained);
     assert_eq!(client.signal_call("ft_sleeping", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Retained);
+    assert_eq!(client.signal_without_waking("ft_sleeping", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Retained);
+    assert_eq!(client.signal_without_waking("ft_online", &[1; 32], b"offer".to_vec()).await.expect("answers"), Signalled::Delivered);
     assert!(!Signalled::Retained.delivered() && !Signalled::NotConnected.delivered() && Signalled::Delivered.delivered());
 }
 

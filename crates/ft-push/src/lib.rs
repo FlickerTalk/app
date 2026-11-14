@@ -317,18 +317,25 @@ impl RouterClient {
     }
 
     pub async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
-        self.signal_as(to, capability, bytes, false).await
+        self.signal_as(to, capability, bytes, false, true).await
+    }
+
+    pub async fn signal_without_waking(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
+        self.signal_as(to, capability, bytes, false, false).await
     }
 
     // Signed so the router can apply the recipient's call rules, which tells it who calls whom.
     // It still doesn't learn whether it's voice or video
     pub async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> Result<Signalled> {
-        self.signal_as(to, capability, bytes, true).await
+        self.signal_as(to, capability, bytes, true, true).await
     }
 
-    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> Result<Signalled> {
+    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool, wake: bool) -> Result<Signalled> {
         let path = format!("/v1/signal/{to}");
         let mut request = self.http.post(format!("{}{path}", self.base)).header("ft-capability", encode(capability));
+        if !wake {
+            request = request.header("ft-wake", "0");
+        }
         if call {
             request = request.header("ft-call", "1");
             for (name, value) in self.signed_headers("POST", &path, &bytes).await {
