@@ -270,6 +270,17 @@ impl Core {
         Ok(())
     }
 
+    pub(crate) async fn something_waits_for(&self, contact: &str) -> Result<bool> {
+        let later = self.store.scheduled_all().await?;
+        let moment = now();
+        let text = self.store.outbox().await?.iter().any(|entry| {
+            entry.contact == contact && !later.get(&entry.message_id).is_some_and(|send_at| *send_at > moment)
+        });
+        Ok(text
+            || self.store.update_outbox().await?.iter().any(|entry| entry.contact == contact)
+            || self.store.circle_outbox().await?.iter().any(|entry| entry.contact == contact))
+    }
+
     pub async fn retry_now(&self) -> Result<()> {
         let later = self.store.scheduled_all().await?;
         let moment = now();
