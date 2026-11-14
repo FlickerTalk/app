@@ -455,7 +455,7 @@ describe("SettingsPage", () => {
     });
 
     it("sits after the appearance group and before moving and the backup", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const html = (await settings()).html();
       const at = (test: string) => html.indexOf(`data-test="${test}"`);
       expect(html.lastIndexOf("ft-segment__option")).toBeGreaterThan(0);
@@ -467,38 +467,48 @@ describe("SettingsPage", () => {
     });
 
     it("is headed Premium, with the sparkles", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const head = (await settings()).find("[data-test='premium-head']");
       expect(head.text()).toBe(en.premium.title);
       expect(head.findComponent(IonIcon).props("icon")).toBe(sparklesOutline);
     });
 
     it("has no Plan row any more, nor a lone plugins group", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const wrapper = await settings();
       expect(wrapper.find("[data-test='plan']").exists()).toBe(false);
       expect(wrapper.findAll("[data-test='plugins']")).toHaveLength(1);
       expect(wrapper.findAll("[data-test='session']")).toHaveLength(1);
     });
 
-    describe("in the 15 free days", () => {
+    describe("in the free year", () => {
       it("says what is free and what the trial is, with the Store's price", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        planning({ state: "trial", until: Date.now() + 365 * DAY - 5 });
         const wrapper = await settings();
-        expect(note(wrapper).text()).toBe(en.premium.trialNote.replace("{price}", "0,99 €"));
+        expect(note(wrapper).text()).toBe(
+          "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 1-year free trial, then 0,99 € a year.",
+        );
+      });
+
+      it("says what the trial is without an amount when the Store gives no price", async () => {
+        planning({ state: "trial", until: Date.now() + 365 * DAY - 5 }, null);
+        const wrapper = await settings();
+        expect(note(wrapper).text()).toBe(
+          "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 1-year free trial, then a yearly subscription.",
+        );
       });
 
       it("counts the days left as every screen does, on both rows", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY - 5 });
+        planning({ state: "trial", until: Date.now() + 365 * DAY - 5 });
         const wrapper = await settings();
-        const days = en.premium.daysLeft.replace("{days}", "15");
+        const days = en.premium.daysLeft.replace("{days}", "365");
         expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
         expect(sessions(wrapper).find("[data-test='premium-badge']").text()).toBe(days);
         expect(tools(wrapper).find("[data-test='premium-badge']").attributes("color")).toBe("primary");
       });
 
       it("opens the tools and the PIN pad", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY });
+        planning({ state: "trial", until: Date.now() + 365 * DAY });
         const wrapper = await settings();
         expect(tools(wrapper).text()).toContain(en.premium.tools);
         expect(sessions(wrapper).text()).toContain(en.premium.sessions);
@@ -508,12 +518,70 @@ describe("SettingsPage", () => {
         expect(push).toHaveBeenCalledWith("/session");
       });
 
-      it("asks for nothing", async () => {
-        planning({ state: "trial", until: Date.now() + 15 * DAY });
+      it("offers the subscription and the restore, with both rows still open", async () => {
+        planning({ state: "trial", until: Date.now() + 365 * DAY });
         const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").text()).toBe(en.premium.subscribe.replace("{price}", "0,99 €"));
+        expect(wrapper.find("[data-test='restore']").text()).toBe(en.plan.restore);
+        expect(wrapper.find("[data-test='premium-locked']").exists()).toBe(false);
+        for (const row of [tools(wrapper), sessions(wrapper)]) {
+          expect(row.classes()).not.toContain("ft-premium__locked");
+          expect(row.attributes("detail")).toBe("true");
+          expect(row.attributes("aria-label")).toBeUndefined();
+        }
+        calls.length = 0;
+        await tools(wrapper).trigger("click");
+        await flushPromises();
+        expect(push).toHaveBeenCalledWith("/tabs/apps?show=tools");
+        expect(calls.map(([command]) => command)).not.toContain("core_subscribe");
+      });
+
+      it("shows the plan active and offers nothing more once the Store has sold the subscription", async () => {
+        let state = "trial";
+        installTauri((command, args) => {
+          calls.push([command, args]);
+          if (command === "core_subscribe") state = "subscribed";
+          if (command === "core_subscription_price") return { price: "0,99 €" };
+          return command === "core_plan" ? { state, until: Date.now() + 365 * DAY } : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='pay']").trigger("click");
+        await flushPromises();
+        expect(calls.map(([command]) => command)).toContain("core_subscribe");
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
         expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
         expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
-        expect(wrapper.find("[data-test='premium-locked']").exists()).toBe(false);
+      });
+
+      it("restores a purchase from the trial, and then shows the plan active", async () => {
+        let state = "trial";
+        installTauri((command, args) => {
+          calls.push([command, args]);
+          if (command === "core_restore_subscription") {
+            state = "subscribed";
+            return "restored";
+          }
+          return command === "core_plan" ? { state, until: Date.now() + 365 * DAY } : undefined;
+        });
+        const wrapper = await settings();
+        await wrapper.find("[data-test='restore']").trigger("click");
+        await flushPromises();
+        expect(toast.create).toHaveBeenCalledWith(expect.objectContaining({ message: en.plan.restored }));
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
+      });
+
+      it("follows a purchase the core hears of, and takes the offer away", async () => {
+        let state = "trial";
+        installTauri((command) => (command === "core_plan" ? { state, until: Date.now() + 365 * DAY } : undefined));
+        const wrapper = await settings();
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(true);
+        state = "subscribed";
+        events.handlers.get("ft://plan")?.();
+        await flushPromises();
+        expect(tools(wrapper).find("[data-test='premium-badge']").text()).toBe(en.premium.active);
+        expect(wrapper.find("[data-test='pay']").exists()).toBe(false);
+        expect(wrapper.find("[data-test='restore']").exists()).toBe(false);
       });
     });
 
@@ -734,7 +802,7 @@ describe("SettingsPage", () => {
       vi.setSystemTime(new Date("2026-03-02T10:00:00Z"));
       try {
         for (const state of ["trial", "limited", "subscribed"]) {
-          planning({ state, until: Date.now() + 15 * DAY });
+          planning({ state, until: Date.now() + 365 * DAY });
           const wrapper = await settings();
           expect(section(wrapper).text(), state).not.toMatch(/\b21\b|under|minor|birth/i);
           expect(wrapper.find("[data-test='young']").exists()).toBe(false);
@@ -768,7 +836,7 @@ describe("SettingsPage", () => {
     });
 
     it("stays where it is when nothing asks for the section", async () => {
-      planning({ state: "trial", until: Date.now() + 15 * DAY });
+      planning({ state: "trial", until: Date.now() + 365 * DAY });
       const wrapper = await settings();
       const scrolled = scrollArea(wrapper);
       await entered(wrapper);

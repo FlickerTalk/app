@@ -46,7 +46,7 @@ phone, not on our servers. [flickertalk.com](https://flickertalk.com)
 - No advertising. No analytics. No tracking profiles.
 
 The app is free to use; the tools and extra PIN-protected sessions are an optional Premium
-subscription, with a 15-day trial.
+subscription, with a one-year free trial.
 
 ## What our server knows, and what it does not
 

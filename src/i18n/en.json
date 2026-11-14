@@ -386,8 +386,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 15-day trial, then {price} a year.",
-    "trialNoteYearly": "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 15-day trial, then a yearly subscription.",
+    "trialNote": "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 1-year free trial, then {price} a year.",
+    "trialNoteYearly": "Chat, calls, files and games are free. Tools and sessions with PIN are Premium: 1-year free trial, then a yearly subscription.",
     "limitedNote": "Tools and sessions with PIN for {price} a year. Chat, calls, files and games stay free.",
     "limitedNoteYearly": "Tools and sessions with PIN with a yearly subscription. Chat, calls, files and games stay free.",
     "subscribe": "Subscribe · {price} a year",
@@ -562,7 +562,7 @@
       },
       "apps": {
         "title": "Tools and games",
-        "body": "The {apps} tab has tools and games made and reviewed by FlickerTalk. Tools are free for 15 days, then part of the yearly subscription."
+        "body": "The {apps} tab has tools and games made and reviewed by FlickerTalk. Tools are free for the first year, then part of the yearly subscription."
       },
       "safety": {
         "title": "Block and report",

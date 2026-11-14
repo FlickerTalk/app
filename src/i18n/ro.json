@@ -386,8 +386,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chatul, apelurile, fișierele și jocurile sunt gratuite. Instrumentele și sesiunile cu PIN sunt Premium: 15 zile de probă, apoi {price} pe an.",
-    "trialNoteYearly": "Chatul, apelurile, fișierele și jocurile sunt gratuite. Instrumentele și sesiunile cu PIN sunt Premium: 15 zile de probă, apoi un abonament anual.",
+    "trialNote": "Chatul, apelurile, fișierele și jocurile sunt gratuite. Instrumentele și sesiunile cu PIN sunt Premium: 1 an de probă gratuită, apoi {price} pe an.",
+    "trialNoteYearly": "Chatul, apelurile, fișierele și jocurile sunt gratuite. Instrumentele și sesiunile cu PIN sunt Premium: 1 an de probă gratuită, apoi un abonament anual.",
     "limitedNote": "Instrumente și sesiuni cu PIN pentru {price} pe an. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
     "limitedNoteYearly": "Instrumente și sesiuni cu PIN cu un abonament anual. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
     "subscribe": "Abonează-te · {price} pe an",
@@ -562,7 +562,7 @@
       },
       "apps": {
         "title": "Instrumente și jocuri",
-        "body": "Fila {apps} are instrumente și jocuri create și verificate de FlickerTalk. Instrumentele sunt gratuite 15 zile, apoi fac parte din abonamentul anual."
+        "body": "Fila {apps} are instrumente și jocuri create și verificate de FlickerTalk. Instrumentele sunt gratuite în primul an, apoi fac parte din abonamentul anual."
       },
       "safety": {
         "title": "Blochează și raportează",

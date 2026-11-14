@@ -110,7 +110,7 @@ async fn the_free_days_are_over(core: &Core) {
 }
 
 async fn the_free_days_end_in(core: &Core, ms: i64) {
-    let installed = now() - 15 * DAY + ms;
+    let installed = now() - 365 * DAY + ms;
     core.store().set_setting("installed_at", &installed.to_string()).await.expect("sets");
 }
 
@@ -302,6 +302,26 @@ async fn paying_opens_the_tools_again() {
     assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: a_year_from_now });
     core.add_plugin(&entries[0], &shop, &catalogue.public_key()).await.expect("installs");
     core.open_plugin(TOOL).await.expect("opens");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn paying_during_the_free_days_shows_as_subscribed_at_once() {
+    let net = net();
+    let core = device(&net, "Alice").await;
+    assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }));
+    let mut events = core.events();
+
+    let a_year_from_now = now() + 365 * DAY;
+    core.set_entitlement(a_year_from_now).await.expect("the Store said so");
+    assert!(plan_changed(&mut events).await, "the screens hear of it");
+    assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: a_year_from_now });
+
+    let catalogue = Ed25519SecretKey::new();
+    let tool = package(TOOL, "tool", &catalogue);
+    let (shop, entries) = listed(&[(TOOL, "tool", &tool)]);
+    core.add_plugin(&entries[0], &shop, &catalogue.public_key()).await.expect("installs");
+    core.open_plugin(TOOL).await.expect("opens");
+    assert!(core.open_session("123456").await.expect("opens a session").is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]

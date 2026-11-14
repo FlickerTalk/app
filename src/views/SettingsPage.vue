@@ -97,6 +97,7 @@ const route = useRoute();
 
 const planView = ref<PlanView | null>(null);
 const premiumLocked = computed(() => planView.value?.state === "limited");
+const offersPurchase = computed(() => planView.value?.state === "trial" || premiumLocked.value);
 const price = ref<string | null>(null);
 const trouble = ref("");
 
@@ -516,7 +517,7 @@ function chooseAppearance(id: Appearance) {
           <ion-text v-if="premiumNote" color="medium">
             <p class="ft-premium__note" data-test="premium-note">{{ premiumNote }}</p>
           </ion-text>
-          <div v-if="premiumLocked" class="ft-premium__cta">
+          <div v-if="offersPurchase" class="ft-premium__cta">
             <ion-button expand="block" data-test="pay" @click="pay">{{ payText }}</ion-button>
           </div>
           <ion-list inset class="ft-group">
@@ -539,7 +540,7 @@ function chooseAppearance(id: Appearance) {
               <ion-icon v-if="premiumLocked" slot="end" :icon="lockClosedOutline" color="medium" data-test="premium-locked" aria-hidden="true" />
             </ion-item>
             <!-- App Review 3.1.1 -->
-            <ion-item v-if="premiumLocked" button :detail="false" lines="none" data-test="restore" @click="restore">
+            <ion-item v-if="offersPurchase" button :detail="false" lines="none" data-test="restore" @click="restore">
               <ion-label color="medium" class="ft-premium__restore">{{ $t("plan.restore") }}</ion-label>
             </ion-item>
           </ion-list>

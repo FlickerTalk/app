@@ -386,8 +386,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, appels, fichiers et jeux sont gratuits. Les outils et les sessions avec PIN sont Premium : 15 jours d’essai, puis {price} par an.",
-    "trialNoteYearly": "Chat, appels, fichiers et jeux sont gratuits. Les outils et les sessions avec PIN sont Premium : 15 jours d’essai, puis un abonnement annuel.",
+    "trialNote": "Chat, appels, fichiers et jeux sont gratuits. Les outils et les sessions avec PIN sont Premium : 1 an d’essai gratuit, puis {price} par an.",
+    "trialNoteYearly": "Chat, appels, fichiers et jeux sont gratuits. Les outils et les sessions avec PIN sont Premium : 1 an d’essai gratuit, puis un abonnement annuel.",
     "limitedNote": "Outils et sessions avec PIN pour {price} par an. Chat, appels, fichiers et jeux restent gratuits.",
     "limitedNoteYearly": "Outils et sessions avec PIN avec un abonnement annuel. Chat, appels, fichiers et jeux restent gratuits.",
     "subscribe": "S’abonner · {price} par an",
@@ -562,7 +562,7 @@
       },
       "apps": {
         "title": "Outils et jeux",
-        "body": "L’onglet {apps} propose des outils et des jeux conçus et vérifiés par FlickerTalk. Les outils sont gratuits pendant 15 jours, puis inclus dans l’abonnement annuel."
+        "body": "L’onglet {apps} propose des outils et des jeux conçus et vérifiés par FlickerTalk. Les outils sont gratuits la première année, puis inclus dans l’abonnement annuel."
       },
       "safety": {
         "title": "Bloquer et signaler",

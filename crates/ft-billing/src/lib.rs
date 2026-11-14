@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-pub const FREE_PERIOD: Duration = Duration::from_secs(15 * 24 * 60 * 60);
+pub const FREE_PERIOD: Duration = Duration::from_secs(365 * 24 * 60 * 60);
 
 // the Store can renew at period end without telling the open app, so a passed date counts this long
 pub const GRACE_MS: i64 = 3 * 24 * 60 * 60 * 1000;
@@ -16,17 +16,16 @@ pub struct Plan {
 
 impl Plan {
     pub fn next_change(&self, now: i64) -> Option<i64> {
-        if now < self.free_until {
-            return Some(self.free_until);
+        if self.paid_until > 0 {
+            if now < self.paid_until {
+                return Some(self.paid_until);
+            }
+            let grace_ends = self.paid_until + GRACE_MS;
+            if now < grace_ends {
+                return Some(grace_ends);
+            }
         }
-        if self.paid_until <= 0 {
-            return None;
-        }
-        if now < self.paid_until {
-            return Some(self.paid_until);
-        }
-        let grace_ends = self.paid_until + GRACE_MS;
-        (now < grace_ends).then_some(grace_ends)
+        (now < self.free_until).then_some(self.free_until)
     }
 
     pub fn paid_date_passed(&self, now: i64) -> bool {
@@ -49,11 +48,11 @@ pub enum Doing {
 
 impl Access {
     pub fn of(now: i64, plan: Plan) -> Access {
-        if now < plan.free_until {
-            return Access::Trial { until: plan.free_until };
-        }
         if plan.paid_until > 0 && now < plan.paid_until + GRACE_MS {
             return Access::Subscribed { until: plan.paid_until };
+        }
+        if now < plan.free_until {
+            return Access::Trial { until: plan.free_until };
         }
         Access::Limited
     }
@@ -108,11 +107,37 @@ mod tests {
     #[test]
     fn the_plan_knows_when_it_changes_by_itself() {
         assert_eq!(plan(NOW + DAY, 0).next_change(NOW), Some(NOW + DAY));
-        assert_eq!(plan(NOW + DAY, NOW + 5 * DAY).next_change(NOW), Some(NOW + DAY));
+        assert_eq!(plan(NOW + DAY, NOW + 5 * DAY).next_change(NOW), Some(NOW + 5 * DAY));
         assert_eq!(plan(NOW - DAY, NOW + 5 * DAY).next_change(NOW), Some(NOW + 5 * DAY));
         assert_eq!(plan(NOW - DAY, NOW - DAY).next_change(NOW), Some(NOW - DAY + GRACE_MS));
         assert_eq!(plan(NOW - DAY, 0).next_change(NOW), None);
         assert_eq!(plan(NOW - DAY, NOW - GRACE_MS).next_change(NOW), None);
+    }
+
+    #[test]
+    fn a_subscription_bought_during_the_trial_counts_as_subscribed() {
+        let access = Access::of(NOW, plan(NOW + 10 * DAY, NOW + 365 * DAY));
+        assert_eq!(access, Access::Subscribed { until: NOW + 365 * DAY });
+        assert!(!access.asks_to_pay());
+        assert!(access.may(Doing::UseTool));
+        assert!(access.may(Doing::UseSession));
+        assert_eq!(Access::of(NOW, plan(NOW + 10 * DAY, NOW + DAY)), Access::Subscribed { until: NOW + DAY });
+        assert_eq!(Access::of(NOW, plan(NOW + 10 * DAY, NOW - 1)), Access::Subscribed { until: NOW - 1 });
+    }
+
+    #[test]
+    fn a_subscription_that_lapses_during_the_trial_falls_back_to_the_trial() {
+        let access = Access::of(NOW, plan(NOW + 10 * DAY, NOW - GRACE_MS));
+        assert_eq!(access, Access::Trial { until: NOW + 10 * DAY });
+        assert!(!access.asks_to_pay());
+        assert!(access.may(Doing::UseTool));
+    }
+
+    #[test]
+    fn a_subscription_during_the_trial_changes_the_plan_when_its_own_dates_pass() {
+        assert_eq!(plan(NOW + 10 * DAY, NOW + DAY).next_change(NOW), Some(NOW + DAY));
+        assert_eq!(plan(NOW + 10 * DAY, NOW - DAY).next_change(NOW), Some(NOW - DAY + GRACE_MS));
+        assert_eq!(plan(NOW + 10 * DAY, NOW - GRACE_MS - DAY).next_change(NOW), Some(NOW + 10 * DAY));
     }
 
     #[test]
@@ -132,8 +157,8 @@ mod tests {
     }
 
     #[test]
-    fn the_free_period_is_fifteen_days() {
-        assert_eq!(FREE_PERIOD.as_secs(), 15 * 24 * 60 * 60);
+    fn the_free_period_is_a_year() {
+        assert_eq!(FREE_PERIOD.as_secs(), 365 * 24 * 60 * 60);
     }
 
     #[test]

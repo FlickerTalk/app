@@ -141,7 +141,7 @@ oficina y no molesta hasta el día siguiente.
 
 - **Ajustes → Sessions with PIN** (en el apartado Premium) abre un teclado numérico con seis
   puntos. Sin nombre, sin título.
-- **Premium:** pasados los 15 días gratis sin suscripción, en lugar del teclado sale
+- **Premium:** pasado el año gratis sin suscripción, en lugar del teclado sale
   el candado con Suscribirse (ver «Plan y precio»); una sesión ya abierta sigue hasta que se sale.
 - Al sexto dígito, si el PIN es de una sesión existente, se abre; si no, se crea una sesión
   **nueva y vacía**. Todo PIN es válido: no existe «PIN incorrecto» ni espera entre intentos, y
@@ -273,12 +273,12 @@ nombres aleatorios, su tamaño y sus fechas; nuestro servidor no participa.
 El chat, las notas de voz, los ficheros, las llamadas de voz y vídeo, los contactos y
 conversaciones nuevos, los círculos y los **juegos** son **gratis**. Lo **premium** son las
 **herramientas** (plugins de tipo `tool`, también las que la app trae de serie) y las **sesiones
-extra con PIN** (todas menos la lista principal): gratis **15 días** desde la instalación,
+extra con PIN** (todas menos la lista principal): gratis **1 año** (365 días) desde la instalación,
 contados en el propio teléfono y sin tarjeta, y después con la suscripción anual `yearly`,
 **0,99 €** en España (Google no deja poner 1,00 € exactos). No hay regla de
 edad.
 
-Sin suscripción, pasados los 15 días:
+Sin suscripción, pasado el año gratis:
 
 - Cada herramienta enseña un candado (en la pestaña Apps, en la hoja de apps del chat, en «abrir
   con» y en su propia página) y tocarla lleva al apartado Premium de Ajustes; un fichero cuyo visor
@@ -295,17 +295,19 @@ Sin suscripción, pasados los 15 días:
 El plan se vigila solo: el núcleo vuelve a mirarlo justo cuando acaban los días gratis o pasa la
 fecha pagada, y al volver la app a la pantalla. Al pasar la fecha pagada pregunta antes a la tienda
 (entitlements actuales de StoreKit, compras de Play): si renovó, sigue de pago con la fecha nueva;
-si no hay nada, pasa a bloqueado; si la tienda no contesta, la fecha sigue valiendo **3 días** de
-gracia y se vuelve a preguntar. El apartado Premium de Ajustes y los candados se ponen al día sin
-reiniciar.
+si no hay nada, vuelve a la prueba si aún le quedan días o pasa a bloqueado; si la tienda no
+contesta, la fecha sigue valiendo **3 días** de gracia y se vuelve a preguntar. Una suscripción
+comprada durante la prueba cuenta como de pago desde ese momento: la fecha pagada manda sobre la de
+la prueba. El apartado Premium de Ajustes y los candados se ponen al día sin reiniciar.
 
 El apartado Premium de Ajustes dice qué es gratis y qué es premium, con el precio **tal como lo da
 la tienda** (Play Billing o StoreKit, con su moneda y su formato), pedido otra vez al entrar, al
 cambiar el plan y al volver la app; si la tienda no puede decirlo (sin red, en escritorio, sin
 producto) se queda el último conocido o, si no hay ninguno, «Suscripción anual» sin cantidad, y el
 botón de pagar funciona igual. La app no escribe ni guarda ningún importe. Suscribirse y Restaurar
-compras aparecen cuando los días gratis han acabado. Ajustes cuenta los días que quedan (un día
-empezado cuenta: recién instalada, 15).
+compras aparecen durante la prueba y cuando ha acabado; con la suscripción activa, no. Durante la
+prueba las filas de herramientas y sesiones siguen abiertas, sin candado. Ajustes cuenta los días que quedan (un día
+empezado cuenta: recién instalada, 365).
 
 Para probarlo en un teléfono de desarrollo: `FT_DEBUG_TRIAL_OVER=1` (antes
 `FT_DEBUG_FREE_YEAR_OVER`) da los días gratis por acabados sin tocar la base de datos.

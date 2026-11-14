@@ -386,8 +386,8 @@
   },
   "premium": {
     "title": "Premium",
-    "trialNote": "Chat, Anrufe, Dateien und Spiele sind kostenlos. Werkzeuge und Sitzungen mit PIN sind Premium: 15 Tage zum Testen, danach {price} pro Jahr.",
-    "trialNoteYearly": "Chat, Anrufe, Dateien und Spiele sind kostenlos. Werkzeuge und Sitzungen mit PIN sind Premium: 15 Tage zum Testen, danach mit einem Jahresabo.",
+    "trialNote": "Chat, Anrufe, Dateien und Spiele sind kostenlos. Werkzeuge und Sitzungen mit PIN sind Premium: 1 Jahr kostenlos testen, danach {price} pro Jahr.",
+    "trialNoteYearly": "Chat, Anrufe, Dateien und Spiele sind kostenlos. Werkzeuge und Sitzungen mit PIN sind Premium: 1 Jahr kostenlos testen, danach mit einem Jahresabo.",
     "limitedNote": "Werkzeuge und Sitzungen mit PIN für {price} pro Jahr. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
     "limitedNoteYearly": "Werkzeuge und Sitzungen mit PIN mit einem Jahresabo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
     "subscribe": "Abonnieren · {price} pro Jahr",
@@ -562,7 +562,7 @@
       },
       "apps": {
         "title": "Werkzeuge und Spiele",
-        "body": "Im Tab {apps} findest du Werkzeuge und Spiele, die FlickerTalk entwickelt und geprüft hat. Werkzeuge sind 15 Tage kostenlos, danach Teil des Jahresabos."
+        "body": "Im Tab {apps} findest du Werkzeuge und Spiele, die FlickerTalk entwickelt und geprüft hat. Werkzeuge sind im ersten Jahr kostenlos, danach Teil des Jahresabos."
       },
       "safety": {
         "title": "Blockieren und melden",

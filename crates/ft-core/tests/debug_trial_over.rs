@@ -44,5 +44,8 @@ async fn the_debug_switch_ends_the_free_days_without_touching_the_database() {
     assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: paid_until });
 
     std::env::remove_var(SWITCH);
+    assert_eq!(core.access().await.expect("reads"), Access::Subscribed { until: paid_until }, "a paid date wins over the free days");
+
+    core.set_entitlement(0).await.expect("clears");
     assert!(matches!(core.access().await.expect("reads"), Access::Trial { .. }), "back to the free days");
 }

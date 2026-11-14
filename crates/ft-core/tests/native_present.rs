@@ -451,7 +451,7 @@ async fn install_tools_asking(phone: &Phone, tools: &[(&str, bool)]) {
 }
 
 async fn lock_tools(phone: &Phone) {
-    let installed = now_ms() - 16 * DAY;
+    let installed = now_ms() - 366 * DAY;
     phone.core.store().set_setting("installed_at", &installed.to_string()).await.expect("sets");
     assert!(!phone.core.may_use(Kind::Tool).await.unwrap(), "the tools are closed");
 }

@@ -87,7 +87,7 @@ describe("QuickTour", () => {
       "Show your QR code to someone next to you, or share your link. Anyone who writes to you before you add them waits in Requests until you accept them.",
       "Send texts, photos, files and voice messages. To record a voice message, tap the microphone.",
       "In a chat, tap the phone or the camera at the top. Calls ring even when the phone is locked.",
-      "The Apps tab has tools and games made and reviewed by FlickerTalk. Tools are free for 15 days, then part of the yearly subscription.",
+      "The Apps tab has tools and games made and reviewed by FlickerTalk. Tools are free for the first year, then part of the yearly subscription.",
       "On a contact's page you can block or report them. A report opens an email to info@flickertalk.com with the evidence you choose.",
       "No account and no phone number. Messages are end-to-end encrypted and our server keeps no chats or history: a message that cannot be delivered yet waits there encrypted only if you keep the offline mailbox on.",
       "Every new install has a contact called FlickerTalk. It is run by FlickerTalk and answers texts, files, voice messages and calls automatically.",
