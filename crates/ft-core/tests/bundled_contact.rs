@@ -18,7 +18,12 @@ struct Net {
 
 impl Net {
     fn towards(&self, device: &str) -> usize {
-        self.out.lock().unwrap().iter().filter(|to| *to == device).count()
+        self.out
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|to| *to == device)
+            .count()
     }
 
     fn anything(&self) -> usize {
@@ -59,14 +64,18 @@ async fn phone(net: &Arc<Net>, name: &str) -> Arc<Core> {
 }
 
 async fn phone_on(net: &Arc<Net>, name: &str, store: Store) -> Arc<Core> {
-    let core = Core::open(store, KEY, Arc::new(Link { net: net.clone() })).await.expect("opens");
+    let core = Core::open(store, KEY, Arc::new(Link { net: net.clone() }))
+        .await
+        .expect("opens");
     core.set_name(name).await.expect("names");
     let (queue, mut incoming) = mpsc::unbounded_channel::<Vec<u8>>();
     net.queues.lock().unwrap().insert(id(&core), queue);
     let receiver = Arc::downgrade(&core);
     tokio::spawn(async move {
         while let Some(bytes) = incoming.recv().await {
-            let Some(core) = receiver.upgrade() else { break };
+            let Some(core) = receiver.upgrade() else {
+                break;
+            };
             let _ = core.receive(&bytes).await;
         }
     });
@@ -82,7 +91,13 @@ async fn link_of(core: &Core) -> String {
 }
 
 async fn texts(core: &Core, contact: &str) -> Vec<String> {
-    core.store().messages(contact, 100).await.expect("lists").into_iter().map(|m| m.body).collect()
+    core.store()
+        .messages(contact, 100)
+        .await
+        .expect("lists")
+        .into_iter()
+        .map(|m| m.body)
+        .collect()
 }
 
 async fn until<F, Fut>(what: &str, condition: F)
@@ -104,7 +119,10 @@ async fn a_new_phone_has_the_bundled_contact_and_tells_nobody() {
     let net = Arc::new(Net::default());
     let (support, ann) = (phone(&net, "Support").await, phone(&net, "Ann").await);
 
-    let added = ann.add_bundled_contact(&link_of(&support).await, Some("FlickerTalk".into())).await.expect("adds");
+    let added = ann
+        .add_bundled_contact(&link_of(&support).await, Some("FlickerTalk".into()))
+        .await
+        .expect("adds");
 
     let contact = added.expect("the contact the app carries is added");
     assert_eq!(contact.device_id, id(&support));
@@ -112,7 +130,11 @@ async fn a_new_phone_has_the_bundled_contact_and_tells_nobody() {
     assert!(contact.accepted, "it is in the list, not in the requests");
     assert!(!contact.introduced);
     let conversations = ann.store().conversations().await.expect("lists");
-    assert_eq!(conversations.len(), 1, "it shows in the chats like any contact");
+    assert_eq!(
+        conversations.len(),
+        1,
+        "it shows in the chats like any contact"
+    );
     assert_eq!(conversations[0].contact.device_id, id(&support));
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(net.anything(), 0, "nothing went out");
@@ -128,24 +150,50 @@ async fn an_empty_or_broken_card_adds_nothing() {
     tampered.truncate(good.len() - 4);
     tampered.push_str("AAAA");
 
-    for link in ["", "  \n", "not a link", "https://flickertalk.com/add#AAAA", &tampered, &link_of(&ann).await] {
-        assert!(ann.add_bundled_contact(link, Some("FlickerTalk".into())).await.expect("no error").is_none(), "{link:?}");
+    for link in [
+        "",
+        "  \n",
+        "not a link",
+        "https://flickertalk.com/add#AAAA",
+        &tampered,
+        &link_of(&ann).await,
+    ] {
+        assert!(
+            ann.add_bundled_contact(link, Some("FlickerTalk".into()))
+                .await
+                .expect("no error")
+                .is_none(),
+            "{link:?}"
+        );
     }
     assert!(ann.store().contacts().await.unwrap().is_empty());
     assert_eq!(net.anything(), 0);
-    assert!(ann.add_bundled_contact(&good, Some("FlickerTalk".into())).await.unwrap().is_some());
+    assert!(ann
+        .add_bundled_contact(&good, Some("FlickerTalk".into()))
+        .await
+        .unwrap()
+        .is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_install_from_before_gets_no_bundled_contact() {
+async fn an_install_from_before_gets_the_bundled_contact_too() {
     let net = Arc::new(Net::default());
     let support = phone(&net, "Support").await;
     let store = Store::open_in_memory().await.expect("store");
-    store.save_identity(&Identity::generate().seal(&KEY), &[7; 32]).await.expect("an identity made by an older app");
+    store
+        .save_identity(&Identity::generate().seal(&KEY), &[7; 32])
+        .await
+        .expect("an identity made by an older app");
     let ann = phone_on(&net, "Ann", store).await;
 
-    assert!(ann.add_bundled_contact(&link_of(&support).await, Some("FlickerTalk".into())).await.unwrap().is_none());
-    assert!(ann.store().contacts().await.unwrap().is_empty());
+    let added = ann
+        .add_bundled_contact(&link_of(&support).await, Some("FlickerTalk".into()))
+        .await
+        .unwrap();
+
+    assert_eq!(added.expect("added").device_id, id(&support));
+    assert_eq!(ann.store().contacts().await.unwrap().len(), 1);
+    assert_eq!(net.anything(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -156,16 +204,42 @@ async fn the_bundled_contact_is_added_once_and_a_removal_holds() {
     let ann = phone_on(&net, "Ann", store.clone()).await;
     let link = link_of(&support).await;
 
-    assert!(ann.add_bundled_contact(&link, Some("FlickerTalk".into())).await.unwrap().is_some());
-    ann.rename_contact(&id(&support), "Help").await.expect("renames");
-    assert!(ann.add_bundled_contact(&link, Some("FlickerTalk".into())).await.unwrap().is_none());
-    assert_eq!(ann.store().contact(&id(&support)).await.unwrap().expect("still there").name, "Help");
+    assert!(ann
+        .add_bundled_contact(&link, Some("FlickerTalk".into()))
+        .await
+        .unwrap()
+        .is_some());
+    ann.rename_contact(&id(&support), "Help")
+        .await
+        .expect("renames");
+    assert!(ann
+        .add_bundled_contact(&link, Some("FlickerTalk".into()))
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        ann.store()
+            .contact(&id(&support))
+            .await
+            .unwrap()
+            .expect("still there")
+            .name,
+        "Help"
+    );
 
     ann.remove_contact(&id(&support)).await.expect("removes");
-    assert!(ann.add_bundled_contact(&link, Some("FlickerTalk".into())).await.unwrap().is_none());
+    assert!(ann
+        .add_bundled_contact(&link, Some("FlickerTalk".into()))
+        .await
+        .unwrap()
+        .is_none());
     drop(ann);
     let again = phone_on(&net, "Ann", store).await;
-    assert!(again.add_bundled_contact(&link, Some("FlickerTalk".into())).await.unwrap().is_none());
+    assert!(again
+        .add_bundled_contact(&link, Some("FlickerTalk".into()))
+        .await
+        .unwrap()
+        .is_none());
     assert!(again.store().contacts().await.unwrap().is_empty());
     assert_eq!(net.anything(), 0);
 }
@@ -173,21 +247,58 @@ async fn the_bundled_contact_is_added_once_and_a_removal_holds() {
 #[tokio::test(flavor = "multi_thread")]
 async fn nothing_reaches_the_bundled_contact_until_the_user_writes() {
     let net = Arc::new(Net::default());
-    let (support, ann, bob) = (phone(&net, "Support").await, phone(&net, "Ann").await, phone(&net, "Bob").await);
-    ann.add_bundled_contact(&link_of(&support).await, Some("FlickerTalk".into())).await.unwrap().expect("added");
-    ann.add_contact(&link_of(&bob).await, None).await.expect("ann scans bob");
+    let (support, ann, bob) = (
+        phone(&net, "Support").await,
+        phone(&net, "Ann").await,
+        phone(&net, "Bob").await,
+    );
+    ann.add_bundled_contact(&link_of(&support).await, Some("FlickerTalk".into()))
+        .await
+        .unwrap()
+        .expect("added");
+    ann.add_contact(&link_of(&bob).await, None)
+        .await
+        .expect("ann scans bob");
     let to_bob = net.towards(&id(&bob));
 
     ann.set_mailbox(false).await.expect("mailbox off");
     ann.renew_link(None).await.expect("a new link");
     ann.reintroduce().await.expect("the card again");
-    assert!(net.towards(&id(&bob)) > to_bob, "a contact the user added hears of it");
-    assert_eq!(net.towards(&id(&support)), 0, "the contact the app carries hears nothing");
+    assert!(
+        net.towards(&id(&bob)) > to_bob,
+        "a contact the user added hears of it"
+    );
+    assert_eq!(
+        net.towards(&id(&support)),
+        0,
+        "the contact the app carries hears nothing"
+    );
 
-    ann.send_text(&id(&support), "Hello?").await.expect("writes");
-    until("the support peer has the text", || async { texts(&support, &id(&ann)).await == ["Hello?"] }).await;
-    support.accept_contact(&id(&ann)).await.expect("the support peer takes it");
-    support.send_text(&id(&ann), "How can I help?").await.expect("answers");
-    until("ann has the answer", || async { texts(&ann, &id(&support)).await == ["Hello?", "How can I help?"] }).await;
-    assert!(ann.store().contact(&id(&support)).await.unwrap().expect("there").introduced);
+    ann.send_text(&id(&support), "Hello?")
+        .await
+        .expect("writes");
+    until("the support peer has the text", || async {
+        texts(&support, &id(&ann)).await == ["Hello?"]
+    })
+    .await;
+    support
+        .accept_contact(&id(&ann))
+        .await
+        .expect("the support peer takes it");
+    support
+        .send_text(&id(&ann), "How can I help?")
+        .await
+        .expect("answers");
+    until("ann has the answer", || async {
+        texts(&ann, &id(&support)).await == ["Hello?", "How can I help?"]
+    })
+    .await;
+    assert!(
+        ann.store()
+            .contact(&id(&support))
+            .await
+            .unwrap()
+            .expect("there")
+            .introduced
+    );
 }
