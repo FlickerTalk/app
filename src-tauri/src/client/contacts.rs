@@ -171,6 +171,55 @@ pub async fn core_share(text: String, app: AppHandle) -> Result<(), String> {
     app.platform().share_text(&text).map_err(failed)
 }
 
+#[derive(Serialize)]
+pub struct PickedContactView {
+    name: String,
+    whatsapp: Option<String>,
+}
+
+fn picked_view(name: &str, number: &str, country: &str) -> PickedContactView {
+    PickedContactView {
+        name: ft_contacts::invite::greeting_name(name),
+        whatsapp: ft_contacts::invite::whatsapp_number(number, country),
+    }
+}
+
+fn deliver(
+    whatsapp_link: Option<String>,
+    open_whatsapp: impl FnOnce(&str) -> bool,
+    share: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    match whatsapp_link {
+        Some(link) if open_whatsapp(&link) => Ok(()),
+        _ => share(),
+    }
+}
+
+// the picked name and number go back to the page for this one message and are never kept
+#[tauri::command]
+pub async fn core_pick_contact(app: AppHandle) -> Result<Option<PickedContactView>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || app.platform().pick_contact())
+        .await
+        .map_err(failed)?
+        .map_err(failed)?;
+    Ok(picked.map(|contact| picked_view(&contact.name, &contact.number, &contact.country)))
+}
+
+#[tauri::command]
+pub async fn core_invite(
+    whatsapp: Option<String>,
+    text: String,
+    app: AppHandle,
+) -> Result<(), String> {
+    let link = whatsapp.and_then(|number| ft_contacts::invite::whatsapp_link(&number, &text));
+    let platform = app.platform();
+    deliver(
+        link,
+        |link| platform.open_whatsapp(link).unwrap_or(false),
+        || platform.share_text(&text).map_err(failed),
+    )
+}
+
 #[tauri::command]
 pub async fn core_contact(
     contact: String,
@@ -266,6 +315,66 @@ pub async fn core_remove_contact(contact: String, client: State<'_, Client>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picked_contact_reaches_the_page_as_a_first_name_and_a_whatsapp_number() {
+        let view = serde_json::to_value(picked_view("María García", "612 345 678", "ES")).unwrap();
+        assert_eq!(
+            view,
+            serde_json::json!({ "name": "María", "whatsapp": "34612345678" })
+        );
+        let unusable = serde_json::to_value(picked_view("+34 612", "call me", "ES")).unwrap();
+        assert_eq!(
+            unusable,
+            serde_json::json!({ "name": "", "whatsapp": null })
+        );
+    }
+
+    #[test]
+    fn an_invitation_goes_to_whatsapp_when_it_opens() {
+        let shared = std::cell::Cell::new(false);
+        let opened = std::cell::RefCell::new(Vec::new());
+        let sent = deliver(
+            Some("https://wa.me/34612345678?text=Hi".to_owned()),
+            |link| {
+                opened.borrow_mut().push(link.to_owned());
+                true
+            },
+            || {
+                shared.set(true);
+                Ok(())
+            },
+        );
+        assert_eq!(sent, Ok(()));
+        assert_eq!(*opened.borrow(), ["https://wa.me/34612345678?text=Hi"]);
+        assert!(!shared.get());
+    }
+
+    #[test]
+    fn an_invitation_goes_to_the_share_sheet_without_whatsapp_or_without_a_number() {
+        for (link, whatsapp_opens) in [
+            (Some("https://wa.me/34612345678?text=Hi".to_owned()), false),
+            (None, true),
+        ] {
+            let shared = std::cell::Cell::new(false);
+            let sent = deliver(
+                link,
+                |_| whatsapp_opens,
+                || {
+                    shared.set(true);
+                    Ok(())
+                },
+            );
+            assert_eq!(sent, Ok(()));
+            assert!(shared.get());
+        }
+        let refused = deliver(
+            None,
+            |_| true,
+            || Err("not available on this platform".to_owned()),
+        );
+        assert_eq!(refused, Err("not available on this platform".to_owned()));
+    }
 
     #[test]
     fn a_contact_view_carries_its_rules() {
