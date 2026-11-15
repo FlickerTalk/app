@@ -2,7 +2,7 @@ import { computed, onUnmounted, ref, watch, type Ref } from "vue";
 import { useRouter } from "vue-router";
 import { grantPlugin, markRead, type ChatMessage, type PickedFile, type PluginView, type Sending } from "./core";
 import { installed, refreshPlugins, type HandedFile } from "./plugins";
-import { closeOnBack } from "./back";
+import { closeOnBack, closeOnBackWhile } from "./back";
 import { missingPermission, withPermission, type PermissionNeed } from "./permissions";
 import { watchViewport } from "./viewport";
 
@@ -18,7 +18,7 @@ export type Opening = {
 };
 export type OpenPlugin = Opening & { contact: string; opening: number };
 
-export function usePluginWindow(options: {
+type WindowOptions = {
   chatId: () => string;
   active: () => boolean;
   split: () => boolean;
@@ -28,13 +28,16 @@ export function usePluginWindow(options: {
   scrollToEnd: () => Promise<void>;
   draft: Ref<string>;
   staged: Ref<PickedFile | null>;
-}) {
+};
+
+export function usePluginWindow(options: WindowOptions) {
   const router = useRouter();
   const plugin = ref<OpenPlugin | null>(null);
   // every way out goes through the sheet's close(), so the other side hears the plugin left
   const leaving = ref(false);
   let next: OpenPlugin | null = null;
   let openings = 0;
+  const needs = usePluginNeeds(plugin);
 
   function openPlugin(chosen: Opening) {
     const opening = { ...chosen, contact: options.chatId(), opening: (openings += 1) };
@@ -48,7 +51,7 @@ export function usePluginWindow(options: {
 
   function closePlugin() {
     if (!plugin.value || leaving.value) return;
-    answerNeed(false);
+    needs.answerNeed(false);
     leaving.value = true;
     const sheet = options.sheet();
     if (sheet) void sheet.close();
@@ -61,54 +64,8 @@ export function usePluginWindow(options: {
     next = null;
   }
 
-  // Back stays taken while the plugin says goodbye, or a second press leaves the chat
-  const holding = () => options.active() && leaving.value;
-  let releaseHold: (() => void) | undefined;
-  function holdBack() {
-    releaseHold = holding() ? closeOnBack(holdBack) : undefined;
-  }
-  watch(holding, (now) => {
-    releaseHold?.();
-    releaseHold = undefined;
-    if (now) holdBack();
-  });
-  onUnmounted(() => releaseHold?.());
-
-  const playing = computed(() => Boolean(plugin.value?.game) && !leaving.value);
-  const peeking = ref(false);
-  const seenUpTo = ref(0);
-  const lastFromThem = computed(() =>
-    options
-      .messages()
-      .slice(seenUpTo.value)
-      .filter((one) => !one.mine)
-      .at(-1),
-  );
-  watch(playing, async (now) => {
-    peeking.value = false;
-    seenUpTo.value = options.messages().length;
-    if (now) return;
-    void markRead(options.chatId());
-    await options.scrollToEnd();
-  });
-  async function peek() {
-    peeking.value = !peeking.value;
-    seenUpTo.value = options.messages().length;
-    if (peeking.value) {
-      await markRead(options.chatId());
-      await options.scrollToEnd();
-    }
-  }
-  // with the keyboard gone, show the game from its top again
-  let keyboardWasOpen = false;
-  const unwatchKeyboard = watchViewport({
-    before: () => (keyboardWasOpen = document.documentElement.classList.contains("ft-keyboard-open")),
-    after: () => {
-      const gameArea = options.gameArea();
-      if (keyboardWasOpen && !document.documentElement.classList.contains("ft-keyboard-open") && gameArea) gameArea.scrollTop = 0;
-    },
-  });
-  onUnmounted(unwatchKeyboard);
+  holdBackWhileLeaving(() => options.active() && leaving.value);
+  const room = useGameRoom(options, plugin, leaving);
 
   // the done that follows a staged file doesn't end the game
   let stagedByGame = false;
@@ -126,6 +83,114 @@ export function usePluginWindow(options: {
     else void router.push(`/chat/${contact}`);
   }
 
+  // a plugin proposes, the user sends
+  function fromPlugin(text: string) {
+    options.draft.value = text;
+    if (!plugin.value?.game) closePlugin();
+  }
+
+  function stage(file: PickedFile) {
+    options.staged.value = file;
+    if (plugin.value?.game) stagedByGame = true;
+    else closePlugin();
+  }
+
+  // split view only, a chat page's chatId follows the address of a page pushed over it
+  watch(options.chatId, () => {
+    if (!options.split() || !options.active()) return;
+    next = null;
+    closePlugin();
+  });
+
+  return {
+    plugin,
+    leaving,
+    openPlugin,
+    closePlugin,
+    pluginClosed,
+    ...room,
+    pluginDone,
+    openChatFromPlugin,
+    ...needs,
+    fromPlugin,
+    stage,
+  };
+}
+
+// Back stays taken while the plugin says goodbye, or a second press leaves the chat
+function holdBackWhileLeaving(holding: () => boolean) {
+  let releaseHold: (() => void) | undefined;
+  function holdBack() {
+    releaseHold = holding() ? closeOnBack(holdBack) : undefined;
+  }
+  watch(holding, (now) => {
+    releaseHold?.();
+    releaseHold = undefined;
+    if (now) holdBack();
+  });
+  onUnmounted(() => releaseHold?.());
+}
+
+function useGameRoom(options: WindowOptions, plugin: Ref<OpenPlugin | null>, leaving: Ref<boolean>) {
+  const playing = computed(() => Boolean(plugin.value?.game) && !leaving.value);
+  const peeking = ref(false);
+  const seenUpTo = ref(0);
+  const fromThemSince = (from: number) =>
+    options
+      .messages()
+      .slice(from)
+      .filter((one) => !one.mine);
+  const lastFromThem = computed(() => fromThemSince(seenUpTo.value).at(-1));
+  watch(playing, async (now) => {
+    peeking.value = false;
+    seenUpTo.value = options.messages().length;
+    if (now) return;
+    void markRead(options.chatId());
+    await options.scrollToEnd();
+  });
+  async function peek() {
+    peeking.value = !peeking.value;
+    seenUpTo.value = options.messages().length;
+    if (peeking.value) {
+      await markRead(options.chatId());
+      await options.scrollToEnd();
+    }
+  }
+
+  const expanded = ref(false);
+  const expandedAt = ref(0);
+  const fullscreen = computed(() => expanded.value && playing.value);
+  const unread = computed(() => (fullscreen.value ? fromThemSince(expandedAt.value).length : 0));
+  function setFullscreen(on: boolean) {
+    expanded.value = on && Boolean(plugin.value?.game);
+    expandedAt.value = options.messages().length;
+    if (expanded.value) peeking.value = false;
+  }
+  async function showChat() {
+    expanded.value = false;
+    if (!peeking.value) await peek();
+  }
+  watch(
+    () => plugin.value?.opening,
+    () => (expanded.value = false),
+  );
+  closeOnBackWhile(() => options.active() && fullscreen.value, () => (expanded.value = false));
+
+  // with the keyboard gone, show the game from its top again
+  let keyboardWasOpen = false;
+  const unwatchKeyboard = watchViewport({
+    before: () => (keyboardWasOpen = document.documentElement.classList.contains("ft-keyboard-open")),
+    after: () => {
+      const gameArea = options.gameArea();
+      if (keyboardWasOpen && !document.documentElement.classList.contains("ft-keyboard-open") && gameArea) gameArea.scrollTop = 0;
+    },
+  });
+  onUnmounted(unwatchKeyboard);
+
+  return { playing, peeking, lastFromThem, peek, fullscreen, unread, setFullscreen, showChat };
+}
+
+function usePluginNeeds(plugin: Ref<OpenPlugin | null>) {
   const needing = ref<PermissionNeed | null>(null);
   const openView = computed(() => installed.value.find((one) => one.id === plugin.value?.id));
   function answerNeed(allowed: boolean) {
@@ -166,44 +231,5 @@ export function usePluginWindow(options: {
     needing.value = need;
   }
 
-  // a plugin proposes, the user sends
-  function fromPlugin(text: string) {
-    options.draft.value = text;
-    if (!plugin.value?.game) closePlugin();
-  }
-
-  function stage(file: PickedFile) {
-    options.staged.value = file;
-    if (plugin.value?.game) stagedByGame = true;
-    else closePlugin();
-  }
-
-  // split view only, a chat page's chatId follows the address of a page pushed over it
-  watch(options.chatId, () => {
-    if (!options.split() || !options.active()) return;
-    next = null;
-    closePlugin();
-  });
-
-  return {
-    plugin,
-    leaving,
-    openPlugin,
-    closePlugin,
-    pluginClosed,
-    playing,
-    peeking,
-    lastFromThem,
-    peek,
-    pluginDone,
-    openChatFromPlugin,
-    needing,
-    askingFor,
-    askingView,
-    answerNeed,
-    allowedToRead,
-    needFromApp,
-    fromPlugin,
-    stage,
-  };
+  return { needing, askingFor, askingView, answerNeed, allowedToRead, needFromApp };
 }
