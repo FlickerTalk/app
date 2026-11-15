@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Niciun chat încă",
-    "emptyHint": "Arată-ți codul sau scanează-l pe al celuilalt ca să începi"
+    "emptyHint": "Arată-ți codul sau scanează-l pe al celuilalt ca să începi",
+    "collapseList": "Restrânge lista de chaturi",
+    "expandList": "Extinde lista de chaturi"
   },
   "common": {
     "back": "Înapoi",

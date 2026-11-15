@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Belum ada chat",
-    "emptyHint": "Tunjukkan kode Anda atau pindai kode mereka untuk mulai"
+    "emptyHint": "Tunjukkan kode Anda atau pindai kode mereka untuk mulai",
+    "collapseList": "Ciutkan daftar chat",
+    "expandList": "Luaskan daftar chat"
   },
   "common": {
     "back": "Kembali",

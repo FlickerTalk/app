@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Ancora nessuna chat",
-    "emptyHint": "Mostra il tuo codice o scansiona quello dell'altra persona per iniziare"
+    "emptyHint": "Mostra il tuo codice o scansiona quello dell'altra persona per iniziare",
+    "collapseList": "Comprimi l'elenco delle chat",
+    "expandList": "Espandi l'elenco delle chat"
   },
   "common": {
     "back": "Indietro",

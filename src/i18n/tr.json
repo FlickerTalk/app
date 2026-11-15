@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Henüz sohbet yok",
-    "emptyHint": "Başlamak için kodunuzu gösterin veya karşı tarafın kodunu tarayın"
+    "emptyHint": "Başlamak için kodunuzu gösterin veya karşı tarafın kodunu tarayın",
+    "collapseList": "Sohbet listesini daralt",
+    "expandList": "Sohbet listesini genişlet"
   },
   "common": {
     "back": "Geri",

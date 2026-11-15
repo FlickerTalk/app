@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Aún no hay chats",
-    "emptyHint": "Muestra tu código o escanea el suyo para empezar"
+    "emptyHint": "Muestra tu código o escanea el suyo para empezar",
+    "collapseList": "Contraer la lista de chats",
+    "expandList": "Expandir la lista de chats"
   },
   "common": {
     "back": "Atrás",

@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Noch keine Chats",
-    "emptyHint": "Zeig deinen Code oder scanne den deines Kontakts, um zu starten"
+    "emptyHint": "Zeig deinen Code oder scanne den deines Kontakts, um zu starten",
+    "collapseList": "Chatliste einklappen",
+    "expandList": "Chatliste ausklappen"
   },
   "common": {
     "back": "Zurück",

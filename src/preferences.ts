@@ -50,3 +50,14 @@ export function isTourDue(): boolean {
 export function setTourSeen() {
   localStorage.setItem(TOUR_KEY, "seen");
 }
+
+const CHAT_LIST_KEY = "ft-chat-list";
+
+export function isChatListCollapsed(): boolean {
+  return localStorage.getItem(CHAT_LIST_KEY) === "collapsed";
+}
+
+export function setChatListCollapsed(collapsed: boolean) {
+  if (collapsed) localStorage.setItem(CHAT_LIST_KEY, "collapsed");
+  else localStorage.removeItem(CHAT_LIST_KEY);
+}

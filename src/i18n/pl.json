@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Brak czatów",
-    "emptyHint": "Pokaż swój kod lub zeskanuj kod drugiej osoby, aby zacząć"
+    "emptyHint": "Pokaż swój kod lub zeskanuj kod drugiej osoby, aby zacząć",
+    "collapseList": "Zwiń listę czatów",
+    "expandList": "Rozwiń listę czatów"
   },
   "common": {
     "back": "Wstecz",

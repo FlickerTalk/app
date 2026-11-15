@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Nenhuma conversa ainda",
-    "emptyHint": "Mostre seu código ou escaneie o da outra pessoa para começar"
+    "emptyHint": "Mostre seu código ou escaneie o da outra pessoa para começar",
+    "collapseList": "Recolher a lista de conversas",
+    "expandList": "Expandir a lista de conversas"
   },
   "common": {
     "back": "Voltar",

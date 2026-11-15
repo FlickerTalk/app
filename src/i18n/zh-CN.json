@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "还没有聊天",
-    "emptyHint": "出示你的二维码或扫描对方的二维码即可开始"
+    "emptyHint": "出示你的二维码或扫描对方的二维码即可开始",
+    "collapseList": "收起聊天列表",
+    "expandList": "展开聊天列表"
   },
   "common": {
     "back": "返回",
