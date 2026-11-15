@@ -1,4 +1,4 @@
-import { computed, onUnmounted, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch, type Ref } from "vue";
 import { useRouter } from "vue-router";
 import { grantPlugin, markRead, type ChatMessage, type PickedFile, type PluginView, type Sending } from "./core";
 import { installed, refreshPlugins, type HandedFile } from "./plugins";
@@ -25,6 +25,7 @@ type WindowOptions = {
   messages: () => ChatMessage[];
   sheet: () => { close: () => unknown } | null | undefined;
   gameArea: () => HTMLElement | null | undefined;
+  strip?: () => { focus: () => void } | null | undefined;
   scrollToEnd: () => Promise<void>;
   draft: Ref<string>;
   staged: Ref<PickedFile | null>;
@@ -168,7 +169,11 @@ function useGameRoom(options: WindowOptions, plugin: Ref<OpenPlugin | null>, lea
   }
   async function showChat() {
     expanded.value = false;
-    if (!peeking.value) await peek();
+    const showing = peeking.value ? undefined : peek();
+    // the strip can't take the focus while the footer around it is still inert
+    await nextTick();
+    options.strip?.()?.focus();
+    await showing;
   }
   watch(
     () => plugin.value?.opening,
