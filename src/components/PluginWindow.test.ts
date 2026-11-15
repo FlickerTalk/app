@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
+import { store } from "../core/store";
 import type { OpenPlugin } from "../pluginWindow";
 import PluginWindow from "./PluginWindow.vue";
 
@@ -60,6 +61,17 @@ describe("PluginWindow", () => {
     expect(wrapper.emitted("invite")).toHaveLength(1);
     expect(wrapper.emitted("close")).toHaveLength(1);
     expect(windowFor({ ...GAME, id: "com.example.game" }).find("[data-test='game-invite']").exists()).toBe(false);
+  });
+
+  it("offers no invitation in a game with the built-in FlickerTalk contact", () => {
+    store.supportId = "c1";
+    try {
+      const wrapper = windowFor(GAME);
+      expect(wrapper.find("[data-test='game-room']").exists()).toBe(true);
+      expect(wrapper.find("[data-test='game-invite']").exists()).toBe(false);
+    } finally {
+      store.supportId = "";
+    }
   });
 
   it("hides the game while the thread is shown, keeping it running", () => {
