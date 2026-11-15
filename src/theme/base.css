@@ -140,6 +140,16 @@ ion-select::part(container) {
   cursor: default;
 }
 
+/* Ionic's tabs contain their layout in their shadow root, so a full-screen game reaches over the rail from there */
+@media (min-width: 768px) {
+  .ft-tabs-frame .ft-room > .ft-room__game--fullscreen {
+    inset-inline-start: calc(-1 * var(--ft-rail-width));
+  }
+  ion-tabs:has(.ft-room__game--fullscreen) {
+    z-index: 11 !important;
+  }
+}
+
 /* the camera sits under the app while scanning */
 html.ft-scanning,
 html.ft-scanning body,
