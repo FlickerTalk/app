@@ -119,6 +119,25 @@ describe("PluginSheet", () => {
       expect(wrapper.find("iframe").attributes("style") ?? "").not.toContain("px");
       expect(wrapper.find("section").classes()).toContain("ft-plugin--fill");
     });
+
+    it("tells the plugin at once when it starts or stops filling, without opening it again", async () => {
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+      says({ type: "ft.ready" });
+      await flushPromises();
+      post.mockClear();
+
+      await wrapper.setProps({ fill: true });
+      await flushPromises();
+      expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: "ft.theme", fill: true }), "*");
+      expect(wrapper.find("section").classes()).toContain("ft-plugin--fill");
+
+      await wrapper.setProps({ fill: false });
+      await flushPromises();
+      expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: "ft.theme", fill: false }), "*");
+      expect(post.mock.calls.map(([said]) => (said as { type: string }).type)).toEqual(["ft.theme", "ft.theme"]);
+    });
   });
 
   describe("the app's colours", () => {

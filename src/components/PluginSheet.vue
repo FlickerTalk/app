@@ -59,6 +59,7 @@ import {
   type Sending,
 } from "../core";
 import { i18n } from "../i18n";
+import { followLook } from "../pluginLook";
 import {
   CLOSING_WAIT,
   NOTICE_DURATION,
@@ -669,14 +670,7 @@ async function busy(work: () => Promise<void>) {
   }
 }
 
-let lastTheme = "";
-const looks = new MutationObserver(() => {
-  const now = look();
-  const said = JSON.stringify(now);
-  if (said === lastTheme) return;
-  lastTheme = said;
-  tell({ type: "ft.theme", ...now });
-});
+followLook(look, tell, () => props.fill);
 
 const reportOpen = (id: string, open: boolean) => void pluginOpen(id, open).catch(() => undefined);
 watch(
@@ -693,8 +687,6 @@ onMounted(async () => {
     dropHooks();
     emit("refused");
   });
-  lastTheme = JSON.stringify(look());
-  looks.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-direction", "dir"] });
   window.addEventListener("message", onMessage);
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });
@@ -706,7 +698,6 @@ onBeforeUnmount(() => {
   refuseUnanswered();
   dropHooks();
   void notify("");
-  looks.disconnect();
   window.removeEventListener("message", onMessage);
   // no listeners in tests and on desktop
   void Promise.resolve()
