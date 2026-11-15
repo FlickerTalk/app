@@ -12,10 +12,11 @@ import {
   IonTitle,
   IonToolbar,
 } from "@ionic/vue";
-import { checkmarkOutline, scanOutline, shareOutline } from "ionicons/icons";
+import { checkmarkOutline, personAddOutline, scanOutline, shareOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import QrCode from "../components/QrCode.vue";
 import { addContact, block, chat, myCardLink, refreshChats, shareText, store } from "../core";
+import { canInvite, inviteFriend } from "../invite";
 import { scanQr } from "../scanner";
 import { t } from "../i18n";
 import { takeOpened, waitingFor } from "../opened";
@@ -29,6 +30,7 @@ const mode = ref<"code" | "scan">("code");
 const copied = ref(false);
 const pasted = ref("");
 const error = ref("");
+const invites = canInvite();
 
 watch(
   session,
@@ -58,6 +60,10 @@ async function share() {
     await navigator.clipboard?.writeText(link.value);
     copied.value = true;
   }
+}
+
+async function invite() {
+  if (link.value) await inviteFriend(link.value);
 }
 
 async function scanCode() {
@@ -130,10 +136,23 @@ async function unblock(id: string | null) {
           <QrCode v-if="link" :value="link" :size="240" />
           <code class="ft-add__id">{{ store.me.id }}</code>
           <p class="ft-add__hint">{{ $t("addContact.myCodeHint") }}</p>
-          <ion-button fill="outline" shape="round" :aria-label="$t('addContact.shareLink')" @click="share">
-            <ion-icon slot="start" :icon="copied ? checkmarkOutline : shareOutline" aria-hidden="true" />
-            {{ copied ? $t("addContact.copied") : $t("addContact.shareLink") }}
-          </ion-button>
+          <div class="ft-add__actions">
+            <ion-button fill="outline" shape="round" :aria-label="$t('addContact.shareLink')" @click="share">
+              <ion-icon slot="start" :icon="copied ? checkmarkOutline : shareOutline" aria-hidden="true" />
+              {{ copied ? $t("addContact.copied") : $t("addContact.shareLink") }}
+            </ion-button>
+            <ion-button
+              v-if="invites"
+              fill="outline"
+              shape="round"
+              data-test="invite"
+              :aria-label="$t('addContact.invite')"
+              @click="invite"
+            >
+              <ion-icon slot="start" :icon="personAddOutline" aria-hidden="true" />
+              {{ $t("addContact.invite") }}
+            </ion-button>
+          </div>
         </template>
 
         <template v-else>
@@ -228,6 +247,13 @@ async function unblock(id: string | null) {
   color: var(--ft-muted);
   font-size: 14px;
   line-height: 1.4;
+}
+
+.ft-add__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--ft-space-2);
 }
 
 .ft-add__paste {

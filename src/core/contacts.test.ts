@@ -12,8 +12,10 @@ import {
   block,
   contactDetails,
   declineContact,
+  invite,
   isSupport,
   myCardLink,
+  pickContact,
   removeContact,
   renameContact,
   renewLink,
@@ -75,6 +77,22 @@ describe("contacts", () => {
       ["core_card", { session: "s1" }],
       ["core_renew_link", {}],
       ["core_renew_link", { session: "s1" }],
+    ]);
+  });
+
+  it("asks the core to pick someone from the phone's contacts, and hears nothing back when the user cancels", async () => {
+    tauri.invoke.mockResolvedValueOnce({ name: "Ana", whatsapp: "34612345678" }).mockResolvedValueOnce(null);
+    expect(await pickContact()).toEqual({ name: "Ana", whatsapp: "34612345678" });
+    expect(await pickContact()).toBeNull();
+    expect(tauri.invoke.mock.calls).toEqual([["core_pick_contact"], ["core_pick_contact"]]);
+  });
+
+  it("hands the invitation and the WhatsApp number, when there is one, to the core", async () => {
+    await invite("34612345678", "Hi Ana");
+    await invite(null, "Hi");
+    expect(tauri.invoke.mock.calls).toEqual([
+      ["core_invite", { whatsapp: "34612345678", text: "Hi Ana" }],
+      ["core_invite", { whatsapp: null, text: "Hi" }],
     ]);
   });
 

@@ -41,8 +41,11 @@ export {
   reportContact,
   contactDetails,
   block,
+  pickContact,
+  invite,
   type ContactRules,
   type ContactDetails,
+  type PickedContact,
 } from "./core/contacts";
 export {
   resend,
