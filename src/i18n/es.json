@@ -539,6 +539,10 @@
   "feedback": {
     "title": "Sugerir algo",
     "placeholder": "¿Qué te gustaría que tuviera FlickerTalk?",
+    "gameTitle": "Sugerir un juego",
+    "gamePlaceholder": "¿A qué juego te gustaría jugar en FlickerTalk?",
+    "toolTitle": "Sugerir una herramienta",
+    "toolPlaceholder": "¿Qué herramienta te gustaría que tuviera FlickerTalk?",
     "hint": "Llega sin tu nombre ni ningún identificador. No podemos responderte. No escribas datos personales.",
     "send": "Enviar",
     "sent": "Enviado. Gracias",

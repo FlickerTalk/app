@@ -539,6 +539,10 @@
   "feedback": {
     "title": "اقترح شيئًا",
     "placeholder": "ما الذي تودّ أن يتوفر في FlickerTalk؟",
+    "gameTitle": "اقترح لعبة",
+    "gamePlaceholder": "ما اللعبة التي تودّ أن تلعبها في FlickerTalk؟",
+    "toolTitle": "اقترح أداة",
+    "toolPlaceholder": "ما الأداة التي تودّ أن تتوفر في FlickerTalk؟",
     "hint": "يصلنا اقتراحك دون اسمك أو أي معرّف. لا يمكننا الرد عليك. لا تكتب بيانات شخصية.",
     "send": "إرسال",
     "sent": "تم الإرسال. شكرًا",

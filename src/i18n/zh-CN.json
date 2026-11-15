@@ -539,6 +539,10 @@
   "feedback": {
     "title": "提个建议",
     "placeholder": "你希望 FlickerTalk 有什么功能？",
+    "gameTitle": "提个游戏建议",
+    "gamePlaceholder": "你想在 FlickerTalk 上玩什么游戏？",
+    "toolTitle": "提个工具建议",
+    "toolPlaceholder": "你希望 FlickerTalk 有什么工具？",
     "hint": "建议送达我们时不带你的名字或任何标识符。我们无法回复。请勿填写个人信息。",
     "send": "发送",
     "sent": "已发送。谢谢",

@@ -6,6 +6,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 import {
   enablePush,
   erasePhone,
+  feedbackLimit,
+  feedbackText,
   quietHours,
   resumeRouter,
   sendFeedback,
@@ -94,5 +96,28 @@ describe("this phone's settings", () => {
     tauri.invoke.mockRejectedValueOnce("offline");
     expect(await sendFeedback("an idea")).toBe("failed");
     expect(tauri.invoke).toHaveBeenLastCalledWith("core_send_feedback", { text: "an idea" });
+  });
+
+  it("starts a game or tool idea with a line in English that says which, and leaves any other suggestion as written", () => {
+    expect(feedbackText("  Chess with a clock \n", "game")).toBe("[Game idea]\nChess with a clock");
+    expect(feedbackText("A shared shopping list", "tool")).toBe("[Tool idea]\nA shared shopping list");
+    expect(feedbackText("  Stickers, please ")).toBe("Stickers, please");
+  });
+
+  it("leaves room for that line within the router's 2000 characters", () => {
+    expect(feedbackLimit()).toBe(2000);
+    for (const kind of ["game", "tool"] as const) {
+      expect(feedbackLimit(kind)).toBe(1988);
+      expect(feedbackText("x".repeat(feedbackLimit(kind)), kind)).toHaveLength(2000);
+    }
+  });
+
+  it("sends a game or tool idea with its line", async () => {
+    tauri.invoke.mockResolvedValueOnce("sent");
+    expect(await sendFeedback(" Chess with a clock ", "game")).toBe("sent");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_send_feedback", { text: "[Game idea]\nChess with a clock" });
+    tauri.invoke.mockResolvedValueOnce("failed");
+    expect(await sendFeedback("A shared shopping list", "tool")).toBe("failed");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("core_send_feedback", { text: "[Tool idea]\nA shared shopping list" });
   });
 });

@@ -384,8 +384,11 @@ export function installFakeCore() {
         if (extra.length) return JSON.parse(JSON.stringify([...state.plugins, ...extra]));
         return JSON.parse(JSON.stringify(state.plugins));
       }
-      case "core_catalogue":
-        return catalogue().map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
+      case "core_catalogue": {
+        const offered = catalogue().map((one) => ({ ...one, installed: state.plugins.some((p) => p.id === one.id) }));
+        const late = Number((window as unknown as Record<string, unknown>).__ftFakeCatalogueLate ?? 0);
+        return late ? new Promise((resolve) => setTimeout(() => resolve(offered), late)) : offered;
+      }
       case "core_plugin_add": {
         if (flag("__ftFakeInstallFails")) throw new Error("the catalogue could not be reached");
         const entry = catalogue().find((one) => one.id === a.plugin);

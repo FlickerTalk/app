@@ -98,9 +98,11 @@ export {
   quietHours,
   setQuietHours,
   sendFeedback,
+  feedbackLimit,
   type Day,
   type Week,
   type FeedbackOutcome,
+  type FeedbackKind,
 } from "./core/settings";
 export {
   daysLeft,

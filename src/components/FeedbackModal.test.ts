@@ -177,6 +177,64 @@ describe("FeedbackModal", () => {
     expect(await mayDismiss(wrapper, undefined)).toBe(true);
   });
 
+  it("cannot send more than the router takes, even if the box were to let it through", async () => {
+    const wrapper = open();
+    const button = () => wrapper.find("[data-test='send']");
+    await write(wrapper, "x".repeat(2001));
+    expect(button().attributes("disabled")).toBe("true");
+    await send(wrapper);
+    expect(sends()).toEqual([]);
+    await write(wrapper, `  ${"x".repeat(2000)}  `);
+    expect(button().attributes("disabled")).toBe("false");
+  });
+
+  describe("for a game or a tool", () => {
+    const openFor = (kind: "game" | "tool") => mount(FeedbackModal, { props: { open: true, kind }, shallow: true });
+
+    it("says what is being suggested, and asks for it", () => {
+      const game = openFor("game");
+      expect(game.findComponent(IonTitle).text()).toBe("Suggest a game");
+      expect(game.findComponent(IonTextarea).props("placeholder")).toBe("What game would you like to play on FlickerTalk?");
+      const tool = openFor("tool");
+      expect(tool.findComponent(IonTitle).text()).toBe("Suggest a tool");
+      expect(tool.findComponent(IonTextarea).props("placeholder")).toBe("What tool would you like FlickerTalk to have?");
+    });
+
+    it("keeps the same notice about what reaches us", () => {
+      expect(openFor("game").find("[data-test='hint']").text()).toBe(
+        "It reaches us without your name or any identifier. We cannot reply. Do not write personal data.",
+      );
+    });
+
+    it("counts up to what is left once the line that says which is added", async () => {
+      const wrapper = openFor("game");
+      expect(wrapper.findComponent(IonTextarea).props("maxlength")).toBe(1988);
+      await write(wrapper, "x".repeat(1989));
+      expect(wrapper.find("[data-test='send']").attributes("disabled")).toBe("true");
+      await write(wrapper, "x".repeat(1988));
+      expect(wrapper.find("[data-test='send']").attributes("disabled")).toBe("false");
+    });
+
+    it("sends the idea with the line that says which, and thanks", async () => {
+      answering("sent");
+      const wrapper = openFor("tool");
+      await write(wrapper, " A shared shopping list ");
+      await send(wrapper);
+      expect(sends()).toEqual([["core_send_feedback", { text: "[Tool idea]\nA shared shopping list" }]]);
+      expect(outcome(wrapper).text()).toBe("Sent. Thank you");
+    });
+
+    it("keeps the idea when it does not go", async () => {
+      answering("failed");
+      const wrapper = openFor("game");
+      await write(wrapper, "Chess with a clock");
+      await send(wrapper);
+      expect(sends()).toEqual([["core_send_feedback", { text: "[Game idea]\nChess with a clock" }]]);
+      expect(outcome(wrapper).text()).toBe("Could not send. Try again later");
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("Chess with a clock");
+    });
+  });
+
   it("forgets the text and the outcome once dismissed, and says it closed", async () => {
     answering("failed");
     const wrapper = open();

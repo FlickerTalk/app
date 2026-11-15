@@ -539,6 +539,10 @@
   "feedback": {
     "title": "提案する",
     "placeholder": "FlickerTalk にどんな機能があったらいいですか？",
+    "gameTitle": "ゲームを提案する",
+    "gamePlaceholder": "FlickerTalk でどんなゲームを遊びたいですか？",
+    "toolTitle": "ツールを提案する",
+    "toolPlaceholder": "FlickerTalk にどんなツールがあったらいいですか？",
     "hint": "提案は、あなたの名前や識別子なしで届きます。返信はできません。個人情報は書かないでください。",
     "send": "送信",
     "sent": "送信しました。ありがとうございます",

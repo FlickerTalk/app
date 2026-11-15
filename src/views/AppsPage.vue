@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import {
+  IonButton,
   IonContent,
   IonHeader,
   IonIcon,
@@ -14,11 +15,12 @@ import {
   onIonViewWillEnter,
   onIonViewWillLeave,
 } from "@ionic/vue";
-import { constructOutline, gameControllerOutline } from "ionicons/icons";
+import { bulbOutline, constructOutline, gameControllerOutline } from "ionicons/icons";
 import { useRoute, useRouter } from "vue-router";
 import AppSheet from "../components/AppSheet.vue";
 import AppTile from "../components/AppTile.vue";
 import ContactPicker from "../components/ContactPicker.vue";
+import FeedbackModal from "../components/FeedbackModal.vue";
 import GamePermissions from "../components/GamePermissions.vue";
 import {
   formatSize,
@@ -88,16 +90,19 @@ const sheetPlugin = computed<PluginView | OfferedPlugin | null>(
 
 const asking = ref<PluginView | null>(null);
 const picking = ref("");
+const suggesting = ref(false);
 
 const onScreen = useOnScreen();
 onIonViewWillLeave(() => {
   sheetOpen.value = false;
   asking.value = null;
   picking.value = "";
+  suggesting.value = false;
 });
 closeOnBackWhile(() => onScreen.value && sheetOpen.value, () => (sheetOpen.value = false));
 closeOnBackWhile(() => onScreen.value && Boolean(asking.value), () => (asking.value = null));
 closeOnBackWhile(() => onScreen.value && Boolean(picking.value), () => (picking.value = ""));
+closeOnBackWhile(() => onScreen.value && suggesting.value, () => (suggesting.value = false));
 
 onMounted(refresh);
 onIonViewWillEnter(refresh);
@@ -275,6 +280,12 @@ function playWith(contact: string) {
           {{ onGames ? $t("apps.allGamesHere") : $t("apps.allToolsHere") }}
         </p>
         <p v-else class="ft-apps__note" data-test="apps-offline">{{ $t("apps.offline") }}</p>
+        <div class="ft-apps__suggest">
+          <ion-button fill="outline" shape="round" data-test="apps-suggest" @click="suggesting = true">
+            <ion-icon slot="start" :icon="bulbOutline" aria-hidden="true" />
+            {{ onGames ? $t("feedback.gameTitle") : $t("feedback.toolTitle") }}
+          </ion-button>
+        </div>
       </template>
     </ion-content>
 
@@ -317,6 +328,8 @@ function playWith(contact: string) {
       @add="addContact"
       @dismiss="picking = ''"
     />
+
+    <FeedbackModal :open="suggesting" :kind="onGames ? 'game' : 'tool'" @close="suggesting = false" />
   </ion-page>
 </template>
 
@@ -363,5 +376,10 @@ function playWith(contact: string) {
   color: var(--ion-color-medium);
   font-size: 14px;
   line-height: 1.4;
+}
+.ft-apps__suggest {
+  display: flex;
+  justify-content: center;
+  margin: 24px 20px 16px;
 }
 </style>

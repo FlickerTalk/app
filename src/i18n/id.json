@@ -539,6 +539,10 @@
   "feedback": {
     "title": "Usulkan sesuatu",
     "placeholder": "Apa yang ingin kamu lihat di FlickerTalk?",
+    "gameTitle": "Usulkan game",
+    "gamePlaceholder": "Game apa yang ingin kamu mainkan di FlickerTalk?",
+    "toolTitle": "Usulkan alat",
+    "toolPlaceholder": "Alat apa yang ingin kamu lihat di FlickerTalk?",
     "hint": "Usulanmu sampai ke kami tanpa namamu atau pengenal apa pun. Kami tidak bisa membalas. Jangan tulis data pribadi.",
     "send": "Kirim",
     "sent": "Terkirim. Terima kasih",

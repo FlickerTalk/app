@@ -539,6 +539,10 @@
   "feedback": {
     "title": "Suggest something",
     "placeholder": "What would you like FlickerTalk to have?",
+    "gameTitle": "Suggest a game",
+    "gamePlaceholder": "What game would you like to play on FlickerTalk?",
+    "toolTitle": "Suggest a tool",
+    "toolPlaceholder": "What tool would you like FlickerTalk to have?",
     "hint": "It reaches us without your name or any identifier. We cannot reply. Do not write personal data.",
     "send": "Send",
     "sent": "Sent. Thank you",

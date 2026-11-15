@@ -71,6 +71,17 @@ const SCREENS: Array<Screen & { file: string }> = [
       return modal;
     },
   },
+  ...(["games", "tools"] as const).map((show) => ({
+    file: "components/FeedbackModal.vue",
+    name: `apps, suggest from the ${show}`,
+    open: async (app: Page, mode: Mode) => {
+      await page(app, `/tabs/apps?show=${show}`, mode);
+      await app.getByTestId("apps-suggest").click();
+      const modal = app.getByTestId("feedback-modal");
+      await expect(modal.getByTestId("send")).toBeInViewport({ ratio: 1 });
+      return modal;
+    },
+  })),
   { file: "views/AddContactPage.vue", name: "add contact", open: (app, mode) => page(app, "/add-contact", mode) },
   { file: "views/BackupPage.vue", name: "backup", open: (app, mode) => page(app, "/backup", mode) },
   { file: "views/BlockedPage.vue", name: "blocked", open: (app, mode) => page(app, "/blocked", mode) },
