@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { IonButton, IonButtons, IonIcon, IonTitle, IonToolbar } from "@ionic/vue";
 import { closeOutline, expandOutline, mailOutline } from "ionicons/icons";
 import PluginSheet from "./PluginSheet.vue";
@@ -32,6 +32,7 @@ const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
 const gameArea = ref<HTMLElement | null>(null);
 defineExpose({ sheet, gameArea });
 
+const invites = computed(() => Boolean(gameUrl(props.plugin.id)) && !isSupport(props.plugin.contact ?? ""));
 const bar = ref<InstanceType<typeof GameFullscreenBar> | null>(null);
 const expand = ref<InstanceType<typeof IonButton> | null>(null);
 const { said, announce } = useFullscreenCues({
@@ -58,7 +59,7 @@ watch(
       </ion-buttons>
       <ion-title size="small"><span class="ft-title">{{ plugin.name }}</span></ion-title>
       <ion-buttons slot="end">
-        <ion-button v-if="gameUrl(plugin.id) && !isSupport(plugin.contact ?? '')" data-test="game-invite" :aria-label="$t('games.invite')" @click="emit('invite')">
+        <ion-button v-if="invites" data-test="game-invite" :aria-label="$t('games.invite')" @click="emit('invite')">
           <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
         </ion-button>
         <ion-button ref="expand" data-test="game-fullscreen" :aria-label="$t('games.enterFullscreen')" aria-pressed="false" @click="emit('fullscreen', true)">
@@ -78,7 +79,7 @@ watch(
         ref="bar"
         :name="plugin.name"
         chat
-        :invite="Boolean(gameUrl(plugin.id))"
+        :invite="invites"
         :unread="unread"
         @exit="emit('fullscreen', false)"
         @chat="emit('showChat')"

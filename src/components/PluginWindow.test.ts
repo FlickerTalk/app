@@ -163,6 +163,17 @@ describe("PluginWindow", () => {
       expect(windowFor({ ...GAME, id: "com.example.game" }, { fullscreen: true }).find("[data-test='game-fullscreen-invite']").exists()).toBe(false);
     });
 
+    it("offers no invitation in full screen either in a game with the built-in FlickerTalk contact", () => {
+      store.supportId = "c1";
+      try {
+        const wrapper = windowFor(GAME, { fullscreen: true });
+        expect(wrapper.find("[data-test='game-fullscreen-bar']").exists()).toBe(true);
+        expect(wrapper.find("[data-test='game-fullscreen-invite']").exists()).toBe(false);
+      } finally {
+        store.supportId = "";
+      }
+    });
+
     it("moves the focus to the way back in, and to the expand button when it ends", async () => {
       const wrapper = windowFor(GAME);
       const spy = focused();
