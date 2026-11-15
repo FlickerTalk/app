@@ -7,6 +7,7 @@ mod authorize;
 mod billing;
 mod calls;
 mod files;
+mod invite;
 mod location;
 mod opened_links;
 mod push;

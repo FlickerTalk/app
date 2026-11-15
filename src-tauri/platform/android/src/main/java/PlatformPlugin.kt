@@ -51,6 +51,8 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
 
     private val billing = Billing(activity)
 
+    private val invite = Invite(activity)
+
     override fun load(webView: WebView) {
         super.load(webView)
         this.webView = webView
@@ -501,6 +503,34 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
             return
         }
         invoke.resolve(JSObject().apply { put("files", picked) })
+    }
+
+    @Command
+    fun pickContact(invoke: Invoke) {
+        try {
+            startActivityForResult(invoke, invite.pickIntent(), "contactPicked")
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "no contact picker")
+        }
+    }
+
+    @ActivityCallback
+    fun contactPicked(invoke: Invoke, result: ActivityResult) {
+        try {
+            invoke.resolve(invite.picked(result))
+        } catch (_: Exception) {
+            invoke.reject("cannot read the picked contact")
+        }
+    }
+
+    @Command
+    fun openWhatsApp(invoke: Invoke) {
+        try {
+            val url = invoke.parseArgs(WhatsAppArgs::class.java).url
+            invoke.resolve(JSObject().apply { put("opened", invite.openWhatsApp(url)) })
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "cannot open WhatsApp")
+        }
     }
 
     @Command
