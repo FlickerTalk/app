@@ -29,7 +29,7 @@ async function installed(plugins: object[]) {
   await refreshPlugins();
 }
 
-const apps = (selected: "tools" | "games") => mount(ChatApps, { props: { selected }, global: { stubs: { IonIcon: true } } });
+const apps = (selected: "tools" | "games", noInvites?: boolean) => mount(ChatApps, { props: { selected, noInvites }, global: { stubs: { IonIcon: true } } });
 const tiles = (wrapper: ReturnType<typeof apps>) => wrapper.findAllComponents(AppTile);
 
 describe("ChatApps", () => {
@@ -68,6 +68,16 @@ describe("ChatApps", () => {
     expect(wrapper.emitted("invite")?.[0][0]).toMatchObject({ id: CHESS.id });
     await wrapper.find("[data-test='more-games-link']").trigger("click");
     expect(wrapper.emitted("more")).toHaveLength(1);
+  });
+
+  it("still plays a game on a tap but neither offers nor makes an invitation when invitations are off", async () => {
+    const wrapper = apps("games", true);
+    const chess = tiles(wrapper)[0];
+    expect(chess.attributes("aria-label")).toBe("Chess");
+    chess.vm.$emit("hold");
+    await chess.trigger("click");
+    expect(wrapper.emitted("invite")).toBeUndefined();
+    expect(wrapper.emitted("play")).toEqual([[CHESS.id]]);
   });
 
   it("says when there is no tool or no game yet, and still leads to more games", async () => {

@@ -437,7 +437,7 @@ watch(
       :expand-to-scroll="false"
       @did-dismiss="showApps = false"
     >
-      <ChatApps v-model:selected="appsTab" @use="useApp" @play="playGame" @invite="invite" @more="moreGames" />
+      <ChatApps v-model:selected="appsTab" :no-invites="isSupport(chatId)" @use="useApp" @play="playGame" @invite="invite" @more="moreGames" />
     </ion-modal>
 
     <PermissionAsk
