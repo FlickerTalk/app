@@ -2178,6 +2178,24 @@ describe("ChatThread", () => {
       expect(calls.map(([command]) => command)).not.toContain("core_send");
     });
 
+    it("leaves no invitation when a game's tile is held in the FlickerTalk conversation", async () => {
+      store.chats.push({ ...store.chats[0], id: "ft_support", name: "FlickerTalk", connected: false, messages: [] });
+      store.supportId = "ft_support";
+      try {
+        bridge({ installed: [CHESS] });
+        const wrapper = await thread({ chatId: "ft_support" });
+        await openGames(wrapper);
+        const chess = wrapper.findAllComponents(AppTile).find((one) => one.attributes("data-test") === `game-${CHESS.id}`)!;
+        expect(chess.attributes("aria-label")).toBe("Chess");
+        chess.vm.$emit("hold");
+        await flushPromises();
+        expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("");
+        expect(wrapper.find("[data-test='games-sheet']").exists()).toBe(true);
+      } finally {
+        store.supportId = "";
+      }
+    });
+
     const INVITE = { id: "g1", outgoing: false, text: "🎮 Shall we play Go? https://flickertalk.com/games/go", sentAt: 0, state: "delivered" };
 
     it("names a game in the phone's language wherever it is shown", async () => {

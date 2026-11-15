@@ -7,13 +7,17 @@ import { gameUrl } from "../games";
 import type { PluginView } from "../core";
 import type { AppsTab } from "../chatApps";
 
-defineProps<{ selected: AppsTab }>();
+const props = defineProps<{ selected: AppsTab; noInvites?: boolean }>();
 const emit = defineEmits<{ "update:selected": [tab: AppsTab]; use: [id: string]; play: [id: string]; invite: [game: PluginView]; more: [] }>();
 
 const APPS_TABS = [
   { id: "tools", icon: constructOutline, label: "apps.tools" },
   { id: "games", icon: gameControllerOutline, label: "apps.games" },
 ] as const;
+
+function invite(game: PluginView) {
+  if (!props.noInvites) emit("invite", game);
+}
 </script>
 
 <template>
@@ -51,10 +55,10 @@ const APPS_TABS = [
           :name="pluginName(one)"
           :icon="pluginIcon(one)"
           :image="pluginImage(one)"
-          :label="gameUrl(one.id) ? $t('apps.inviteLabel', { name: pluginName(one) }) : undefined"
+          :label="!noInvites && gameUrl(one.id) ? $t('apps.inviteLabel', { name: pluginName(one) }) : undefined"
           :data-test="`game-${one.id}`"
           @tap="emit('play', one.id)"
-          @hold="emit('invite', one)"
+          @hold="invite(one)"
         />
       </div>
       <p v-else class="ft-apps-sheet__note" data-test="games-sheet">{{ $t("apps.noGames") }}</p>
