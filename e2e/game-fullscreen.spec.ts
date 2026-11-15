@@ -97,6 +97,23 @@ for (const size of SIZES) {
   });
 }
 
+test.describe("a tablet in Arabic", () => {
+  test.use({ viewport: { width: 1280, height: 800 }, locale: "ar" });
+  test.beforeEach(async ({ app }) => servePluginFrames(app));
+
+  test("the game covers the rail on the right too, and its bar starts on the right", async ({ app }) => {
+    await playFromTheChat(app, true);
+    await app.getByTestId("game-fullscreen").click();
+    await expect.poll(async () => app.getByTestId("game-area").boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: 800 });
+    const inside = await app.evaluate(() => Boolean(document.elementFromPoint(1270, 400)?.closest("[data-test='game-area']")));
+    expect(inside).toBe(true);
+    const exit = (await app.getByTestId("game-fullscreen-exit").boundingBox())!;
+    const close = (await app.getByTestId("game-fullscreen-close").boundingBox())!;
+    expect(exit.x).toBeGreaterThan(close.x);
+    await shot(app, "fullscreen-room-tablet-ar");
+  });
+});
+
 test.describe("a game on its own page", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
   test.beforeEach(async ({ app }) => servePluginFrames(app));
