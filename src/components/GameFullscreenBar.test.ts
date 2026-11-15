@@ -63,11 +63,11 @@ describe("GameFullscreenBar", () => {
     expect(button(wrapper, "game-fullscreen-chat").attributes("aria-label")).toBe("Show the chat, New message");
   });
 
-  it("puts the focus on the way back when asked", () => {
+  it("puts the focus on the way back when asked", async () => {
     const wrapper = bar();
     const exit = button(wrapper, "game-fullscreen-exit").element as HTMLElement;
     const focus = vi.spyOn(exit, "focus");
-    (wrapper.vm as unknown as { focus: () => void }).focus();
+    await (wrapper.vm as unknown as { focus: () => Promise<void> }).focus();
     expect(focus).toHaveBeenCalled();
   });
 

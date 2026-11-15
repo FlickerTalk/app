@@ -2494,7 +2494,7 @@ describe("ChatThread", () => {
           expect(hidden(wrapper.find("[data-test='game-area']"))).toBe(true);
           expect(room(wrapper).findComponent({ name: "PluginSheet" }).exists()).toBe(true);
           expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
-          expect((focus.mock.contexts.at(-1) as HTMLElement).dataset.test).toBe("game-peek");
+          await vi.waitFor(() => expect((focus.mock.contexts.at(-1) as HTMLElement | undefined)?.dataset.test).toBe("game-peek"));
 
           await wrapper.find("[data-test='game-peek']").trigger("click");
           await flushPromises();

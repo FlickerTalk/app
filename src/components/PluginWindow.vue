@@ -5,7 +5,7 @@ import { closeOutline, expandOutline, mailOutline } from "ionicons/icons";
 import PluginSheet from "./PluginSheet.vue";
 import GameFullscreenBar from "./GameFullscreenBar.vue";
 import { gameUrl } from "../games";
-import { useFullscreenCues } from "../gameFullscreen";
+import { focusButton, useFullscreenCues } from "../gameFullscreen";
 import { t } from "../i18n";
 import { isSupport, type PickedFile } from "../core";
 import type { PermissionNeed } from "../permissions";
@@ -37,7 +37,7 @@ const expand = ref<InstanceType<typeof IonButton> | null>(null);
 const { said, announce } = useFullscreenCues({
   on: () => props.fullscreen,
   inside: () => bar.value,
-  outside: () => expand.value?.$el as HTMLElement | undefined,
+  outside: () => ({ focus: () => focusButton(expand.value?.$el) }),
   quiet: () => props.peeking,
 });
 watch(

@@ -168,10 +168,10 @@ describe("PluginWindow", () => {
       const spy = focused();
       await wrapper.setProps({ fullscreen: true });
       await flushPromises();
-      expect(lastFocused(spy)).toBe("game-fullscreen-exit");
+      await vi.waitFor(() => expect(lastFocused(spy)).toBe("game-fullscreen-exit"));
       await wrapper.setProps({ fullscreen: false });
       await flushPromises();
-      expect(lastFocused(spy)).toBe("game-fullscreen");
+      await vi.waitFor(() => expect(lastFocused(spy)).toBe("game-fullscreen"));
     });
 
     it("leaves the focus alone when it ends because the chat is shown", async () => {
@@ -180,6 +180,7 @@ describe("PluginWindow", () => {
       const spy = focused();
       await wrapper.setProps({ fullscreen: false, peeking: true });
       await flushPromises();
+      await new Promise((drawn) => requestAnimationFrame(drawn));
       expect(spy).not.toHaveBeenCalled();
     });
 

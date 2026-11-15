@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, h, ref } from "vue";
-import { useFullscreenCues } from "./gameFullscreen";
+import { focusButton, useFullscreenCues } from "./gameFullscreen";
 
 const on = ref(false);
 const quiet = ref(false);
@@ -54,5 +54,29 @@ describe("useFullscreenCues", () => {
     await flushPromises();
     expect(outside.focus).not.toHaveBeenCalled();
     expect(said.value).toBe("");
+  });
+});
+
+describe("focusButton", () => {
+  it("focuses the native button inside an Ionic button's shadow root once Ionic has drawn it", async () => {
+    const host = document.createElement("ion-fake-button");
+    const inner = document.createElement("button");
+    Object.assign(host, {
+      componentOnReady: async () => {
+        host.attachShadow({ mode: "open" }).append(inner);
+        return host;
+      },
+    });
+    const focus = vi.spyOn(inner, "focus");
+    await focusButton(host);
+    expect(focus).toHaveBeenCalled();
+  });
+
+  it("focuses the element itself when it has no shadow root", async () => {
+    const plain = document.createElement("button");
+    const focus = vi.spyOn(plain, "focus");
+    await focusButton(plain);
+    expect(focus).toHaveBeenCalled();
+    await expect(focusButton(undefined)).resolves.toBeUndefined();
   });
 });

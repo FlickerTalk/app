@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { IonButton, IonButtons, IonIcon, IonTitle, IonToolbar } from "@ionic/vue";
 import { chatbubblesOutline, closeOutline, contractOutline, mailOutline } from "ionicons/icons";
 import { t } from "../i18n";
+import { focusButton } from "../gameFullscreen";
 
 const props = withDefaults(defineProps<{ name: string; chat?: boolean; invite?: boolean; unread?: number }>(), { unread: 0 });
 const emit = defineEmits<{ exit: []; chat: []; invite: []; close: [] }>();
@@ -11,7 +12,7 @@ const chatLabel = computed(() => (props.unread ? `${t("games.showChat")}, ${t("g
 
 const exitButton = ref<InstanceType<typeof IonButton> | null>(null);
 function focus() {
-  (exitButton.value?.$el as HTMLElement | undefined)?.focus();
+  return focusButton(exitButton.value?.$el);
 }
 defineExpose({ focus });
 </script>

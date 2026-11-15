@@ -382,11 +382,11 @@ describe("PluginPage", () => {
       const focus = vi.spyOn(HTMLElement.prototype, "focus");
       const lastFocused = () => (focus.mock.contexts.at(-1) as HTMLElement | undefined)?.dataset.test;
       await expand(wrapper);
-      expect(lastFocused()).toBe("game-fullscreen-exit");
+      await vi.waitFor(() => expect(lastFocused()).toBe("game-fullscreen-exit"));
       expect(wrapper.find("[role='status']").text()).toBe("Full screen");
       await wrapper.find("[data-test='game-fullscreen-exit']").trigger("click");
       await flushPromises();
-      expect(lastFocused()).toBe("game-fullscreen");
+      await vi.waitFor(() => expect(lastFocused()).toBe("game-fullscreen"));
       expect(wrapper.find("[role='status']").text()).toBe("Exit full screen");
     });
   });

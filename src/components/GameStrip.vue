@@ -3,13 +3,14 @@ import { ref } from "vue";
 import { IonButton, IonIcon, IonItem, IonLabel } from "@ionic/vue";
 import { chatbubblesOutline, chevronDownOutline, chevronUpOutline, gameControllerOutline } from "ionicons/icons";
 import type { ChatMessage } from "../core";
+import { focusButton } from "../gameFullscreen";
 
 defineProps<{ peeking: boolean; name: string; last?: ChatMessage }>();
 const emit = defineEmits<{ peek: [] }>();
 
 const button = ref<InstanceType<typeof IonButton> | null>(null);
 function focus() {
-  (button.value?.$el as HTMLElement | undefined)?.focus();
+  return focusButton(button.value?.$el);
 }
 defineExpose({ focus });
 </script>

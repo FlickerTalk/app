@@ -37,10 +37,10 @@ describe("GameStrip", () => {
     expect(wrapper.emitted("peek")).toHaveLength(2);
   });
 
-  it("puts the focus on its button when asked", () => {
+  it("puts the focus on its button when asked", async () => {
     const wrapper = strip({ peeking: true });
     const focus = vi.spyOn(wrapper.find("[data-test='game-peek']").element as HTMLElement, "focus");
-    (wrapper.vm as unknown as { focus: () => void }).focus();
+    await (wrapper.vm as unknown as { focus: () => Promise<void> }).focus();
     expect(focus).toHaveBeenCalled();
   });
 });

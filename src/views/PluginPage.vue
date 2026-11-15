@@ -20,7 +20,7 @@ import PermissionAsk from "../components/PermissionAsk.vue";
 import ContactPicker from "../components/ContactPicker.vue";
 import GameFullscreenBar from "../components/GameFullscreenBar.vue";
 import { isGame } from "../games";
-import { useFullscreenCues } from "../gameFullscreen";
+import { focusButton, useFullscreenCues } from "../gameFullscreen";
 import { offerSend, type ContactAsk, type Proposal } from "../pending-send";
 import { expandOutline, lockClosedOutline } from "ionicons/icons";
 import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
@@ -104,7 +104,7 @@ const expand = ref<InstanceType<typeof IonButton> | null>(null);
 const { said } = useFullscreenCues({
   on: () => fullscreen.value,
   inside: () => bar.value,
-  outside: () => expand.value?.$el as HTMLElement | undefined,
+  outside: () => ({ focus: () => focusButton(expand.value?.$el) }),
 });
 closeOnBackWhile(() => here.value && fullscreen.value, () => (fullscreen.value = false));
 </script>
