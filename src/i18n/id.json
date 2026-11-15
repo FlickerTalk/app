@@ -508,7 +508,10 @@
     "installFailed": "Game tidak dapat dipasang. Periksa koneksi Anda lalu coba lagi.",
     "live": "Berbicara dengan game yang sama di ponsel orang lain",
     "showChat": "Tampilkan obrolan",
-    "showGame": "Kembali ke game"
+    "showGame": "Kembali ke game",
+    "enterFullscreen": "Layar penuh",
+    "exitFullscreen": "Keluar dari layar penuh",
+    "newMessage": "Pesan baru"
   },
   "apps": {
     "tools": "Alat",

@@ -508,7 +508,10 @@
     "installFailed": "Das Spiel konnte nicht installiert werden. Prüfe deine Verbindung und versuch es noch einmal.",
     "live": "Mit demselben Spiel auf dem Telefon der anderen Person sprechen",
     "showChat": "Chat anzeigen",
-    "showGame": "Zurück zum Spiel"
+    "showGame": "Zurück zum Spiel",
+    "enterFullscreen": "Vollbild",
+    "exitFullscreen": "Vollbild beenden",
+    "newMessage": "Neue Nachricht"
   },
   "apps": {
     "tools": "Werkzeuge",

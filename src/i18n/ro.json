@@ -508,7 +508,10 @@
     "installFailed": "Jocul nu a putut fi instalat. Verifică-ți conexiunea și încearcă din nou.",
     "live": "Să vorbească cu același joc de pe telefonul celeilalte persoane",
     "showChat": "Arată conversația",
-    "showGame": "Înapoi la joc"
+    "showGame": "Înapoi la joc",
+    "enterFullscreen": "Ecran complet",
+    "exitFullscreen": "Ieși din ecranul complet",
+    "newMessage": "Mesaj nou"
   },
   "apps": {
     "tools": "Instrumente",

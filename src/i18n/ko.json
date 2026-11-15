@@ -508,7 +508,10 @@
     "installFailed": "게임을 설치하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
     "live": "상대방 휴대폰의 같은 게임과 통신",
     "showChat": "채팅 보기",
-    "showGame": "게임으로 돌아가기"
+    "showGame": "게임으로 돌아가기",
+    "enterFullscreen": "전체 화면",
+    "exitFullscreen": "전체 화면 종료",
+    "newMessage": "새 메시지"
   },
   "apps": {
     "tools": "도구",

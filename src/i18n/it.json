@@ -508,7 +508,10 @@
     "installFailed": "Non è stato possibile installare il gioco. Controlla la connessione e riprova.",
     "live": "Parlare con lo stesso gioco sul telefono dell'altra persona",
     "showChat": "Mostra la chat",
-    "showGame": "Torna al gioco"
+    "showGame": "Torna al gioco",
+    "enterFullscreen": "Schermo intero",
+    "exitFullscreen": "Esci da schermo intero",
+    "newMessage": "Nuovo messaggio"
   },
   "apps": {
     "tools": "Strumenti",
