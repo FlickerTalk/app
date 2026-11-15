@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "아직 채팅이 없습니다",
-    "emptyHint": "내 코드를 보여주거나 상대의 코드를 스캔해 시작하세요"
+    "emptyHint": "내 코드를 보여주거나 상대의 코드를 스캔해 시작하세요",
+    "collapseList": "채팅 목록 접기",
+    "expandList": "채팅 목록 펼치기"
   },
   "common": {
     "back": "뒤로",

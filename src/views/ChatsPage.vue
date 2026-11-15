@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import {
   IonButton,
   IonButtons,
@@ -17,25 +17,26 @@ import {
   checkmark,
   checkmarkDone,
   checkmarkDoneCircle,
-  checkmarkOutline,
   chevronForwardOutline,
   ellipsisVerticalOutline,
-  helpCircleOutline,
-  logOutOutline,
   micOutline,
   peopleOutline,
+  personAddOutline,
   qrCodeOutline,
   timeOutline,
-  trashOutline,
 } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import Avatar from "../components/Avatar.vue";
+import ChatListToggle from "../components/ChatListToggle.vue";
 import ChatThread from "../components/ChatThread.vue";
+import ChatsEmpty from "../components/ChatsEmpty.vue";
 import CircleThread from "../components/CircleThread.vue";
 import QuickTour from "../components/QuickTour.vue";
+import SessionActions from "../components/SessionActions.vue";
+import { useChatListCollapse } from "../chat-list-collapse";
 import { t } from "../i18n";
 import { previewOf } from "../links";
-import { closeSession, removeSession, store, type Chat, type Circle, type Session } from "../core";
+import { store, type Chat, type Circle, type Session } from "../core";
 import { useOnScreen } from "../on-screen";
 import { showInPane, takeSearch } from "../pending-search";
 import { isTourDue } from "../preferences";
@@ -49,6 +50,7 @@ const onWidthChange = (event: MediaQueryListEvent) => {
 };
 onMounted(() => wideQuery.addEventListener("change", onWidthChange));
 onBeforeUnmount(() => wideQuery.removeEventListener("change", onWidthChange));
+const { collapsed, toggle: toggleList } = useChatListCollapse(wide);
 
 const touring = ref(false);
 function offerTour() {
@@ -96,32 +98,18 @@ function circlePreview(circle: Circle): string {
   return circle.lastSender ? `${circle.lastSender}: ${shown(circle.preview)}` : shown(circle.preview);
 }
 
-function newCircle(session?: Session) {
-  if (session && !session.id) return;
-  router.push(session ? `/new-circle?session=${session.id}` : "/new-circle");
-}
-
 const folded = ref<Record<string, boolean>>({});
 const isFolded = (id: string) => folded.value[id] === true;
 function fold(id: string) {
   folded.value = { ...folded.value, [id]: !isFolded(id) };
 }
 
-function addTo(session: Session) {
-  if (session.id) router.push(`/add-contact?session=${session.id}`);
-}
-
-const removing = ref<string | undefined>();
 const keyOf = (session: Session) => session.id || `pin:${session.pin}`;
-
-async function remove(session: Session) {
-  removing.value = undefined;
-  if (session.id) await removeSession(session.id);
-  else await closeSession("");
-}
+const empty = computed(() => !store.chats.length && !store.requests.length && !store.circles.length);
 
 // the short id shows who a stranger really is
 const shortId = (chat: Chat) => chat.id.slice(0, 9);
+const count = (unread: number) => (unread > 99 ? "99+" : String(unread));
 
 const STATUS_ICON: Record<string, string> = {
   pending: timeOutline,
@@ -134,12 +122,15 @@ const STATUS_ICON: Record<string, string> = {
 </script>
 
 <template>
-  <ion-page class="ft-chats" :class="{ 'is-wide': wide }">
+  <ion-page class="ft-chats" :class="{ 'is-wide': wide, 'is-collapsed': collapsed }">
     <ion-header class="ion-no-border ft-chats__head">
       <ion-toolbar>
+        <ion-buttons v-if="wide" slot="start">
+          <ChatListToggle :collapsed="collapsed" controls="ft-chat-list" @toggle="toggleList" />
+        </ion-buttons>
         <ion-title><span class="ft-title">{{ $t("tabs.chats") }}</span></ion-title>
         <ion-buttons slot="end">
-          <ion-button v-if="store.chats.length" data-test="new-circle" :aria-label="$t('circle.new')" @click="newCircle()">
+          <ion-button v-if="store.chats.length" data-test="new-circle" :aria-label="$t('circle.new')" @click="router.push('/new-circle')">
             <ion-icon slot="icon-only" :icon="peopleOutline" aria-hidden="true" />
           </ion-button>
           <ion-button :aria-label="$t('addContact.title')" @click="router.push('/add-contact')">
@@ -149,7 +140,7 @@ const STATUS_ICON: Record<string, string> = {
       </ion-toolbar>
     </ion-header>
 
-    <ion-content class="ft-chats__list">
+    <ion-content id="ft-chat-list" class="ft-chats__list" role="region" :aria-label="$t('tabs.chats')">
       <ion-header collapse="condense" class="ion-no-border">
         <ion-toolbar>
           <ion-title size="large"><span class="ft-title">{{ $t("tabs.chats") }}</span></ion-title>
@@ -157,25 +148,15 @@ const STATUS_ICON: Record<string, string> = {
       </ion-header>
 
       <div>
-        <div v-if="!store.chats.length && !store.requests.length && !store.circles.length" class="ft-empty" data-test="empty">
-          <p class="ft-empty__title">{{ $t("chats.empty") }}</p>
-          <p class="ft-empty__hint">{{ $t("chats.emptyHint") }}</p>
-          <button type="button" class="ft-empty__action" @click="router.push('/add-contact')">
-            <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
-            {{ $t("addContact.title") }}
-          </button>
-          <ion-button fill="clear" size="small" class="ft-empty__tour" data-test="tour-link" @click="touring = true">
-            <ion-icon slot="start" :icon="helpCircleOutline" aria-hidden="true" />
-            {{ $t("tour.link") }}
-          </ion-button>
-        </div>
+        <ChatsEmpty v-if="empty" :compact="collapsed" data-test="empty" @tour="touring = true" />
 
-        <section v-if="store.requests.length" class="ft-requests" data-test="requests">
-          <h2 class="ft-requests__title">{{ $t("requests.title") }}</h2>
-          <p class="ft-requests__hint">{{ $t("requests.hint") }}</p>
+        <section v-if="store.requests.length" class="ft-requests" data-test="requests" aria-labelledby="ft-requests-title" aria-describedby="ft-requests-hint">
+          <ion-icon :icon="personAddOutline" class="ft-requests__mark" aria-hidden="true" />
+          <h2 id="ft-requests-title" class="ft-requests__title">{{ $t("requests.title") }}</h2>
+          <p id="ft-requests-hint" class="ft-requests__hint">{{ $t("requests.hint") }}</p>
           <ul class="ft-rows">
             <li v-for="chat in store.requests" :key="chat.id" data-test="request-row">
-              <button type="button" class="ft-row" @click="open(chat.id)">
+              <button type="button" class="ft-row" :class="{ 'is-selected': wide && chat.id === selectedId }" @click="open(chat.id)">
                 <Avatar :name="chat.name" :hue="chat.hue" :connected="false" />
                 <span class="ft-row__body">
                   <span class="ft-row__line">
@@ -207,7 +188,7 @@ const STATUS_ICON: Record<string, string> = {
                   <span class="ft-row__time" :class="{ 'is-unread': one.unread }">{{ one.time }}</span>
                 </span>
                 <span class="ft-row__line">
-                  <ion-icon :icon="peopleOutline" class="ft-row__kind" role="img" :aria-label="$t('circle.title')" />
+                  <ion-icon :icon="peopleOutline" class="ft-row__kind ft-row__circle" role="img" :aria-label="$t('circle.title')" />
                   <ion-icon
                     v-if="one.lastMine && one.status"
                     :icon="STATUS_ICON[one.status]"
@@ -216,7 +197,7 @@ const STATUS_ICON: Record<string, string> = {
                     aria-hidden="true"
                   />
                   <span class="ft-row__preview" dir="auto">{{ circlePreview(one) }}</span>
-                  <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ one.unread }}</span>
+                  <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ count(one.unread) }}</span>
                 </span>
               </span>
             </button>
@@ -263,7 +244,7 @@ const STATUS_ICON: Record<string, string> = {
                     :aria-label="chat.lastKind === 'voice' ? $t('chat.voiceMessage') : $t('chat.file')"
                   />
                   <span class="ft-row__preview" dir="auto">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
-                  <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
+                  <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ count(chat.unread) }}</span>
                 </span>
               </span>
             </button>
@@ -298,65 +279,14 @@ const STATUS_ICON: Record<string, string> = {
             >
               <ion-icon :icon="chevronForwardOutline" class="ft-session__chevron" aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              class="ft-session__action"
-              data-test="session-add"
-              :aria-label="$t('session.addContact')"
-              :title="$t('session.addContact')"
-              @click="addTo(session)"
-            >
-              <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
-            </button>
-            <button
-              v-if="session.chats.length"
-              type="button"
-              class="ft-session__action"
-              data-test="session-new-circle"
-              :aria-label="$t('circle.new')"
-              :title="$t('circle.new')"
-              @click="newCircle(session)"
-            >
-              <ion-icon :icon="peopleOutline" aria-hidden="true" />
-            </button>
-            <button
-              v-if="removing !== keyOf(session)"
-              type="button"
-              class="ft-session__action ft-session__action--leave"
-              data-test="session-remove"
-              :aria-label="$t('session.remove')"
-              :title="$t('session.remove')"
-              @click="removing = keyOf(session)"
-            >
-              <ion-icon :icon="trashOutline" aria-hidden="true" />
-            </button>
-            <button
-              v-else
-              type="button"
-              class="ft-session__action ft-session__action--danger"
-              data-test="session-remove-sure"
-              :aria-label="$t('session.removeSure')"
-              :title="$t('session.removeSure')"
-              @click="remove(session)"
-            >
-              <ion-icon :icon="checkmarkOutline" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              class="ft-session__action ft-session__action--leave"
-              data-test="session-close"
-              :aria-label="$t('session.close')"
-              :title="$t('session.close')"
-              @click="closeSession(session.id)"
-            >
-              <ion-icon :icon="logOutOutline" aria-hidden="true" />
-            </button>
+            <SessionActions v-if="!collapsed" :session="session" />
           </header>
 
           <template v-if="!isFolded(session.id)">
+            <ion-icon v-if="session.requests.length" :icon="personAddOutline" class="ft-requests__mark" aria-hidden="true" />
             <ul v-if="session.requests.length" class="ft-rows ft-requests__rows" data-test="session-requests">
               <li v-for="chat in session.requests" :key="chat.id" data-test="request-row">
-                <button type="button" class="ft-row" @click="open(chat.id)">
+                <button type="button" class="ft-row" :class="{ 'is-selected': wide && chat.id === selectedId }" @click="open(chat.id)">
                   <Avatar :name="chat.name" :hue="chat.hue" :connected="false" />
                   <span class="ft-row__body">
                     <span class="ft-row__line">
@@ -384,9 +314,9 @@ const STATUS_ICON: Record<string, string> = {
                       <span class="ft-row__time" :class="{ 'is-unread': one.unread }">{{ one.time }}</span>
                     </span>
                     <span class="ft-row__line">
-                      <ion-icon :icon="peopleOutline" class="ft-row__kind" role="img" :aria-label="$t('circle.title')" />
+                      <ion-icon :icon="peopleOutline" class="ft-row__kind ft-row__circle" role="img" :aria-label="$t('circle.title')" />
                       <span class="ft-row__preview" dir="auto">{{ circlePreview(one) }}</span>
-                      <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ one.unread }}</span>
+                      <span v-if="one.unread" class="ft-row__badge" data-test="unread">{{ count(one.unread) }}</span>
                     </span>
                   </span>
                 </button>
@@ -426,7 +356,7 @@ const STATUS_ICON: Record<string, string> = {
                         aria-hidden="true"
                       />
                       <span class="ft-row__preview" dir="auto">{{ chat.lastKind === "voice" ? $t("chat.voiceMessage") : shown(chat.preview) }}</span>
-                      <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ chat.unread }}</span>
+                      <span v-if="chat.unread" class="ft-row__badge" data-test="unread">{{ count(chat.unread) }}</span>
                     </span>
                   </span>
                 </button>
@@ -462,44 +392,6 @@ const STATUS_ICON: Record<string, string> = {
 </template>
 
 <style scoped>
-.ft-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--ft-space-3);
-  padding: 20vh var(--ft-space-5) 0;
-  text-align: center;
-}
-.ft-empty__title {
-  margin: 0;
-  font-size: var(--ft-font-title);
-  font-weight: 600;
-}
-.ft-empty__hint {
-  margin: 0;
-  max-width: 28ch;
-  color: var(--ft-muted);
-  line-height: 1.4;
-}
-.ft-empty__tour {
-  text-transform: none;
-}
-.ft-empty__action {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: var(--ft-space-2);
-  padding: 12px 20px;
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--ft-accent), var(--ft-accent-2));
-  color: var(--ft-on-accent);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
 .ft-chats.is-wide > .ft-chats__head,
 .ft-chats.is-wide > .ft-chats__list {
   width: var(--ft-list-width);
@@ -538,8 +430,13 @@ const STATUS_ICON: Record<string, string> = {
   cursor: pointer;
   transition: background 0.15s;
 }
-.ft-row:hover {
-  background: color-mix(in srgb, var(--ft-surface-2) 60%, transparent);
+@media (hover: hover) {
+  .ft-row:hover {
+    background: color-mix(in srgb, var(--ft-surface-2) 60%, transparent);
+  }
+  .ft-row.is-selected:hover {
+    background: color-mix(in srgb, var(--ft-accent) 17%, transparent);
+  }
 }
 .ft-row.is-selected {
   background: color-mix(in srgb, var(--ft-accent) 12%, transparent);
@@ -636,10 +533,6 @@ const STATUS_ICON: Record<string, string> = {
   color: var(--ft-muted);
   line-height: 1.35;
 }
-.ft-session__action--danger {
-  color: var(--ion-color-danger);
-}
-
 .ft-session {
   border-top: 1px solid var(--ft-border);
 }
@@ -681,27 +574,6 @@ const STATUS_ICON: Record<string, string> = {
 .ft-session.is-folded .ft-session__chevron {
   transform: none;
 }
-.ft-session__action {
-  appearance: none;
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--ft-muted);
-  font-size: 18px;
-  cursor: pointer;
-}
-.ft-session__action:hover {
-  background: color-mix(in srgb, var(--ft-surface-2) 60%, transparent);
-  color: var(--ft-text);
-}
-.ft-session__action--leave {
-  color: var(--ft-accent);
-}
 .ft-session__empty {
   margin: 0;
   padding: 6px 20px 16px;
@@ -722,5 +594,130 @@ const STATUS_ICON: Record<string, string> = {
   font-size: 12px;
   font-weight: 700;
   box-shadow: 0 0 10px var(--ft-glow);
+}
+
+.ft-requests__mark {
+  display: none;
+}
+.ft-session__toggle:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: 2px;
+}
+[dir="rtl"] .ft-session.is-folded .ft-session__chevron {
+  transform: scaleX(-1);
+}
+
+.ft-chats.is-collapsed ion-title,
+.ft-chats.is-collapsed ion-buttons[slot="end"],
+.ft-chats.is-collapsed .ft-chats__list > ion-header,
+.ft-chats.is-collapsed .ft-requests__hint,
+.ft-chats.is-collapsed .ft-row__time,
+.ft-chats.is-collapsed .ft-row__status,
+.ft-chats.is-collapsed .ft-row__kind:not(.ft-row__circle),
+.ft-chats.is-collapsed .ft-row__preview,
+.ft-chats.is-collapsed .ft-row__more,
+.ft-chats.is-collapsed .ft-session__empty {
+  display: none;
+}
+.ft-chats.is-collapsed .ft-rows {
+  padding: 4px 4px 14px;
+}
+.ft-chats.is-collapsed :is(.ft-requests, .ft-session) .ft-rows {
+  padding-top: 0;
+}
+.ft-chats.is-collapsed .ft-rows li {
+  display: block;
+}
+.ft-chats.is-collapsed .ft-row {
+  position: relative;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 86px;
+  padding: 8px 4px;
+  border-radius: 14px;
+}
+.ft-chats.is-collapsed .ft-row__body,
+.ft-chats.is-collapsed .ft-row__line {
+  display: contents;
+}
+.ft-chats.is-collapsed .ft-row__name {
+  display: block;
+  flex: none;
+  width: 100%;
+  max-width: 72px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+.ft-chats.is-collapsed .ft-row:has(.ft-row__badge) .ft-row__name {
+  font-weight: 700;
+}
+.ft-chats.is-collapsed .ft-row__badge {
+  position: absolute;
+  top: 4px;
+  inset-inline-end: 6px;
+  padding: 0 5px;
+  border: 2px solid var(--ft-bg);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.ft-chats.is-collapsed .ft-row__circle {
+  position: absolute;
+  top: 39px;
+  inset-inline-start: 8px;
+  width: 12px;
+  height: 12px;
+  padding: 2px;
+  border: 2px solid var(--ft-bg);
+  border-radius: 50%;
+  background: var(--ft-surface);
+  color: var(--ft-accent);
+}
+.ft-chats.is-collapsed .ft-row.is-selected::before {
+  content: "";
+  position: absolute;
+  inset-block: 12px;
+  inset-inline-start: 2px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--ft-accent);
+}
+.ft-chats.is-collapsed .ft-requests {
+  padding-top: 4px;
+}
+.ft-chats.is-collapsed .ft-requests__mark {
+  display: block;
+  margin: 7px auto;
+  font-size: 18px;
+  color: var(--ft-accent);
+}
+.ft-chats.is-collapsed .ft-requests__title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ft-chats.is-collapsed .ft-session {
+  background: color-mix(in srgb, var(--ft-surface-2) 45%, transparent);
+}
+.ft-chats.is-collapsed .ft-session__head {
+  justify-content: center;
+  min-height: 48px;
+  padding: 2px 0;
+}
+.ft-chats.is-collapsed .ft-session__toggle {
+  flex: none;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+.ft-chats.is-collapsed .ft-session__chevron {
+  font-size: 18px;
 }
 </style>

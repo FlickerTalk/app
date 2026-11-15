@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "No chats yet",
-    "emptyHint": "Show your code or scan theirs to start"
+    "emptyHint": "Show your code or scan theirs to start",
+    "collapseList": "Collapse chat list",
+    "expandList": "Expand chat list"
   },
   "common": {
     "back": "Back",

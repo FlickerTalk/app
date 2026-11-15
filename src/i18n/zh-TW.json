@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "還沒有聊天",
-    "emptyHint": "出示你的 QR 碼或掃描對方的 QR 碼即可開始"
+    "emptyHint": "出示你的 QR 碼或掃描對方的 QR 碼即可開始",
+    "collapseList": "收合聊天清單",
+    "expandList": "展開聊天清單"
   },
   "common": {
     "back": "返回",

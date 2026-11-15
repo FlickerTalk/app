@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  isChatListCollapsed,
   isOnboarded,
   isTourDue,
   setCallRouting,
+  setChatListCollapsed,
   setOnboarded,
   setTourDue,
   setTourSeen,
@@ -50,6 +52,16 @@ describe("preferences", () => {
     setTourSeen();
     expect(isTourDue()).toBe(false);
     expect(localStorage.getItem("ft-tour")).toBe("seen");
+  });
+
+  it("keeps the chat list expanded until the user collapses it, and remembers the choice", () => {
+    expect(isChatListCollapsed()).toBe(false);
+    setChatListCollapsed(true);
+    expect(isChatListCollapsed()).toBe(true);
+    expect(localStorage.getItem("ft-chat-list")).toBe("collapsed");
+    setChatListCollapsed(false);
+    expect(isChatListCollapsed()).toBe(false);
+    expect(localStorage.getItem("ft-chat-list")).toBeNull();
   });
 
   it("ignores an unknown stored value", () => {

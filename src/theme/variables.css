@@ -21,6 +21,11 @@
 :root[dir="rtl"] {
   --ft-safe-start: var(--ion-safe-area-right, 0px);
 }
+@media (min-width: 768px) {
+  :root.ft-list-collapsed {
+    --ft-list-width: 88px;
+  }
+}
 
 html[data-direction="ember"] {
   --ft-bg: #fbf8f5;

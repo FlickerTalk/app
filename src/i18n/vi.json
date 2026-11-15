@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Chưa có cuộc trò chuyện nào",
-    "emptyHint": "Đưa mã của bạn hoặc quét mã của họ để bắt đầu"
+    "emptyHint": "Đưa mã của bạn hoặc quét mã của họ để bắt đầu",
+    "collapseList": "Thu gọn danh sách trò chuyện",
+    "expandList": "Mở rộng danh sách trò chuyện"
   },
   "common": {
     "back": "Quay lại",

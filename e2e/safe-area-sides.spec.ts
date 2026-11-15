@@ -76,7 +76,7 @@ for (const locale of ["en", "ar"]) {
       else expect(row.x - paneBox.x, "no inset beside the list").toBeLessThan(SIDE);
 
       const list = (await app.locator(".ft-chats__list").boundingBox())!;
-      const buttons = (await app.locator(".ft-chats__head ion-buttons").first().boundingBox())!;
+      const buttons = (await app.locator(".ft-chats__head ion-buttons[slot='end']").boundingBox())!;
       if (locale === "ar") expect(buttons.x - list.x, "no inset beside the chat pane").toBeLessThan(SIDE);
       else expect(list.x + list.width - (buttons.x + buttons.width), "no inset beside the chat pane").toBeLessThan(SIDE);
 

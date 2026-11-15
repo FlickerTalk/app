@@ -10,9 +10,12 @@ import { calls } from "../__tests__/seed";
 import { store, type Circle } from "../core";
 import { defineComponent, h } from "vue";
 import { askSearch, inPane, takeSearch } from "../pending-search";
+import ChatListToggle from "../components/ChatListToggle.vue";
+import ChatsEmpty from "../components/ChatsEmpty.vue";
 import QuickTour from "../components/QuickTour.vue";
+import SessionActions from "../components/SessionActions.vue";
 import { IonModalStub } from "../__tests__/ionic";
-import { isTourDue, setOnboarded, setTourDue } from "../preferences";
+import { isChatListCollapsed, isTourDue, setChatListCollapsed, setOnboarded, setTourDue } from "../preferences";
 
 const push = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
@@ -102,6 +105,14 @@ describe("ChatsPage", () => {
     expect(wrapper.find("[data-test='chat-row']").find("[data-test='unread']").text()).toBe("2");
   });
 
+  it("caps a large unread count at 99+", () => {
+    screen(false);
+    store.chats[0].unread = 100;
+    store.chats[1].unread = 99;
+    const badges = mount(ChatsPage, { shallow: true }).findAll("[data-test='chat-row'] [data-test='unread']");
+    expect(badges.slice(0, 2).map((badge) => badge.text())).toEqual(["99+", "99"]);
+  });
+
   it("opens the conversation full screen on phones", async () => {
     screen(false);
     const wrapper = mount(ChatsPage, { shallow: true });
@@ -189,13 +200,12 @@ describe("ChatsPage", () => {
     });
   });
 
-  it("explains how to start when there are no conversations", async () => {
+  it("explains how to start when there are no conversations", () => {
     screen(false);
     store.chats = [];
-    const wrapper = mount(ChatsPage, { shallow: true });
-    expect(wrapper.find("[data-test='empty']").exists()).toBe(true);
-    await wrapper.find("[data-test='empty'] button").trigger("click");
-    expect(push).toHaveBeenCalledWith("/add-contact");
+    const empty = mount(ChatsPage, { shallow: true }).findComponent(ChatsEmpty);
+    expect(empty.exists()).toBe(true);
+    expect(empty.props("compact")).toBe(false);
   });
 
   describe("the quick tour", () => {
@@ -273,16 +283,16 @@ describe("ChatsPage", () => {
     it("opens from the empty list, as often as asked", async () => {
       store.chats = [];
       const wrapper = mount(ChatsPage, { shallow: true });
-      const link = wrapper.find("[data-test='empty'] [data-test='tour-link']");
-      expect(link.exists()).toBe(true);
-      expect(link.html()).toContain("How FlickerTalk works");
-      await link.trigger("click");
+      const empty = wrapper.findComponent(ChatsEmpty);
+      empty.vm.$emit("tour");
+      await flushPromises();
       expect(tour(wrapper).props("open")).toBe(true);
       expect(push).not.toHaveBeenCalled();
       tour(wrapper).vm.$emit("close");
       await flushPromises();
       expect(tour(wrapper).props("open")).toBe(false);
-      await link.trigger("click");
+      empty.vm.$emit("tour");
+      await flushPromises();
       expect(tour(wrapper).props("open")).toBe(true);
     });
   });
@@ -451,18 +461,11 @@ describe("ChatsPage", () => {
       expect(wrapper.find("[data-test='session-section']").findAll("[data-test='chat-row']")).toHaveLength(0);
     });
 
-    it("adds a contact to that session, not to the main list", async () => {
+    it("puts the session's actions in its header, beside the fold toggle", () => {
       screen(false);
-      const wrapper = mount(ChatsPage, { shallow: true });
-      await wrapper.find("[data-test='session-add']").trigger("click");
-      expect(push).toHaveBeenCalledWith("/add-contact?session=s1");
-    });
-
-    it("leaves the session through the core", async () => {
-      screen(false);
-      const wrapper = mount(ChatsPage, { shallow: true });
-      await wrapper.find("[data-test='session-close']").trigger("click");
-      expect(calls).toContainEqual(["core_session_close", { session: "s1" }]);
+      const header = mount(ChatsPage, { shallow: true }).find("[data-test='session-section'] header");
+      expect(header.find("[data-test='session-toggle']").exists()).toBe(true);
+      expect(header.findComponent(SessionActions).props("session")).toEqual(store.sessions[0]);
     });
 
     it("opens a session's conversation like any other", async () => {
@@ -470,16 +473,6 @@ describe("ChatsPage", () => {
       const wrapper = mount(ChatsPage, { shallow: true });
       await wrapper.find("[data-test='session-section'] [data-test='chat-row']").trigger("click");
       expect(push).toHaveBeenCalledWith("/chat/ft_pablo");
-    });
-
-    it("deletes the session after asking once", async () => {
-      screen(false);
-      const wrapper = mount(ChatsPage, { shallow: true });
-      await wrapper.find("[data-test='session-remove']").trigger("click");
-      expect(calls.some(([command]) => command === "core_session_remove")).toBe(false);
-      await wrapper.find("[data-test='session-remove-sure']").trigger("click");
-      expect(calls).toContainEqual(["core_session_remove", { session: "s1" }]);
-      expect(store.sessions).toHaveLength(0);
     });
 
     it("shows the session's requests, which open like any conversation", async () => {
@@ -492,38 +485,6 @@ describe("ChatsPage", () => {
       expect(rows[0].find("[data-test='request-decline']").exists()).toBe(false);
       await rows[0].find("button").trigger("click");
       expect(push).toHaveBeenCalledWith("/chat/ft_stranger");
-    });
-  });
-
-  describe("with a session that is only on the screen", () => {
-    beforeEach(() => {
-      store.sessions = [{ id: "", pin: "135790", chats: [], requests: [], circles: [] }];
-    });
-
-    it("looks like any other session, trash included", () => {
-      screen(false);
-      const wrapper = mount(ChatsPage, { shallow: true });
-      expect(wrapper.find("[data-test='session-add']").exists()).toBe(true);
-      expect(wrapper.find("[data-test='session-remove']").exists()).toBe(true);
-    });
-
-    it("adds nobody, as there is no room", async () => {
-      screen(false);
-      const wrapper = mount(ChatsPage, { shallow: true });
-      await wrapper.find("[data-test='session-add']").trigger("click");
-      await flushPromises();
-      expect(push).not.toHaveBeenCalled();
-      expect(calls.some(([command]) => command.startsWith("core_session"))).toBe(false);
-    });
-
-    it("goes with the trash without telling the core", async () => {
-      screen(false);
-      const wrapper = mount(ChatsPage, { shallow: true });
-      await wrapper.find("[data-test='session-remove']").trigger("click");
-      await wrapper.find("[data-test='session-remove-sure']").trigger("click");
-      await flushPromises();
-      expect(calls.some(([command]) => command.startsWith("core_session"))).toBe(false);
-      expect(store.sessions).toHaveLength(0);
     });
   });
 
@@ -573,12 +534,110 @@ describe("ChatsPage", () => {
       expect(calls.some(([command]) => command === "core_decline_contact" || command === "core_accept_contact")).toBe(false);
     });
 
+    it("highlights the request open beside the list on wide screens", async () => {
+      screen(true);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.find("[data-test='request-row'] button").trigger("click");
+      expect(wrapper.findAll(".ft-row.is-selected").map((row) => row.find(".ft-row__name").text())).toEqual(["Mamá"]);
+    });
+
+    it("is a section named by its title and described by its hint", () => {
+      screen(false);
+      const panel = mount(ChatsPage, { shallow: true }).find("[data-test='requests']");
+      expect(panel.attributes("aria-labelledby")).toBe(panel.find("h2").attributes("id"));
+      expect(panel.attributes("aria-describedby")).toBe(panel.find("p").attributes("id"));
+      expect(panel.find("h2").attributes("id")).toBeTruthy();
+      expect(panel.find("p").attributes("id")).toBeTruthy();
+    });
+
     it("is not an empty phone while a request waits", () => {
       screen(false);
       store.chats = [];
       const wrapper = mount(ChatsPage, { shallow: true });
       expect(wrapper.find("[data-test='empty']").exists()).toBe(false);
       expect(wrapper.find("[data-test='requests']").exists()).toBe(true);
+    });
+  });
+
+  describe("the list's collapse toggle", () => {
+    const toggle = (wrapper: ReturnType<typeof mount>) => wrapper.findComponent(ChatListToggle);
+    const rootMarked = () => document.documentElement.classList.contains("ft-list-collapsed");
+
+    beforeEach(() => localStorage.clear());
+    afterEach(() => document.documentElement.classList.remove("ft-list-collapsed"));
+
+    it("is there on wide screens only, with the list expanded at first", () => {
+      screen(false);
+      expect(toggle(mount(ChatsPage, { shallow: true })).exists()).toBe(false);
+      screen(true);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      expect(toggle(wrapper).props("collapsed")).toBe(false);
+      expect(wrapper.classes()).not.toContain("is-collapsed");
+    });
+
+    it("controls the list, a region named Chats", () => {
+      screen(true);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      const list = wrapper.find(".ft-chats__list");
+      expect(list.attributes("id")).toBeTruthy();
+      expect(toggle(wrapper).props("controls")).toBe(list.attributes("id"));
+      expect(list.attributes("role")).toBe("region");
+      expect(list.attributes("aria-label")).toBe("Chats");
+    });
+
+    it("collapses the list to a strip and back, and the device remembers it", async () => {
+      screen(true);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      toggle(wrapper).vm.$emit("toggle");
+      await flushPromises();
+      expect(wrapper.classes()).toContain("is-collapsed");
+      expect(toggle(wrapper).props("collapsed")).toBe(true);
+      expect(isChatListCollapsed()).toBe(true);
+      expect(rootMarked()).toBe(true);
+      toggle(wrapper).vm.$emit("toggle");
+      await flushPromises();
+      expect(wrapper.classes()).not.toContain("is-collapsed");
+      expect(isChatListCollapsed()).toBe(false);
+      expect(rootMarked()).toBe(false);
+    });
+
+    it("comes back as a strip from the first render when it was left collapsed", () => {
+      setChatListCollapsed(true);
+      screen(true);
+      expect(mount(ChatsPage, { shallow: true }).classes()).toContain("is-collapsed");
+    });
+
+    it("leaves the whole list on a narrow screen, whatever was chosen on a wide one", () => {
+      setChatListCollapsed(true);
+      screen(false);
+      expect(mount(ChatsPage, { shallow: true }).classes()).not.toContain("is-collapsed");
+      expect(rootMarked()).toBe(false);
+    });
+
+    it("still opens a conversation beside the strip and highlights its row", async () => {
+      setChatListCollapsed(true);
+      screen(true);
+      const wrapper = mount(ChatsPage, { shallow: true });
+      await wrapper.findAll("[data-test='chat-row']")[1].trigger("click");
+      expect(wrapper.findComponent(ChatThread).props("chatId")).toBe(store.chats[1].id);
+      expect(wrapper.find(".ft-row.is-selected").find(".ft-row__name").text()).toBe(store.chats[1].name);
+    });
+
+    it("keeps a session's fold toggle in the strip, without its other actions", () => {
+      store.sessions = [{ id: "s1", chats: [{ ...store.chats[0], id: "ft_pablo", name: "Pablo", unread: 0 }], requests: [], circles: [] }];
+      setChatListCollapsed(true);
+      screen(true);
+      const section = mount(ChatsPage, { shallow: true }).find("[data-test='session-section']");
+      expect(section.find("[data-test='session-toggle']").exists()).toBe(true);
+      expect(section.findComponent(SessionActions).exists()).toBe(false);
+    });
+
+    it("shows the empty list in its compact form in the strip", () => {
+      store.chats = [];
+      store.circles = [];
+      setChatListCollapsed(true);
+      screen(true);
+      expect(mount(ChatsPage, { shallow: true }).findComponent(ChatsEmpty).props("compact")).toBe(true);
     });
   });
 

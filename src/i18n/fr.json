@@ -11,7 +11,9 @@
   },
   "chats": {
     "empty": "Aucune discussion",
-    "emptyHint": "Montrez votre code ou scannez celui de l’autre pour commencer"
+    "emptyHint": "Montrez votre code ou scannez celui de l’autre pour commencer",
+    "collapseList": "Réduire la liste des discussions",
+    "expandList": "Développer la liste des discussions"
   },
   "common": {
     "back": "Retour",
