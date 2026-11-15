@@ -108,6 +108,15 @@ export function installFakeCore() {
     video: { available: false, camera: false, paused: false, facing: "front", remote: false, remotePaused: false },
   };
   const flag = (name: string) => Boolean((window as unknown as Record<string, unknown>)[name]);
+  const tryStorage = <T>(use: () => T): T | undefined => {
+    try {
+      return use();
+    } catch {
+      return undefined;
+    }
+  };
+  const SUPPORT = conversation("ft_flickertalk1234", "FlickerTalk", "Hi! How can we help?");
+  const withSupport = <T>(list: T[]) => (flag("__ftFakeSupport") ? [...list, SUPPORT as T] : list);
   const catalogue = () => [...state.catalogue, ...(((window as unknown as Record<string, unknown>).__ftFakeCatalogue as typeof state.catalogue) ?? [])];
   const grantLive = () => {
     const ids = ((window as unknown as Record<string, unknown>).__ftFakeLivePlugins as string[] | undefined) ?? [];
@@ -236,8 +245,8 @@ export function installFakeCore() {
   };
 
   const KEPT_SESSIONS = "ft-fake-sessions";
-  const keepSessions = () => {
-    try {
+  const keepSessions = () =>
+    tryStorage(() =>
       localStorage.setItem(
         KEPT_SESSIONS,
         JSON.stringify({
@@ -248,24 +257,19 @@ export function installFakeCore() {
           seeded: state.seededHidden,
           data: state.pluginData,
         }),
-      );
-    } catch {
-    }
-  };
-  try {
-    const kept = JSON.parse(localStorage.getItem(KEPT_SESSIONS) ?? "null") as {
-      sessions: typeof state.sessions;
-      open: string[];
-      next: number;
-      chats?: typeof state.sessionChats;
-      seeded?: boolean;
-      data?: typeof state.pluginData;
-    } | null;
-    if (kept) {
-      Object.assign(state, { sessions: kept.sessions, open: kept.open, nextSession: kept.next });
-      Object.assign(state, { sessionChats: kept.chats ?? {}, seededHidden: Boolean(kept.seeded), pluginData: kept.data ?? {} });
-    }
-  } catch {
+      ),
+    );
+  const kept = tryStorage(() => JSON.parse(localStorage.getItem(KEPT_SESSIONS) ?? "null")) as {
+    sessions: typeof state.sessions;
+    open: string[];
+    next: number;
+    chats?: typeof state.sessionChats;
+    seeded?: boolean;
+    data?: typeof state.pluginData;
+  } | null | undefined;
+  if (kept) {
+    Object.assign(state, { sessions: kept.sessions, open: kept.open, nextSession: kept.next });
+    Object.assign(state, { sessionChats: kept.chats ?? {}, seededHidden: Boolean(kept.seeded), pluginData: kept.data ?? {} });
   }
 
   let openedLink: string | null = null;
@@ -318,7 +322,7 @@ export function installFakeCore() {
       case "core_conversations": {
         const name = (window as unknown as Record<string, unknown>).__ftFakeBobName;
         const lastText = (window as unknown as Record<string, unknown>).__ftFakeBobLast;
-        const all = flag("__ftFakeCarol") ? [...state.conversations, conversation("ft_carol12345678", "Carol", "hi!")] : state.conversations;
+        const all = withSupport(flag("__ftFakeCarol") ? [...state.conversations, conversation("ft_carol12345678", "Carol", "hi!")] : state.conversations);
         return all.map((one) =>
           one.id !== "ft_bob123456789"
             ? one
@@ -329,6 +333,8 @@ export function installFakeCore() {
               },
         );
       }
+      case "core_support_id":
+        return flag("__ftFakeSupport") ? SUPPORT.id : null;
       case "core_plugin_open_chat":
         return flag("__ftFakeCarol") ? { contact: "ft_carol12345678", message: "" } : null;
       case "core_requests":
@@ -515,7 +521,7 @@ export function installFakeCore() {
         return undefined;
       case "core_plugin_chat": {
         const contact = String(a.contact);
-        const here = [...state.conversations, ...state.open.flatMap((id) => state.sessionChats[id] ?? [])];
+        const here = [...withSupport(state.conversations), ...state.open.flatMap((id) => state.sessionChats[id] ?? [])];
         const aCircle = state.circles.some((one) => one.id === contact);
         if (!aCircle && !here.some((one) => one.id === contact && !one.blocked)) throw new Error("that is not a contact of yours");
         const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -822,8 +828,5 @@ export function installFakeCore() {
 
   (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = fake;
   (window as unknown as { __ftFake: unknown }).__ftFake = fake;
-  try {
-    localStorage.setItem("ft-onboarded", "1");
-  } catch {
-  }
+  tryStorage(() => localStorage.setItem("ft-onboarded", "1"));
 }

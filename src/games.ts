@@ -1,6 +1,6 @@
 // invites are plain links so an older app still shows them
 
-import type { PluginPermissions, PluginView } from "./core";
+import { isSupport, type PluginPermissions, type PluginView } from "./core";
 
 const PREFIX = "com.flickertalk.game.";
 const HOME = "https://flickertalk.com/games/";
@@ -23,6 +23,11 @@ export function gameIdFromText(text: string): string | undefined {
 // unknown kind is a tool, as the core defaults it
 export function isGame(plugin: { kind?: "tool" | "game" }): boolean {
   return plugin.kind === "game";
+}
+
+// the phone plays the other side: a live send would try to reach and wake the support peer's device
+export function playsAlone(plugin: { kind?: "tool" | "game" } | undefined, contact: string): boolean {
+  return Boolean(plugin && isGame(plugin)) && isSupport(contact);
 }
 
 export function needsGameGrant(plugin: PluginView): boolean {

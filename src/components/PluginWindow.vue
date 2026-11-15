@@ -4,7 +4,7 @@ import { IonButton, IonButtons, IonIcon, IonTitle, IonToolbar } from "@ionic/vue
 import { closeOutline, mailOutline } from "ionicons/icons";
 import PluginSheet from "./PluginSheet.vue";
 import { gameUrl } from "../games";
-import type { PickedFile } from "../core";
+import { isSupport, type PickedFile } from "../core";
 import type { PermissionNeed } from "../permissions";
 import type { OpenPlugin } from "../pluginWindow";
 
@@ -34,7 +34,7 @@ defineExpose({ sheet, gameArea });
         </ion-button>
       </ion-buttons>
       <ion-title size="small"><span class="ft-title">{{ plugin.name }}</span></ion-title>
-      <ion-buttons v-if="gameUrl(plugin.id)" slot="end">
+      <ion-buttons v-if="gameUrl(plugin.id) && !isSupport(plugin.contact ?? '')" slot="end">
         <ion-button data-test="game-invite" :aria-label="$t('games.invite')" @click="emit('invite')">
           <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
         </ion-button>

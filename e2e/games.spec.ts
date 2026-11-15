@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { callsTo, expect, frameHeard, holdTile, servePluginFrames, test } from "./helpers";
+import { callsTo, expect, frameAsks, frameHeard, holdTile, servePluginFrames, test } from "./helpers";
 
 const BOB = "ft_bob123456789";
 const TICTACTOE = "com.flickertalk.game.tictactoe";
@@ -165,6 +165,75 @@ test("a game from the Apps tab, closed, stays closed after a call and back to th
   await expect(app.getByTestId("game-room")).toHaveCount(0);
   await expect(app.locator("iframe.ft-plugin__frame")).toHaveCount(0);
   await expect(newest).toBeInViewport();
+});
+
+test.describe("with the FlickerTalk contact", () => {
+  const FLICKERTALK = "ft_flickertalk1234";
+  type Heard = { type?: string; live?: boolean; solo?: boolean; chat?: string; data?: string };
+
+  test.beforeEach(async ({ app }) => {
+    await app.addInitScript(() => Object.assign(window, { __ftFakeSupport: true }));
+    await servePluginFrames(app);
+  });
+
+  async function opening(app: Page): Promise<Heard> {
+    await expect.poll(async () => (await frameHeard(app)).some((one) => (one as Heard).type === "ft.open")).toBe(true);
+    return (await frameHeard(app)).find((one) => (one as Heard).type === "ft.open") as Heard;
+  }
+
+  async function twinSays(app: Page, contact: string, data: string) {
+    await app.evaluate(
+      ([plugin, from, said]) => (window as unknown as { __ftFake: { emit: (event: string, payload: unknown) => void } }).__ftFake.emit("ft://plugin", { plugin, contact: from, data: said }),
+      [TICTACTOE, contact, data],
+    );
+  }
+
+  async function playsAlone(app: Page) {
+    const opened = await opening(app);
+    expect(opened).toMatchObject({ solo: true, live: false });
+    expect(opened.chat).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(await frameAsks(app, { type: "ft.liveSend", id: "q1", data: "AQID" })).toBe(false);
+    await twinSays(app, FLICKERTALK, "Ynll");
+    expect(await frameAsks(app, { type: "ft.liveSend", id: "q2", data: "AQID" })).toBe(false);
+    expect((await frameHeard(app)).some((one) => (one as Heard).type === "ft.live")).toBe(false);
+    expect((await callsTo(app)).some(([command]) => command === "core_plugin_live_send")).toBe(false);
+  }
+
+  test("the Apps tab offers it to play with, and the game opens in its chat, alone", async ({ app }) => {
+    await app.goto("/tabs/apps?show=games");
+    await app.getByTestId(`app-${TICTACTOE}`).click();
+    await app.getByTestId("game-allow").click();
+    await expect(app.getByTestId(`play-with-${FLICKERTALK}`)).toContainText("FlickerTalk");
+    await shot(app, "contact-picker-flickertalk");
+    await app.getByTestId(`play-with-${FLICKERTALK}`).click();
+
+    await expect(app).toHaveURL(new RegExp(`/chat/${FLICKERTALK}$`));
+    await expect(app.getByTestId("game-room")).toBeVisible();
+    await playsAlone(app);
+  });
+
+  test("its chat's apps button opens a game there, alone", async ({ app }) => {
+    await app.goto(`/chat/${FLICKERTALK}`);
+    await app.getByTestId("apps").click();
+    await app.getByTestId("apps-tab-games").click();
+    await app.getByTestId(`game-${TICTACTOE}`).click();
+    await app.getByTestId("game-allow").click();
+    await expect(app.getByTestId("game-room")).toBeVisible();
+    await playsAlone(app);
+  });
+
+  test("a game with anyone else still talks to the other phone", async ({ app }) => {
+    await app.goto("/tabs/apps?show=games");
+    await app.getByTestId(`app-${TICTACTOE}`).click();
+    await app.getByTestId("game-allow").click();
+    await app.getByTestId(`play-with-${BOB}`).click();
+    const opened = await opening(app);
+    expect(opened).toMatchObject({ live: true });
+    expect(opened).not.toHaveProperty("solo");
+    expect(await frameAsks(app, { type: "ft.liveSend", id: "q1", data: "AQID" })).toBe(true);
+    await twinSays(app, BOB, "Ynll");
+    await expect.poll(async () => (await frameHeard(app)).some((one) => (one as Heard).type === "ft.live" && (one as Heard).data === "Ynll")).toBe(true);
+  });
 });
 
 test("a chat without invitations does not read the catalogue", async ({ app }) => {

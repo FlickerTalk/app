@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant } from "./games";
-import type { PluginView } from "./core";
+import { afterEach, describe, expect, it } from "vitest";
+import { gameGrant, gameIdFromText, gameUrl, isGame, needsGameGrant, playsAlone } from "./games";
+import { store, type PluginView } from "./core";
 
 const CHESS = "com.flickertalk.game.chess";
 const CHESS_ID = CHESS;
@@ -70,6 +70,26 @@ describe("games", () => {
     expect(isGame({ kind: "tool" })).toBe(false);
     expect(isGame({})).toBe(false);
     expect(isGame({ kind: "toy" as never })).toBe(false);
+  });
+
+  describe("playing alone", () => {
+    afterEach(() => (store.supportId = ""));
+
+    it("is only a game opened with the FlickerTalk contact", () => {
+      store.supportId = "ft_support";
+      expect(playsAlone({ kind: "game" }, "ft_support")).toBe(true);
+      expect(playsAlone({ kind: "tool" }, "ft_support")).toBe(false);
+      expect(playsAlone({}, "ft_support")).toBe(false);
+      expect(playsAlone(undefined, "ft_support")).toBe(false);
+      expect(playsAlone({ kind: "game" }, "ft_bob")).toBe(false);
+      expect(playsAlone({ kind: "game" }, "")).toBe(false);
+    });
+
+    it("is never, before the core has named the FlickerTalk contact", () => {
+      store.supportId = "";
+      expect(playsAlone({ kind: "game" }, "")).toBe(false);
+      expect(playsAlone({ kind: "game" }, "ft_support")).toBe(false);
+    });
   });
 
   describe("what a game is granted to be played", () => {

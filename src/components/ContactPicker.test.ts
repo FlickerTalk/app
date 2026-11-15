@@ -41,6 +41,22 @@ describe("ContactPicker", () => {
     expect(list.find("[data-test='play-with-c1']").exists()).toBe(true);
   });
 
+  it("offers the FlickerTalk contact to play with, like anyone, though it is never connected", async () => {
+    store.supportId = "ft_support";
+    try {
+      store.chats = [{ ...store.chats[0], id: "ft_support", name: "FlickerTalk", connected: false, messages: [] }];
+      const wrapper = picker();
+      const row = wrapper.findAllComponents(IonItem).find((one) => one.attributes("data-test") === "play-with-ft_support")!;
+      expect(row.props("button")).not.toBe(false);
+      expect(row.attributes("disabled")).toBeUndefined();
+      expect(row.html()).toContain("FlickerTalk");
+      await row.trigger("click");
+      expect(wrapper.emitted("pick")).toEqual([["ft_support"]]);
+    } finally {
+      store.supportId = "";
+    }
+  });
+
   it("leads to adding a contact when there is nobody", async () => {
     store.chats = [];
     const play = picker();
