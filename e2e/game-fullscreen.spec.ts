@@ -54,6 +54,8 @@ for (const size of SIZES) {
     test("a game in a chat covers the whole window with the same frame and gives the room back", async ({ app }) => {
       await playFromTheChat(app, wide);
       const room = (await app.getByTestId("game-area").boundingBox())!;
+      const frameInRoom = (await app.locator("iframe.ft-plugin__frame").boundingBox())!;
+      expect(frameInRoom.width).toBe(room.width - 32);
       await markFrame(app);
 
       await app.getByTestId("game-fullscreen").click();
@@ -68,6 +70,9 @@ for (const size of SIZES) {
         expect(inside, `${x},${y}`).toBe(true);
       }
       await expect.poll(() => lastFill(app)).toBe(true);
+      const frame = (await app.locator("iframe.ft-plugin__frame").boundingBox())!;
+      expect([frame.x, frame.width]).toEqual([0, size.width]);
+      expect(frame.y + frame.height).toBe(size.height);
       await expect(app.getByTestId("game-fullscreen-exit")).toBeFocused();
       expect(await stillMarked(app)).toEqual([true, true]);
       await shot(app, `fullscreen-room-${size.name}`);
@@ -75,6 +80,7 @@ for (const size of SIZES) {
       await app.getByTestId("game-fullscreen-exit").click();
       await expect(app.getByTestId("game-fullscreen-bar")).toHaveCount(0);
       await expect.poll(async () => app.getByTestId("game-area").boundingBox()).toEqual(room);
+      expect((await app.locator("iframe.ft-plugin__frame").boundingBox())!.width).toBe(frameInRoom.width);
       await expect.poll(() => lastFill(app)).toBe(false);
       await expect(app.getByTestId("game-fullscreen")).toBeFocused();
       expect(await stillMarked(app)).toEqual([true, true]);
