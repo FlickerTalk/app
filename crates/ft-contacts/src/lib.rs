@@ -7,6 +7,8 @@ use ft_identity::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod invite;
+
 pub const CARD_VERSION: u16 = 1;
 // the card goes after '#' so it never reaches the web server
 pub const LINK_PREFIX: &str = "https://flickertalk.com/add#";
