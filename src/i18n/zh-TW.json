@@ -508,7 +508,10 @@
     "installFailed": "無法安裝這個遊戲。請檢查網路連線後再試一次。",
     "live": "與對方手機上的同一遊戲通訊",
     "showChat": "顯示聊天",
-    "showGame": "返回遊戲"
+    "showGame": "返回遊戲",
+    "enterFullscreen": "全螢幕",
+    "exitFullscreen": "結束全螢幕",
+    "newMessage": "新訊息"
   },
   "apps": {
     "tools": "工具",

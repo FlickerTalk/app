@@ -2418,6 +2418,90 @@ describe("ChatThread", () => {
         expect(room(wrapper).exists()).toBe(false);
         expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
       });
+
+      describe("full screen", () => {
+        afterEach(() => vi.restoreAllMocks());
+        const expand = async (wrapper: Awaited<ReturnType<typeof thread>>) => {
+          await wrapper.find("[data-test='game-fullscreen']").trigger("click");
+          await flushPromises();
+        };
+        const covered = (wrapper: Awaited<ReturnType<typeof thread>>) => [
+          wrapper.find("ion-header").attributes("inert") !== undefined,
+          wrapper.find("ion-footer").attributes("inert") !== undefined,
+        ];
+        const fullscreen = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.find("[data-test='game-area']").classes().includes("ft-room__game--fullscreen");
+
+        it("fills the window with the same game and covers the header, the strip and the composer", async () => {
+          const wrapper = await playChess();
+          const frame = wrapper.find("iframe").element;
+          expect(covered(wrapper)).toEqual([false, false]);
+
+          await expand(wrapper);
+          expect(fullscreen(wrapper)).toBe(true);
+          expect(room(wrapper).findComponent({ name: "PluginSheet" }).props("fill")).toBe(true);
+          expect(covered(wrapper)).toEqual([true, true]);
+          expect(wrapper.find("ion-footer [data-test='game-strip']").exists()).toBe(true);
+          expect(wrapper.find("iframe").element).toBe(frame);
+
+          await wrapper.find("[data-test='game-fullscreen-exit']").trigger("click");
+          await flushPromises();
+          expect(fullscreen(wrapper)).toBe(false);
+          expect(room(wrapper).findComponent({ name: "PluginSheet" }).props("fill")).toBe(false);
+          expect(covered(wrapper)).toEqual([false, false]);
+          expect(wrapper.find("iframe").element).toBe(frame);
+        });
+
+        it("ends full screen with Back first and closes the game with the next one", async () => {
+          const wrapper = await playChess();
+          await expand(wrapper);
+          back.handler?.();
+          await flushPromises();
+          expect(fullscreen(wrapper)).toBe(false);
+          expect(room(wrapper).exists()).toBe(true);
+          back.handler?.();
+          await flushPromises();
+          expect(room(wrapper).exists()).toBe(false);
+          expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
+        });
+
+        it("closes the game straight from full screen and leaves nothing over the conversation", async () => {
+          const wrapper = await playChess();
+          await expand(wrapper);
+          await wrapper.find("[data-test='game-fullscreen-close']").trigger("click");
+          await flushPromises();
+          expect(room(wrapper).exists()).toBe(false);
+          expect(wrapper.find(".ft-room__game--fullscreen").exists()).toBe(false);
+          expect(covered(wrapper)).toEqual([false, false]);
+          expect(back.handler).toBeNull();
+        });
+
+        it("marks the chat when the other one writes, and shows the thread with the game kept on a tap", async () => {
+          const wrapper = await playChess();
+          await expand(wrapper);
+          expect(wrapper.find("[data-test='game-unread']").exists()).toBe(false);
+          calls.length = 0;
+          arrives("your move");
+          await flushPromises();
+          expect(wrapper.find("[data-test='game-unread']").exists()).toBe(true);
+          expect(calls.map(([command]) => command)).not.toContain("core_mark_read");
+
+          const focus = vi.spyOn(HTMLElement.prototype, "focus");
+          await wrapper.find("[data-test='game-fullscreen-chat']").trigger("click");
+          await flushPromises();
+          expect(fullscreen(wrapper)).toBe(false);
+          expect(covered(wrapper)).toEqual([false, false]);
+          expect(hidden(wrapper.find(".ft-thread__content"))).toBe(false);
+          expect(hidden(wrapper.find("[data-test='game-area']"))).toBe(true);
+          expect(room(wrapper).findComponent({ name: "PluginSheet" }).exists()).toBe(true);
+          expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+          await vi.waitFor(() => expect((focus.mock.contexts.at(-1) as HTMLElement | undefined)?.dataset.test).toBe("game-peek"));
+
+          await wrapper.find("[data-test='game-peek']").trigger("click");
+          await flushPromises();
+          expect(hidden(wrapper.find("[data-test='game-area']"))).toBe(false);
+          expect(wrapper.find("[data-test='game-unread']").exists()).toBe(false);
+        });
+      });
     });
 
     describe("asking for a permission on the spot", () => {

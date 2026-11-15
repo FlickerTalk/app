@@ -508,7 +508,10 @@
     "installFailed": "Oyun yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
     "live": "Karşı tarafın telefonundaki aynı oyunla konuşmak",
     "showChat": "Sohbeti göster",
-    "showGame": "Oyuna dön"
+    "showGame": "Oyuna dön",
+    "enterFullscreen": "Tam ekran",
+    "exitFullscreen": "Tam ekrandan çık",
+    "newMessage": "Yeni mesaj"
   },
   "apps": {
     "tools": "Araçlar",

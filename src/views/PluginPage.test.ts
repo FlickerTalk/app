@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, h, reactive } from "vue";
 import { setLocale } from "../i18n";
@@ -9,6 +9,13 @@ vi.mock("vue-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("vue-router")>()),
   useRoute: () => route.value,
   useRouter: () => nav,
+}));
+const back = vi.hoisted(() => ({ handler: null as null | (() => void) }));
+vi.mock("@tauri-apps/api/app", () => ({
+  onBackButtonPress: async (handler: () => void) => {
+    back.handler = handler;
+    return { unregister: async () => void (back.handler === handler && (back.handler = null)) };
+  },
 }));
 vi.mock("../plugins", async (importOriginal) => {
   const plugins = await importOriginal<typeof import("../plugins")>();
@@ -283,6 +290,104 @@ describe("PluginPage", () => {
       await flushPromises();
       expect(asked.answer).toHaveBeenCalledWith(null);
       expect(nav.push).toHaveBeenCalledWith("/add-contact");
+    });
+  });
+
+  describe("a game full screen", () => {
+    const RACER = { id: "com.flickertalk.game.racer", name: "Racer", kind: "game" };
+    const Sheet = defineComponent({
+      name: "PluginSheet",
+      props: { plugin: Object, contact: String, reminder: String, session: String, fill: Boolean },
+      emits: ["done", "closed", "openChat", "needs", "pick", "sendTo"],
+      setup(_, { expose }) {
+        expose({ close: async () => {} });
+        return () => h("iframe");
+      },
+    });
+    const enter = (wrapper: { vm: unknown }) =>
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillEnter ?? []).forEach((hook) => hook());
+    async function page(id = RACER.id) {
+      nav.replace.mockClear();
+      installed.value = [...installed.value.filter((one) => one.id !== RACER.id), RACER as never];
+      route.value = reactive({ params: { id }, query: {} });
+      const wrapper = mount(PluginPage, { global: { stubs: { PluginSheet: Sheet, IonIcon: true, PermissionAsk: true, ContactPicker: true } } });
+      pages.push(wrapper);
+      await flushPromises();
+      enter(wrapper);
+      await flushPromises();
+      return wrapper;
+    }
+    const expand = async (wrapper: Awaited<ReturnType<typeof page>>) => {
+      await wrapper.find("[data-test='game-fullscreen']").trigger("click");
+      await flushPromises();
+    };
+    const pages: Array<{ unmount: () => void }> = [];
+    afterEach(() => {
+      vi.restoreAllMocks();
+      pages.splice(0).forEach((one) => one.unmount());
+    });
+
+    it("offers it at the end of the page's bar for a game, and never for a tool", async () => {
+      const wrapper = await page();
+      const expandButton = wrapper.find("ion-header ion-toolbar ion-buttons[slot='end'] [data-test='game-fullscreen']");
+      expect(expandButton.exists()).toBe(true);
+      expect(expandButton.attributes("aria-label")).toBe("Full screen");
+      expect(expandButton.attributes("aria-pressed")).toBe("false");
+      expect((await page("com.flickertalk.notes")).find("[data-test='game-fullscreen']").exists()).toBe(false);
+    });
+
+    it("puts the full-screen bar in place of the page's bar, with neither chat nor invitation, and keeps the frame", async () => {
+      const wrapper = await page();
+      const frame = wrapper.find("iframe").element;
+      await expand(wrapper);
+      expect(wrapper.find("ion-header [data-test='game-fullscreen-bar']").exists()).toBe(true);
+      expect(wrapper.find("ion-back-button").exists()).toBe(false);
+      expect(wrapper.find("[data-test='game-fullscreen-chat']").exists()).toBe(false);
+      expect(wrapper.find("[data-test='game-fullscreen-invite']").exists()).toBe(false);
+      expect(wrapper.find(".ft-plugin-page").classes()).toContain("ft-plugin-page--fullscreen");
+      expect(wrapper.findComponent(Sheet).props("fill")).toBe(true);
+      expect(wrapper.find("iframe").element).toBe(frame);
+
+      await wrapper.find("[data-test='game-fullscreen-exit']").trigger("click");
+      await flushPromises();
+      expect(wrapper.find("[data-test='game-fullscreen-bar']").exists()).toBe(false);
+      expect(wrapper.find("ion-back-button").exists()).toBe(true);
+      expect(wrapper.find(".ft-plugin-page").classes()).not.toContain("ft-plugin-page--fullscreen");
+      expect(wrapper.findComponent(Sheet).props("fill")).toBe(true);
+      expect(wrapper.find("iframe").element).toBe(frame);
+    });
+
+    it("ends full screen with Back first and leaves the page with the next one", async () => {
+      const wrapper = await page();
+      await expand(wrapper);
+      back.handler?.();
+      await flushPromises();
+      expect(wrapper.find("[data-test='game-fullscreen-bar']").exists()).toBe(false);
+      expect(nav.replace).not.toHaveBeenCalled();
+      back.handler?.();
+      await flushPromises();
+      expect(nav.replace).toHaveBeenCalledWith("/tabs/apps");
+    });
+
+    it("leaves the page straight from full screen with Close", async () => {
+      const wrapper = await page();
+      await expand(wrapper);
+      await wrapper.find("[data-test='game-fullscreen-close']").trigger("click");
+      await flushPromises();
+      expect(nav.replace).toHaveBeenCalledWith("/tabs/apps");
+    });
+
+    it("moves the focus in and out and says so politely", async () => {
+      const wrapper = await page();
+      const focus = vi.spyOn(HTMLElement.prototype, "focus");
+      const lastFocused = () => (focus.mock.contexts.at(-1) as HTMLElement | undefined)?.dataset.test;
+      await expand(wrapper);
+      await vi.waitFor(() => expect(lastFocused()).toBe("game-fullscreen-exit"));
+      expect(wrapper.find("[role='status']").text()).toBe("Full screen");
+      await wrapper.find("[data-test='game-fullscreen-exit']").trigger("click");
+      await flushPromises();
+      await vi.waitFor(() => expect(lastFocused()).toBe("game-fullscreen"));
+      expect(wrapper.find("[role='status']").text()).toBe("Exit full screen");
     });
   });
 

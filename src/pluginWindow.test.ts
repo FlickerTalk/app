@@ -212,4 +212,105 @@ describe("usePluginWindow", () => {
     await flushPromises();
     expect(page.sheet.close).not.toHaveBeenCalled();
   });
+  describe("full screen", () => {
+    const arrives = (id: string, mine = false) => chat("c1")!.messages.push({ id, mine, text: id, time: "10:00", sentAt: Date.now() });
+
+    it("fills the window with a game only when asked, and never with a tool", async () => {
+      const { window } = host();
+      window.openPlugin(GAME);
+      expect(window.fullscreen.value).toBe(false);
+      window.setFullscreen(true);
+      expect(window.fullscreen.value).toBe(true);
+      window.setFullscreen(false);
+      expect(window.fullscreen.value).toBe(false);
+
+      const tool = host();
+      tool.window.openPlugin(TOOL);
+      tool.window.setFullscreen(true);
+      expect(tool.window.fullscreen.value).toBe(false);
+    });
+
+    it("ends as soon as the game says goodbye, and the next game starts in its room", async () => {
+      const { window } = host();
+      window.openPlugin(GAME);
+      window.setFullscreen(true);
+      window.closePlugin();
+      expect(window.fullscreen.value).toBe(false);
+      window.pluginClosed();
+      window.openPlugin(GAME);
+      await flushPromises();
+      expect(window.fullscreen.value).toBe(false);
+    });
+
+    it("starts in the room again for a game opened while another says goodbye", async () => {
+      const { window } = host();
+      window.openPlugin(GAME);
+      window.setFullscreen(true);
+      window.openPlugin({ ...GAME, id: "com.flickertalk.game.go", name: "Go" });
+      window.pluginClosed();
+      await flushPromises();
+      expect(window.plugin.value?.id).toBe("com.flickertalk.game.go");
+      expect(window.fullscreen.value).toBe(false);
+    });
+
+    it("counts what the other one writes meanwhile, nothing of mine and nothing from before", async () => {
+      const { window } = host();
+      window.openPlugin(GAME);
+      arrives("before");
+      window.setFullscreen(true);
+      expect(window.unread.value).toBe(0);
+      arrives("mine", true);
+      arrives("theirs");
+      arrives("again");
+      expect(window.unread.value).toBe(2);
+      window.setFullscreen(false);
+      expect(window.unread.value).toBe(0);
+    });
+
+    it("shows the thread from full screen, reading it and keeping the game", async () => {
+      const { window, sheet } = host();
+      window.openPlugin(GAME);
+      await flushPromises();
+      window.setFullscreen(true);
+      arrives("your move");
+      calls.length = 0;
+      await window.showChat();
+      expect(window.fullscreen.value).toBe(false);
+      expect(window.peeking.value).toBe(true);
+      expect(calls).toContainEqual(["core_mark_read", { contact: "c1" }]);
+      expect(window.playing.value).toBe(true);
+      expect(sheet.close).not.toHaveBeenCalled();
+    });
+
+    it("shows the game again when it fills the window from the thread", async () => {
+      const { window } = host();
+      window.openPlugin(GAME);
+      await window.peek();
+      window.setFullscreen(true);
+      expect(window.peeking.value).toBe(false);
+      expect(window.fullscreen.value).toBe(true);
+    });
+
+    it("takes Back to end full screen and keeps the game open", async () => {
+      const { window } = host();
+      window.openPlugin(GAME);
+      window.setFullscreen(true);
+      await flushPromises();
+      expect(back.handler).not.toBeNull();
+      back.handler?.();
+      await flushPromises();
+      expect(window.fullscreen.value).toBe(false);
+      expect(window.plugin.value).not.toBeNull();
+    });
+
+    it("leaves Back alone while the conversation is off screen", async () => {
+      const { window, active } = host();
+      window.openPlugin(GAME);
+      active.value = false;
+      back.handler = null;
+      window.setFullscreen(true);
+      await flushPromises();
+      expect(back.handler).toBeNull();
+    });
+  });
 });

@@ -508,7 +508,10 @@
     "installFailed": "ゲームをインストールできませんでした。接続を確認して、もう一度お試しください。",
     "live": "相手の端末にある同じゲームと通信する",
     "showChat": "チャットを表示",
-    "showGame": "ゲームに戻る"
+    "showGame": "ゲームに戻る",
+    "enterFullscreen": "全画面表示",
+    "exitFullscreen": "全画面表示を終了",
+    "newMessage": "新しいメッセージ"
   },
   "apps": {
     "tools": "ツール",

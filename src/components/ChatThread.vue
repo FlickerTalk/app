@@ -9,7 +9,6 @@ import {
   IonFooter,
   IonHeader,
   IonIcon,
-  IonItem,
   IonLabel,
   IonModal,
   IonText,
@@ -18,13 +17,9 @@ import {
 import {
   appsOutline,
   banOutline,
-  chatbubblesOutline,
   checkmarkOutline,
-  chevronDownOutline,
-  chevronUpOutline,
   callOutline,
   extensionPuzzleOutline,
-  gameControllerOutline,
   lockClosedOutline,
   pinOutline,
   videocamOutline,
@@ -39,6 +34,7 @@ import PermissionAsk from "./PermissionAsk.vue";
 import MessageActions from "./MessageActions.vue";
 import MessageBubble from "./MessageBubble.vue";
 import PluginWindow from "./PluginWindow.vue";
+import GameStrip from "./GameStrip.vue";
 import HookFrames from "./HookFrames.vue";
 import SchedulePicker from "./SchedulePicker.vue";
 import { hookIcon, hookLabel, isLocked, pluginIcon, pluginImage, pluginName, pluginsReady, refreshPlugins, refreshPremiumLock } from "../plugins";
@@ -169,6 +165,7 @@ const { recording, elapsed, record, sendVoice, discardVoice } = useVoiceMessage(
 const saved = reactive(new Set<string>());
 
 const pluginView = ref<InstanceType<typeof PluginWindow> | null>(null);
+const stripView = ref<InstanceType<typeof GameStrip> | null>(null);
 const {
   plugin,
   leaving,
@@ -179,6 +176,10 @@ const {
   peeking,
   lastFromThem,
   peek,
+  fullscreen,
+  unread,
+  setFullscreen,
+  showChat,
   pluginDone,
   openChatFromPlugin,
   needing,
@@ -196,6 +197,7 @@ const {
   messages: () => messages.value,
   sheet: () => pluginView.value?.sheet,
   gameArea: () => pluginView.value?.gameArea,
+  strip: () => stripView.value,
   scrollToEnd,
   draft,
   staged,
@@ -356,7 +358,7 @@ watch(
 
 <template>
   <template v-if="chat">
-    <ion-header class="ion-no-border">
+    <ion-header class="ion-no-border" :inert="fullscreen || undefined">
       <ion-toolbar class="ft-thread__bar">
         <ion-buttons v-if="showBack" slot="start">
           <ion-back-button default-href="/tabs/chats" text="" :aria-label="$t('common.back')" />
@@ -415,7 +417,11 @@ watch(
       ref="pluginView"
       :plugin="plugin"
       :peeking="peeking"
+      :fullscreen="fullscreen"
+      :unread="unread"
       :session="sessionOf(plugin.contact)"
+      @fullscreen="setFullscreen"
+      @show-chat="showChat"
       @close="closePlugin"
       @invite="inviteToPlaying"
       @text="fromPlugin"
@@ -563,31 +569,8 @@ watch(
         </ion-button>
       </div>
     </ion-footer>
-    <ion-footer v-else class="ion-no-border">
-      <ion-item
-        v-if="playing"
-        button
-        :detail="false"
-        lines="full"
-        class="ft-room__strip"
-        data-test="game-strip"
-        @click="peek"
-      >
-        <ion-icon slot="start" :icon="peeking ? gameControllerOutline : chatbubblesOutline" aria-hidden="true" />
-        <ion-label v-if="peeking" class="ion-text-nowrap">{{ plugin?.name }}</ion-label>
-        <ion-label v-else-if="lastFromThem" class="ion-text-nowrap" dir="auto">{{ lastFromThem.kind === "file" ? lastFromThem.file?.name : lastFromThem.text }}</ion-label>
-        <ion-label v-else class="ion-text-nowrap" color="medium">{{ $t("games.showChat") }}</ion-label>
-        <ion-button
-          slot="end"
-          fill="clear"
-          size="default"
-          data-test="game-peek"
-          :aria-label="peeking ? $t('games.showGame') : $t('games.showChat')"
-          @click.stop="peek"
-        >
-          <ion-icon slot="icon-only" :icon="peeking ? chevronDownOutline : chevronUpOutline" aria-hidden="true" />
-        </ion-button>
-      </ion-item>
+    <ion-footer v-else class="ion-no-border" :inert="fullscreen || undefined">
+      <GameStrip v-if="playing" ref="stripView" :peeking="peeking" :name="plugin?.name ?? ''" :last="lastFromThem" @peek="peek" />
       <ChatComposer
         ref="composerView"
         v-model:draft="draft"
