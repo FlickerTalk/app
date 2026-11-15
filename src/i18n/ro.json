@@ -539,6 +539,10 @@
   "feedback": {
     "title": "Propune ceva",
     "placeholder": "Ce ți-ar plăcea să aibă FlickerTalk?",
+    "gameTitle": "Propune un joc",
+    "gamePlaceholder": "Ce joc ți-ar plăcea să joci în FlickerTalk?",
+    "toolTitle": "Propune un instrument",
+    "toolPlaceholder": "Ce instrument ți-ar plăcea să aibă FlickerTalk?",
     "hint": "Propunerea ta ne ajunge fără numele tău și fără niciun identificator. Nu îți putem răspunde. Nu scrie date personale.",
     "send": "Trimite",
     "sent": "Trimis. Mulțumim",

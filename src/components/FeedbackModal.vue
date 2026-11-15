@@ -13,18 +13,28 @@ import {
   IonToolbar,
 } from "@ionic/vue";
 import { closeOutline, sendOutline } from "ionicons/icons";
-import { sendFeedback, type FeedbackOutcome } from "../core";
+import { feedbackLimit, sendFeedback, type FeedbackKind, type FeedbackOutcome } from "../core";
 
-// no draft is kept, the text is gone with the modal. The router takes up to 2000 characters.
-const MAX = 2000;
+const TEXTS = {
+  any: { title: "feedback.title", placeholder: "feedback.placeholder" },
+  game: { title: "feedback.gameTitle", placeholder: "feedback.gamePlaceholder" },
+  tool: { title: "feedback.toolTitle", placeholder: "feedback.toolPlaceholder" },
+} as const;
 
-defineProps<{ open: boolean }>();
+const props = defineProps<{ open: boolean; kind?: FeedbackKind }>();
 const emit = defineEmits<{ close: [] }>();
 
+const texts = computed(() => TEXTS[props.kind ?? "any"]);
+const limit = computed(() => feedbackLimit(props.kind));
+
+// no draft is kept, the text is gone with the modal
 const text = ref("");
 const sending = ref(false);
 const outcome = ref<FeedbackOutcome | null>(null);
-const ready = computed(() => !sending.value && text.value.trim() !== "");
+const ready = computed(() => {
+  const written = text.value.trim();
+  return !sending.value && written !== "" && written.length <= limit.value;
+});
 
 const INCIDENTAL = new Set(["backdrop", "gesture"]);
 
@@ -45,12 +55,11 @@ function dismissed() {
 }
 
 async function send() {
-  const written = text.value.trim();
-  if (sending.value || !written) return;
+  if (!ready.value) return;
   sending.value = true;
   outcome.value = null;
   try {
-    outcome.value = await sendFeedback(written);
+    outcome.value = await sendFeedback(text.value, props.kind);
     if (outcome.value === "sent") text.value = "";
   } finally {
     sending.value = false;
@@ -62,7 +71,7 @@ async function send() {
   <ion-modal :is-open="open" :can-dismiss="canDismiss" data-test="feedback-modal" @did-dismiss="dismissed">
     <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-title><span class="ft-title">{{ $t("feedback.title") }}</span></ion-title>
+        <ion-title><span class="ft-title">{{ $t(texts.title) }}</span></ion-title>
         <ion-buttons slot="end">
           <ion-button fill="clear" data-test="feedback-close" :aria-label="$t('common.close')" @click="emit('close')">
             <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
@@ -77,9 +86,9 @@ async function send() {
         fill="outline"
         :rows="6"
         :counter="true"
-        :maxlength="MAX"
-        :placeholder="$t('feedback.placeholder')"
-        :aria-label="$t('feedback.placeholder')"
+        :maxlength="limit"
+        :placeholder="$t(texts.placeholder)"
+        :aria-label="$t(texts.placeholder)"
         @update:model-value="edited"
       />
       <ion-text color="medium">

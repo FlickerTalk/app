@@ -539,6 +539,10 @@
   "feedback": {
     "title": "Góp ý",
     "placeholder": "Bạn muốn FlickerTalk có thêm gì?",
+    "gameTitle": "Đề xuất trò chơi",
+    "gamePlaceholder": "Bạn muốn chơi trò chơi nào trên FlickerTalk?",
+    "toolTitle": "Đề xuất công cụ",
+    "toolPlaceholder": "Bạn muốn FlickerTalk có thêm công cụ nào?",
     "hint": "Góp ý đến với chúng tôi mà không kèm tên của bạn hay bất kỳ mã định danh nào. Chúng tôi không thể trả lời. Đừng viết dữ liệu cá nhân.",
     "send": "Gửi",
     "sent": "Đã gửi. Cảm ơn bạn",
