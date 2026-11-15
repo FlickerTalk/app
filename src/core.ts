@@ -98,7 +98,6 @@ export {
   quietHours,
   setQuietHours,
   sendFeedback,
-  feedbackText,
   feedbackLimit,
   type Day,
   type Week,

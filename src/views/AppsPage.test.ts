@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
-import { IonIcon, IonItem, IonSegment, IonSegmentButton, IonTitle, IonToast, IonToggle } from "@ionic/vue";
-import { constructOutline, extensionPuzzleOutline, gameControllerOutline, gridOutline, imageOutline } from "ionicons/icons";
+import { IonIcon, IonItem, IonSegment, IonSegmentButton, IonTextarea, IonTitle, IonToast, IonToggle } from "@ionic/vue";
+import { bulbOutline, constructOutline, extensionPuzzleOutline, gameControllerOutline, gridOutline, imageOutline } from "ionicons/icons";
+import FeedbackModal from "../components/FeedbackModal.vue";
 import GamePermissions from "../components/GamePermissions.vue";
 import AppsPage from "./AppsPage.vue";
 import { pageShape } from "../__tests__/page-shape";
@@ -12,7 +13,7 @@ import { installTauri } from "../__tests__/tauri";
 import { IonModalStub } from "../__tests__/ionic";
 import { store } from "../core";
 import { setLocale } from "../i18n";
-import { installed as installedList, pluginImage, premiumLocked } from "../plugins";
+import { installed as installedList, offered as offeredList, pluginImage, premiumLocked } from "../plugins";
 
 const alert = vi.hoisted(() => ({ create: vi.fn(), present: vi.fn() }));
 vi.mock("@ionic/vue", async (importOriginal) => ({
@@ -522,7 +523,94 @@ describe("AppsPage", () => {
     });
   });
 
+  describe("suggesting an app", () => {
+    const entry = (wrapper: Page) => wrapper.find("[data-test='apps-suggest']");
+    const suggestion = (wrapper: Page) => wrapper.findComponent(FeedbackModal);
+    const lastOnPage = (wrapper: Page) => wrapper.find("ion-content").element.lastElementChild;
+
+    it("offers to suggest a tool after the tools, and a game after the games, as the last thing on the page", async () => {
+      const wrapper = await page();
+      expect(entry(wrapper).text()).toBe("Suggest a tool");
+      expect(entry(wrapper).findComponent(IonIcon).props("icon")).toBe(bulbOutline);
+      expect(entry(wrapper).findComponent(IonIcon).attributes("aria-hidden")).toBe("true");
+      expect(lastOnPage(wrapper)!.contains(entry(wrapper).element)).toBe(true);
+      await showGames(wrapper);
+      expect(entry(wrapper).text()).toBe("Suggest a game");
+      expect(lastOnPage(wrapper)!.contains(entry(wrapper).element)).toBe(true);
+    });
+
+    it("offers it also when there is nothing to list", async () => {
+      answering({ installed: [], offered: [] });
+      const wrapper = await page();
+      expect(entry(wrapper).text()).toBe("Suggest a tool");
+      await showGames(wrapper);
+      expect(entry(wrapper).text()).toBe("Suggest a game");
+    });
+
+    it("puts it in its place only once the catalogue is read, so the catalogue never pushes it down", async () => {
+      offeredList.value = [];
+      let release = () => undefined as void;
+      answering({
+        also: (command) => (command === "core_catalogue" ? new Promise((resolve) => (release = () => resolve(OFFERED))) : undefined),
+      });
+      const wrapper = await page();
+      expect(wrapper.find("[data-test='apps-installed']").exists()).toBe(true);
+      expect(entry(wrapper).exists()).toBe(false);
+      release();
+      await flushPromises();
+      expect(wrapper.find("[data-test='apps-more']").exists()).toBe(true);
+      expect(lastOnPage(wrapper)!.contains(entry(wrapper).element)).toBe(true);
+    });
+
+    it("opens the suggestion of what is on screen over the tab, without leaving it", async () => {
+      const wrapper = await page();
+      expect(suggestion(wrapper).props("open")).toBe(false);
+      await entry(wrapper).trigger("click");
+      expect(suggestion(wrapper).props()).toMatchObject({ open: true, kind: "tool" });
+      suggestion(wrapper).vm.$emit("close");
+      await flushPromises();
+      expect(suggestion(wrapper).props("open")).toBe(false);
+      await showGames(wrapper);
+      await entry(wrapper).trigger("click");
+      expect(suggestion(wrapper).props()).toMatchObject({ open: true, kind: "game" });
+      expect(nav.push).not.toHaveBeenCalled();
+    });
+
+    it("sends a game idea with the line that says so, and keeps it when it does not go", async () => {
+      answering({ also: (command) => (command === "core_send_feedback" ? "failed" : undefined) });
+      const wrapper = await page();
+      await showGames(wrapper);
+      await entry(wrapper).trigger("click");
+      await flushPromises();
+      wrapper.findComponent(IonTextarea).vm.$emit("update:modelValue", "Chess with a clock");
+      await flushPromises();
+      await wrapper.find("[data-test='send']").trigger("click");
+      await flushPromises();
+      expect(calls.filter(([command]) => command === "core_send_feedback")).toEqual([
+        ["core_send_feedback", { text: "[Game idea]\nChess with a clock" }],
+      ]);
+      expect(wrapper.find("[data-test='outcome']").text()).toBe("Could not send. Try again later");
+      expect(wrapper.findComponent(IonTextarea).props("modelValue")).toBe("Chess with a clock");
+    });
+
+    it("closes with Android's back button, and when the tab is left", async () => {
+      const wrapper = await page();
+      await entry(wrapper).trigger("click");
+      await flushPromises();
+      back.handler?.();
+      await flushPromises();
+      expect(suggestion(wrapper).props("open")).toBe(false);
+      await entry(wrapper).trigger("click");
+      ((wrapper.vm as unknown as Record<string, Array<() => void> | undefined>).onIonViewWillLeave ?? []).forEach((hook) => hook());
+      await flushPromises();
+      expect(suggestion(wrapper).props("open")).toBe(false);
+    });
+  });
+
   it("is an Ionic page: a header with the title and the segment, then the grid", () => {
-    expect(pageShape(mount(AppsPage, { shallow: true }), ["app-sheet", "game-permissions", "contact-picker"])).toEqual(["ion-header", "ion-content"]);
+    expect(pageShape(mount(AppsPage, { shallow: true }), ["app-sheet", "game-permissions", "contact-picker", "feedback-modal"])).toEqual([
+      "ion-header",
+      "ion-content",
+    ]);
   });
 });

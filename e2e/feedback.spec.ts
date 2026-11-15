@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { commandsSent, expect, test } from "./helpers";
+import { callsTo, commandsSent, expect, test } from "./helpers";
 
 function installKeyboard() {
   const real = window.visualViewport!;
@@ -168,6 +168,65 @@ test.describe("on a 360 × 740 phone", () => {
     await expect.poll(() => modal.evaluate((element) => element.getBoundingClientRect().bottom)).toBe(740 - 300);
     await inSightAndUncovered(send, 740 - 300);
     await inSightAndUncovered(hint, 740 - 300);
+  });
+});
+
+test.describe("from the Apps tab, on a 360 × 740 phone", () => {
+  test.use({ viewport: { width: 360, height: 740 } });
+
+  const KINDS = [
+    { show: "games", title: "Suggest a game", line: "[Game idea]" },
+    { show: "tools", title: "Suggest a tool", line: "[Tool idea]" },
+  ] as const;
+
+  for (const { show, title, line } of KINDS)
+  test(`${title}: the idea goes with the line that says which, and keeps its text when it does not go`, async ({ app }) => {
+    await app.goto(`/tabs/apps?show=${show}`);
+    await app.getByTestId("apps-suggest").click();
+    const modal = app.getByTestId("feedback-modal");
+    await expect(modal.getByTestId("send")).toBeInViewport({ ratio: 1 });
+    await expect(modal.locator("ion-title")).toHaveText(title);
+    await expect(modal.getByTestId("hint")).toHaveText(
+      "It reaches us without your name or any identifier. We cannot reply. Do not write personal data.",
+    );
+    await expect(modal.locator("ion-textarea .counter")).toHaveText("0 / 1988");
+    await expect(modal.getByTestId("send")).toHaveAttribute("disabled", "");
+
+    await box(modal).fill("  Something new  ");
+    await modal.getByTestId("send").click();
+    await expect(modal.getByTestId("outcome")).toHaveText("Could not send. Try again later");
+    await expect(box(modal)).toHaveValue("  Something new  ");
+    const sent = (await callsTo(app)).filter(([command]) => command === "core_send_feedback").map(([, args]) => args?.text);
+    expect(sent).toEqual([`${line}\nSomething new`]);
+    await expect(app).toHaveURL(new RegExp(`/tabs/apps\\?show=${show}$`));
+
+    expect(await pressBack(app)).toBe(true);
+    await expect(modal).toBeHidden();
+    await expect(app).toHaveURL(new RegExp(`/tabs/apps\\?show=${show}$`));
+  });
+
+  test("the entry shows up once, in its place, and nothing moves it while the tab loads", async ({ app }) => {
+    await app.addInitScript(() => {
+      const tops: number[] = [];
+      Object.assign(window, { __ftFakeCatalogueLate: 1500, __suggestTops: tops });
+      const watch = () => {
+        const entry = document.querySelector("[data-test='apps-suggest']");
+        const top = entry ? Math.round(entry.getBoundingClientRect().top) : null;
+        if (top !== null && top !== tops[tops.length - 1]) tops.push(top);
+        requestAnimationFrame(watch);
+      };
+      requestAnimationFrame(watch);
+    });
+    await app.goto("/tabs/apps?show=games");
+    await expect(app.getByTestId("apps-installed")).toBeVisible();
+    await expect(app.getByTestId("apps-suggest")).toHaveCount(0);
+
+    await expect(app.getByTestId("apps-more")).toBeVisible();
+    await expect(app.getByTestId("apps-suggest")).toBeVisible();
+    await app.evaluate(() => document.fonts.ready);
+    await app.evaluate(() => Promise.all([...document.images].map((image) => image.decode().catch(() => undefined))));
+    await app.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    expect(await app.evaluate(() => (window as unknown as { __suggestTops: number[] }).__suggestTops)).toHaveLength(1);
   });
 });
 
