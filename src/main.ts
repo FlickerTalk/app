@@ -17,7 +17,7 @@ import "./theme/base.css";
 import { initTheme } from "./theme";
 import { followPhoneLanguage, i18n, t } from "./i18n";
 import { ionicConfig } from "./ionic";
-import { enablePush, start } from "./core";
+import { addSupportContact, enablePush, start } from "./core";
 import { isOnboarded } from "./preferences";
 import { loadHistory, startCalls } from "./calls";
 import { startMoving } from "./moving";
@@ -33,7 +33,10 @@ const ready = start().then(async () => {
   await startCalls();
   await startMoving();
   // push tokens change, tell the router at every start
-  if (isOnboarded()) void enablePush();
+  if (isOnboarded()) {
+    void enablePush();
+    void addSupportContact();
+  }
   await loadHistory();
 });
 const language = followPhoneLanguage();
