@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
 import { store } from "../core/store";
 import type { OpenPlugin } from "../pluginWindow";
@@ -31,6 +31,8 @@ const GAME: OpenPlugin = { id: "com.flickertalk.game.chess", name: "Chess", send
 
 const windowFor = (plugin: OpenPlugin, props: Record<string, unknown> = {}) =>
   mount(PluginWindow, { props: { plugin, peeking: false, session: "s1", ...props }, global: { stubs: { IonIcon: true, PluginSheet: SheetStub } } });
+
+enableAutoUnmount(afterEach);
 
 describe("PluginWindow", () => {
   it("opens a tool in its own full-screen window with a way back and the tool's name", async () => {
@@ -105,5 +107,102 @@ describe("PluginWindow", () => {
     expect(tool.gameArea).toBeNull();
     const game = windowFor(GAME).vm as unknown as { gameArea: HTMLElement | null };
     expect(game.gameArea?.dataset.test).toBe("game-area");
+  });
+  describe("full screen", () => {
+    afterEach(() => vi.restoreAllMocks());
+    const focused = () => vi.spyOn(HTMLElement.prototype, "focus");
+    const lastFocused = (spy: ReturnType<typeof focused>) => (spy.mock.contexts.at(-1) as HTMLElement | undefined)?.dataset.test;
+    const said = (wrapper: ReturnType<typeof windowFor>) => wrapper.find("[role='status']");
+
+    it("offers it only for a game, as the last button of the room's bar", async () => {
+      const wrapper = windowFor(GAME);
+      const end = wrapper.findAll("[data-test='game-bar'] ion-buttons[slot='end'] ion-button").map((one) => one.attributes("data-test"));
+      expect(end).toEqual(["game-invite", "game-fullscreen"]);
+      const expand = wrapper.find("[data-test='game-fullscreen']");
+      expect(expand.attributes("aria-label")).toBe("Full screen");
+      expect(expand.attributes("aria-pressed")).toBe("false");
+      await expand.trigger("click");
+      expect(wrapper.emitted("fullscreen")).toEqual([[true]]);
+
+      expect(windowFor({ ...GAME, id: "com.example.game" }).find("[data-test='game-fullscreen']").exists()).toBe(true);
+      expect(windowFor(TOOL).find("[data-test='game-fullscreen']").exists()).toBe(false);
+    });
+
+    it("covers the window with the same frame, filling it, and gives it back", async () => {
+      const wrapper = windowFor(GAME);
+      const area = () => wrapper.find("[data-test='game-area']");
+      const frame = wrapper.find("iframe").element;
+      const sheet = () => wrapper.findComponent({ name: "PluginSheet" });
+
+      await wrapper.setProps({ fullscreen: true });
+      expect(area().classes()).toContain("ft-room__game--fullscreen");
+      expect(area().element.firstElementChild?.getAttribute("data-test")).toBe("game-fullscreen-bar");
+      expect(sheet().props("fill")).toBe(true);
+      expect(wrapper.find("[data-test='game-bar']").attributes("inert")).toBeDefined();
+      expect(wrapper.find("iframe").element).toBe(frame);
+
+      await wrapper.setProps({ fullscreen: false });
+      expect(area().classes()).not.toContain("ft-room__game--fullscreen");
+      expect(wrapper.find("[data-test='game-fullscreen-bar']").exists()).toBe(false);
+      expect(sheet().props("fill")).toBe(false);
+      expect(wrapper.find("[data-test='game-bar']").attributes("inert")).toBeUndefined();
+      expect(wrapper.find("iframe").element).toBe(frame);
+    });
+
+    it("passes up what its bar asks for", async () => {
+      const wrapper = windowFor(GAME, { fullscreen: true });
+      expect(wrapper.find("[data-test='game-fullscreen-bar'] .ft-title").text()).toBe("Chess");
+      await wrapper.find("[data-test='game-fullscreen-exit']").trigger("click");
+      await wrapper.find("[data-test='game-fullscreen-chat']").trigger("click");
+      await wrapper.find("[data-test='game-fullscreen-invite']").trigger("click");
+      await wrapper.find("[data-test='game-fullscreen-close']").trigger("click");
+      expect(wrapper.emitted("fullscreen")).toEqual([[false]]);
+      expect(wrapper.emitted("showChat")).toHaveLength(1);
+      expect(wrapper.emitted("invite")).toHaveLength(1);
+      expect(wrapper.emitted("close")).toHaveLength(1);
+      expect(windowFor({ ...GAME, id: "com.example.game" }, { fullscreen: true }).find("[data-test='game-fullscreen-invite']").exists()).toBe(false);
+    });
+
+    it("moves the focus to the way back in, and to the expand button when it ends", async () => {
+      const wrapper = windowFor(GAME);
+      const spy = focused();
+      await wrapper.setProps({ fullscreen: true });
+      await flushPromises();
+      expect(lastFocused(spy)).toBe("game-fullscreen-exit");
+      await wrapper.setProps({ fullscreen: false });
+      await flushPromises();
+      expect(lastFocused(spy)).toBe("game-fullscreen");
+    });
+
+    it("leaves the focus alone when it ends because the chat is shown", async () => {
+      const wrapper = windowFor(GAME, { fullscreen: true });
+      await flushPromises();
+      const spy = focused();
+      await wrapper.setProps({ fullscreen: false, peeking: true });
+      await flushPromises();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("says politely that it starts and ends", async () => {
+      const wrapper = windowFor(GAME);
+      expect(said(wrapper).attributes("aria-live")).toBe("polite");
+      await wrapper.setProps({ fullscreen: true });
+      await flushPromises();
+      expect(said(wrapper).text()).toBe("Full screen");
+      await wrapper.setProps({ fullscreen: false });
+      await flushPromises();
+      expect(said(wrapper).text()).toBe("Exit full screen");
+    });
+
+    it("marks the chat and says so when messages arrive", async () => {
+      const wrapper = windowFor(GAME, { fullscreen: true });
+      await flushPromises();
+      expect(wrapper.find("[data-test='game-unread']").exists()).toBe(false);
+      await wrapper.setProps({ unread: 2 });
+      await flushPromises();
+      expect(wrapper.find("[data-test='game-unread']").exists()).toBe(true);
+      expect(wrapper.find("[data-test='game-fullscreen-chat']").attributes("aria-label")).toBe("Show the chat, New message");
+      expect(said(wrapper).text()).toBe("New message");
+    });
   });
 });

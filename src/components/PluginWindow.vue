@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { IonButton, IonButtons, IonIcon, IonTitle, IonToolbar } from "@ionic/vue";
-import { closeOutline, mailOutline } from "ionicons/icons";
+import { closeOutline, expandOutline, mailOutline } from "ionicons/icons";
 import PluginSheet from "./PluginSheet.vue";
+import GameFullscreenBar from "./GameFullscreenBar.vue";
 import { gameUrl } from "../games";
+import { useFullscreenCues } from "../gameFullscreen";
+import { t } from "../i18n";
 import { isSupport, type PickedFile } from "../core";
 import type { PermissionNeed } from "../permissions";
 import type { OpenPlugin } from "../pluginWindow";
 
-defineProps<{ plugin: OpenPlugin; peeking: boolean; session?: string }>();
+const props = withDefaults(defineProps<{ plugin: OpenPlugin; peeking: boolean; session?: string; fullscreen?: boolean; unread?: number }>(), {
+  session: undefined,
+  unread: 0,
+});
 const emit = defineEmits<{
   close: [];
   invite: [];
@@ -18,29 +24,67 @@ const emit = defineEmits<{
   done: [];
   closed: [];
   needs: [need: PermissionNeed];
+  fullscreen: [on: boolean];
+  showChat: [];
 }>();
 
 const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
 const gameArea = ref<HTMLElement | null>(null);
 defineExpose({ sheet, gameArea });
+
+const bar = ref<InstanceType<typeof GameFullscreenBar> | null>(null);
+const expand = ref<InstanceType<typeof IonButton> | null>(null);
+const { said, announce } = useFullscreenCues({
+  on: () => props.fullscreen,
+  inside: () => bar.value,
+  outside: () => expand.value?.$el as HTMLElement | undefined,
+  quiet: () => props.peeking,
+});
+watch(
+  () => props.unread,
+  (now, before) => {
+    if (props.fullscreen && now > before) announce(t("games.newMessage"));
+  },
+);
 </script>
 
 <template>
   <section v-if="plugin.game" class="ft-room" data-test="game-room" :aria-label="plugin.name">
-    <ion-toolbar class="ft-room__bar" data-test="game-bar">
+    <ion-toolbar class="ft-room__bar" data-test="game-bar" :inert="fullscreen || undefined">
       <ion-buttons slot="start">
         <ion-button data-test="close-game" :aria-label="$t('common.close')" @click="emit('close')">
           <ion-icon slot="icon-only" :icon="closeOutline" aria-hidden="true" />
         </ion-button>
       </ion-buttons>
       <ion-title size="small"><span class="ft-title">{{ plugin.name }}</span></ion-title>
-      <ion-buttons v-if="gameUrl(plugin.id) && !isSupport(plugin.contact ?? '')" slot="end">
-        <ion-button data-test="game-invite" :aria-label="$t('games.invite')" @click="emit('invite')">
+      <ion-buttons slot="end">
+        <ion-button v-if="gameUrl(plugin.id) && !isSupport(plugin.contact ?? '')" data-test="game-invite" :aria-label="$t('games.invite')" @click="emit('invite')">
           <ion-icon slot="icon-only" :icon="mailOutline" aria-hidden="true" />
+        </ion-button>
+        <ion-button ref="expand" data-test="game-fullscreen" :aria-label="$t('games.enterFullscreen')" aria-pressed="false" @click="emit('fullscreen', true)">
+          <ion-icon slot="icon-only" :icon="expandOutline" aria-hidden="true" />
         </ion-button>
       </ion-buttons>
     </ion-toolbar>
-    <div v-show="!peeking" ref="gameArea" class="ft-room__game" data-test="game-area">
+    <div
+      v-show="!peeking"
+      ref="gameArea"
+      class="ft-room__game"
+      :class="{ 'ft-room__game--fullscreen': fullscreen }"
+      data-test="game-area"
+    >
+      <GameFullscreenBar
+        v-if="fullscreen"
+        ref="bar"
+        :name="plugin.name"
+        chat
+        :invite="Boolean(gameUrl(plugin.id))"
+        :unread="unread"
+        @exit="emit('fullscreen', false)"
+        @chat="emit('showChat')"
+        @invite="emit('invite')"
+        @close="emit('close')"
+      />
       <PluginSheet
         ref="sheet"
         :key="plugin.opening"
@@ -49,6 +93,7 @@ defineExpose({ sheet, gameArea });
         :sending="plugin.sending"
         :live="plugin.live"
         :session="session"
+        :fill="fullscreen"
         @text="emit('text', $event)"
         @attach="emit('attach', $event)"
         @open-chat="emit('openChat', $event)"
@@ -57,6 +102,7 @@ defineExpose({ sheet, gameArea });
         @needs="emit('needs', $event)"
       />
     </div>
+    <span class="ft-room__said" role="status" aria-live="polite">{{ said }}</span>
   </section>
 
   <div v-else class="ft-app" role="dialog" :aria-label="plugin.name">
@@ -105,6 +151,35 @@ defineExpose({ sheet, gameArea });
   overflow-y: auto;
   padding-left: var(--ion-safe-area-left, 0px);
   padding-right: var(--ion-safe-area-right, 0px);
+}
+.ft-room__game--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  padding-bottom: var(--ion-safe-area-bottom, 0px);
+  background: var(--ion-background-color);
+}
+.ft-room__game--fullscreen > .ft-fullscreen-bar {
+  padding-top: var(--ion-safe-area-top, 0px);
+}
+.ft-room__game--fullscreen > :deep(.ft-plugin) {
+  flex: 1;
+  min-height: 0;
+  padding-inline: 0;
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
+}
+.ft-room__said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .ft-app {
