@@ -18,8 +18,11 @@ import { closeOnBackWhile, goBack } from "../back";
 import PluginSheet from "../components/PluginSheet.vue";
 import PermissionAsk from "../components/PermissionAsk.vue";
 import ContactPicker from "../components/ContactPicker.vue";
+import GameFullscreenBar from "../components/GameFullscreenBar.vue";
+import { isGame } from "../games";
+import { useFullscreenCues } from "../gameFullscreen";
 import { offerSend, type ContactAsk, type Proposal } from "../pending-send";
-import { lockClosedOutline } from "ionicons/icons";
+import { expandOutline, lockClosedOutline } from "ionicons/icons";
 import { installed, isLocked, pluginIcon, pluginImage, pluginName, refreshPlugins, refreshPremiumLock } from "../plugins";
 import type { PermissionNeed } from "../permissions";
 import { PREMIUM_PAGE } from "../core";
@@ -93,19 +96,36 @@ function leave(): Promise<unknown> {
   return window.history.state?.back ? goBack(router) : router.replace("/tabs/apps");
 }
 closeOnBackWhile(() => here.value, leave);
+
+const game = computed(() => Boolean(plugin.value && isGame(plugin.value)));
+const fullscreen = ref(false);
+const bar = ref<InstanceType<typeof GameFullscreenBar> | null>(null);
+const expand = ref<InstanceType<typeof IonButton> | null>(null);
+const { said } = useFullscreenCues({
+  on: () => fullscreen.value,
+  inside: () => bar.value,
+  outside: () => expand.value?.$el as HTMLElement | undefined,
+});
+closeOnBackWhile(() => here.value && fullscreen.value, () => (fullscreen.value = false));
 </script>
 
 <template>
   <ion-page>
     <ion-header class="ion-no-border">
-      <ion-toolbar>
+      <GameFullscreenBar v-if="fullscreen" ref="bar" :name="plugin ? pluginName(plugin) : ''" @exit="fullscreen = false" @close="leave" />
+      <ion-toolbar v-else>
         <ion-buttons slot="start">
           <ion-back-button default-href="/tabs/apps" :aria-label="$t('common.back')" />
         </ion-buttons>
         <ion-title><span class="ft-title">{{ plugin ? pluginName(plugin) : "" }}</span></ion-title>
+        <ion-buttons v-if="game" slot="end">
+          <ion-button ref="expand" data-test="game-fullscreen" :aria-label="$t('games.enterFullscreen')" aria-pressed="false" @click="fullscreen = true">
+            <ion-icon slot="icon-only" :icon="expandOutline" aria-hidden="true" />
+          </ion-button>
+        </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content class="ft-plugin-page" :scroll-y="false">
+    <ion-content class="ft-plugin-page" :class="{ 'ft-plugin-page--fullscreen': fullscreen }" :scroll-y="false">
       <div v-if="ready && plugin && locked" class="ft-plugin-page__missing" data-test="locked">
         <ion-icon :icon="lockClosedOutline" class="ft-plugin-page__lock" aria-hidden="true" />
         <p>{{ $t("plugins.lockedHint") }}</p>
@@ -129,6 +149,7 @@ closeOnBackWhile(() => here.value, leave);
         @send-to="sendTo"
       />
       <p v-else-if="ready" class="ft-plugin-page__missing">{{ $t("plugins.none") }}</p>
+      <span class="ft-plugin-page__said" role="status" aria-live="polite">{{ said }}</span>
     </ion-content>
     <PermissionAsk
       :open="Boolean(needing)"
@@ -146,6 +167,19 @@ closeOnBackWhile(() => here.value, leave);
 <style scoped>
 .ft-plugin-page {
   --padding-bottom: var(--ion-safe-area-bottom, 0px);
+}
+.ft-plugin-page--fullscreen :deep(.ft-plugin) {
+  padding-inline: 0;
+  padding-left: var(--ion-safe-area-left, 0px);
+  padding-right: var(--ion-safe-area-right, 0px);
+}
+.ft-plugin-page__said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .ft-plugin-page__lock {
   font-size: 40px;
