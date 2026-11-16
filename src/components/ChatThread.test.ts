@@ -1899,12 +1899,14 @@ describe("ChatThread", () => {
       messages = [] as unknown[],
       addFails = false,
       opensChat = null as string | null,
+      made = undefined as unknown,
     } = {}) {
       let list = installed as Array<Record<string, unknown>>;
       installTauri((command, args) => {
         calls.push([command, args]);
         if (command === "core_plugins") return list;
         if (command === "core_plugin_open_chat") return opensChat ? { contact: opensChat, message: "m1" } : null;
+        if (command === "core_plugin_made") return made;
         if (command === "core_catalogue") return catalogue;
         if (command === "core_messages") return messages;
         if (command === "core_plugin_add") {
@@ -2064,6 +2066,55 @@ describe("ChatThread", () => {
       } finally {
         store.supportId = "";
       }
+    });
+
+    describe("what a game writes in the chat", () => {
+      const STAGED = { path: "/data/files/outgoing/1-board.png", name: "board.png", mime: "image/png", size: 3 };
+      const SAYS = { type: "ft.text", text: "Good game!" };
+      const MAKES = { type: "ft.made", name: "board.png", mime: "image/png", data: "QUJD" };
+
+      const playIn = async (chatId: string) => {
+        bridge({ installed: [CHESS], made: { sent: false, staged: STAGED } });
+        const wrapper = await thread({ chatId });
+        await openGames(wrapper);
+        await wrapper.find(`[data-test='game-${CHESS.id}']`).trigger("click");
+        await flushPromises();
+        const frame = wrapper.findComponent({ name: "PluginSheet" }).find("iframe").element as HTMLIFrameElement;
+        const frameWindow = { postMessage: vi.fn() };
+        Object.defineProperty(frame, "contentWindow", { value: frameWindow, configurable: true });
+        const gameSays = async (data: unknown) => {
+          window.dispatchEvent(new MessageEvent("message", { data, source: frameWindow as unknown as Window }));
+          await flushPromises();
+        };
+        return { wrapper, gameSays };
+      };
+      const composer = (wrapper: Awaited<ReturnType<typeof thread>>) => wrapper.findComponent(IonTextarea).props("modelValue");
+
+      afterEach(() => (store.supportId = ""));
+
+      it("keeps the composer and the attachments empty when a game played against FlickerTalk says or sends something", async () => {
+        store.chats.push({ ...store.chats[0], id: "ft_support", name: "FlickerTalk", connected: false, messages: [] });
+        store.supportId = "ft_support";
+        const { wrapper, gameSays } = await playIn("ft_support");
+        await gameSays(SAYS);
+        await gameSays(MAKES);
+        expect(composer(wrapper)).toBe("");
+        expect(wrapper.find("[data-test='staged']").exists()).toBe(false);
+        expect(calls.map(([command]) => command)).not.toContain("core_plugin_made");
+        expect(wrapper.find("[data-test='game-room']").exists()).toBe(true);
+      });
+
+      it("lets the same game propose a message and a file in a conversation with a person", async () => {
+        store.supportId = "ft_support";
+        const { wrapper, gameSays } = await playIn("c1");
+        await gameSays(SAYS);
+        expect(composer(wrapper)).toBe("Good game!");
+        await gameSays(MAKES);
+        expect(calls).toContainEqual(["core_plugin_made", { plugin: CHESS.id, contact: "c1", name: "board.png", mime: "image/png", data: "QUJD" }]);
+        expect(wrapper.find("[data-test='staged']").text()).toContain("board.png");
+        expect(calls.map(([command]) => command)).not.toContain("core_send_picked");
+        expect(wrapper.find("[data-test='game-room']").exists()).toBe(true);
+      });
     });
 
     it("plays a game when the tools are locked", async () => {

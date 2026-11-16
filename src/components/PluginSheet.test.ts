@@ -463,7 +463,7 @@ describe("PluginSheet", () => {
       installed.value = [];
     });
 
-    async function open(props: { plugin: { id: string; name: string }; contact: string; live?: boolean }) {
+    async function open(props: { plugin: { id: string; name: string }; contact: string; live?: boolean; sending?: Sending }) {
       const wrapper = mount(PluginSheet, { props: { live: true, ...props }, shallow: true });
       await flushPromises();
       const frame = framed(wrapper);
@@ -500,6 +500,49 @@ describe("PluginSheet", () => {
       fromCore({ plugin: game.id, contact: "ft_support", data: "AQID" });
       await flushPromises();
       expect(post).not.toHaveBeenCalledWith(expect.objectContaining({ type: "ft.live" }), "*");
+    });
+
+    const SAYS = { type: "ft.text", text: "Good game!" };
+    const MAKES = { type: "ft.made", name: "board.png", mime: "image/png", data: "QUJD" };
+    const STAGED = { path: "/data/files/outgoing/1-board.png", name: "board.png", mime: "image/png", size: 3 };
+
+    it("lets nothing the game says or makes reach the chat, and asks nothing to write there", async () => {
+      const granted = await open({ plugin: game, contact: "ft_support", sending: "propose" });
+      granted.says(SAYS);
+      granted.says(MAKES);
+      await flushPromises();
+      expect(granted.wrapper.emitted("text")).toBeUndefined();
+      expect(granted.wrapper.emitted("attach")).toBeUndefined();
+      expect(tauri.invoke).not.toHaveBeenCalledWith("core_plugin_made", expect.anything());
+
+      installed.value = [{ ...GAME, granted: { ...GAME.granted, send: "nothing" } }];
+      const ungranted = await open({ plugin: game, contact: "ft_support" });
+      toast.create.mockClear();
+      ungranted.says(SAYS);
+      ungranted.says(MAKES);
+      await flushPromises();
+      expect(ungranted.wrapper.emitted("needs")).toBeUndefined();
+      expect(ungranted.wrapper.emitted("text")).toBeUndefined();
+      expect(ungranted.wrapper.emitted("attach")).toBeUndefined();
+      expect(toast.create).not.toHaveBeenCalled();
+    });
+
+    it("lets the game propose a message and a file to anyone else, and a tool in that conversation too", async () => {
+      tauri.invoke.mockImplementation(async (command: string) =>
+        command === "core_plugin_chat" ? CHAT : command === "core_plugin_made" ? { sent: false, staged: STAGED } : true,
+      );
+      for (const [one, contact] of [
+        [game, "ft_bob"],
+        [plugin, "ft_support"],
+      ] as const) {
+        const { wrapper, says } = await open({ plugin: one, contact, sending: "propose" });
+        says(SAYS);
+        says(MAKES);
+        await flushPromises();
+        expect(wrapper.emitted("text")).toEqual([["Good game!"]]);
+        expect(tauri.invoke).toHaveBeenCalledWith("core_plugin_made", { plugin: one.id, contact, name: "board.png", mime: "image/png", data: "QUJD" });
+        expect(wrapper.emitted("attach")).toEqual([[STAGED]]);
+      }
     });
 
     it("changes nothing for a tool in that conversation", async () => {

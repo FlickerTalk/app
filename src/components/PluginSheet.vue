@@ -178,7 +178,7 @@ async function onMessage(event: MessageEvent) {
       }
     });
   } else if (said.type === "ft.made") {
-    if (!(await mayWrite())) return;
+    if (solo.value || !(await mayWrite())) return;
     const contact = props.contact || (await pickContact());
     if (!contact) return;
     await busy(async () => {
@@ -189,7 +189,7 @@ async function onMessage(event: MessageEvent) {
       emit("done");
     });
   } else if (said.type === "ft.text") {
-    if (!(await mayWrite())) return;
+    if (solo.value || !(await mayWrite())) return;
     if (props.contact) return emit("text", said.text);
     const contact = await pickContact();
     if (contact) emit("sendTo", contact, { kind: "text", text: said.text });

@@ -25,7 +25,7 @@ export function isGame(plugin: { kind?: "tool" | "game" }): boolean {
   return plugin.kind === "game";
 }
 
-// the phone plays the other side: a live send would try to reach and wake the support peer's device
+// the phone plays the other side: a live send would wake the support peer's device, and our support reads its chat
 export function playsAlone(plugin: { kind?: "tool" | "game" } | undefined, contact: string): boolean {
   return Boolean(plugin && isGame(plugin)) && isSupport(contact);
 }
