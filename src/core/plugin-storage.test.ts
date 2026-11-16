@@ -4,6 +4,8 @@ const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 
 import {
+  answerStorage,
+  asksStorage,
   fromBase64,
   pluginForget,
   pluginRead,
@@ -57,6 +59,41 @@ describe("a plugin's storage", () => {
     expect(tauri.invoke.mock.calls).toEqual([
       ["core_plugin_record_get", { plugin: NOTES, key: "note/1", session: "s1" }],
       ["core_plugin_record_get", { plugin: NOTES, key: "note/2", session: undefined }],
+      ["core_plugin_record_set", { plugin: NOTES, key: "note/1", value: "w7E=", session: "s1" }],
+      ["core_plugin_record_forget", { plugin: NOTES, key: "note/1", session: undefined }],
+      ["core_plugin_record_keys", { plugin: NOTES, prefix: "note/", session: undefined }],
+      ["core_plugin_record_usage", { plugin: NOTES, session: "s1" }],
+    ]);
+  });
+
+  it("tells a frame's question about what its plugin keeps from any other question", () => {
+    for (const type of ["ft.read", "ft.write", "ft.forget", "ft.recordGet", "ft.recordSet", "ft.recordForget", "ft.recordKeys", "ft.recordUsage"]) {
+      expect(asksStorage({ type }), type).toBe(true);
+    }
+    for (const type of ["ft.remindSet", "ft.fetch", "ft.drive", "ft.location", "ft.liveSend"]) expect(asksStorage({ type }), type).toBe(false);
+  });
+
+  it("answers what a plugin keeps with what its frame expects back", async () => {
+    tauri.invoke.mockImplementation(async (command: string) => {
+      if (command === "core_plugin_read") return "black";
+      if (command === "core_plugin_record_get") return toBase64Text("milk");
+      if (command === "core_plugin_record_keys") return ["note/1"];
+      if (command === "core_plugin_record_usage") return [4, 4096];
+      return undefined;
+    });
+    expect(await answerStorage(NOTES, { type: "ft.read", key: "pen" }, "s1")).toBe("black");
+    expect(await answerStorage(NOTES, { type: "ft.write", key: "pen", value: "red" }, "s1")).toBe(true);
+    expect(await answerStorage(NOTES, { type: "ft.forget", key: "pen" })).toBe(true);
+    expect(await answerStorage(NOTES, { type: "ft.recordGet", key: "note/1" })).toBe("milk");
+    expect(await answerStorage(NOTES, { type: "ft.recordSet", key: "note/1", value: "ñ" }, "s1")).toBe(true);
+    expect(await answerStorage(NOTES, { type: "ft.recordForget", key: "note/1" })).toBe(true);
+    expect(await answerStorage(NOTES, { type: "ft.recordKeys", prefix: "note/" })).toEqual(["note/1"]);
+    expect(await answerStorage(NOTES, { type: "ft.recordUsage" }, "s1")).toEqual({ used: 4, quota: 4096 });
+    expect(tauri.invoke.mock.calls).toEqual([
+      ["core_plugin_read", { plugin: NOTES, key: "pen", session: "s1" }],
+      ["core_plugin_write", { plugin: NOTES, key: "pen", value: "red", session: "s1" }],
+      ["core_plugin_forget", { plugin: NOTES, key: "pen", session: undefined }],
+      ["core_plugin_record_get", { plugin: NOTES, key: "note/1", session: undefined }],
       ["core_plugin_record_set", { plugin: NOTES, key: "note/1", value: "w7E=", session: "s1" }],
       ["core_plugin_record_forget", { plugin: NOTES, key: "note/1", session: undefined }],
       ["core_plugin_record_keys", { plugin: NOTES, prefix: "note/", session: undefined }],

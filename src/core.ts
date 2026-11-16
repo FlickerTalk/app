@@ -163,6 +163,8 @@ export {
   type PluginEvent,
 } from "./core/plugin-api";
 export {
+  answerStorage,
+  asksStorage,
   pluginRead,
   pluginWrite,
   pluginForget,

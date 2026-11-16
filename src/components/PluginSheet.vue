@@ -3,12 +3,13 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { isPlatform, toastController } from "@ionic/vue";
 import {
+  answerStorage,
+  asksStorage,
   grantPlugin,
   pickForPlugin,
   takePhotoForPlugin,
   pluginMayUseDrive,
   pluginFetch,
-  pluginForget,
   pluginChat,
   pluginLiveSend,
   pluginLocation,
@@ -22,14 +23,9 @@ import {
   pluginOpen,
   pluginOpenChat,
   pluginPrint,
-  pluginRead,
-  pluginRecordForget,
   pluginRecordGet,
-  pluginRecordKeys,
-  pluginRecordSet,
   pluginRecordUsage,
   pluginSave,
-  pluginWrite,
   remindCancel,
   remindList,
   remindSet,
@@ -399,14 +395,7 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
       if (said.type === "ft.save") await pluginSave(said.name, said.mime, said.data);
       else if (said.type === "ft.print") await pluginPrint(id, said.name, said.mime, said.data);
       else if (said.type === "ft.fetch") value = await pluginFetch(id, said.url, said.method, said.headers, said.body);
-      else if (said.type === "ft.read") value = await pluginRead(id, said.key, session);
-      else if (said.type === "ft.write") await pluginWrite(id, said.key, said.value, session);
-      else if (said.type === "ft.forget") await pluginForget(id, said.key, session);
-      else if (said.type === "ft.recordGet") value = await pluginRecordGet(id, said.key, session);
-      else if (said.type === "ft.recordSet") await pluginRecordSet(id, said.key, said.value, session);
-      else if (said.type === "ft.recordForget") await pluginRecordForget(id, said.key, session);
-      else if (said.type === "ft.recordKeys") value = await pluginRecordKeys(id, said.prefix, session);
-      else if (said.type === "ft.recordUsage") value = await pluginRecordUsage(id, session);
+      else if (asksStorage(said)) value = await answerStorage(id, said, session);
       else if (said.type === "ft.remindSet") await remindSet(id, said.reminder, said.at, said.text, session);
       else if (said.type === "ft.remindCancel") value = await remindCancel(id, said.reminder, session);
       else if (said.type === "ft.remindList") value = await remindList(id, session);

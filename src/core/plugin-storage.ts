@@ -37,6 +37,45 @@ export async function pluginRecordUsage(plugin: string, session?: string): Promi
   return { used, quota };
 }
 
+export type StorageQuestion =
+  | { type: "ft.read" | "ft.forget" | "ft.recordGet" | "ft.recordForget"; key: string }
+  | { type: "ft.write" | "ft.recordSet"; key: string; value: string }
+  | { type: "ft.recordKeys"; prefix: string }
+  | { type: "ft.recordUsage" };
+
+const STORAGE_QUESTIONS: ReadonlySet<string> = new Set<StorageQuestion["type"]>([
+  "ft.read", "ft.write", "ft.forget", "ft.recordGet", "ft.recordSet", "ft.recordForget", "ft.recordKeys", "ft.recordUsage",
+]);
+
+export function asksStorage(said: { type: string }): said is StorageQuestion {
+  return STORAGE_QUESTIONS.has(said.type);
+}
+
+export async function answerStorage(plugin: string, said: StorageQuestion, session?: string): Promise<unknown> {
+  switch (said.type) {
+    case "ft.read":
+      return pluginRead(plugin, said.key, session);
+    case "ft.write":
+      await pluginWrite(plugin, said.key, said.value, session);
+      return true;
+    case "ft.forget":
+      await pluginForget(plugin, said.key, session);
+      return true;
+    case "ft.recordGet":
+      return pluginRecordGet(plugin, said.key, session);
+    case "ft.recordSet":
+      await pluginRecordSet(plugin, said.key, said.value, session);
+      return true;
+    case "ft.recordForget":
+      await pluginRecordForget(plugin, said.key, session);
+      return true;
+    case "ft.recordKeys":
+      return pluginRecordKeys(plugin, said.prefix, session);
+    case "ft.recordUsage":
+      return pluginRecordUsage(plugin, session);
+  }
+}
+
 export function toBase64Text(text: string): string {
   const bytes = new TextEncoder().encode(text);
   let binary = "";
