@@ -1948,7 +1948,7 @@ async fn a_native_call_after_the_turn_user_expired_gathers_its_media_with_a_new_
     )
     .await;
     alice.network.age_turn(ft_core::net::TURN_LIFE);
-    let before = turn.users().len();
+    let earlier = turn.sockets();
 
     let call = alice
         .core
@@ -1957,10 +1957,10 @@ async fn a_native_call_after_the_turn_user_expired_gathers_its_media_with_a_new_
         .expect("alice calls");
     assert_eq!(ringing_call(&bob).await, call);
     until("the call's media signed in at the TURN server", || async {
-        turn.users().len() > before
+        !turn.users_not_from(&earlier).is_empty()
     })
     .await;
-    let since: Vec<String> = turn.users().split_off(before);
+    let since = turn.users_not_from(&earlier);
     assert!(since.iter().all(|user| user == "new"), "{since:?}");
     let _ = alice.core.end_current_call().await;
 }

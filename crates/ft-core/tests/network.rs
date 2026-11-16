@@ -1401,7 +1401,7 @@ async fn a_call_after_the_turn_user_expired_gathers_with_a_new_one() {
     let turn = TurnSpy::start().await;
     let bus = Arc::new(Bus::default());
     let (alice, bob) = paired_with_an_expired_turn_user(&bus, &turn).await;
-    let before = turn.users().len();
+    let earlier = turn.sockets();
     let mut bob_events = bob.core.events();
 
     let call = alice.core.place_call(&bob.id(), false).await.unwrap();
@@ -1410,11 +1410,11 @@ async fn a_call_after_the_turn_user_expired_gathers_with_a_new_one() {
     rings(&mut bob_events, Duration::from_secs(15)).await;
     until(
         "the call's connection signed in at the TURN server",
-        || async { turn.users().len() > before },
+        || async { !turn.users_not_from(&earlier).is_empty() },
     )
     .await;
     assert_eq!(bus.turn_asked.load(Ordering::SeqCst), 1, "one new user");
-    let since: Vec<String> = turn.users().split_off(before);
+    let since = turn.users_not_from(&earlier);
     assert!(since.iter().all(|user| user == "new"), "{since:?}");
     let _ = alice.core.end_call(&call, false).await;
 }
