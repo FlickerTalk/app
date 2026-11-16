@@ -58,7 +58,8 @@ const named = computed(() => ({
   move: t("settings.movePhone"),
 }));
 
-const prefix = `ft-tour-${++tours}`;
+tours += 1;
+const prefix = `ft-tour-${tours}`;
 const contentId = (step: Step) => `${prefix}-${step}`;
 
 const current = ref<Step>(STEPS[0].id);
@@ -87,6 +88,13 @@ function finish() {
   emit("close");
 }
 
+const sheet = ref<{ $el: HTMLIonModalElement } | null>(null);
+
+// Ionic presents a modal that loads already open a frame later, and a close in between is lost
+function presenting() {
+  if (!props.open) void sheet.value?.$el.dismiss();
+}
+
 // Ionic dismissing it on its own (swipe down, tap outside) is the user closing it
 function dismissed() {
   if (props.open) finish();
@@ -101,12 +109,14 @@ closeOnBackWhile(
 
 <template>
   <ion-modal
+    ref="sheet"
     :is-open="open"
     class="ft-tour"
     :breakpoints="[0, 1]"
     :initial-breakpoint="1"
     :aria-label="$t('tour.title')"
     data-test="quick-tour"
+    @will-present="presenting"
     @did-dismiss="dismissed"
   >
     <ion-header class="ion-no-border">
