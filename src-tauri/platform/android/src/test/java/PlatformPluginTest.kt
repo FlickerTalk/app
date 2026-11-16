@@ -755,7 +755,7 @@ class PlatformPluginTest {
             .filter { it.isAnnotationPresent(Command::class.java) }
         assertTrue(commands.all { it.parameterTypes.toList() == listOf(Invoke::class.java) && Modifier.isPublic(it.modifiers) })
         assertEquals(expected, commands.map { it.name }.toSet())
-        val rust = File("../src/lib.rs").readText()
+        val rust = File("../src").walkTopDown().filter { it.extension == "rs" }.joinToString("\n") { it.readText() }
         for (name in expected) assertTrue(name, rust.contains("\"$name\""))
     }
 
