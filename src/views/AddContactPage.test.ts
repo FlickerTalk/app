@@ -14,6 +14,11 @@ const replace = vi.fn();
 const query: Record<string, string> = reactive({});
 vi.mock("vue-router", () => ({ useRouter: () => ({ replace }), useRoute: () => ({ query }) }));
 const scanner = vi.hoisted(() => ({ scan: vi.fn() }));
+const platforms = vi.hoisted(() => ({ on: [] as string[] }));
+vi.mock("@ionic/vue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@ionic/vue")>()),
+  isPlatform: (name: string) => platforms.on.includes(name),
+}));
 vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
   scan: scanner.scan,
   checkPermissions: async () => "granted",
@@ -27,6 +32,7 @@ describe("AddContactPage", () => {
   beforeEach(() => {
     replace.mockClear();
     delete query.session;
+    platforms.on = [];
     seed();
   });
 
@@ -61,6 +67,34 @@ describe("AddContactPage", () => {
     await flushPromises();
     expect(writeText).toHaveBeenCalledWith("https://flickertalk.com/add#card");
     expect(wrapper.text()).toContain("Link copied");
+  });
+
+  it("on a phone, invites a friend from its contacts with the same link it shares", async () => {
+    platforms.on = ["android", "mobile"];
+    query.session = "s1";
+    installTauri((command, args) => {
+      calls.push([command, args]);
+      if (command === "core_card") return "https://flickertalk.com/add#session-card";
+      if (command === "core_pick_contact") return { name: "Ana", whatsapp: null };
+      return undefined;
+    });
+    const wrapper = mount(AddContactPage, { shallow: true });
+    await flushPromises();
+    const invite = wrapper.find("[data-test='invite']");
+    expect(invite.attributes("aria-label")).toBe("Invite a friend");
+    await invite.trigger("click");
+    await flushPromises();
+    expect(calls.filter(([command]) => command === "core_invite")).toEqual([
+      ["core_invite", { whatsapp: null, text: `Hi Ana, it's ${fixture.me.name}. I'm on FlickerTalk. Install it and tap here: https://flickertalk.com/add#session-card` }],
+    ]);
+  });
+
+  it("offers no invitation on a desktop, only the link", async () => {
+    platforms.on = ["desktop"];
+    const wrapper = mount(AddContactPage, { shallow: true });
+    await flushPromises();
+    expect(wrapper.find("[aria-label='Share link']").exists()).toBe(true);
+    expect(wrapper.find("[data-test='invite']").exists()).toBe(false);
   });
 
   it("can switch to scanning the other code", async () => {

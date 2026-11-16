@@ -69,6 +69,8 @@ const COMMANDS: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
     client::files::core_send_file,
     client::files::core_open_file,
     client::contacts::core_share,
+    client::contacts::core_pick_contact,
+    client::contacts::core_invite,
     client::files::core_pick_files,
     client::files::core_take_photo,
     client::files::core_pick_for_plugin,

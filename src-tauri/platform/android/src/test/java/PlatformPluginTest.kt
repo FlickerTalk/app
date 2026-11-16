@@ -749,7 +749,7 @@ class PlatformPluginTest {
             "sealKey", "forgetKey", "openKey", "pushToken", "requestNotifications", "restartApp", "setOpenSlots",
             "setQuietHours", "callRefused", "stopRinging", "shareText", "pickFiles", "takePhoto", "openFile", "shareFile",
             "subscriptionPrice", "subscribe", "subscription", "registerEntitlementEvents", "restoreSubscription",
-            "saveToDownloads", "printFile",
+            "saveToDownloads", "printFile", "pickContact", "openWhatsApp",
         )
         val commands = PlatformPlugin::class.java.declaredMethods
             .filter { it.isAnnotationPresent(Command::class.java) }
@@ -764,7 +764,7 @@ class PlatformPluginTest {
         fun annotated(type: Class<out Annotation>) =
             PlatformPlugin::class.java.declaredMethods.filter { it.isAnnotationPresent(type) }.map { it.name }.toSet()
         assertEquals(setOf("microphoneAnswered", "locationAnswered", "cameraAnswered"), annotated(PermissionCallback::class.java))
-        assertEquals(setOf("photoTaken", "picked"), annotated(ActivityCallback::class.java))
+        assertEquals(setOf("photoTaken", "picked", "contactPicked"), annotated(ActivityCallback::class.java))
         val aliases = PlatformPlugin::class.java.getAnnotation(TauriPlugin::class.java)!!.permissions
             .associate { it.alias to it.strings.toList() }
         assertEquals(
@@ -796,6 +796,7 @@ class PlatformPluginTest {
         assertEquals(setOf("accept"), fields(PickArgs::class.java))
         assertEquals(setOf("path", "mime"), fields(OpenFileArgs::class.java))
         assertEquals(setOf("path", "name", "mime"), fields(SaveFileArgs::class.java))
+        assertEquals(setOf("url"), fields(WhatsAppArgs::class.java))
     }
 
     private fun mainActivityConfigChanges(): Set<String> {

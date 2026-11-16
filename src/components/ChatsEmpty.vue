@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { IonButton, IonIcon } from "@ionic/vue";
-import { helpCircleOutline, qrCodeOutline } from "ionicons/icons";
+import { helpCircleOutline, personAddOutline, qrCodeOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
+import { myCardLink } from "../core";
+import { canInvite, inviteFriend } from "../invite";
 
 defineProps<{ compact: boolean }>();
 const emit = defineEmits<{ tour: [] }>();
 
 const router = useRouter();
 const addContact = () => router.push("/add-contact");
+const invites = canInvite();
+
+async function invite() {
+  const link = await myCardLink().catch(() => "");
+  if (link) await inviteFriend(link);
+}
 </script>
 
 <template>
@@ -23,6 +31,18 @@ const addContact = () => router.push("/add-contact");
       <ion-icon :icon="qrCodeOutline" aria-hidden="true" />
       {{ $t("addContact.title") }}
     </button>
+    <ion-button
+      v-if="invites"
+      fill="outline"
+      shape="round"
+      class="ft-empty__invite"
+      data-test="invite"
+      :aria-label="$t('addContact.invite')"
+      @click="invite"
+    >
+      <ion-icon slot="start" :icon="personAddOutline" aria-hidden="true" />
+      {{ $t("addContact.invite") }}
+    </ion-button>
     <ion-button fill="clear" size="small" class="ft-empty__tour" data-test="tour-link" @click="emit('tour')">
       <ion-icon slot="start" :icon="helpCircleOutline" aria-hidden="true" />
       {{ $t("tour.link") }}
@@ -53,7 +73,8 @@ const addContact = () => router.push("/add-contact");
   color: var(--ft-muted);
   line-height: 1.4;
 }
-.ft-empty__tour {
+.ft-empty__tour,
+.ft-empty__invite {
   text-transform: none;
 }
 .ft-empty__action {

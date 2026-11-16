@@ -60,6 +60,19 @@ export async function myCardLink(session?: string): Promise<string> {
   return invoke<string>("core_card", session ? { session } : undefined);
 }
 
+export interface PickedContact {
+  name: string;
+  whatsapp: string | null;
+}
+
+export async function pickContact(): Promise<PickedContact | null> {
+  return invoke<PickedContact | null>("core_pick_contact");
+}
+
+export async function invite(whatsapp: string | null, text: string): Promise<void> {
+  await invoke("core_invite", { whatsapp, text });
+}
+
 export async function addContact(link: string, session?: string): Promise<string> {
   return invoke<string>("core_add_contact", { link: link.trim(), session });
 }
