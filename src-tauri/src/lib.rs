@@ -99,6 +99,8 @@ const COMMANDS: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
     client::plugin_api::core_plugin_record_forget,
     client::plugin_api::core_plugin_record_keys,
     client::plugin_api::core_plugin_record_usage,
+    client::settings::core_game_player,
+    client::settings::core_set_game_player,
     client::plugin_api::core_plugin_ref,
     client::plugin_api::core_plugin_open_chat,
     client::plugin_api::core_remind_set,

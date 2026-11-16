@@ -1,7 +1,9 @@
 use anyhow::{ensure, Context, Result};
+use ft_plugins::{Kind, Player};
 use ft_protocol::Body;
+use ft_storage::GamePlayer;
 
-use crate::Core;
+use crate::{clean_name, Core, NAME_LIMIT};
 
 const NAME: &str = "name";
 const MAILBOX: &str = "mailbox";
@@ -17,22 +19,67 @@ impl Core {
         self.store.set_setting(NAME, name.trim()).await
     }
 
+    pub async fn game_player(&self, plugin: &str, session: Option<&str>) -> Result<Option<Player>> {
+        let place = self.games_place(plugin, session)?;
+        Ok(self.store.game_player(place).await?.map(|kept| Player {
+            who: kept.who,
+            hair: kept.hair,
+            hair_colour: kept.hair_colour,
+            name: kept.name,
+        }))
+    }
+
+    pub async fn set_game_player(
+        &self,
+        plugin: &str,
+        session: Option<&str>,
+        player: &Player,
+    ) -> Result<()> {
+        let place = self.games_place(plugin, session)?;
+        ensure!(player.in_the_cast(), "that look is not in the cast");
+        // The message never says the name, because an error can end up in a log.
+        ensure!(is_clean(&player.name), "that name is not clean");
+        let kept = GamePlayer {
+            who: player.who.clone(),
+            hair: player.hair.clone(),
+            hair_colour: player.hair_colour.clone(),
+            name: player.name.clone(),
+        };
+        self.store.set_game_player(place, &kept).await
+    }
+
+    fn games_place<'a>(&self, plugin: &str, session: Option<&'a str>) -> Result<Option<&'a str>> {
+        ensure!(
+            self.plugin_manifest(plugin)?.kind == Kind::Game,
+            "only a game shares the player"
+        );
+        if let Some(session) = session {
+            ensure!(self.is_session_open(session), "that session is not open");
+        }
+        Ok(session)
+    }
+
     pub async fn mailbox(&self) -> Result<bool> {
         Ok(self.store.setting(MAILBOX).await?.as_deref() != Some("0"))
     }
 
     #[doc(hidden)]
     pub fn set_tells_mailbox(&self, tells: bool) {
-        self.tells_mailbox.store(tells, std::sync::atomic::Ordering::Relaxed);
+        self.tells_mailbox
+            .store(tells, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub async fn set_mailbox(&self, enabled: bool) -> Result<()> {
-        self.store.set_setting(MAILBOX, if enabled { "1" } else { "0" }).await?;
+        self.store
+            .set_setting(MAILBOX, if enabled { "1" } else { "0" })
+            .await?;
         for contact in self.store.all_contacts().await? {
             if self.quiet_until_written(&contact).await {
                 continue;
             }
-            let _ = self.send_control(&contact, Body::MailboxPreference { enabled }).await;
+            let _ = self
+                .send_control(&contact, Body::MailboxPreference { enabled })
+                .await;
         }
         Ok(())
     }
@@ -42,11 +89,17 @@ impl Core {
     }
 
     pub async fn set_receipts_default(&self, receipts: bool) -> Result<()> {
-        self.store.set_setting(RECEIPTS_DEFAULT, if receipts { "1" } else { "0" }).await
+        self.store
+            .set_setting(RECEIPTS_DEFAULT, if receipts { "1" } else { "0" })
+            .await
     }
 
     pub async fn quiet_hours(&self) -> Result<Option<String>> {
-        Ok(self.store.setting(QUIET_HOURS).await?.filter(|hours| !hours.is_empty()))
+        Ok(self
+            .store
+            .setting(QUIET_HOURS)
+            .await?
+            .filter(|hours| !hours.is_empty()))
     }
 
     pub async fn quiet_week(&self) -> Result<String> {
@@ -88,7 +141,11 @@ impl Week {
     pub fn compact(&self) -> String {
         let day = |day: &Day| match day {
             Day::Whole(which) => which.clone(),
-            Day::Hours { from, to } => format!("{}-{}", minutes(from).unwrap_or(0), minutes(to).unwrap_or(0)),
+            Day::Hours { from, to } => format!(
+                "{}-{}",
+                minutes(from).unwrap_or(0),
+                minutes(to).unwrap_or(0)
+            ),
         };
         self.days.iter().map(day).collect::<Vec<_>>().join(";")
     }
@@ -97,12 +154,22 @@ impl Week {
         ensure!(self.days.len() == 7, "a week has seven days");
         for day in &self.days {
             match day {
-                Day::Whole(which) => ensure!(which == "all" || which == "none", "a day is all, none or hours"),
-                Day::Hours { from, to } => ensure!(minutes(from).is_some() && minutes(to).is_some(), "hours are HH:MM"),
+                Day::Whole(which) => ensure!(
+                    which == "all" || which == "none",
+                    "a day is all, none or hours"
+                ),
+                Day::Hours { from, to } => ensure!(
+                    minutes(from).is_some() && minutes(to).is_some(),
+                    "hours are HH:MM"
+                ),
             }
         }
         Ok(())
     }
+}
+
+fn is_clean(name: &str) -> bool {
+    name.chars().nth(NAME_LIMIT).is_none() && clean_name(name) == name
 }
 
 fn minutes(time: &str) -> Option<u32> {

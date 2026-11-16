@@ -212,6 +212,62 @@ describe("the frame", () => {
     expect(await asked("translate", ["hola", "es", "en"], { type: "ft.translateText", text: "hola", from: "es", to: "en" }, false)).toBeNull();
   });
 
+  type Players = { get(): Promise<unknown>; set(player: unknown): Promise<unknown> };
+  const players = () => (globalThis as unknown as { ft: { player: Players } }).ft.player;
+  const player = { who: "juno", hair: "curly-puff", hairColour: "copper", name: "Ana" };
+
+  it("asks the app for the player every game shares, and hands the game only the contract's answers", async () => {
+    const { posted, says, ran } = await frame();
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    await ran;
+    const answered = async (pending: Promise<unknown>, question: Said, answer: unknown) => {
+      const last = posted[posted.length - 1];
+      expect(last).toEqual({ ...question, id: expect.any(String) });
+      await says({ type: "ft.done", id: last.id, answer });
+      return pending;
+    };
+
+    expect(await answered(players().get(), { type: "ft.playerGet" }, player)).toEqual(player);
+    expect(await answered(players().get(), { type: "ft.playerGet" }, null)).toBeNull();
+    expect(await answered(players().get(), { type: "ft.playerGet" }, false)).toBeNull();
+    expect(await answered(players().get(), { type: "ft.playerGet" }, { ...player, vehicle: "bus" })).toBeNull();
+    expect(await answered(players().get(), { type: "ft.playerGet" }, { ...player, name: 7 })).toBeNull();
+
+    expect(await answered(players().set(player), { type: "ft.playerSet", player }, true)).toBe(true);
+    expect(await answered(players().set({ ...player }), { type: "ft.playerSet", player }, false)).toBe(false);
+    expect(await answered(players().set(player), { type: "ft.playerSet", player }, "yes")).toBe(false);
+  });
+
+  it("refuses at once a player with a field more or less or one that is not text, and never throws", async () => {
+    const { posted, says, ran } = await frame();
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    await ran;
+    const asked = posted.length;
+    const throwing = Object.defineProperty({ hair: "none", hairColour: "ink", name: "" }, "who", {
+      enumerable: true,
+      get: () => {
+        throw new Error("no");
+      },
+    });
+    const inherited = Object.assign(Object.create({ who: "juno" }), { hair: "none", hairColour: "ink", name: "" });
+    for (const wrong of [
+      { ...player, vehicle: "bus" },
+      { who: "juno", hair: "none", hairColour: "ink" },
+      { ...player, name: 7 },
+      { ...player, name: null },
+      { ...player, hairColour: undefined },
+      null,
+      undefined,
+      "juno",
+      [player],
+      throwing,
+      inherited,
+    ]) {
+      expect(await players().set(wrong)).toBe(false);
+    }
+    expect(posted.length).toBe(asked);
+  });
+
   it("loads the plugin all the same if the colours never come", async () => {
     vi.useFakeTimers();
     try {

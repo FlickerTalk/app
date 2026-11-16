@@ -15,6 +15,7 @@ mod circles;
 mod contacts;
 mod edits;
 mod files;
+mod game_players;
 mod identity;
 mod messages;
 mod outbox;
@@ -27,9 +28,12 @@ mod settings;
 
 pub use calls::{CallOutcome, CallRecord};
 pub use chat_hooks::{ChatHook, MessageNote};
-pub use circles::{CircleConversation, CircleMember, CircleMessage, CircleOutboxEntry, CircleRecord};
+pub use circles::{
+    CircleConversation, CircleMember, CircleMessage, CircleOutboxEntry, CircleRecord,
+};
 pub use contacts::{Contact, ContactRules, NewContact};
 pub use files::FileRecord;
+pub use game_players::GamePlayer;
 pub use identity::StoredIdentity;
 pub use messages::{Conversation, Message, MessageState};
 pub use outbox::{OutboxEntry, UpdateEntry};
@@ -47,7 +51,7 @@ pub struct Store {
 static IN_MEMORY_DATABASES: AtomicUsize = AtomicUsize::new(0);
 
 // Installed phones recorded these checksums; only the comments in those files have changed since.
-const RELEASED_CHECKSUMS: [(i64, &str); 23] = [
+const RELEASED_CHECKSUMS: [(i64, &str); 24] = [
     (1, "7ebca7399c3d3bc8d6127ab852f2963fce161afa66dee6b73e0131e1baf6b5a28b5bb1b5f41e2761eb3e41894cd327c8"),
     (2, "ca571259d5660a8ed995ae64274c57247b79db151598d288c4a51dd6160f28a3274cde5e2e46bdd05427b6142ee17cd6"),
     (3, "2e88aa77a12b66f795477253f16b3218056f3d580bc7b6fb620172f5102af3c344e3ed83a419860bf8330d809fdf908c"),
@@ -71,6 +75,7 @@ const RELEASED_CHECKSUMS: [(i64, &str); 23] = [
     (21, "02c14a9f7cdb64743d963cbea812152639ed479b8aca9d82abd2de938618264e37e6bd8addc336d2f0e79a8a52339c6b"),
     (22, "b9d2c852b5bcd4dc159add5ed56fffe62232771fad30401d12216e0649da88d93bccc2679c70443f202437b8e457af53"),
     (23, "27f01a5d109768cb60e46d0dea480149912f7bd8a13a3b4fb1eeb8dc64b6fab82d13161ec1ecc4ae1656d27973d91894"),
+    (24, "0673c4b030373ce7eca4fe759994d14f32a2cc0c9ca9d1698d15a6be0a3d7acc45e0f9ca21d647bfa244718e7722b59f"),
 ];
 
 pub(crate) fn migrator() -> Migrator {
@@ -80,10 +85,16 @@ pub(crate) fn migrator() -> Migrator {
         .iter()
         .cloned()
         .map(|mut migration| {
-            if let Some((_, hex)) = RELEASED_CHECKSUMS.iter().find(|(version, _)| *version == migration.version) {
+            if let Some((_, hex)) = RELEASED_CHECKSUMS
+                .iter()
+                .find(|(version, _)| *version == migration.version)
+            {
                 migration.checksum = (0..hex.len())
                     .step_by(2)
-                    .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).expect("a released checksum is hex"))
+                    .map(|at| {
+                        u8::from_str_radix(&hex[at..at + 2], 16)
+                            .expect("a released checksum is hex")
+                    })
                     .collect::<Vec<_>>()
                     .into();
             }
@@ -96,13 +107,31 @@ pub(crate) fn migrator() -> Migrator {
 
 impl Store {
     pub async fn open(path: &Path) -> Result<Self> {
-        let options = SqliteConnectOptions::new().filename(path).create_if_missing(true).foreign_keys(true);
-        Self::with(SqlitePoolOptions::new().max_connections(4).connect_with(options).await?, None).await
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true)
+            .foreign_keys(true);
+        Self::with(
+            SqlitePoolOptions::new()
+                .max_connections(4)
+                .connect_with(options)
+                .await?,
+            None,
+        )
+        .await
     }
 
     pub async fn open_in_memory() -> Result<Self> {
-        let name = format!("file:ft-memory-{}-{}", std::process::id(), IN_MEMORY_DATABASES.fetch_add(1, Ordering::Relaxed));
-        let options = SqliteConnectOptions::new().filename(name).in_memory(true).shared_cache(true).foreign_keys(true);
+        let name = format!(
+            "file:ft-memory-{}-{}",
+            std::process::id(),
+            IN_MEMORY_DATABASES.fetch_add(1, Ordering::Relaxed)
+        );
+        let options = SqliteConnectOptions::new()
+            .filename(name)
+            .in_memory(true)
+            .shared_cache(true)
+            .foreign_keys(true);
         let keep_alive = options.connect().await?;
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -118,14 +147,29 @@ impl Store {
         self.pool.close().await;
     }
 
-    async fn with(pool: SqlitePool, keep_alive: Option<Arc<Mutex<SqliteConnection>>>) -> Result<Self> {
-        migrator().run(&pool).await.context("cannot migrate the local database")?;
-        Ok(Self { pool, _keep_alive: keep_alive })
+    async fn with(
+        pool: SqlitePool,
+        keep_alive: Option<Arc<Mutex<SqliteConnection>>>,
+    ) -> Result<Self> {
+        migrator()
+            .run(&pool)
+            .await
+            .context("cannot migrate the local database")?;
+        Ok(Self {
+            pool,
+            _keep_alive: keep_alive,
+        })
     }
 
     pub async fn snapshot(&self, path: &Path) -> Result<()> {
-        let target = path.to_str().context("the snapshot path is not valid text")?;
-        sqlx::query("VACUUM INTO ?").bind(target).execute(&self.pool).await.context("cannot copy the database")?;
+        let target = path
+            .to_str()
+            .context("the snapshot path is not valid text")?;
+        sqlx::query("VACUUM INTO ?")
+            .bind(target)
+            .execute(&self.pool)
+            .await
+            .context("cannot copy the database")?;
         if !path.exists() {
             anyhow::bail!("the database copy was not written");
         }
@@ -154,8 +198,22 @@ mod tests {
     async fn an_in_memory_store_survives_its_connection_being_replaced() {
         let store = store().await;
         store.add_contact(&contact("ft_bob")).await.expect("adds");
-        store.pool.acquire().await.expect("acquires").close().await.expect("closes");
-        assert!(store.contact("ft_bob").await.expect("still has its tables").is_some(), "still has its data");
+        store
+            .pool
+            .acquire()
+            .await
+            .expect("acquires")
+            .close()
+            .await
+            .expect("closes");
+        assert!(
+            store
+                .contact("ft_bob")
+                .await
+                .expect("still has its tables")
+                .is_some(),
+            "still has its data"
+        );
     }
 
     #[tokio::test]
@@ -167,7 +225,8 @@ mod tests {
 
     #[tokio::test]
     async fn opens_a_database_that_a_released_version_migrated() {
-        let path = std::env::temp_dir().join(format!("ft-storage-released-{}.db", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("ft-storage-released-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         {
             let store = Store::open(&path).await.expect("creates");
@@ -182,7 +241,9 @@ mod tests {
             }
             store.close().await;
         }
-        let store = Store::open(&path).await.expect("opens what a released version migrated");
+        let store = Store::open(&path)
+            .await
+            .expect("opens what a released version migrated");
         assert!(store.contact("ft_bob").await.expect("reads").is_some());
         store.close().await;
         let _ = std::fs::remove_file(&path);
@@ -191,19 +252,32 @@ mod tests {
     #[tokio::test]
     async fn a_new_database_records_the_released_checksums() {
         let store = store().await;
-        let recorded: HashMap<i64, String> = sqlx::query_as("SELECT version, lower(hex(checksum)) FROM _sqlx_migrations")
-            .fetch_all(&store.pool)
-            .await
-            .expect("reads")
-            .into_iter()
-            .collect();
+        let recorded: HashMap<i64, String> =
+            sqlx::query_as("SELECT version, lower(hex(checksum)) FROM _sqlx_migrations")
+                .fetch_all(&store.pool)
+                .await
+                .expect("reads")
+                .into_iter()
+                .collect();
         for (version, checksum) in RELEASED_CHECKSUMS {
-            assert_eq!(recorded.get(&version).map(String::as_str), Some(checksum), "migration {version}");
+            assert_eq!(
+                recorded.get(&version).map(String::as_str),
+                Some(checksum),
+                "migration {version}"
+            );
         }
     }
 
     pub(crate) fn contact(id: &str) -> NewContact {
-        NewContact { device_id: id.to_owned(), name: "Bob".to_owned(), card: vec![1, 2], mailbox: true, session: None, receipts: true, accepted: true }
+        NewContact {
+            device_id: id.to_owned(),
+            name: "Bob".to_owned(),
+            card: vec![1, 2],
+            mailbox: true,
+            session: None,
+            receipts: true,
+            accepted: true,
+        }
     }
 
     pub(crate) fn message(id: &str, contact: &str, outgoing: bool, sent_at: i64) -> Message {
@@ -214,7 +288,11 @@ mod tests {
             body: format!("text {id}"),
             sent_at,
             received_at: sent_at,
-            state: if outgoing { MessageState::Pending } else { MessageState::Delivered },
+            state: if outgoing {
+                MessageState::Pending
+            } else {
+                MessageState::Delivered
+            },
         }
     }
 
@@ -236,20 +314,30 @@ mod tests {
 
     #[tokio::test]
     async fn a_snapshot_is_a_complete_copy() {
-        let path = std::env::temp_dir().join(format!("ft-storage-snapshot-{}.db", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("ft-storage-snapshot-{}.db", std::process::id()));
         let source = path.with_extension("source.db");
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&source);
         let store = Store::open(&source).await.expect("opens");
         store.add_contact(&contact("ft_bob")).await.unwrap();
-        store.insert_message(&message("m1", "ft_bob", true, 1)).await.unwrap();
+        store
+            .insert_message(&message("m1", "ft_bob", true, 1))
+            .await
+            .unwrap();
         store.set_setting("name", "Alice").await.unwrap();
 
         store.snapshot(&path).await.expect("copies");
         let copy = Store::open(&path).await.expect("opens the copy");
         assert_eq!(copy.contacts().await.unwrap().len(), 1);
-        assert_eq!(copy.messages("ft_bob", 10).await.unwrap()[0].message_id, "m1");
-        assert_eq!(copy.setting("name").await.unwrap().as_deref(), Some("Alice"));
+        assert_eq!(
+            copy.messages("ft_bob", 10).await.unwrap()[0].message_id,
+            "m1"
+        );
+        assert_eq!(
+            copy.setting("name").await.unwrap().as_deref(),
+            Some("Alice")
+        );
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&source);
     }

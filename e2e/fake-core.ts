@@ -238,6 +238,10 @@ export function installFakeCore() {
       .map((key) => key.slice(start.length))
       .sort();
   };
+  const playerKey = (a: Record<string, unknown>) => {
+    if (!state.plugins.some((one) => one.id === a.plugin && one.kind === "game")) throw new Error("only a game shares the player");
+    return `player||${place(a)}|`;
+  };
   const forgetSession = (id: string) => {
     delete state.sessions[id];
     delete state.sessionChats[id];
@@ -560,6 +564,14 @@ export function installFakeCore() {
         return undefined;
       case "core_plugin_forget":
         delete state.pluginData[dataKey("memory", a, a.key)];
+        keepSessions();
+        return undefined;
+      case "core_game_player": {
+        const kept = state.pluginData[playerKey(a)];
+        return kept ? JSON.parse(kept) : null;
+      }
+      case "core_set_game_player":
+        state.pluginData[playerKey(a)] = JSON.stringify(a.player);
         keepSessions();
         return undefined;
       case "core_remind_set":
