@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use ft_push::TurnGrant;
@@ -11,15 +13,15 @@ const NONCE: u16 = 0x0015;
 
 pub struct TurnSpy {
     port: u16,
-    users: Arc<Mutex<Vec<String>>>,
+    sign_ins: Arc<Mutex<Vec<(SocketAddr, String)>>>,
 }
 
 impl TurnSpy {
     pub async fn start() -> Self {
         let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let port = socket.local_addr().unwrap().port();
-        let users = Arc::new(Mutex::new(Vec::new()));
-        let seen = users.clone();
+        let sign_ins = Arc::new(Mutex::new(Vec::new()));
+        let seen = sign_ins.clone();
         tokio::spawn(async move {
             let mut buffer = [0u8; 1500];
             while let Ok((length, from)) = socket.recv_from(&mut buffer).await {
@@ -28,22 +30,44 @@ impl TurnSpy {
                     continue;
                 }
                 match attribute(request, USERNAME) {
-                    Some(user) => seen.lock().unwrap().push(String::from_utf8_lossy(user).into_owned()),
+                    Some(user) => seen
+                        .lock()
+                        .unwrap()
+                        .push((from, String::from_utf8_lossy(user).into_owned())),
                     None => {
                         let _ = socket.send_to(&unauthorized(request), from).await;
                     }
                 }
             }
         });
-        Self { port, users }
+        Self { port, sign_ins }
     }
 
     pub fn grant(&self, username: &str) -> TurnGrant {
-        TurnGrant { urls: vec![format!("turn:127.0.0.1:{}?transport=udp", self.port)], username: username.to_owned(), credential: "c".to_owned() }
+        TurnGrant {
+            urls: vec![format!("turn:127.0.0.1:{}?transport=udp", self.port)],
+            username: username.to_owned(),
+            credential: "c".to_owned(),
+        }
     }
 
     pub fn users(&self) -> Vec<String> {
-        self.users.lock().unwrap().clone()
+        let sign_ins = self.sign_ins.lock().unwrap();
+        sign_ins.iter().map(|(_, user)| user.clone()).collect()
+    }
+
+    pub fn sockets(&self) -> HashSet<SocketAddr> {
+        let sign_ins = self.sign_ins.lock().unwrap();
+        sign_ins.iter().map(|(from, _)| *from).collect()
+    }
+
+    pub fn users_not_from(&self, sockets: &HashSet<SocketAddr>) -> Vec<String> {
+        let sign_ins = self.sign_ins.lock().unwrap();
+        sign_ins
+            .iter()
+            .filter(|(from, _)| !sockets.contains(from))
+            .map(|(_, user)| user.clone())
+            .collect()
     }
 }
 
@@ -63,7 +87,11 @@ fn attribute(message: &[u8], kind: u16) -> Option<&[u8]> {
 
 fn unauthorized(request: &[u8]) -> Vec<u8> {
     let mut attributes = Vec::new();
-    for (kind, value) in [(ERROR_CODE, &[0, 0, 4, 1][..]), (REALM, b"ft"), (NONCE, b"nonce")] {
+    for (kind, value) in [
+        (ERROR_CODE, &[0, 0, 4, 1][..]),
+        (REALM, b"ft"),
+        (NONCE, b"nonce"),
+    ] {
         attributes.extend_from_slice(&kind.to_be_bytes());
         attributes.extend_from_slice(&(value.len() as u16).to_be_bytes());
         attributes.extend_from_slice(value);
