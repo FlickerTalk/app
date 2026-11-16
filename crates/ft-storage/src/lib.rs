@@ -15,6 +15,7 @@ mod circles;
 mod contacts;
 mod edits;
 mod files;
+mod game_players;
 mod identity;
 mod messages;
 mod outbox;
@@ -32,6 +33,7 @@ pub use circles::{
 };
 pub use contacts::{Contact, ContactRules, NewContact};
 pub use files::FileRecord;
+pub use game_players::GamePlayer;
 pub use identity::StoredIdentity;
 pub use messages::{Conversation, Message, MessageState};
 pub use outbox::{OutboxEntry, UpdateEntry};
@@ -49,7 +51,7 @@ pub struct Store {
 static IN_MEMORY_DATABASES: AtomicUsize = AtomicUsize::new(0);
 
 // Installed phones recorded these checksums; only the comments in those files have changed since.
-const RELEASED_CHECKSUMS: [(i64, &str); 23] = [
+const RELEASED_CHECKSUMS: [(i64, &str); 24] = [
     (1, "7ebca7399c3d3bc8d6127ab852f2963fce161afa66dee6b73e0131e1baf6b5a28b5bb1b5f41e2761eb3e41894cd327c8"),
     (2, "ca571259d5660a8ed995ae64274c57247b79db151598d288c4a51dd6160f28a3274cde5e2e46bdd05427b6142ee17cd6"),
     (3, "2e88aa77a12b66f795477253f16b3218056f3d580bc7b6fb620172f5102af3c344e3ed83a419860bf8330d809fdf908c"),
@@ -73,6 +75,7 @@ const RELEASED_CHECKSUMS: [(i64, &str); 23] = [
     (21, "02c14a9f7cdb64743d963cbea812152639ed479b8aca9d82abd2de938618264e37e6bd8addc336d2f0e79a8a52339c6b"),
     (22, "b9d2c852b5bcd4dc159add5ed56fffe62232771fad30401d12216e0649da88d93bccc2679c70443f202437b8e457af53"),
     (23, "27f01a5d109768cb60e46d0dea480149912f7bd8a13a3b4fb1eeb8dc64b6fab82d13161ec1ecc4ae1656d27973d91894"),
+    (24, "0673c4b030373ce7eca4fe759994d14f32a2cc0c9ca9d1698d15a6be0a3d7acc45e0f9ca21d647bfa244718e7722b59f"),
 ];
 
 pub(crate) fn migrator() -> Migrator {
