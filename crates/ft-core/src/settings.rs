@@ -23,16 +23,21 @@ impl Core {
 
     #[doc(hidden)]
     pub fn set_tells_mailbox(&self, tells: bool) {
-        self.tells_mailbox.store(tells, std::sync::atomic::Ordering::Relaxed);
+        self.tells_mailbox
+            .store(tells, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub async fn set_mailbox(&self, enabled: bool) -> Result<()> {
-        self.store.set_setting(MAILBOX, if enabled { "1" } else { "0" }).await?;
+        self.store
+            .set_setting(MAILBOX, if enabled { "1" } else { "0" })
+            .await?;
         for contact in self.store.all_contacts().await? {
             if self.quiet_until_written(&contact).await {
                 continue;
             }
-            let _ = self.send_control(&contact, Body::MailboxPreference { enabled }).await;
+            let _ = self
+                .send_control(&contact, Body::MailboxPreference { enabled })
+                .await;
         }
         Ok(())
     }
@@ -42,11 +47,17 @@ impl Core {
     }
 
     pub async fn set_receipts_default(&self, receipts: bool) -> Result<()> {
-        self.store.set_setting(RECEIPTS_DEFAULT, if receipts { "1" } else { "0" }).await
+        self.store
+            .set_setting(RECEIPTS_DEFAULT, if receipts { "1" } else { "0" })
+            .await
     }
 
     pub async fn quiet_hours(&self) -> Result<Option<String>> {
-        Ok(self.store.setting(QUIET_HOURS).await?.filter(|hours| !hours.is_empty()))
+        Ok(self
+            .store
+            .setting(QUIET_HOURS)
+            .await?
+            .filter(|hours| !hours.is_empty()))
     }
 
     pub async fn quiet_week(&self) -> Result<String> {
@@ -88,7 +99,11 @@ impl Week {
     pub fn compact(&self) -> String {
         let day = |day: &Day| match day {
             Day::Whole(which) => which.clone(),
-            Day::Hours { from, to } => format!("{}-{}", minutes(from).unwrap_or(0), minutes(to).unwrap_or(0)),
+            Day::Hours { from, to } => format!(
+                "{}-{}",
+                minutes(from).unwrap_or(0),
+                minutes(to).unwrap_or(0)
+            ),
         };
         self.days.iter().map(day).collect::<Vec<_>>().join(";")
     }
@@ -97,8 +112,14 @@ impl Week {
         ensure!(self.days.len() == 7, "a week has seven days");
         for day in &self.days {
             match day {
-                Day::Whole(which) => ensure!(which == "all" || which == "none", "a day is all, none or hours"),
-                Day::Hours { from, to } => ensure!(minutes(from).is_some() && minutes(to).is_some(), "hours are HH:MM"),
+                Day::Whole(which) => ensure!(
+                    which == "all" || which == "none",
+                    "a day is all, none or hours"
+                ),
+                Day::Hours { from, to } => ensure!(
+                    minutes(from).is_some() && minutes(to).is_some(),
+                    "hours are HH:MM"
+                ),
             }
         }
         Ok(())
