@@ -1,14 +1,22 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { setOnboarded } from "./preferences";
+import { markOpen, takeClosedPlugins } from "./open-plugins";
 
 const installed = vi.hoisted(() => [] as unknown[]);
 const supportAdds = vi.hoisted(() => [] as true[]);
+const toasts = vi.hoisted(() => [] as { message: string }[]);
 
 vi.mock("@ionic/vue", () => ({
   IonicVue: {
     install: (_app: unknown, config: unknown) => installed.push(config),
   },
   isPlatform: () => false,
+  toastController: {
+    create: async (options: { message: string }) => {
+      toasts.push(options);
+      return { present: () => Promise.resolve(), onDidDismiss: () => Promise.resolve() };
+    },
+  },
 }));
 vi.mock("./App.vue", () => ({ default: { render: () => null } }));
 vi.mock("./router", () => ({
@@ -27,7 +35,10 @@ vi.mock("./moving", () => ({ startMoving: () => Promise.resolve() }));
 vi.mock("./viewport", () => ({ startViewportFit: () => {} }));
 
 describe("the app's start", () => {
-  beforeAll(() => setOnboarded());
+  beforeAll(() => {
+    setOnboarded();
+    markOpen({ id: "com.flickertalk.game.backgammon", name: "Backgammon" });
+  });
 
   it("gives Ionic the app's page transition", async () => {
     document.body.innerHTML = `<div id="app"></div>`;
@@ -40,5 +51,12 @@ describe("the app's start", () => {
   it("adds the support contact for someone who is past the welcome", async () => {
     await import("./main");
     await vi.waitFor(() => expect(supportAdds).toHaveLength(1));
+  });
+
+  it("says which plugin was open when the page went away, without opening it again", async () => {
+    await import("./main");
+    await vi.waitFor(() => expect(toasts).toHaveLength(1));
+    expect(toasts[0].message).toBe("Backgammon was closed");
+    expect(takeClosedPlugins()).toEqual([]);
   });
 });

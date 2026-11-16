@@ -175,6 +175,19 @@ object CallVideoViews {
         tellRotation()
     }
 
+    fun follow(activity: Activity, web: WebView) {
+        if (container == null || webView === web) return
+        val rooms = remoteRoom to localRoom
+        val picture = pictureWidth to pictureHeight
+        detach()
+        attach(activity, web)
+        remoteRoom = rooms.first
+        localRoom = rooms.second
+        pictureWidth = picture.first
+        pictureHeight = picture.second
+        place()
+    }
+
     fun layout(args: VideoLayoutArgs) {
         remoteRoom = args.remote?.rect()
         localRoom = args.local?.rect()

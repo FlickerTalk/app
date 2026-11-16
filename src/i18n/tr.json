@@ -365,7 +365,8 @@
     "opens": "Açar: {kinds}",
     "locked": "Araçları kullanmak için abone ol",
     "lockedHint": "Ücretsiz günler sona erdi: araçlar için abonelik gerekiyor. Sohbet, aramalar, dosyalar ve oyunlar ücretsiz kalır.",
-    "subscribe": "Abone ol"
+    "subscribe": "Abone ol",
+    "closed": "{name} kapatıldı"
   },
   "emoji": {
     "open": "Emoji",

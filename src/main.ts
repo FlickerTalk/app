@@ -22,6 +22,7 @@ import { isOnboarded } from "./preferences";
 import { loadHistory, startCalls } from "./calls";
 import { startMoving } from "./moving";
 import { startViewportFit } from "./viewport";
+import { takeClosedPlugins, tellClosedPlugins } from "./open-plugins";
 
 initTheme();
 startViewportFit(window, document.documentElement);
@@ -43,5 +44,7 @@ const language = followPhoneLanguage();
 Promise.allSettled([ready, language, router.isReady()]).then(() => {
   // Ionic reads its config when installed, so wait for the texts (the back button's word)
   app.use(IonicVue, ionicConfig(t("common.back"), isPlatform("ios")));
+  const closed = takeClosedPlugins();
   app.mount("#app");
+  void tellClosedPlugins(closed);
 });

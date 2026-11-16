@@ -94,7 +94,9 @@ class AnsweringArgs {
     var video: Boolean = false
 }
 
-class CoreRinging(private val activity: Activity) {
+class CoreRinging(private val current: () -> Activity) {
+    private val activity: Activity get() = current()
+
     private val ringingNotice = RingingNotice(
         post = { call -> showCall(activity, call.title, call.text, video = call.video) },
         cancel = { IncomingCall.dismiss(activity) },

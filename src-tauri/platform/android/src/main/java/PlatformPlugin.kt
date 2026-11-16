@@ -40,24 +40,27 @@ class CallEventsArgs {
         Permission(strings = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION], alias = "location"),
     ],
 )
-class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
-    private val authorization = Authorization(activity)
+class PlatformPlugin(private val launched: Activity) : Plugin(launched) {
+    // Tauri builds its plugins once, with the first activity, so after a recreate the one on screen is another
+    private val activity: Activity get() = AppScreen.activity.current() ?: launched
 
-    private var webView: WebView? = null
+    private val authorization = Authorization { activity }
 
-    private val ringing = CoreRinging(activity)
+    private var loaded: WebView? = null
 
-    private val files = Files(activity)
+    private val webView: WebView? get() = AppScreen.webView.current() ?: loaded
 
-    private val billing = Billing(activity)
+    private val ringing = CoreRinging { activity }
 
-    private val invite = Invite(activity)
+    private val files = Files { activity }
+
+    private val billing = Billing { activity }
+
+    private val invite = Invite { activity }
 
     override fun load(webView: WebView) {
         super.load(webView)
-        this.webView = webView
-        // wry has set its WebViewClient by now, so it can be wrapped
-        activity.runOnUiThread { serveAssetRanges(webView, activity.filesDir) }
+        loaded = webView
         InCall.appVisible = true
         cancelActivityNotification(activity)
         if (IncomingCall.showing) showOverLockScreen(activity, overLockScreen(ringing = true, inCall = InCall.active))

@@ -365,7 +365,8 @@
     "opens": "Membuka: {kinds}",
     "locked": "Berlangganan untuk memakai alat",
     "lockedHint": "Hari gratis sudah berakhir: alat memerlukan langganan. Chat, panggilan, file, dan game tetap gratis.",
-    "subscribe": "Berlangganan"
+    "subscribe": "Berlangganan",
+    "closed": "{name} ditutup"
   },
   "emoji": {
     "open": "Emoji",

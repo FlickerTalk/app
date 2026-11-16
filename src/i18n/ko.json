@@ -365,7 +365,8 @@
     "opens": "여는 형식: {kinds}",
     "locked": "도구를 쓰려면 구독하세요",
     "lockedHint": "무료 기간이 끝났어요: 도구는 구독이 필요해요. 채팅, 통화, 파일, 게임은 계속 무료예요.",
-    "subscribe": "구독하기"
+    "subscribe": "구독하기",
+    "closed": "{name}이(가) 닫혔습니다"
   },
   "emoji": {
     "open": "이모지",

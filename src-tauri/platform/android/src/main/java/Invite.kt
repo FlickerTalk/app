@@ -27,7 +27,9 @@ class WhatsAppArgs {
 }
 
 // the system picker shares only the chosen number, so no contacts permission is needed; nothing here is kept or logged
-class Invite(private val activity: Activity) {
+class Invite(private val current: () -> Activity) {
+    private val activity: Activity get() = current()
+
     fun pickIntent(): Intent = Intent(Intent.ACTION_PICK, Phone.CONTENT_URI)
 
     fun picked(result: ActivityResult): JSObject {

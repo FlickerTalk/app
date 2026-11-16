@@ -365,7 +365,8 @@
     "opens": "Opens: {kinds}",
     "locked": "Subscribe to use the tools",
     "lockedHint": "The free days are over: tools need the subscription. Chat, calls, files and games stay free.",
-    "subscribe": "Subscribe"
+    "subscribe": "Subscribe",
+    "closed": "{name} was closed"
   },
   "emoji": {
     "open": "Emoji",

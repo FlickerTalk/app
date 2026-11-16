@@ -98,7 +98,9 @@ object EntitlementEvents {
 }
 
 // rejections are plan.trouble.* keys, the app translates them
-class Billing(private val activity: Activity) {
+class Billing(private val current: () -> Activity) {
+    private val activity: Activity get() = current()
+
     private var billing: BillingClient? = null
 
     private var buying: Invoke? = null
@@ -107,7 +109,8 @@ class Billing(private val activity: Activity) {
         withBilling({ invoke.reject("store_unavailable") }, work)
 
     private fun withBilling(unavailable: () -> Unit, work: (BillingClient) -> Unit) {
-        val client = billing ?: BillingClient.newBuilder(activity)
+        // the client stays bound to Play's service, and Android drops the bindings of a destroyed activity
+        val client = billing ?: BillingClient.newBuilder(activity.applicationContext)
             .enableAutoServiceReconnection()
             .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
             .setListener { result, purchases -> purchasesUpdated(result, purchases) }
