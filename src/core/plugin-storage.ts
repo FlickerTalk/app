@@ -37,6 +37,21 @@ export async function pluginRecordUsage(plugin: string, session?: string): Promi
   return { used, quota };
 }
 
+export interface PluginPlayer {
+  who: string;
+  hair: string;
+  hairColour: string;
+  name: string;
+}
+
+export async function gamePlayer(plugin: string, session?: string): Promise<PluginPlayer | null> {
+  return invoke<PluginPlayer | null>("core_game_player", { plugin, session });
+}
+
+export async function setGamePlayer(plugin: string, player: PluginPlayer, session?: string): Promise<void> {
+  await invoke("core_set_game_player", { plugin, player, session });
+}
+
 export type StorageQuestion =
   | { type: "ft.read" | "ft.forget" | "ft.recordGet" | "ft.recordForget"; key: string }
   | { type: "ft.write" | "ft.recordSet"; key: string; value: string }

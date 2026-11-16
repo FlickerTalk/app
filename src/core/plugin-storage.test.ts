@@ -7,6 +7,7 @@ import {
   answerStorage,
   asksStorage,
   fromBase64,
+  gamePlayer,
   pluginForget,
   pluginRead,
   pluginRecordForget,
@@ -15,10 +16,12 @@ import {
   pluginRecordSet,
   pluginRecordUsage,
   pluginWrite,
+  setGamePlayer,
   toBase64Text,
 } from "./plugin-storage";
 
 const NOTES = "com.flickertalk.notes";
+const CHESS = "com.flickertalk.game.chess";
 
 describe("a plugin's storage", () => {
   beforeEach(() => {
@@ -63,6 +66,20 @@ describe("a plugin's storage", () => {
       ["core_plugin_record_forget", { plugin: NOTES, key: "note/1", session: undefined }],
       ["core_plugin_record_keys", { plugin: NOTES, prefix: "note/", session: undefined }],
       ["core_plugin_record_usage", { plugin: NOTES, session: "s1" }],
+    ]);
+  });
+
+  it("reads and writes the player every game shares, for each session", async () => {
+    const player = { who: "juno", hair: "curly-puff", hairColour: "copper", name: "Ana" };
+    tauri.invoke.mockResolvedValueOnce(player);
+    expect(await gamePlayer(CHESS, "s1")).toEqual(player);
+    tauri.invoke.mockResolvedValueOnce(null);
+    expect(await gamePlayer(CHESS)).toBeNull();
+    await setGamePlayer(CHESS, player, "s1");
+    expect(tauri.invoke.mock.calls).toEqual([
+      ["core_game_player", { plugin: CHESS, session: "s1" }],
+      ["core_game_player", { plugin: CHESS, session: undefined }],
+      ["core_set_game_player", { plugin: CHESS, player, session: "s1" }],
     ]);
   });
 

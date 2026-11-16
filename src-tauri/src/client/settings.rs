@@ -1,3 +1,4 @@
+use ft_plugins::Player;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_ft_platform::PlatformExt;
@@ -41,6 +42,31 @@ pub async fn core_set_auto_download(bytes: i64, client: State<'_, Client>) -> Re
 #[tauri::command]
 pub async fn core_set_name(name: String, client: State<'_, Client>) -> Result<(), String> {
     client.core().await?.set_name(&name).await.map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_game_player(
+    plugin: String,
+    session: Option<String>,
+    client: State<'_, Client>,
+) -> Result<Option<Player>, String> {
+    let core = client.core().await?;
+    core.game_player(&plugin, session.as_deref())
+        .await
+        .map_err(failed)
+}
+
+#[tauri::command]
+pub async fn core_set_game_player(
+    plugin: String,
+    session: Option<String>,
+    player: Player,
+    client: State<'_, Client>,
+) -> Result<(), String> {
+    let core = client.core().await?;
+    core.set_game_player(&plugin, session.as_deref(), &player)
+        .await
+        .map_err(failed)
 }
 
 #[tauri::command]
