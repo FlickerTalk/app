@@ -507,10 +507,11 @@ async fn a_contact_that_vanishes_is_announced_as_gone() {
     let vanished = std::time::Instant::now();
     let gone = async {
         loop {
-            if let Ok(Event::ConnectionChanged { contact }) = events.recv().await {
-                if contact == bob.id() && !alice.network.connected().await.contains(&bob.id()) {
-                    return;
-                }
+            let Ok(Event::ConnectionChanged { contact }) = events.recv().await else {
+                continue;
+            };
+            if contact == bob.id() && !alice.network.connected().await.contains(&bob.id()) {
+                return;
             }
         }
     };

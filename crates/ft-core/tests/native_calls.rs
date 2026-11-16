@@ -341,7 +341,10 @@ async fn a_native_voice_call_carries_each_voice_to_the_other_side() {
         .unwrap()
         .expect("in the history");
     assert_eq!(record.outcome, Some(CallOutcome::Answered));
+    assert_each_heard_the_other(&alice, &bob, muted_from);
+}
 
+fn assert_each_heard_the_other(alice: &Phone, bob: &Phone, muted_from: usize) {
     let (alice_played, bob_played) = (alice.probe.played(), bob.probe.played());
     let bob_heard = mean_heard(
         &test_voice(VOICE_SECONDS, false),
