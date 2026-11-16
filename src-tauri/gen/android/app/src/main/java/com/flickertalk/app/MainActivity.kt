@@ -8,6 +8,7 @@ import android.webkit.WebView
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import com.flickertalk.platform.NAVIGATION_SCRIM
+import com.flickertalk.platform.adoptWebView
 import com.flickertalk.platform.captureOpenedLink
 import com.flickertalk.platform.launchBackground
 import com.flickertalk.platform.launchDark
@@ -26,6 +27,7 @@ class MainActivity : TauriActivity() {
   // a new WebView is white until the page paints
   override fun onWebViewCreate(webView: WebView) {
     webView.setBackgroundColor(launchBackground(this))
+    adoptWebView(this, webView)
   }
 
   override fun onNewIntent(intent: Intent) {

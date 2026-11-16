@@ -186,7 +186,10 @@ class AssetRangeClient(private val wry: WebViewClient, private val filesDir: Fil
     override fun onReceivedLoginRequest(view: WebView, realm: String, account: String?, args: String) =
         wry.onReceivedLoginRequest(view, realm, account, args)
 
-    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean = wry.onRenderProcessGone(view, detail)
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        recoverFromRendererGone(view, detail.didCrash())
+        return true
+    }
 
     @TargetApi(Build.VERSION_CODES.O_MR1)
     override fun onSafeBrowsingHit(view: WebView, request: WebResourceRequest, threatType: Int, callback: SafeBrowsingResponse) =

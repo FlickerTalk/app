@@ -365,7 +365,8 @@
     "opens": "Otwiera: {kinds}",
     "locked": "Subskrybuj, aby używać narzędzi",
     "lockedHint": "Darmowe dni się skończyły: narzędzia wymagają subskrypcji. Czat, połączenia, pliki i gry pozostają darmowe.",
-    "subscribe": "Subskrybuj"
+    "subscribe": "Subskrybuj",
+    "closed": "Zamknięto: {name}"
   },
   "emoji": {
     "open": "Emoji",

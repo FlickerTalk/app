@@ -365,7 +365,8 @@
     "opens": "Abre: {kinds}",
     "locked": "Assine para usar as ferramentas",
     "lockedHint": "Os dias grátis terminaram: as ferramentas precisam da assinatura. Chat, chamadas, arquivos e jogos continuam grátis.",
-    "subscribe": "Assinar"
+    "subscribe": "Assinar",
+    "closed": "{name} foi fechado"
   },
   "emoji": {
     "open": "Emoji",

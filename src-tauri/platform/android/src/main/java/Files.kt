@@ -111,7 +111,9 @@ class SaveFileArgs {
     lateinit var mime: String
 }
 
-class Files(private val activity: Activity) {
+class Files(private val current: () -> Activity) {
+    private val activity: Activity get() = current()
+
     private var pendingPhoto: File? = null
 
     fun shareText(text: String) {

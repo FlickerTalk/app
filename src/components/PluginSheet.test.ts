@@ -38,6 +38,7 @@ import { CLOSING_WAIT, NOTICE_DURATION, installed } from "../plugins";
 import { store, type PluginView, type Sending } from "../core";
 import type { PermissionNeed } from "../permissions";
 import type { ContactAsk } from "../pending-send";
+import { takeClosedPlugins } from "../open-plugins";
 
 const plugin = { id: "com.flickertalk.markdown", name: "Markdown" };
 
@@ -1331,6 +1332,21 @@ describe("PluginSheet", () => {
     says({ type: "ft.close" });
     await flushPromises();
     expect(wrapper.emitted("done")).toBeTruthy();
+  });
+
+  it("is remembered for the next start while in sight, never while hidden", async () => {
+    localStorage.clear();
+    const hidden = mount(PluginSheet, { props: { plugin, contact: "ft_bob", hidden: true }, shallow: true });
+    await flushPromises();
+    expect(takeClosedPlugins()).toEqual([]);
+    hidden.unmount();
+    const shown = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    shown.unmount();
+    expect(takeClosedPlugins(), "a closed frame is forgotten").toEqual([]);
+    mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+    await flushPromises();
+    expect(takeClosedPlugins()).toEqual(["Markdown"]);
   });
 
   describe("closing", () => {

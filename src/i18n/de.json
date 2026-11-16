@@ -365,7 +365,8 @@
     "opens": "Öffnet: {kinds}",
     "locked": "Abonnieren, um die Werkzeuge zu nutzen",
     "lockedHint": "Die kostenlosen Tage sind vorbei: Werkzeuge brauchen das Abo. Chat, Anrufe, Dateien und Spiele bleiben kostenlos.",
-    "subscribe": "Abonnieren"
+    "subscribe": "Abonnieren",
+    "closed": "{name} wurde geschlossen"
   },
   "emoji": {
     "open": "Emoji",

@@ -365,7 +365,8 @@
     "opens": "Mở: {kinds}",
     "locked": "Đăng ký để dùng công cụ",
     "lockedHint": "Những ngày miễn phí đã hết: công cụ cần gói đăng ký. Trò chuyện, cuộc gọi, tệp và trò chơi vẫn miễn phí.",
-    "subscribe": "Đăng ký"
+    "subscribe": "Đăng ký",
+    "closed": "Đã đóng {name}"
   },
   "emoji": {
     "open": "Emoji",

@@ -365,7 +365,8 @@
     "opens": "Ouvre : {kinds}",
     "locked": "Abonnez-vous pour utiliser les outils",
     "lockedHint": "Les jours gratuits sont terminés : les outils nécessitent l'abonnement. Le chat, les appels, les fichiers et les jeux restent gratuits.",
-    "subscribe": "S'abonner"
+    "subscribe": "S'abonner",
+    "closed": "{name} a été fermé"
   },
   "emoji": {
     "open": "Emoji",

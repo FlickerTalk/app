@@ -76,6 +76,7 @@ import {
 } from "../plugins";
 import { hostOf, missingPermission, permissionsOf, withPermission, type PermissionNeed } from "../permissions";
 import { offerExactAlarms } from "../exact-alarms";
+import { followOpenPlugin } from "../open-plugins";
 import { playsAlone } from "../games";
 import { pluginTheme } from "../theme";
 import type { ContactAsk, Proposal } from "../pending-send";
@@ -672,13 +673,9 @@ async function busy(work: () => Promise<void>) {
 
 followLook(look, tell, () => props.fill);
 
-const reportOpen = (id: string, open: boolean) => void pluginOpen(id, open).catch(() => undefined);
-watch(
-  () => props.plugin.id,
-  (now, before) => {
-    reportOpen(before, false);
-    reportOpen(now, true);
-  },
+followOpenPlugin(
+  () => props.plugin,
+  () => props.hidden,
 );
 
 onMounted(async () => {
@@ -691,7 +688,6 @@ onMounted(async () => {
   unlisten = await listen<PluginEvent>(PLUGIN_EVENT, ({ payload }) => onLive(payload)).catch(() => undefined);
 });
 onBeforeUnmount(() => {
-  reportOpen(props.plugin.id, false);
   gone = true;
   if (ready && !closing) tell({ type: "ft.closing" });
   letGo?.();

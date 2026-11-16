@@ -32,7 +32,9 @@ class AuthorizeArgs {
     lateinit var scheme: String
 }
 
-class Authorization(private val activity: Activity) {
+class Authorization(private val current: () -> Activity) {
+    private val activity: Activity get() = current()
+
     private var authWaiting: Invoke? = null
     private var authScheme: String = ""
 

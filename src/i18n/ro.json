@@ -365,7 +365,8 @@
     "opens": "Deschide: {kinds}",
     "locked": "Abonează-te pentru a folosi instrumentele",
     "lockedHint": "Zilele gratuite s-au încheiat: instrumentele necesită abonamentul. Chatul, apelurile, fișierele și jocurile rămân gratuite.",
-    "subscribe": "Abonează-te"
+    "subscribe": "Abonează-te",
+    "closed": "{name} a fost închis"
   },
   "emoji": {
     "open": "Emoji",
