@@ -30,7 +30,12 @@ pub async fn core_me(client: State<'_, Client>) -> Result<MeView, String> {
 
 #[tauri::command]
 pub async fn core_set_auto_download(bytes: i64, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.set_auto_download_limit(bytes).await.map_err(failed)
+    client
+        .core()
+        .await?
+        .set_auto_download_limit(bytes)
+        .await
+        .map_err(failed)
 }
 
 #[tauri::command]
@@ -49,9 +54,15 @@ pub async fn core_set_mailbox(enabled: bool, client: State<'_, Client>) -> Resul
 
 /// Nothing of the suggestion is stored or logged on the phone.
 #[tauri::command]
-pub async fn core_send_feedback(text: String, app: AppHandle, client: State<'_, Client>) -> Result<&'static str, String> {
+pub async fn core_send_feedback(
+    text: String,
+    app: AppHandle,
+    client: State<'_, Client>,
+) -> Result<&'static str, String> {
     let version = app.package_info().version.to_string();
-    Ok(feedback_word(client.online().await?.send_feedback(&text, &version).await))
+    Ok(feedback_word(
+        client.online().await?.send_feedback(&text, &version).await,
+    ))
 }
 
 fn feedback_word(outcome: ft_core::Feedback) -> &'static str {
@@ -73,7 +84,10 @@ pub async fn core_enable_push(app: AppHandle, client: State<'_, Client>) -> Resu
     .await
     .map_err(failed)?
     .map_err(failed)?;
-    router.set_push(push_provider(), &token).await.map_err(failed)
+    router
+        .set_push(push_provider(), &token)
+        .await
+        .map_err(failed)
 }
 
 fn push_provider() -> &'static str {
@@ -86,17 +100,28 @@ fn push_provider() -> &'static str {
 
 #[tauri::command]
 pub async fn core_system_bars(dark: bool, app: AppHandle) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || app.platform().set_system_bars(dark)).await.map_err(failed)?.map_err(failed)
+    tauri::async_runtime::spawn_blocking(move || app.platform().set_system_bars(dark))
+        .await
+        .map_err(failed)?
+        .map_err(failed)
 }
 
 #[tauri::command]
 pub async fn core_set_appearance(appearance: String, app: AppHandle) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || app.platform().set_appearance(&appearance)).await.map_err(failed)?.map_err(failed)
+    tauri::async_runtime::spawn_blocking(move || app.platform().set_appearance(&appearance))
+        .await
+        .map_err(failed)?
+        .map_err(failed)
 }
 
 #[tauri::command]
 pub async fn core_set_receipts(enabled: bool, client: State<'_, Client>) -> Result<(), String> {
-    client.core().await?.set_receipts_default(enabled).await.map_err(failed)
+    client
+        .core()
+        .await?
+        .set_receipts_default(enabled)
+        .await
+        .map_err(failed)
 }
 
 #[tauri::command]
@@ -105,9 +130,15 @@ pub async fn core_quiet_hours(client: State<'_, Client>) -> Result<Option<String
 }
 
 #[tauri::command]
-pub async fn core_set_quiet_hours(hours: Option<String>, app: AppHandle, client: State<'_, Client>) -> Result<(), String> {
+pub async fn core_set_quiet_hours(
+    hours: Option<String>,
+    app: AppHandle,
+    client: State<'_, Client>,
+) -> Result<(), String> {
     let core = client.core().await?;
-    core.set_quiet_hours(hours.as_deref()).await.map_err(failed)?;
+    core.set_quiet_hours(hours.as_deref())
+        .await
+        .map_err(failed)?;
     let week = core.quiet_week().await.map_err(failed)?;
     app.platform().set_quiet_hours(&week).map_err(failed)
 }
@@ -125,14 +156,31 @@ mod tests {
 
     #[test]
     fn the_push_provider_is_the_one_of_the_platform() {
-        assert_eq!(push_provider(), if cfg!(target_os = "ios") { "apns" } else { "fcm" });
+        assert_eq!(
+            push_provider(),
+            if cfg!(target_os = "ios") {
+                "apns"
+            } else {
+                "fcm"
+            }
+        );
     }
 
     #[test]
     fn me_carries_the_free_period() {
-        let me = MeView { id: "ft_me".to_owned(), name: "Alice".to_owned(), mailbox: true, receipts: false, free_until: 42, auto_download: 10 };
-        assert_eq!(serde_json::to_value(me).unwrap(), serde_json::json!({
-            "id": "ft_me", "name": "Alice", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
-        }));
+        let me = MeView {
+            id: "ft_me".to_owned(),
+            name: "Alice".to_owned(),
+            mailbox: true,
+            receipts: false,
+            free_until: 42,
+            auto_download: 10,
+        };
+        assert_eq!(
+            serde_json::to_value(me).unwrap(),
+            serde_json::json!({
+                "id": "ft_me", "name": "Alice", "mailbox": true, "receipts": false, "freeUntil": 42, "autoDownload": 10
+            })
+        );
     }
 }
