@@ -84,7 +84,8 @@ describe("a plugin's storage", () => {
   });
 
   it("tells a frame's question about what its plugin keeps from any other question", () => {
-    for (const type of ["ft.read", "ft.write", "ft.forget", "ft.recordGet", "ft.recordSet", "ft.recordForget", "ft.recordKeys", "ft.recordUsage"]) {
+    const kept = ["ft.read", "ft.write", "ft.forget", "ft.recordGet", "ft.recordSet", "ft.recordForget", "ft.recordKeys", "ft.recordUsage"];
+    for (const type of [...kept, "ft.playerGet", "ft.playerSet"]) {
       expect(asksStorage({ type }), type).toBe(true);
     }
     for (const type of ["ft.remindSet", "ft.fetch", "ft.drive", "ft.location", "ft.liveSend"]) expect(asksStorage({ type }), type).toBe(false);
@@ -115,6 +116,17 @@ describe("a plugin's storage", () => {
       ["core_plugin_record_forget", { plugin: NOTES, key: "note/1", session: undefined }],
       ["core_plugin_record_keys", { plugin: NOTES, prefix: "note/", session: undefined }],
       ["core_plugin_record_usage", { plugin: NOTES, session: "s1" }],
+    ]);
+  });
+
+  it("answers a game's player with the record, and a kept one with true", async () => {
+    const player = { who: "juno", hair: "curly-puff", hairColour: "copper", name: "Ana" };
+    tauri.invoke.mockImplementation(async (command: string) => (command === "core_game_player" ? player : undefined));
+    expect(await answerStorage(CHESS, { type: "ft.playerGet" }, "s1")).toEqual(player);
+    expect(await answerStorage(CHESS, { type: "ft.playerSet", player }, "s1")).toBe(true);
+    expect(tauri.invoke.mock.calls).toEqual([
+      ["core_game_player", { plugin: CHESS, session: "s1" }],
+      ["core_set_game_player", { plugin: CHESS, player, session: "s1" }],
     ]);
   });
 });

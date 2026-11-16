@@ -1,3 +1,5 @@
+import type { PluginPlayer } from "./core";
+
 export type FrameMessage =
   | { type: "ft.ready" }
   | { type: "ft.hello" }
@@ -15,6 +17,8 @@ export type FrameMessage =
   | { type: "ft.read"; id: string; key: string }
   | { type: "ft.write"; id: string; key: string; value: string }
   | { type: "ft.forget"; id: string; key: string }
+  | { type: "ft.playerGet"; id: string }
+  | { type: "ft.playerSet"; id: string; player: PluginPlayer }
   | { type: "ft.recordGet"; id: string; key: string }
   | { type: "ft.recordSet"; id: string; key: string; value: string }
   | { type: "ft.recordForget"; id: string; key: string }
@@ -116,6 +120,16 @@ export type DriveOp = (typeof DRIVE_OPS)[number];
 
 const text = (value: unknown): value is string => typeof value === "string";
 
+const PLAYER_FIELDS = ["who", "hair", "hairColour", "name"] as const;
+
+function playerOf(said: unknown): PluginPlayer | null {
+  if (!said || typeof said !== "object" || Array.isArray(said)) return null;
+  const given = said as Record<string, unknown>;
+  const fields = Object.keys(given);
+  if (fields.length !== PLAYER_FIELDS.length || !PLAYER_FIELDS.every((field) => fields.includes(field) && text(given[field]))) return null;
+  return { who: given.who as string, hair: given.hair as string, hairColour: given.hairColour as string, name: given.name as string };
+}
+
 // only this plugin's frame, and only what it may say
 export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null): FrameMessage | null {
   if (!frame || event.source !== frame.contentWindow) return null;
@@ -173,9 +187,14 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       return text(id) && text(said.key) ? { type: said.type, id, key: said.key } : null;
     case "ft.recordSet":
       return text(id) && text(said.key) && text(said.value) ? { type: "ft.recordSet", id, key: said.key, value: said.value } : null;
+    case "ft.playerSet": {
+      const player = playerOf(said.player);
+      return text(id) && player ? { type: "ft.playerSet", id, player } : null;
+    }
     case "ft.recordKeys":
       return text(id) ? { type: "ft.recordKeys", id, prefix: text(said.prefix) ? said.prefix : "" } : null;
     case "ft.recordUsage":
+    case "ft.playerGet":
     case "ft.remindList":
     case "ft.location":
     case "ft.takePhoto":

@@ -56,10 +56,13 @@ export type StorageQuestion =
   | { type: "ft.read" | "ft.forget" | "ft.recordGet" | "ft.recordForget"; key: string }
   | { type: "ft.write" | "ft.recordSet"; key: string; value: string }
   | { type: "ft.recordKeys"; prefix: string }
-  | { type: "ft.recordUsage" };
+  | { type: "ft.recordUsage" }
+  | { type: "ft.playerGet" }
+  | { type: "ft.playerSet"; player: PluginPlayer };
 
 const STORAGE_QUESTIONS: ReadonlySet<string> = new Set<StorageQuestion["type"]>([
   "ft.read", "ft.write", "ft.forget", "ft.recordGet", "ft.recordSet", "ft.recordForget", "ft.recordKeys", "ft.recordUsage",
+  "ft.playerGet", "ft.playerSet",
 ]);
 
 export function asksStorage(said: { type: string }): said is StorageQuestion {
@@ -88,6 +91,11 @@ export async function answerStorage(plugin: string, said: StorageQuestion, sessi
       return pluginRecordKeys(plugin, said.prefix, session);
     case "ft.recordUsage":
       return pluginRecordUsage(plugin, session);
+    case "ft.playerGet":
+      return gamePlayer(plugin, session);
+    case "ft.playerSet":
+      await setGamePlayer(plugin, said.player, session);
+      return true;
   }
 }
 

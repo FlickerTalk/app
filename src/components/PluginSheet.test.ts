@@ -420,6 +420,57 @@ describe("PluginSheet", () => {
     for (const [message] of post.mock.calls) expect(JSON.stringify(message)).not.toContain("s1");
   });
 
+  describe("the player every game shares", () => {
+    const player = { who: "juno", hair: "curly-puff", hairColour: "copper", name: "Ana" };
+    const chess = { id: "com.flickertalk.game.chess", name: "Chess" };
+
+    it("lets a game read and write it in the session it is open in", async () => {
+      tauri.invoke.mockImplementation((command: string) => Promise.resolve(command === "core_game_player" ? player : null));
+      const wrapper = mount(PluginSheet, { props: { plugin: chess, contact: "ft_bob", session: "s1" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+
+      says({ type: "ft.playerSet", id: "p1", player });
+      says({ type: "ft.playerGet", id: "p2" });
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_set_game_player", { plugin: chess.id, player, session: "s1" });
+      expect(tauri.invoke).toHaveBeenCalledWith("core_game_player", { plugin: chess.id, session: "s1" });
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "p1", answer: true }, "*");
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "p2", answer: player }, "*");
+      for (const [message] of post.mock.calls) expect(JSON.stringify(message)).not.toContain("s1");
+    });
+
+    it("gives what the core refuses, like a tool asking, no player and keeps nothing", async () => {
+      tauri.invoke.mockImplementation((command: string) =>
+        command.endsWith("game_player") ? Promise.reject(new Error("only a game shares the player")) : Promise.resolve(null),
+      );
+      const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      const { post, says } = framed(wrapper);
+
+      says({ type: "ft.playerGet", id: "p1" });
+      says({ type: "ft.playerSet", id: "p2", player });
+      await flushPromises();
+      expect(tauri.invoke).toHaveBeenCalledWith("core_game_player", { plugin: plugin.id });
+      expect(tauri.invoke).toHaveBeenCalledWith("core_set_game_player", { plugin: plugin.id, player });
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "p1", answer: null }, "*");
+      expect(post).toHaveBeenCalledWith({ type: "ft.done", id: "p2", answer: false }, "*");
+      for (const [message] of post.mock.calls) expect(JSON.stringify(message)).not.toContain("only a game");
+    });
+
+    it("never hands the core a player the frame could not have sent", async () => {
+      tauri.invoke.mockResolvedValue(null);
+      const wrapper = mount(PluginSheet, { props: { plugin: chess, contact: "ft_bob" }, shallow: true });
+      await flushPromises();
+      const { says } = framed(wrapper);
+
+      says({ type: "ft.playerSet", id: "p1", player: { ...player, vehicle: "bus" } });
+      says({ type: "ft.playerSet", id: "p2", player: { ...player, name: 7 } });
+      await flushPromises();
+      expect(tauri.invoke).not.toHaveBeenCalledWith("core_set_game_player", expect.anything());
+    });
+  });
+
   it("carries the live channel both ways, only when it may", async () => {
     tauri.invoke.mockResolvedValue(true);
     const wrapper = mount(PluginSheet, { props: { plugin, contact: "ft_bob", live: true }, shallow: true });

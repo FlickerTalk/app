@@ -172,4 +172,27 @@ describe("what a plugin's frame may say", () => {
     });
     expect(said({ type: "ft.hookDone", id: "h9", result: { ask: { text: "  " } } })).toEqual({ type: "ft.hookDone", id: "h9", result: null });
   });
+
+  it("understands a game reading and writing the player, with its four fields and nothing more", () => {
+    const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+    const said = (data: unknown) => fromFrame({ source: frame.contentWindow, data } as unknown as MessageEvent, frame);
+    const player = { who: "juno", hair: "curly-puff", hairColour: "copper", name: "Ana" };
+
+    expect(said({ type: "ft.playerGet", id: "p1", extra: 1 })).toEqual({ type: "ft.playerGet", id: "p1" });
+    expect(said({ type: "ft.playerGet" })).toBeNull();
+    expect(said({ type: "ft.playerSet", id: "p2", player })).toEqual({ type: "ft.playerSet", id: "p2", player });
+    expect(said({ type: "ft.playerSet", player })).toBeNull();
+    for (const wrong of [
+      { ...player, vehicle: "bus" },
+      { who: "juno", hair: "none", hairColour: "ink" },
+      { ...player, hair_colour: "ink", hairColour: undefined },
+      { ...player, name: 7 },
+      { ...player, name: null },
+      null,
+      "juno",
+      [player],
+    ]) {
+      expect(said({ type: "ft.playerSet", id: "p3", player: wrong }), JSON.stringify(wrong)).toBeNull();
+    }
+  });
 });

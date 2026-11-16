@@ -5,6 +5,18 @@ let asked = 0;
 
 const textOrNull = (said) => (typeof said === "string" ? said : null);
 
+const PLAYER = ["who", "hair", "hairColour", "name"];
+const playerOf = (said) => {
+  try {
+    if (!said || typeof said !== "object" || Array.isArray(said)) return null;
+    const fields = Object.keys(said);
+    if (fields.length !== PLAYER.length || !PLAYER.every((field) => fields.includes(field) && typeof said[field] === "string")) return null;
+    return { who: said.who, hair: said.hair, hairColour: said.hairColour, name: said.name };
+  } catch {
+    return null;
+  }
+};
+
 const ask = (type, message) => {
   const id = `q${(asked += 1)}`;
   return new Promise((resolve) => {
@@ -48,6 +60,13 @@ globalThis.ft = {
     get: (key) => ask("ft.read", { key: String(key) }),
     set: (key, value) => ask("ft.write", { key: String(key), value: String(value) }),
     forget: (key) => ask("ft.forget", { key: String(key) }),
+  },
+  player: {
+    get: () => ask("ft.playerGet", {}).then(playerOf),
+    set(player) {
+      const given = playerOf(player);
+      return given ? ask("ft.playerSet", { player: given }).then((kept) => kept === true) : Promise.resolve(false);
+    },
   },
   records: {
     get: (key) => ask("ft.recordGet", { key: String(key) }),

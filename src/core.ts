@@ -175,6 +175,9 @@ export {
   pluginRecordUsage,
   toBase64Text,
   fromBase64,
+  gamePlayer,
+  setGamePlayer,
+  type PluginPlayer,
 } from "./core/plugin-storage";
 export { remindSet, remindCancel, remindList, pendingReminder, type Reminder } from "./core/reminders";
 export {

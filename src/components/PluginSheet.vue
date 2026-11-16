@@ -422,6 +422,7 @@ async function answer(said: Extract<FrameMessage, { id: string }>) {
 function refusal(said: { type: string }): null | false | [] | "unsupported" {
   switch (said.type) {
     case "ft.location":
+    case "ft.playerGet":
     case "ft.translateDetect":
     case "ft.translateText":
       return null;
