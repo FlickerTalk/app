@@ -205,6 +205,8 @@ pub fn run() {
         .manage(client::Client::default())
         .manage(plugins::Plugins::default())
         .manage(client::plugins::OpenPlugins::default())
+        // Never answer with a redirect: each frame's policy keeps it to its own folder by path, and
+        // browsers ignore the path of a policy source once a request has been redirected.
         .register_uri_scheme_protocol("ftplugin", |ctx, request| {
             let served = request.uri().path().to_owned();
             let answer = plugins::route(&served)
