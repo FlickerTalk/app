@@ -201,8 +201,12 @@ final class Calls: NSObject, PKPushRegistryDelegate, CXProviderDelegate {
     private func routeChanged(_ note: Notification) {
         guard current != nil, sessionActive else { return }
         let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:)) ?? .unknown
-        routeLog("change reason=\(reason.rawValue) \(describeSession(AVAudioSession.sharedInstance()))")
-        speakerChoice = choiceAfterRouteChange(speakerChoice, reason: reason)
+        let session = AVAudioSession.sharedInstance()
+        let before = (note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription)?.outputs.map(\.portType) ?? []
+        let after = session.currentRoute.outputs.map(\.portType)
+        let available = (session.availableInputs ?? []).map(\.portType)
+        speakerChoice = choiceAfterRouteChange(speakerChoice, reason: reason, from: before, to: after, available: available, prefersSpeaker: prefersSpeaker)
+        routeLog("change reason=\(reason.rawValue) before=[\(before.map(\.rawValue).joined(separator: ","))] choice=\(speakerChoice.map { "\($0)" } ?? "none") \(describeSession(session))")
         if reroutes(after: reason) { applyRoute() }
         reportRoute()
     }

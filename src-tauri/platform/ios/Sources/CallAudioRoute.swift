@@ -53,6 +53,22 @@ func choiceAfterRouteChange(_ choice: Bool?, reason: AVAudioSession.RouteChangeR
     reason == .newDeviceAvailable ? nil : choice
 }
 
+// the speaker button on the system call screen comes as an override, the same reason as the app's own
+func choiceAfterRouteChange(
+    _ choice: Bool?,
+    reason: AVAudioSession.RouteChangeReason,
+    from before: [AVAudioSession.Port],
+    to after: [AVAudioSession.Port],
+    available: [AVAudioSession.Port],
+    prefersSpeaker: Bool
+) -> Bool? {
+    let wanted = speakerOn(choice: choice, prefersSpeaker: prefersSpeaker, headset: hasHeadset(outputs: before, available: available))
+    let speakerBefore = callOutput(of: before) == .speaker
+    let speakerNow = callOutput(of: after) == .speaker
+    if reason == .override, speakerNow != speakerBefore, speakerNow != wanted { return speakerNow }
+    return choiceAfterRouteChange(choice, reason: reason)
+}
+
 // not after our own override or preferred input, or each change would trigger another
 func reroutes(after reason: AVAudioSession.RouteChangeReason) -> Bool {
     switch reason {
