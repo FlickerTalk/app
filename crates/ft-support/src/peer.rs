@@ -1,13 +1,13 @@
 //! Each contact's work runs under its own lock, so two events for one person never answer twice.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::Result;
 use ft_core::{CallUpdate, Core, Event};
-use ft_storage::OutboxEntry;
+use ft_storage::{Message, MessageState, OutboxEntry};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 
@@ -244,9 +244,15 @@ impl Support {
             }
         }
 
-        let unread = store.unread(contact).await?;
-        let mut batch = Vec::with_capacity(unread.len());
-        for id in &unread {
+        let before = store.messages(contact, i64::MAX).await?;
+        // answer exactly what mark_read marked, or a message landing meanwhile is never answered
+        self.core.mark_read(contact).await?;
+        let marked = marked_read(&before, &store.messages(contact, i64::MAX).await?);
+        if marked.is_empty() {
+            return Ok(());
+        }
+        let mut batch = Vec::with_capacity(marked.len());
+        for id in &marked {
             let Some(message) = store.message(id).await? else {
                 continue;
             };
@@ -260,9 +266,6 @@ impl Support {
             .await?
             .is_none();
         let replies = policy::replies(first, &batch);
-        // read before answering, as a person would. A message landing between the two reads is
-        // marked read without its own answer, the next one gets answered
-        self.core.mark_read(contact).await?;
         self.limiter
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -275,7 +278,7 @@ impl Support {
         for reply in replies {
             match reply {
                 Reply::ThumbsUp => {
-                    if let Some(message) = unread.first() {
+                    if let Some(message) = marked.first() {
                         let _ = self.core.react(contact, message, Some("👍")).await;
                     }
                 }
@@ -379,6 +382,21 @@ pub fn stale(outbox: &[OutboxEntry], before: i64) -> Vec<String> {
         .collect()
 }
 
+fn marked_read(before: &[Message], after: &[Message]) -> Vec<String> {
+    let read = |message: &&Message| !message.outgoing && message.state == MessageState::Read;
+    let earlier: HashSet<&str> = before
+        .iter()
+        .filter(read)
+        .map(|message| message.message_id.as_str())
+        .collect();
+    after
+        .iter()
+        .filter(read)
+        .filter(|message| !earlier.contains(message.message_id.as_str()))
+        .map(|message| message.message_id.clone())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,5 +432,35 @@ mod tests {
     #[test]
     fn the_welcome_mark_is_one_key_per_contact() {
         assert_eq!(format!("{WELCOMED}ft_a"), "support_welcomed:ft_a");
+    }
+
+    fn message(id: &str, outgoing: bool, state: MessageState) -> Message {
+        Message {
+            message_id: id.to_owned(),
+            contact: "ft_a".to_owned(),
+            outgoing,
+            body: String::new(),
+            sent_at: 0,
+            received_at: 0,
+            state,
+        }
+    }
+
+    #[test]
+    fn only_what_one_reading_marked_gets_answered() {
+        let before = [
+            message("answered", false, MessageState::Read),
+            message("seen", false, MessageState::Delivered),
+            message("mine", true, MessageState::Delivered),
+        ];
+        let after = [
+            message("answered", false, MessageState::Read),
+            message("seen", false, MessageState::Read),
+            message("landed_meanwhile", false, MessageState::Read),
+            message("landed_after", false, MessageState::Delivered),
+            message("mine", true, MessageState::Read),
+        ];
+        assert_eq!(marked_read(&before, &after), ["seen", "landed_meanwhile"]);
+        assert!(marked_read(&after, &after).is_empty());
     }
 }
