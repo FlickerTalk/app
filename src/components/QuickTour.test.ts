@@ -13,7 +13,7 @@ import {
 } from "ionicons/icons";
 import QuickTour from "./QuickTour.vue";
 import source from "./QuickTour.vue?raw";
-import { IonModalStub } from "../__tests__/ionic";
+import { IonModalStub, LateIonModalStub, type LateIonModal } from "../__tests__/ionic";
 import { closeAll } from "../back";
 import { isTourDue, setTourDue } from "../preferences";
 import en from "../i18n/en.json";
@@ -33,6 +33,9 @@ const tour = (props: Record<string, unknown> = {}) =>
 type Tour = ReturnType<typeof tour>;
 
 const modal = (wrapper: Tour) => wrapper.findComponent(IonModalStub);
+const lateTour = () => mount(QuickTour, { props: { open: true }, global: { stubs: { IonModal: LateIonModalStub } } });
+const ionic = (wrapper: Tour) => wrapper.findComponent(LateIonModalStub).vm as unknown as LateIonModal;
+const showing = (wrapper: Tour) => wrapper.find("[data-test='tour-step']").exists();
 const segment = (wrapper: Tour) => wrapper.findComponent(IonSegment);
 const button = (wrapper: Tour, test: string) =>
   wrapper.findAllComponents(IonButton).find((one) => one.attributes("data-test") === test)!;
@@ -193,6 +196,52 @@ describe("QuickTour", () => {
     await closeAll();
     expect(wrapper.emitted("close")).toHaveLength(1);
     expect(isTourDue()).toBe(true);
+  });
+
+  it("closes again when Ionic shows it only after its page went off screen", async () => {
+    setTourDue();
+    const wrapper = lateTour();
+    await wrapper.setProps({ open: false });
+    ionic(wrapper).present();
+    ionic(wrapper).finishPresenting();
+    await flushPromises();
+    expect(showing(wrapper)).toBe(false);
+    expect(wrapper.emitted("close")).toBeUndefined();
+    expect(isTourDue()).toBe(true);
+  });
+
+  it("stays up when Ionic shows it late while its page is still on screen", async () => {
+    setTourDue();
+    const wrapper = lateTour();
+    ionic(wrapper).present();
+    ionic(wrapper).finishPresenting();
+    await flushPromises();
+    expect(showing(wrapper)).toBe(true);
+    expect(wrapper.emitted("close")).toBeUndefined();
+    expect(isTourDue()).toBe(true);
+  });
+
+  it.each([
+    ["Skip", (wrapper: Tour) => wrapper.find("[data-test='tour-skip']").trigger("click")],
+    [
+      "Done",
+      async (wrapper: Tour) => {
+        segment(wrapper).vm.$emit("ionChange", { detail: { value: "move" } });
+        await flushPromises();
+        await wrapper.find("[data-test='tour-next']").trigger("click");
+      },
+    ],
+  ])("%s closes it for good even when its page went off screen while it was coming up", async (_, press) => {
+    setTourDue();
+    const wrapper = lateTour();
+    await wrapper.setProps({ open: false });
+    ionic(wrapper).present();
+    await flushPromises();
+    await press(wrapper);
+    ionic(wrapper).finishPresenting();
+    await flushPromises();
+    expect(showing(wrapper)).toBe(false);
+    expect(isTourDue()).toBe(false);
   });
 
   it("starts again at the first step each time it opens", async () => {

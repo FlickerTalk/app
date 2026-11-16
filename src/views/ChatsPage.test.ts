@@ -14,7 +14,7 @@ import ChatListToggle from "../components/ChatListToggle.vue";
 import ChatsEmpty from "../components/ChatsEmpty.vue";
 import QuickTour from "../components/QuickTour.vue";
 import SessionActions from "../components/SessionActions.vue";
-import { IonModalStub } from "../__tests__/ionic";
+import { IonModalStub, LateIonModalStub, type LateIonModal } from "../__tests__/ionic";
 import { isChatListCollapsed, isTourDue, setChatListCollapsed, setOnboarded, setTourDue } from "../preferences";
 
 const push = vi.fn();
@@ -214,6 +214,10 @@ describe("ChatsPage", () => {
       (hooks.onIonViewWillEnter ?? []).forEach((hook) => hook());
       (hooks.onIonViewDidEnter ?? []).forEach((hook) => hook());
     };
+    const leaves = (page: { vm: unknown }) => {
+      const hooks = page.vm as unknown as Record<string, Array<() => void> | undefined>;
+      (hooks.onIonViewWillLeave ?? []).forEach((hook) => hook());
+    };
     const tour = (wrapper: { findComponent: ReturnType<typeof mount>["findComponent"] }) => wrapper.findComponent(QuickTour);
 
     beforeEach(() => {
@@ -278,6 +282,24 @@ describe("ChatsPage", () => {
       enters(wrapper);
       await flushPromises();
       expect(tour(wrapper).props("open")).toBe(false);
+    });
+
+    it("is not left over another tab when Ionic shows it only after Chats left, and comes back with Chats", async () => {
+      setTourDue();
+      const wrapper = mount(ChatsPage, { shallow: true, global: { stubs: { QuickTour: false, IonModal: LateIonModalStub } } });
+      const ionic = wrapper.findComponent(LateIonModalStub).vm as unknown as LateIonModal;
+      enters(wrapper);
+      await flushPromises();
+      leaves(wrapper);
+      await flushPromises();
+      ionic.present();
+      ionic.finishPresenting();
+      await flushPromises();
+      expect(wrapper.find("[data-test='tour-step']").exists()).toBe(false);
+      expect(isTourDue()).toBe(true);
+      enters(wrapper);
+      await flushPromises();
+      expect(wrapper.find("[data-test='tour-step']").exists()).toBe(true);
     });
 
     it("opens from the empty list, as often as asked", async () => {
