@@ -28,7 +28,10 @@ impl TurnSpy {
                     continue;
                 }
                 match attribute(request, USERNAME) {
-                    Some(user) => seen.lock().unwrap().push(String::from_utf8_lossy(user).into_owned()),
+                    Some(user) => seen
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8_lossy(user).into_owned()),
                     None => {
                         let _ = socket.send_to(&unauthorized(request), from).await;
                     }
@@ -39,7 +42,11 @@ impl TurnSpy {
     }
 
     pub fn grant(&self, username: &str) -> TurnGrant {
-        TurnGrant { urls: vec![format!("turn:127.0.0.1:{}?transport=udp", self.port)], username: username.to_owned(), credential: "c".to_owned() }
+        TurnGrant {
+            urls: vec![format!("turn:127.0.0.1:{}?transport=udp", self.port)],
+            username: username.to_owned(),
+            credential: "c".to_owned(),
+        }
     }
 
     pub fn users(&self) -> Vec<String> {
@@ -63,7 +70,11 @@ fn attribute(message: &[u8], kind: u16) -> Option<&[u8]> {
 
 fn unauthorized(request: &[u8]) -> Vec<u8> {
     let mut attributes = Vec::new();
-    for (kind, value) in [(ERROR_CODE, &[0, 0, 4, 1][..]), (REALM, b"ft"), (NONCE, b"nonce")] {
+    for (kind, value) in [
+        (ERROR_CODE, &[0, 0, 4, 1][..]),
+        (REALM, b"ft"),
+        (NONCE, b"nonce"),
+    ] {
         attributes.extend_from_slice(&kind.to_be_bytes());
         attributes.extend_from_slice(&(value.len() as u16).to_be_bytes());
         attributes.extend_from_slice(value);

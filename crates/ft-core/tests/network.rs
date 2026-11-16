@@ -48,7 +48,12 @@ impl Bus {
     }
 
     fn signalled_to(&self, device: &str) -> usize {
-        self.signalled.lock().unwrap().get(device).copied().unwrap_or(0)
+        self.signalled
+            .lock()
+            .unwrap()
+            .get(device)
+            .copied()
+            .unwrap_or(0)
     }
 }
 
@@ -59,21 +64,43 @@ struct FakeRelay {
 
 #[async_trait]
 impl Relay for FakeRelay {
-    async fn signal(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> anyhow::Result<bool> {
+    async fn signal(
+        &self,
+        to: &str,
+        capability: &[u8; 32],
+        bytes: Vec<u8>,
+    ) -> anyhow::Result<bool> {
         Ok(self.signal_as(to, capability, bytes, false).await? == Signalled::Delivered)
     }
 
-    async fn signal_call(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>) -> anyhow::Result<bool> {
+    async fn signal_call(
+        &self,
+        to: &str,
+        capability: &[u8; 32],
+        bytes: Vec<u8>,
+    ) -> anyhow::Result<bool> {
         Ok(self.signal_as(to, capability, bytes, true).await? == Signalled::Delivered)
     }
 
-    async fn signal_as(&self, to: &str, capability: &[u8; 32], bytes: Vec<u8>, call: bool) -> anyhow::Result<Signalled> {
+    async fn signal_as(
+        &self,
+        to: &str,
+        capability: &[u8; 32],
+        bytes: Vec<u8>,
+        call: bool,
+    ) -> anyhow::Result<Signalled> {
         if call {
             self.bus.call_signals.fetch_add(1, Ordering::SeqCst);
         }
         self.bus.allowed(to, capability)?;
         self.bus.signals.fetch_add(1, Ordering::SeqCst);
-        *self.bus.signalled.lock().unwrap().entry(to.to_owned()).or_default() += 1;
+        *self
+            .bus
+            .signalled
+            .lock()
+            .unwrap()
+            .entry(to.to_owned())
+            .or_default() += 1;
         let online = self.bus.online.lock().unwrap().get(to).cloned();
         if let Some(device) = online {
             if device.send(RouterEvent::Signal(bytes.clone())).is_ok() {
@@ -84,7 +111,13 @@ impl Relay for FakeRelay {
             self.bus.rings.fetch_add(1, Ordering::SeqCst);
         }
         if self.bus.retaining.load(Ordering::SeqCst) {
-            self.bus.held.lock().unwrap().entry(to.to_owned()).or_default().push(bytes);
+            self.bus
+                .held
+                .lock()
+                .unwrap()
+                .entry(to.to_owned())
+                .or_default()
+                .push(bytes);
             return Ok(Signalled::Retained);
         }
         Ok(Signalled::NotConnected)
@@ -93,7 +126,13 @@ impl Relay for FakeRelay {
     async fn deposit(&self, to: &str, capability: &[u8; 32], blob: Vec<u8>) -> anyhow::Result<()> {
         self.bus.allowed(to, capability)?;
         let id = self.bus.next_id.fetch_add(1, Ordering::SeqCst).to_string();
-        self.bus.mail.lock().unwrap().entry(to.to_owned()).or_default().push((id, blob));
+        self.bus
+            .mail
+            .lock()
+            .unwrap()
+            .entry(to.to_owned())
+            .or_default()
+            .push((id, blob));
         if let Some(device) = self.bus.online.lock().unwrap().get(to) {
             let _ = device.send(RouterEvent::Mail);
         }
@@ -104,11 +143,24 @@ impl Relay for FakeRelay {
         if self.bus.mail_held.load(Ordering::SeqCst) {
             return Ok(Vec::new());
         }
-        Ok(self.bus.mail.lock().unwrap().get(self.me.get().unwrap()).cloned().unwrap_or_default())
+        Ok(self
+            .bus
+            .mail
+            .lock()
+            .unwrap()
+            .get(self.me.get().unwrap())
+            .cloned()
+            .unwrap_or_default())
     }
 
     async fn acknowledge(&self, id: &str) -> anyhow::Result<()> {
-        if let Some(mail) = self.bus.mail.lock().unwrap().get_mut(self.me.get().unwrap()) {
+        if let Some(mail) = self
+            .bus
+            .mail
+            .lock()
+            .unwrap()
+            .get_mut(self.me.get().unwrap())
+        {
             mail.retain(|(stored, _)| stored != id);
         }
         Ok(())
@@ -119,7 +171,12 @@ impl Relay for FakeRelay {
         if self.bus.turn_hangs.load(Ordering::SeqCst) {
             std::future::pending::<()>().await;
         }
-        self.bus.turn.lock().unwrap().clone().ok_or_else(|| anyhow::anyhow!("no TURN users here"))
+        self.bus
+            .turn
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no TURN users here"))
     }
 }
 
@@ -153,8 +210,16 @@ impl Phone {
     }
 
     fn release(&self, bus: &Arc<Bus>) {
-        let Some(events) = bus.online.lock().unwrap().get(&self.id()).cloned() else { return };
-        for bytes in bus.held.lock().unwrap().remove(&self.id()).unwrap_or_default() {
+        let Some(events) = bus.online.lock().unwrap().get(&self.id()).cloned() else {
+            return;
+        };
+        for bytes in bus
+            .held
+            .lock()
+            .unwrap()
+            .remove(&self.id())
+            .unwrap_or_default()
+        {
             let _ = events.send(RouterEvent::Signal(bytes));
         }
     }
@@ -173,16 +238,29 @@ impl Phone {
 }
 
 async fn phone(bus: &Arc<Bus>, name: &str) -> Phone {
-    let relay = Arc::new(FakeRelay { bus: bus.clone(), me: OnceLock::new() });
+    let relay = Arc::new(FakeRelay {
+        bus: bus.clone(),
+        me: OnceLock::new(),
+    });
     let network = Network::new(relay.clone(), SessionConfig::offline());
-    let core = Core::open(Store::open_in_memory().await.unwrap(), [4; 32], network.clone()).await.expect("opens");
+    let core = Core::open(
+        Store::open_in_memory().await.unwrap(),
+        [4; 32],
+        network.clone(),
+    )
+    .await
+    .expect("opens");
     core.set_name(name).await.unwrap();
-    let files = std::env::temp_dir().join(format!("ft-net-{name}-{}", ft_protocol::MessageId::new()));
+    let files =
+        std::env::temp_dir().join(format!("ft-net-{name}-{}", ft_protocol::MessageId::new()));
     std::fs::create_dir_all(&files).unwrap();
     core.set_files_dir(files);
     relay.me.set(core.device_id().as_str().to_owned()).unwrap();
     network.attach(&core);
-    bus.capabilities.lock().unwrap().insert(core.device_id().as_str().to_owned(), *core.route_capability().as_bytes());
+    bus.capabilities.lock().unwrap().insert(
+        core.device_id().as_str().to_owned(),
+        *core.route_capability().as_bytes(),
+    );
     Phone { core, network }
 }
 
@@ -202,10 +280,20 @@ where
 
 async fn pair(alice: &Phone, bob: &Phone) {
     let link = bob.core.my_card().await.unwrap().to_link();
-    alice.core.add_contact(&link, None).await.expect("alice adds bob");
+    alice
+        .core
+        .add_contact(&link, None)
+        .await
+        .expect("alice adds bob");
     let id = alice.id();
-    until("bob knows alice", || async { bob.core.store().contact(&id).await.unwrap().is_some() }).await;
-    bob.core.accept_contact(&id).await.expect("bob accepts alice");
+    until("bob knows alice", || async {
+        bob.core.store().contact(&id).await.unwrap().is_some()
+    })
+    .await;
+    bob.core
+        .accept_contact(&id)
+        .await
+        .expect("bob accepts alice");
 }
 
 async fn until_within_secs<F, Fut>(what: &str, secs: u64, condition: F)
@@ -215,17 +303,36 @@ where
 {
     let started = std::time::Instant::now();
     while !condition().await {
-        assert!(started.elapsed() < Duration::from_secs(secs), "timed out waiting until {what}");
+        assert!(
+            started.elapsed() < Duration::from_secs(secs),
+            "timed out waiting until {what}"
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
 async fn texts(phone: &Phone, contact: &str) -> Vec<String> {
-    phone.core.store().messages(contact, 100).await.unwrap().into_iter().map(|m| m.body).collect()
+    phone
+        .core
+        .store()
+        .messages(contact, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|m| m.body)
+        .collect()
 }
 
 async fn state(phone: &Phone, contact: &str, id: &str) -> MessageState {
-    phone.core.store().message(id).await.unwrap().filter(|m| m.contact == contact).expect("message").state
+    phone
+        .core
+        .store()
+        .message(id)
+        .await
+        .unwrap()
+        .filter(|m| m.contact == contact)
+        .expect("message")
+        .state
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -236,10 +343,24 @@ async fn messages_cross_a_real_data_channel() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
 
-    let sent = alice.core.send_text(&bob.id(), "over webrtc").await.expect("sends");
-    until("bob has it", || async { texts(&bob, &alice.id()).await == ["over webrtc"] }).await;
-    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
-    assert_eq!(bus.mail_for(&bob.id()) + bus.mail_for(&alice.id()), 0, "nothing went through the mailbox");
+    let sent = alice
+        .core
+        .send_text(&bob.id(), "over webrtc")
+        .await
+        .expect("sends");
+    until("bob has it", || async {
+        texts(&bob, &alice.id()).await == ["over webrtc"]
+    })
+    .await;
+    until("alice sees it delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
+    assert_eq!(
+        bus.mail_for(&bob.id()) + bus.mail_for(&alice.id()),
+        0,
+        "nothing went through the mailbox"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -251,7 +372,16 @@ async fn a_first_contact_needs_no_mailbox() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
     assert_eq!(bus.mail_for(&bob.id()), 0);
-    assert_eq!(bob.core.store().contact(&alice.id()).await.unwrap().unwrap().name, "Alice");
+    assert_eq!(
+        bob.core
+            .store()
+            .contact(&alice.id())
+            .await
+            .unwrap()
+            .unwrap()
+            .name,
+        "Alice"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -260,16 +390,40 @@ async fn an_offline_contact_gets_mail_and_catches_up_when_back() {
     let (alice, bob) = (phone(&bus, "Alice").await, phone(&bus, "Bob").await);
     alice.go_online(&bus);
     let link = bob.core.my_card().await.unwrap().to_link();
-    alice.core.add_contact(&link, None).await.expect("alice adds bob while he is away");
-    let sent = alice.core.send_text(&bob.id(), "while you were away").await.expect("sends");
-    assert!(bus.mail_for(&bob.id()) >= 2, "the card and the text wait in bob's mailbox");
+    alice
+        .core
+        .add_contact(&link, None)
+        .await
+        .expect("alice adds bob while he is away");
+    let sent = alice
+        .core
+        .send_text(&bob.id(), "while you were away")
+        .await
+        .expect("sends");
+    assert!(
+        bus.mail_for(&bob.id()) >= 2,
+        "the card and the text wait in bob's mailbox"
+    );
 
     let back = std::time::Instant::now();
     bob.go_online(&bus);
-    until("bob caught up", || async { texts(&bob, &alice.id()).await == ["while you were away"] }).await;
-    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
-    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
-    assert!(back.elapsed() < Duration::from_secs(8), "catching up took {:?}", back.elapsed());
+    until("bob caught up", || async {
+        texts(&bob, &alice.id()).await == ["while you were away"]
+    })
+    .await;
+    until("the mailbox is empty", || async {
+        bus.mail_for(&bob.id()) == 0
+    })
+    .await;
+    until("alice sees it delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
+    assert!(
+        back.elapsed() < Duration::from_secs(8),
+        "catching up took {:?}",
+        back.elapsed()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -280,7 +434,10 @@ async fn an_open_connection_is_reused() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
     alice.core.send_text(&bob.id(), "one").await.unwrap();
-    until("bob has one", || async { texts(&bob, &alice.id()).await.len() == 1 }).await;
+    until("bob has one", || async {
+        texts(&bob, &alice.id()).await.len() == 1
+    })
+    .await;
 
     let signals = bus.signals.load(Ordering::SeqCst);
     alice.core.send_text(&bob.id(), "two").await.unwrap();
@@ -289,7 +446,11 @@ async fn an_open_connection_is_reused() {
         texts(&bob, &alice.id()).await.len() == 3 && texts(&alice, &bob.id()).await.len() == 3
     })
     .await;
-    assert_eq!(bus.signals.load(Ordering::SeqCst), signals, "no new signalling");
+    assert_eq!(
+        bus.signals.load(Ordering::SeqCst),
+        signals,
+        "no new signalling"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -314,12 +475,17 @@ async fn the_network_reports_open_connections() {
             }
         }
     };
-    let contact = tokio::time::timeout(Duration::from_secs(5), announced).await.expect("announced");
+    let contact = tokio::time::timeout(Duration::from_secs(5), announced)
+        .await
+        .expect("announced");
     assert_eq!(contact, bob.id());
 
     alice.network.disconnect(&bob.id()).await;
     assert!(!alice.network.is_connected(&bob.id()).await);
-    until("bob sees it closed", || async { !bob.network.is_connected(&alice.id()).await }).await;
+    until("bob sees it closed", || async {
+        !bob.network.is_connected(&alice.id()).await
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -330,7 +496,10 @@ async fn a_contact_that_vanishes_is_announced_as_gone() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
     alice.core.send_text(&bob.id(), "hi").await.unwrap();
-    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await
+    })
+    .await;
     let mut events = alice.core.events();
 
     bus.online.lock().unwrap().remove(&bob.id());
@@ -345,8 +514,13 @@ async fn a_contact_that_vanishes_is_announced_as_gone() {
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(15), gone).await.expect("alice hears the connection is gone");
-    eprintln!("a vanished contact was announced as gone after {} ms", vanished.elapsed().as_millis());
+    tokio::time::timeout(Duration::from_secs(15), gone)
+        .await
+        .expect("alice hears the connection is gone");
+    eprintln!(
+        "a vanished contact was announced as gone after {} ms",
+        vanished.elapsed().as_millis()
+    );
     assert!(alice.network.connected().await.is_empty());
     assert!(!alice.network.is_connected(&bob.id()).await);
 }
@@ -359,12 +533,21 @@ async fn a_connection_given_up_as_lost_is_closed_for_the_contact_too() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
     alice.core.send_text(&bob.id(), "hi").await.unwrap();
-    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await
+    })
+    .await;
 
     let lost = std::time::Instant::now();
     alice.network.lose(&bob.id()).await;
-    until("alice let go of it", || async { alice.network.connected().await.is_empty() }).await;
-    until_within_secs("bob sees it closed", 15, || async { !bob.network.is_connected(&alice.id()).await }).await;
+    until("alice let go of it", || async {
+        alice.network.connected().await.is_empty()
+    })
+    .await;
+    until_within_secs("bob sees it closed", 15, || async {
+        !bob.network.is_connected(&alice.id()).await
+    })
+    .await;
     eprintln!("bob saw it closed after {} ms", lost.elapsed().as_millis());
 }
 
@@ -376,11 +559,17 @@ async fn closing_the_network_closes_every_connection() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
     alice.core.send_text(&bob.id(), "hi").await.unwrap();
-    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await
+    })
+    .await;
 
     alice.network.close().await;
     assert!(alice.network.connected().await.is_empty());
-    until("bob sees it closed", || async { !bob.network.is_connected(&alice.id()).await }).await;
+    until("bob sees it closed", || async {
+        !bob.network.is_connected(&alice.id()).await
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -394,9 +583,18 @@ async fn a_file_crosses_a_real_data_channel() {
     let path = std::env::temp_dir().join(format!("ft-net-{}.bin", ft_protocol::MessageId::new()));
     std::fs::write(&path, &bytes).unwrap();
 
-    let sent = alice.core.send_file(&bob.id(), &path, "data.bin", "application/octet-stream").await.expect("offers");
+    let sent = alice
+        .core
+        .send_file(&bob.id(), &path, "data.bin", "application/octet-stream")
+        .await
+        .expect("offers");
     until("bob has the file", || async {
-        bob.core.store().file(&sent).await.unwrap().is_some_and(|file| file.complete)
+        bob.core
+            .store()
+            .file(&sent)
+            .await
+            .unwrap()
+            .is_some_and(|file| file.complete)
     })
     .await;
     let received = bob.core.store().file(&sent).await.unwrap().unwrap();
@@ -412,7 +610,10 @@ async fn blocking_closes_the_connection() {
     bob.go_online(&bus);
     pair(&alice, &bob).await;
     alice.core.send_text(&bob.id(), "hi").await.unwrap();
-    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await
+    })
+    .await;
 
     alice.core.block(&bob.id(), true).await.expect("blocks");
     until("closed on both sides", || async {
@@ -432,13 +633,28 @@ async fn a_call_to_an_offline_phone_is_signalled_as_a_call() {
     bob.network.disconnect(&alice.id()).await;
     alice.network.disconnect(&bob.id()).await;
 
-    alice.core.send_text(&bob.id(), "are you there?").await.unwrap();
+    alice
+        .core
+        .send_text(&bob.id(), "are you there?")
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(bus.call_signals.load(Ordering::SeqCst), 0, "a message is not a call");
+    assert_eq!(
+        bus.call_signals.load(Ordering::SeqCst),
+        0,
+        "a message is not a call"
+    );
 
     let call = alice.core.place_call(&bob.id(), false).await.unwrap();
-    alice.core.offer_call_within(&call, "offer", Duration::from_millis(300)).await.expect("tries");
-    assert!(bus.call_signals.load(Ordering::SeqCst) > 0, "the call rings");
+    alice
+        .core
+        .offer_call_within(&call, "offer", Duration::from_millis(300))
+        .await
+        .expect("tries");
+    assert!(
+        bus.call_signals.load(Ordering::SeqCst) > 0,
+        "the call rings"
+    );
 }
 
 async fn bob_asleep() -> (Arc<Bus>, Phone, Phone) {
@@ -464,9 +680,19 @@ async fn a_text_to_a_closed_app_goes_to_the_mailbox_at_once() {
         let (bus, alice, bob) = bob_asleep().await;
         bus.retaining.store(retaining, Ordering::SeqCst);
         let (sent, took) = text_to_bob(&alice, &bob, "are you there?").await;
-        eprintln!("text to a closed app, retaining {retaining}: in the mailbox after {} ms", took.as_millis());
-        assert!(took < Duration::from_secs(1), "retaining {retaining}: it waited {took:?}");
-        assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Sent, "in the mailbox");
+        eprintln!(
+            "text to a closed app, retaining {retaining}: in the mailbox after {} ms",
+            took.as_millis()
+        );
+        assert!(
+            took < Duration::from_secs(1),
+            "retaining {retaining}: it waited {took:?}"
+        );
+        assert_eq!(
+            state(&alice, &bob.id(), &sent).await,
+            MessageState::Sent,
+            "in the mailbox"
+        );
         assert_eq!(bus.mail_for(&bob.id()), 1, "retaining {retaining}");
     }
 }
@@ -483,8 +709,14 @@ async fn a_sender_that_closes_right_after_writing_leaves_the_text_in_the_mailbox
     alice.network.disconnect(&bob.id()).await;
     drop(alice.core.clone());
     bob.go_online(&bus);
-    until("bob has it", || async { texts(&bob, &alice.id()).await == ["bye"] }).await;
-    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
+    until("bob has it", || async {
+        texts(&bob, &alice.id()).await == ["bye"]
+    })
+    .await;
+    until("the mailbox is empty", || async {
+        bus.mail_for(&bob.id()) == 0
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -495,17 +727,40 @@ async fn a_text_in_the_mailbox_also_goes_directly_when_the_connection_opens_firs
     bus.mail_held.store(true, Ordering::SeqCst);
     let back = std::time::Instant::now();
     bob.go_online(&bus);
-    until("bob has it", || async { texts(&bob, &alice.id()).await == ["wake up"] }).await;
-    eprintln!("the kept offer: the text arrived directly {} ms after bob connected", back.elapsed().as_millis());
-    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
-    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
-    assert_eq!(bus.mail_for(&bob.id()), 1, "the copy still waits in the mailbox");
+    until("bob has it", || async {
+        texts(&bob, &alice.id()).await == ["wake up"]
+    })
+    .await;
+    eprintln!(
+        "the kept offer: the text arrived directly {} ms after bob connected",
+        back.elapsed().as_millis()
+    );
+    until("alice sees it delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
+    assert_eq!(
+        bus.signalled_to(&bob.id()) - before,
+        1,
+        "one offer, kept open"
+    );
+    assert_eq!(
+        bus.mail_for(&bob.id()),
+        1,
+        "the copy still waits in the mailbox"
+    );
 
     bus.mail_held.store(false, Ordering::SeqCst);
     bob.mail_notice(&bus);
-    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
+    until("the mailbox is empty", || async {
+        bus.mail_for(&bob.id()) == 0
+    })
+    .await;
     assert_eq!(texts(&bob, &alice.id()).await, ["wake up"], "shown once");
-    assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Delivered);
+    assert_eq!(
+        state(&alice, &bob.id(), &sent).await,
+        MessageState::Delivered
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -514,16 +769,31 @@ async fn a_text_in_the_mailbox_that_arrives_first_is_not_shown_twice() {
     let (sent, _) = text_to_bob(&alice, &bob, "hello").await;
     bus.signals_held.store(true, Ordering::SeqCst);
     bob.go_online(&bus);
-    until("bob has it", || async { texts(&bob, &alice.id()).await == ["hello"] }).await;
-    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
-    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
+    until("bob has it", || async {
+        texts(&bob, &alice.id()).await == ["hello"]
+    })
+    .await;
+    until("the mailbox is empty", || async {
+        bus.mail_for(&bob.id()) == 0
+    })
+    .await;
+    until("alice sees it delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
 
     bus.signals_held.store(false, Ordering::SeqCst);
     bob.release(&bus);
-    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(texts(&bob, &alice.id()).await, ["hello"], "shown once");
-    assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Delivered);
+    assert_eq!(
+        state(&alice, &bob.id(), &sent).await,
+        MessageState::Delivered
+    );
     assert_eq!(bus.mail_for(&bob.id()), 0);
 }
 
@@ -532,9 +802,18 @@ async fn a_text_that_comes_both_ways_is_shown_once() {
     let (bus, alice, bob) = bob_asleep().await;
     let (sent, _) = text_to_bob(&alice, &bob, "twice?").await;
     bob.go_online(&bus);
-    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
-    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
-    until("the mailbox is empty", || async { bus.mail_for(&bob.id()) == 0 }).await;
+    until("alice sees it delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await
+    })
+    .await;
+    until("the mailbox is empty", || async {
+        bus.mail_for(&bob.id()) == 0
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(texts(&bob, &alice.id()).await, ["twice?"], "shown once");
 }
@@ -546,17 +825,42 @@ async fn with_the_mailbox_off_the_kept_offer_delivers_the_waiting_text() {
     let deposits = bus.next_id.load(Ordering::SeqCst);
     alice.core.set_mailbox(false).await.unwrap();
     let (sent, _) = text_to_bob(&alice, &bob, "only directly").await;
-    assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Pending, "waits in the outbox");
+    assert_eq!(
+        state(&alice, &bob.id(), &sent).await,
+        MessageState::Pending,
+        "waits in the outbox"
+    );
 
     let back = std::time::Instant::now();
     bob.go_online(&bus);
-    until("bob has it", || async { texts(&bob, &alice.id()).await == ["only directly"] }).await;
+    until("bob has it", || async {
+        texts(&bob, &alice.id()).await == ["only directly"]
+    })
+    .await;
     let arrived = back.elapsed();
-    eprintln!("mailbox off: the waiting text arrived {} ms after bob connected", arrived.as_millis());
-    until("alice sees it delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
-    assert_eq!(bus.next_id.load(Ordering::SeqCst), deposits, "nothing went through the mailbox");
-    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
-    assert!(arrived < Duration::from_millis(1_500), "{} ms", arrived.as_millis());
+    eprintln!(
+        "mailbox off: the waiting text arrived {} ms after bob connected",
+        arrived.as_millis()
+    );
+    until("alice sees it delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
+    assert_eq!(
+        bus.next_id.load(Ordering::SeqCst),
+        deposits,
+        "nothing went through the mailbox"
+    );
+    assert_eq!(
+        bus.signalled_to(&bob.id()) - before,
+        1,
+        "one offer, kept open"
+    );
+    assert!(
+        arrived < Duration::from_millis(1_500),
+        "{} ms",
+        arrived.as_millis()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -573,33 +877,59 @@ async fn a_call_to_a_phone_that_wakes_rings_as_soon_as_it_connects() {
     bob.go_online(&bus);
     let rang = async {
         loop {
-            if let Ok(Event::Call { update: ft_core::CallUpdate::Incoming { .. }, .. }) = bob_events.recv().await {
+            if let Ok(Event::Call {
+                update: ft_core::CallUpdate::Incoming { .. },
+                ..
+            }) = bob_events.recv().await
+            {
                 return;
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(10), rang).await.expect("bob's phone rings");
+    tokio::time::timeout(Duration::from_secs(10), rang)
+        .await
+        .expect("bob's phone rings");
     let ringing = back.elapsed();
-    eprintln!("retained call offer: rang {} ms after bob connected", ringing.as_millis());
-    assert_eq!(bus.signalled_to(&bob.id()) - before, 1, "one offer, kept open");
-    assert!(ringing < Duration::from_millis(1_500), "{} ms", ringing.as_millis());
+    eprintln!(
+        "retained call offer: rang {} ms after bob connected",
+        ringing.as_millis()
+    );
+    assert_eq!(
+        bus.signalled_to(&bob.id()) - before,
+        1,
+        "one offer, kept open"
+    );
+    assert!(
+        ringing < Duration::from_millis(1_500),
+        "{} ms",
+        ringing.as_millis()
+    );
     let _ = alice.core.end_call(&call, false).await;
 }
 
 async fn rings(events: &mut tokio::sync::broadcast::Receiver<Event>, within: Duration) {
     let rang = async {
         loop {
-            if let Ok(Event::Call { update: ft_core::CallUpdate::Incoming { .. }, .. }) = events.recv().await {
+            if let Ok(Event::Call {
+                update: ft_core::CallUpdate::Incoming { .. },
+                ..
+            }) = events.recv().await
+            {
                 return;
             }
         }
     };
-    tokio::time::timeout(within, rang).await.expect("the phone rings");
+    tokio::time::timeout(within, rang)
+        .await
+        .expect("the phone rings");
 }
 
 async fn until_rung(bus: &Bus, since: std::time::Instant, within: Duration) -> Duration {
     while bus.rings.load(Ordering::SeqCst) == 0 {
-        assert!(since.elapsed() < within, "the router was never asked to ring the callee");
+        assert!(
+            since.elapsed() < within,
+            "the router was never asked to ring the callee"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     since.elapsed()
@@ -617,18 +947,28 @@ async fn a_call_rings_although_an_offer_for_a_message_waits_at_the_router() {
     let (core, id) = (alice.core.clone(), call.clone());
     tokio::spawn(async move { core.offer_call(&id, "offer").await });
     let rung = until_rung(&bus, placed, Duration::from_secs(10)).await;
-    eprintln!("call behind a message's kept offer: the router was asked to ring after {} ms", rung.as_millis());
+    eprintln!(
+        "call behind a message's kept offer: the router was asked to ring after {} ms",
+        rung.as_millis()
+    );
     assert!(rung < Duration::from_secs(2), "{} ms", rung.as_millis());
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "one ring for one call");
 
     bob.go_online(&bus);
     rings(&mut bob_events, Duration::from_secs(10)).await;
-    until("alice sees the text delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
+    until("alice sees the text delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
     assert_eq!(alice.network.connected().await, [bob.id()]);
     let _ = alice.core.end_call(&call, false).await;
     tokio::time::sleep(ft_core::net::CONNECT_WAIT + Duration::from_secs(1)).await;
-    assert_eq!(bob.network.connected().await, [alice.id()], "one connection");
+    assert_eq!(
+        bob.network.connected().await,
+        [alice.id()],
+        "one connection"
+    );
     assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "still one ring");
 }
 
@@ -641,7 +981,10 @@ async fn with_the_mailbox_off_a_call_rings_although_a_message_waits_for_its_offe
         core.set_mailbox(false).await.unwrap();
         core.send_text(&to, "only directly").await
     });
-    until("the offer waits at the router", || async { bus.signalled_to(&bob.id()) > before }).await;
+    until("the offer waits at the router", || async {
+        bus.signalled_to(&bob.id()) > before
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 0, "a message never rings");
     let mut bob_events = bob.core.events();
@@ -651,12 +994,18 @@ async fn with_the_mailbox_off_a_call_rings_although_a_message_waits_for_its_offe
     let (core, id) = (alice.core.clone(), call.clone());
     tokio::spawn(async move { core.offer_call(&id, "offer").await });
     let rung = until_rung(&bus, placed, Duration::from_secs(15)).await;
-    eprintln!("mailbox off, call behind a waiting message: the router was asked to ring after {} ms", rung.as_millis());
+    eprintln!(
+        "mailbox off, call behind a waiting message: the router was asked to ring after {} ms",
+        rung.as_millis()
+    );
     assert!(rung < Duration::from_secs(2), "{} ms", rung.as_millis());
 
     bob.go_online(&bus);
     rings(&mut bob_events, Duration::from_secs(10)).await;
-    until("bob has the text", || async { texts(&bob, &alice.id()).await == ["only directly"] }).await;
+    until("bob has the text", || async {
+        texts(&bob, &alice.id()).await == ["only directly"]
+    })
+    .await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "one ring for one call");
     let _ = alice.core.end_call(&call, false).await;
 }
@@ -667,7 +1016,10 @@ async fn call_bob(bus: &Bus, alice: &Phone, bob: &Phone, reach: Duration, rung: 
     tokio::spawn(async move { core.offer_call_within(&id, "offer", reach).await });
     let asked = std::time::Instant::now();
     while bus.rings.load(Ordering::SeqCst) < rung {
-        assert!(asked.elapsed() < Duration::from_secs(5), "the router was not asked to ring for call {rung}");
+        assert!(
+            asked.elapsed() < Duration::from_secs(5),
+            "the router was not asked to ring for call {rung}"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     call
@@ -681,19 +1033,42 @@ async fn a_redial_after_hanging_up_rings_again() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     alice.core.end_call(&first, false).await.unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(bus.signalled_to(&bob.id()) - offers, 1, "hanging up signals nothing");
+    assert_eq!(
+        bus.signalled_to(&bob.id()) - offers,
+        1,
+        "hanging up signals nothing"
+    );
 
     let mut bob_events = bob.core.events();
     let second = call_bob(&bus, &alice, &bob, ft_core::calls::CALL_REACH, 2).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 2, "once per call");
-    assert_eq!(bus.signalled_to(&bob.id()) - offers, 2, "one offer per call");
-    assert_eq!(alice.network.offers_waiting().await, 1, "only the second call's offer waits");
+    assert_eq!(
+        bus.signalled_to(&bob.id()) - offers,
+        2,
+        "one offer per call"
+    );
+    assert_eq!(
+        alice.network.offers_waiting().await,
+        1,
+        "only the second call's offer waits"
+    );
 
     bob.go_online(&bus);
     rings(&mut bob_events, Duration::from_secs(10)).await;
-    until("connected", || async { alice.network.is_connected(&bob.id()).await }).await;
-    assert_eq!(bob.core.current_call().await.unwrap().map(|current| current.call), Some(second.clone()), "the second call rings");
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await
+    })
+    .await;
+    assert_eq!(
+        bob.core
+            .current_call()
+            .await
+            .unwrap()
+            .map(|current| current.call),
+        Some(second.clone()),
+        "the second call rings"
+    );
     let _ = alice.core.end_call(&second, false).await;
 }
 
@@ -702,15 +1077,35 @@ async fn a_redial_after_a_call_gave_up_rings_again() {
     let (bus, alice, bob) = bob_asleep().await;
     let first = call_bob(&bus, &alice, &bob, Duration::from_secs(1), 1).await;
     until_within_secs("the first call gave up", 20, || async {
-        alice.core.store().call(&first).await.unwrap().is_some_and(|call| call.ended_at.is_some())
+        alice
+            .core
+            .store()
+            .call(&first)
+            .await
+            .unwrap()
+            .is_some_and(|call| call.ended_at.is_some())
     })
     .await;
-    assert_eq!(alice.core.store().call(&first).await.unwrap().unwrap().outcome, Some(ft_storage::CallOutcome::Unreachable));
+    assert_eq!(
+        alice
+            .core
+            .store()
+            .call(&first)
+            .await
+            .unwrap()
+            .unwrap()
+            .outcome,
+        Some(ft_storage::CallOutcome::Unreachable)
+    );
 
     let second = call_bob(&bus, &alice, &bob, ft_core::calls::CALL_REACH, 2).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 2, "once per call");
-    assert_eq!(alice.network.offers_waiting().await, 1, "only the second call's offer waits");
+    assert_eq!(
+        alice.network.offers_waiting().await,
+        1,
+        "only the second call's offer waits"
+    );
     let _ = alice.core.end_call(&second, false).await;
 }
 
@@ -719,7 +1114,11 @@ async fn a_call_that_keeps_trying_rings_once() {
     let (bus, alice, bob) = bob_asleep().await;
     let call = call_bob(&bus, &alice, &bob, ft_core::calls::CALL_REACH, 1).await;
     tokio::time::sleep(ft_core::net::CONNECT_WAIT + Duration::from_secs(4)).await;
-    assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "a retry never rings again");
+    assert_eq!(
+        bus.rings.load(Ordering::SeqCst),
+        1,
+        "a retry never rings again"
+    );
     let _ = alice.core.end_call(&call, false).await;
 }
 
@@ -735,12 +1134,23 @@ async fn a_message_sent_while_a_call_waits_at_the_router_does_not_hold_the_call_
 
     let (sent, took) = text_to_bob(&alice, &bob, "call me back").await;
     assert!(took < Duration::from_secs(1), "it waited {took:?}");
-    assert_eq!(state(&alice, &bob.id(), &sent).await, MessageState::Sent, "in the mailbox");
-    assert_eq!(bus.signalled_to(&bob.id()), signalled, "no offer of its own");
+    assert_eq!(
+        state(&alice, &bob.id(), &sent).await,
+        MessageState::Sent,
+        "in the mailbox"
+    );
+    assert_eq!(
+        bus.signalled_to(&bob.id()),
+        signalled,
+        "no offer of its own"
+    );
 
     bob.go_online(&bus);
     rings(&mut bob_events, Duration::from_secs(10)).await;
-    until("alice sees the text delivered", || async { state(&alice, &bob.id(), &sent).await == MessageState::Delivered }).await;
+    until("alice sees the text delivered", || async {
+        state(&alice, &bob.id(), &sent).await == MessageState::Delivered
+    })
+    .await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "one ring for one call");
     let _ = alice.core.end_call(&call, false).await;
 }
@@ -754,11 +1164,17 @@ async fn a_call_into_a_dead_connection_goes_through_the_router_within_seconds() 
     bob.go_online(&bus);
     pair(&alice, &bob).await;
     alice.core.send_text(&bob.id(), "talk soon").await.unwrap();
-    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await
+    })
+    .await;
 
     bus.online.lock().unwrap().remove(&bob.id());
     bob.network.vanish(&alice.id()).await;
-    assert!(alice.network.is_connected(&bob.id()).await, "alice's side still looks open");
+    assert!(
+        alice.network.is_connected(&bob.id()).await,
+        "alice's side still looks open"
+    );
     let mut bob_events = bob.core.events();
 
     let placed = std::time::Instant::now();
@@ -766,13 +1182,17 @@ async fn a_call_into_a_dead_connection_goes_through_the_router_within_seconds() 
     let (core, id) = (alice.core.clone(), call.clone());
     tokio::spawn(async move { core.offer_call(&id, "offer").await });
     let rung = until_rung(&bus, placed, Duration::from_secs(15)).await;
-    eprintln!("call into a dead connection: the router was asked to ring after {} ms", rung.as_millis());
+    eprintln!(
+        "call into a dead connection: the router was asked to ring after {} ms",
+        rung.as_millis()
+    );
     assert!(rung < Duration::from_secs(5), "{} ms", rung.as_millis());
 
     bob.go_online(&bus);
     rings(&mut bob_events, Duration::from_secs(10)).await;
     until("one connection each", || async {
-        alice.network.connected().await == [bob.id()] && bob.network.connected().await == [alice.id()]
+        alice.network.connected().await == [bob.id()]
+            && bob.network.connected().await == [alice.id()]
     })
     .await;
     assert_eq!(bus.rings.load(Ordering::SeqCst), 1, "one ring for one call");
@@ -787,19 +1207,37 @@ async fn a_call_over_a_live_connection_keeps_it() {
     alice.go_online(&bus);
     bob.go_online(&bus);
     pair(&alice, &bob).await;
-    alice.core.send_text(&bob.id(), "about to call").await.unwrap();
-    until("connected", || async { alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await }).await;
+    alice
+        .core
+        .send_text(&bob.id(), "about to call")
+        .await
+        .unwrap();
+    until("connected", || async {
+        alice.network.is_connected(&bob.id()).await && bob.network.is_connected(&alice.id()).await
+    })
+    .await;
     let (signals, mut bob_events) = (bus.signals.load(Ordering::SeqCst), bob.core.events());
 
     let call = alice.core.place_call(&bob.id(), false).await.unwrap();
     let offered = std::time::Instant::now();
     alice.core.offer_call(&call, "offer").await.expect("offers");
-    assert!(offered.elapsed() < ft_core::net::CONNECT_WAIT / 4, "acknowledged in {:?}", offered.elapsed());
+    assert!(
+        offered.elapsed() < ft_core::net::CONNECT_WAIT / 4,
+        "acknowledged in {:?}",
+        offered.elapsed()
+    );
     rings(&mut bob_events, Duration::from_secs(5)).await;
     tokio::time::sleep(Duration::from_secs(4)).await;
-    assert_eq!(bus.signals.load(Ordering::SeqCst), signals, "nothing through the router");
+    assert_eq!(
+        bus.signals.load(Ordering::SeqCst),
+        signals,
+        "nothing through the router"
+    );
     assert_eq!(bus.rings.load(Ordering::SeqCst), 0);
-    assert!(alice.network.is_connected(&bob.id()).await, "the connection is kept");
+    assert!(
+        alice.network.is_connected(&bob.id()).await,
+        "the connection is kept"
+    );
     let _ = alice.core.end_call(&call, false).await;
 }
 
@@ -810,7 +1248,10 @@ async fn a_blocked_contacts_call_is_refused_without_ringing() {
     let mut bob_events = bob.core.events();
     let call = alice.core.place_call(&bob.id(), false).await.unwrap();
     let (core, id) = (alice.core.clone(), call.clone());
-    tokio::spawn(async move { core.offer_call_within(&id, "offer", Duration::from_secs(3)).await });
+    tokio::spawn(async move {
+        core.offer_call_within(&id, "offer", Duration::from_secs(3))
+            .await
+    });
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     bob.go_online(&bus);
@@ -823,9 +1264,14 @@ async fn a_blocked_contacts_call_is_refused_without_ringing() {
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(10), refused).await.expect("the phone hears it was refused");
+    tokio::time::timeout(Duration::from_secs(10), refused)
+        .await
+        .expect("the phone hears it was refused");
     assert!(bob.core.current_call().await.unwrap().is_none());
-    assert!(bob.core.visible_calls(10).await.unwrap().is_empty(), "no trace in the history");
+    assert!(
+        bob.core.visible_calls(10).await.unwrap().is_empty(),
+        "no trace in the history"
+    );
 }
 
 struct Blackhole {
@@ -836,11 +1282,21 @@ struct Blackhole {
 }
 
 fn blackhole() -> Blackhole {
-    let (stun, turn) = (std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), std::net::UdpSocket::bind("127.0.0.1:0").unwrap());
-    let (stun_port, turn_port) = (stun.local_addr().unwrap().port(), turn.local_addr().unwrap().port());
+    let (stun, turn) = (
+        std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
+        std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
+    );
+    let (stun_port, turn_port) = (
+        stun.local_addr().unwrap().port(),
+        turn.local_addr().unwrap().port(),
+    );
     Blackhole {
         stun: vec![format!("stun:127.0.0.1:{stun_port}")],
-        turn: TurnGrant { urls: vec![format!("turn:127.0.0.1:{turn_port}?transport=udp")], username: "u".to_owned(), credential: "c".to_owned() },
+        turn: TurnGrant {
+            urls: vec![format!("turn:127.0.0.1:{turn_port}?transport=udp")],
+            username: "u".to_owned(),
+            credential: "c".to_owned(),
+        },
         _stun: stun,
         _turn: turn,
     }
@@ -862,15 +1318,35 @@ async fn without_retention_a_retry_reuses_the_offer_already_gathered() {
     let started = std::time::Instant::now();
     alice.core.send_text(&bob.id(), "two").await.expect("sends");
     let second = started.elapsed();
-    eprintln!("no retention: first attempt {} ms, second {} ms", first.as_millis(), second.as_millis());
-    assert!(first >= Duration::from_millis(900), "the first gathers: {first:?}");
-    assert!(second < Duration::from_millis(400), "the second gathered again: {second:?}");
+    eprintln!(
+        "no retention: first attempt {} ms, second {} ms",
+        first.as_millis(),
+        second.as_millis()
+    );
+    assert!(
+        first >= Duration::from_millis(900),
+        "the first gathers: {first:?}"
+    );
+    assert!(
+        second < Duration::from_millis(400),
+        "the second gathered again: {second:?}"
+    );
     assert_eq!(bus.mail_for(&bob.id()), 2, "both in the mailbox");
 
     bob.go_online_with(&bus, hole.stun.clone(), Some(hole.turn.clone()));
-    until("bob caught up", || async { texts(&bob, &alice.id()).await.len() == 2 }).await;
-    alice.core.send_text(&bob.id(), "three").await.expect("sends");
-    until("bob has the third", || async { texts(&bob, &alice.id()).await.len() == 3 }).await;
+    until("bob caught up", || async {
+        texts(&bob, &alice.id()).await.len() == 2
+    })
+    .await;
+    alice
+        .core
+        .send_text(&bob.id(), "three")
+        .await
+        .expect("sends");
+    until("bob has the third", || async {
+        texts(&bob, &alice.id()).await.len() == 3
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -887,8 +1363,14 @@ async fn behind_servers_that_never_answer_a_text_reaches_the_mailbox_within_a_se
         let (_, first) = text_to_bob(&alice, &bob, "one").await;
         let (_, second) = text_to_bob(&alice, &bob, "two").await;
         eprintln!("unreachable servers, retaining {retaining}: in the mailbox after {} ms, the next after {} ms", first.as_millis(), second.as_millis());
-        assert!(first < Duration::from_millis(1_500), "retaining {retaining}: {first:?}");
-        assert!(second < Duration::from_millis(400), "retaining {retaining}: {second:?}");
+        assert!(
+            first < Duration::from_millis(1_500),
+            "retaining {retaining}: {first:?}"
+        );
+        assert!(
+            second < Duration::from_millis(400),
+            "retaining {retaining}: {second:?}"
+        );
         assert_eq!(bus.mail_for(&bob.id()), 2);
     }
 }
@@ -899,9 +1381,16 @@ async fn paired_with_an_expired_turn_user(bus: &Arc<Bus>, turn: &TurnSpy) -> (Ph
     alice.go_online_with(bus, vec![], Some(turn.grant("welcome")));
     bob.go_online(bus);
     pair(&alice, &bob).await;
-    until("the first connection signed in with the welcome's user", || async { turn.users().contains(&"welcome".to_owned()) }).await;
+    until(
+        "the first connection signed in with the welcome's user",
+        || async { turn.users().contains(&"welcome".to_owned()) },
+    )
+    .await;
     alice.network.disconnect(&bob.id()).await;
-    until("no connection is left", || async { !bob.network.is_connected(&alice.id()).await }).await;
+    until("no connection is left", || async {
+        !bob.network.is_connected(&alice.id()).await
+    })
+    .await;
     alice.network.age_turn(ft_core::net::TURN_LIFE);
     (alice, bob)
 }
@@ -918,7 +1407,11 @@ async fn a_call_after_the_turn_user_expired_gathers_with_a_new_one() {
     let (core, id) = (alice.core.clone(), call.clone());
     tokio::spawn(async move { core.offer_call(&id, "offer").await });
     rings(&mut bob_events, Duration::from_secs(15)).await;
-    until("the call's connection signed in at the TURN server", || async { turn.users().len() > before }).await;
+    until(
+        "the call's connection signed in at the TURN server",
+        || async { turn.users().len() > before },
+    )
+    .await;
     assert_eq!(bus.turn_asked.load(Ordering::SeqCst), 1, "one new user");
     let since: Vec<String> = turn.users().split_off(before);
     assert!(since.iter().all(|user| user == "new"), "{since:?}");
@@ -939,8 +1432,19 @@ async fn a_router_that_does_not_hand_out_a_turn_user_does_not_hold_a_call_back()
     tokio::spawn(async move { core.offer_call(&id, "offer").await });
     rings(&mut bob_events, Duration::from_secs(15)).await;
     let rang = placed.elapsed();
-    eprintln!("router not answering for TURN: the call rang after {} ms", rang.as_millis());
-    assert_eq!(bus.turn_asked.load(Ordering::SeqCst), 1, "the router was asked");
-    assert!(rang < ft_core::net::TURN_WAIT + Duration::from_secs(5), "{} ms", rang.as_millis());
+    eprintln!(
+        "router not answering for TURN: the call rang after {} ms",
+        rang.as_millis()
+    );
+    assert_eq!(
+        bus.turn_asked.load(Ordering::SeqCst),
+        1,
+        "the router was asked"
+    );
+    assert!(
+        rang < ft_core::net::TURN_WAIT + Duration::from_secs(5),
+        "{} ms",
+        rang.as_millis()
+    );
     let _ = alice.core.end_call(&call, false).await;
 }
