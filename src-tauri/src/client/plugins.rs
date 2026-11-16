@@ -37,7 +37,7 @@ fn served_of(
             crate::plugins::Served {
                 dir: dir.join("plugins").join(&plugin.manifest.id),
                 component,
-                policy: crate::plugins::policy_for(&plugin.granted),
+                policy: crate::plugins::policy_for(&plugin.manifest.id, &plugin.granted),
                 version: plugin.manifest.version.clone(),
             },
         );

@@ -1,18 +1,19 @@
 use super::*;
 
-#[test]
-fn a_closed_tool_is_not_served_and_a_game_is() {
-    let plugin = |id: &str, kind: &str| {
-        ft_core::plugins::InstalledPlugin {
-        manifest: serde_json::from_str(&format!(
-            r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"kind":"{kind}"}}"#
-        ))
-        .unwrap(),
+fn plugin(id: &str, kind: &str) -> ft_core::plugins::InstalledPlugin {
+    let manifest = format!(
+        r#"{{"id":"{id}","name":"X","version":"1.0.0","minCoreVersion":"0.1.0","components":["ft-x"],"kind":"{kind}"}}"#
+    );
+    ft_core::plugins::InstalledPlugin {
+        manifest: serde_json::from_str(&manifest).unwrap(),
         granted: ft_plugins::Permissions::default(),
         installed_at: 0,
         image: String::new(),
     }
-    };
+}
+
+#[test]
+fn a_closed_tool_is_not_served_and_a_game_is() {
     let dir = Path::new("/tmp/ft");
     let served = served_of(
         vec![
@@ -31,6 +32,29 @@ fn a_closed_tool_is_not_served_and_a_game_is() {
         served.contains_key("com.example.code"),
         "open in the free year or with the subscription"
     );
+}
+
+#[test]
+fn each_served_plugin_loads_from_its_own_folder_only() {
+    let served = served_of(
+        vec![
+            (plugin("com.example.code", "tool"), true),
+            (plugin("game.example.chess", "game"), true),
+        ],
+        Path::new("/tmp/ft"),
+    );
+    let chess = &served["game.example.chess"].policy;
+    assert!(
+        chess.contains("script-src http://ftplugin.localhost/game.example.chess/ "),
+        "{chess}"
+    );
+    assert!(!chess.contains("com.example.code"), "{chess}");
+    let code = &served["com.example.code"].policy;
+    assert!(
+        code.contains("ftplugin://localhost/com.example.code/"),
+        "{code}"
+    );
+    assert!(!code.contains("game.example.chess"), "{code}");
 }
 
 #[test]

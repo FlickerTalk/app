@@ -318,12 +318,12 @@ pub fn file_in(dir: &Path, file: &str) -> Option<PathBuf> {
     path.starts_with(dir).then_some(path)
 }
 
-/// The sandboxed frame has an opaque origin and loads module scripts with CORS, hence `*`. Only
-/// the plugin's own files are served with it.
+/// The sandboxed frame has an opaque origin and loads module scripts with CORS, hence `*`. Every
+/// frame has the same opaque origin, so this cannot tell plugins apart: the frame's policy does.
 pub const ALLOW_OPAQUE_ORIGIN: (&str, &str) = ("Access-Control-Allow-Origin", "*");
 
-pub fn policy_for(granted: &Permissions) -> String {
-    granted.content_security_policy()
+pub fn policy_for(id: &str, granted: &Permissions) -> String {
+    granted.content_security_policy(id)
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::manifest::is_id;
+
 // installing grants nothing, each one is asked for and revoked on its own. A plugin never gets
 // keys, the push token or the whole conversation.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,24 +77,55 @@ mod given {
 }
 
 // the frame is sandboxed, so its origin is opaque and 'self' would match nothing
-const PLUGIN_ORIGINS: &str =
-    "http://ftplugin.localhost https://ftplugin.localhost ftplugin://localhost";
+const PLUGIN_ORIGINS: [&str; 3] = [
+    "http://ftplugin.localhost",
+    "https://ftplugin.localhost",
+    "ftplugin://localhost",
+];
+
+fn own_folder(id: &str) -> Vec<String> {
+    if !is_id(id) {
+        return Vec::new();
+    }
+    PLUGIN_ORIGINS
+        .iter()
+        .map(|origin| format!("{origin}/{id}/"))
+        .collect()
+}
+
+fn source_list(sources: Vec<String>) -> String {
+    if sources.is_empty() {
+        "'none'".to_owned()
+    } else {
+        sources.join(" ")
+    }
+}
 
 impl Permissions {
-    pub fn content_security_policy(&self) -> String {
-        let connect = if self.network.is_empty() {
-            "'none'".to_owned()
-        } else {
+    pub fn content_security_policy(&self, id: &str) -> String {
+        let own = own_folder(id);
+        let own_and = |extra: &[&str]| {
+            source_list(
+                own.iter()
+                    .cloned()
+                    .chain(extra.iter().map(|one| one.to_string()))
+                    .collect(),
+            )
+        };
+        let connect = source_list(
             self.network
                 .iter()
                 .map(|host| format!("https://{host}"))
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
+                .collect(),
+        );
         format!(
-            "default-src 'none'; script-src {PLUGIN_ORIGINS}; style-src {PLUGIN_ORIGINS} 'unsafe-inline'; \
-             img-src {PLUGIN_ORIGINS} data: blob:; font-src {PLUGIN_ORIGINS}; connect-src {connect}; base-uri 'none'; \
-             form-action 'none'; child-src 'none'; frame-ancestors http://tauri.localhost tauri://localhost"
+            "default-src 'none'; script-src {}; style-src {}; img-src {}; font-src {}; connect-src {connect}; \
+             base-uri 'none'; form-action 'none'; child-src 'none'; \
+             frame-ancestors http://tauri.localhost tauri://localhost",
+            own_and(&[]),
+            own_and(&["'unsafe-inline'"]),
+            own_and(&["data:", "blob:"]),
+            own_and(&[]),
         )
     }
 }
@@ -101,20 +134,4 @@ impl Permissions {
 mod tests;
 
 #[cfg(test)]
-mod policy_shape {
-    use super::*;
-
-    #[test]
-    fn the_policy_is_one_line_without_double_spaces() {
-        let policy = Permissions {
-            network: vec!["api.openai.com".to_owned()],
-            ..Permissions::default()
-        }
-        .content_security_policy();
-        assert!(!policy.contains('\n') && !policy.contains("  "), "{policy}");
-        assert!(
-            policy.ends_with("frame-ancestors http://tauri.localhost tauri://localhost"),
-            "{policy}"
-        );
-    }
-}
+mod policy_test;

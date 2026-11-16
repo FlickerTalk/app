@@ -168,13 +168,48 @@ fn the_frame_hands_the_plugin_its_api() {
 
 #[test]
 fn the_policy_of_a_plugin_without_network_lets_it_reach_nothing() {
-    let policy = policy_for(&Permissions::default());
+    let policy = policy_for("com.example.x", &Permissions::default());
     assert!(policy.contains("connect-src 'none'"));
     let with_network = Permissions {
         network: vec!["api.openai.com".to_owned()],
         ..Permissions::default()
     };
-    assert!(policy_for(&with_network).contains("connect-src https://api.openai.com"));
+    assert!(
+        policy_for("com.example.x", &with_network).contains("connect-src https://api.openai.com")
+    );
+}
+
+#[test]
+fn the_policy_of_a_plugin_names_its_own_folder() {
+    let policy = policy_for("com.example.x", &Permissions::default());
+    assert!(
+        policy.contains("script-src http://ftplugin.localhost/com.example.x/ "),
+        "{policy}"
+    );
+    assert!(
+        !policy.contains("ftplugin://localhost;") && !policy.contains("ftplugin://localhost "),
+        "{policy}"
+    );
+}
+
+#[test]
+fn a_request_inside_a_plugins_folder_never_reaches_another_plugin() {
+    let dir = Path::new("/tmp/ft-plugins/com.example.a");
+    for path in [
+        "/com.example.a/..%2Fcom.example.b/dist/index.js",
+        "/com.example.a/%2E%2E/com.example.b/dist/index.js",
+        "/com.example.a%2F..%2Fcom.example.b%2Fdist%2Findex.js",
+        "/com.example.a/dist/..%2F..%2Fcom.example.b/dist/index.js",
+        "/com.example.a/ionic/..%2F..%2Fcom.example.b/dist/index.js",
+        "/com.example.a/icon/..%2F..%2Fcom.example.b/icon.svg",
+    ] {
+        let (id, file) = route(path).expect("a plugin and a file");
+        assert_eq!(id, "com.example.a", "{path}");
+        assert_eq!(file_in(dir, &file), None, "{path}");
+        assert!(ionic(file.trim_start_matches("ionic/")).is_none(), "{path}");
+        let name = file.trim_start_matches("icon/").trim_end_matches(".svg");
+        assert!(icon(name).is_none(), "{path}");
+    }
 }
 
 #[test]
