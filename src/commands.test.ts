@@ -12,7 +12,8 @@ function invoked(source: string): string[] {
 }
 
 function registered(lib: string): Set<string> {
-  const list = lib.slice(lib.indexOf("generate_handler!["), lib.indexOf("])", lib.indexOf("generate_handler![")));
+  const start = lib.indexOf("generate_handler![");
+  const list = lib.slice(start, lib.indexOf("]", start));
   return new Set([...list.matchAll(/::(core_[a-z0-9_]+)/g)].map((found) => found[1]));
 }
 
