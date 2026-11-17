@@ -7,6 +7,9 @@ use tauri::{AppHandle, Manager, State};
 
 use super::{failed, now_ms, Client};
 
+mod seeds;
+use seeds::BUNDLED_PLUGINS;
+
 pub async fn refresh_served_plugins(app: &AppHandle, core: &Arc<ft_core::Core>, dir: &Path) {
     let mut plugins = Vec::new();
     for plugin in core.plugins().await.unwrap_or_default() {
@@ -201,61 +204,6 @@ pub async fn core_plugin_remove(
     core.remove_plugin(&plugin).await.map_err(failed)?;
     refresh_served_plugins(&app, &core, client.dir()?).await;
     Ok(())
-}
-
-const BUNDLED_PLUGINS: &[&[u8]] = &[
-    include_bytes!("../../resources/plugins/markdown.ftplugin"),
-    include_bytes!("../../resources/plugins/images.ftplugin"),
-    include_bytes!("../../resources/plugins/pdf.ftplugin"),
-    include_bytes!("../../resources/plugins/redact.ftplugin"),
-    include_bytes!("../../resources/plugins/sketch.ftplugin"),
-    include_bytes!("../../resources/plugins/scanner.ftplugin"),
-    include_bytes!("../../resources/plugins/countdown.ftplugin"),
-    include_bytes!("../../resources/plugins/board.ftplugin"),
-    include_bytes!("../../resources/plugins/clean.ftplugin"),
-    include_bytes!("../../resources/plugins/drive.ftplugin"),
-    include_bytes!("../../resources/plugins/list.ftplugin"),
-    include_bytes!("../../resources/plugins/location.ftplugin"),
-    include_bytes!("../../resources/plugins/notes.ftplugin"),
-    include_bytes!("../../resources/plugins/poll.ftplugin"),
-    include_bytes!("../../resources/plugins/sign.ftplugin"),
-    include_bytes!("../../resources/plugins/split.ftplugin"),
-    include_bytes!("../../resources/plugins/pdfviewer.ftplugin"),
-    include_bytes!("../../resources/plugins/translate.ftplugin"),
-    include_bytes!("../../resources/plugins/remind.ftplugin"),
-    include_bytes!("../../resources/plugins/game.tictactoe.ftplugin"),
-    include_bytes!("../../resources/plugins/game.fourinarow.ftplugin"),
-    include_bytes!("../../resources/plugins/game.chess.ftplugin"),
-    include_bytes!("../../resources/plugins/game.backgammon.ftplugin"),
-    include_bytes!("../../resources/plugins/game.checkers.ftplugin"),
-    include_bytes!("../../resources/plugins/game.dotsandboxes.ftplugin"),
-    include_bytes!("../../resources/plugins/game.eights.ftplugin"),
-    include_bytes!("../../resources/plugins/game.gomoku.ftplugin"),
-    include_bytes!("../../resources/plugins/game.mancala.ftplugin"),
-    include_bytes!("../../resources/plugins/game.reversi.ftplugin"),
-    include_bytes!("../../resources/plugins/game.seabattle.ftplugin"),
-    include_bytes!("../../resources/plugins/game.wordduel.ftplugin"),
-    include_bytes!("../../resources/plugins/game.wordgrid.ftplugin"),
-];
-
-#[cfg(test)]
-const SEED_LIMIT: u64 = 4 * 1024 * 1024;
-#[cfg(test)]
-const SEEDS_LIMIT: u64 = 8 * 1024 * 1024;
-
-#[cfg(test)]
-fn seeds_weight_problem(weights: impl IntoIterator<Item = u64>) -> Option<String> {
-    let mut total = 0;
-    for weight in weights {
-        if weight > SEED_LIMIT {
-            return Some(format!(
-                "a plugin of {weight} bytes is a download, not a seed"
-            ));
-        }
-        total += weight;
-    }
-    (total > SEEDS_LIMIT)
-        .then(|| format!("the seeds weigh {total} bytes, which is no longer little"))
 }
 
 #[derive(Serialize, Deserialize, Clone)]
