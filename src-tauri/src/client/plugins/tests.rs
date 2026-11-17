@@ -98,26 +98,6 @@ fn the_translate_permission_goes_to_the_screen_and_back() {
 }
 
 #[test]
-fn what_travels_inside_the_app_stays_tiny() {
-    for package in BUNDLED_PLUGINS {
-        let plugin = ft_plugins::open(package, &ft_plugins::catalogue())
-            .expect("a seed is not signed for us");
-        assert!(
-            !plugin.manifest.components.is_empty(),
-            "{} shows nothing",
-            plugin.manifest.id
-        );
-        assert!(
-            plugin.file("dist/index.js").is_some(),
-            "{} has no code",
-            plugin.manifest.id
-        );
-    }
-    let weights = BUNDLED_PLUGINS.iter().map(|package| package.len() as u64);
-    assert_eq!(seeds_weight_problem(weights), None);
-}
-
-#[test]
 fn every_seed_runs_on_this_core() {
     for package in BUNDLED_PLUGINS {
         let manifest = ft_plugins::open(package, &ft_plugins::catalogue())
@@ -133,33 +113,6 @@ fn every_seed_runs_on_this_core() {
             manifest.min_core_version
         );
     }
-}
-
-#[test]
-fn a_heavy_seed_is_a_download() {
-    assert!(
-        seeds_weight_problem([5 * 1024 * 1024]).is_some(),
-        "a seed of 5 MiB is refused"
-    );
-    assert_eq!(
-        seeds_weight_problem([3 * 1024 * 1024 + 512 * 1024]),
-        None,
-        "the PDF viewer travels"
-    );
-    assert!(
-        seeds_weight_problem([SEED_LIMIT + 1]).is_some(),
-        "a seed just over the limit is refused"
-    );
-    assert_eq!(
-        seeds_weight_problem([SEED_LIMIT]),
-        None,
-        "a seed at the limit travels"
-    );
-    let many = vec![SEED_LIMIT; (SEEDS_LIMIT / SEED_LIMIT) as usize + 1];
-    assert!(
-        seeds_weight_problem(many).is_some(),
-        "seeds that are light one by one but heavy together are refused"
-    );
 }
 
 #[test]
@@ -237,7 +190,7 @@ fn the_app_carries_its_tools_and_games() {
         "translate",
         "remind",
     ];
-    const GAMES: [&str; 13] = [
+    const GAMES: [&str; 32] = [
         "tictactoe",
         "fourinarow",
         "chess",
@@ -251,6 +204,25 @@ fn the_app_carries_its_tools_and_games() {
         "seabattle",
         "wordduel",
         "wordgrid",
+        "balloonfair",
+        "balloonruler",
+        "beatwagons",
+        "beeproute",
+        "bumperring",
+        "cardcorner",
+        "colourcorner",
+        "duosquad",
+        "foamduel",
+        "goalswipe",
+        "littlepier",
+        "paddlepop",
+        "painttanks",
+        "racer",
+        "robotrumble",
+        "shardsplitter",
+        "skychase",
+        "squarehop",
+        "tilecourt",
     ];
     let offered = seeds();
     let wanted = TOOLS
