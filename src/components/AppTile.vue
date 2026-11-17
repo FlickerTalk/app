@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { IonIcon, IonRippleEffect, IonSpinner } from "@ionic/vue";
 import { addOutline, downloadOutline, lockClosedOutline } from "ionicons/icons";
 import { t } from "../i18n";
+import { useNameFit } from "../tile-name";
 
 const props = defineProps<{
   name: string;
@@ -20,6 +21,11 @@ const HOLD_MS = 500;
 const SLOP_PX = 10;
 
 const BADGES = { download: downloadOutline, add: addOutline, lock: lockClosedOutline } as const;
+
+const room = ref<HTMLElement>();
+const probe = ref<HTMLElement>();
+const fit = useNameFit(room, probe);
+const nameSize = computed(() => (fit.value.size ? { fontSize: `${fit.value.size}px` } : undefined));
 
 const ariaLabel = computed(() => {
   if (props.label) return props.label;
@@ -120,8 +126,11 @@ onBeforeUnmount(cancel);
         <ion-icon :icon="BADGES[badge]" />
       </span>
     </span>
-    <span class="ft-app-tile__name" dir="auto">{{ name }}</span>
-    <span v-if="caption" class="ft-app-tile__caption">{{ caption }}</span>
+    <span ref="room" class="ft-app-tile__label" :class="{ 'ft-app-tile__label--caption': caption }">
+      <span class="ft-app-tile__name" :class="{ 'ft-app-tile__name--clipped': fit.clipped }" :style="nameSize" dir="auto">{{ name }}</span>
+      <span v-if="caption" class="ft-app-tile__caption">{{ caption }}</span>
+    </span>
+    <span ref="probe" class="ft-app-tile__probe" :data-name="name" aria-hidden="true" />
     <!-- a press that started a ripple stays lit until the install ends -->
     <ion-ripple-effect v-if="!busy" />
   </button>
@@ -198,26 +207,51 @@ onBeforeUnmount(cancel);
 .ft-app-tile[aria-busy="true"] .ft-app-tile__image {
   opacity: 0.25;
 }
+.ft-app-tile__label {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 2px;
+  min-block-size: 30px;
+}
+.ft-app-tile__label--caption {
+  min-block-size: calc(30px + 2px + 13px);
+}
+.ft-app-tile__name,
+.ft-app-tile__probe {
+  font-size: 12px;
+  line-height: 15px;
+}
 .ft-app-tile__name {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
-  box-sizing: border-box;
-  max-width: 100%;
-  /* splitting at any letter gave "Backgammo/n" */
-  padding-inline: 0;
-  font-size: 12px;
-  line-height: 1.25;
   text-align: center;
-  overflow-wrap: break-word;
+  /* Ionic's body breaks long words at any letter, and this rule is inherited */
+  overflow-wrap: normal;
+}
+.ft-app-tile__name--clipped {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ft-app-tile__probe {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  width: min-content;
+  visibility: hidden;
+}
+.ft-app-tile__probe::before {
+  content: attr(data-name);
 }
 .ft-app-tile__caption {
   display: block;
-  margin-top: -4px;
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 13px;
+  text-align: center;
   color: var(--ion-color-medium);
 }
 .ft-app-tile--off .ft-app-tile__icon {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+import { nextTick } from "vue";
 import { IonIcon, IonSpinner } from "@ionic/vue";
 import { addOutline, downloadOutline, imageOutline, lockClosedOutline } from "ionicons/icons";
 import AppTile from "./AppTile.vue";
@@ -183,15 +184,106 @@ describe("AppTile", () => {
     );
   });
 
-  it("breaks a name between its words, not with a hyphen", () => {
-    const rule = source.slice(source.indexOf("<style")).match(/\.ft-app-tile__name\s*\{([^}]*)\}/)![1];
-    expect(rule).not.toMatch(/hyphens\s*:\s*auto/);
-    expect(rule).not.toMatch(/anywhere/);
-    expect(rule).toMatch(/overflow-wrap:\s*break-word/);
-    expect(rule).toMatch(/font-size:\s*12px/);
-    expect(rule).toMatch(/padding-inline:\s*0/);
-    expect(rule).toMatch(/-webkit-line-clamp:\s*2/);
+  it("breaks a name only between its words, never inside one", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    expect(styles).not.toMatch(/hyphens\s*:\s*auto/);
+    expect(styles).not.toMatch(/anywhere|break-word|break-all/);
+    const name = styles.match(/\.ft-app-tile__name\s*\{([^}]*)\}/)![1];
+    expect(name).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(name).toMatch(/overflow-wrap:\s*normal/);
+    expect(styles.match(/\.ft-app-tile__name,\s*\.ft-app-tile__probe\s*\{([^}]*)\}/)![1]).toMatch(/font-size:\s*12px/);
     expect(tile({ name: "Batalla naval" }).find(".ft-app-tile__name").text()).toBe("Batalla naval");
+  });
+
+  it("keeps the same height whatever the name, with room for two lines and the caption", () => {
+    const styles = source.slice(source.indexOf("<style"));
+    const rule = (selector: string) => styles.match(new RegExp(`${selector.replace(/[.]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+    expect(rule(".ft-app-tile__label")).toMatch(/min-block-size:/);
+    expect(rule(".ft-app-tile__label--caption")).toMatch(/min-block-size:/);
+    expect(tile().find(".ft-app-tile__label").classes()).not.toContain("ft-app-tile__label--caption");
+    const offered = tile({ caption: "48 KB" }).find(".ft-app-tile__label");
+    expect(offered.classes()).toContain("ft-app-tile__label--caption");
+    expect(offered.find(".ft-app-tile__name").exists()).toBe(true);
+    expect(offered.find(".ft-app-tile__caption").exists()).toBe(true);
+  });
+
+  describe("with a word wider than the tile", () => {
+    let observers: Array<() => void>;
+
+    beforeEach(() => {
+      observers = [];
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(callback: () => void) {
+            observers.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+      );
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      document.head.querySelectorAll("style.base-size").forEach((css) => css.remove());
+    });
+
+    function laidOut(wrapper: ReturnType<typeof tile>, tileWidth: number, widestWordAt12: number) {
+      const css = document.createElement("style");
+      css.className = "base-size";
+      css.textContent = ".ft-app-tile__probe { font-size: 12px; }";
+      document.head.append(css);
+      const probe = wrapper.find(".ft-app-tile__probe").element as HTMLElement;
+      wrapper.find(".ft-app-tile__label").element.getBoundingClientRect = () => ({ width: tileWidth }) as DOMRect;
+      probe.getBoundingClientRect = () => ({ width: (widestWordAt12 * parseFloat(getComputedStyle(probe).fontSize)) / 12 }) as DOMRect;
+      for (const observer of observers) observer();
+    }
+
+    it("measures the widest word of the name without showing it or saying it twice", () => {
+      const probe = tile({ name: "Rompecristales" }).find(".ft-app-tile__probe");
+      expect(probe.attributes("data-name")).toBe("Rompecristales");
+      expect(probe.attributes("aria-hidden")).toBe("true");
+      expect(probe.text()).toBe("");
+      const rules = source.slice(source.indexOf("<style")).matchAll(/\.ft-app-tile__probe\s*\{([^}]*)\}/g);
+      const rule = [...rules].map((one) => one[1]).join("");
+      expect(rule).toMatch(/position:\s*absolute/);
+      expect(rule).toMatch(/visibility:\s*hidden/);
+      expect(rule).toMatch(/width:\s*min-content/);
+      expect(source).toMatch(/\.ft-app-tile__probe::before\s*\{[^}]*content:\s*attr\(data-name\)/);
+    });
+
+    it("shrinks that name just enough to fit, and keeps the whole name for screen readers", async () => {
+      const wrapper = tile({ name: "Rompecristales" });
+      laidOut(wrapper, 76, 87);
+      await nextTick();
+      const name = wrapper.find(".ft-app-tile__name");
+      expect((name.element as HTMLElement).style.fontSize).toBe("10.4px");
+      expect(name.classes()).not.toContain("ft-app-tile__name--clipped");
+      expect(name.text()).toBe("Rompecristales");
+      expect(wrapper.find("button").attributes("aria-label")).toBe("Rompecristales");
+    });
+
+    it("leaves a name whose words fit at the tile's usual size", async () => {
+      const wrapper = tile({ name: "Batalla naval" });
+      laidOut(wrapper, 76, 44);
+      await nextTick();
+      const name = wrapper.find(".ft-app-tile__name");
+      expect((name.element as HTMLElement).style.fontSize).toBe("");
+      expect(name.classes()).not.toContain("ft-app-tile__name--clipped");
+    });
+
+    it("ends the name with an ellipsis when even the smallest size is too wide", async () => {
+      const wrapper = tile({ name: "Donaudampfschifffahrtsgesellschaft", badge: "lock" });
+      laidOut(wrapper, 76, 240);
+      await nextTick();
+      const name = wrapper.find(".ft-app-tile__name");
+      expect((name.element as HTMLElement).style.fontSize).toBe("9px");
+      expect(name.classes()).toContain("ft-app-tile__name--clipped");
+      expect(wrapper.find("button").attributes("aria-label")).toBe("Donaudampfschifffahrtsgesellschaft, locked");
+      const rule = source.slice(source.indexOf("<style")).match(/\.ft-app-tile__name--clipped\s*\{([^}]*)\}/)![1];
+      expect(rule).toMatch(/white-space:\s*nowrap/);
+      expect(rule).toMatch(/text-overflow:\s*ellipsis/);
+    });
   });
 
   describe("with the plugin's own image", () => {
