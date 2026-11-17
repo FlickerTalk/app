@@ -6,6 +6,7 @@ import PluginSheet from "./PluginSheet.vue";
 import GameFullscreenBar from "./GameFullscreenBar.vue";
 import { gameUrl } from "../games";
 import { focusButton, useFullscreenCues } from "../gameFullscreen";
+import { useTypingInFrame } from "../frameTyping";
 import { t } from "../i18n";
 import { isSupport, type PickedFile } from "../core";
 import type { PermissionNeed } from "../permissions";
@@ -30,7 +31,11 @@ const emit = defineEmits<{
 
 const sheet = ref<InstanceType<typeof PluginSheet> | null>(null);
 const gameArea = ref<HTMLElement | null>(null);
-defineExpose({ sheet, gameArea });
+const typing = useTypingInFrame(
+  () => gameArea.value?.querySelector("iframe"),
+  () => gameArea.value,
+);
+defineExpose({ sheet, gameArea, typing });
 
 const invites = computed(() => Boolean(gameUrl(props.plugin.id)) && !isSupport(props.plugin.contact ?? ""));
 const bar = ref<InstanceType<typeof GameFullscreenBar> | null>(null);

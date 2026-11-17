@@ -308,6 +308,27 @@ describe("the frame", () => {
     }
   });
 
+  it("tells the app where a field that takes the focus is, and nothing for a button", async () => {
+    const { posted, says, ran } = await frame();
+    await says({ type: "ft.theme", dark: false, theme: {} });
+    await ran;
+    const field = document.createElement("input");
+    const button = document.createElement("button");
+    document.body.append(field, button);
+    vi.spyOn(field, "getBoundingClientRect").mockReturnValue({ top: 206, bottom: 254 } as DOMRect);
+    try {
+      field.focus();
+      expect(posted.at(-1)).toEqual({ type: "ft.field", top: 206, bottom: 254 });
+      const said = posted.length;
+      button.focus();
+      expect(posted).toHaveLength(said);
+    } finally {
+      vi.restoreAllMocks();
+      field.remove();
+      button.remove();
+    }
+  });
+
   describe("closing", () => {
     type Closing = { onClose(handler: () => unknown): void; close(): void };
     const closing = () => (globalThis as unknown as { ft: Closing }).ft;
