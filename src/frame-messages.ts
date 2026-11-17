@@ -232,3 +232,14 @@ export function fromFrame(event: MessageEvent, frame: HTMLIFrameElement | null):
       return null;
   }
 }
+
+const FIELD_REACH = 10_000; // px
+
+const onScreen = (value: unknown): value is number => typeof value === "number" && Math.abs(value) <= FIELD_REACH;
+
+export function fieldFromFrame(event: MessageEvent, frame: HTMLIFrameElement | null): { top: number; bottom: number } | null {
+  if (!frame?.contentWindow || event.source !== frame.contentWindow) return null;
+  const said = event.data as Record<string, unknown> | null;
+  if (!said || said.type !== "ft.field" || !onScreen(said.top) || !onScreen(said.bottom) || said.bottom < said.top) return null;
+  return { top: said.top, bottom: said.bottom };
+}

@@ -1,6 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { fromFrame, NOTICE_LIMIT } from "./frame-messages";
+import { fieldFromFrame, fromFrame, NOTICE_LIMIT } from "./frame-messages";
+
+describe("where a plugin's frame says its focused field is", () => {
+  const frame = { contentWindow: {} } as unknown as HTMLIFrameElement;
+  const said = (data: unknown, source: unknown = frame.contentWindow) => fieldFromFrame({ source, data } as unknown as MessageEvent, frame);
+
+  it("takes a field's top and bottom from the plugin's own frame only", () => {
+    expect(said({ type: "ft.field", top: 206, bottom: 254 })).toEqual({ top: 206, bottom: 254 });
+    expect(said({ type: "ft.field", top: 206, bottom: 254 }, {})).toBeNull();
+    expect(fieldFromFrame({ source: null, data: { type: "ft.field", top: 1, bottom: 2 } } as unknown as MessageEvent, null)).toBeNull();
+  });
+
+  it("refuses anything else, and a field upside down or out of any screen", () => {
+    expect(said({ type: "ft.height", height: 120 })).toBeNull();
+    expect(said({ type: "ft.field", top: "206", bottom: 254 })).toBeNull();
+    expect(said({ type: "ft.field", top: 254, bottom: 206 })).toBeNull();
+    expect(said({ type: "ft.field", top: Number.NaN, bottom: 254 })).toBeNull();
+    expect(said({ type: "ft.field", top: 0, bottom: Number.POSITIVE_INFINITY })).toBeNull();
+    expect(said({ type: "ft.field", top: -1e6, bottom: 20 })).toBeNull();
+    expect(said(null)).toBeNull();
+  });
+
+  it("is not something the plugin can ask the app for", () => {
+    expect(fromFrame({ source: frame.contentWindow, data: { type: "ft.field", top: 1, bottom: 2 } } as unknown as MessageEvent, frame)).toBeNull();
+  });
+});
 
 describe("what a plugin's frame may say", () => {
   it("listens only to the frame of the plugin", () => {

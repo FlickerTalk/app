@@ -569,7 +569,7 @@ watch(
         </ion-button>
       </div>
     </ion-footer>
-    <ion-footer v-else class="ion-no-border" :inert="fullscreen || undefined">
+    <ion-footer v-else v-show="!pluginView?.typing" class="ion-no-border" :inert="fullscreen || undefined">
       <GameStrip v-if="playing" ref="stripView" :peeking="peeking" :name="plugin?.name ?? ''" :last="lastFromThem" @peek="peek" />
       <ChatComposer
         ref="composerView"

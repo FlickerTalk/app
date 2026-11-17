@@ -323,6 +323,15 @@ addEventListener("message", (event) => {
   }
 });
 
+// The app can't see into the frame, so it learns from here where the field the keyboard is for sits.
+const EDITABLE = 'input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="hidden"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"])';
+document.addEventListener("focusin", (event) => {
+  const field = event.composedPath()[0];
+  if (!(field instanceof Element) || !field.matches(EDITABLE)) return;
+  const { top, bottom } = field.getBoundingClientRect();
+  post({ type: "ft.field", top, bottom });
+});
+
 const sizes = new ResizeObserver(tell);
 sizes.observe(document.documentElement);
 sizes.observe(document.body);

@@ -2461,6 +2461,38 @@ describe("ChatThread", () => {
         expect(scrollToBottom).toHaveBeenCalled();
       });
 
+      it("steps the strip and the composer aside while the keyboard is up for a field in the game, and brings them back", async () => {
+        const viewport = new FakeViewport();
+        Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
+        Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+        const stop = startViewportFit(window, document.documentElement);
+        bridge({ installed: [CODE, CHESS] });
+        const wrapper = await playChess();
+        const footer = () => wrapper.find("ion-footer");
+        let focused: Element = document.body;
+        Object.defineProperty(document, "activeElement", { get: () => focused, configurable: true });
+
+        focused = wrapper.find("[data-test='game-area'] iframe").element;
+        viewport.move(560);
+        await flushPromises();
+        expect(hidden(footer())).toBe(true);
+        expect(footer().find("[data-test='game-strip']").exists()).toBe(true);
+
+        viewport.move(900);
+        await flushPromises();
+        expect(hidden(footer())).toBe(false);
+
+        focused = wrapper.find("[data-test='peer']").element;
+        viewport.move(560);
+        await flushPromises();
+        expect(hidden(footer())).toBe(false);
+
+        viewport.move(900);
+        stop();
+        delete (document as { activeElement?: Element }).activeElement;
+        document.documentElement.removeAttribute("style");
+      });
+
       it("closes the game with the back button and stays in the chat", async () => {
         const wrapper = await playChess();
         expect(back.handler).not.toBeNull();

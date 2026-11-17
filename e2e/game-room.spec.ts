@@ -1,8 +1,11 @@
 import type { Locator, Page } from "@playwright/test";
-import { callsTo, expect, frameHeard, frameSays, servePluginFrames, test } from "./helpers";
+import { callsTo, expect, frameHeard, frameSays, servePluginFrames, serveRealPluginFrames, test } from "./helpers";
 
 const BOB = "ft_bob123456789";
 const TICTACTOE = "com.flickertalk.game.tictactoe";
+const LOW_FIELD = `customElements.define("ft-probe", class extends HTMLElement {
+  connectedCallback() { this.innerHTML = '<div style="height: 520px"></div><input aria-label="Your name">'; }
+});`;
 
 type Box = { x: number; y: number; width: number; height: number };
 const overlap = (a: Box, b: Box) => a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5;
@@ -52,6 +55,33 @@ async function laidOut(app: Page, size: { width: number; height: number }) {
   const order = [parts.header, parts.bar, parts.game, parts.strip, parts.composer];
   for (let at = 1; at < order.length; at++) expect(overlap(order[at - 1], order[at]), `part ${at} over part ${at - 1}`).toBe(false);
   await expect(app.locator(".ft-thread__content").last()).toBeHidden();
+}
+
+async function fakeKeyboard(app: Page) {
+  await app.addInitScript(() => {
+    const real = window.visualViewport!;
+    let keyboard = 0;
+    const fake = new EventTarget();
+    Object.defineProperties(fake, {
+      height: { get: () => window.innerHeight - keyboard },
+      offsetTop: { get: () => 0 },
+      width: { get: () => real.width },
+      offsetLeft: { get: () => 0 },
+      pageTop: { get: () => 0 },
+      pageLeft: { get: () => 0 },
+      scale: { get: () => 1 },
+    });
+    Object.defineProperty(window, "visualViewport", { value: fake, configurable: true });
+    (window as unknown as { __keyboard: (height: number) => void }).__keyboard = (height) => {
+      keyboard = height;
+      fake.dispatchEvent(new Event("resize"));
+    };
+  });
+}
+
+async function keyboard(app: Page, height: number) {
+  await app.evaluate((shown) => (window as unknown as { __keyboard: (height: number) => void }).__keyboard(shown), height);
+  await expect.poll(() => app.evaluate(() => document.documentElement.classList.contains("ft-keyboard-open"))).toBe(height > 0);
 }
 
 const SIZES = [
@@ -107,64 +137,25 @@ test.describe("on a phone", () => {
   test.beforeEach(async ({ app }) => servePluginFrames(app));
 
   test("with the keyboard open the composer stays above it and the game gives way", async ({ app }) => {
-    await app.addInitScript(() => {
-      const real = window.visualViewport!;
-      let keyboard = 0;
-      const fake = new EventTarget();
-      Object.defineProperties(fake, {
-        height: { get: () => window.innerHeight - keyboard },
-        offsetTop: { get: () => 0 },
-        width: { get: () => real.width },
-        offsetLeft: { get: () => 0 },
-        pageTop: { get: () => 0 },
-        pageLeft: { get: () => 0 },
-        scale: { get: () => 1 },
-      });
-      Object.defineProperty(window, "visualViewport", { value: fake, configurable: true });
-      (window as unknown as { __keyboard: (height: number) => void }).__keyboard = (height) => {
-        keyboard = height;
-        fake.dispatchEvent(new Event("resize"));
-      };
-    });
+    await fakeKeyboard(app);
     await app.goto(`/chat/${BOB}`);
     await playFromTheChat(app, app.getByTestId("apps"));
-    await app.evaluate(() => (window as unknown as { __keyboard: (height: number) => void }).__keyboard(300));
-    await expect.poll(() => app.evaluate(() => document.documentElement.classList.contains("ft-keyboard-open"))).toBe(true);
+    await keyboard(app, 300);
     await laidOut(app, { width: 360, height: 740 - 300 });
     await shot(app, "phone-keyboard-dark");
   });
 
   test("the game is shown from its top again when the keyboard goes", async ({ app }) => {
-    await app.addInitScript(() => {
-      const real = window.visualViewport!;
-      let keyboard = 0;
-      const fake = new EventTarget();
-      Object.defineProperties(fake, {
-        height: { get: () => window.innerHeight - keyboard },
-        offsetTop: { get: () => 0 },
-        width: { get: () => real.width },
-        offsetLeft: { get: () => 0 },
-        pageTop: { get: () => 0 },
-        pageLeft: { get: () => 0 },
-        scale: { get: () => 1 },
-      });
-      Object.defineProperty(window, "visualViewport", { value: fake, configurable: true });
-      (window as unknown as { __keyboard: (height: number) => void }).__keyboard = (height) => {
-        keyboard = height;
-        fake.dispatchEvent(new Event("resize"));
-      };
-    });
+    await fakeKeyboard(app);
     await app.goto(`/chat/${BOB}`);
     await playFromTheChat(app, app.getByTestId("apps"));
     await frameSays(app, { type: "ft.height", height: 900 });
     const area = app.getByTestId("game-area");
-    await app.evaluate(() => (window as unknown as { __keyboard: (height: number) => void }).__keyboard(300));
-    await expect.poll(() => app.evaluate(() => document.documentElement.classList.contains("ft-keyboard-open"))).toBe(true);
+    await keyboard(app, 300);
     await area.evaluate((element) => (element.scrollTop = 160));
     expect(await area.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
 
-    await app.evaluate(() => (window as unknown as { __keyboard: (height: number) => void }).__keyboard(0));
-    await expect.poll(() => app.evaluate(() => document.documentElement.classList.contains("ft-keyboard-open"))).toBe(false);
+    await keyboard(app, 0);
     await expect.poll(() => area.evaluate((element) => element.scrollTop)).toBe(0);
   });
 
@@ -190,5 +181,33 @@ test.describe("on a phone", () => {
     }
     await laidOut(app, { width: 360, height: 740 });
     await shot(app, "phone-room-call-dark");
+  });
+
+  test("typing in a field of the game takes the strip and the composer away until the keyboard goes", async ({ app }) => {
+    await fakeKeyboard(app);
+    await serveRealPluginFrames(app, LOW_FIELD);
+    await app.goto(`/chat/${BOB}`);
+    await playFromTheChat(app, app.getByTestId("apps"));
+    await expect(app.locator("ion-modal.ft-game-ask")).toBeHidden();
+
+    const field = app.frameLocator("iframe.ft-plugin__frame").getByLabel("Your name");
+    await field.click();
+    await keyboard(app, 300);
+    await expect(app.getByTestId("game-strip")).toBeHidden();
+    await expect(app.locator(".ft-composer")).toBeHidden();
+    const area = await box(app.getByTestId("game-area"));
+    expect(Math.round(area.y + area.height)).toBe(740 - 300);
+    await expect.poll(async () => (await field.boundingBox())!.y + (await field.boundingBox())!.height).toBeLessThanOrEqual(740 - 300);
+    expect((await field.boundingBox())!.y).toBeGreaterThanOrEqual(area.y);
+    await shot(app, "phone-typing-in-game-dark");
+
+    await keyboard(app, 0);
+    await expect(app.getByTestId("game-strip")).toBeVisible();
+    await laidOut(app, { width: 360, height: 740 });
+
+    await app.locator("ion-textarea textarea").focus();
+    await keyboard(app, 300);
+    await expect(app.getByTestId("game-strip")).toBeVisible();
+    await laidOut(app, { width: 360, height: 740 - 300 });
   });
 });
