@@ -41,7 +41,10 @@ async fn located(locator: &dyn Locator) -> Option<Fix> {
 impl Core {
     // Pass the fix through, never keep or log it
     pub async fn plugin_location(&self, id: &str, locator: &dyn Locator) -> Result<Option<Fix>> {
-        ensure!(self.granted_to(id).await?.location, "{id} may not ask where the phone is");
+        ensure!(
+            self.granted_to(id).await?.location,
+            "{id} may not ask where the phone is"
+        );
         Ok(located(locator).await)
     }
 }
@@ -64,6 +67,10 @@ mod tests {
         let started = tokio::time::Instant::now();
         assert_eq!(located(&Silent).await, None);
         let waited = started.elapsed();
-        assert!(waited >= std::time::Duration::from_secs(15) && waited <= std::time::Duration::from_secs(30), "waited {waited:?}");
+        assert!(
+            waited >= std::time::Duration::from_secs(15)
+                && waited <= std::time::Duration::from_secs(30),
+            "waited {waited:?}"
+        );
     }
 }

@@ -24,11 +24,18 @@ impl Core {
     }
 
     fn plugins_home(&self) -> Result<&PathBuf> {
-        self.plugins_dir.get().context("the plugins folder is not set")
+        self.plugins_dir
+            .get()
+            .context("the plugins folder is not set")
     }
 
     // The signature is checked before anything is written
-    pub async fn install_plugin(&self, package: &[u8], catalogue: &Ed25519PublicKey, granted: Permissions) -> Result<Manifest> {
+    pub async fn install_plugin(
+        &self,
+        package: &[u8],
+        catalogue: &Ed25519PublicKey,
+        granted: Permissions,
+    ) -> Result<Manifest> {
         let plugin = ft_plugins::open(package, catalogue)?;
         ensure!(
             ft_plugins::version_at_least(CORE_VERSION, &plugin.manifest.min_core_version),
@@ -41,7 +48,8 @@ impl Core {
         if before.is_none() {
             self.usable(plugin.manifest.kind).await?;
         }
-        let had: Option<Permissions> = before.map(|installed| serde_json::from_str(&installed.granted).unwrap_or_default());
+        let had: Option<Permissions> =
+            before.map(|installed| serde_json::from_str(&installed.granted).unwrap_or_default());
         let keep = match &had {
             Some(had) => narrowed(had, &plugin.manifest.permissions),
             None => {
@@ -51,19 +59,36 @@ impl Core {
         };
         let home = self.plugins_home()?;
         ft_plugins::install(&plugin, home)?;
-        self.store.install_plugin(&plugin.manifest.id, &plugin.manifest.version, &serde_json::to_string(&keep)?).await?;
+        self.store
+            .install_plugin(
+                &plugin.manifest.id,
+                &plugin.manifest.version,
+                &serde_json::to_string(&keep)?,
+            )
+            .await?;
         if had.is_some() {
-            self.store.grant_plugin(&plugin.manifest.id, &serde_json::to_string(&keep)?).await?;
+            self.store
+                .grant_plugin(&plugin.manifest.id, &serde_json::to_string(&keep)?)
+                .await?;
         }
         let _ = self.events.send(Event::PluginsChanged);
-        if had.as_ref().is_some_and(|had| had.remind) && !keep.remind && self.store.forget_reminders(&plugin.manifest.id).await? {
+        if had.as_ref().is_some_and(|had| had.remind)
+            && !keep.remind
+            && self.store.forget_reminders(&plugin.manifest.id).await?
+        {
             let _ = self.events.send(Event::RemindersChanged);
         }
         Ok(plugin.manifest)
     }
 
     pub async fn plugins_opening(&self, mime: &str) -> Result<Vec<Manifest>> {
-        Ok(self.plugins().await?.into_iter().map(|plugin| plugin.manifest).filter(|manifest| manifest.opens_kind(mime)).collect())
+        Ok(self
+            .plugins()
+            .await?
+            .into_iter()
+            .map(|plugin| plugin.manifest)
+            .filter(|manifest| manifest.opens_kind(mime))
+            .collect())
     }
 
     pub async fn plugins(&self) -> Result<Vec<InstalledPlugin>> {
@@ -71,7 +96,9 @@ impl Core {
         let manifests = installed(home)?;
         let mut plugins = Vec::new();
         for row in self.store.plugins().await? {
-            let Some(manifest) = manifests.iter().find(|manifest| manifest.id == row.id) else { continue };
+            let Some(manifest) = manifests.iter().find(|manifest| manifest.id == row.id) else {
+                continue;
+            };
             plugins.push(InstalledPlugin {
                 manifest: manifest.clone(),
                 granted: serde_json::from_str(&row.granted).unwrap_or_default(),

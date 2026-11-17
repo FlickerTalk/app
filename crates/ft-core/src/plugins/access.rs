@@ -15,7 +15,10 @@ impl Core {
         if ![BOARD, VIEWER].contains(&id) {
             return Ok(false);
         }
-        Ok(self.following(id).await? && self.plugin_manifest(id).is_ok_and(|manifest| manifest.permissions.live))
+        Ok(self.following(id).await?
+            && self
+                .plugin_manifest(id)
+                .is_ok_and(|manifest| manifest.permissions.live))
     }
 
     pub(crate) async fn usable(&self, kind: ft_plugins::Kind) -> Result<()> {
@@ -25,7 +28,10 @@ impl Core {
 
     pub async fn open_plugin(&self, id: &str) -> Result<()> {
         let kind = self.plugin_manifest(id)?.kind;
-        ensure!(self.may_use_plugin(id, kind).await?, crate::NEEDS_SUBSCRIPTION);
+        ensure!(
+            self.may_use_plugin(id, kind).await?,
+            crate::NEEDS_SUBSCRIPTION
+        );
         Ok(())
     }
 }

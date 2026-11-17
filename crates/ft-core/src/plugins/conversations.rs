@@ -16,21 +16,41 @@ impl Core {
         }
         let conversation = match self.store.message(message_id).await? {
             Some(message) => message.contact,
-            None => self.store.circle_message(message_id).await?.context("that message is not here")?.circle,
+            None => {
+                self.store
+                    .circle_message(message_id)
+                    .await?
+                    .context("that message is not here")?
+                    .circle
+            }
         };
         let reference = format!("ref_{}", ft_protocol::MessageId::new());
-        self.store.add_plugin_ref(&reference, id, &conversation, message_id).await?;
+        self.store
+            .add_plugin_ref(&reference, id, &conversation, message_id)
+            .await?;
         Ok(reference)
     }
 
-    pub async fn plugin_ref_target(&self, id: &str, session: Option<&str>, reference: &str) -> Result<Option<PluginRef>> {
+    pub async fn plugin_ref_target(
+        &self,
+        id: &str,
+        session: Option<&str>,
+        reference: &str,
+    ) -> Result<Option<PluginRef>> {
         let session = self.place(session)?;
-        let Some(target) = self.store.plugin_ref(reference).await? else { return Ok(None) };
+        let Some(target) = self.store.plugin_ref(reference).await? else {
+            return Ok(None);
+        };
         if target.plugin != id {
             return Ok(None);
         }
         if let Some(circle) = self.store.circle(&target.contact).await? {
-            let here = circle.session.as_deref() == session && self.store.circle_message(&target.message_id).await?.is_some();
+            let here = circle.session.as_deref() == session
+                && self
+                    .store
+                    .circle_message(&target.message_id)
+                    .await?
+                    .is_some();
             return Ok(here.then_some(target));
         }
         let contact = self.store.contact(&target.contact).await?;
@@ -45,16 +65,26 @@ impl Core {
 
     // An unreachable conversation must fail exactly like one that doesn't exist
     pub async fn plugin_chat(&self, id: &str, contact: &str) -> Result<String> {
-        ensure!(self.store.plugin(id).await?.is_some(), "{id} is not installed here");
-        let open = |session: Option<&str>| session.is_none_or(|session| self.is_session_open(session));
+        ensure!(
+            self.store.plugin(id).await?.is_some(),
+            "{id} is not installed here"
+        );
+        let open =
+            |session: Option<&str>| session.is_none_or(|session| self.is_session_open(session));
         let reachable = match self.store.circle(contact).await? {
             Some(circle) => open(circle.session.as_deref()),
-            None => self.store.contact(contact).await?.is_some_and(|contact| contact.accepted && !contact.blocked && open(contact.session.as_deref())),
+            None => self.store.contact(contact).await?.is_some_and(|contact| {
+                contact.accepted && !contact.blocked && open(contact.session.as_deref())
+            }),
         };
         ensure!(reachable, "that is not a contact of yours");
-        let mut hasher = blake3::Hasher::new_keyed(&blake3::derive_key(PLUGIN_CHAT_CONTEXT, &self.key));
+        let mut hasher =
+            blake3::Hasher::new_keyed(&blake3::derive_key(PLUGIN_CHAT_CONTEXT, &self.key));
         // ids can't contain NUL, so this keeps them apart
-        hasher.update(id.as_bytes()).update(&[0]).update(contact.as_bytes());
+        hasher
+            .update(id.as_bytes())
+            .update(&[0])
+            .update(contact.as_bytes());
         Ok(URL_SAFE_NO_PAD.encode(hasher.finalize().as_bytes()))
     }
 }
