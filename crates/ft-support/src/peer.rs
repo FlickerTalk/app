@@ -1,13 +1,13 @@
 //! Each contact's work runs under its own lock, so two events for one person never answer twice.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::Result;
 use ft_core::{CallUpdate, Core, Event};
-use ft_storage::OutboxEntry;
+use ft_storage::{Message, MessageState, OutboxEntry};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 
@@ -66,13 +66,22 @@ impl Support {
         ft_core::files::sweep_orphans(core.store(), files, vec![outgoing]).await?;
         core.set_auto_download_limit(AUTO_DOWNLOAD).await?;
         core.set_call_audio(Some(audio_platform(Arc::new(clips::call_voice()?))));
-        core.set_call_video(Some(video_platform(Arc::new(clips::call_video()), clips::CALL_FPS)));
+        core.set_call_video(Some(video_platform(
+            Arc::new(clips::call_video()),
+            clips::CALL_FPS,
+        )));
         Ok(())
     }
 
     pub fn new(core: Arc<Core>, settings: Settings, files: &Path) -> Arc<Self> {
         let limiter = Mutex::new(RateLimiter::new(settings.limits));
-        Arc::new(Self { core, settings, limiter, locks: Mutex::default(), outgoing: files.join("outgoing") })
+        Arc::new(Self {
+            core,
+            settings,
+            limiter,
+            locks: Mutex::default(),
+            outgoing: files.join("outgoing"),
+        })
     }
 
     pub fn spawn(self: &Arc<Self>) -> JoinHandle<()> {
@@ -108,7 +117,11 @@ impl Support {
             }
         }
         let _ = self.core.sweep_history().await;
-        let _ = self.core.store().forget_calls_before(now - millis(self.settings.keep_for)).await;
+        let _ = self
+            .core
+            .store()
+            .forget_calls_before(now - millis(self.settings.keep_for))
+            .await;
     }
 
     fn later<F, Fut>(self: &Arc<Self>, work: F)
@@ -122,30 +135,54 @@ impl Support {
     fn on_event(self: &Arc<Self>, event: Event) {
         match event {
             // let them in at once, the requests would keep them waiting and their calls busy
-            Event::ContactsChanged => self.later(|support| async move { support.accept_requests().await }),
-            Event::MessagesChanged { contact } => self.later(|support| async move { support.answer(&contact).await }),
-            Event::Call { contact, call, update } => match update {
-                CallUpdate::Incoming { .. } => self.later(|support| async move { support.take_call(&contact, &call).await }),
-                CallUpdate::Connected => self.later(|support| async move { support.hang_up_later(&call).await }),
-                CallUpdate::MissedWhileBusy => self.later(|support| async move { support.say(&contact, policy::BUSY).await }),
-                _ => {}
-            },
+            Event::ContactsChanged => {
+                self.later(|support| async move { support.accept_requests().await })
+            }
+            Event::MessagesChanged { contact } => {
+                self.later(|support| async move { support.answer(&contact).await })
+            }
+            Event::Call {
+                contact,
+                call,
+                update,
+            } => {
+                match update {
+                    CallUpdate::Incoming { .. } => self
+                        .later(|support| async move { support.take_call(&contact, &call).await }),
+                    CallUpdate::Connected => {
+                        self.later(|support| async move { support.hang_up_later(&call).await })
+                    }
+                    CallUpdate::MissedWhileBusy => self
+                        .later(|support| async move { support.say(&contact, policy::BUSY).await }),
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
 
     async fn catch_up(self: Arc<Self>) {
         self.accept_requests().await;
-        let Ok(conversations) = self.core.store().conversations().await else { return };
-        for conversation in conversations.into_iter().filter(|conversation| conversation.unread > 0) {
+        let Ok(conversations) = self.core.store().conversations().await else {
+            return;
+        };
+        for conversation in conversations
+            .into_iter()
+            .filter(|conversation| conversation.unread > 0)
+        {
             let contact = conversation.contact.device_id;
             self.later(|support| async move { support.answer(&contact).await });
         }
     }
 
     async fn accept_requests(self: &Arc<Self>) {
-        let Ok(requests) = self.core.requests().await else { return };
-        for request in requests.into_iter().filter(|request| !request.contact.blocked) {
+        let Ok(requests) = self.core.requests().await else {
+            return;
+        };
+        for request in requests
+            .into_iter()
+            .filter(|request| !request.contact.blocked)
+        {
             let contact = request.contact.device_id;
             let lock = self.lock_for(&contact);
             let _one_at_a_time = lock.lock().await;
@@ -160,7 +197,9 @@ impl Support {
     async fn keep_short(&self, contact: &ft_storage::Contact) -> Result<()> {
         let keep_for = i64::try_from(self.settings.keep_for.as_secs().max(1)).unwrap_or(i64::MAX);
         if contact.keep_for != keep_for || contact.burn_after_read != 0 {
-            self.core.set_history(&contact.device_id, keep_for, 0).await?;
+            self.core
+                .set_history(&contact.device_id, keep_for, 0)
+                .await?;
         }
         Ok(())
     }
@@ -173,7 +212,9 @@ impl Support {
 
     async fn answer_holding(&self, contact: &str) -> Result<()> {
         let store = self.core.store();
-        let Some(stored) = store.contact(contact).await? else { return Ok(()) };
+        let Some(stored) = store.contact(contact).await? else {
+            return Ok(());
+        };
         if stored.blocked {
             return Ok(());
         }
@@ -185,7 +226,11 @@ impl Support {
             if store.unread(contact).await?.is_empty() {
                 return Ok(());
             }
-            let verdict = self.limiter.lock().unwrap_or_else(PoisonError::into_inner).check(contact, now_ms());
+            let verdict = self
+                .limiter
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .check(contact, now_ms());
             match verdict {
                 Verdict::Go => break,
                 Verdict::Wait(wait) => tokio::time::sleep(wait).await,
@@ -199,38 +244,55 @@ impl Support {
             }
         }
 
-        let unread = store.unread(contact).await?;
-        let mut batch = Vec::with_capacity(unread.len());
-        for id in &unread {
-            let Some(message) = store.message(id).await? else { continue };
+        let before = store.messages(contact, i64::MAX).await?;
+        // answer exactly what mark_read marked, or a message landing meanwhile is never answered
+        self.core.mark_read(contact).await?;
+        let marked = marked_read(&before, &store.messages(contact, i64::MAX).await?);
+        if marked.is_empty() {
+            return Ok(());
+        }
+        let mut batch = Vec::with_capacity(marked.len());
+        for id in &marked {
+            let Some(message) = store.message(id).await? else {
+                continue;
+            };
             batch.push(match store.file(id).await? {
                 Some(file) => Incoming::file(&file.mime),
                 None => Incoming::Text(message.body),
             });
         }
-        let first = store.setting(&format!("{WELCOMED}{contact}")).await?.is_none();
+        let first = store
+            .setting(&format!("{WELCOMED}{contact}"))
+            .await?
+            .is_none();
         let replies = policy::replies(first, &batch);
-        // read before answering, as a person would. A message landing between the two reads is
-        // marked read without its own answer, the next one gets answered
-        self.core.mark_read(contact).await?;
-        self.limiter.lock().unwrap_or_else(PoisonError::into_inner).record(contact, now_ms());
+        self.limiter
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .record(contact, now_ms());
         if first {
-            store.set_setting(&format!("{WELCOMED}{contact}"), "1").await?;
+            store
+                .set_setting(&format!("{WELCOMED}{contact}"), "1")
+                .await?;
         }
         for reply in replies {
             match reply {
                 Reply::ThumbsUp => {
-                    if let Some(message) = unread.first() {
+                    if let Some(message) = marked.first() {
                         let _ = self.core.react(contact, message, Some("👍")).await;
                     }
                 }
                 Reply::Text(text) => {
                     self.core.send_text(contact, &text).await?;
                 }
-                Reply::SampleFile => self.send_copy(contact, SAMPLE_FILE, SAMPLE_NAME, SAMPLE_MIME).await?,
+                Reply::SampleFile => {
+                    self.send_copy(contact, SAMPLE_FILE, SAMPLE_NAME, SAMPLE_MIME)
+                        .await?
+                }
                 Reply::VoiceMessage => {
                     let name = clips::voice_name(now_ms() / 1_000);
-                    self.send_copy(contact, VOICE_MESSAGE, &name, VOICE_MIME).await?;
+                    self.send_copy(contact, VOICE_MESSAGE, &name, VOICE_MIME)
+                        .await?;
                 }
             }
         }
@@ -249,14 +311,21 @@ impl Support {
     async fn say(self: &Arc<Self>, contact: &str, text: &str) {
         let lock = self.lock_for(contact);
         let _one_at_a_time = lock.lock().await;
-        let verdict = self.limiter.lock().unwrap_or_else(PoisonError::into_inner).check(contact, now_ms());
+        let verdict = self
+            .limiter
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .check(contact, now_ms());
         if let Verdict::Wait(wait) = verdict {
             tokio::time::sleep(wait).await;
         } else if verdict != Verdict::Go {
             return;
         }
         if self.core.send_text(contact, text).await.is_ok() {
-            self.limiter.lock().unwrap_or_else(PoisonError::into_inner).record(contact, now_ms());
+            self.limiter
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .record(contact, now_ms());
         }
     }
 
@@ -275,13 +344,25 @@ impl Support {
 
     async fn hang_up_later(self: &Arc<Self>, call: &str) {
         tokio::time::sleep(self.settings.max_call).await;
-        if self.core.current_call().await.ok().flatten().is_some_and(|current| current.call == call) {
+        if self
+            .core
+            .current_call()
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|current| current.call == call)
+        {
             let _ = self.core.end_call(call, false).await;
         }
     }
 
     fn lock_for(&self, contact: &str) -> Arc<tokio::sync::Mutex<()>> {
-        self.locks.lock().unwrap_or_else(PoisonError::into_inner).entry(contact.to_owned()).or_default().clone()
+        self.locks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(contact.to_owned())
+            .or_default()
+            .clone()
     }
 }
 
@@ -294,7 +375,26 @@ fn millis(duration: Duration) -> i64 {
 }
 
 pub fn stale(outbox: &[OutboxEntry], before: i64) -> Vec<String> {
-    outbox.iter().filter(|entry| entry.created_at < before).map(|entry| entry.message_id.clone()).collect()
+    outbox
+        .iter()
+        .filter(|entry| entry.created_at < before)
+        .map(|entry| entry.message_id.clone())
+        .collect()
+}
+
+fn marked_read(before: &[Message], after: &[Message]) -> Vec<String> {
+    let read = |message: &&Message| !message.outgoing && message.state == MessageState::Read;
+    let earlier: HashSet<&str> = before
+        .iter()
+        .filter(read)
+        .map(|message| message.message_id.as_str())
+        .collect();
+    after
+        .iter()
+        .filter(read)
+        .filter(|message| !earlier.contains(message.message_id.as_str()))
+        .map(|message| message.message_id.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -332,5 +432,35 @@ mod tests {
     #[test]
     fn the_welcome_mark_is_one_key_per_contact() {
         assert_eq!(format!("{WELCOMED}ft_a"), "support_welcomed:ft_a");
+    }
+
+    fn message(id: &str, outgoing: bool, state: MessageState) -> Message {
+        Message {
+            message_id: id.to_owned(),
+            contact: "ft_a".to_owned(),
+            outgoing,
+            body: String::new(),
+            sent_at: 0,
+            received_at: 0,
+            state,
+        }
+    }
+
+    #[test]
+    fn only_what_one_reading_marked_gets_answered() {
+        let before = [
+            message("answered", false, MessageState::Read),
+            message("seen", false, MessageState::Delivered),
+            message("mine", true, MessageState::Delivered),
+        ];
+        let after = [
+            message("answered", false, MessageState::Read),
+            message("seen", false, MessageState::Read),
+            message("landed_meanwhile", false, MessageState::Read),
+            message("landed_after", false, MessageState::Delivered),
+            message("mine", true, MessageState::Read),
+        ];
+        assert_eq!(marked_read(&before, &after), ["seen", "landed_meanwhile"]);
+        assert!(marked_read(&after, &after).is_empty());
     }
 }
