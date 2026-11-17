@@ -190,7 +190,7 @@ fn the_app_carries_its_tools_and_games() {
         "translate",
         "remind",
     ];
-    const GAMES: [&str; 13] = [
+    const GAMES: [&str; 32] = [
         "tictactoe",
         "fourinarow",
         "chess",
@@ -204,6 +204,25 @@ fn the_app_carries_its_tools_and_games() {
         "seabattle",
         "wordduel",
         "wordgrid",
+        "balloonfair",
+        "balloonruler",
+        "beatwagons",
+        "beeproute",
+        "bumperring",
+        "cardcorner",
+        "colourcorner",
+        "duosquad",
+        "foamduel",
+        "goalswipe",
+        "littlepier",
+        "paddlepop",
+        "painttanks",
+        "racer",
+        "robotrumble",
+        "shardsplitter",
+        "skychase",
+        "squarehop",
+        "tilecourt",
     ];
     let offered = seeds();
     let wanted = TOOLS

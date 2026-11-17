@@ -40,7 +40,7 @@ phone, not on our servers. [flickertalk.com](https://flickertalk.com)
 - **Sessions with a PIN:** a separate space, with its own contacts and PIN.
 - **Per-contact rules:** mute, accept only messages or only calls, turn receipts off, keep history
   for a while or delete after reading; weekly quiet hours.
-- **Tools and games:** 17 tools and 13 games are in the Apps tab, from a signed catalogue: install
+- **Tools and games:** 19 tools and 32 games are in the Apps tab, from a signed catalogue: install
   only the ones you want. Each one runs in isolation and gets only what you allow it, never your
   chat history, your contacts or your keys.
 - No advertising. No analytics. No tracking profiles.
